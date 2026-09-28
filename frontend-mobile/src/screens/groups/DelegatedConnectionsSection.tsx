@@ -163,7 +163,9 @@ function CoachLinks({
           let trailing: React.ReactNode;
           let subtitle: string | undefined;
           if (link?.status === 'confirmed') {
-            subtitle = t('delegation.linkedTo', { member: linkedName });
+            subtitle = link.read_refused
+              ? t(delegationRefusalKey(link.read_refused))
+              : t('delegation.linkedTo', { member: linkedName });
             trailing = (
               <InkAction label={t('delegation.unlink')} onPress={() => confirmUnlink(link)} testID={`delegation-unlink-${link.id}`} />
             );
@@ -184,7 +186,9 @@ function CoachLinks({
                 subtitle={subtitle}
                 trailing={
                   <View className="flex-row items-center gap-2">
-                    {link && <StatusDot tone={link.status === 'confirmed' ? 'success' : 'warning'} />}
+                    {link && (
+                      <StatusDot tone={link.status === 'confirmed' && !link.read_refused ? 'success' : 'warning'} />
+                    )}
                     {trailing}
                   </View>
                 }
@@ -324,10 +328,14 @@ function MemberLink({ groupId, link }: { groupId: string; link: DelegatedConnect
 
   return (
     <View className="flex-row items-center gap-3 py-2" testID="delegation-linked">
-      <StatusLine
-        tone={coachNeedsReauth ? 'warning' : 'success'}
-        text={coachNeedsReauth ? t('delegation.coachReconnectNeeded', { coach }) : t('delegation.confirmedBody', { coach })}
-      />
+      {link.read_refused ? (
+        <StatusLine tone="warning" text={t(delegationRefusalKey(link.read_refused))} testID="delegation-read-refused" />
+      ) : (
+        <StatusLine
+          tone={coachNeedsReauth ? 'warning' : 'success'}
+          text={coachNeedsReauth ? t('delegation.coachReconnectNeeded', { coach }) : t('delegation.confirmedBody', { coach })}
+        />
+      )}
       <InkAction label={t('delegation.unlink')} onPress={unlink} testID={`delegation-unlink-${link.id}`} />
     </View>
   );

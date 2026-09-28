@@ -198,8 +198,6 @@ pub struct CacheConfig {
     pub enable_background_cleanup: bool,
     /// Redis connection and retry configuration
     pub redis_connection: RedisConnectionConfig,
-    /// Cache TTL configuration
-    pub ttl: CacheTtlConfig,
 }
 
 impl Default for CacheConfig {
@@ -212,132 +210,8 @@ impl Default for CacheConfig {
             // Tests can explicitly disable by setting to false
             enable_background_cleanup: true,
             redis_connection: RedisConnectionConfig::default(),
-            ttl: CacheTtlConfig::default(),
         }
     }
-}
-
-/// Cache TTL configuration for different resource types
-#[derive(Debug, Clone)]
-pub struct CacheTtlConfig {
-    /// Athlete profile cache TTL in seconds (default: 24 hours)
-    pub profile_secs: u64,
-    /// Activity list cache TTL in seconds (default: 1 hour)
-    pub activity_list_secs: u64,
-    /// Individual activity cache TTL in seconds (default: 1 hour)
-    pub activity_secs: u64,
-    /// Stats cache TTL in seconds (default: 6 hours)
-    pub stats_secs: u64,
-}
-
-impl Default for CacheTtlConfig {
-    fn default() -> Self {
-        Self {
-            profile_secs: TTL_PROFILE_SECS,
-            activity_list_secs: TTL_ACTIVITY_LIST_SECS,
-            activity_secs: TTL_ACTIVITY_SECS,
-            stats_secs: TTL_STATS_SECS,
-        }
-    }
-}
-
-impl CacheTtlConfig {
-    /// Get TTL duration for a specific cache resource type
-    #[must_use]
-    pub const fn ttl_for_resource(&self, resource: &CacheResource) -> Duration {
-        match resource {
-            CacheResource::AthleteProfile => Duration::from_secs(self.profile_secs),
-            CacheResource::ActivityList { .. } => Duration::from_secs(self.activity_list_secs),
-            CacheResource::Activity { .. } | CacheResource::DetailedActivity { .. } => {
-                Duration::from_secs(self.activity_secs)
-            }
-            CacheResource::Stats { .. } => Duration::from_secs(self.stats_secs),
-            CacheResource::TrainingHistory { .. } => Duration::from_secs(TTL_TRAINING_HISTORY_SECS),
-            CacheResource::ProviderRoster => Duration::from_secs(TTL_PROVIDER_ROSTER_SECS),
-            CacheResource::SciotteLoginFlow | CacheResource::Custom(_) => Duration::ZERO,
-        }
-    }
-
-    /// Create TTL config from a config provider
-    ///
-    /// Loads TTL values from the provider, falling back to defaults
-    /// if values are not configured or retrieval fails.
-    pub async fn from_config_provider(
-        provider: &dyn CacheTtlConfigProvider,
-        tenant_id: Option<&str>,
-    ) -> Self {
-        let defaults = Self::default();
-
-        let profile_secs = Self::get_ttl_value(
-            provider,
-            "cache.profile_ttl_secs",
-            tenant_id,
-            defaults.profile_secs,
-        )
-        .await;
-
-        let activity_list_secs = Self::get_ttl_value(
-            provider,
-            "cache.activity_list_ttl_secs",
-            tenant_id,
-            defaults.activity_list_secs,
-        )
-        .await;
-
-        let activity_secs = Self::get_ttl_value(
-            provider,
-            "cache.activity_ttl_secs",
-            tenant_id,
-            defaults.activity_secs,
-        )
-        .await;
-
-        let stats_secs = Self::get_ttl_value(
-            provider,
-            "cache.stats_ttl_secs",
-            tenant_id,
-            defaults.stats_secs,
-        )
-        .await;
-
-        Self {
-            profile_secs,
-            activity_list_secs,
-            activity_secs,
-            stats_secs,
-        }
-    }
-
-    /// Helper to get a TTL value from the config provider with fallback
-    async fn get_ttl_value(
-        provider: &dyn CacheTtlConfigProvider,
-        key: &str,
-        tenant_id: Option<&str>,
-        default: u64,
-    ) -> u64 {
-        match provider.get_value(key, tenant_id).await {
-            Ok(Some(value)) => value.as_u64().unwrap_or(default),
-            Ok(None) | Err(_) => default,
-        }
-    }
-}
-
-/// Trait for providing cache TTL configuration overrides
-///
-/// Implemented in the main crate by `AdminConfigService` to allow
-/// tenant-specific TTL configuration without coupling to the admin config system.
-#[async_trait::async_trait]
-pub trait CacheTtlConfigProvider: Send + Sync {
-    /// Get a configuration value by key, optionally scoped to a tenant
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the config lookup fails
-    async fn get_value(
-        &self,
-        key: &str,
-        tenant_id: Option<&str>,
-    ) -> AppResult<Option<serde_json::Value>>;
 }
 
 /// Structured cache key with tenant and user isolation
@@ -426,7 +300,7 @@ pub enum CacheResource {
         /// Activity ID
         activity_id: u64,
     },
-    /// Endurance daily training-history rollup result (`GET /api/v1/endurance/history`).
+    /// Endurance daily training-history rollup result (`get_training_history`).
     /// Per-(tenant,user) and per-date-range; invalidated whenever the
     /// underlying `training_history` rows are upserted by
     /// `training_history_compute`.

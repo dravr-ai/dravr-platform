@@ -512,7 +512,7 @@ async fn test_rest_unknown_task_action_is_404() {
 // ============================================================================
 
 /// Register an A2A client for the seeded user and mint a client-credentials
-/// JWT for it (the `client:{id}` subject shape `/a2a/auth` issues).
+/// JWT for it (the `client:{id}` subject shape `/oauth2/token` issues).
 async fn register_client_and_mint_token(
     resources: &Arc<ServerContext>,
     user_id: uuid::Uuid,
@@ -774,4 +774,59 @@ async fn test_a2a_credentials_endpoint_stores_oauth_apps() {
         .send(routes)
         .await;
     assert_eq!(response.status(), 400);
+}
+
+// ============================================================================
+// Client registration: the contact email is kept
+// ============================================================================
+
+/// `POST /a2a/clients` takes a contact email for the client's administrator;
+/// it is stored in the one form every email is kept in (trimmed, lower-case)
+/// and handed back by both reads of the client record.
+#[tokio::test]
+async fn test_registered_contact_email_reads_back_normalized() {
+    let resources = create_a2a_test_resources().await;
+    let (_user, jwt) = common::create_test_tenant(&resources, "a2a-contact@example.com")
+        .await
+        .expect("seed user + tenant + JWT");
+    let routes = a2a_router_from(&resources);
+
+    let response = AxumTestRequest::post("/a2a/clients")
+        .header("Authorization", &format!("Bearer {jwt}"))
+        .json(&serde_json::json!({
+            "name": "contact-email-client",
+            "description": "keeps its administrator's address",
+            "capabilities": ["fitness-data-analysis"],
+            "contact_email": "  Ops.Team@Example.COM ",
+        }))
+        .send(routes.clone())
+        .await;
+    assert_eq!(response.status(), 201);
+    let created: serde_json::Value = response.json();
+    let client_id = created["client_id"]
+        .as_str()
+        .expect("registration returns the client id")
+        .to_owned();
+
+    let response = AxumTestRequest::get(&format!("/a2a/clients/{client_id}"))
+        .header("Authorization", &format!("Bearer {jwt}"))
+        .send(routes.clone())
+        .await;
+    assert_eq!(response.status(), 200);
+    let record: serde_json::Value = response.json();
+    assert_eq!(record["contact_email"], "ops.team@example.com");
+
+    let response = AxumTestRequest::get("/a2a/clients")
+        .header("Authorization", &format!("Bearer {jwt}"))
+        .send(routes)
+        .await;
+    assert_eq!(response.status(), 200);
+    let listed: serde_json::Value = response.json();
+    let entry = listed
+        .as_array()
+        .expect("the listing is an array")
+        .iter()
+        .find(|c| c["id"] == client_id.as_str())
+        .expect("the registered client is listed for its owner");
+    assert_eq!(entry["contact_email"], "ops.team@example.com");
 }

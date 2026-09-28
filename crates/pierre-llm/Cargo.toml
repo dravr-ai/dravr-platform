@@ -19,7 +19,7 @@ tokio = { version = "1.50", features = ["rt", "time", "sync"] }
 tracing = "0.1"
 futures-util = "0.3"
 chrono = { version = "0.4", features = ["serde"] }
-embacle = { version = "0.30.0", features = ["copilot-headless", "copilot-sdk", "http-api", "openai-api", "quota-http"] }
+embacle = { version = "0.32.0", features = ["copilot-headless", "copilot-sdk", "http-api", "quota-http"] }
 # Compiled-in prompt/config baseline (replaces the vendor/contremaitre submodule).
 # Pinned by rev — the contremaitre-bump workflow advances this to contremaitre main.
 dravr-contremaitre = { workspace = true }
@@ -27,7 +27,9 @@ dravr-contremaitre = { workspace = true }
 [dev-dependencies]
 # The fallback chain's decisions are only observable by driving a real
 # `complete()`/`complete_with_tools()` call, both of which are async.
-tokio = { version = "1.50", features = ["macros", "rt", "rt-multi-thread"] }
+# `net` and `io-util` serve the loopback OpenAI-shaped endpoint the
+# openai_api provider test drives.
+tokio = { version = "1.50", features = ["macros", "rt", "rt-multi-thread", "net", "io-util"] }
 # The `llm.request` span an EmbacleProvider opens is only observable through
 # a subscriber layer that records new spans and their fields.
 tracing-subscriber = { version = "0.3", features = ["std", "registry"], default-features = false }

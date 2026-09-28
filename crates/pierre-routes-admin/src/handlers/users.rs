@@ -19,10 +19,10 @@ use uuid::Uuid;
 
 use pierre_core::admin::models::{AdminPermission as AdminPerm, ValidatedAdminToken};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{UserStatus, UserTier};
+use pierre_core::models::{TenantId, User, UserStatus, UserTier};
 use pierre_core::pagination::{Cursor, PaginationParams};
 use pierre_database::backends::shared::enums::user_tier_to_str;
-use pierre_database::RepositoryRegistry;
+use pierre_middleware::redaction::mask_email;
 use pierre_services::admin_ops;
 use pierre_services::analytics::cache_user_email;
 use pierre_services::pre_approval::{self, AllowOutcome};
@@ -67,6 +67,31 @@ pub(crate) struct UserSummary {
     created_at: String,
     /// Last active time
     last_active: String,
+    /// Account status: `pending`, `active` or `suspended`
+    user_status: &'static str,
+    /// Whether the account holds an admin role
+    is_admin: bool,
+    /// When the account was approved, if it has been
+    approved_at: Option<String>,
+    /// Who approved it, if an operator did
+    approved_by: Option<String>,
+}
+
+impl From<&User> for UserSummary {
+    fn from(user: &User) -> Self {
+        Self {
+            id: user.id.to_string(),
+            email: user.email.clone(),
+            display_name: user.display_name.clone(),
+            tier: user.tier.to_string(),
+            created_at: user.created_at.to_rfc3339(),
+            last_active: user.last_active.to_rfc3339(),
+            user_status: user_status_str(user.user_status),
+            is_admin: user.is_admin,
+            approved_at: user.approved_at.map(|t| t.to_rfc3339()),
+            approved_by: user.approved_by.map(|id| id.to_string()),
+        }
+    }
 }
 
 /// Get user status string
@@ -98,7 +123,7 @@ pub(crate) async fn handle_list_users(
         ));
     }
 
-    info!("Listing users by service: {}", admin_token.service_name);
+    info!("Listing users by token: {}", admin_token.token_id);
 
     let ctx = context.as_ref();
 
@@ -119,10 +144,8 @@ pub(crate) async fn handle_list_users(
         .users
         .get_by_status_cursor(status, &pagination)
         .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to fetch users from database");
-            AppError::internal(format!("Failed to fetch users: {e}"))
-        })?;
+        // Propagated as is: an unknown status is the caller's 400, not a 500.
+        .inspect_err(|e| error!(error = %e, "Failed to fetch users from database"))?;
 
     // Tier filtering happens here rather than in SQL because the repository's
     // cursor query keys on status. Applied after the page is read, so a filtered
@@ -139,17 +162,8 @@ pub(crate) async fn handle_list_users(
         })
         .collect();
 
-    let user_summaries: Vec<UserSummary> = users
-        .iter()
-        .map(|user| UserSummary {
-            id: user.id.to_string(),
-            email: user.email.clone(),
-            display_name: user.display_name.clone(),
-            tier: user.tier.to_string(),
-            created_at: user.created_at.to_rfc3339(),
-            last_active: user.last_active.to_rfc3339(),
-        })
-        .collect();
+    let user_summaries: Vec<UserSummary> =
+        users.iter().map(|user| UserSummary::from(*user)).collect();
 
     let total = user_summaries.len();
 
@@ -233,7 +247,7 @@ pub async fn handle_get_user(
     // disconnect, and what `pierre-cli user delete` previews without --yes.
     let connected_providers = held_providers(&context.repos, user_uuid).await?;
 
-    info!(service = %admin_token.service_name, "Read user {user_id}");
+    info!(token_id = %admin_token.token_id, "Read user {user_id}");
 
     Ok(json_response(
         AdminResponse {
@@ -274,10 +288,7 @@ pub(crate) async fn handle_pending_users(
         ));
     }
 
-    info!(
-        "Listing pending users by service: {}",
-        admin_token.service_name
-    );
+    info!("Listing pending users by token: {}", admin_token.token_id);
 
     let ctx = context.as_ref();
 
@@ -291,17 +302,7 @@ pub(crate) async fn handle_pending_users(
             AppError::internal(format!("Failed to fetch pending users: {e}"))
         })?;
 
-    let user_summaries: Vec<UserSummary> = users
-        .iter()
-        .map(|user| UserSummary {
-            id: user.id.to_string(),
-            email: user.email.clone(),
-            display_name: user.display_name.clone(),
-            tier: user.tier.to_string(),
-            created_at: user.created_at.to_rfc3339(),
-            last_active: user.last_active.to_rfc3339(),
-        })
-        .collect();
+    let user_summaries: Vec<UserSummary> = users.iter().map(UserSummary::from).collect();
 
     let count = user_summaries.len();
 
@@ -319,6 +320,21 @@ pub(crate) async fn handle_pending_users(
         },
         StatusCode::OK,
     ))
+}
+
+/// The tenant an admin token acts in: a console session's active tenant, or
+/// the tenant a scoped admin token is bound to. `None` for a platform-wide
+/// token.
+fn token_tenant(token: &ValidatedAdminToken) -> AppResult<Option<TenantId>> {
+    token
+        .tenant_id
+        .as_deref()
+        .map(|raw| {
+            Uuid::parse_str(raw)
+                .map(TenantId::from_uuid)
+                .map_err(|e| AppError::invalid_input(format!("Invalid tenant scope: {e}")))
+        })
+        .transpose()
 }
 
 /// Announce an approval: raise the operator notify event, then tell the user.
@@ -374,8 +390,8 @@ pub(crate) async fn handle_approve_user(
     }
 
     info!(
-        "Approving user {} by service: {}",
-        user_id, admin_token.service_name
+        "Approving user {} by token: {}",
+        user_id, admin_token.token_id
     );
 
     let ctx = context.as_ref();
@@ -384,15 +400,18 @@ pub(crate) async fn handle_approve_user(
         AppError::invalid_input(format!("Invalid user ID format: {e}"))
     })?;
 
-    // Shared get/guard/update-status core, identical to the cookie surface's.
-    // Tenant provisioning is deliberately NOT here: whether an approved user
-    // needs a default tenant is a property of the user, not an operator's
-    // choice, and the Slack approval path already decides it that way — it
-    // provisions only `if !has_tenants`. This surface used to take
-    // create_default_tenant/tenant_name/tenant_slug in the request body, which
-    // no client ever sent (registre#407).
-    let updated_user =
-        admin_ops::transition_user_status(&ctx.repos, user_uuid, UserStatus::Active, None).await?;
+    // One approval path for the CLI and the console: the operator behind the
+    // token is recorded as the approver, and the user joins the tenant the
+    // approver works in. Whether an approved user needs a tenant of their own
+    // is decided by the user, not by an operator's request body — the Slack
+    // approval path provisions one only `if !has_tenants` (registre#407).
+    let updated_user = admin_ops::approve_user(
+        &ctx.repos,
+        admin_token.operator_user_id,
+        token_tenant(&admin_token)?,
+        user_uuid,
+    )
+    .await?;
 
     let reason = request.reason.as_deref().unwrap_or("No reason provided");
     info!("User {} approved successfully. Reason: {}", user_id, reason);
@@ -449,8 +468,8 @@ pub(crate) async fn handle_suspend_user(
     }
 
     info!(
-        "Suspending user {} by service: {}",
-        user_id, admin_token.service_name
+        "Suspending user {} by token: {}",
+        user_id, admin_token.token_id
     );
 
     let ctx = context.as_ref();
@@ -459,10 +478,15 @@ pub(crate) async fn handle_suspend_user(
         AppError::invalid_input(format!("Invalid user ID format: {e}"))
     })?;
 
-    // Shared get/guard/update-status core (no tenant step on suspension).
-    let updated_user =
-        admin_ops::transition_user_status(&ctx.repos, user_uuid, UserStatus::Suspended, None)
-            .await?;
+    // Shared get/guard/update-status core (no tenant step on suspension); the
+    // operator behind the token is recorded against the transition.
+    let updated_user = admin_ops::transition_user_status(
+        &ctx.repos,
+        user_uuid,
+        UserStatus::Suspended,
+        admin_token.operator_user_id,
+    )
+    .await?;
 
     let reason = request.reason.as_deref().unwrap_or("No reason provided");
     info!(
@@ -523,8 +547,8 @@ pub(crate) async fn handle_reset_user_password(
     }
 
     info!(
-        "Issuing password reset token for user {} by service: {}",
-        user_id, admin_token.service_name
+        "Issuing password reset token for user {} by token: {}",
+        user_id, admin_token.token_id
     );
 
     let ctx = context.as_ref();
@@ -533,29 +557,27 @@ pub(crate) async fn handle_reset_user_password(
         AppError::invalid_input(format!("Invalid user ID format: {e}"))
     })?;
 
-    // Admin-token surface uses an unscoped global lookup (no admin tenant).
-    let user = ctx
-        .repos
-        .users
-        .get_global(user_uuid)
+    // A super-admin reaches every user; any other admin reaches only the users
+    // of the tenant it acts in (a platform-wide token names none), and a user
+    // outside it answers 404 exactly like a missing one.
+    let scope = if admin_token.is_super_admin {
+        None
+    } else {
+        token_tenant(&admin_token)?
+    };
+    let user = admin_ops::find_user_in_admin_scope(&ctx.repos, scope, user_uuid)
         .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to fetch user from database");
-            AppError::internal(format!("Failed to fetch user: {e}"))
-        })?
-        .ok_or_else(|| {
-            warn!("User not found: {}", user_id);
-            AppError::not_found("User not found")
-        })?;
+        .inspect_err(|_| warn!("User not found in admin scope: {user_id}"))?;
 
-    // Shared token-generation + storage core; audit identity is the service name.
-    let raw_token =
-        admin_ops::issue_password_reset_token(&ctx.repos, user_uuid, &admin_token.service_name)
-            .await?;
+    // Audit identity: the operator when the token names one, else the service.
+    let reset_by = admin_token
+        .operator_user_id
+        .map_or_else(|| admin_token.service_name.clone(), |id| id.to_string());
+    let raw_token = admin_ops::issue_password_reset_token(&ctx.repos, user_uuid, &reset_by).await?;
 
     info!(
-        "Password reset token issued for user {} by service {}",
-        user.email, admin_token.service_name
+        "Password reset token issued for user {} by token {}",
+        user_uuid, admin_token.token_id
     );
 
     Ok(json_response(
@@ -567,7 +589,7 @@ pub(crate) async fn handle_reset_user_password(
                 "email": user.email,
                 "reset_token": raw_token,
                 "expires_in_seconds": admin_ops::PASSWORD_RESET_TTL_SECONDS,
-                "reset_by": admin_token.service_name,
+                "reset_by": reset_by,
                 "note": "Deliver this token to the user. They must call POST /api/auth/complete-reset with the token and their new password within 1 hour."
             }))
             .ok(),
@@ -702,23 +724,23 @@ pub(crate) async fn handle_set_user_tier(
         }
     };
 
-    // Shared implementation: writes users.tier AND the anti-clobber marker
-    // (set_by = None — the admin token is a service token, not a user UUID).
+    // Shared implementation: writes users.tier AND the anti-clobber marker,
+    // attributed to the operator behind the token when it names one.
     let note = format!("admin tier override via {}", admin_token.service_name);
     let updated = admin_ops::set_user_tier(
         &context.repos,
         user_uuid,
         new_tier.clone(),
         Some(note),
-        None,
+        admin_token.operator_user_id,
     )
     .await?;
 
     info!(
         target_user_id = %user_uuid,
-        target_user_email = %updated.email,
+        target_user_email = %mask_email(&updated.email),
         new_tier = user_tier_to_str(&new_tier),
-        admin_service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         "Admin tier change applied via token surface"
     );
 
@@ -771,7 +793,7 @@ pub(crate) async fn handle_clear_user_tier_override(
 
     info!(
         target_user_id = %user_uuid,
-        admin_service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         removed,
         "Admin tier override cleared via token surface"
     );
@@ -792,26 +814,6 @@ pub(crate) async fn handle_clear_user_tier_override(
         },
         StatusCode::OK,
     ))
-}
-
-/// Resolve the acting operator's user id for the `allowed_by` audit column.
-///
-/// A device-login token names the approving super-admin in its service name
-/// (`DEVICE_CLI_SERVICE_PREFIX` + email, minted by the RFC 8628 token
-/// endpoint), and that is
-/// the identity behind every `pierre-cli user allow`. Any other admin token is
-/// a service rather than a person, so `allowed_by` stays NULL — the column is
-/// nullable for exactly that case, and attributing a service's allow to some
-/// arbitrary admin account would fabricate an audit trail.
-async fn operator_user_id(repos: &RepositoryRegistry, token: &ValidatedAdminToken) -> Option<Uuid> {
-    let email = token.device_cli_operator_email()?;
-    match repos.users.get_by_email(email).await {
-        Ok(user) => user.map(|u| u.id),
-        Err(e) => {
-            warn!(error = %e, "Operator lookup failed; allowed_by will be NULL");
-            None
-        }
-    }
 }
 
 /// Deny a request whose token lacks `ManageUsers`.
@@ -841,7 +843,7 @@ pub(crate) async fn handle_list_pre_approved_emails(
 
     info!(
         count = entries.len(),
-        admin_service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         "Pre-approved emails listed"
     );
 
@@ -875,7 +877,11 @@ pub(crate) async fn handle_allow_email(
     }
 
     let ctx = context.as_ref();
-    let allowed_by = operator_user_id(&ctx.repos, &admin_token).await;
+    // The operator behind the token — the approving super-admin of a device
+    // login, the admin of a console session. A service token names no person,
+    // so `allowed_by` stays NULL rather than attributing its allow to some
+    // arbitrary admin account.
+    let allowed_by = admin_token.operator_user_id;
     let result = pre_approval::allow(
         &ctx.repos,
         &request.email,
@@ -916,7 +922,7 @@ pub(crate) async fn handle_allow_email(
     info!(
         outcome = ?result.outcome,
         invited,
-        admin_service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         "Pre-approval allow recorded"
     );
 
@@ -955,7 +961,7 @@ pub(crate) async fn handle_disallow_email(
 
     info!(
         removed = result.removed,
-        admin_service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         "Pre-approval removal processed"
     );
 

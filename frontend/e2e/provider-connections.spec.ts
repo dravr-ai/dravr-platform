@@ -7,49 +7,52 @@
 import { test, expect, type Page } from '@playwright/test';
 import { setupDashboardMocks, loginToDashboard, openChat } from './test-helpers';
 
-// Mock provider status data matching backend ProviderStatus
+// Mock provider status data in the shape GET /api/providers serves: one card
+// per provider, the raw `strava` / `garmin` rows withheld behind their mirror
+// cards, and a connected card naming the backend behind it.
 const mockProviders = {
   providers: [
     {
-      provider: 'strava',
+      provider: 'sciotte',
       display_name: 'Strava',
-      requires_oauth: true,
+      requires_oauth: false,
       connected: true,
-      capabilities: ['activities', 'athlete'],
+      connected_backend: 'strava',
+      needs_reauth: false,
+      capabilities: ['activities'],
+      recommended_backend: 'oauth',
+      seats_left: 7,
+      consent_required: false,
     },
     {
-      provider: 'garmin',
+      provider: 'sciotte_garmin',
       display_name: 'Garmin',
-      requires_oauth: true,
+      requires_oauth: false,
       connected: false,
-      capabilities: ['activities', 'sleep', 'body'],
+      needs_reauth: false,
+      capabilities: ['activities', 'sleep', 'health'],
+      consent_required: false,
     },
     {
       provider: 'synthetic',
       display_name: 'Synthetic',
       requires_oauth: false,
       connected: false,
+      needs_reauth: false,
       capabilities: ['activities'],
+      consent_required: false,
     },
     {
       provider: 'synthetic_sleep',
       display_name: 'Synthetic Sleep',
       requires_oauth: false,
       connected: false,
+      needs_reauth: false,
       capabilities: ['sleep'],
+      consent_required: false,
     },
   ],
 };
-
-// Mock OAuth status (array format from backend)
-const mockOAuthStatus = [
-  {
-    provider: 'strava',
-    connected: true,
-    athlete_name: 'Test User',
-    expires_at: '2024-06-02T10:00:00Z',
-  },
-];
 
 async function setupProviderMocks(page: Page) {
   // Set up base dashboard mocks with user role
@@ -61,15 +64,6 @@ async function setupProviderMocks(page: Page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(mockProviders),
-    });
-  });
-
-  // OAuth status endpoint
-  await page.route('**/api/oauth/status', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(mockOAuthStatus),
     });
   });
 

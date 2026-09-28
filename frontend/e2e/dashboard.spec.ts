@@ -14,34 +14,6 @@ async function setupFullDashboardMocks(page: Page, options: { isAdmin?: boolean 
   // Set up base dashboard mocks (includes login mock)
   await setupDashboardMocks(page, { role: isAdmin ? 'admin' : 'user' });
 
-  // Mock request logs for monitor tab - must match format expected by Monitor component
-  await page.route('**/api/dashboard/request-logs*', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([
-        {
-          id: 'req-1',
-          timestamp: new Date().toISOString(),
-          tool_name: 'get_activities',
-          status_code: 200,
-          response_time_ms: 120,
-          api_key_id: 'key-1',
-          api_key_name: 'Production API',
-        },
-        {
-          id: 'req-2',
-          timestamp: new Date().toISOString(),
-          tool_name: 'get_athlete',
-          status_code: 200,
-          response_time_ms: 85,
-          api_key_id: 'key-1',
-          api_key_name: 'Production API',
-        },
-      ]),
-    });
-  });
-
   // Mock tool usage breakdown - must match format expected by Tools component
   await page.route('**/api/dashboard/tool-usage*', async (route) => {
     await route.fulfill({
@@ -52,20 +24,6 @@ async function setupFullDashboardMocks(page: Page, options: { isAdmin?: boolean 
         { tool_name: 'get_athlete', request_count: 450, success_rate: 96.7, average_response_time: 85 },
         { tool_name: 'get_zones', request_count: 200, success_rate: 95.0, average_response_time: 200 },
       ]),
-    });
-  });
-
-  // Mock request stats - must match format expected by Monitor component
-  await page.route('**/api/dashboard/request-stats*', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        total_requests: 156,
-        successful_requests: 148,
-        average_response_time: 95.5,
-        requests_per_minute: 2.6,
-      }),
     });
   });
 
@@ -108,19 +66,26 @@ async function setupFullDashboardMocks(page: Page, options: { isAdmin?: boolean 
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        tokens: [
-          {
-            id: 'token-1',
-            service_name: 'Test Service',
-            service_description: 'Test API token',
-            token_prefix: 'pmcp_test',
-            is_active: true,
-            is_super_admin: false,
-            created_at: new Date().toISOString(),
-            expires_at: null,
-            last_used_at: null,
-          },
-        ],
+        success: true,
+        message: 'Retrieved 1 admin tokens',
+        data: {
+          count: 1,
+          tokens: [
+            {
+              id: 'token-1',
+              service_name: 'Test Service',
+              service_description: 'Test API token',
+              token_prefix: 'pmcp_test',
+              permissions: ['list_keys'],
+              usage_count: 0,
+              is_active: true,
+              is_super_admin: false,
+              created_at: new Date().toISOString(),
+              expires_at: null,
+              last_used_at: null,
+            },
+          ],
+        },
       }),
     });
   });
@@ -338,20 +303,14 @@ test.describe('Dashboard Content Loading', () => {
   test('shows loading spinner while content loads', async ({ page }) => {
     await setupDashboardMocks(page, { role: 'admin' });
 
-    // Set up slow responses to observe loading state
-    await page.route('**/api/dashboard/overview', async (route) => {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          total_api_keys: 10,
-          active_api_keys: 8,
-          total_requests_today: 450,
-          total_requests_this_month: 12500,
-        }),
-      });
-    });
+    // Hold the user list the admin landing (Users) fetches, to observe its loading state
+    await page.route(
+      (url) => url.pathname === '/api/admin/users',
+      async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        await route.fallback();
+      },
+    );
 
     await loginToDashboard(page);
 
@@ -485,14 +444,17 @@ test.describe('Dashboard Error Handling', () => {
   test('handles API errors gracefully', async ({ page }) => {
     await setupDashboardMocks(page, { role: 'admin' });
 
-    // Mock failing API endpoints
-    await page.route('**/api/dashboard/overview', async (route) => {
-      await route.fulfill({
-        status: 500,
-        contentType: 'application/json',
-        body: JSON.stringify({ error: 'Internal server error' }),
-      });
-    });
+    // Fail the user list the admin landing (Users) fetches
+    await page.route(
+      (url) => url.pathname === '/api/admin/users',
+      async (route) => {
+        await route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Internal server error' }),
+        });
+      },
+    );
 
     await loginAndGoToDashboard(page);
 

@@ -89,6 +89,7 @@ describe('PreApprovedEmails', () => {
       outcome: 'recorded',
       email: 'newcomer@example.com',
       approved_user_id: null,
+      invited: false,
     });
 
     renderView();
@@ -102,13 +103,37 @@ describe('PreApprovedEmails', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Allow' }));
 
     await waitFor(() =>
-      expect(adminApi.allowEmail).toHaveBeenCalledWith('newcomer@example.com', 'beta cohort'),
+      expect(adminApi.allowEmail).toHaveBeenCalledWith('newcomer@example.com', 'beta cohort', false),
     );
     expect(
       await screen.findByText(
         'newcomer@example.com pre-approved — their registration will land active',
       ),
     ).toBeTruthy();
+  });
+
+  it('asks for the sign-up link when the invite box is ticked', async () => {
+    vi.mocked(adminApi.getPreApprovedEmails).mockResolvedValue([]);
+    vi.mocked(adminApi.allowEmail).mockResolvedValue({
+      message: 'invitee@example.com pre-approved — their registration will land active',
+      outcome: 'recorded',
+      email: 'invitee@example.com',
+      approved_user_id: null,
+      invited: true,
+    });
+
+    renderView();
+
+    fireEvent.change(await screen.findByLabelText('Email address to pre-approve'), {
+      target: { value: 'invitee@example.com' },
+    });
+    fireEvent.click(screen.getByLabelText(/Email them the sign-up link/));
+    fireEvent.click(screen.getByRole('button', { name: 'Allow' }));
+
+    await waitFor(() =>
+      expect(adminApi.allowEmail).toHaveBeenCalledWith('invitee@example.com', undefined, true),
+    );
+    expect(await screen.findByText(/sign-up link sent/)).toBeTruthy();
   });
 
   it('removes an allow through the API', async () => {

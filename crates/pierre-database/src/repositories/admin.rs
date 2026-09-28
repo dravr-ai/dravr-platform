@@ -12,7 +12,7 @@ use pierre_core::admin::models::{
     GeneratedAdminToken,
 };
 use pierre_core::errors::{AppError, AppResult};
-use serde_json::Value;
+use uuid::Uuid;
 
 /// Admin token management repository.
 ///
@@ -31,18 +31,10 @@ pub trait AdminRepository: Send + Sync {
     ) -> AppResult<GeneratedAdminToken>;
     /// Get admin token by ID
     async fn get_token_by_id(&self, token_id: &str) -> AppResult<Option<AdminToken>>;
-    /// Get admin token by prefix for fast lookup
-    async fn get_token_by_prefix(&self, token_prefix: &str) -> AppResult<Option<AdminToken>>;
     /// List all admin tokens (super admin only)
     async fn list_tokens(&self, include_inactive: bool) -> AppResult<Vec<AdminToken>>;
     /// Deactivate admin token
     async fn deactivate_token(&self, token_id: &str) -> AppResult<()>;
-    /// Update admin token last used timestamp
-    async fn update_token_last_used(
-        &self,
-        token_id: &str,
-        ip_address: Option<&str>,
-    ) -> AppResult<()>;
     /// Record admin token usage for audit trail
     async fn record_token_usage(&self, usage: &AdminTokenUsage) -> AppResult<()>;
     /// Get admin token usage history
@@ -62,13 +54,6 @@ pub trait AdminRepository: Send + Sync {
         rate_limit_requests: u32,
         rate_limit_period: &str,
     ) -> AppResult<()>;
-    /// Get admin provisioned keys history
-    async fn get_provisioned_keys(
-        &self,
-        admin_token_id: Option<&str>,
-        start_date: DateTime<Utc>,
-        end_date: DateTime<Utc>,
-    ) -> AppResult<Vec<Value>>;
 }
 
 /// The fifteen columns every read of `admin_tokens` returns, in the order
@@ -84,7 +69,7 @@ macro_rules! admin_token_columns {
         concat!(
             "id, service_name, service_description, token_hash, token_prefix, \
              jwt_secret_hash, permissions, is_super_admin, is_active, \
-             tenant_id, created_at, expires_at, last_used_at, ",
+             tenant_id, operator_user_id, created_at, expires_at, last_used_at, ",
             $ip_text,
             "(last_used_ip) AS last_used_ip, usage_count"
         )
@@ -104,8 +89,8 @@ pub(crate) const CREATE_ADMIN_TOKEN_SQL: &str = r"
             INSERT INTO admin_tokens (
                 id, service_name, service_description, token_hash, token_prefix,
                 jwt_secret_hash, permissions, is_super_admin, is_active,
-                tenant_id, created_at, expires_at, usage_count
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                tenant_id, created_at, expires_at, usage_count, operator_user_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             ";
 
 /// Retire a token. `FALSE` is the boolean spelling both engines accept.
@@ -132,14 +117,6 @@ macro_rules! admin_statements_sql {
             " FROM admin_tokens WHERE id = $1"
         );
 
-        /// One token by its clear prefix, the fast path on every
-        /// authenticated call.
-        const GET_ADMIN_TOKEN_BY_PREFIX_SQL: &str = concat!(
-            "SELECT ",
-            admin_token_columns!($ip_text),
-            " FROM admin_tokens WHERE token_prefix = $1"
-        );
-
         /// Every token, newest first.
         const LIST_ADMIN_TOKENS_SQL: &str = concat!(
             "SELECT ",
@@ -153,16 +130,6 @@ macro_rules! admin_statements_sql {
             "SELECT ",
             admin_token_columns!($ip_text),
             " FROM admin_tokens WHERE is_active = TRUE ORDER BY created_at DESC"
-        );
-
-        /// Stamp a use: the moment, the caller's address, one more on the
-        /// counter.
-        const TOUCH_ADMIN_TOKEN_SQL: &str = concat!(
-            "UPDATE admin_tokens \
-             SET last_used_at = CURRENT_TIMESTAMP, last_used_ip = $1",
-            $inet,
-            ", usage_count = usage_count + 1 \
-             WHERE id = $2"
         );
 
         /// Append one audit row. `id` is assigned by the engine on both
@@ -203,34 +170,6 @@ pub(crate) const RECORD_PROVISIONED_KEY_SQL: &str = r"
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ";
 
-/// The columns every read of `admin_provisioned_keys` returns, in the order
-/// [`provisioned_key_from_row`] reads them.
-macro_rules! provisioned_key_columns {
-    () => {
-        "id, admin_token_id, api_key_id, user_email, requested_tier, \
-         provisioned_at, provisioned_by_service, rate_limit_requests, \
-         rate_limit_period, key_status, revoked_at, revoked_reason"
-    };
-}
-
-/// One token's ledger rows inside a window, newest first.
-pub(crate) const GET_PROVISIONED_KEYS_FOR_TOKEN_SQL: &str = concat!(
-    "SELECT ",
-    provisioned_key_columns!(),
-    " FROM admin_provisioned_keys \
-     WHERE admin_token_id = $1 AND provisioned_at BETWEEN $2 AND $3 \
-     ORDER BY provisioned_at DESC"
-);
-
-/// Every ledger row inside a window, newest first.
-pub(crate) const GET_ALL_PROVISIONED_KEYS_SQL: &str = concat!(
-    "SELECT ",
-    provisioned_key_columns!(),
-    " FROM admin_provisioned_keys \
-     WHERE provisioned_at BETWEEN $1 AND $2 \
-     ORDER BY provisioned_at DESC"
-);
-
 /// The token id shape: `admin_` plus a simple uuid.
 pub(crate) fn new_admin_token_id() -> String {
     format!("admin_{}", uuid::Uuid::new_v4().simple())
@@ -240,40 +179,6 @@ pub(crate) fn new_admin_token_id() -> String {
 /// declare for it.
 pub(crate) fn count_to_column(count: u32) -> i32 {
     i32::try_from(count).unwrap_or(i32::MAX)
-}
-
-/// Decode one `admin_provisioned_keys` row into the JSON the admin API
-/// serves, via `try_get` only.
-///
-/// # Errors
-/// Returns a database error naming the first column that cannot be decoded.
-pub(crate) fn provisioned_key_from_row<R>(row: &R) -> AppResult<Value>
-where
-    R: sqlx::Row,
-    for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    i32: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-{
-    let col = |name: &str, e: sqlx::Error| {
-        AppError::database(format!("Failed to get column '{name}': {e}"))
-    };
-    Ok(serde_json::json!({
-        "id": row.try_get::<i32, _>("id").map_err(|e| col("id", e))?,
-        "admin_token_id": row.try_get::<String, _>("admin_token_id").map_err(|e| col("admin_token_id", e))?,
-        "api_key_id": row.try_get::<String, _>("api_key_id").map_err(|e| col("api_key_id", e))?,
-        "user_email": row.try_get::<String, _>("user_email").map_err(|e| col("user_email", e))?,
-        "requested_tier": row.try_get::<String, _>("requested_tier").map_err(|e| col("requested_tier", e))?,
-        "provisioned_at": row.try_get::<DateTime<Utc>, _>("provisioned_at").map_err(|e| col("provisioned_at", e))?,
-        "provisioned_by_service": row.try_get::<String, _>("provisioned_by_service").map_err(|e| col("provisioned_by_service", e))?,
-        "rate_limit_requests": row.try_get::<i32, _>("rate_limit_requests").map_err(|e| col("rate_limit_requests", e))?,
-        "rate_limit_period": row.try_get::<String, _>("rate_limit_period").map_err(|e| col("rate_limit_period", e))?,
-        "key_status": row.try_get::<String, _>("key_status").map_err(|e| col("key_status", e))?,
-        "revoked_at": row.try_get::<Option<DateTime<Utc>>, _>("revoked_at").map_err(|e| col("revoked_at", e))?,
-        "revoked_reason": row.try_get::<Option<String>, _>("revoked_reason").map_err(|e| col("revoked_reason", e))?,
-    }))
 }
 
 /// Decode one `admin_tokens` row via `try_get` only, so a corrupt row
@@ -328,6 +233,16 @@ where
         tenant_id: row
             .try_get("tenant_id")
             .map_err(|e| AppError::database(format!("Failed to get column 'tenant_id': {e}")))?,
+        operator_user_id: row
+            .try_get::<Option<String>, _>("operator_user_id")
+            .map_err(|e| {
+                AppError::database(format!("Failed to get column 'operator_user_id': {e}"))
+            })?
+            .map(|id| Uuid::parse_str(&id))
+            .transpose()
+            .map_err(|e| {
+                AppError::database(format!("Failed to parse column 'operator_user_id': {e}"))
+            })?,
         created_at: row
             .try_get("created_at")
             .map_err(|e| AppError::database(format!("Failed to get column 'created_at': {e}")))?,
@@ -493,6 +408,7 @@ macro_rules! impl_admin_repository {
                     .bind(created_at)
                     .bind(expires_at)
                     .bind(0i64)
+                    .bind(request.operator_user_id.map(|id| id.to_string()))
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -523,21 +439,6 @@ macro_rules! impl_admin_repository {
                 row.as_ref().map(admin_token_from_row).transpose()
             }
 
-            async fn get_token_by_prefix(
-                &self,
-                token_prefix: &str,
-            ) -> AppResult<Option<AdminToken>> {
-                let row = sqlx::query(GET_ADMIN_TOKEN_BY_PREFIX_SQL)
-                    .bind(token_prefix)
-                    .fetch_optional(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to get admin token by prefix: {e}"))
-                    })?;
-
-                row.as_ref().map(admin_token_from_row).transpose()
-            }
-
             async fn list_tokens(&self, include_inactive: bool) -> AppResult<Vec<AdminToken>> {
                 let query = if include_inactive {
                     LIST_ADMIN_TOKENS_SQL
@@ -560,23 +461,6 @@ macro_rules! impl_admin_repository {
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to deactivate admin token: {e}"))
-                    })?;
-
-                Ok(())
-            }
-
-            async fn update_token_last_used(
-                &self,
-                token_id: &str,
-                ip_address: Option<&str>,
-            ) -> AppResult<()> {
-                sqlx::query(TOUCH_ADMIN_TOKEN_SQL)
-                    .bind(ip_address)
-                    .bind(token_id)
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to update admin token last used: {e}"))
                     })?;
 
                 Ok(())
@@ -638,7 +522,7 @@ macro_rules! impl_admin_repository {
                 sqlx::query(RECORD_PROVISIONED_KEY_SQL)
                     .bind(admin_token_id)
                     .bind(api_key_id)
-                    .bind(user_email)
+                    .bind(normalize_email(user_email))
                     .bind(tier)
                     .bind(Utc::now())
                     .bind(service_name)
@@ -652,38 +536,6 @@ macro_rules! impl_admin_repository {
                     })?;
 
                 Ok(())
-            }
-
-            async fn get_provisioned_keys(
-                &self,
-                admin_token_id: Option<&str>,
-                start_date: DateTime<Utc>,
-                end_date: DateTime<Utc>,
-            ) -> AppResult<Vec<Value>> {
-                let rows = if let Some(token_id) = admin_token_id {
-                    sqlx::query(GET_PROVISIONED_KEYS_FOR_TOKEN_SQL)
-                        .bind(token_id)
-                        .bind(start_date)
-                        .bind(end_date)
-                        .fetch_all(self.pool())
-                        .await
-                        .map_err(|e| {
-                            AppError::database(format!("Failed to get admin provisioned keys: {e}"))
-                        })?
-                } else {
-                    sqlx::query(GET_ALL_PROVISIONED_KEYS_SQL)
-                        .bind(start_date)
-                        .bind(end_date)
-                        .fetch_all(self.pool())
-                        .await
-                        .map_err(|e| {
-                            AppError::database(format!(
-                                "Failed to get all admin provisioned keys: {e}"
-                            ))
-                        })?
-                };
-
-                rows.iter().map(provisioned_key_from_row).collect()
             }
         }
     };

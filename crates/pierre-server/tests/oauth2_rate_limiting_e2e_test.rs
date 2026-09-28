@@ -725,6 +725,7 @@ async fn oauth2_routes(limiter: OAuth2RateLimiter) -> (Router, String) {
         auth_manager: common::create_test_auth_manager(),
         jwks_manager: common::get_shared_test_jwks(),
         config: Arc::new(OAuth2ServerConfig::default()),
+        refresh_token_expiry_days: 30,
         rate_limiter: Arc::new(limiter),
     });
     (routes, client_id)

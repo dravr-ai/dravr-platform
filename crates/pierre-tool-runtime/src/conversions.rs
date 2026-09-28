@@ -1,21 +1,18 @@
 // ABOUTME: Conversions from the platform's host tool types onto the tronc MCP trait surface.
-// ABOUTME: definition()/capabilities() builders + AppResult<ToolResult> -> tronc ToolResponse mapping.
+// ABOUTME: definition() builders + AppResult<ToolResult> -> tronc ToolResponse mapping.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Helpers shared by every tool's tronc `McpTool` implementation in this crate.
 //!
-//! They keep each tool's `definition`/`capabilities`/`execute` bodies thin and
+//! They keep each tool's `definition`/`execute` bodies thin and
 //! identical in shape:
 //!
 //! - [`tool_definition`] assembles a tronc [`Tool`] from the platform's typed
 //!   name/description/[`JsonSchema`]/[`ToolAnnotations`] pieces.
 //! - [`task_capable`] marks one of those definitions as allowed to answer with
 //!   an MCP task handle.
-//! - [`capabilities_to_tronc`] maps the platform's host capability flags to
-//!   tronc's generic capability set (the fitness domain flags are dropped —
-//!   tronc models those as registry string categories, supplied at registration).
 //! - [`tool_result_to_response`] converts a tool body's `AppResult<ToolResult>`
 //!   into the wire [`ToolResponse`], preserving the dual `content` + `structuredContent`
 //!   shape the dispatch layer previously produced.
@@ -26,15 +23,12 @@ use std::collections::HashMap;
 use std::hash::BuildHasher;
 
 use dravr_tronc::mcp::schema::{Content, TaskSupport, Tool, ToolExecution, ToolResponse};
-use dravr_tronc::mcp::tool::ToolCapabilities as TroncCapabilities;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::json_value::to_value_as_written;
 use pierre_formatters::{format_output, OutputFormat};
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
 use serde::Serialize;
-
-use crate::capabilities::ToolCapabilities;
 
 /// Assemble a tronc [`Tool`] definition from the platform's typed pieces.
 ///
@@ -327,39 +321,6 @@ pub fn object_schema_with_format<S: BuildHasher>(
 ) -> JsonSchema {
     properties.insert("format".to_owned(), format_property());
     object_schema(properties, required)
-}
-
-/// Map the platform's host capability flags to tronc's generic capability set.
-///
-/// Only the seven host-agnostic flags cross over. The fitness domain flags
-/// (`ANALYTICS`, `GOALS`, `CONFIGURATION`, `RECIPES`, `AGENTS`, `SLEEP_RECOVERY`)
-/// are intentionally dropped: tronc models domain taxonomy as registry string
-/// categories, which `register_builtin_tools` supplies via `register_with_category`.
-#[must_use]
-pub fn capabilities_to_tronc(caps: ToolCapabilities) -> TroncCapabilities {
-    let mut out = TroncCapabilities::empty();
-    if caps.contains(ToolCapabilities::REQUIRES_AUTH) {
-        out |= TroncCapabilities::REQUIRES_AUTH;
-    }
-    if caps.contains(ToolCapabilities::REQUIRES_TENANT) {
-        out |= TroncCapabilities::REQUIRES_TENANT;
-    }
-    if caps.contains(ToolCapabilities::REQUIRES_PROVIDER) {
-        out |= TroncCapabilities::REQUIRES_PROVIDER;
-    }
-    if caps.contains(ToolCapabilities::READS_DATA) {
-        out |= TroncCapabilities::READS_DATA;
-    }
-    if caps.contains(ToolCapabilities::WRITES_DATA) {
-        out |= TroncCapabilities::WRITES_DATA;
-    }
-    if caps.contains(ToolCapabilities::ADMIN_ONLY) {
-        out |= TroncCapabilities::ADMIN_ONLY;
-    }
-    if caps.contains(ToolCapabilities::PROFILE) {
-        out |= TroncCapabilities::PROFILE;
-    }
-    out
 }
 
 /// `structuredContent` key under which a raised [`AppError`] records its

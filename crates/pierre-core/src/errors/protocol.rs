@@ -182,10 +182,6 @@ pub enum ProtocolError {
     #[error("Internal error: {0}")]
     InternalError(String),
 
-    /// Operation was cancelled by user request
-    #[error("Operation cancelled: {0}")]
-    OperationCancelled(String),
-
     /// A connected fitness provider needs to be (re)authenticated. Surfaced
     /// from `AppError::ProviderAuthRequired` so the chat pipeline can detect
     /// this across the protocol boundary and short-circuit the turn with a

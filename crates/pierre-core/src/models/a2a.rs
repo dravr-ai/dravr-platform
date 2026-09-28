@@ -33,6 +33,10 @@ pub struct A2AClient {
     pub capabilities: Vec<String>,
     /// Allowed OAuth redirect URIs
     pub redirect_uris: Vec<String>,
+    /// Contact address of the client's administrator, stored normalized
+    /// (trimmed, lower-case); absent on a client registered without one
+    #[serde(default)]
+    pub contact_email: Option<String>,
     /// Whether this client is active
     pub is_active: bool,
     /// When this client was created

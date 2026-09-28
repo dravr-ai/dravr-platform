@@ -22,7 +22,7 @@ use crate::uuid_column::UuidColumn;
 
 /// CRUD for user-authored Endurance workout templates.
 ///
-/// The catalogue bank lives in `training_catalogue/workouts/*.toml` and is
+/// The catalogue bank lives in dravr-contremaitre `training/workouts/*.toml` and is
 /// held by `pierre_contremaitre::TrainingCatalogueRegistry`. This repo only
 /// owns rows the user authored at runtime: every persisted row therefore
 /// carries `tenant_id` and `user_id` (the migration tolerates `NULL` for

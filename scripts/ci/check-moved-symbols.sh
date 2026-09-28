@@ -73,21 +73,44 @@ DECL='(fn|struct|enum|trait|const|static|type)'
 PUBVIS='pub([[:space:]]*\([^)]*\))?'
 MODS='((const|async|unsafe)[[:space:]]+)*'
 
-# Pub item names a diff removes: declarations and re-exports. The declaration
-# match is anchored at column 0 and taken whole, so the item name is always
-# the last field (`pub const fn new` yields `new`, not `fn`). Brace re-exports
+# The commit the three-dot diff compares HEAD against.
+MERGE_BASE="$(git merge-base "$BASE_REF" HEAD 2>/dev/null || echo "$BASE_REF")"
+
+# Every column-0 `pub use` statement of file $2 at revision $1, each joined
+# onto one line. rustfmt wraps a brace group that outgrows the line, so a
+# re-export's names are read from whole statements: a group that only gained a
+# name reads in the diff as removed on one line and re-added across several,
+# and a name dropped from a wrapped group sits on a line that does not start
+# with `pub use`. A file absent at that revision has none.
+pub_uses_at() {
+    git show "$1:$2" 2>/dev/null | awk '
+        /^pub([[:space:]]*\([^)]*\))?[[:space:]]+use[[:space:]]/ { stmt = ""; collecting = 1 }
+        collecting { stmt = stmt " " $0 }
+        collecting && /;/ { print stmt; collecting = 0 }
+    ' || true
+}
+
+# The names joined `pub use` statements on stdin export. Brace re-exports
 # (`pub use a::{b, c};`) yield every braced name.
+reexported_names() {
+    sed -E "s/^[[:space:]]*${PUBVIS}[[:space:]]+use[[:space:]]+//; s/;.*$//" \
+        | sed -E 's/.*::([^:]*)$/\1/; s/[{}]//g; s/,/ /g' \
+        | tr ' ' '\n' | grep -E '^[A-Za-z_][A-Za-z0-9_]*$' | sort -u || true
+}
+
+# Pub item names a change to file $2 removes: declarations its diff $1 drops,
+# and names the file re-exported at the merge base and no longer does. The
+# declaration match is anchored at column 0 and taken whole, so the item name
+# is always the last field (`pub const fn new` yields `new`, not `fn`).
 removed_pub_names() {
-    local diff="$1"
+    local diff="$1" file="$2"
     {
         echo "$diff" \
             | grep -oE "^-${PUBVIS}[[:space:]]+${MODS}${DECL}[[:space:]]+[A-Za-z_][A-Za-z0-9_]*" \
             | awk '{print $NF}' || true
-        echo "$diff" \
-            | grep -E "^-${PUBVIS}[[:space:]]+use[[:space:]]" \
-            | sed -E "s/^-${PUBVIS}[[:space:]]+use[[:space:]]+//; s/;.*$//" \
-            | sed -E 's/.*::([^:]*)$/\1/; s/[{}]//g; s/,/ /g' \
-            | tr ' ' '\n' | grep -E '^[A-Za-z_][A-Za-z0-9_]*$' || true
+        comm -23 \
+            <(pub_uses_at "$MERGE_BASE" "$file" | reexported_names) \
+            <(pub_uses_at HEAD "$file" | reexported_names)
     } | sort -u
 }
 
@@ -95,8 +118,9 @@ for f in "${changed_src[@]}"; do
     diff_text="$(git diff --no-renames "$BASE_REF"...HEAD -- "$f" 2>/dev/null || true)"
     [[ -z "$diff_text" ]] && continue
 
-    names="$(removed_pub_names "$diff_text")"
+    names="$(removed_pub_names "$diff_text" "$f")"
     [[ -z "$names" ]] && continue
+    pub_uses="$(pub_uses_at HEAD "$f")"
 
     suffix="$(module_suffix "$f")"
     [[ -z "$suffix" ]] && continue
@@ -113,7 +137,8 @@ for f in "${changed_src[@]}"; do
         if echo "$diff_text" | grep -Eq "^\+${PUBVIS}[[:space:]]+${MODS}${DECL}[[:space:]]+${name}([^A-Za-z0-9_]|$)"; then
             continue
         fi
-        if echo "$diff_text" | grep -Eq "^\+${PUBVIS}[[:space:]]+use[[:space:]].*[^A-Za-z0-9_]${name}([^A-Za-z0-9_]|$)"; then
+        # Still re-exported from the same file, however rustfmt wrapped it?
+        if echo "$pub_uses" | grep -Eq "[^A-Za-z0-9_]${name}([^A-Za-z0-9_]|$)"; then
             continue
         fi
         checked=$((checked + 1))
@@ -144,18 +169,44 @@ for f in "${changed_src[@]}"; do
                 # `use` statements run to their `;`, so join them first: a
                 # rustfmt-wrapped group puts the path and the name on
                 # different lines.
+                #
+                # And the name has to be imported AT that path: `path::item`,
+                # or a top-level entry of a `path::{...}` group. A removed
+                # crate-root re-export leaves `pierre_intelligence::analyzer::
+                # ActivityAnalyzer` compiling, and reading the name anywhere
+                # after `path::` flagged it as stranded.
                 if awk -v path="$suffix" -v inner="$inner" -v item="$name" '
+                    function imports_at(stmt, prefix,    rest, pos, depth, i, c, tok, n, k, toks) {
+                        pos = index(stmt, prefix)
+                        while (pos > 0) {
+                            rest = substr(stmt, pos + length(prefix))
+                            if (match(rest, "^" item "([^A-Za-z0-9_]|$)")) return 1
+                            if (substr(rest, 1, 1) == "{") {
+                                depth = 0; tok = ""; n = 0
+                                for (i = 1; i <= length(rest); i++) {
+                                    c = substr(rest, i, 1)
+                                    if (c == "{") { depth++; if (depth == 1) continue }
+                                    if (c == "}") { depth--; if (depth == 0) { toks[++n] = tok; break } }
+                                    if (c == "," && depth == 1) { toks[++n] = tok; tok = ""; continue }
+                                    tok = tok c
+                                }
+                                for (k = 1; k <= n; k++) {
+                                    gsub(/^[[:space:]]+|[[:space:]]+$/, "", toks[k])
+                                    if (match(toks[k], "^" item "([[:space:]]+as[[:space:]]|$)")) return 1
+                                }
+                            }
+                            rest = substr(stmt, pos + length(prefix))
+                            k = index(rest, prefix)
+                            pos = (k > 0) ? pos + length(prefix) + k - 1 : 0
+                        }
+                        return 0
+                    }
                     /^[[:space:]]*(pub[[:space:]]+)?use[[:space:]]/ { stmt = $0; collecting = 1 }
                     collecting && !/^[[:space:]]*(pub[[:space:]]+)?use[[:space:]]/ { stmt = stmt " " $0 }
                     collecting && /;/ {
                         collecting = 0
-                        # Either spelling reaches the module: another crate
-                        # writes it fully qualified, the owning crate writes
-                        # `crate::`.
-                        names_path = index(stmt, path "::") > 0 ||
-                            (inner != "" && index(stmt, "crate::" inner "::") > 0)
-                        if (names_path &&
-                            match(stmt, "(^|[^A-Za-z0-9_])" item "([^A-Za-z0-9_]|$)")) {
+                        if (imports_at(stmt, path "::") ||
+                            (inner != "" && imports_at(stmt, "crate::" inner "::"))) {
                             found = 1
                         }
                     }

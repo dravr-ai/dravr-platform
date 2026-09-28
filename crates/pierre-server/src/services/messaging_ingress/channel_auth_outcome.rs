@@ -29,6 +29,7 @@ use pierre_messaging::channel::MessagingChannel;
 use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use pierre_middleware::auth::record_jwt_usage_for_request;
 use pierre_services::channel_error_reply::ChannelErrorReply;
+use pierre_services::locale::resolve_channel_locale;
 use pierre_services::user_status_gate::messaging_key_for_status;
 use tracing::{debug, error, warn};
 use uuid::Uuid;
@@ -227,17 +228,15 @@ pub(super) async fn resolve_channel_user_email(
 /// Build a localized "denied" reply for the authentication outcomes that need
 /// to surface user-facing text (`Pending`, `Suspended`, `RateLimitExceeded`).
 pub(super) async fn build_auth_denial_reply(inputs: AuthDenialReplyInputs<'_>) -> OutgoingMessage {
-    let locale = inputs
-        .resources
-        .common
-        .repos
-        .messaging
-        .get_channel_link_locale(inputs.tenant_id, inputs.channel, inputs.sender_id)
-        .await
-        .ok()
-        .flatten()
-        .filter(|l| !l.trim().is_empty())
-        .unwrap_or_else(|| DEFAULT_LOCALE.to_owned());
+    let locale = resolve_channel_locale(
+        inputs.resources.common.repos.messaging.as_ref(),
+        inputs.resources.common.repos.users.as_ref(),
+        inputs.tenant_id,
+        inputs.channel,
+        inputs.sender_id,
+        None,
+    )
+    .await;
 
     // A direct-message user with no provider gets a tappable "Connect your
     // account" Card (in-process-minted link → hosted picker). Group contexts and

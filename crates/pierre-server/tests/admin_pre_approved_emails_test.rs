@@ -28,6 +28,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use helpers::axum_test::AxumTestRequest;
 use pierre_auth::admin::jwks::JwksManager;
+use pierre_config::mcp::AppBehaviorConfig;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
@@ -114,6 +115,7 @@ impl Harness {
                 pierre_contremaitre::TrainingCatalogueRegistry::new(),
             ),
             contremaitre_config: None,
+            app_behavior: AppBehaviorConfig::default(),
         });
 
         // The composition root injects the real notifier here; the test injects
@@ -143,10 +145,15 @@ impl Harness {
     }
 
     /// Mint the token the device flow would have handed the CLI: super-admin,
-    /// named `device-cli:<approver email>`.
+    /// acting as the approving operator.
     async fn device_login_token(&self) -> Result<String> {
-        self.mint_token(&format!("device-cli:{}", self.operator_email), None, true)
-            .await
+        self.mint_operated_token(
+            &format!("device-cli:{}", self.operator_id),
+            None,
+            true,
+            Some(self.operator_id),
+        )
+        .await
     }
 
     /// Mint an admin token with an explicit permission set.
@@ -156,6 +163,19 @@ impl Harness {
         permissions: Option<Vec<AdminPermission>>,
         is_super_admin: bool,
     ) -> Result<String> {
+        self.mint_operated_token(service_name, permissions, is_super_admin, None)
+            .await
+    }
+
+    /// Mint an admin token that acts as `operator_user_id`, as only the device
+    /// grant does.
+    async fn mint_operated_token(
+        &self,
+        service_name: &str,
+        permissions: Option<Vec<AdminPermission>>,
+        is_super_admin: bool,
+        operator_user_id: Option<Uuid>,
+    ) -> Result<String> {
         let request = CreateAdminTokenRequest {
             service_name: service_name.to_owned(),
             service_description: Some("seeded by admin_pre_approved_emails_test".to_owned()),
@@ -163,6 +183,7 @@ impl Harness {
             expires_in_days: Some(30),
             is_super_admin,
             tenant_id: None,
+            operator_user_id,
         };
         let generated = self
             .repos
@@ -316,6 +337,33 @@ async fn allow_list_and_remove_round_trip_over_http() -> Result<()> {
         body["data"]["removed"].as_bool(),
         Some(false),
         "removing an absent allow must report nothing deleted: {body}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_token_named_like_a_device_login_is_attributed_to_no_one() -> Result<()> {
+    let harness = Harness::new().await?;
+    // What any ManageAdminTokens holder could mint before the operator was
+    // stored on the row: a super-admin token *named* for another operator.
+    let look_alike = harness
+        .mint_token(
+            &format!("device-cli:{}", harness.operator_email),
+            None,
+            true,
+        )
+        .await?;
+    let email = "look-alike@example.com";
+
+    let (status, body) = harness.allow(&look_alike, email, None).await;
+    assert_eq!(status, 200, "allow must succeed: {body}");
+
+    let (_, body) = harness.list(&look_alike).await;
+    let listed = entries(&body);
+    assert_eq!(listed.len(), 1, "{body}");
+    assert!(
+        listed[0]["allowed_by"].is_null(),
+        "a name does not make a token act as the operator it names: {body}"
     );
     Ok(())
 }

@@ -14,6 +14,12 @@
 use chrono::Utc;
 use pierre_intelligence::activity_analyzer::AdvancedActivityAnalyzer;
 use pierre_intelligence::performance_analyzer::AdvancedPerformanceAnalyzer;
+use pierre_intelligence::types::{
+    ActivityInsights, AdvancedInsight, Anomaly, ContextualWeeklyLoad, GoalStatus, GoalType,
+    InsightSeverity, LocationContext, Milestone, PersonalRecord, ProgressReport,
+    RecommendationPriority, RecommendationType, TimeFrame, TrainingRecommendation,
+    WeatherConditions, ZoneDistribution,
+};
 use pierre_intelligence::*;
 use std::collections::HashMap;
 

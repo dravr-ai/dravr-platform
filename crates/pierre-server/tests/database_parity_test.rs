@@ -19,7 +19,7 @@ use pierre_core::models::{
     A2AClient, A2AUsage, ApiKey, ApiKeyTier, ApiKeyUsage, DataSource, DeviceType,
     StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession,
 };
-use pierre_core::models::{Tenant, TenantId, TenantPlan, ToolCategory, User, UserStatus, UserTier};
+use pierre_core::models::{Tenant, TenantId, TenantPlan, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::database::test_utils::{create_sqlite_test_db, create_test_db};
 use pierre_database::{
@@ -122,45 +122,6 @@ async fn test_parity_get_tool_catalog_entry() {
         sqlite_entry.is_enabled_by_default, pg_entry.is_enabled_by_default,
         "Enabled by default should match"
     );
-}
-
-/// Test that both filter by category the same way
-#[tokio::test]
-async fn test_parity_tools_by_category() {
-    let (sqlite_db, pg_db) = create_both_databases().await;
-    let sqlite_repos = sqlite_db.repositories();
-    let pg_repos = pg_db.repositories();
-
-    for category in [
-        ToolCategory::Fitness,
-        ToolCategory::Analysis,
-        ToolCategory::Nutrition,
-        ToolCategory::Configuration,
-        ToolCategory::Coaches,
-        ToolCategory::Admin,
-        ToolCategory::Mobility,
-    ] {
-        let sqlite_tools = sqlite_repos
-            .tool_selection
-            .get_tools_by_category(category)
-            .await
-            .expect("SQLite: Failed to get tools by category");
-
-        let pg_tools = pg_repos
-            .tool_selection
-            .get_tools_by_category(category)
-            .await
-            .expect("PostgreSQL: Failed to get tools by category");
-
-        assert_eq!(
-            sqlite_tools.len(),
-            pg_tools.len(),
-            "Category {:?} tool count should match: SQLite={}, PostgreSQL={}",
-            category,
-            sqlite_tools.len(),
-            pg_tools.len()
-        );
-    }
 }
 
 /// Test that both filter by plan the same way
@@ -506,15 +467,17 @@ async fn test_parity_chat_messages() {
     // Compare message counts
     let sqlite_count = sqlite_repos
         .chat
-        .get_message_count(&sqlite_conv.id, &sqlite_uid, sqlite_tenant_id)
+        .get_messages(&sqlite_conv.id, &sqlite_uid, sqlite_tenant_id)
         .await
-        .expect("SQLite: Failed to get count");
+        .expect("SQLite: Failed to get count")
+        .len();
 
     let pg_count = pg_repos
         .chat
-        .get_message_count(&pg_conv.id, &pg_uid, pg_tenant_id)
+        .get_messages(&pg_conv.id, &pg_uid, pg_tenant_id)
         .await
-        .expect("PostgreSQL: Failed to get count");
+        .expect("PostgreSQL: Failed to get count")
+        .len();
 
     assert_eq!(sqlite_count, pg_count, "Message counts should match");
 }
@@ -577,24 +540,6 @@ async fn test_parity_chat_list_conversations() {
         sqlite_list.len(),
         pg_list.len(),
         "Pagination should return same count"
-    );
-
-    // Test delete all works the same
-    let sqlite_deleted = sqlite_repos
-        .chat
-        .delete_all_user_conversations(&sqlite_user_id.to_string(), sqlite_tenant_id)
-        .await
-        .expect("SQLite: Failed to delete all");
-
-    let pg_deleted = pg_repos
-        .chat
-        .delete_all_user_conversations(&pg_user_id.to_string(), pg_tenant_id)
-        .await
-        .expect("PostgreSQL: Failed to delete all");
-
-    assert_eq!(
-        sqlite_deleted, pg_deleted,
-        "Delete all should remove same count"
     );
 }
 
@@ -952,9 +897,16 @@ async fn test_parity_recovery_metrics_roundtrip() {
 
         let read = repos
             .recovery
-            .get_latest_recovery(user_id, &tenant_id)
+            .get_recovery_metrics(
+                user_id,
+                &tenant_id,
+                Utc::now() - Duration::days(3),
+                Utc::now() + Duration::days(1),
+            )
             .await
-            .unwrap_or_else(|e| panic!("{backend}: get_latest_recovery must not error: {e}"))
+            .unwrap_or_else(|e| panic!("{backend}: get_recovery_metrics must not error: {e}"))
+            .into_iter()
+            .max_by_key(|m| m.date)
             .unwrap_or_else(|| panic!("{backend}: upserted recovery metrics must be found"));
 
         assert_eq!(
@@ -1063,9 +1015,16 @@ async fn test_parity_health_snapshot_constant_provider_id_across_dates() {
 
         let latest = repos
             .health_snapshots
-            .get_latest_health_snapshot(user_id, &tenant_id)
+            .get_health_snapshots(
+                user_id,
+                &tenant_id,
+                Utc::now() - Duration::days(3),
+                Utc::now() + Duration::days(1),
+            )
             .await
-            .unwrap_or_else(|e| panic!("{backend}: get_latest must not error: {e}"))
+            .unwrap_or_else(|e| panic!("{backend}: get_health_snapshots must not error: {e}"))
+            .into_iter()
+            .max_by_key(|m| m.date)
             .unwrap_or_else(|| panic!("{backend}: a snapshot must be found"));
         assert_eq!(
             latest.weight_kg,
@@ -1112,9 +1071,16 @@ async fn test_parity_health_snapshot_roundtrip() {
 
         let read = repos
             .health_snapshots
-            .get_latest_health_snapshot(user_id, &tenant_id)
+            .get_health_snapshots(
+                user_id,
+                &tenant_id,
+                Utc::now() - Duration::days(3),
+                Utc::now() + Duration::days(1),
+            )
             .await
-            .unwrap_or_else(|e| panic!("{backend}: get_latest_health_snapshot must not error: {e}"))
+            .unwrap_or_else(|e| panic!("{backend}: get_health_snapshots must not error: {e}"))
+            .into_iter()
+            .max_by_key(|m| m.date)
             .unwrap_or_else(|| panic!("{backend}: upserted snapshot must be found"));
 
         assert_eq!(
@@ -1390,6 +1356,7 @@ async fn test_parity_a2a_usage_stats() {
             user_id,
             capabilities: vec!["fitness-data-analysis".to_owned()],
             redirect_uris: vec!["https://test.example.com".to_owned()],
+            contact_email: Some("parity@example.com".to_owned()),
             permissions: vec!["read_activities".to_owned()],
             rate_limit_requests: 1000,
             rate_limit_window_seconds: 3600,

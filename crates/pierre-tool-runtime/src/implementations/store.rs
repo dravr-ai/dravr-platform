@@ -36,7 +36,7 @@ use serde_json::{json, Value};
 use tracing::info;
 
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::AppResult;
 use pierre_core::models::agents::AgentCategory;
 use pierre_core::models::TenantId;
@@ -50,11 +50,10 @@ use pierre_services::locale::resolve_user_locale;
 use pierre_tools_core::ToolResult;
 
 use super::agents_tool_shape::{extract_format, read_only_annotations, write_annotations};
-use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, apply_format, capabilities_to_tronc, object_schema_with_format, ok_typed,
-    tool_definition, tool_result_to_response, Formatted,
+    answers_with, apply_format, object_schema_with_format, ok_typed, tool_definition,
+    tool_result_to_response, Formatted,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -228,12 +227,8 @@ impl McpTool<dyn ToolRuntime> for BrowseAgentStoreTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::AGENTS
-                | ToolCapabilities::READS_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
     }
 
     async fn execute(
@@ -317,12 +312,8 @@ impl McpTool<dyn ToolRuntime> for SearchAgentStoreTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::AGENTS
-                | ToolCapabilities::READS_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
     }
 
     async fn execute(
@@ -393,12 +384,8 @@ impl McpTool<dyn ToolRuntime> for InstallAgentFromStoreTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::AGENTS
-                | ToolCapabilities::WRITES_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA
     }
 
     async fn execute(

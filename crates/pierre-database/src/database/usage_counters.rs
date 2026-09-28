@@ -11,7 +11,7 @@ use pierre_core::models::UsageCounterRecord;
 use crate::database::Database;
 use crate::repositories::usage_counters::{
     counter_from_row, impl_usage_counter_repository, DELETE_OLD_COUNTERS_SQL, GET_COUNTER_SQL,
-    INCREMENT_COUNTER_SQL,
+    INCREMENT_COUNTER_BELOW_SQL, INCREMENT_COUNTER_SQL,
 };
 use crate::repositories::UsageCounterRepository;
 

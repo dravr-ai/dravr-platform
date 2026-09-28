@@ -75,7 +75,7 @@ fn snapshot_response(
     }
 }
 
-/// Handle `GET /admin/settings/guardian` (and the cookie twin).
+/// Handle `GET /admin/settings/guardian` (and its console mount).
 ///
 /// Serves the registry snapshot — the policy THIS process enforces — rather
 /// than re-reading the row, so what the operator sees is what the Guardian
@@ -92,7 +92,7 @@ pub async fn handle_get_guardian_config(
     admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
 
     info!(
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         "admin fetched guardian config"
     );
 
@@ -112,7 +112,7 @@ pub async fn handle_get_guardian_config(
     ))
 }
 
-/// Handle `PUT /admin/settings/guardian` (and the cookie twin).
+/// Handle `PUT /admin/settings/guardian` (and its console mount).
 ///
 /// Validates, persists, then installs the new snapshot (write-then-install,
 /// so a DB failure leaves both stores on the previous values). The response
@@ -152,7 +152,7 @@ pub async fn handle_put_guardian_config(
 
     let response = snapshot_response(&context, Some(chrono::Utc::now().to_rfc3339()));
     info!(
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         mode = response.effective.mode.as_str(),
         plan_mode = response.effective.plan_mode.as_str(),
         env_pinned = ?response.env_pinned,

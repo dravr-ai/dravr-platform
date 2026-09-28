@@ -23,7 +23,7 @@ jest.mock('../src/services/api', () => ({
     recordUsage: jest.fn(),
   },
   oauthApi: {
-    getStatus: jest.fn(),
+    getProvidersStatus: jest.fn(),
     initMobileOAuth: jest.fn(),
   },
   storeApi: {
@@ -73,8 +73,8 @@ describe('API Service', () => {
   });
 
   describe('oauthApi object', () => {
-    it('should have getStatus method', () => {
-      expect(typeof oauthApi.getStatus).toBe('function');
+    it('should have getProvidersStatus method', () => {
+      expect(typeof oauthApi.getProvidersStatus).toBe('function');
     });
   });
 

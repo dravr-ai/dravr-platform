@@ -125,9 +125,6 @@ async fn execute_mcp_tool(
         user_id: user_id.to_owned(),
         protocol: "chat".to_owned(),
         tenant_id: Some(tenant_id.to_string()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     match executor.execute_tool(request).await {

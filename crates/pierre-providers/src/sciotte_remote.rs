@@ -59,6 +59,14 @@ pub use dravr_sciotte::models::{AccountRole, AthleteId, AthleteProfile, AuthSess
 use dravr_sciotte::models::{
     Activity as SciotteActivity, DailySummary, PlannedWorkout as SciottePlannedWorkout,
 };
+use dravr_sciotte::wire::{
+    ActivitiesResponse, PlannedWorkoutsResponse, INVALID_ATHLETE, INVALID_WINDOW, SCRAPER_BUSY,
+    SESSION_EXPIRED, SESSION_NOT_FOUND,
+};
+/// The scraper service's `error` markers for a read that named no athlete on a
+/// coach account and for an athlete the provider refused, which callers
+/// outside this crate branch on through [`sciotte_refusal`].
+pub use dravr_sciotte::wire::{ATHLETE_NOT_ACCESSIBLE, ATHLETE_REQUIRED};
 use dravr_tronc::iam::IdTokenSource;
 use dravr_tronc::server::request_guard::{HANDLER_PANIC, REQUEST_ID_HEADER, REQUEST_TIMEOUT};
 use pierre_core::errors::{AppError, AppResult, ErrorCode, RETRY_AFTER_SECS_DETAIL};
@@ -81,12 +89,6 @@ pub const ENV_REMOTE_URL: &str = "DRAVR_SCIOTTE_REMOTE_URL";
 /// service URL, so neither side depends on a value Cloud Run generates at
 /// creation.
 pub const ENV_AUDIENCE: &str = "DRAVR_SCIOTTE_AUDIENCE";
-
-/// Value of the `error` field the scraper service sheds with — its
-/// `busy_response` answers a saturated Chrome budget with
-/// `503 {"error":"scraper_busy","reason":…,"retry_after_secs":N}` plus a
-/// `Retry-After` header.
-const SHED_ERROR_MARKER: &str = "scraper_busy";
 
 /// Wait advertised when a shed response carries no `retry_after_secs`.
 /// Deliberately short: a shed clears as soon as one in-flight scrape releases
@@ -157,26 +159,6 @@ pub enum SessionRemoval {
     AlreadyGone,
 }
 
-/// What `GET /api/activities` answers with: the scraped rows and whether the
-/// service read the list's head.
-///
-/// `head_complete` is `false` when sciotte's fresh-head fetch failed and the
-/// newest rows may be missing from `activities` (carnet#151). A service
-/// predating the field omits it; `true` is assumed then, which is what every
-/// consumer did before the field existed.
-#[derive(Debug, Deserialize)]
-pub struct RemoteActivityList {
-    /// The scraped rows, newest first.
-    pub activities: Vec<SciotteActivity>,
-    /// Whether the newest rows the site shows are in `activities`.
-    #[serde(default = "head_complete_when_unstated")]
-    pub head_complete: bool,
-}
-
-const fn head_complete_when_unstated() -> bool {
-    true
-}
-
 /// Query knobs for a remote activity fetch. Mirrors the `ActivityParams`
 /// subset the scraper service honours.
 #[derive(Debug, Clone, Default)]
@@ -198,29 +180,10 @@ pub struct RemoteActivityQuery {
     pub athlete: Option<AthleteId>,
 }
 
-/// What `GET /api/planned-workouts` answers with: the planned workouts,
-/// oldest first, and how many the service says it sent.
-#[derive(Debug, Deserialize)]
-pub struct RemotePlannedWorkoutList {
-    /// How many workouts the service put in `planned_workouts`.
-    pub count: usize,
-    /// The planned workouts, oldest first.
-    pub planned_workouts: Vec<SciottePlannedWorkout>,
-}
-
-/// Body `error` marker of the scraper's `400` for a read that named no
-/// athlete on a coach account, which has no calendar of its own.
-pub const ATHLETE_REQUIRED: &str = "athlete_required";
-
-/// Body `error` marker of the scraper's `403` for an athlete the provider
-/// refused: outside the signed-in coach's roster, or any athlete at all on a
-/// provider that reads only the signed-in account.
-pub const ATHLETE_NOT_ACCESSIBLE: &str = "athlete_not_accessible";
-
 /// Body `error` markers of the scraper's `400`s for a query it refused to
 /// parse — a malformed athlete id, a missing, malformed or inverted window.
 /// The platform builds both, so either one is a platform bug.
-const MALFORMED_QUERY_MARKERS: &[&str] = &["invalid_athlete", "invalid_window"];
+const MALFORMED_QUERY_MARKERS: &[&str] = &[INVALID_ATHLETE, INVALID_WINDOW];
 
 /// Key of the [`AppError::details`] entry naming which scraper refusal an
 /// error carries, read back by [`sciotte_refusal`].
@@ -244,7 +207,7 @@ const SCIOTTE_REFUSAL_DETAIL: &str = "sciotte_refusal";
 #[must_use]
 pub fn backpressure_error(http_status: StatusCode, body: &Value) -> Option<AppError> {
     let shed = http_status == StatusCode::SERVICE_UNAVAILABLE
-        || body.get("error").and_then(Value::as_str) == Some(SHED_ERROR_MARKER);
+        || body.get("error").and_then(Value::as_str) == Some(SCRAPER_BUSY);
     if !shed {
         return None;
     }
@@ -258,7 +221,7 @@ pub fn backpressure_error(http_status: StatusCode, body: &Value) -> Option<AppEr
     let reason = body
         .get("reason")
         .and_then(Value::as_str)
-        .unwrap_or(SHED_ERROR_MARKER);
+        .unwrap_or(SCRAPER_BUSY);
 
     Some(
         AppError::resource_unavailable(format!(
@@ -288,11 +251,7 @@ pub fn shed_retry_after_secs(error: &AppError) -> Option<u64> {
 /// token answer (audience mismatch, expired token), an operator
 /// misconfiguration that must keep alerting as an internal fault instead of
 /// sending the athlete on a pointless re-login.
-const SESSION_AUTH_ERROR_MARKERS: &[&str] = &[SESSION_NOT_FOUND_MARKER, "session_expired"];
-
-/// Body `error` marker of the scraper's `401` for a session id it holds no
-/// session under.
-const SESSION_NOT_FOUND_MARKER: &str = "session_not_found";
+const SESSION_AUTH_ERROR_MARKERS: &[&str] = &[SESSION_NOT_FOUND, SESSION_EXPIRED];
 
 /// The auth-shaped error for a scraper-service `401` whose body carries a
 /// session-death marker, or `None` for anything else.
@@ -320,7 +279,7 @@ pub fn auth_required_error(http_status: StatusCode, body: &Value) -> Option<AppE
         return None;
     }
     let mut error = AppError::provider_auth_required("sciotte");
-    if marker == SESSION_NOT_FOUND_MARKER {
+    if marker == SESSION_NOT_FOUND {
         if let Some(Value::Object(details)) = error.details.as_deref_mut() {
             details.insert(SESSION_NOT_HELD_DETAIL.to_owned(), Value::Bool(true));
         }
@@ -477,7 +436,7 @@ fn session_lost_with_connection(
     request_id: &str,
 ) -> Option<AppError> {
     let marker = body.get("error").and_then(Value::as_str)?;
-    (http_status == StatusCode::UNAUTHORIZED && marker == SESSION_NOT_FOUND_MARKER).then(|| {
+    (http_status == StatusCode::UNAUTHORIZED && marker == SESSION_NOT_FOUND).then(|| {
         AppError::new(
             ErrorCode::ExternalServiceUnavailable,
             format!(
@@ -923,7 +882,7 @@ impl RemoteSciotteClient {
         &self,
         session_id: &str,
         query: &RemoteActivityQuery,
-    ) -> AppResult<RemoteActivityList> {
+    ) -> AppResult<ActivitiesResponse> {
         let mut params: Vec<(&str, String)> = Vec::new();
         if let Some(l) = query.limit {
             params.push(("limit", l.to_string()));
@@ -960,7 +919,7 @@ impl RemoteSciotteClient {
             return Err(scrape_failure("activities", sent).await);
         }
         sent.response
-            .json::<RemoteActivityList>()
+            .json::<ActivitiesResponse>()
             .await
             .map_err(|e| AppError::internal(format!("sciotte activities decode: {e}")))
     }
@@ -1005,7 +964,7 @@ impl RemoteSciotteClient {
         }
         let list = sent
             .response
-            .json::<RemotePlannedWorkoutList>()
+            .json::<PlannedWorkoutsResponse>()
             .await
             .map_err(|e| AppError::internal(format!("sciotte planned-workouts decode: {e}")))?;
         // A body that disagrees with itself was cut or mangled on the way; a

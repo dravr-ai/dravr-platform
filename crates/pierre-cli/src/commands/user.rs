@@ -18,6 +18,7 @@ use pierre_core::models::{
 use pierre_core::permissions::UserRole;
 use pierre_database::database::CreateUserMcpTokenRequest;
 use pierre_database::RepositoryRegistry;
+use pierre_middleware::mask_email;
 use pierre_services::admin_ops;
 
 type Result<T> = AppResult<T>;
@@ -55,7 +56,7 @@ pub async fn create(
         name.unwrap_or_else(|| email.split('@').next().unwrap_or("Admin").to_owned());
 
     let role_str = if super_admin { "super admin" } else { "admin" };
-    info!("User Creating {} user: {}", role_str, email);
+    info!("User Creating {} user: {}", role_str, mask_email(&email));
 
     // Check if user already exists and handle accordingly
     if let Ok(Some(existing_user)) = repos.users.get_by_email(&email).await {
@@ -164,12 +165,15 @@ async fn update_existing_admin_user(
 fn display_existing_user_error(existing_user: &User) {
     let details = format!(
         "Email: {}\nName: {:?}\nCreated: {}",
-        existing_user.email,
+        mask_email(&existing_user.email),
         existing_user.display_name,
         existing_user.created_at.format("%Y-%m-%d %H:%M UTC")
     );
 
-    error!("Error User '{}' already exists!", existing_user.email);
+    error!(
+        "Error User '{}' already exists!",
+        mask_email(&existing_user.email)
+    );
     info!("Use --force flag to update existing user");
     info!(
         "   Current user details:\n   - {}",
@@ -296,7 +300,7 @@ async fn create_new_admin_user(
     let new_user = build_admin_user(user_id, email, password_hash, name, role, locale);
 
     repos.users.create(&new_user).await?;
-    info!("Created {} user: {}", role_str, email);
+    info!("Created {} user: {}", role_str, mask_email(email));
 
     create_and_link_personal_tenant(repos, user_id, name, "admin").await?;
 
@@ -328,7 +332,7 @@ pub async fn promote(repos: &RepositoryRegistry, email: String) -> Result<()> {
         .ok_or_else(|| AppError::not_found(format!("User with email {email}")))?;
 
     if user.is_admin {
-        warn!("User {} is already an admin", email);
+        warn!("User {} is already an admin", mask_email(&email));
         println!("User {email} is already an admin (no change)");
         return Ok(());
     }
@@ -355,7 +359,7 @@ pub async fn demote(repos: &RepositoryRegistry, email: String) -> Result<()> {
         .ok_or_else(|| AppError::not_found(format!("User with email {email}")))?;
 
     if !user.is_admin {
-        warn!("User {} is not an admin", email);
+        warn!("User {} is not an admin", mask_email(&email));
         println!("User {email} is not an admin (no change)");
         return Ok(());
     }

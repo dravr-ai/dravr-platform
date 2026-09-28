@@ -9,15 +9,20 @@
 //! Shared state for two preemptive-fallback signals consulted by the
 //! `EmbacleProvider` chain's observer (`chain_observer`):
 //!
-//! 1. **GitHub rate-limit headroom (Strategy A).** A separate periodic
-//!    probe (in pierre-server) calls `GET https://api.github.com/rate_limit`
-//!    on every tick and pushes the `core.remaining`/`core.reset` figures
-//!    in here via [`ChainGuard::record_github_rate_limit`]. Chain reads
-//!    [`ChainGuard::is_github_budget_low`] before each request and
-//!    routes directly to the secondary when the budget is below
-//!    threshold — Copilot's session-token exchange shares this 5000/hr
-//!    pool, so a near-exhausted budget is a strong predictor that the
-//!    *next* Copilot call will fail with `Authentication required`.
+//! 1. **GitHub rate-limit headroom (Strategy A).** The periodic probe in
+//!    pierre-services reads the core budget of the token Copilot spends
+//!    through embacle's [`GithubHeadroomChecker::rate_limit`] (the checker
+//!    [`copilot_headroom_checker`] builds, the same one the quota router
+//!    meters Copilot with) and records each reading here via
+//!    [`ChainGuard::record_github_headroom`]. Before asking a tier that
+//!    spends the Copilot token, Chain reads
+//!    [`ChainGuard::is_github_budget_low`] and passes that tier over when
+//!    the budget is below threshold — Copilot's session-token exchange
+//!    shares this 5000/hr pool, so a near-exhausted budget is a strong
+//!    predictor that the *next* Copilot call will fail with
+//!    `Authentication required`. A read that fails counts as low: a budget
+//!    that cannot be read is not headroom. A tier that spends another
+//!    credential is never passed over for this budget, first or not.
 //!
 //! 2. **Circuit breaker on primary auth/rate-limit failures (Strategy B).**
 //!    [`ChainGuard::record_primary_failure`] tracks consecutive
@@ -34,13 +39,18 @@
 //! plumbing through `ServerContext`. The values are `AtomicU64`/`AtomicUsize`
 //! so reads on the request hot path don't take a lock.
 
+use std::env;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use embacle::quota_http::{GithubHeadroomChecker, GithubRateLimit};
+use embacle::types::RunnerError;
+
 /// GitHub core budget threshold for preemptive fallback.
 ///
-/// Below this remaining count, Chain routes directly to the secondary.
+/// Below this remaining count, Chain passes over every tier that spends the
+/// Copilot GitHub token.
 /// Pierre's Copilot session token exchange spends 1 call per refresh
 /// (~every few minutes), plus the periodic probe spends 1, plus any
 /// tool the LLM invokes that hits api.github.com. 200 leaves enough
@@ -63,13 +73,37 @@ pub const CIRCUIT_FAILURE_THRESHOLD: usize = 3;
 pub const CIRCUIT_COOLDOWN_SECS: u64 = 60;
 
 /// Sentinel for "GitHub rate limit hasn't been probed yet" — chain
-/// treats this as fail-open (use primary). `u64::MAX` is unambiguous:
-/// no GitHub API quota can legitimately be this high.
+/// treats this as fail-open (use primary): with no Copilot token there is
+/// no budget to read, and before the first read there is nothing to act
+/// on. `u64::MAX` is unambiguous: no GitHub API quota can legitimately be
+/// this high.
 const RATE_LIMIT_UNKNOWN: u64 = u64::MAX;
+
+/// Sentinel for "the last read of the GitHub budget failed" — chain treats
+/// this as fail-closed (skip the primary) until a read succeeds. As
+/// unambiguous as [`RATE_LIMIT_UNKNOWN`], one below it.
+const RATE_LIMIT_UNREADABLE: u64 = u64::MAX - 1;
+
+/// The checker whose readings feed [`ChainGuard::record_github_headroom`].
+///
+/// It is embacle's GitHub headroom checker on `COPILOT_GITHUB_TOKEN`, the
+/// token the Copilot providers pass to their runtime, so the budget measured
+/// is the one Copilot's session-token exchange spends. The quota router
+/// meters its Copilot backend with a checker built here too.
+///
+/// `None` when the token is unset or empty: there is then no Copilot budget
+/// to read, and the guard stays in its fail-open unknown state.
+#[must_use]
+pub fn copilot_headroom_checker() -> Option<GithubHeadroomChecker> {
+    env::var("COPILOT_GITHUB_TOKEN")
+        .ok()
+        .filter(|token| !token.is_empty())
+        .map(GithubHeadroomChecker::new)
+}
 
 /// Process-wide [`ChainGuard`] instance.
 ///
-/// Shared by the GitHub rate-limit probe (pierre-server) and the
+/// Shared by the GitHub rate-limit probe (pierre-services) and the
 /// chain observer on the request path (pierre-llm). [`LazyLock`] for
 /// zero-config plumbing — first access on either side initialises
 /// the same instance.
@@ -77,7 +111,7 @@ pub static CHAIN_GUARD: LazyLock<ChainGuard> = LazyLock::new(ChainGuard::new);
 
 /// Outcome of recording a GitHub rate-limit probe result.
 ///
-/// Callers (the probe in pierre-server) compare the previous and
+/// Callers (the probe in pierre-services) compare the previous and
 /// current budget tiers to decide whether to emit
 /// `llm.rate_limit_low` / `llm.rate_limit_recovered` notify events.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,8 +144,9 @@ pub enum CircuitTransition {
 /// Shared guard state. Cheap to read from the hot path: every field
 /// is an atomic primitive.
 pub struct ChainGuard {
-    /// `X-RateLimit-Remaining` from the most recent github.com `/rate_limit`
-    /// probe. `RATE_LIMIT_UNKNOWN` until the probe has run once.
+    /// `core.remaining` from the most recent github.com `/rate_limit` read.
+    /// `RATE_LIMIT_UNKNOWN` until the probe has run once;
+    /// `RATE_LIMIT_UNREADABLE` while the last read failed.
     github_remaining: AtomicU64,
     /// Unix-seconds when GitHub's core rate-limit window resets. Stored
     /// for telemetry; not used in the skip decision.
@@ -142,12 +177,38 @@ impl ChainGuard {
         }
     }
 
-    /// Record the latest GitHub rate-limit probe result. Returns the
-    /// budget-tier transition for the caller to optionally page on.
-    pub fn record_github_rate_limit(&self, remaining: u64, reset_at: u64) -> RateLimitTransition {
-        let previous = self.github_remaining.load(Ordering::Relaxed);
-        let was_low = previous != RATE_LIMIT_UNKNOWN && previous < GITHUB_BUDGET_THRESHOLD;
-        let is_low = remaining < GITHUB_BUDGET_THRESHOLD;
+    /// Record one read of the Copilot token's GitHub core budget — the
+    /// counts [`GithubHeadroomChecker::rate_limit`] returned, or the error
+    /// that stopped it. Returns the budget-tier transition for the caller
+    /// to optionally page on.
+    ///
+    /// Fewer than [`GITHUB_BUDGET_THRESHOLD`] remaining is low. A failed
+    /// read is low too (fail closed) and keeps the last known reset time:
+    /// an unreachable endpoint, a non-2xx answer or a changed shape says
+    /// nothing about headroom, and must never read as plenty of it.
+    pub fn record_github_headroom(
+        &self,
+        reading: &Result<GithubRateLimit, RunnerError>,
+    ) -> RateLimitTransition {
+        let (remaining, reset_at) = reading.as_ref().map_or_else(
+            |_| {
+                (
+                    RATE_LIMIT_UNREADABLE,
+                    self.github_reset_at.load(Ordering::Relaxed),
+                )
+            },
+            |counts| {
+                (
+                    counts.remaining,
+                    counts
+                        .resets_at
+                        .duration_since(UNIX_EPOCH)
+                        .map_or(0, |since| since.as_secs()),
+                )
+            },
+        );
+        let was_low = budget_is_low(self.github_remaining.load(Ordering::Relaxed));
+        let is_low = budget_is_low(remaining);
         self.github_remaining.store(remaining, Ordering::Relaxed);
         self.github_reset_at.store(reset_at, Ordering::Relaxed);
         match (was_low, is_low) {
@@ -158,17 +219,13 @@ impl ChainGuard {
         }
     }
 
-    /// Latest known GitHub `core.remaining`. `None` when the probe
-    /// hasn't yet recorded a value (fail-open: treat as no budget
-    /// pressure rather than blocking the primary path).
+    /// Latest known GitHub `core.remaining`. `None` when no read has
+    /// succeeded since the last attempt: the probe hasn't run yet, or its
+    /// last read failed.
     #[must_use]
     pub fn github_remaining(&self) -> Option<u64> {
         let raw = self.github_remaining.load(Ordering::Relaxed);
-        if raw == RATE_LIMIT_UNKNOWN {
-            None
-        } else {
-            Some(raw)
-        }
+        (raw != RATE_LIMIT_UNKNOWN && raw != RATE_LIMIT_UNREADABLE).then_some(raw)
     }
 
     /// Latest known GitHub rate-limit reset epoch (unix seconds).
@@ -177,13 +234,13 @@ impl ChainGuard {
         self.github_reset_at.load(Ordering::Relaxed)
     }
 
-    /// True when the GitHub budget has been probed and is below
-    /// [`GITHUB_BUDGET_THRESHOLD`]. Hot-path check used by Chain to
-    /// decide whether to skip the primary preemptively.
+    /// True when the last read of the GitHub budget found fewer than
+    /// [`GITHUB_BUDGET_THRESHOLD`] remaining, or failed. Hot-path check
+    /// used by Chain to decide whether to pass over a tier that spends the
+    /// Copilot GitHub token.
     #[must_use]
     pub fn is_github_budget_low(&self) -> bool {
-        self.github_remaining()
-            .is_some_and(|r| r < GITHUB_BUDGET_THRESHOLD)
+        budget_is_low(self.github_remaining.load(Ordering::Relaxed))
     }
 
     /// Record an auth-shaped primary failure. Returns the circuit
@@ -250,22 +307,15 @@ impl ChainGuard {
         let elapsed_ms = now_ms().saturating_sub(opened_at);
         elapsed_ms >= CIRCUIT_COOLDOWN_SECS * 1_000
     }
+}
 
-    /// True when Chain should skip the primary for this request:
-    /// either GitHub budget is low (Strategy A) or the circuit is
-    /// open and not yet half-open (Strategy B).
-    #[must_use]
-    pub fn should_skip_primary(&self) -> bool {
-        if self.is_github_budget_low() {
-            return true;
-        }
-        // Circuit open but not yet ready to half-open probe.
-        let opened_at = self.circuit_opened_at_ms.load(Ordering::Relaxed);
-        if opened_at == 0 {
-            return false;
-        }
-        let elapsed_ms = now_ms().saturating_sub(opened_at);
-        elapsed_ms < CIRCUIT_COOLDOWN_SECS * 1_000
+/// Whether a stored budget figure is a reason to pass over a Copilot tier:
+/// a read below the threshold, or a failed read. Never-read is not.
+const fn budget_is_low(stored: u64) -> bool {
+    match stored {
+        RATE_LIMIT_UNKNOWN => false,
+        RATE_LIMIT_UNREADABLE => true,
+        remaining => remaining < GITHUB_BUDGET_THRESHOLD,
     }
 }
 

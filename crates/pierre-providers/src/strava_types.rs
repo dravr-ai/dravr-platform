@@ -282,6 +282,8 @@ pub struct StravaStreamSet {
     pub altitude: Option<StravaStream<f32>>,
     /// Temperature, Celsius.
     pub temp: Option<StravaStream<f32>>,
+    /// Distance covered since the activity start, metres (cumulative).
+    pub distance: Option<StravaStream<f64>>,
     /// GPS positions as `[lat, lng]`.
     pub latlng: Option<StravaStream<[f64; 2]>>,
 }

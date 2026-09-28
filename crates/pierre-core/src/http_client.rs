@@ -1,5 +1,5 @@
 // ABOUTME: Shared HTTP client singletons with connection pooling for all outbound requests
-// ABOUTME: Provides api_client (30s) and llm_inner_client (300s) to eliminate duplicate client creation
+// ABOUTME: Provides api_client (30s), its unwrapped api_inner_client, and llm_inner_client (300s)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -47,6 +47,10 @@ const DEFAULT_LLM_REQUEST_TIMEOUT_SECS: u64 = 300;
 /// Configured timeout overrides for the API client
 static API_CLIENT_TIMEOUTS: OnceLock<(u64, u64)> = OnceLock::new();
 
+/// The `reqwest::Client` behind [`api_client`]: one connection pool, handed out
+/// unwrapped to callers whose library takes a plain `reqwest::Client`.
+static API_INNER_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
 /// Global shared HTTP client for data-provider API calls (Strava, Garmin, etc.)
 static API_CLIENT: OnceLock<ClientWithMiddleware> = OnceLock::new();
 
@@ -67,13 +71,22 @@ pub fn initialize_api_client(timeout_secs: u64, connect_timeout_secs: u64) {
 /// Uses connection pooling with configured timeouts (default: 30s request, 10s connect).
 /// Prefer this over creating new clients for external data APIs.
 pub fn api_client() -> &'static ClientWithMiddleware {
-    API_CLIENT.get_or_init(|| {
+    API_CLIENT.get_or_init(|| wrap_client(api_inner_client().clone()))
+}
+
+/// Get the `reqwest::Client` behind [`api_client`], unwrapped.
+///
+/// Same pool and timeouts as [`api_client`], without the middleware: for a
+/// library that takes a plain `reqwest::Client` (dravr-tronc's `ResendClient`).
+/// A request sent through it carries no trace-propagation header.
+pub fn api_inner_client() -> &'static reqwest::Client {
+    API_INNER_CLIENT.get_or_init(|| {
         let (timeout, connect_timeout) = API_CLIENT_TIMEOUTS
             .get()
             .copied()
             .unwrap_or((DEFAULT_API_TIMEOUT_SECS, DEFAULT_API_CONNECT_TIMEOUT_SECS));
 
-        wrap_client(build_inner_client(timeout, connect_timeout, "api"))
+        build_inner_client(timeout, connect_timeout, "api")
     })
 }
 

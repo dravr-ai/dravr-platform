@@ -28,7 +28,7 @@ const CONNECT_TEMPLATE: &str = include_str!("../templates/connect_hosted.html");
 /// into a `<script>` literal, so it MUST be valid, already-escaped JSON.
 #[must_use]
 pub fn render_connect_page(link_token: &str, channel: &str, providers_json: &str) -> String {
-    let channel_label = humanize_channel(channel);
+    let channel_label = sciotte_hosted_templates::humanize_channel(channel);
 
     // The notice starts hidden and empty: when a card whose
     // `consent_required` is set is picked, the page fills the block with that
@@ -53,18 +53,4 @@ pub fn render_connect_success_page(channel: &str, target: &str) -> String {
 #[must_use]
 pub fn render_connect_error_page(message: &str) -> String {
     sciotte_hosted_templates::render_error_page(message)
-}
-
-/// Convert a channel slug to a user-facing label ("slack" -> "Slack").
-fn humanize_channel(slug: &str) -> String {
-    match slug {
-        "" => "your chat app".to_owned(),
-        "whatsapp" => "WhatsApp".to_owned(),
-        other => {
-            let mut chars = other.chars();
-            chars.next().map_or_else(String::new, |first| {
-                first.to_uppercase().collect::<String>() + chars.as_str()
-            })
-        }
-    }
 }

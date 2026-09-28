@@ -75,6 +75,22 @@ pub trait UsageCounterRepository: Send + Sync {
         amount: i64,
     ) -> AppResult<UsageCounterRecord>;
 
+    /// Add one to a counter only while it holds fewer than `limit`, creating
+    /// it at one when absent. Returns whether the increment landed.
+    ///
+    /// The check and the write are one statement, so callers racing for the
+    /// last unit under `limit` — on one instance or several sharing the
+    /// database — get it once between them, and the counter never passes
+    /// `limit`. A `limit` below one takes nothing.
+    async fn increment_counter_below(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        counter_key: &str,
+        period: &str,
+        limit: i64,
+    ) -> AppResult<bool>;
+
     /// Get the current value of a counter (returns 0 if not found)
     async fn get_counter(
         &self,
@@ -162,15 +178,6 @@ pub trait LlmUsageRepository: Send + Sync {
         &self,
         turn_id: ConversationTurnId,
     ) -> AppResult<Vec<LlmUsageRecord>>;
-
-    /// Sum `cost_usd` for a tenant over an inclusive period. Used by the
-    /// monthly overage cron to drive Stripe Meter event reporting.
-    async fn sum_cost_usd_for_tenant_period(
-        &self,
-        tenant_id: TenantId,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
-    ) -> AppResult<f64>;
 }
 
 /// LLM credential management repository

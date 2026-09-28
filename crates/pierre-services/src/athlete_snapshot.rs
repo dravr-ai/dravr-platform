@@ -22,13 +22,13 @@
 //! history-thin user yields a snapshot whose [`AthleteMetrics::is_usable`] is
 //! false, so the personalized layer stays silent.
 
-use chrono::{Duration, Utc};
+use chrono::{Duration, NaiveDate, Utc};
 use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
-use pierre_core::models::TenantId;
+use pierre_core::models::{Activity, TenantId, UserPhysiologicalProfile};
 use pierre_database::RepositoryRegistry;
 use pierre_evals::AthleteMetrics;
 use pierre_fitness_compute::{compute_training_history, AthleteInputs};
-use pierre_intelligence::config::intelligence::VO2MaxCalculator;
+use pierre_intelligence::config::intelligence::{TrainingZonesConfig, VO2MaxCalculator};
 use pierre_intelligence::AlgorithmConfig;
 use uuid::Uuid;
 
@@ -69,6 +69,7 @@ async fn load_user_timezone(repos: &RepositoryRegistry, user_id: Uuid) -> Option
 pub async fn build_athlete_metrics(
     repos: &RepositoryRegistry,
     algorithm_config: &AlgorithmConfig,
+    training_zones: &TrainingZonesConfig,
     tenant_id: TenantId,
     user_id: Uuid,
 ) -> AthleteMetrics {
@@ -102,7 +103,7 @@ pub async fn build_athlete_metrics(
                     .unwrap_or(DEFAULT_LACTATE_THRESHOLD),
                 DEFAULT_SPORT_EFFICIENCY,
             );
-            let paces = calculator.calculate_pace_zones();
+            let paces = calculator.calculate_pace_zones(training_zones);
             metrics.easy_pace_range = Some(paces.easy_pace_range);
             metrics.marathon_pace_range = Some(paces.marathon_pace_range);
             metrics.threshold_pace_range = Some(paces.threshold_pace_range);
@@ -147,32 +148,57 @@ pub async fn build_athlete_metrics(
     metrics.data_days = u32::try_from(activity_days.len()).unwrap_or(u32::MAX);
 
     if !activities.is_empty() {
-        let inputs = AthleteInputs {
-            ftp_watts: profile.as_ref().and_then(|p| p.ftp_watts.map(f64::from)),
-            lthr: profile.as_ref().and_then(|p| {
-                p.lactate_threshold_percentage
-                    .zip(p.max_hr)
-                    .map(|(pct, mhr)| f64::from(mhr) * pct)
-            }),
-            max_hr: profile.as_ref().and_then(|p| p.max_hr.map(f64::from)),
-            resting_hr: profile.as_ref().and_then(|p| p.resting_hr.map(f64::from)),
-            weight_kg: profile.as_ref().and_then(|p| p.weight),
-        };
-        // The window's end is the athlete's civil day, because the rollup
-        // buckets each activity on theirs. Bounding it with the server's put
-        // the current local day past `to` for every zone ahead of UTC, and the
-        // series simply lost it (registre#260).
-        let today = clock_date(now, zone);
-        let states = compute_training_history(
+        metrics.recent_tsb = recent_tsb(
             &activities,
-            inputs,
-            today - Duration::days(TSB_COMPUTE_DAYS),
-            today,
+            profile.as_ref(),
             algorithm_config,
+            clock_date(now, zone),
             user_timezone.as_deref(),
         );
-        metrics.recent_tsb = states.last().map(|s| s.tsb);
     }
 
     metrics
+}
+
+/// The athlete's form (TSB) on `today`, their civil day: CTL minus ATL at the
+/// end of yesterday, so a session today does not move it.
+///
+/// `None` when cageux refuses the configured training-load parameters; the
+/// refusal is logged and the snapshot carries no TSB rather than a made-up one.
+fn recent_tsb(
+    activities: &[Activity],
+    profile: Option<&UserPhysiologicalProfile>,
+    algorithm_config: &AlgorithmConfig,
+    today: NaiveDate,
+    user_timezone: Option<&str>,
+) -> Option<f64> {
+    let inputs = AthleteInputs {
+        ftp_watts: profile.and_then(|p| p.ftp_watts.map(f64::from)),
+        lthr: profile.and_then(|p| {
+            p.lactate_threshold_percentage
+                .zip(p.max_hr)
+                .map(|(pct, mhr)| f64::from(mhr) * pct)
+        }),
+        max_hr: profile.and_then(|p| p.max_hr.map(f64::from)),
+        resting_hr: profile.and_then(|p| p.resting_hr.map(f64::from)),
+        weight_kg: profile.and_then(|p| p.weight),
+    };
+    // The window's end is the athlete's civil day, because the rollup
+    // buckets each activity on theirs. Bounding it with the server's put
+    // the current local day past `to` for every zone ahead of UTC, and the
+    // series simply lost it (registre#260).
+    match compute_training_history(
+        activities,
+        inputs,
+        today - Duration::days(TSB_COMPUTE_DAYS),
+        today,
+        algorithm_config,
+        user_timezone,
+    ) {
+        Ok(states) => states.last().map(|s| s.tsb),
+        Err(e) => {
+            tracing::warn!(error = %e, "personalized verification: training-load series refused");
+            None
+        }
+    }
 }

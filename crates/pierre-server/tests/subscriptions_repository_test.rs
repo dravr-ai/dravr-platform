@@ -74,14 +74,6 @@ async fn upsert_subscription_inserts_then_reads_back_via_every_lookup() {
         .expect("by-user lookup should hit");
     assert_eq!(by_user.id, sub.id);
 
-    let by_tenant = repos
-        .subscriptions
-        .get_subscription_by_tenant(sub.tenant_id)
-        .await
-        .unwrap()
-        .expect("by-tenant lookup should hit");
-    assert_eq!(by_tenant.id, sub.id);
-
     let by_provider_sub = repos
         .subscriptions
         .get_subscription_by_provider_subscription_id(
@@ -100,14 +92,6 @@ async fn upsert_subscription_inserts_then_reads_back_via_every_lookup() {
         .unwrap()
         .expect("by-provider-customer-id lookup should hit");
     assert_eq!(by_provider_cus.id, sub.id);
-
-    let active = repos
-        .subscriptions
-        .list_subscriptions_by_status(SubscriptionStatus::Active)
-        .await
-        .unwrap();
-    assert_eq!(active.len(), 1);
-    assert_eq!(active[0].id, sub.id);
 }
 
 #[tokio::test]
@@ -123,20 +107,16 @@ async fn upsert_subscription_updates_existing_row_on_status_change() {
     assert_eq!(updated.status, SubscriptionStatus::PastDue);
     assert!(!updated.is_entitled());
 
-    // Only one row regardless of upsert count.
-    let active_now = repos
+    // One row regardless of upsert count: the second upsert updated it in place.
+    assert_eq!(updated.id, sub.id);
+    let stored = repos
         .subscriptions
-        .list_subscriptions_by_status(SubscriptionStatus::Active)
+        .get_subscription_by_user(sub.user_id)
         .await
-        .unwrap();
-    assert!(active_now.is_empty());
-
-    let past_due = repos
-        .subscriptions
-        .list_subscriptions_by_status(SubscriptionStatus::PastDue)
-        .await
-        .unwrap();
-    assert_eq!(past_due.len(), 1);
+        .unwrap()
+        .expect("the subscription reads back by its user");
+    assert_eq!(stored.id, sub.id);
+    assert_eq!(stored.status, SubscriptionStatus::PastDue);
 }
 
 #[tokio::test]

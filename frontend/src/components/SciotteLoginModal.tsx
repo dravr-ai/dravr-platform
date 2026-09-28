@@ -16,7 +16,7 @@ import { useDialog } from '../hooks/useDialog';
 import { useTheme } from '../hooks/useTheme';
 import { Button, RevealButton } from './ui';
 import { ProviderNotice } from './ProviderNotice';
-import { PROVIDER_NOTICES, providerGlyphInk, type ProviderNoticeKeys } from '@pierre/shared-constants';
+import { SCIOTTE_LOGIN_PRESETS, providerGlyphInk } from '@pierre/shared-constants';
 import type { SciotteTarget } from '@pierre/shared-types';
 
 type LoginPhase = 'choose' | 'credentials' | 'logging-in' | 'two-factor' | 'waiting-approval' | 'number-match' | 'otp' | 'success' | 'error';
@@ -47,60 +47,6 @@ interface SciotteLoginModalProps {
    */
   consentRequired?: boolean;
 }
-
-/** How the credential login presents each target. */
-interface TargetPreset {
-  /** The id `ProviderIcon` draws the target's mark for. */
-  providerId: string;
-  /** The provider's name, as the header and progress copy say it. */
-  labelKey: string;
-  /** Title and placeholder of the provider's own credential form. */
-  titleKey: string;
-  placeholderKey: string;
-  /** What the provider signs in with — TrainingPeaks takes a username. */
-  identifier: 'email' | 'username';
-  /** No Google/Apple choice to make: straight to the provider's form. */
-  directCredentials: boolean;
-  /** The exposure notice shown while the account has not accepted it. */
-  notice?: ProviderNoticeKeys;
-}
-
-const TARGET_PRESETS: Record<SciotteTarget, TargetPreset> = {
-  strava: {
-    providerId: 'sciotte',
-    labelKey: 'shell.sciotteTargetStrava',
-    titleKey: 'shell.sciotteStravaAccount',
-    placeholderKey: 'shell.stravaEmail',
-    identifier: 'email',
-    directCredentials: false,
-  },
-  garmin: {
-    providerId: 'sciotte_garmin',
-    labelKey: 'shell.sciotteProviderGarmin',
-    titleKey: 'shell.sciotteGarminAccount',
-    placeholderKey: 'shell.garminEmail',
-    identifier: 'email',
-    directCredentials: true,
-  },
-  trainingpeaks: {
-    providerId: 'sciotte_trainingpeaks',
-    labelKey: 'shell.sciotteProviderTrainingPeaks',
-    titleKey: 'shell.sciotteTrainingPeaksAccount',
-    placeholderKey: 'shell.trainingpeaksUsername',
-    identifier: 'username',
-    directCredentials: true,
-    notice: PROVIDER_NOTICES.sciotte_trainingpeaks,
-  },
-  coros: {
-    providerId: 'sciotte_coros',
-    labelKey: 'shell.sciotteProviderCoros',
-    titleKey: 'shell.sciotteCorosAccount',
-    placeholderKey: 'shell.corosEmail',
-    identifier: 'email',
-    directCredentials: true,
-    notice: PROVIDER_NOTICES.sciotte_coros,
-  },
-};
 
 // AppError serialises as { code, message, ... }; legacy/in-band errors sometimes
 // expose { error }. Prefer message (current shape) then error, then the axios
@@ -138,8 +84,8 @@ export default function SciotteLoginModal({
   const [showPassword, setShowPassword] = useState(false);
   const [matchNumber, setMatchNumber] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const preset = TARGET_PRESETS[target];
-  const glyphInk = providerGlyphInk(preset.providerId, scheme);
+  const preset = SCIOTTE_LOGIN_PRESETS[target];
+  const glyphInk = providerGlyphInk(preset.backend, scheme);
   // The notice is shown only while the account has not accepted it, and only
   // for a target that has one.
   const notice = consentRequired ? preset.notice : undefined;
@@ -157,7 +103,7 @@ export default function SciotteLoginModal({
   useEffect(() => {
     if (isOpen) {
       // Garmin and TrainingPeaks sign in with their own credentials — skip the choose phase
-      setPhase(TARGET_PRESETS[target].directCredentials ? 'credentials' : 'choose');
+      setPhase(SCIOTTE_LOGIN_PRESETS[target].directCredentials ? 'credentials' : 'choose');
       setMethod('email');
       setConsentAccepted(false);
       setStatus('');
@@ -189,7 +135,7 @@ export default function SciotteLoginModal({
       setIsLoading(true);
       setError(null);
       setPhase('logging-in');
-      setStatus(t('app.connectingToProvider', { provider: t(TARGET_PRESETS[target].labelKey) }));
+      setStatus(t('app.connectingToProvider', { provider: t(SCIOTTE_LOGIN_PRESETS[target].labelKey) }));
 
       try {
         const data = await oauthApi.sciotteLogin({
@@ -395,7 +341,7 @@ export default function SciotteLoginModal({
               className="w-8 h-8 rounded-lg border ghost-border bg-surface-container-lowest text-on-surface flex items-center justify-center flex-shrink-0"
               style={glyphInk ? { color: glyphInk } : undefined}
             >
-              <ProviderIcon providerId={preset.providerId} className="w-4 h-4" />
+              <ProviderIcon providerId={preset.backend} className="w-4 h-4" />
             </div>
             <div>
               <h2 id={titleId} className="text-lg font-semibold text-on-surface">{t('frag.connectTo')} {providerLabel}</h2>

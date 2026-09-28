@@ -1,5 +1,5 @@
 // ABOUTME: Repository trait for the periodic-worker ledger — when each worker last ran and who holds its tick
-// ABOUTME: The SQL is written once here and both backends emit their impl from it; pierre-services::periodic is the only caller
+// ABOUTME: One SQL body for both backends; spawn_periodic leases its ticks here, and personal bests lease each athlete's measuring
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -22,6 +22,11 @@ pub struct WorkerRun {
 /// The row is global: workers are process-wide sweeps with no tenant, so
 /// no statement here carries a `tenant_id`. `name` is the worker's display
 /// name, which is already the key every log line carries.
+///
+/// The same claim leases one athlete's personal-best measuring across
+/// instances (`pierre_services::personal_bests`): its row is named after the
+/// athlete and tenant, claimed with a zero period so only a live lease
+/// refuses it, and finished to release it.
 #[async_trait]
 pub trait WorkerRunRepository: Send + Sync {
     /// The worker's row, or `None` when it has never been claimed.

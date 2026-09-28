@@ -157,48 +157,6 @@ test.describe('Admin Configuration Integration Tests', () => {
     });
   });
 
-  test.describe('Audit Log API', () => {
-    test('audit log endpoint returns valid structure', async ({ page }) => {
-      const backendUrl = getBackendUrl();
-      const response = await page.request.get(`${backendUrl}/api/admin/config/audit`);
-
-      expect(response.ok()).toBe(true);
-
-      const data = await response.json();
-      expect(data.success).toBe(true);
-      expect(data.data).toBeDefined();
-      expect(data.data.entries).toBeDefined();
-      expect(Array.isArray(data.data.entries)).toBe(true);
-    });
-
-    test('audit log entry has required fields', async ({ page }) => {
-      const backendUrl = getBackendUrl();
-      const response = await page.request.get(`${backendUrl}/api/admin/config/audit`);
-
-      const data = await response.json();
-
-      // If there are entries, verify structure
-      if (data.data.entries.length > 0) {
-        const entry = data.data.entries[0];
-        expect(entry).toHaveProperty('id');
-        expect(entry).toHaveProperty('timestamp');
-        expect(entry).toHaveProperty('admin_email');
-        expect(entry).toHaveProperty('config_key');
-        expect(entry).toHaveProperty('new_value');
-      }
-    });
-
-    test('audit log supports pagination with limit', async ({ page }) => {
-      const backendUrl = getBackendUrl();
-      const response = await page.request.get(`${backendUrl}/api/admin/config/audit?limit=5`);
-
-      expect(response.ok()).toBe(true);
-
-      const data = await response.json();
-      expect(data.data.entries.length).toBeLessThanOrEqual(5);
-    });
-  });
-
   test.describe('Configuration Reset API', () => {
     test('reset endpoint requires authentication', async ({ page }) => {
       const backendUrl = getBackendUrl();

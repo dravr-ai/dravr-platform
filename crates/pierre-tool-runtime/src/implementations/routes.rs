@@ -15,14 +15,11 @@ use tracing::{info, warn};
 use pierre_fitness_compute::location::{ForwardGeocodeResult, LocationService};
 use pierre_fitness_compute::osm_routes::{DiscoveredRoute, RouteDiscoveryService};
 
-use crate::capabilities::ToolCapabilities;
-use crate::conversions::{
-    answers_with, capabilities_to_tronc, ok_typed, tool_definition, tool_result_to_response,
-};
+use crate::conversions::{answers_with, ok_typed, tool_definition, tool_result_to_response};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::AppResult;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{resolve_sport_type, SportType};
@@ -222,8 +219,8 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
     }
 
     async fn execute(

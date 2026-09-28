@@ -14,6 +14,8 @@ publish = false
 pierre-agent-parser = { version = "0.3.0", path = "../pierre-agent-parser" }
 pierre-core = { version = "0.3.0", path = "../pierre-core" }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
+# mask_email: the canonical redactor for an address in an INFO+ log line.
+pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }
 
 bcrypt = "0.16"
 chrono = { version = "0.4", features = ["serde"] }

@@ -82,11 +82,14 @@ type Calls = Arc<Mutex<usize>>;
 /// Athlete ids the stand-in's roster no longer lists.
 type Dropped = Arc<Mutex<Vec<&'static str>>>;
 
-/// The coach's roster as `TrainingPeaks` lists it, before any drop.
-const ROSTER: [(&str, Option<&str>); 3] = [
-    ("900001", Some("Alex Athlete")),
-    ("900002", Some("Sam Swimmer")),
-    ("900003", None),
+/// The coach's roster as `TrainingPeaks` lists it, before any drop: each
+/// athlete's id, name and email. A link binds an athlete to the member whose
+/// verified email it is, case aside; 900003 is a second, unnamed roster entry
+/// under m1's email.
+const ROSTER: [(&str, Option<&str>, &str); 3] = [
+    ("900001", Some("Alex Athlete"), "M1@Links.Test"),
+    ("900002", Some("Sam Swimmer"), "m2@links.test"),
+    ("900003", None, "m1@links.test"),
 ];
 
 fn session_json(session_id: &str) -> Value {
@@ -148,9 +151,9 @@ async fn spawn_scraper(roster_reads: Calls, dropped: Dropped) -> String {
                         let dropped = dropped.lock().unwrap().clone();
                         let athletes: Vec<Value> = ROSTER
                             .iter()
-                            .filter(|(id, _)| !dropped.contains(id))
-                            .map(|(id, name)| {
-                                let mut athlete = json!({ "id": id });
+                            .filter(|(id, _, _)| !dropped.contains(id))
+                            .map(|(id, name, email)| {
+                                let mut athlete = json!({ "id": id, "email": email });
                                 if let Some(name) = name {
                                     athlete["display_name"] = json!(name);
                                 }
@@ -160,6 +163,7 @@ async fn spawn_scraper(roster_reads: Calls, dropped: Dropped) -> String {
                         return Json(json!({
                             "id": "900101",
                             "role": "coach",
+                            "email": "coach@links.test",
                             "coached_athletes": athletes,
                             "display_name": "Casey Coach"
                         }));
@@ -170,7 +174,7 @@ async fn spawn_scraper(roster_reads: Calls, dropped: Dropped) -> String {
         )
         .route(
             "/api/activities",
-            get(|| async { Json(json!({ "activities": [], "head_complete": true })) }),
+            get(|| async { Json(json!({ "count": 0, "activities": [], "head_complete": true })) }),
         )
         .with_state((roster_reads, dropped));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -208,6 +212,14 @@ async fn person(res: &Arc<ServerContext>, email: &str, name: &str) -> Person {
     let users = &res.common.repos.users;
     users.update_display_name(id, name).await.unwrap();
     users.update_locale(id, "en").await.unwrap();
+    // A verified email: what binds a coach account, and a roster athlete, to
+    // this person.
+    res.common
+        .repos
+        .email_verification
+        .mark_verified(id)
+        .await
+        .unwrap();
     let auth = format!("Bearer {}", generate_test_token(res, &user).await);
     Person {
         id,
@@ -773,8 +785,9 @@ async fn every_proposal_rule_refuses_with_its_reason(w: &World) {
     assert_denied(w.post(&w.links_path(), &w.m1, &by_member).await, COACH_ONLY);
 }
 
-/// The coach proposes; a second live link for the member or the athlete is
-/// refused.
+/// The coach proposes; a second live link for the member is refused, and so
+/// is an athlete whose roster email is another member's, before any conflict
+/// is looked for.
 async fn the_coach_proposes(w: &World) -> String {
     let (status, link) = w.propose("900001", w.m1.id).await;
     assert_eq!(status, StatusCode::CREATED, "{link}");
@@ -789,14 +802,14 @@ async fn the_coach_proposes(w: &World) -> String {
 
     let conflict = StatusCode::CONFLICT;
     assert_refused(
-        w.propose("900002", w.m1.id).await,
+        w.propose("900003", w.m1.id).await,
         conflict,
         "already_proposed",
     );
     assert_refused(
         w.propose("900001", w.m2.id).await,
-        conflict,
-        "athlete_already_linked",
+        StatusCode::BAD_REQUEST,
+        "athlete_email_mismatch",
     );
     link["id"].as_str().unwrap().to_owned()
 }
@@ -1046,8 +1059,7 @@ async fn a_live_roster_read_ends_a_proposal_off_the_roster(w: &World) {
     let (status, body) = w.get(&w.links_path(), &w.m2).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["total"], 0, "the member's request is gone: {body}");
-    let (status, body) = w.propose("900003", w.m2.id).await;
-    assert_eq!(status, StatusCode::CREATED, "{body}");
+    an_athlete_back_on_the_roster_is_proposed_again(w, &refresh).await;
 
     // The confirmed link the previous step ended told each side once; this
     // proposal tells each side again.
@@ -1057,6 +1069,15 @@ async fn a_live_roster_read_ends_a_proposal_off_the_roster(w: &World) {
     for row in w.notices(&w.m2, "delegation_off_coach_roster", 2).await {
         assert_notice(&row, "TrainingPeaks link ended", OFF_ROSTER_MEMBER_BODY);
     }
+}
+
+/// Back on the roster, the athlete whose proposal ended can be proposed to
+/// the member again.
+async fn an_athlete_back_on_the_roster_is_proposed_again(w: &World, refresh: &str) {
+    w.dropped.lock().unwrap().retain(|id| *id != "900002");
+    assert_eq!(w.roster_ids(refresh).await, ["900001", "900002", "900003"]);
+    let (status, body) = w.propose("900002", w.m2.id).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
 }
 
 /// An inactive group admits nobody, member or coach, on the group surfaces

@@ -53,9 +53,10 @@ const MAX_WINDOW_DAYS: u8 = 30;
 /// the model does not (and cannot) specify one.
 ///
 /// 1.3 is not borrowed from the retired injury-prediction literature: because
-/// `tsb == ctl - atl`, an acute:chronic ratio of 1.3 is exactly where form
-/// crosses -30% of CTL — the edge of `FormBand::DeepFatigue`. The ceiling names
-/// the same band boundary every other surface bands on, in ratio form.
+/// form is the previous day's CTL minus ATL, an acute:chronic ratio of 1.3 at
+/// the end of a day is exactly where the next day's form crosses -30% of that
+/// CTL — the edge of `FormBand::DeepFatigue`. The ceiling names the same band
+/// boundary every other surface bands on, in ratio form.
 const DEFAULT_RAMP_CEILING: f32 = 1.3;
 
 /// Global semaphore bounding concurrent captures.

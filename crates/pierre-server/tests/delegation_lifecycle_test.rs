@@ -34,7 +34,7 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::{
     ActivityBuilder, AgentCategory, ConnectionType, CreateAgentRequest, DelegatedConnection,
-    DelegationEndReason, DelegationStatus, SportType, TenantId, UserOAuthToken,
+    DelegationEndReason, DelegationStatus, RosterAthlete, SportType, TenantId, UserOAuthToken,
 };
 use pierre_groups::delegation::{DelegationStore, UnbackedLink};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -183,8 +183,11 @@ impl World {
                 self.coach,
                 self.coach_tenant,
                 member,
-                athlete.to_owned(),
-                Some(format!("Athlete {athlete}")),
+                RosterAthlete {
+                    id: athlete.to_owned(),
+                    name: Some(format!("Athlete {athlete}")),
+                    email: None,
+                },
             ))
             .await
             .unwrap()

@@ -46,12 +46,6 @@ pub trait OAuthTokenRepository: Send + Sync {
         user_id: Uuid,
         tenant_id: Option<TenantId>,
     ) -> AppResult<Vec<UserOAuthToken>>;
-    /// Get all OAuth tokens for a tenant-provider combination
-    async fn get_tenant_provider_tokens(
-        &self,
-        tenant_id: TenantId,
-        provider: &str,
-    ) -> AppResult<Vec<UserOAuthToken>>;
     /// Resolve the single user who owns a provider-side account id.
     ///
     /// Maps a provider's own user identifier (e.g. a Strava athlete id delivered
@@ -150,8 +144,6 @@ pub trait OAuthTokenRepository: Send + Sync {
         tenant_id: TenantId,
         provider: &str,
     ) -> AppResult<()>;
-    /// Delete all OAuth tokens for a user within a tenant scope
-    async fn delete_tokens(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<()>;
     /// Store a refreshed access and refresh token over `stored`, the row the
     /// refresh read; the row keeps its `id` and every other column.
     ///
@@ -259,6 +251,9 @@ pub trait OAuth2ServerRepository: Send + Sync {
         client_id: &str,
         now: DateTime<Utc>,
     ) -> AppResult<Option<OAuth2RefreshToken>>;
+    /// Revoke every live token in the rotation chain `token` belongs to,
+    /// returning how many were revoked — zero when the token is unknown.
+    async fn revoke_refresh_token_family(&self, token: &str) -> AppResult<u64>;
     /// Look up a refresh token by its value (without `client_id` constraint)
     async fn get_refresh_token_by_value(
         &self,
@@ -421,8 +416,6 @@ pub trait ProviderConnectionRepository: Send + Sync {
         user_id: Uuid,
         tenant_id: Option<TenantId>,
     ) -> AppResult<Vec<ProviderConnection>>;
-    /// Check if a specific provider is connected for a user (cross-tenant)
-    async fn is_connected(&self, user_id: Uuid, provider: &str) -> AppResult<bool>;
     /// Mark a provider connection as just-used, updating `last_used_at = now()`.
     ///
     /// Called from the read path (chat tool execution, REST activity fetches) so the
@@ -534,4 +527,30 @@ pub trait ProviderConnectionRepository: Send + Sync {
         tenant_id: TenantId,
         provider: &str,
     ) -> AppResult<bool>;
+    /// Atomically claim the one-time sync-failure notification for an `active`
+    /// connection.
+    ///
+    /// Sets the same `notified_at` marker [`Self::claim_reauth_notification`]
+    /// claims, only while the connection is `active` and not yet notified, and
+    /// returns whether this call won the claim: one notice per failing provider
+    /// per athlete, however many syncs fail before one lands. A connection that
+    /// needs re-authorizing is left alone, so a failure the disconnect notice
+    /// already covers is never told twice. Re-armed by
+    /// [`Self::rearm_sync_failure_notification`] when a sync lands, and cleared
+    /// by the flip to `needs_reauth` so the disconnect notice is still sent.
+    async fn claim_sync_failure_notification(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<bool>;
+    /// Re-arm the sync-failure notification after a sync of the connection
+    /// landed, so its next failure notifies again. No-op on a connection that
+    /// is not `active` or holds no claim.
+    async fn rearm_sync_failure_notification(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<()>;
 }

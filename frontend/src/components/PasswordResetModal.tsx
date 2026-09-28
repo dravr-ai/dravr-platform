@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
+import type { PasswordResetResult } from '../services/api/admin';
 import type { User } from '../types/api';
 import { Button, Card } from './ui';
 import { Badge } from './ui/Badge';
@@ -14,11 +15,9 @@ interface PasswordResetModalProps {
   onClose: () => void;
 }
 
-interface PasswordResetResponse {
-  success: boolean;
-  temporary_password: string;
-  expires_at: string;
-  user_email: string;
+/** The issued token, with the instant it stops being redeemable. */
+interface IssuedReset extends PasswordResetResult {
+  expires_at: Date;
 }
 
 export default function PasswordResetModal({
@@ -26,7 +25,7 @@ export default function PasswordResetModal({
   isOpen,
   onClose
 }: PasswordResetModalProps) {
-  const [resetResult, setResetResult] = useState<PasswordResetResponse | null>(null);
+  const [resetResult, setResetResult] = useState<IssuedReset | null>(null);
   const [copied, setCopied] = useState(false);
 
   const resetMutation = useMutation({
@@ -34,8 +33,11 @@ export default function PasswordResetModal({
       if (!user) throw new Error('No user selected');
       return adminApi.resetUserPassword(user.id);
     },
-    onSuccess: (response: PasswordResetResponse) => {
-      setResetResult(response);
+    onSuccess: (response: PasswordResetResult) => {
+      setResetResult({
+        ...response,
+        expires_at: new Date(Date.now() + response.expires_in_seconds * 1000),
+      });
     },
     onError: (error) => {
       console.error('Failed to reset password:', error);
@@ -47,8 +49,8 @@ export default function PasswordResetModal({
   };
 
   const handleCopyPassword = async () => {
-    if (resetResult?.temporary_password) {
-      await navigator.clipboard.writeText(resetResult.temporary_password);
+    if (resetResult?.reset_token) {
+      await navigator.clipboard.writeText(resetResult.reset_token);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -110,7 +112,7 @@ export default function PasswordResetModal({
                   <div>
                     <p className="text-sm font-medium text-warning">Warning</p>
                     <p className="text-sm text-warning/80">
-                      This will generate a temporary password for the user. They must change it on their next login.
+                      This issues a one-time reset token for the user. They redeem it with a new password of their choosing.
                     </p>
                   </div>
                 </div>
@@ -151,17 +153,17 @@ export default function PasswordResetModal({
                   <p className="text-sm font-medium text-success">Password Reset Successful</p>
                 </div>
                 <p className="text-sm text-success/80 mb-3">
-                  A temporary password has been generated for <strong>{resetResult.user_email}</strong>.
+                  A reset token has been issued for <strong>{resetResult.email}</strong>.
                 </p>
               </div>
 
               <div className="mb-4">
                 <label className="block text-sm font-medium text-on-surface mb-2">
-                  Temporary Password
+                  Reset Token
                 </label>
                 <div className="flex items-center space-x-2">
                   <code className="flex-1 px-3 py-2 bg-surface-container-low border ghost-border rounded-md font-mono text-sm text-on-surface">
-                    {resetResult.temporary_password}
+                    {resetResult.reset_token}
                   </code>
                   <Button
                     variant="outline"
@@ -180,13 +182,13 @@ export default function PasswordResetModal({
                   </Button>
                 </div>
                 <p className="mt-2 text-xs text-outline">
-                  Expires: {new Date(resetResult.expires_at).toLocaleString()}
+                  Expires: {resetResult.expires_at.toLocaleString()}
                 </p>
               </div>
 
               <div className="mb-4 p-3 bg-info/10 border border-info/30 rounded-md">
                 <p className="text-sm text-info">
-                  Please securely share this temporary password with the user. They will be required to change it upon their next login.
+                  Share this token securely with the user. It is shown once and works a single time.
                 </p>
               </div>
 

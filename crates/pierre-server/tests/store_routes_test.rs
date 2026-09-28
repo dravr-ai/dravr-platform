@@ -25,8 +25,8 @@ use pierre_database::database::Agent;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_agents::build_store_router;
 use pierre_routes_agents::store::{
-    BrowseAgentsResponse, CategoriesResponse, InstallAgentResponse, InstallationsResponse,
-    SearchAgentsResponse, StoreAgentDetail, UninstallAgentResponse,
+    BrowseAgentsResponse, InstallAgentResponse, InstallationsResponse, SearchAgentsResponse,
+    StoreAgentDetail, UninstallAgentResponse,
 };
 use std::sync::Arc;
 use uuid::Uuid;
@@ -839,93 +839,6 @@ async fn test_search_agents_no_results() {
 // Categories Tests
 // ============================================================================
 
-#[tokio::test]
-async fn test_list_categories() {
-    let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
-
-    let tenants = resources
-        .common
-        .repos
-        .tenants
-        .list_for_user(user_id)
-        .await
-        .unwrap();
-    let tenant_id = tenants
-        .first()
-        .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
-
-    create_published_agent(
-        &resources,
-        user_id,
-        tenant_id,
-        "Coach 1",
-        AgentCategory::Training,
-    )
-    .await;
-    create_published_agent(
-        &resources,
-        user_id,
-        tenant_id,
-        "Coach 2",
-        AgentCategory::Training,
-    )
-    .await;
-    create_published_agent(
-        &resources,
-        user_id,
-        tenant_id,
-        "Coach 3",
-        AgentCategory::Nutrition,
-    )
-    .await;
-
-    let token = generate_test_token(&resources, &user).await;
-    let auth_token = format!("Bearer {token}");
-    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
-
-    let response = AxumTestRequest::get("/api/store/categories")
-        .header("authorization", &auth_token)
-        .send(router)
-        .await;
-
-    assert_eq!(response.status_code(), StatusCode::OK);
-
-    let result: CategoriesResponse = response.json();
-    assert!(!result.categories.is_empty());
-
-    // Find training category - should have 2 agents
-    let training = result
-        .categories
-        .iter()
-        .find(|c| c.category == AgentCategory::Training);
-    assert!(training.is_some());
-    assert_eq!(training.unwrap().count, 2);
-
-    // Find nutrition category - should have 1 agent
-    let nutrition = result
-        .categories
-        .iter()
-        .find(|c| c.category == AgentCategory::Nutrition);
-    assert!(nutrition.is_some());
-    assert_eq!(nutrition.unwrap().count, 1);
-}
-
-#[tokio::test]
-async fn test_list_categories_empty() {
-    let (router, auth_token) = setup_test_environment().await;
-
-    let response = AxumTestRequest::get("/api/store/categories")
-        .header("authorization", &auth_token)
-        .send(router)
-        .await;
-
-    assert_eq!(response.status_code(), StatusCode::OK);
-
-    let result: CategoriesResponse = response.json();
-    assert!(result.categories.is_empty());
-}
-
 // ============================================================================
 // Install Agent Tests
 // ============================================================================
@@ -1432,13 +1345,3 @@ async fn test_installations_isolated_per_user() {
 // ============================================================================
 // Store Health Check Test
 // ============================================================================
-
-#[tokio::test]
-async fn test_store_health() {
-    let (router, _) = setup_test_environment().await;
-
-    let response = AxumTestRequest::get("/api/store/health").send(router).await;
-
-    assert_eq!(response.status_code(), StatusCode::OK);
-    assert_eq!(response.text(), "Store routes healthy");
-}

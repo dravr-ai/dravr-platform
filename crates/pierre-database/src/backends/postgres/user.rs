@@ -7,7 +7,8 @@
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    CoachingPersona, TenantId, User, UserDeletion, UserReference, UserStatus, UserTier,
+    normalize_email, CoachingPersona, TenantId, User, UserDeletion, UserReference, UserStatus,
+    UserTier,
 };
 use pierre_core::pagination::{Cursor, CursorPage, PaginationParams};
 use pierre_core::permissions::UserRole;
@@ -22,18 +23,17 @@ use crate::backends::postgres::PostgresDatabase;
 use crate::backends::shared::enums::user_status_to_str;
 use crate::backends::shared::transactions::TransactionGuard;
 use crate::repositories::user_profiles::{
-    apply_progress_fields, impl_profile_repository, CREATE_GOAL_SQL, GET_USER_CONFIGURATION_SQL,
-    GET_USER_GOALS_SQL, GET_USER_GOAL_SQL, GET_USER_PROFILE_SQL, SAVE_USER_CONFIGURATION_SQL,
-    UPDATE_USER_GOAL_SQL, UPSERT_USER_PROFILE_SQL,
+    impl_profile_repository, CREATE_GOAL_SQL, GET_USER_CONFIGURATION_SQL, GET_USER_GOALS_SQL,
+    GET_USER_PROFILE_SQL, SAVE_USER_CONFIGURATION_SQL, UPSERT_USER_PROFILE_SQL,
 };
 use crate::repositories::user_references::{
     delete_user_completely, delete_user_error, user_reference_from_row, DELETION_BLOCKERS_SQL,
     POSTGRES_USER_PURGE,
 };
 use crate::repositories::users::{
-    impl_user_repository, user_from_row, user_status_filter, users_by_ids_sql,
-    ADD_TENANT_MEMBER_SQL, COUNT_USERS_SQL, CREATE_USER_SQL, DELETE_USER_SQL, FIRST_ADMIN_USER_SQL,
-    GET_USER_BY_EMAIL_SQL, GET_USER_BY_FIREBASE_UID_SQL, GET_USER_BY_ID_SQL,
+    impl_user_repository, listing_status_filter, user_from_row, user_status_filter,
+    users_by_ids_sql, ADD_TENANT_MEMBER_SQL, COUNT_USERS_SQL, CREATE_USER_SQL, DELETE_USER_SQL,
+    FIRST_ADMIN_USER_SQL, GET_USER_BY_EMAIL_SQL, GET_USER_BY_FIREBASE_UID_SQL, GET_USER_BY_ID_SQL,
     GET_USER_IN_TENANT_SQL, LIST_ADMIN_USERS_SQL, SET_USER_ADMIN_STATUS_SQL, SET_USER_TENANT_SQL,
     SET_USER_TIER_SQL, UPDATE_LAST_ACTIVE_SQL, UPDATE_USER_DISPLAY_NAME_SQL,
     UPDATE_USER_PASSWORD_SQL, UPDATE_USER_SQL, UPDATE_USER_STATUS_SQL,

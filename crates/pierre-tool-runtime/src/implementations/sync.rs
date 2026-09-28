@@ -19,16 +19,14 @@ use serde::Serialize;
 use serde_json::Value;
 use tracing::info;
 
-use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
-    tool_result_to_response,
+    answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 
 /// Annotations for the refresh tool — writes data (triggers sync), open world (external APIs)
 fn refresh_annotations() -> ToolAnnotations {
@@ -172,13 +170,11 @@ impl McpTool<dyn ToolRuntime> for RefreshProviderDataTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_TENANT
-                | ToolCapabilities::REQUIRES_PROVIDER
-                | ToolCapabilities::WRITES_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_TENANT
+            | ToolCapabilities::REQUIRES_PROVIDER
+            | ToolCapabilities::WRITES_DATA
     }
 
     async fn execute(
@@ -290,12 +286,10 @@ impl McpTool<dyn ToolRuntime> for GetDataFreshnessTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_TENANT
-                | ToolCapabilities::READS_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_TENANT
+            | ToolCapabilities::READS_DATA
     }
 
     async fn execute(

@@ -32,8 +32,7 @@ use pierre_core::errors::ErrorCode;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_database::backends::CreateChannelLinkParams;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_mcp_server::services::messaging_ingress::resolve_messaging_locale;
-use pierre_services::locale::resolve_user_locale;
+use pierre_services::locale::{resolve_channel_locale, resolve_user_locale};
 use tokio::task::spawn_blocking;
 use uuid::Uuid;
 
@@ -398,8 +397,15 @@ async fn resolve_locale_prefers_channel_link_override() {
         .await
         .expect("set_channel_link_locale");
 
-    let resolved =
-        resolve_messaging_locale(&resources, tenant_id, user_id, "telegram", "tg-42").await;
+    let resolved = resolve_channel_locale(
+        resources.common.repos.messaging.as_ref(),
+        resources.common.repos.users.as_ref(),
+        tenant_id,
+        "telegram",
+        "tg-42",
+        Some(user_id),
+    )
+    .await;
     assert_eq!(
         resolved, "de",
         "channel-link override must beat users.locale"
@@ -413,8 +419,15 @@ async fn resolve_locale_prefers_channel_link_override() {
         .await
         .expect("clear channel_link_locale");
 
-    let resolved =
-        resolve_messaging_locale(&resources, tenant_id, user_id, "telegram", "tg-42").await;
+    let resolved = resolve_channel_locale(
+        resources.common.repos.messaging.as_ref(),
+        resources.common.repos.users.as_ref(),
+        tenant_id,
+        "telegram",
+        "tg-42",
+        Some(user_id),
+    )
+    .await;
     assert_eq!(
         resolved, "es",
         "cleared override must fall through to users.locale"
@@ -451,9 +464,57 @@ async fn resolve_locale_returns_default_when_nothing_set() {
     let resources = common::create_test_server_resources().await.unwrap();
     let (user_id, tenant_id) = seed_user_and_tenant(&resources).await;
 
-    let resolved =
-        resolve_messaging_locale(&resources, tenant_id, user_id, "telegram", "never-linked").await;
+    let resolved = resolve_channel_locale(
+        resources.common.repos.messaging.as_ref(),
+        resources.common.repos.users.as_ref(),
+        tenant_id,
+        "telegram",
+        "never-linked",
+        Some(user_id),
+    )
+    .await;
     assert_eq!(resolved, "fr");
+}
+
+/// A channel identity the platform cannot yet tie to a user (an unlinked
+/// sender being refused, a link attempt that failed) still reads its channel
+/// override, and otherwise the default — never a profile it does not have.
+#[tokio::test]
+async fn channel_locale_without_a_user_reads_the_override_then_the_default() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let (user_id, tenant_id) = seed_user_and_tenant(&resources).await;
+    resources
+        .common
+        .repos
+        .messaging
+        .create_channel_link(&CreateChannelLinkParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id,
+            user_id: &user_id.to_string(),
+            channel_type: "telegram",
+            channel_user_id: "tg-77",
+            display_name: None,
+        })
+        .await
+        .expect("create_channel_link");
+    resources
+        .common
+        .repos
+        .messaging
+        .set_channel_link_locale(tenant_id, &user_id.to_string(), "telegram", Some("pt"))
+        .await
+        .expect("set_channel_link_locale");
+
+    let messaging = resources.common.repos.messaging.as_ref();
+    let users = resources.common.repos.users.as_ref();
+    assert_eq!(
+        resolve_channel_locale(messaging, users, tenant_id, "telegram", "tg-77", None).await,
+        "pt"
+    );
+    assert_eq!(
+        resolve_channel_locale(messaging, users, tenant_id, "telegram", "unknown", None).await,
+        "fr"
+    );
 }
 
 /// The shared resolver answers "what language does this athlete read" for every

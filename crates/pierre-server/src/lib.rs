@@ -97,10 +97,6 @@ pub mod context;
 /// Feature flag configuration and validation
 pub mod features;
 
-/// Health checks and monitoring (extracted to `pierre_health`, re-exported here so
-/// `crate::health::*` keeps resolving for in-crate callers and tests).
-pub use pierre_health as health;
-
 /// Model Context Protocol server implementation
 pub mod mcp;
 
@@ -124,6 +120,8 @@ pub mod startup_banner;
 
 // Re-export messaging outbound worker and channel seeder for binary startup
 pub use crate::services::coaching_workers::start_coaching_workers;
+#[cfg(feature = "health-sync")]
+pub use crate::services::personal_best_seed::start_personal_best_seed;
 pub use crate::services::seat_reclaim_worker::start_seat_reclaim_worker;
 pub use pierre_services::agent_followup_scheduler::start_followup_scheduler;
 pub use pierre_services::mcp_task_sweeper::start_mcp_task_sweeper;

@@ -129,6 +129,7 @@ use crate::errors::{AppError, AppResult};
 use crate::models::TenantId;
 use crate::models::{
     Activity, Athlete, CalendarEventRef, PersonalRecord, PlannedSession, PlannedWorkout, Stats,
+    TimeSeriesData,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use async_trait::async_trait;
@@ -456,6 +457,22 @@ pub trait FitnessProvider: Send + Sync {
         self.get_activity_detailed(id).await
     }
 
+    /// Get one activity's per-sample time series without the activity itself.
+    ///
+    /// For a caller that already holds the activity — a sync that listed it —
+    /// and needs only its samples: where a provider serves streams on their
+    /// own endpoint this is one round trip, where
+    /// [`get_activity_with_streams`](Self::get_activity_with_streams) pays two.
+    /// The default reads the series off that fuller fetch. `Ok(None)` is an
+    /// activity recorded without samples, or a provider with no stream source.
+    async fn get_activity_streams(&self, id: &str) -> AppResult<Option<TimeSeriesData>> {
+        Ok(self
+            .get_activity_with_streams(id)
+            .await?
+            .time_series_data()
+            .cloned())
+    }
+
     /// Get user's aggregate statistics
     ///
     /// # Example
@@ -685,6 +702,13 @@ impl FitnessProvider for TenantProvider {
     // call would silently take the streams-less default.
     async fn get_activity_with_streams(&self, id: &str) -> AppResult<Activity> {
         self.inner.get_activity_with_streams(id).await
+    }
+
+    // Same rule again: without it, a tenant-scoped streams read would take
+    // the default and pay the detail round trip the provider's own override
+    // exists to skip.
+    async fn get_activity_streams(&self, id: &str) -> AppResult<Option<TimeSeriesData>> {
+        self.inner.get_activity_streams(id).await
     }
 
     async fn get_stats(&self) -> AppResult<Stats> {

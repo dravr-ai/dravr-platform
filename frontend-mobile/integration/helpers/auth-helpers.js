@@ -208,7 +208,7 @@ async function authenticatedRequest(endpoint, accessToken, options = {}) {
  */
 async function isTokenValid(accessToken) {
   const result = await authenticatedRequest(
-    '/api/dashboard/overview',
+    '/api/chat/conversations',
     accessToken
   );
   return result.success || result.status !== 401;

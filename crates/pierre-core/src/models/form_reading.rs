@@ -24,54 +24,64 @@
 //! [`FormReading::interpretation`] carries the method as well as the bands: a
 //! number the agent cannot explain is a number the athlete stops believing.
 //!
-//! Every field here comes off [`FormBand`], which lives in the sports-science
-//! engine so the edges are defined once. Nothing in this module re-derives a
-//! threshold.
+//! Every field here comes off [`FormBand`] and the training-load types of the
+//! sports-science engine, so the edges and the form convention are defined
+//! once. Nothing in this module re-derives a threshold or divides a TSB.
+//!
+//! Form follows the Coggan/TrainingPeaks convention: CTL and ATL describe the
+//! end of the day, while form on the day is CTL minus ATL at the end of the day
+//! before, read as a share of that same day's CTL (`form_ctl`). A reading is
+//! therefore only ever built from a whole cageux load, which carries the pair
+//! from one day, never from a TSB and a CTL handed over separately.
 
+use dravr_cageux::algorithms::training_load::DailyTrainingLoad;
+use dravr_cageux::training_load::TrainingLoad;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 
 use super::FormBand;
 
 /// An athlete's training load and the form reading derived from it.
 #[derive(Debug, Clone, Copy)]
 pub struct FormReading {
-    /// Chronic Training Load — fitness.
+    /// Chronic Training Load — fitness, at the end of the day.
     pub ctl: f64,
-    /// Acute Training Load — fatigue.
+    /// Acute Training Load — fatigue, at the end of the day.
     pub atl: f64,
-    /// Training Stress Balance, `ctl - atl`. Never banded on its own.
+    /// Training Stress Balance — form on the day: CTL minus ATL at the end of
+    /// the day before. Never banded on its own.
     pub tsb: f64,
-    /// `tsb` as a percentage of `ctl`, `None` with no chronic base to scale it.
+    /// CTL at the end of the day before — the fitness `tsb` is a share of.
+    pub form_ctl: f64,
+    /// `tsb` as a percentage of `form_ctl`, `None` with no chronic base to
+    /// scale it.
     pub form_pct: Option<f64>,
     /// The band [`Self::form_pct`] falls in.
     pub band: FormBand,
 }
 
 impl FormReading {
-    /// Read form from a load triple.
+    /// Read form from a training-load calculation for one day.
     #[must_use]
-    pub fn new(ctl: f64, atl: f64, tsb: f64) -> Self {
-        let form_pct = FormBand::form_pct(tsb, ctl);
+    pub fn from_training_load(load: &TrainingLoad) -> Self {
+        Self::read(load.ctl, load.atl, load.tsb, load.form_ctl, load.form_pct())
+    }
+
+    /// Read form from one day of a per-day training-load series.
+    #[must_use]
+    pub fn from_daily_load(load: &DailyTrainingLoad) -> Self {
+        Self::read(load.ctl, load.atl, load.tsb, load.form_ctl, load.form_pct())
+    }
+
+    /// Assemble a reading around the percentage cageux computed from the pair.
+    fn read(ctl: f64, atl: f64, tsb: f64, form_ctl: f64, form_pct: Option<f64>) -> Self {
         Self {
             ctl,
             atl,
             tsb,
+            form_ctl,
             form_pct,
             band: FormBand::from_form_pct(form_pct),
         }
-    }
-
-    /// The load-metric object every JSON tool response embeds.
-    #[must_use]
-    pub fn metrics_json(&self) -> Value {
-        json!({
-            "ctl": self.ctl.round(),
-            "atl": self.atl.round(),
-            "tsb": self.tsb.round(),
-            "tsb_pct_of_ctl": self.form_pct.map(f64::round),
-            "form_band": self.band,
-        })
     }
 
     /// The one-line prose form, for a surface with no room for an object.
@@ -95,8 +105,8 @@ impl FormReading {
             |pct| {
                 // `pct.round()` rather than `{:.0}`: the two disagree on exact
                 // halves (-192.5 formats as -192, rounds to -193), and the
-                // prose must not quote a different percentage than
-                // `metrics_json` puts on the wire for the same reading.
+                // prose must not quote a different percentage than the tool
+                // outputs put on the wire (`form_pct.map(f64::round)`).
                 format!(
                     "TSB {:+.0} ({:.0}% of CTL, {})",
                     self.tsb,
@@ -131,10 +141,10 @@ impl FormReading {
         FormInterpretation {
             ctl: Self::ctl_definition(ctl_days),
             atl: format!("Acute Training Load - fatigue ({atl_days}-day exponentially-weighted average of daily TSS)"),
-            tsb: "Training Stress Balance - form (CTL - ATL); interpret via tsb_pct_of_ctl, not the raw number".to_owned(),
-            tsb_pct_of_ctl: "Form relative to this athlete's own fitness. null when there is no chronic base to normalize against, in which case form cannot be judged at all".to_owned(),
+            tsb: "Training Stress Balance - form on the day: CTL - ATL at the end of the day before, so a session moves the day's CTL and ATL but not its form; interpret via tsb_pct_of_ctl, not the raw number".to_owned(),
+            tsb_pct_of_ctl: "Form relative to this athlete's own fitness: TSB as a share of form_ctl, the CTL at the end of the day before. null when there is no chronic base to normalize against, in which case form cannot be judged at all".to_owned(),
             form_band: "The band tsb_pct_of_ctl falls in: insufficient_history when tsb_pct_of_ctl is null, deep_fatigue below -30%, heavy_block -30% to -20%, productive -20% to -10%, balanced -10% to +5%, fresh +5% to +20%, detraining above +20%. Describes fatigue relative to fitness; it is not an injury prediction".to_owned(),
-            method: format!("TSB = CTL - ATL, both exponentially-weighted moving averages of daily TSS over {ctl_days} and {atl_days} days. Daily TSS is estimated from power against FTP where available, else heart rate against LTHR, else pace. Days are the athlete's own calendar days."),
+            method: format!("TSB on a day = CTL - ATL at the end of the day before (the Coggan/TrainingPeaks convention), both exponentially-weighted moving averages of daily TSS over {ctl_days} and {atl_days} days; CTL and ATL count the day's own TSS once it lands. Daily TSS is estimated from power against FTP where available, else heart rate against LTHR, else pace. Days are the athlete's own calendar days."),
             deep_fatigue_is_not_overtraining: "A deeply negative form reading is the expected signal during a planned overload block. It describes accumulated fatigue relative to fitness, and says nothing on its own about whether the athlete is overtrained.".to_owned(),
         }
     }

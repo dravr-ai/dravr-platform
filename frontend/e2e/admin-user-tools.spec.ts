@@ -90,7 +90,7 @@ async function setupUserToolsMocks(page: Page): Promise<Map<string, boolean>> {
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ users: [alice], total_count: 1 }),
+      body: JSON.stringify({ success: true, message: 'Retrieved users', data: { users: [alice], total: 1, has_more: false } }),
     }),
   );
 

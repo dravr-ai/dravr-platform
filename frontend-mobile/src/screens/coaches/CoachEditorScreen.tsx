@@ -1,5 +1,5 @@
 // ABOUTME: The edit sheet for one of the athlete's own coaches — the only coach editor in the app
-// ABOUTME: Single scrollable page with collapsible sections; saves through update, deletes the coach
+// ABOUTME: Single scrollable page with collapsible sections; saves through update, deletes the coach, reverts to a stored version
 
 import React, { useState, useEffect, useCallback } from 'react';
 import {
@@ -22,7 +22,8 @@ import { Feather } from '@expo/vector-icons';
 import { spacing, useCardStyle, useThemeColors, categoryAccent, categoryInk } from '../../constants/theme';
 import { coachesApi } from '../../services/api';
 import { CollapsibleSection } from '../../components/ui';
-import type { UpdateAgentRequest } from '../../types';
+import type { Agent, UpdateAgentRequest } from '../../types';
+import { CoachVersionHistory } from './CoachVersionHistory';
 import { useTranslation } from '@pierre/i18n';
 
 // Category options with colors matching Stitch UX spec
@@ -77,23 +78,31 @@ export function CoachEditorScreen() {
   const [expandedTextArea, setExpandedTextArea] = useState(false);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
 
+  // Fill the form from a stored coach: on load, and again after a revert
+  // restores an earlier version, so a later save cannot write the
+  // pre-revert form back.
+  const hydrate = useCallback((coach: Agent) => {
+    setTitle(coach.title);
+    setCategory(coach.category);
+    setDescription(coach.description || '');
+    setSystemPrompt(coach.system_prompt);
+    setTags(coach.tags || []);
+    setStartupQuery(coach.startup_query || '');
+    if (coach.data_requirements?.activities) {
+      setPrefetchEnabled(true);
+      setActivityCount(coach.data_requirements.activities.count);
+      setTimeFrame(coach.data_requirements.activities.time_frame || '12w');
+      setDetailMode(coach.data_requirements.activities.mode || 'summary');
+      setAthleteProfile(coach.data_requirements?.athlete_profile || false);
+    } else {
+      setPrefetchEnabled(false);
+    }
+  }, []);
+
   const loadCoach = useCallback(async (id: string) => {
     try {
       setIsLoading(true);
-      const coach = await coachesApi.get(id);
-      setTitle(coach.title);
-      setCategory(coach.category);
-      setDescription(coach.description || '');
-      setSystemPrompt(coach.system_prompt);
-      setTags(coach.tags || []);
-      setStartupQuery(coach.startup_query || '');
-      if (coach.data_requirements?.activities) {
-        setPrefetchEnabled(true);
-        setActivityCount(coach.data_requirements.activities.count);
-        setTimeFrame(coach.data_requirements.activities.time_frame || '12w');
-        setDetailMode(coach.data_requirements.activities.mode || 'summary');
-        setAthleteProfile(coach.data_requirements?.athlete_profile || false);
-      }
+      hydrate(await coachesApi.get(id));
     } catch (error) {
       console.error('Failed to load coach:', error);
       Alert.alert(t('common.error'), t('app.failedLoadAgentData'));
@@ -101,7 +110,7 @@ export function CoachEditorScreen() {
     } finally {
       setIsLoading(false);
     }
-  }, [router, t]);
+  }, [hydrate, router, t]);
 
   useEffect(() => {
     if (agentId) {
@@ -640,6 +649,8 @@ export function CoachEditorScreen() {
               </View>
             )}
           </CollapsibleSection>
+
+          <CoachVersionHistory agentId={agentId} onReverted={hydrate} />
 
           {/* Delete: the coach leaves the athlete's list, and this sheet closes with it */}
           <TouchableOpacity

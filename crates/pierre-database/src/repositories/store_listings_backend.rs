@@ -514,22 +514,6 @@ macro_rules! impl_store_listings_repository {
                     .transpose()
             }
 
-            async fn get_category_counts(&self) -> AppResult<HashMap<AgentCategory, i64>> {
-                let rows = sqlx::query(CATEGORY_COUNTS_SQL)
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to get category counts: {e}"))
-                    })?;
-                let mut counts = HashMap::new();
-                for row in &rows {
-                    let category: String = column(row, "category")?;
-                    let count: i64 = column(row, "count")?;
-                    counts.insert(AgentCategory::parse(&category), count);
-                }
-                Ok(counts)
-            }
-
             async fn increment_install_count(&self, agent_id: &str) -> AppResult<()> {
                 sqlx::query(INCREMENT_INSTALLS_SQL)
                     .bind(Utc::now())
@@ -683,32 +667,6 @@ macro_rules! impl_store_listings_repository {
                         AppError::database(format!("Failed to get installed coaches: {e}"))
                     })?;
                 rows.iter().map($agent_row).collect()
-            }
-
-            async fn ensure_listing(
-                &self,
-                agent_id: &str,
-                tenant_id: TenantId,
-            ) -> AppResult<StoreListing> {
-                if let Some(listing) = self.get_listing(agent_id).await? {
-                    return Ok(listing);
-                }
-
-                sqlx::query(INSERT_DRAFT_LISTING_SQL)
-                    .bind(Uuid::new_v4().to_string())
-                    .bind(agent_id)
-                    .bind(tenant_id.to_string())
-                    .bind(PublishStatus::Draft.as_str())
-                    .bind(Utc::now())
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to create store listing: {e}"))
-                    })?;
-
-                self.get_listing(agent_id)
-                    .await?
-                    .ok_or_else(|| AppError::internal("Failed to fetch created listing"))
             }
         }
     };

@@ -261,6 +261,7 @@ fn test_time_series_data_model() {
             (45.5026, -73.5664),
             (45.5029, -73.5661),
         ]),
+        distance: None,
     };
 
     // Verify data integrity

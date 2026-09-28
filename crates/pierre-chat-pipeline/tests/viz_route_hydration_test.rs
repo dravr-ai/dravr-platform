@@ -64,6 +64,7 @@ fn hill_streams() -> TimeSeriesData {
         altitude: Some(altitude),
         temperature: None,
         gps_coordinates: Some(gps_coordinates),
+        distance: None,
     }
 }
 

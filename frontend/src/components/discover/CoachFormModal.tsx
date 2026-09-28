@@ -9,6 +9,7 @@ import {
   MAX_MAX_TOOL_ITERATIONS,
   DEFAULT_MAX_TOOL_ITERATIONS,
 } from '@pierre/shared-constants';
+import type { ReactNode } from 'react';
 import type { AgentFormData } from './coachForm';
 import { Select, Textarea, Radio } from '../ui';
 import { useTranslation } from '@pierre/i18n';
@@ -35,6 +36,8 @@ interface CoachFormModalProps {
   submitError: boolean;
   /** Offered as "Delete this agent" under the form when the mount owns deletion. */
   onDelete?: () => void;
+  /** Groups the mount adds under the form, such as the agent's version history. */
+  children?: ReactNode;
 }
 
 export default function CoachFormModal({
@@ -46,6 +49,7 @@ export default function CoachFormModal({
   isSubmitting,
   submitError,
   onDelete,
+  children,
 }: CoachFormModalProps) {
   const { t } = useTranslation();
   if (!isOpen) return null;
@@ -291,6 +295,8 @@ export default function CoachFormModal({
               </div>
             )}
           </form>
+
+          {children && <div className="mt-6 border-t ghost-border pt-4 space-y-8">{children}</div>}
         </div>
       </div>
     </div>

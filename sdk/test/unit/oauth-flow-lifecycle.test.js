@@ -29,7 +29,6 @@ describe('authorization wait lifecycle', () => {
 
     expect(provider.codeVerifierValue).toBeUndefined();
     expect(provider.stateValue).toBeUndefined();
-    expect(provider.callbackAuthToken).toBeUndefined();
     expect(provider.callbackServer).toBeUndefined();
     expect(provider.authorizationPending).toBeUndefined();
 

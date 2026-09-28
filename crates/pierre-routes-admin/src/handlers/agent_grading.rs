@@ -70,7 +70,7 @@ pub async fn handle_get_summary(
         })?;
 
     info!(
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         tenant = %params.tenant_id,
         verdicts_scanned = summary.verdicts_scanned,
         agents = summary.grades.len(),

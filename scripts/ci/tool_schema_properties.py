@@ -1,5 +1,5 @@
 # ABOUTME: Attributes declared properties and rejection sites to the tool that owns them
-# ABOUTME: Shared by check-contremaitre-sync.sh Check 9 and check-declared-parameters.sh
+# ABOUTME: Shared by check-contremaitre-sync.sh Check 7 and check-declared-parameters.sh
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
@@ -31,7 +31,7 @@
 # WHY NOT PER FILE, AND WHY NOT PER MODULE
 #
 # Per file is wrong in both directions: one file defines many tools, so tool A's
-# read looks like tool B's undeclared parameter (78 false positives in Check 9's
+# read looks like tool B's undeclared parameter (78 false positives in Check 7's
 # first run), and a schema in `mod.rs` does not sit in the same file as its
 # handler in `inner.rs`.
 #

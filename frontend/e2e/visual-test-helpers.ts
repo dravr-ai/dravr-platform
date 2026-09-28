@@ -42,51 +42,6 @@ export const VISUAL_TEST_CONFIG = {
  * Complements the base dashboard mocks with endpoints needed for visual tests.
  */
 async function setupAdditionalMocks(page: Page): Promise<void> {
-  // Mock request logs (Monitor tab) - returns array with correct field names
-  await page.route('**/api/dashboard/request-logs**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([
-        {
-          id: 'log-1',
-          api_key_id: 'key-1',
-          api_key_name: 'test-key',
-          tool_name: 'get_activities',
-          status_code: 200,
-          response_time_ms: 150,
-          timestamp: new Date().toISOString(),
-          error_message: null,
-        },
-        {
-          id: 'log-2',
-          api_key_id: 'key-1',
-          api_key_name: 'test-key',
-          tool_name: 'get_athlete',
-          status_code: 200,
-          response_time_ms: 85,
-          timestamp: new Date().toISOString(),
-          error_message: null,
-        },
-      ]),
-    });
-  });
-
-  // Mock request stats (Monitor tab) - matches RequestStats interface with all fields
-  await page.route('**/api/dashboard/request-stats**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        total_requests: 100,
-        successful_requests: 95,
-        average_response_time: 120,
-        error_requests: 5,
-        requests_per_minute: 2.5,
-      }),
-    });
-  });
-
   // Mock tool usage breakdown (Tools tab) - this is what ToolUsageBreakdown component uses
   await page.route('**/api/dashboard/tool-usage**', async (route) => {
     await route.fulfill({

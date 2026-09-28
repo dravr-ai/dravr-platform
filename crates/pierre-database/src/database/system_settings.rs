@@ -1,14 +1,16 @@
 // ABOUTME: System settings database operations for admin-configurable options
-// ABOUTME: Provides get/set operations for settings like auto-approval
+// ABOUTME: The setting type and keys; the SQL is written once in repositories/system_settings.rs
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 use super::Database;
+use crate::repositories::system_settings::{
+    impl_system_settings, system_setting_from_row, GET_SYSTEM_SETTING_SQL, SET_SYSTEM_SETTING_SQL,
+};
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
-use sqlx::Row;
 
 /// System setting key constants
 pub const SETTING_AUTO_APPROVAL_ENABLED: &str = "auto_approval_enabled";
@@ -32,128 +34,4 @@ pub struct SystemSetting {
     pub updated_at: chrono::DateTime<Utc>,
 }
 
-impl Database {
-    /// Get a system setting by key
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database query fails
-    pub async fn get_system_setting(&self, key: &str) -> AppResult<Option<SystemSetting>> {
-        let row = sqlx::query(
-            r"
-            SELECT key, value, description, updated_at
-            FROM system_settings
-            WHERE key = ?1
-            ",
-        )
-        .bind(key)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get system setting: {e}")))?;
-
-        row.map_or(Ok(None), |row| {
-            let updated_at_str: String = row.get("updated_at");
-            let updated_at = chrono::DateTime::parse_from_rfc3339(&updated_at_str)
-                .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
-
-            Ok(Some(SystemSetting {
-                key: row.get("key"),
-                value: row.get("value"),
-                description: row.get("description"),
-                updated_at,
-            }))
-        })
-    }
-
-    /// Set a system setting value
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database operation fails
-    pub async fn set_system_setting(&self, key: &str, value: &str) -> AppResult<()> {
-        let now = Utc::now().to_rfc3339();
-
-        sqlx::query(
-            r"
-            INSERT INTO system_settings (key, value, created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?3)
-            ON CONFLICT(key) DO UPDATE SET
-                value = ?2,
-                updated_at = ?3
-            ",
-        )
-        .bind(key)
-        .bind(value)
-        .bind(&now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to set system setting: {e}")))?;
-
-        Ok(())
-    }
-
-    /// Get all system settings
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database query fails
-    pub async fn get_all_system_settings(&self) -> AppResult<Vec<SystemSetting>> {
-        let rows = sqlx::query(
-            r"
-            SELECT key, value, description, updated_at
-            FROM system_settings
-            ORDER BY key
-            ",
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get system settings: {e}")))?;
-
-        let mut settings = Vec::with_capacity(rows.len());
-        for row in rows {
-            let updated_at_str: String = row.get("updated_at");
-            let updated_at = chrono::DateTime::parse_from_rfc3339(&updated_at_str)
-                .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
-
-            settings.push(SystemSetting {
-                key: row.get("key"),
-                value: row.get("value"),
-                description: row.get("description"),
-                updated_at,
-            });
-        }
-
-        Ok(settings)
-    }
-
-    /// Check if auto-approval is enabled in database
-    ///
-    /// Returns `Some(true/false)` if explicitly set in database,
-    /// or `None` if no database setting exists (caller should use config default).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database query fails
-    pub async fn is_auto_approval_enabled(&self) -> AppResult<Option<bool>> {
-        match self
-            .get_system_setting(SETTING_AUTO_APPROVAL_ENABLED)
-            .await?
-        {
-            Some(setting) => Ok(Some(setting.value.eq_ignore_ascii_case("true"))),
-            None => Ok(None), // No database setting - caller should use config default
-        }
-    }
-
-    /// Set auto-approval enabled state
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database operation fails
-    pub async fn set_auto_approval_enabled(&self, enabled: bool) -> AppResult<()> {
-        self.set_system_setting(
-            SETTING_AUTO_APPROVAL_ENABLED,
-            if enabled { "true" } else { "false" },
-        )
-        .await
-    }
-}
+impl_system_settings!(Database);

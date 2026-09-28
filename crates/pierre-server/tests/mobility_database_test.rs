@@ -324,24 +324,6 @@ async fn test_get_stretching_exercise_not_found() {
 }
 
 #[tokio::test]
-async fn test_search_stretching_exercises() {
-    let db = create_test_db().await.unwrap();
-
-    insert_test_stretch(&db, "stretch-1", "Hamstring Stretch", "static", "beginner").await;
-    insert_test_stretch(&db, "stretch-2", "Quad Stretch", "static", "beginner").await;
-    insert_test_stretch(&db, "stretch-3", "Calf Raise", "dynamic", "beginner").await;
-
-    let manager = db.repositories().mobility;
-
-    let results = manager
-        .search_stretching_exercises("stretch", None)
-        .await
-        .unwrap();
-
-    assert_eq!(results.len(), 2); // Only matches "Hamstring Stretch" and "Quad Stretch"
-}
-
-#[tokio::test]
 async fn test_list_stretching_with_pagination() {
     let db = create_test_db().await.unwrap();
 
@@ -509,29 +491,6 @@ async fn test_get_yoga_pose_not_found() {
     let result = manager.get_yoga_pose("nonexistent").await.unwrap();
 
     assert!(result.is_none());
-}
-
-#[tokio::test]
-async fn test_search_yoga_poses() {
-    let db = create_test_db().await.unwrap();
-
-    insert_test_pose(&db, "pose-1", "Warrior I", "standing", "beginner", r"[]").await;
-    insert_test_pose(&db, "pose-2", "Warrior II", "standing", "beginner", r"[]").await;
-    insert_test_pose(
-        &db,
-        "pose-3",
-        "Downward Dog",
-        "inversion",
-        "beginner",
-        r"[]",
-    )
-    .await;
-
-    let manager = db.repositories().mobility;
-
-    let results = manager.search_yoga_poses("warrior", None).await.unwrap();
-
-    assert_eq!(results.len(), 2);
 }
 
 #[tokio::test]

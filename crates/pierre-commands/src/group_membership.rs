@@ -269,7 +269,7 @@ impl CommandHandler for GroupCreateHandler {
 
 /// Handler for `/group join <invite-code>`.
 ///
-/// Mirrors `POST /api/groups/join`: a member-kind invite adds the caller as
+/// The one door into a group: a member-kind invite adds the caller as
 /// an athlete through `GroupService::join_group`, a coach-kind invite
 /// attaches them as the group's human coach through
 /// `GroupService::redeem_coach_invite`, and both run under the group's own
@@ -401,7 +401,7 @@ impl GroupJoinHandler {
         group: &CoachingGroup,
         group_tenant: TenantId,
     ) -> Result<CommandResponse, AppError> {
-        // Eligibility as the REST route checks it: a roster-managing agent
+        // Eligibility: a roster-managing agent
         // (or a platform admin) who belongs to the group's tenant — athlete
         // membership is cross-tenant, agent attachment is not.
         let Some(user) = ctx.ctx.repos().users.get_global(ctx.user_id).await? else {

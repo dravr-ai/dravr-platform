@@ -134,7 +134,7 @@ pub async fn handle_device_approve_web(
     let outcome = if deny {
         repo.deny_device_authorization(&user_code).await
     } else {
-        repo.approve_device_authorization(&user_code, &user.email)
+        repo.approve_device_authorization(&user_code, &user.id.to_string())
             .await
     };
 
@@ -142,7 +142,7 @@ pub async fn handle_device_approve_web(
         Ok(true) => {
             info!(
                 user_code = %user_code,
-                approver = %user.email,
+                approver_id = %user.id,
                 action = if deny { "deny" } else { "approve" },
                 "Device login resolved via browser approval"
             );

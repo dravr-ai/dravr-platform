@@ -27,6 +27,8 @@ pub mod admin_ops;
 pub mod admin_settings;
 /// Advice capture: turn an agent recommendation into a PendingAdvice (playbook memory)
 pub mod advice_capture;
+/// Hourly sweep of expired API keys
+pub mod api_key_cleanup;
 /// Archetype aggregation: roll per-user playbooks into k-anonymous cold-start priors
 pub mod archetype_aggregation;
 
@@ -77,7 +79,7 @@ pub mod agent_followup_scheduler;
 /// Per-agent content grading derived from claim verdict history
 pub mod agent_grading;
 
-/// Agent markdown import: URL fetching, security validation, warnings, definition conversion
+/// Agent markdown import: warnings and definition conversion
 pub mod agent_import;
 
 /// Package-over-catalogue resolution of flavours, skeletons and workout templates for a plan's agent
@@ -213,9 +215,6 @@ pub mod channel_error_reply;
 /// Myth-busting summary over claim verdicts (top recurring claims, agents, categories)
 pub mod myth_busting;
 
-/// Best-effort bridge notification after a successful OAuth connection
-mod oauth_bridge_notify;
-
 /// OAuth flow orchestration: state validation, token exchange, credential storage
 pub mod oauth_flow;
 
@@ -299,13 +298,21 @@ pub mod quota_policy;
 /// concrete pierre-server `SseManager`.
 pub mod provider_refresh;
 
+/// The one sync-failure notice each failing provider owes an athlete,
+/// deduped on the connection and re-armed when a sync lands.
+pub mod sync_failure_notice;
+
+/// An athlete's all-time best efforts at the standard running distances, and
+/// the one notice each new one sends.
+pub mod personal_bests;
+
 /// The language an athlete reads, resolved once for every surface
 pub mod locale;
 
 /// One tick loop for every background worker
 pub mod periodic;
 
-/// Recipe import/export and markdown conversion
+/// Agent version diff computation
 pub mod recipes;
 
 /// Short-link table hygiene: periodic sweep of expired reconnect/connect links

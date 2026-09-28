@@ -1,4 +1,4 @@
-// ABOUTME: LLM token consumption analytics REST endpoints for admin dashboards and user usage views
+// ABOUTME: LLM token consumption analytics REST endpoints for admin dashboards
 // ABOUTME: Provides aggregated token usage, cost estimation, and daily time series data
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,9 +6,8 @@
 
 //! LLM consumption analytics routes
 //!
-//! Provides JWT-authenticated endpoints for querying aggregated LLM token usage.
-//! Two variants: user-scoped (`/api/usage/llm-consumption`) and admin-scoped
-//! (`/admin/usage/llm-consumption`) with tenant override support.
+//! Provides JWT-authenticated endpoints for querying aggregated LLM token usage,
+//! admin-scoped (`/admin/usage/llm-consumption`) with tenant override support.
 
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
@@ -157,7 +156,7 @@ async fn primary_tenant_for_user<C: MiddlewareCtx>(
 pub struct LlmConsumptionRoutes;
 
 impl LlmConsumptionRoutes {
-    /// Create LLM consumption routes (both user and admin variants).
+    /// Create the admin LLM consumption routes.
     ///
     /// Generic over [`MiddlewareCtx`] so the crate stays decoupled from
     /// `pierre-server`'s `ServerContext`.
@@ -166,10 +165,6 @@ impl LlmConsumptionRoutes {
         C: MiddlewareCtx,
     {
         Router::new()
-            .route(
-                "/api/usage/llm-consumption",
-                get(Self::get_user_consumption::<C>),
-            )
             .route(
                 "/admin/usage/llm-consumption",
                 get(Self::get_admin_consumption::<C>),
@@ -255,38 +250,6 @@ impl LlmConsumptionRoutes {
             breakdown,
             daily_series,
         }
-    }
-
-    /// GET /api/usage/llm-consumption — user-scoped consumption analytics
-    async fn get_user_consumption<C: MiddlewareCtx>(
-        State(resources): State<Arc<C>>,
-        auth: AuthenticatedUser,
-        Query(params): Query<LlmConsumptionQuery>,
-    ) -> Result<Response, AppError> {
-        let auth = auth.into_inner();
-        let tenant_id = primary_tenant_for_user(&auth, &resources).await?;
-        let tenant_id_str = tenant_id.to_string();
-
-        let days = params.days.unwrap_or(DEFAULT_DAYS);
-        let since = Self::compute_since(days);
-        let group_by = params
-            .group_by
-            .as_deref()
-            .and_then(LlmUsageGroupBy::from_str_param);
-
-        let aggregates = resources
-            .repos()
-            .llm_usage
-            .get_llm_usage_aggregates(&tenant_id_str, &since)
-            .await?;
-        let daily = resources
-            .repos()
-            .llm_usage
-            .get_llm_usage_daily_series(&tenant_id_str, &since)
-            .await?;
-
-        let response = Self::build_response(&aggregates, daily, group_by);
-        Ok((StatusCode::OK, Json(response)).into_response())
     }
 
     /// GET /admin/usage/llm-consumption — admin-scoped consumption analytics

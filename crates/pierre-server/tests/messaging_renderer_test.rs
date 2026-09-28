@@ -146,17 +146,6 @@ mod whatsapp {
         assert!(body.contains("Your 5K plan is ready"));
         assert!(body.contains("View Plan"));
     }
-
-    #[test]
-    fn test_capabilities() {
-        let r = renderer();
-        assert_eq!(r.max_message_length(), 4096);
-        assert!(r.supports_media());
-        // WhatsApp used to be the one renderer answering false here, which is
-        // what kept the platform degrading every card to text before it ever
-        // reached this file. Reply buttons and list menus changed that.
-        assert!(r.supports_cards());
-    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -211,14 +200,6 @@ mod messenger {
         assert_eq!(element["title"], "Training Plan");
         assert_eq!(element["subtitle"], "Your 5K plan is ready.");
     }
-
-    #[test]
-    fn test_capabilities() {
-        let r = renderer();
-        assert_eq!(r.max_message_length(), 2000);
-        assert!(r.supports_media());
-        assert!(r.supports_cards());
-    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -260,14 +241,6 @@ mod discord {
         // Discord uses action rows with buttons
         let components = &payload["components"][0]["components"];
         assert!(components.is_array());
-    }
-
-    #[test]
-    fn test_capabilities() {
-        let r = renderer();
-        assert_eq!(r.max_message_length(), 2000);
-        assert!(r.supports_media());
-        assert!(r.supports_cards());
     }
 }
 
@@ -322,14 +295,6 @@ mod slack {
         assert!(has_header, "Card should have header block");
         assert!(has_actions, "Card should have actions block");
     }
-
-    #[test]
-    fn test_capabilities() {
-        let r = renderer();
-        assert_eq!(r.max_message_length(), 40000);
-        assert!(r.supports_media());
-        assert!(r.supports_cards());
-    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -373,14 +338,6 @@ mod telegram {
         let keyboard = &payload["reply_markup"]["inline_keyboard"];
         assert!(keyboard.is_array());
         assert!(!keyboard.as_array().unwrap().is_empty());
-    }
-
-    #[test]
-    fn test_capabilities() {
-        let r = renderer();
-        assert_eq!(r.max_message_length(), 4096);
-        assert!(r.supports_media());
-        assert!(r.supports_cards());
     }
 
     #[test]

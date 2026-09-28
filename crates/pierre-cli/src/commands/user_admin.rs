@@ -118,7 +118,7 @@ fn print_page(users: &[Value], format: OutputFormat, header: bool) {
 
 /// Filters and paging for a listing.
 pub struct GetUsersArgs {
-    /// Status to list. `None` lets the server default to active.
+    /// Status to list (`all` for every account). `None` lets the server default to active.
     pub status: Option<String>,
     /// Tier filter, or `None` for every tier.
     pub tier: Option<String>,
@@ -192,18 +192,15 @@ pub async fn get_users(client: &RemoteClient, args: &GetUsersArgs) -> AppResult<
     Ok(())
 }
 
-/// Every status the admin listing filters by, in the order a lookup walks them.
-const USER_STATUSES: [&str; 3] = ["active", "pending", "suspended"];
-
 /// Resolve an email or id to a user id.
 ///
 /// The admin routes are keyed by id, but an operator reaches for the email —
 /// it is what they see in Telegram, in a support thread, and in this command's
 /// own listing. A value that parses as a UUID is taken as an id; anything else
-/// is looked up by paging the listing, so `user set jf@dravr.ai --tier ...`
-/// works without a round trip through the UI to copy an id. Every status is
-/// searched, because the listing defaults to active and the account an
-/// operator is about to delete is often suspended.
+/// is looked up by paging the listing over every status (`status=all`), so
+/// `user set jf@dravr.ai --tier ...` works without a round trip through the UI
+/// to copy an id, and the suspended account an operator is about to delete is
+/// found as readily as an active one.
 ///
 /// # Errors
 ///
@@ -214,23 +211,9 @@ pub async fn resolve_user_id(client: &RemoteClient, selector: &str) -> AppResult
         return Ok(selector.to_owned());
     }
     let wanted = selector.to_ascii_lowercase();
-    for status in USER_STATUSES {
-        if let Some(id) = find_user_in_status(client, &wanted, status).await? {
-            return Ok(id);
-        }
-    }
-    Err(AppError::not_found(format!("User with email {selector}")))
-}
-
-/// Page one status of the listing for a lowercase email.
-async fn find_user_in_status(
-    client: &RemoteClient,
-    wanted: &str,
-    status: &str,
-) -> AppResult<Option<String>> {
     let mut cursor: Option<String> = None;
     loop {
-        let mut path = format!("/admin/users?status={status}&limit=100&");
+        let mut path = String::from("/admin/users?status=all&limit=100&");
         if let Some(c) = cursor.as_deref() {
             let _ = write!(path, "cursor={c}&");
         }
@@ -239,7 +222,7 @@ async fn find_user_in_status(
         if let Some(users) = data.get("users").and_then(Value::as_array) {
             for u in users {
                 if field(u, "email").to_ascii_lowercase() == wanted {
-                    return Ok(Some(field(u, "id")));
+                    return Ok(field(u, "id"));
                 }
             }
         }
@@ -252,7 +235,7 @@ async fn find_user_in_status(
             .and_then(Value::as_str)
             .map(ToOwned::to_owned);
         if !has_more || cursor.is_none() {
-            return Ok(None);
+            return Err(AppError::not_found(format!("User with email {selector}")));
         }
     }
 }

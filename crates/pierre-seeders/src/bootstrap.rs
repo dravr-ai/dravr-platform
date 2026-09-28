@@ -26,6 +26,7 @@ use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::seed_models::{SeedDemoUser, SeedTenant, SEED_LOCALE};
 use pierre_database::RepositoryRegistry;
+use pierre_middleware::mask_email;
 use tracing::info;
 use uuid::Uuid;
 
@@ -223,10 +224,10 @@ async fn sync_user(
     let existing = repos.seeder.seed_check_user_exists(email).await?;
     if let Some(id) = existing {
         upsert_user_credentials(repos, email, display_name, password, tier, is_admin).await?;
-        info!("Updated user credentials: {email} ({id})");
+        info!("Updated user credentials: {} ({id})", mask_email(email));
     } else {
         let id = create_user(repos, email, display_name, password, tier, is_admin).await?;
-        info!("Created user: {email} ({id})");
+        info!("Created user: {} ({id})", mask_email(email));
     }
     Ok(())
 }

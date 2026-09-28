@@ -13,7 +13,7 @@ test.describe('Admin nav audit fixes (gist 56c1c1d7)', () => {
       r.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ tokens: [] }),
+        body: JSON.stringify({ success: true, message: 'Retrieved 0 admin tokens', data: { count: 0, tokens: [] } }),
       }),
     );
     await setupAndLoginAsAdmin(page);
@@ -27,20 +27,25 @@ test.describe('Admin nav audit fixes (gist 56c1c1d7)', () => {
     const now = Date.now();
     const day = 86_400_000;
     // Override AFTER setup so our handler runs first (Playwright evaluates
-    // routes in reverse registration order). getAllUsers() unwraps
-    // `response.data.users`, so the body shape is `{ users: [...] }`.
+    // routes in reverse registration order). getAllUsers() pages the admin
+    // handler's `{ success, message, data: { users, has_more } }` envelope.
     await page.route('**/api/admin/users**', (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          users: [
-            { id: 'u1', email: 'u1@x', last_active: new Date(now - 0.5 * day).toISOString() },
-            { id: 'u2', email: 'u2@x', last_active: new Date(now - 0.5 * day).toISOString() },
-            { id: 'u3', email: 'u3@x', last_active: new Date(now - 3 * day).toISOString() },
-            { id: 'u4', email: 'u4@x', last_active: new Date(now - 20 * day).toISOString() },
-          ],
-          total_count: 4,
+          success: true,
+          message: 'Retrieved users',
+          data: {
+            users: [
+              { id: 'u1', email: 'u1@x', last_active: new Date(now - 0.5 * day).toISOString() },
+              { id: 'u2', email: 'u2@x', last_active: new Date(now - 0.5 * day).toISOString() },
+              { id: 'u3', email: 'u3@x', last_active: new Date(now - 3 * day).toISOString() },
+              { id: 'u4', email: 'u4@x', last_active: new Date(now - 20 * day).toISOString() },
+            ],
+            total: 4,
+            has_more: false,
+          },
         }),
       }),
     );
@@ -95,7 +100,7 @@ test.describe('Admin nav audit fixes (gist 56c1c1d7)', () => {
       r.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ users: [], total_count: 0 }),
+        body: JSON.stringify({ success: true, message: 'Retrieved users', data: { users: [], total: 0, has_more: false } }),
       }),
     );
     await page.route('**/api/dashboard/analytics**', (r) =>

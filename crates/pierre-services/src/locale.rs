@@ -1,5 +1,5 @@
 // ABOUTME: One resolver for "what language does this athlete read" — tenant-scoped, with a default
-// ABOUTME: Replaces ten hand-written copies, two of which disagreed about the empty-string case
+// ABOUTME: Also the channel chain: per-channel link override, then the athlete's profile, then the default
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -23,8 +23,8 @@
 //! join risks the wrong language for no isolation gain.
 
 use pierre_contremaitre::messaging_strings::DEFAULT_LOCALE;
-use pierre_core::models::User;
-use pierre_database::repositories::UserRepository;
+use pierre_core::models::{TenantId, User};
+use pierre_database::repositories::{MessagingRepository, UserRepository};
 use uuid::Uuid;
 
 /// The locale an athlete reads, or [`DEFAULT_LOCALE`] when they have no usable
@@ -47,4 +47,42 @@ pub fn user_locale(user: Option<&User>) -> String {
         .filter(|locale| !locale.trim().is_empty())
         .unwrap_or(DEFAULT_LOCALE)
         .to_owned()
+}
+
+/// The locale an athlete reads on one messaging channel.
+///
+/// Walks the one fallback chain every channel surface uses:
+///
+/// 1. `messaging_channel_links.locale` for `(tenant, channel, channel_user_id)`
+///    — an explicit per-channel override (Telegram in English while the web
+///    app stays in French, for example)
+/// 2. the profile-wide preference, through [`resolve_user_locale`], when the
+///    Pierre user behind the channel identity is known (`user_id`)
+/// 3. [`DEFAULT_LOCALE`]
+///
+/// Never fails: an unreadable rung degrades to the next. This is the athlete's
+/// *stored* preference for the channel, which is what a platform string
+/// outside a turn (an OTP prompt, an error apology, a connect card, a
+/// scheduled notice) is written in; a coaching turn refines it from the
+/// language of the message itself.
+pub async fn resolve_channel_locale(
+    messaging: &dyn MessagingRepository,
+    users: &dyn UserRepository,
+    tenant_id: TenantId,
+    channel_type: &str,
+    channel_user_id: &str,
+    user_id: Option<Uuid>,
+) -> String {
+    if let Ok(Some(override_locale)) = messaging
+        .get_channel_link_locale(tenant_id, channel_type, channel_user_id)
+        .await
+    {
+        if !override_locale.trim().is_empty() {
+            return override_locale;
+        }
+    }
+    match user_id {
+        Some(user_id) => resolve_user_locale(users, user_id).await,
+        None => DEFAULT_LOCALE.to_owned(),
+    }
 }

@@ -9,8 +9,9 @@
 //! A `usage_counters` row is one `(tenant_id, user_id, counter_key, period)`
 //! bucket holding an integer `value`. Every key column is `TEXT` on both
 //! backends and binds as the text the caller holds; `period` is a
-//! caller-formatted bucket label (a day or a month), so the pruning compare
-//! is lexical on both engines by design. `updated_at` is `TIMESTAMPTZ` on
+//! caller-formatted bucket label that starts with its date (a day, a month,
+//! or a provider budget's window start), so the pruning compare is lexical on
+//! both engines by design. `updated_at` is `TIMESTAMPTZ` on
 //! Postgres and RFC 3339 text on `SQLite`; it binds as [`DateTime<Utc>`] on
 //! both (sqlx-sqlite writes the bytes `to_rfc3339()` produces) and is read
 //! back as one, rendered RFC 3339 for the record. Nothing differs per
@@ -49,6 +50,21 @@ pub(crate) const INCREMENT_COUNTER_SQL: &str = concat!(
      RETURNING ",
     counter_columns!()
 );
+
+/// Add one to a bucket, creating it at one when absent, only while it holds
+/// fewer than `$5`.
+///
+/// The limit is the upsert's own `WHERE`, so the read of the value and the
+/// write are one statement: two instances racing for the last unit under the
+/// limit both reach the conflict branch, and only the first sees a value
+/// under it. Both drivers report zero rows changed when the `WHERE` refuses,
+/// the same losing-claim shape the worker ledger reads.
+pub(crate) const INCREMENT_COUNTER_BELOW_SQL: &str =
+    "INSERT INTO usage_counters (tenant_id, user_id, counter_key, period, value, updated_at) \
+     VALUES ($1, $2, $3, $4, 1, $6) \
+     ON CONFLICT (tenant_id, user_id, counter_key, period) \
+     DO UPDATE SET value = usage_counters.value + 1, updated_at = EXCLUDED.updated_at \
+     WHERE usage_counters.value < $5";
 
 /// One bucket, or no row when it was never incremented.
 pub(crate) const GET_COUNTER_SQL: &str = concat!(
@@ -130,6 +146,32 @@ macro_rules! impl_usage_counter_repository {
                         AppError::database(format!("Failed to increment usage counter: {e}"))
                     })?;
                 counter_from_row(&row)
+            }
+
+            async fn increment_counter_below(
+                &self,
+                tenant_id: &str,
+                user_id: &str,
+                counter_key: &str,
+                period: &str,
+                limit: i64,
+            ) -> AppResult<bool> {
+                if limit < 1 {
+                    return Ok(false);
+                }
+                let result = sqlx::query(INCREMENT_COUNTER_BELOW_SQL)
+                    .bind(tenant_id)
+                    .bind(user_id)
+                    .bind(counter_key)
+                    .bind(period)
+                    .bind(limit)
+                    .bind(Utc::now())
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to increment usage counter: {e}"))
+                    })?;
+                Ok(result.rows_affected() == 1)
             }
 
             async fn get_counter(

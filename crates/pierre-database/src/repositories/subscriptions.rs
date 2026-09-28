@@ -28,11 +28,6 @@ pub trait SubscriptionsRepository: Send + Sync {
     async fn upsert_subscription(&self, subscription: &Subscription) -> AppResult<Subscription>;
     /// Look up the most recently updated subscription for a user.
     async fn get_subscription_by_user(&self, user_id: Uuid) -> AppResult<Option<Subscription>>;
-    /// Look up the most recently updated subscription for a tenant.
-    async fn get_subscription_by_tenant(
-        &self,
-        tenant_id: TenantId,
-    ) -> AppResult<Option<Subscription>>;
     /// Look up a subscription by its provider-side subscription identifier.
     async fn get_subscription_by_provider_subscription_id(
         &self,
@@ -45,12 +40,6 @@ pub trait SubscriptionsRepository: Send + Sync {
         provider: &str,
         provider_customer_id: &str,
     ) -> AppResult<Option<Subscription>>;
-    /// List every subscription with the given lifecycle status.
-    /// Used by admin filter views and the dunning sweep.
-    async fn list_subscriptions_by_status(
-        &self,
-        status: SubscriptionStatus,
-    ) -> AppResult<Vec<Subscription>>;
 
     /// Returns true when the given `(provider, event_id)` has already
     /// been processed. The webhook handler skips dispatch on `true`,
@@ -127,19 +116,6 @@ pub(crate) const GET_SUBSCRIPTION_BY_USER_SQL: &str = concat!(
             "
 );
 
-/// The most recently updated subscription of one tenant.
-pub(crate) const GET_SUBSCRIPTION_BY_TENANT_SQL: &str = concat!(
-    "
-            SELECT ",
-    subscription_columns!(),
-    "
-            FROM subscriptions
-            WHERE tenant_id = $1
-            ORDER BY updated_at DESC
-            LIMIT 1
-            "
-);
-
 /// The subscription a provider knows by its subscription identifier.
 pub(crate) const GET_SUBSCRIPTION_BY_PROVIDER_SUBSCRIPTION_ID_SQL: &str = concat!(
     "
@@ -159,18 +135,6 @@ pub(crate) const GET_SUBSCRIPTION_BY_PROVIDER_CUSTOMER_ID_SQL: &str = concat!(
     "
             FROM subscriptions
             WHERE provider = $1 AND provider_customer_id = $2
-            "
-);
-
-/// Every subscription in one lifecycle status, most recently updated first.
-pub(crate) const LIST_SUBSCRIPTIONS_BY_STATUS_SQL: &str = concat!(
-    "
-            SELECT ",
-    subscription_columns!(),
-    "
-            FROM subscriptions
-            WHERE status = $1
-            ORDER BY updated_at DESC
             "
 );
 
@@ -321,20 +285,6 @@ macro_rules! impl_subscriptions_repository {
                 row.as_ref().map(subscription_from_row).transpose()
             }
 
-            async fn get_subscription_by_tenant(
-                &self,
-                tenant_id: TenantId,
-            ) -> AppResult<Option<Subscription>> {
-                let row = sqlx::query(GET_SUBSCRIPTION_BY_TENANT_SQL)
-                    .bind(tenant_id)
-                    .fetch_optional(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to fetch subscription by tenant: {e}"))
-                    })?;
-                row.as_ref().map(subscription_from_row).transpose()
-            }
-
             async fn get_subscription_by_provider_subscription_id(
                 &self,
                 provider: &str,
@@ -369,20 +319,6 @@ macro_rules! impl_subscriptions_repository {
                         ))
                     })?;
                 row.as_ref().map(subscription_from_row).transpose()
-            }
-
-            async fn list_subscriptions_by_status(
-                &self,
-                status: SubscriptionStatus,
-            ) -> AppResult<Vec<Subscription>> {
-                let rows = sqlx::query(LIST_SUBSCRIPTIONS_BY_STATUS_SQL)
-                    .bind(status.as_str())
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to list subscriptions by status: {e}"))
-                    })?;
-                rows.iter().map(subscription_from_row).collect()
             }
 
             async fn is_billing_event_processed(

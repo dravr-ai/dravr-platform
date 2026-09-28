@@ -17,11 +17,25 @@
 //!
 //! Every assertion here is about what travels *with* the number.
 
+use chrono::NaiveDate;
+use dravr_cageux::algorithms::training_load::DailyTrainingLoad;
 use pierre_core::models::{FormBand, FormReading};
+
+/// A reading on a day whose CTL did not move overnight, so the CTL form is a
+/// share of (yesterday's) is the one printed.
+fn steady(ctl: f64, atl: f64, tsb: f64) -> FormReading {
+    FormReading::from_daily_load(&DailyTrainingLoad {
+        date: NaiveDate::from_ymd_opt(2026, 9, 2).unwrap(),
+        ctl,
+        atl,
+        tsb,
+        form_ctl: ctl,
+    })
+}
 
 /// The athlete from the incident: CTL 120, ATL 197, TSB -77.
 fn raph() -> FormReading {
-    FormReading::new(120.0, 197.0, -77.0)
+    steady(120.0, 197.0, -77.0)
 }
 
 #[test]
@@ -58,8 +72,8 @@ fn the_inline_form_names_the_band_beside_the_number() {
 /// rendered text, not only in the enum.
 #[test]
 fn the_same_tsb_reads_differently_at_a_different_fitness() {
-    let elite = FormReading::new(300.0, 377.0, -77.0);
-    let novice = FormReading::new(40.0, 117.0, -77.0);
+    let elite = steady(300.0, 377.0, -77.0);
+    let novice = steady(40.0, 117.0, -77.0);
 
     assert_eq!(elite.band, FormBand::HeavyBlock);
     assert_eq!(novice.band, FormBand::DeepFatigue);
@@ -70,20 +84,20 @@ fn the_same_tsb_reads_differently_at_a_different_fitness() {
     );
     assert!(
         novice.inline().contains("-193% of CTL"),
-        "the prose percentage must match what metrics_json puts on the wire \
-         for the same reading: {}",
+        "the prose percentage must match what the tool outputs put on the \
+         wire for the same reading: {}",
         novice.inline()
     );
     assert_eq!(
-        novice.metrics_json()["tsb_pct_of_ctl"],
-        -193.0,
+        novice.form_pct.map(f64::round),
+        Some(-193.0),
         "and the wire must agree with the prose"
     );
 }
 
 #[test]
 fn without_a_chronic_base_the_reading_says_so_instead_of_shipping_a_bare_number() {
-    let reading = FormReading::new(0.5, 20.0, -19.7);
+    let reading = steady(0.5, 20.0, -19.7);
 
     assert!(reading.form_pct.is_none());
     assert_eq!(reading.band, FormBand::InsufficientHistory);
@@ -102,15 +116,35 @@ fn without_a_chronic_base_the_reading_says_so_instead_of_shipping_a_bare_number(
 }
 
 #[test]
-fn the_json_metrics_carry_the_band_and_the_percentage() {
-    let value = raph().metrics_json();
+fn the_reading_carries_the_band_and_the_percentage() {
+    let reading = raph();
 
-    assert_eq!(value["tsb"], -77.0);
-    assert_eq!(value["tsb_pct_of_ctl"], -64.0);
+    assert_eq!(reading.tsb.round().to_string(), "-77");
+    assert_eq!(reading.form_pct.map(f64::round), Some(-64.0));
+    let band = serde_json::to_value(reading.band).unwrap();
     assert_eq!(
-        value["form_band"], "deep_fatigue",
-        "the band serializes as the snake_case token every surface shares: {value}"
+        band, "deep_fatigue",
+        "the band serializes as the snake_case token every surface shares: {band}"
     );
+}
+
+/// Form is read against the CTL it came from — yesterday's — never against
+/// the day's own CTL, which a session today has already moved.
+#[test]
+fn the_reading_divides_form_by_the_ctl_it_was_read_from() {
+    let reading = FormReading::from_daily_load(&DailyTrainingLoad {
+        date: NaiveDate::from_ymd_opt(2026, 9, 27).unwrap(),
+        ctl: 99.19,
+        atl: 100.0,
+        tsb: -0.85,
+        form_ctl: 99.15,
+    });
+
+    assert!((reading.form_ctl - 99.15).abs() < f64::EPSILON);
+    let pct = reading.form_pct.expect("CTL 99 is a chronic base");
+    let expected = -0.85 / 99.15 * 100.0;
+    assert!((pct - expected).abs() < 1e-9, "got {pct}, want {expected}");
+    assert_eq!(reading.band, FormBand::Balanced);
 }
 
 /// The athlete asked *"Montre moi exactement comment tu calcules l'indice"* and
@@ -121,8 +155,8 @@ fn the_interpretation_states_the_method_and_the_windows() {
     let method = &value.method;
 
     assert!(
-        method.contains("CTL - ATL"),
-        "the formula itself must be stated: {method}"
+        method.contains("CTL - ATL at the end of the day before"),
+        "the formula itself must be stated, with the day it is read from: {method}"
     );
     assert!(
         method.contains("42") && method.contains('7'),

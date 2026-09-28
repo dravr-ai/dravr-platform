@@ -208,11 +208,6 @@ pub(crate) const SUM_LLM_USAGE_SINCE_SQL: &str = "SELECT CAST(COUNT(*) AS BIGINT
             CAST(COALESCE(SUM(total_tokens), 0) AS BIGINT) AS total_tokens \
      FROM llm_usage WHERE created_at >= $1";
 
-/// A tenant's spend over `[$2, $3)`.
-pub(crate) const SUM_COST_USD_FOR_TENANT_PERIOD_SQL: &str =
-    "SELECT COALESCE(SUM(cost_usd), 0.0) AS cost_usd \
-     FROM llm_usage WHERE tenant_id = $1 AND created_at >= $2 AND created_at < $3";
-
 /// The error a column that will not decode surfaces as, named after the
 /// column so a corrupt row is locatable from the message.
 pub(crate) fn llm_usage_column_error(col: &str, e: impl Display) -> AppError {
@@ -573,25 +568,6 @@ macro_rules! impl_llm_usage_repository {
                     .iter()
                     .map(llm_usage_record_from_row)
                     .collect()
-            }
-
-            async fn sum_cost_usd_for_tenant_period(
-                &self,
-                tenant_id: TenantId,
-                start: DateTime<Utc>,
-                end: DateTime<Utc>,
-            ) -> AppResult<f64> {
-                let row = sqlx::query(SUM_COST_USD_FOR_TENANT_PERIOD_SQL)
-                    .bind(tenant_id.to_string())
-                    .bind(start)
-                    .bind(end)
-                    .fetch_one(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("Failed to sum cost_usd: {e}")))?;
-                let total: Option<f64> = row
-                    .try_get("cost_usd")
-                    .map_err(|e| llm_usage_column_error("cost_usd", e))?;
-                Ok(total.unwrap_or(0.0))
             }
         }
     };

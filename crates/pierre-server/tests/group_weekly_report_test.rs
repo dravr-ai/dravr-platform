@@ -15,10 +15,11 @@ use std::sync::Arc;
 
 use axum::http::StatusCode;
 use chrono::{Duration, Utc};
+use pierre_core::models::agents::CreateAgentRequest;
 use pierre_core::models::groups::{GroupMember, GroupRole};
+use pierre_core::models::CreateGroupRequest;
 use pierre_core::models::{Activity, ActivityBuilder, ConnectionType, SportType, TenantId};
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_routes_agents::build_agents_router;
 use pierre_routes_groups::group_analytics::GroupAnalyticsRoutes;
 use pierre_routes_groups::GroupRoutes;
 use serde_json::{json, Value};
@@ -28,11 +29,14 @@ use common::{create_test_server_resources, create_test_user_with_plan, generate_
 use helpers::axum_test::AxumTestRequest;
 
 /// A ride a day for eight weeks: `block_secs` a day until the last
-/// `taper_days`, then `taper_secs` a day up to yesterday.
+/// `taper_days`, then `taper_secs` a day up to yesterday. Today's ride has
+/// not happened yet.
 ///
-/// The snapshot builder reads form as of the latest ride, so rest days alone
-/// never freshen it; a lighter final week does, because acute load falls
-/// faster than chronic load.
+/// Form today is CTL minus ATL at the end of yesterday (the Coggan /
+/// TrainingPeaks convention cageux applies), so a daily rider read before
+/// today's session is judged on last night's balance, not on a rest day that
+/// has not happened; only a lighter final week freshens, because acute load
+/// falls faster than chronic load.
 fn daily_rides(block_secs: u32, taper_secs: u32, taper_days: i64) -> Vec<Activity> {
     (1..=59)
         .map(|days_ago| {
@@ -128,26 +132,36 @@ async fn owner_with_group() -> Fixture {
             .await
             .unwrap();
     let owner_auth = format!("Bearer {}", generate_test_token(&res, &owner).await);
-    let router = build_agents_router::<ServerContext>()
-        .with_state(Arc::clone(&res))
-        .merge(GroupRoutes::routes(Arc::clone(&res)))
-        .merge(GroupAnalyticsRoutes::routes(Arc::clone(&res)));
+    let router =
+        GroupRoutes::routes(Arc::clone(&res)).merge(GroupAnalyticsRoutes::routes(Arc::clone(&res)));
 
-    let resp = AxumTestRequest::post("/api/agents")
-        .header("authorization", &owner_auth)
-        .json(&json!({"title":"Report Coach","system_prompt":"Test.","category":"training","tags":["ride"]}))
-        .send(router.clone())
-        .await;
-    assert_eq!(resp.status_code(), StatusCode::CREATED);
-    let agent_id = resp.json::<Value>()["id"].as_str().unwrap().to_owned();
+    let agent_request: CreateAgentRequest = serde_json::from_value(
+        json!({"title":"Report Coach","system_prompt":"Test.","category":"training","tags":["ride"]}),
+    )
+    .unwrap();
+    let agent_id = res
+        .common
+        .repos
+        .agents
+        .create(owner_id, tenant_id, &agent_request)
+        .await
+        .unwrap()
+        .id
+        .to_string();
 
-    let resp = AxumTestRequest::post("/api/groups")
-        .header("authorization", &owner_auth)
-        .json(&json!({ "name": "Les Rouleurs", "agent_id": agent_id }))
-        .send(router.clone())
-        .await;
-    assert_eq!(resp.status_code(), StatusCode::CREATED);
-    let group_id = resp.json::<Value>()["id"].as_str().unwrap().to_owned();
+    let group_request = CreateGroupRequest {
+        name: "Les Rouleurs".to_owned(),
+        description: None,
+        agent_id,
+        max_members: None,
+    };
+    let group_id = res
+        .group_service()
+        .create_group(&group_request, owner_id, tenant_id, 20)
+        .await
+        .unwrap()
+        .id
+        .to_string();
 
     Fixture {
         res,
@@ -164,8 +178,8 @@ async fn report_names_the_fresh_member_with_their_form_share_and_tsb() {
     let fx = Box::pin(owner_with_group()).await;
 
     // The owner rode an hour a day for seven weeks, then forty minutes a day
-    // for the last one: acute load fell faster than chronic, so form reads
-    // about +15% of CTL, inside the fresh band.
+    // for the last one, up to yesterday: acute load fell faster than chronic,
+    // so last night's balance reads about +16% of CTL, inside the fresh band.
     seed_rides(
         &fx.res,
         fx.owner_id,
@@ -174,8 +188,9 @@ async fn report_names_the_fresh_member_with_their_form_share_and_tsb() {
     )
     .await;
 
-    // A second member still riding an hour every day sits in balanced form
-    // (about -7% of CTL), so the report must leave them out.
+    // A second member still riding an hour every day, not yet today, sits in
+    // balanced form (about -7% of CTL): the ride they have not done yet must
+    // not read as a rest day that freshens them, so the report leaves them out.
     let (rider_id, _, rider_tenant) = create_test_user_with_plan(
         &fx.res.agent.database,
         "report-rider@test.com",
@@ -234,8 +249,10 @@ async fn report_names_the_fresh_member_with_their_form_share_and_tsb() {
     assert_eq!(fresh[0]["display_name"], "Test User");
     let form_pct = fresh[0]["form_pct"].as_f64().unwrap();
     let tsb = fresh[0]["tsb"].as_f64().unwrap();
-    assert!((form_pct - 14.99).abs() < 0.05, "form_pct {form_pct}");
-    assert!((tsb - 6.64).abs() < 0.05, "tsb {tsb}");
+    // Yesterday evening's CTL minus ATL, as a share of yesterday's CTL: the
+    // same numbers a reading taken tonight, after a ride today, would give.
+    assert!((form_pct - 15.87).abs() < 0.05, "form_pct {form_pct}");
+    assert!((tsb - 6.95).abs() < 0.05, "tsb {tsb}");
 }
 
 /// `/stats` is open to every member, so for a member who does not manage the

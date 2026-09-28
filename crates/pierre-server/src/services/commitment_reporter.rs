@@ -60,6 +60,7 @@ use pierre_database::backends::MessagingRepository;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::commitments::{Commitment, CommitmentOutcome};
 use pierre_services::commitment_sweep::CommitmentReporter;
+use pierre_services::locale::{resolve_channel_locale, resolve_user_locale};
 use serde_json::Value;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -253,26 +254,24 @@ impl ServerCommitmentReporter {
         commitment: &Commitment,
         route: Option<&ChannelRoute>,
     ) -> String {
-        if let (Some(route), Ok(tenant_id)) = (route, TenantId::parse_str(&commitment.tenant_id)) {
-            if let Ok(Some(override_locale)) = self
-                .repos
-                .messaging
-                .get_channel_link_locale(tenant_id, &route.channel_str, &route.channel_user_id)
+        let user_id = Uuid::parse_str(&commitment.user_id).ok();
+        match (route, TenantId::parse_str(&commitment.tenant_id)) {
+            (Some(route), Ok(tenant_id)) => {
+                resolve_channel_locale(
+                    self.repos.messaging.as_ref(),
+                    self.repos.users.as_ref(),
+                    tenant_id,
+                    &route.channel_str,
+                    &route.channel_user_id,
+                    user_id,
+                )
                 .await
-            {
-                if !override_locale.trim().is_empty() {
-                    return override_locale;
-                }
             }
+            _ => match user_id {
+                Some(user_id) => resolve_user_locale(self.repos.users.as_ref(), user_id).await,
+                None => DEFAULT_LOCALE.to_owned(),
+            },
         }
-        if let Ok(user_id) = Uuid::parse_str(&commitment.user_id) {
-            if let Ok(Some(user)) = self.repos.users.get_global(user_id).await {
-                if !user.locale.trim().is_empty() {
-                    return user.locale;
-                }
-            }
-        }
-        DEFAULT_LOCALE.to_owned()
     }
 
     /// Render the verdict body from counts alone.

@@ -16,14 +16,15 @@
 export { PierreMcpClient, BridgeConfig } from './mcp-bridge';
 
 /**
- * Export the provider OAuth start the bridge runs before opening a browser,
- * which reads a provider notice refusal as a message to accept it in the app.
+ * Export the provider OAuth start the bridge runs before opening a browser: it
+ * has Dravr's connect_provider tool mint the authorization page, and reads a
+ * provider notice refusal as a message to accept it in the app.
  */
 export {
   startProviderOAuth,
   providerNoticeMessage,
-  isNoticeRefusal,
-  NOTICE_REFUSAL_ACTION,
+  NOTICE_REQUIRED_ERROR_TYPE,
+  type CallDravrTool,
   type ProviderOAuthStart,
 } from './provider-oauth-start';
 

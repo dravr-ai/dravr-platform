@@ -79,7 +79,7 @@ export default function SystemCoachesTab() {
   // Fetch all users for assignment
   const { data: usersData } = useQuery({
     queryKey: QUERY_KEYS.adminCoaches.allUsers(),
-    queryFn: () => adminApi.getAllUsers({ limit: 200 }),
+    queryFn: () => adminApi.getAllUsers(),
     enabled: showAssignModal,
   });
 

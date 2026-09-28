@@ -347,7 +347,7 @@ test.describe('Agent authoring surface - the edit sheet is the only agent editor
     'Minimum Activities',
   ];
 
-  test('the edit sheet is a single screen with no wizard step chrome and no version history', async ({ page }) => {
+  test('the edit sheet is a single screen with no wizard step chrome, listing the version history', async ({ page }) => {
     await setupCoachMocks(page, { initialBudget: null });
     await loginToDashboard(page);
     await openInstalledListing(page);
@@ -364,7 +364,9 @@ test.describe('Agent authoring surface - the edit sheet is the only agent editor
     }
     await expect(page.getByPlaceholder('Enter agent title')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Next' })).toHaveCount(0);
-    await expect(page.getByText(/Version History/i)).toHaveCount(0);
+    // The agent's version history is a group of the same screen, not a step.
+    await expect(page.getByText('Version history', { exact: true })).toBeVisible();
+    await expect(page.getByText('No earlier versions yet. Each save adds one here.')).toBeVisible();
   });
 
   test('Discover offers no agent creation: agents are created with /agent create', async ({ page }) => {

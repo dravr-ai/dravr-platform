@@ -6,7 +6,9 @@
 
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{DelegatedConnection, DelegationEndReason, DelegationStatus, TenantId};
+use pierre_core::models::{
+    normalize_email, DelegatedConnection, DelegationEndReason, DelegationStatus, TenantId,
+};
 use sqlx::sqlite::SqliteRow;
 use uuid::Uuid;
 

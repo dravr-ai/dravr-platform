@@ -8,16 +8,17 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{Duration, Utc};
+use chrono::{Duration, NaiveDate, Utc};
 use pierre_core::models::groups::{FlagEvidence, HealthFlagSeverity, MemberFlag};
 use pierre_core::models::groups::{MemberFitnessSnapshot, OvertrainingRiskLevel};
 use pierre_core::models::{Activity, SportType};
-use pierre_core::models::{ActivityBuilder, FormBand};
+use pierre_core::models::{ActivityBuilder, FormBand, FormReading};
 use pierre_groups::strategies::summarization::{
     GroupSummarizationStrategy, RosterCardSummarizer, WeeklyDigestSummarizer,
 };
 use pierre_groups::GroupService;
-use pierre_intelligence::TrainingLoadCalculator;
+use pierre_intelligence::algorithms::training_load::DailyTrainingLoad;
+use pierre_intelligence::{TrainingLoad, TrainingLoadCalculator};
 use pierre_tool_runtime::implementations::analytics::output::ProvidersUsed;
 use pierre_tool_runtime::implementations::analytics::{
     analyze_detailed_training_load, UserPhysiologicalParams,
@@ -25,6 +26,8 @@ use pierre_tool_runtime::implementations::analytics::{
 use std::collections::HashMap;
 use uuid::Uuid;
 
+/// A member whose CTL did not move overnight, so the CTL their form is read
+/// against (yesterday's) is the CTL the card prints.
 fn snapshot(ctl: f64, atl: f64, tsb: f64) -> MemberFitnessSnapshot {
     MemberFitnessSnapshot {
         user_id: Uuid::new_v4(),
@@ -32,6 +35,7 @@ fn snapshot(ctl: f64, atl: f64, tsb: f64) -> MemberFitnessSnapshot {
         ctl: Some(ctl),
         atl: Some(atl),
         tsb: Some(tsb),
+        form_ctl: Some(ctl),
         weekly_volume_km: 120.0,
         previous_week_volume_km: None,
         weekly_activity_count: 5,
@@ -49,22 +53,90 @@ fn snapshot(ctl: f64, atl: f64, tsb: f64) -> MemberFitnessSnapshot {
     }
 }
 
+/// One day of load whose CTL did not move since yesterday: `form_ctl` (the
+/// CTL `tsb` is a share of) equals the end-of-day `ctl`.
+fn steady_day(tsb: f64, form_ctl: f64) -> DailyTrainingLoad {
+    DailyTrainingLoad {
+        date: NaiveDate::from_ymd_opt(2026, 9, 27).unwrap(),
+        ctl: form_ctl,
+        atl: form_ctl - tsb,
+        tsb,
+        form_ctl,
+    }
+}
+
+/// A training-load calculation whose CTL did not move since yesterday.
+fn steady_load(tsb: f64, form_ctl: f64) -> TrainingLoad {
+    TrainingLoad {
+        ctl: form_ctl,
+        atl: form_ctl - tsb,
+        tsb,
+        form_ctl,
+        tss_history: Vec::new(),
+    }
+}
+
 #[test]
 fn form_pct_math_and_min_ctl_guard() {
     // The Raph incident numbers: TSB -66 on CTL 85 is -77.6% of fitness
-    let pct = FormBand::form_pct(-66.0, 85.0).expect("CTL 85 is normalizable");
+    let pct = steady_day(-66.0, 85.0)
+        .form_pct()
+        .expect("CTL 85 is normalizable");
     assert!((pct - (-77.647)).abs() < 0.01, "got {pct}");
 
     // Elite block: -25 on CTL 100 is -25%, the deep end of the productive zone
-    let elite = FormBand::form_pct(-25.0, 100.0).expect("CTL 100 is normalizable");
-    assert!((elite - (-25.0)).abs() < f64::EPSILON);
-    assert_eq!(FormBand::from_tsb(-25.0, 100.0), FormBand::HeavyBlock);
+    let elite = steady_day(-25.0, 100.0);
+    let elite_pct = elite.form_pct().expect("CTL 100 is normalizable");
+    assert!((elite_pct - (-25.0)).abs() < f64::EPSILON);
+    assert_eq!(FormBand::from_daily_load(&elite), FormBand::HeavyBlock);
 
     // No chronic base → not interpretable, never banded on raw TSB
-    assert!(FormBand::form_pct(-10.0, 0.5).is_none());
+    let no_base = steady_day(-10.0, 0.5);
+    assert!(no_base.form_pct().is_none());
     assert_eq!(
-        FormBand::from_tsb(-10.0, 0.5),
+        FormBand::from_daily_load(&no_base),
         FormBand::InsufficientHistory
+    );
+}
+
+/// Form is a share of yesterday's CTL, the one it was read from, never of
+/// today's. A hard session today lifts today's CTL; dividing yesterday's TSB
+/// by it would move the band on a number the session never touched.
+#[test]
+fn every_platform_reading_divides_form_by_yesterdays_ctl() {
+    // Yesterday ended at CTL 60 / ATL 75: form today is -15, -25% of 60, a
+    // heavy block. Today's big ride has since lifted CTL to 80.
+    let day = DailyTrainingLoad {
+        date: NaiveDate::from_ymd_opt(2026, 9, 27).unwrap(),
+        ctl: 80.0,
+        atl: 95.0,
+        tsb: -15.0,
+        form_ctl: 60.0,
+    };
+    let reading = FormReading::from_daily_load(&day);
+    assert_eq!(reading.form_pct, Some(-25.0), "-15 is -25% of CTL 60");
+    assert_eq!(reading.band, FormBand::HeavyBlock);
+    assert!(
+        reading.inline().contains("-25% of CTL"),
+        "the prose quotes the same share: {}",
+        reading.inline()
+    );
+
+    // The group snapshot reads the same pair: -15 over today's 80 would have
+    // been -18.75%, productive, and raised no flag at all.
+    let mut member = snapshot(80.0, 95.0, -15.0);
+    member.form_ctl = Some(60.0);
+    let flags = GroupService::compute_health_flags(&[member]);
+    assert_eq!(
+        flags
+            .iter()
+            .find(|f| f.flag_type == MemberFlag::Overreaching)
+            .map(|f| f.evidence),
+        Some(FlagEvidence::FormShare {
+            form_pct: -25.0,
+            tsb: -15.0
+        }),
+        "the heavy-block flag carries the share of yesterday's CTL: {flags:?}"
     );
 }
 
@@ -167,12 +239,12 @@ fn elite_block_activities() -> Vec<Activity> {
 
 #[test]
 fn elite_block_with_empty_profile_is_not_deep_fatigue() {
-    let calculator = TrainingLoadCalculator::new();
+    let calculator = TrainingLoadCalculator::new(Utc::now().date_naive());
     let load = calculator
         .calculate_training_load(&elite_block_activities(), None, None, None, None, None)
         .expect("60 days of activities produce a training load");
 
-    let band = FormBand::from_tsb(load.tsb, load.ctl);
+    let band = FormBand::from_training_load(&load);
     assert_ne!(
         band,
         FormBand::DeepFatigue,
@@ -180,18 +252,18 @@ fn elite_block_with_empty_profile_is_not_deep_fatigue() {
         load.ctl,
         load.atl,
         load.tsb,
-        FormBand::form_pct(load.tsb, load.ctl)
+        load.form_pct()
     );
     assert_ne!(band, FormBand::InsufficientHistory, "60 days is a base");
 
     // The prescription is the part that alarmed the athlete: a consistent
     // block must not be told to rest.
     assert_eq!(
-        TrainingLoadCalculator::recommend_recovery_days(load.tsb, load.ctl),
+        TrainingLoadCalculator::recommend_recovery_days(&load),
         0,
-        "steady block prescribed rest days (tsb {:.1}, ctl {:.1})",
+        "steady block prescribed rest days (tsb {:.1}, form ctl {:.1})",
         load.tsb,
-        load.ctl
+        load.form_ctl
     );
 }
 
@@ -200,23 +272,124 @@ fn deep_fatigue_is_the_only_band_that_prescribes_rest() {
     // Every band above the deep-fatigue edge is normal training or freshness,
     // so none of them may produce a rest prescription. This is the invariant
     // that keeps "critical fatigue - take rest days" off a productive block.
-    for (tsb, ctl) in [
+    for (tsb, form_ctl) in [
         (-25.0, 100.0), // heavy block
         (-15.0, 100.0), // productive
         (-5.0, 100.0),  // balanced
         (10.0, 100.0),  // fresh
         (25.0, 100.0),  // detraining
     ] {
-        let band = FormBand::from_tsb(tsb, ctl);
+        let load = steady_load(tsb, form_ctl);
+        let band = FormBand::from_training_load(&load);
         assert_ne!(band, FormBand::DeepFatigue);
         assert_eq!(
-            TrainingLoadCalculator::recommend_recovery_days(tsb, ctl),
+            TrainingLoadCalculator::recommend_recovery_days(&load),
             0,
             "{band:?} must not prescribe rest"
         );
     }
     // And the band below it does.
-    assert!(TrainingLoadCalculator::recommend_recovery_days(-45.0, 100.0) > 0);
+    assert!(TrainingLoadCalculator::recommend_recovery_days(&steady_load(-45.0, 100.0)) > 0);
+}
+
+// ============================================================================
+// Form is yesterday's balance (Coggan / TrainingPeaks, carnet#601)
+// ============================================================================
+
+/// A daily rider: exactly 100 TSS at 06:00 UTC on each of the 100 days before
+/// today, plus today's ride when it has landed.
+fn daily_rider(todays_ride_landed: bool) -> Vec<Activity> {
+    let six_am = Utc::now()
+        .date_naive()
+        .and_hms_opt(6, 0, 0)
+        .unwrap()
+        .and_utc();
+    let first = i64::from(!todays_ride_landed);
+    (first..=100)
+        .map(|days_ago| {
+            ActivityBuilder::new(
+                format!("daily_{days_ago}"),
+                "Daily ride",
+                SportType::Ride,
+                six_am - Duration::days(days_ago),
+                3_600,
+                "test",
+            )
+            .training_stress_score(100.0)
+            .build()
+        })
+        .collect()
+}
+
+/// What `analyze_training_load` tells the agent about `activities` right now.
+fn load_payload(activities: &[Activity]) -> serde_json::Value {
+    serde_json::to_value(analyze_detailed_training_load(
+        activities,
+        &UserPhysiologicalParams {
+            ftp: None,
+            lthr: None,
+            max_hr: None,
+            resting_hr: None,
+            weight_kg: None,
+        },
+        &pierre_intelligence::AlgorithmConfig::default(),
+        ProvidersUsed {
+            activity_provider: "strava".to_owned(),
+            sleep_provider: None,
+        },
+    ))
+    .expect("the load payload serializes")
+}
+
+/// Asked at noon, before today's ride, the agent hears last night's form. The
+/// worked example: yesterday ended at CTL 99.15 / ATL 100.00, so form is
+/// -0.85, -0.86% of CTL, balanced. Today's own CTL and ATL, decayed through a
+/// rest day that has not happened, read +19.5 (+20.7%): detraining.
+#[test]
+fn a_daily_rider_asked_at_noon_hears_last_nights_form() {
+    let activities = daily_rider(false);
+    let payload = load_payload(&activities);
+    let metrics = &payload["load_metrics"];
+
+    // Yesterday evening, from the same calculator the tool uses.
+    let yesterday = Utc::now().date_naive() - Duration::days(1);
+    let evening = TrainingLoadCalculator::new(yesterday)
+        .calculate_training_load(&activities, None, None, None, None, None)
+        .unwrap();
+    assert_eq!(
+        metrics["tsb"].as_f64(),
+        Some((evening.ctl - evening.atl).round()),
+        "form today is yesterday evening's balance: {payload}"
+    );
+    assert_eq!(metrics["form_ctl"].as_f64(), Some(evening.ctl.round()));
+
+    // The worked example, rounded as the payload rounds it.
+    assert_eq!(metrics["ctl"].as_f64(), Some(95.0), "{payload}");
+    assert_eq!(metrics["atl"].as_f64(), Some(75.0), "{payload}");
+    assert_eq!(metrics["form_ctl"].as_f64(), Some(99.0), "{payload}");
+    assert_eq!(metrics["tsb"].as_f64(), Some(-1.0), "{payload}");
+    assert_eq!(metrics["tsb_pct_of_ctl"].as_f64(), Some(-1.0), "{payload}");
+    assert_eq!(payload["form_band"], "balanced", "{payload}");
+}
+
+/// The ride landing moves the day's fitness and fatigue, never its form: the
+/// noon reading and the evening reading agree.
+#[test]
+fn todays_ride_moves_fitness_and_fatigue_but_not_the_agents_form_reading() {
+    let noon = load_payload(&daily_rider(false));
+    let evening = load_payload(&daily_rider(true));
+    let (noon_m, evening_m) = (&noon["load_metrics"], &evening["load_metrics"]);
+
+    assert_eq!(noon_m["ctl"].as_f64(), Some(95.0), "{noon}");
+    assert_eq!(evening_m["ctl"].as_f64(), Some(99.0), "{evening}");
+    assert_eq!(noon_m["atl"].as_f64(), Some(75.0), "{noon}");
+    assert_eq!(evening_m["atl"].as_f64(), Some(100.0), "{evening}");
+
+    for key in ["tsb", "form_ctl", "tsb_pct_of_ctl"] {
+        assert_eq!(noon_m[key], evening_m[key], "{key} moved with today's ride");
+    }
+    assert_eq!(noon["form_band"], evening["form_band"]);
+    assert_eq!(evening["form_band"], "balanced", "{evening}");
 }
 
 // ============================================================================
@@ -364,9 +537,9 @@ fn training_load_payload_reports_form_pct_and_band() {
     ))
     .expect("the load payload serializes");
 
-    let ctl = payload["load_metrics"]["ctl"]
+    let form_ctl = payload["load_metrics"]["form_ctl"]
         .as_f64()
-        .expect("ctl is reported");
+        .expect("the CTL form is read against is reported");
     let tsb = payload["load_metrics"]["tsb"]
         .as_f64()
         .expect("tsb is reported");
@@ -374,14 +547,14 @@ fn training_load_payload_reports_form_pct_and_band() {
         .as_f64()
         .expect("form as % of CTL is reported next to the raw TSB");
 
-    // The percentage is the raw TSB divided by this athlete's own fitness, not
-    // a second opinion on it.
-    let expected = (tsb / ctl * 100.0).round();
+    // The percentage is the raw TSB divided by this athlete's own fitness at
+    // the end of yesterday — the CTL it was read from — not a second opinion.
+    let expected = (tsb / form_ctl * 100.0).round();
     // Every figure in the payload is rounded, so compare with a rounding budget
     // rather than exactly.
     assert!(
         (pct - expected).abs() <= 2.0,
-        "tsb_pct_of_ctl {pct} does not match tsb {tsb} over ctl {ctl}"
+        "tsb_pct_of_ctl {pct} does not match tsb {tsb} over form_ctl {form_ctl}"
     );
 
     // Band and label come off that percentage, and a steady 60-day block is

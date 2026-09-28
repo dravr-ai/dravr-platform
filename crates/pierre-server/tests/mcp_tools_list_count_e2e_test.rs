@@ -582,3 +582,62 @@ async fn test_tools_list_tenant_member_non_admin_path_no_collapse() -> Result<()
     );
     Ok(())
 }
+
+/// The tools a `starter` tenant's plan does not cover (`min_plan` professional
+/// or enterprise in the tool catalogue).
+const PLAN_GATED_TOOLS: [&str; 8] = [
+    "analyze_goal_feasibility",
+    "analyze_performance_trends",
+    "analyze_training_load",
+    "analyze_weather_impact",
+    "detect_patterns",
+    "generate_recommendations",
+    "get_nutrient_timing",
+    "predict_performance",
+];
+
+/// The plan is the athlete's current state, and the tool list a client builds
+/// against must not change when it does: a tool the tenant's plan does not
+/// cover is listed, and `tools/call` refuses it.
+#[tokio::test]
+async fn test_plan_gated_tools_are_listed_and_refused_at_call_time() -> Result<()> {
+    let resources = common::create_test_server_resources().await?;
+    let (_user, token) =
+        common::create_test_tenant(&resources, "starter-plan-listing@example.com").await?;
+    let server = common::spawn_http_mcp_server(&resources).await?;
+    let client = Client::new();
+    let bearer = format!("Bearer {token}");
+
+    let listed =
+        extract_tool_names(&post_tools_list(&client, &server.base_url(), Some(&bearer)).await?);
+    for tool in PLAN_GATED_TOOLS {
+        assert!(
+            listed.contains(tool),
+            "'{tool}' is outside the starter plan but must still be listed"
+        );
+    }
+
+    let call: Value = client
+        .post(format!("{}/mcp", server.base_url()))
+        .header("Content-Type", "application/json")
+        .header("authorization", &bearer)
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "predict_performance", "arguments": {}}
+        }))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let refusal = call["error"]["message"]
+        .as_str()
+        .or_else(|| call["result"]["content"][0]["text"].as_str())
+        .unwrap_or_default();
+    assert!(
+        refusal.contains("not available for your tenant"),
+        "a starter tenant calling predict_performance must be refused: {call}"
+    );
+    Ok(())
+}

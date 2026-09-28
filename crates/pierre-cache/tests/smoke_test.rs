@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use pierre_cache::memory::InMemoryCache;
 use pierre_cache::redaction::redact_url;
-use pierre_cache::{CacheConfig, CacheKey, CacheProvider, CacheResource, CacheTtlConfig};
+use pierre_cache::{CacheConfig, CacheKey, CacheProvider, CacheResource};
 use pierre_core::models::TenantId;
 use uuid::Uuid;
 
@@ -117,10 +117,6 @@ fn provider_roster_keys_per_coach_and_lives_ten_minutes() {
     );
     assert_eq!(
         CacheResource::ProviderRoster.recommended_ttl(),
-        Duration::from_mins(10)
-    );
-    assert_eq!(
-        CacheTtlConfig::default().ttl_for_resource(&CacheResource::ProviderRoster),
         Duration::from_mins(10)
     );
 }

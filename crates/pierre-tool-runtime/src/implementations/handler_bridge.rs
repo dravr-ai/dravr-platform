@@ -45,9 +45,6 @@ pub(super) fn build_universal_request(
         user_id: ctx.user_id.to_string(),
         protocol: "chat".to_owned(),
         tenant_id: ctx.tenant_id.map(|t| t.to_string()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     }
 }
 

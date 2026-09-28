@@ -40,31 +40,6 @@ async function loginAsSuperAdminWithUsers(page: Page) {
     });
   });
 
-  await page.route('**/api/dashboard/overview', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        total_api_keys: 5,
-        active_api_keys: 3,
-        total_requests_today: 150,
-        total_requests_this_month: 2500,
-      }),
-    });
-  });
-
-  await page.route('**/api/dashboard/rate-limits', async (route) => {
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
-  });
-
-  await page.route('**/a2a/dashboard/overview', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ total_clients: 0, active_sessions: 0, requests_today: 0, error_rate: 0 }),
-    });
-  });
-
   await page.route('**/api/dashboard/analytics**', async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ daily_usage: [] }) });
   });
@@ -73,7 +48,7 @@ async function loginAsSuperAdminWithUsers(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ count: 0, users: [] }),
+      body: JSON.stringify({ success: true, message: 'Retrieved 0 pending users', data: { count: 0, users: [] } }),
     });
   });
 
@@ -82,7 +57,6 @@ async function loginAsSuperAdminWithUsers(page: Page) {
     const url = route.request().url();
     if (
       url.includes('/usage') ||
-      url.includes('/cost-timeseries') ||
       url.includes('/features') ||
       url.includes('/rate-limit') ||
       url.includes('/activity') ||
@@ -95,19 +69,24 @@ async function loginAsSuperAdminWithUsers(page: Page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        users: [
-          {
-            id: 'user-active-1',
-            email: 'testuser@example.com',
-            display_name: 'Test User',
-            role: 'user',
-            user_status: 'active',
-            tier: 'starter',
-            created_at: '2024-01-15T10:00:00Z',
-            last_active: '2024-01-20T15:30:00Z',
-          },
-        ],
-        total_count: 1,
+        success: true,
+        message: 'Retrieved users',
+        data: {
+          users: [
+            {
+              id: 'user-active-1',
+              email: 'testuser@example.com',
+              display_name: 'Test User',
+              role: 'user',
+              user_status: 'active',
+              tier: 'starter',
+              created_at: '2024-01-15T10:00:00Z',
+              last_active: '2024-01-20T15:30:00Z',
+            },
+          ],
+          total: 1,
+          has_more: false,
+        },
       }),
     });
   });
@@ -286,7 +265,7 @@ test.describe('Admin Billing - UserDetailDrawer Usage Card', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ users: [], total_count: 0 }),
+        body: JSON.stringify({ success: true, message: 'Retrieved users', data: { users: [], total: 0, has_more: false } }),
       });
     });
 

@@ -1,5 +1,5 @@
 // ABOUTME: HTTP integration tests for authentication routes
-// ABOUTME: Tests all authentication endpoints including registration, login, refresh, and OAuth status
+// ABOUTME: Tests all authentication endpoints including registration, login, refresh, and provider status
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -16,18 +16,19 @@
 mod common;
 mod helpers;
 
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use helpers::axum_test::AxumTestRequest;
 use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
     SecurityHeadersConfig, ServerConfig,
 };
-use pierre_core::constants::oauth::providers as oauth_providers;
-use pierre_core::models::UserOAuthToken;
+use pierre_core::models::{Tenant, TenantId, User};
+use pierre_database::backends::factory::Database;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_routes_auth::AuthRoutes;
 use serde_json::json;
 use std::sync::Arc;
+use uuid::Uuid;
 
 /// Test setup helper for authentication route testing
 struct AuthTestSetup {
@@ -106,6 +107,7 @@ impl AuthTestSetup {
             expires_in_days: Some(1),
             is_super_admin: true,
             tenant_id: None,
+            operator_user_id: None,
         };
 
         // Use repository to create admin token
@@ -545,6 +547,177 @@ async fn test_refresh_grant_rotates_the_token_and_kills_a_replayed_family() {
     assert_eq!(successor["error"].as_str(), Some("invalid_grant"));
 }
 
+/// Give `user_id` a second tenant it joined after its own, owned by another
+/// user, and return both tenant ids: the one the login resolves first, then
+/// the one it moves to once removed from the first.
+async fn second_tenant_membership(setup: &AuthTestSetup, user_id: Uuid) -> (TenantId, TenantId) {
+    let repos = setup.resources.agent.database.repositories();
+    let first = repos.tenants.list_for_user(user_id).await.unwrap()[0].id;
+
+    let owner = User::new(
+        "second-owner@example.com".to_owned(),
+        "unused-hash".to_owned(),
+        Some("Second Owner".to_owned()),
+    );
+    repos.users.create(&owner).await.unwrap();
+    let second = TenantId::generate();
+    repos
+        .tenants
+        .create(&Tenant {
+            id: second,
+            name: "Second Tenant".to_owned(),
+            slug: format!("second-tenant-{second}"),
+            domain: None,
+            plan: "starter".to_owned(),
+            owner_user_id: owner.id,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        })
+        .await
+        .unwrap();
+    let joined = Utc::now() + Duration::seconds(5);
+    insert_member(setup, user_id, second, joined).await;
+    (first, second)
+}
+
+/// File `user_id` as a member of `tenant_id`, joined at `at`.
+async fn insert_member(
+    setup: &AuthTestSetup,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    at: DateTime<Utc>,
+) {
+    match setup.resources.agent.database.as_ref() {
+        Database::SQLite(db) => {
+            sqlx::query(INSERT_MEMBER)
+                .bind(Uuid::new_v4().to_string())
+                .bind(tenant_id.to_string())
+                .bind(user_id.to_string())
+                .bind(at.to_rfc3339())
+                .bind(at.to_rfc3339())
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+        // `tenant_users` keys are `uuid` columns and the timestamps are
+        // `timestamptz` on PostgreSQL, so the binds carry the native types.
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(db) => {
+            sqlx::query(INSERT_MEMBER)
+                .bind(Uuid::new_v4())
+                .bind(tenant_id.as_uuid())
+                .bind(user_id)
+                .bind(at)
+                .bind(at)
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+    }
+}
+
+/// Remove `user_id` from `tenant_id`, the way an operator's removal leaves it.
+async fn delete_member(setup: &AuthTestSetup, user_id: Uuid, tenant_id: TenantId) {
+    match setup.resources.agent.database.as_ref() {
+        Database::SQLite(db) => {
+            sqlx::query(DELETE_MEMBER)
+                .bind(user_id.to_string())
+                .bind(tenant_id.to_string())
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(db) => {
+            sqlx::query(DELETE_MEMBER)
+                .bind(user_id)
+                .bind(tenant_id.as_uuid())
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+    }
+}
+
+/// A tenant membership row, filed the way the invitation flows file it.
+const INSERT_MEMBER: &str =
+    "INSERT INTO tenant_users (id, tenant_id, user_id, role, invited_at, joined_at) \
+     VALUES ($1, $2, $3, 'member', $4, $5)";
+/// A tenant membership removed.
+const DELETE_MEMBER: &str = "DELETE FROM tenant_users WHERE user_id = $1 AND tenant_id = $2";
+
+#[tokio::test]
+async fn test_refresh_grant_drops_a_tenant_the_user_was_removed_from() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+    let (user_id, user) = common::create_test_user(&setup.resources.agent.database)
+        .await
+        .expect("Failed to create test user");
+    let (first, second) = second_tenant_membership(&setup, user_id).await;
+
+    let login = login_with_offline_access(&setup, &user.email).await;
+    assert_eq!(
+        login["user"]["tenant_id"].as_str(),
+        Some(first.to_string().as_str())
+    );
+    let refresh_token = login["refresh_token"].as_str().unwrap().to_owned();
+
+    // Removed from the tenant the login recorded, while the phone keeps its
+    // refresh token.
+    delete_member(&setup, user_id, first).await;
+
+    let (status, refreshed) = exchange(&setup, &refresh_token).await;
+    assert_eq!(status, 200, "{refreshed}");
+    // The refreshed session names the tenant the user still belongs to, not
+    // the one the family recorded at login.
+    assert_eq!(
+        refreshed["user"]["tenant_id"].as_str(),
+        Some(second.to_string().as_str())
+    );
+
+    // And so does the successor's own exchange.
+    let successor = refreshed["refresh_token"].as_str().unwrap().to_owned();
+    let (status, again) = exchange(&setup, &successor).await;
+    assert_eq!(status, 200, "{again}");
+    assert_eq!(
+        again["user"]["tenant_id"].as_str(),
+        Some(second.to_string().as_str())
+    );
+}
+
+#[tokio::test]
+async fn test_session_restore_drops_a_tenant_the_user_was_removed_from() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+    let (user_id, user) = common::create_test_user(&setup.resources.agent.database)
+        .await
+        .expect("Failed to create test user");
+    let (first, second) = second_tenant_membership(&setup, user_id).await;
+
+    // A JWT minted while the user belonged to the first tenant.
+    let jwt = setup
+        .resources
+        .auth
+        .auth_manager
+        .generate_token_with_tenant(
+            &user,
+            &setup.resources.auth.jwks_manager,
+            Some(first.to_string()),
+        )
+        .unwrap();
+    delete_member(&setup, user_id, first).await;
+
+    let response = AxumTestRequest::get("/api/auth/session")
+        .header("authorization", &format!("Bearer {jwt}"))
+        .send(setup.routes())
+        .await;
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json();
+    assert_eq!(
+        body["user"]["tenant_id"].as_str(),
+        Some(second.to_string().as_str()),
+        "{body}"
+    );
+}
+
 #[tokio::test]
 async fn test_refresh_grant_with_unknown_token_is_invalid_grant() {
     let setup = AuthTestSetup::new().await.expect("Setup failed");
@@ -617,182 +790,6 @@ async fn test_logout_without_a_body_still_clears_the_cookie_session() {
 }
 
 // ============================================================================
-// GET /api/oauth/status - OAuth Status Tests
-// ============================================================================
-
-#[tokio::test]
-async fn test_oauth_status_success() {
-    let setup = AuthTestSetup::new().await.expect("Setup failed");
-
-    // Create test user and generate token
-    let (_, user) = common::create_test_user(&setup.resources.agent.database)
-        .await
-        .expect("Failed to create test user");
-
-    let jwt_token = setup
-        .resources
-        .auth
-        .auth_manager
-        .generate_token(&user, &setup.resources.auth.jwks_manager)
-        .expect("Failed to generate JWT");
-
-    let routes = setup.routes();
-
-    let response = AxumTestRequest::get("/api/oauth/status")
-        .header("authorization", &format!("Bearer {}", jwt_token))
-        .send(routes)
-        .await;
-
-    assert_eq!(response.status(), 200);
-
-    let body: serde_json::Value = response.json();
-    assert!(body.is_array());
-
-    // Should contain OAuth provider statuses
-    let statuses = body.as_array().unwrap();
-    for status in statuses {
-        assert!(status["provider"].is_string());
-        assert!(status["connected"].is_boolean());
-    }
-}
-
-#[tokio::test]
-async fn test_oauth_status_missing_auth() {
-    let setup = AuthTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
-
-    let response = AxumTestRequest::get("/api/oauth/status").send(routes).await;
-
-    assert_eq!(response.status(), 401);
-}
-
-#[tokio::test]
-async fn test_oauth_status_invalid_auth() {
-    let setup = AuthTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
-
-    let response = AxumTestRequest::get("/api/oauth/status")
-        .header("authorization", "Bearer invalid_token")
-        .send(routes)
-        .await;
-
-    assert_eq!(response.status(), 401);
-}
-
-#[tokio::test]
-async fn test_oauth_status_includes_all_providers() {
-    let setup = AuthTestSetup::new().await.expect("Setup failed");
-
-    // Create test user and generate token
-    let (_, user) = common::create_test_user(&setup.resources.agent.database)
-        .await
-        .expect("Failed to create test user");
-
-    let jwt_token = setup
-        .resources
-        .auth
-        .auth_manager
-        .generate_token(&user, &setup.resources.auth.jwks_manager)
-        .expect("Failed to generate JWT");
-
-    let routes = setup.routes();
-
-    let response = AxumTestRequest::get("/api/oauth/status")
-        .header("authorization", &format!("Bearer {}", jwt_token))
-        .send(routes)
-        .await;
-
-    assert_eq!(response.status(), 200);
-
-    let body: serde_json::Value = response.json();
-    let statuses = body.as_array().unwrap();
-
-    // A user with no tokens sees Strava listed, disconnected, and nothing else
-    let providers: Vec<String> = statuses
-        .iter()
-        .map(|s| s["provider"].as_str().unwrap().to_owned())
-        .collect();
-
-    assert_eq!(providers, vec!["strava".to_owned()]);
-    assert_eq!(statuses[0]["connected"], false);
-}
-
-/// The third surface carnet#352 named. `/api/oauth/status` echoed every token
-/// row as connected, so the athlete whose only Garmin row was the OAuth one read
-/// exactly what the issue opened with: `{"provider":"garmin","connected":true}`,
-/// while every coach call failed against the mirror it is actually routed to.
-#[tokio::test]
-async fn oauth_status_does_not_report_a_bare_garmin_row_as_connected() {
-    let setup = AuthTestSetup::new().await.expect("Setup failed");
-    let (user_id, user) = common::create_test_user(&setup.resources.agent.database)
-        .await
-        .expect("Failed to create test user");
-    let tenants = setup
-        .resources
-        .common
-        .repos
-        .tenants
-        .list_for_user(user_id)
-        .await
-        .expect("list tenants");
-    let tenant_id = tenants[0].id.to_string();
-
-    let seed = |provider: &str| {
-        UserOAuthToken::new(
-            user_id,
-            tenant_id.clone(),
-            provider.to_owned(),
-            "test_access_token".to_owned(),
-            Some("test_refresh_token".to_owned()),
-            Some(Utc::now() + Duration::hours(1)),
-            Some("read".to_owned()),
-        )
-    };
-    for provider in [oauth_providers::GARMIN, oauth_providers::STRAVA] {
-        setup
-            .resources
-            .common
-            .repos
-            .oauth_tokens
-            .upsert_token(&seed(provider))
-            .await
-            .expect("seed token");
-    }
-
-    let jwt_token = setup
-        .resources
-        .auth
-        .auth_manager
-        .generate_token(&user, &setup.resources.auth.jwks_manager)
-        .expect("Failed to generate JWT");
-
-    let response = AxumTestRequest::get("/api/oauth/status")
-        .header("authorization", &format!("Bearer {}", jwt_token))
-        .send(setup.routes())
-        .await;
-    assert_eq!(response.status(), 200);
-
-    let body: serde_json::Value = response.json();
-    let statuses = body.as_array().unwrap();
-    let connected: Vec<&str> = statuses
-        .iter()
-        .filter(|s| s["connected"].as_bool() == Some(true))
-        .map(|s| s["provider"].as_str().unwrap())
-        .collect();
-    assert_eq!(
-        connected,
-        vec![oauth_providers::STRAVA],
-        "strava's OAuth row serves fetches and reads connected; garmin's serves none: {body}"
-    );
-    assert!(
-        !statuses
-            .iter()
-            .any(|s| s["provider"].as_str() == Some(oauth_providers::GARMIN)),
-        "a garmin OAuth row must not surface on this endpoint at all: {body}"
-    );
-}
-
-// ============================================================================
 // Additional Integration Tests
 // ============================================================================
 
@@ -806,7 +803,7 @@ async fn test_all_auth_endpoints_registered() {
         ("/api/auth/register", "POST"),
         ("/oauth/token", "POST"), // OAuth2 ROPC replaces /api/auth/login
         ("/api/auth/logout", "POST"),
-        ("/api/oauth/status", "GET"),
+        ("/api/providers", "GET"),
     ];
 
     for (endpoint, method) in endpoints {

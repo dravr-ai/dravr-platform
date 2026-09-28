@@ -804,6 +804,7 @@ describe('UserSettings Component', () => {
       coach_display_name: 'Casey Coach',
       status,
       coach_needs_reauth,
+      read_refused: null,
     });
 
     it('names the coach a delegated connection reads through, and unlinks rather than disconnects', async () => {
@@ -832,6 +833,26 @@ describe('UserSettings Component', () => {
         'Casey Coach needs to reconnect TrainingPeaks; your workouts are paused until then.',
       );
       expect(screen.queryByText('Reconnect needed')).not.toBeInTheDocument();
+    });
+
+    it('says why a link whose athlete is not the user by email reads nothing', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [
+          trainingPeaksCard({
+            connected: true,
+            delegation: { ...delegation('confirmed'), read_refused: 'athlete_email_missing' },
+          }),
+        ],
+      });
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      const card = await screen.findByTestId('provider-delegated-sciotte_trainingpeaks');
+      expect(card).toHaveTextContent(
+        'TrainingPeaks shares no email for this athlete, so Dravr cannot match them to a member.',
+      );
+      expect(card).not.toHaveTextContent('Connected through Casey Coach');
     });
 
     it('points a pending link at the group it waits in', async () => {
@@ -976,29 +997,22 @@ describe('UserSettings Component', () => {
   });
 
   describe('Data Providers — Strava connected through the native OAuth row', () => {
-    // Mirrors the live GET /api/providers payload for a Strava-connected user:
-    // the grant lands on the native `strava` row while the `sciotte` row — the
-    // card the UI actually renders — stays `connected: false`.
-    const stravaOnNativeRow = () => [
-      {
-        provider: 'sciotte',
-        display_name: 'Strava',
-        requires_oauth: false,
-        connected: false,
-        needs_reauth: false,
-        capabilities: ['activities'],
-        recommended_backend: 'oauth' as const,
-        seats_left: 7,
-      },
-      {
-        provider: 'strava',
-        display_name: 'Strava',
-        requires_oauth: true,
-        connected: true,
-        needs_reauth: false,
-        capabilities: ['activities'],
-      },
-    ];
+    // The live GET /api/providers payload for a user whose Strava grant is the
+    // native OAuth one: the server withholds the raw `strava` row, lights the
+    // one Strava card (`sciotte`) and names the backend behind it.
+    const stravaCard = (overrides: Record<string, unknown> = {}) => ({
+      provider: 'sciotte',
+      display_name: 'Strava',
+      requires_oauth: false,
+      connected: true,
+      connected_backend: 'strava',
+      needs_reauth: false,
+      capabilities: ['activities'],
+      recommended_backend: 'oauth' as const,
+      seats_left: 7,
+      consent_required: false,
+      ...overrides,
+    });
 
     beforeEach(() => {
       localStorage.clear();
@@ -1006,7 +1020,7 @@ describe('UserSettings Component', () => {
     });
 
     it('renders the single Strava card as Connected with a Disconnect control', async () => {
-      getProvidersStatus.mockResolvedValue({ providers: stravaOnNativeRow() });
+      getProvidersStatus.mockResolvedValue({ providers: [stravaCard()] });
 
       await act(async () => {
         renderUserSettings({ initialTab: 'connections', hideTabNav: true });
@@ -1014,15 +1028,12 @@ describe('UserSettings Component', () => {
 
       expect(await screen.findByText('Connected')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Disconnect' })).toBeInTheDocument();
-      // The connected card must not still offer "Connect"...
       expect(screen.queryByRole('button', { name: 'Connect' })).not.toBeInTheDocument();
-      // ...and the native `strava` row must stay hidden, so exactly one Strava
-      // card is on screen rather than a duplicate pair.
       expect(screen.getAllByText('Strava')).toHaveLength(1);
     });
 
-    it('disconnects the native `strava` grant that actually backs the card', async () => {
-      getProvidersStatus.mockResolvedValue({ providers: stravaOnNativeRow() });
+    it('disconnects the card it shows, which the server clears as a pair', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [stravaCard()] });
       const user = userEvent.setup();
 
       await act(async () => {
@@ -1034,17 +1045,13 @@ describe('UserSettings Component', () => {
       const dialog = await screen.findByRole('dialog');
       await user.click(within(dialog).getByRole('button', { name: 'Disconnect' }));
 
-      // `DELETE /api/oauth/providers/{provider}/disconnect` deletes the tokens
-      // for exactly the id it is handed, so `sciotte` here would leave the
-      // Strava grant in place and the card connected after a refetch.
-      await waitFor(() => expect(disconnectProvider).toHaveBeenCalledWith('strava'));
-      expect(disconnectProvider).not.toHaveBeenCalledWith('sciotte');
+      // `OAuthService::disconnect_provider` clears both backends of the card
+      // (`backend_pair_for`), so the card id reaches the native grant too.
+      await waitFor(() => expect(disconnectProvider).toHaveBeenCalledWith('sciotte'));
     });
 
-    it('carries needs_reauth from the native row instead of showing a healthy pill', async () => {
-      const providers = stravaOnNativeRow();
-      providers[1].needs_reauth = true;
-      getProvidersStatus.mockResolvedValue({ providers });
+    it('shows the card needs_reauth instead of a healthy pill', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [stravaCard({ needs_reauth: true })] });
 
       await act(async () => {
         renderUserSettings({ initialTab: 'connections', hideTabNav: true });
@@ -1056,22 +1063,10 @@ describe('UserSettings Component', () => {
 
     it('guards the Strava/Sciotte switch when the mirror holds the connection', async () => {
       // The mirror (`sciotte`) holds a dead connection while shared OAuth seats
-      // remain, so the card's Reconnect goes through native `strava` — the
-      // exclusivity guard must catch that as a backend switch. It reads the raw
-      // provider list, because the `strava` row it compares against is hidden.
+      // remain, so the card's Reconnect goes through native `strava` — a
+      // backend switch the guard must catch, read from `connected_backend`.
       getProvidersStatus.mockResolvedValue({
-        providers: [
-          {
-            provider: 'sciotte',
-            display_name: 'Strava',
-            requires_oauth: false,
-            connected: true,
-            needs_reauth: true,
-            capabilities: ['activities'],
-            recommended_backend: 'oauth' as const,
-            seats_left: 7,
-          },
-        ],
+        providers: [stravaCard({ connected_backend: 'sciotte', needs_reauth: true })],
       });
       const user = userEvent.setup();
       vi.stubGlobal('open', vi.fn().mockReturnValue({ closed: false }));
@@ -1085,6 +1080,23 @@ describe('UserSettings Component', () => {
       expect(await screen.findByText('Switch Provider')).toBeInTheDocument();
       // The guard short-circuits the connect, so no launch window is opened.
       expect(window.open).not.toHaveBeenCalled();
+    });
+
+    it('re-auths the backend that already holds the grant without a switch prompt', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [stravaCard({ connected_backend: 'strava', needs_reauth: true })],
+      });
+      const user = userEvent.setup();
+      vi.stubGlobal('open', vi.fn().mockReturnValue({ closed: false }));
+
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      await user.click(await screen.findByRole('button', { name: 'Reconnect' }));
+
+      expect(screen.queryByText('Switch Provider')).not.toBeInTheDocument();
+      expect(window.open).toHaveBeenCalledTimes(1);
     });
   });
 

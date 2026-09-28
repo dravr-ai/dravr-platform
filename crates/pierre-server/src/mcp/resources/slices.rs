@@ -86,14 +86,12 @@ use pierre_intelligence::ActivityIntelligence;
 use pierre_llm::health::LlmHealthState;
 use pierre_llm::ChatProvider;
 use pierre_llm::LlmProvider;
-use pierre_mcp_schema::ProgressNotification;
-use pierre_mcp_transport::sampling_peer::SamplingPeer;
 #[cfg(feature = "client-messaging")]
 use pierre_messaging::commands::CommandRegistry;
 #[cfg(feature = "client-messaging")]
 use pierre_messaging::ChannelRegistry;
 #[cfg(feature = "provider-sciotte")]
-use pierre_middleware::provider_link_token::{MintRateLimiter, NonceStore};
+use pierre_middleware::provider_link_token::NonceStore;
 use pierre_middleware::redaction::RedactionConfig;
 use pierre_middleware::McpAuthMiddleware;
 #[cfg(feature = "client-notifications")]
@@ -101,15 +99,17 @@ use pierre_notifications::NotificationService;
 use pierre_providers::registry::ProviderRegistry;
 #[cfg(feature = "health-sync")]
 use pierre_services::health_sync::PierreSyncStorage;
+#[cfg(feature = "health-sync")]
+use pierre_services::provider_rate_limiter::ProviderRateLimiter;
 use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 #[cfg(feature = "transport-sse")]
 use pierre_sse::SseManager;
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
-use pierre_tool_runtime::protocol::types::CancellationToken;
 use pierre_tool_runtime::registry::ToolRegistry;
 #[cfg(feature = "client-messaging")]
 use pierre_tool_runtime::runtime::BackfillNotifier;
 use pierre_tool_runtime::tool_selection::ToolSelectionService;
+#[cfg(feature = "client-messaging")]
 use std::collections::HashMap;
 use std::sync::Arc;
 #[cfg(feature = "client-messaging")]
@@ -117,7 +117,6 @@ use std::sync::OnceLock;
 
 #[cfg(feature = "client-messaging")]
 use crate::services::backfill_reentry::ChatReentry;
-use tokio::sync::{mpsc, RwLock};
 use tokio::task::AbortHandle;
 
 /// Cross-cutting handles + the master repository registry.
@@ -220,9 +219,6 @@ pub struct AuthSlice {
     /// Cache-backed one-time nonce store for link-token page loads.
     #[cfg(feature = "provider-sciotte")]
     pub nonce_store: Arc<NonceStore<Cache>>,
-    /// Cache-backed rate limiter for link-token minting.
-    #[cfg(feature = "provider-sciotte")]
-    pub mint_rate_limiter: Arc<MintRateLimiter<Cache>>,
     /// Auth-domain repository view (projection of [`CommonSlice::repos`]).
     pub repos: AuthRepos,
 }
@@ -260,6 +256,12 @@ pub struct FitnessSlice {
     /// Abort handle for the background health data sync scheduler task.
     #[cfg(feature = "health-sync")]
     pub sync_scheduler_abort_handle: Option<AbortHandle>,
+    /// The provider request budgets (Strava's 15-minute and daily windows
+    /// among them), counted in the database so every instance shares them,
+    /// and taken from by the scheduled health sync, a synced run's
+    /// personal-best scan and the walk of an athlete's history alike.
+    #[cfg(feature = "health-sync")]
+    pub provider_rate_limiter: Arc<ProviderRateLimiter>,
     /// Hot-swappable cageux intelligence config snapshot.
     pub cageux_config_registry: Arc<CageuxConfigRegistry>,
     /// Hot-swappable coaching harness config snapshot.
@@ -280,12 +282,6 @@ pub struct SseSlice {
     pub sse_manager: Arc<SseManager>,
     /// AG-UI run registry — chat pipeline publishes per-run broadcast channels here.
     pub agui_registry: Arc<AgUiRunRegistry>,
-    /// Optional sampling peer for server-initiated LLM requests (stdio transport only).
-    pub sampling_peer: Option<Arc<SamplingPeer>>,
-    /// Optional progress notification sender (stdio transport only).
-    pub progress_notification_sender: Option<mpsc::UnboundedSender<ProgressNotification>>,
-    /// Cancellation token registry for progress token → cancellation token mapping.
-    pub cancellation_registry: Arc<RwLock<HashMap<String, CancellationToken>>>,
 }
 
 /// Agent-to-agent protocol subsystem.

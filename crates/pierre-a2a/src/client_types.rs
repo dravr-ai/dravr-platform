@@ -140,18 +140,3 @@ pub struct A2AUsageParams {
     /// `OAuth2` scopes granted for this request
     pub granted_scopes: Vec<String>,
 }
-
-/// A2A Authentication token
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct A2AToken {
-    /// A2A client identifier
-    pub client_id: String,
-    /// User ID associated with this token
-    pub user_id: String,
-    /// List of OAuth scopes granted to this token
-    pub scopes: Vec<String>,
-    /// When this token expires
-    pub expires_at: DateTime<Utc>,
-    /// When this token was created
-    pub created_at: DateTime<Utc>,
-}

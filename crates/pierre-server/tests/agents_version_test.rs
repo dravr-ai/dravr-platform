@@ -731,6 +731,8 @@ async fn test_revert_creates_new_version() {
         .as_ref()
         .unwrap()
         .contains("Reverted to version 1"));
+    // The revert snapshots the content it replaced, so the edit is not lost.
+    assert_eq!(v2.content_snapshot["title"], "Updated");
 }
 
 #[tokio::test]
@@ -1375,6 +1377,15 @@ async fn test_revert_denied_for_non_owner_leaves_agent_unchanged() {
     assert_eq!(after.title, "Updated Title", "coach must not be reverted");
     assert_eq!(after.system_prompt, "Updated prompt");
     assert_eq!(after.category, AgentCategory::Nutrition);
+    // Nor its history: a refused revert writes no snapshot.
+    assert_eq!(
+        manager
+            .get_current_version(&agent.id.to_string())
+            .await
+            .unwrap(),
+        1,
+        "a refused revert must not record a version"
+    );
 
     // The legitimate owner can still revert (positive control).
     let reverted = manager

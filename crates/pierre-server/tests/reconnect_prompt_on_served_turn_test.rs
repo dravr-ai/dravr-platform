@@ -923,9 +923,6 @@ async fn loopback_get_activities(
             user_id: user_id.to_string(),
             protocol: "mcp".to_owned(),
             tenant_id: Some(tenant.to_string()),
-            progress_token: None,
-            cancellation_token: None,
-            progress_reporter: None,
         })
         .await
         .expect("a window the healthy sibling can serve answers over the loopback");

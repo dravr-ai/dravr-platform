@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests for the agents route handlers
-// ABOUTME: Tests agent CRUD, favorites, usage tracking, and authentication flows
+// ABOUTME: Tests agent read/update/delete, favorites filtering, usage tracking, and authentication flows
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -15,31 +15,82 @@ use common::{
     generate_test_token,
 };
 use helpers::axum_test::AxumTestRequest;
+use pierre_core::models::agents::CreateAgentRequest;
+use pierre_core::models::TenantId;
 use pierre_database::database::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_routes_agents::agents::{
-    AgentResponse, ListAgentsResponse, RecordUsageResponse, ToggleFavoriteResponse,
-};
+use pierre_routes_agents::agents::{AgentResponse, ListAgentsResponse, RecordUsageResponse};
 use pierre_routes_agents::build_agents_router;
 
 use axum::http::StatusCode;
 use serde_json::json;
+use std::sync::Arc;
+use uuid::Uuid;
 
 // ============================================================================
 // Test Helpers
 // ============================================================================
 
-async fn setup_test_environment() -> (axum::Router, String) {
+async fn setup_test_environment() -> (axum::Router, String, Seed) {
     let resources = create_test_server_resources().await.unwrap();
-    let (_user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
+    let (user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant_id = resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap()
+        .first()
+        .map(|t| t.id)
+        .expect("test user owns a tenant");
 
     // Generate a JWT token for the user
     let token = generate_test_token(&resources, &user).await;
 
+    let seed = Seed {
+        resources: Arc::clone(&resources),
+        user_id,
+        tenant_id,
+    };
+
     // Create the agents router
     let router = build_agents_router::<ServerContext>().with_state(resources);
 
-    (router, format!("Bearer {token}"))
+    (router, format!("Bearer {token}"), seed)
+}
+
+/// Writes the fixtures a test reads back through the routes, through the
+/// repository every agent-creation surface stores with.
+struct Seed {
+    resources: Arc<ServerContext>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+}
+
+impl Seed {
+    async fn agent(&self, body: serde_json::Value) -> AgentResponse {
+        let request: CreateAgentRequest = serde_json::from_value(body).unwrap();
+        self.resources
+            .common
+            .repos
+            .agents
+            .create(self.user_id, self.tenant_id, &request)
+            .await
+            .unwrap()
+            .into()
+    }
+
+    async fn favorite(&self, agent_id: &str) {
+        self.resources
+            .common
+            .repos
+            .agents
+            .toggle_favorite(agent_id, self.user_id, self.tenant_id)
+            .await
+            .unwrap()
+            .expect("the agent exists");
+    }
 }
 
 // ============================================================================
@@ -47,77 +98,15 @@ async fn setup_test_environment() -> (axum::Router, String) {
 // ============================================================================
 
 #[tokio::test]
-async fn test_create_agent() {
-    let (router, auth_token) = setup_test_environment().await;
-
-    let response = AxumTestRequest::post("/api/agents")
-        .header("authorization", &auth_token)
-        .json(&json!({
-            "title": "Marathon Coach",
-            "system_prompt": "You are an expert marathon training coach.",
-            "description": "Helps with marathon training plans",
-            "category": "training",
-            "tags": ["running", "marathon", "endurance"]
-        }))
-        .send(router)
-        .await;
-
-    assert_eq!(response.status_code(), StatusCode::CREATED);
-
-    let agent: AgentResponse = response.json();
-    assert_eq!(agent.title, "Marathon Coach");
-    assert_eq!(
-        agent.system_prompt,
-        "You are an expert marathon training coach."
-    );
-    assert_eq!(
-        agent.description,
-        Some("Helps with marathon training plans".to_owned())
-    );
-    assert_eq!(agent.category, "training");
-    assert_eq!(agent.tags, vec!["running", "marathon", "endurance"]);
-    assert!(!agent.is_favorite);
-    assert_eq!(agent.use_count, 0);
-}
-
-#[tokio::test]
-async fn test_create_agent_minimal() {
-    let (router, auth_token) = setup_test_environment().await;
-
-    let response = AxumTestRequest::post("/api/agents")
-        .header("authorization", &auth_token)
-        .json(&json!({
-            "title": "Simple Coach",
-            "system_prompt": "You are helpful."
-        }))
-        .send(router)
-        .await;
-
-    assert_eq!(response.status_code(), StatusCode::CREATED);
-
-    let agent: AgentResponse = response.json();
-    assert_eq!(agent.title, "Simple Coach");
-    assert_eq!(agent.system_prompt, "You are helpful.");
-    assert!(agent.description.is_none());
-    assert_eq!(agent.category, "custom"); // default category
-    assert!(agent.tags.is_empty());
-}
-
-#[tokio::test]
 async fn test_list_agents() {
-    let (router, auth_token) = setup_test_environment().await;
+    let (router, auth_token, seed) = setup_test_environment().await;
 
     // Create an agent first
-    let create_response = AxumTestRequest::post("/api/agents")
-        .header("authorization", &auth_token)
-        .json(&json!({
-            "title": "Test Coach",
-            "system_prompt": "Test prompt"
-        }))
-        .send(router.clone())
-        .await;
-
-    assert_eq!(create_response.status_code(), StatusCode::CREATED);
+    seed.agent(json!({
+        "title": "Test Coach",
+        "system_prompt": "Test prompt"
+    }))
+    .await;
 
     // List agents
     let list_response = AxumTestRequest::get("/api/agents")
@@ -135,19 +124,15 @@ async fn test_list_agents() {
 
 #[tokio::test]
 async fn test_get_agent() {
-    let (router, auth_token) = setup_test_environment().await;
+    let (router, auth_token, seed) = setup_test_environment().await;
 
     // Create an agent first
-    let create_response = AxumTestRequest::post("/api/agents")
-        .header("authorization", &auth_token)
-        .json(&json!({
+    let created = seed
+        .agent(json!({
             "title": "Get Test Coach",
             "system_prompt": "Test prompt"
         }))
-        .send(router.clone())
         .await;
-
-    let created: AgentResponse = create_response.json();
 
     // Get the agent
     let get_response = AxumTestRequest::get(&format!("/api/agents/{}", created.id))
@@ -164,19 +149,15 @@ async fn test_get_agent() {
 
 #[tokio::test]
 async fn test_update_agent() {
-    let (router, auth_token) = setup_test_environment().await;
+    let (router, auth_token, seed) = setup_test_environment().await;
 
     // Create an agent first
-    let create_response = AxumTestRequest::post("/api/agents")
-        .header("authorization", &auth_token)
-        .json(&json!({
+    let created = seed
+        .agent(json!({
             "title": "Original Title",
             "system_prompt": "Original prompt"
         }))
-        .send(router.clone())
         .await;
-
-    let created: AgentResponse = create_response.json();
 
     // Update the agent
     let update_response = AxumTestRequest::put(&format!("/api/agents/{}", created.id))
@@ -205,19 +186,15 @@ async fn test_update_agent() {
 
 #[tokio::test]
 async fn test_delete_agent() {
-    let (router, auth_token) = setup_test_environment().await;
+    let (router, auth_token, seed) = setup_test_environment().await;
 
     // Create an agent first
-    let create_response = AxumTestRequest::post("/api/agents")
-        .header("authorization", &auth_token)
-        .json(&json!({
+    let created = seed
+        .agent(json!({
             "title": "To Delete",
             "system_prompt": "Will be deleted"
         }))
-        .send(router.clone())
         .await;
-
-    let created: AgentResponse = create_response.json();
 
     // Delete the agent
     let delete_response = AxumTestRequest::delete(&format!("/api/agents/{}", created.id))
@@ -241,72 +218,25 @@ async fn test_delete_agent() {
 // ============================================================================
 
 #[tokio::test]
-async fn test_toggle_favorite() {
-    let (router, auth_token) = setup_test_environment().await;
-
-    // Create an agent
-    let create_response = AxumTestRequest::post("/api/agents")
-        .header("authorization", &auth_token)
-        .json(&json!({
-            "title": "Favorite Test",
-            "system_prompt": "Test prompt"
-        }))
-        .send(router.clone())
-        .await;
-
-    let created: AgentResponse = create_response.json();
-    assert!(!created.is_favorite);
-
-    // Toggle favorite ON
-    let toggle_response = AxumTestRequest::post(&format!("/api/agents/{}/favorite", created.id))
-        .header("authorization", &auth_token)
-        .send(router.clone())
-        .await;
-
-    assert_eq!(toggle_response.status_code(), StatusCode::OK);
-    let toggle_result: ToggleFavoriteResponse = toggle_response.json();
-    assert!(toggle_result.is_favorite);
-
-    // Toggle favorite OFF
-    let toggle_response = AxumTestRequest::post(&format!("/api/agents/{}/favorite", created.id))
-        .header("authorization", &auth_token)
-        .send(router)
-        .await;
-
-    assert_eq!(toggle_response.status_code(), StatusCode::OK);
-    let toggle_result: ToggleFavoriteResponse = toggle_response.json();
-    assert!(!toggle_result.is_favorite);
-}
-
-#[tokio::test]
 async fn test_list_favorites_only() {
-    let (router, auth_token) = setup_test_environment().await;
+    let (router, auth_token, seed) = setup_test_environment().await;
 
     // Create two agents
-    let create1 = AxumTestRequest::post("/api/agents")
-        .header("authorization", &auth_token)
-        .json(&json!({
+    let coach1 = seed
+        .agent(json!({
             "title": "Coach 1",
             "system_prompt": "Prompt 1"
         }))
-        .send(router.clone())
         .await;
-    let coach1: AgentResponse = create1.json();
 
-    AxumTestRequest::post("/api/agents")
-        .header("authorization", &auth_token)
-        .json(&json!({
-            "title": "Coach 2",
-            "system_prompt": "Prompt 2"
-        }))
-        .send(router.clone())
-        .await;
+    seed.agent(json!({
+        "title": "Coach 2",
+        "system_prompt": "Prompt 2"
+    }))
+    .await;
 
     // Mark coach1 as favorite
-    AxumTestRequest::post(&format!("/api/agents/{}/favorite", coach1.id))
-        .header("authorization", &auth_token)
-        .send(router.clone())
-        .await;
+    seed.favorite(&coach1.id).await;
 
     // List only favorites
     let list_response = AxumTestRequest::get("/api/agents?favorites_only=true")
@@ -329,19 +259,15 @@ async fn test_list_favorites_only() {
 
 #[tokio::test]
 async fn test_record_usage() {
-    let (router, auth_token) = setup_test_environment().await;
+    let (router, auth_token, seed) = setup_test_environment().await;
 
     // Create an agent
-    let create_response = AxumTestRequest::post("/api/agents")
-        .header("authorization", &auth_token)
-        .json(&json!({
+    let created = seed
+        .agent(json!({
             "title": "Usage Test",
             "system_prompt": "Test prompt"
         }))
-        .send(router.clone())
         .await;
-
-    let created: AgentResponse = create_response.json();
     assert_eq!(created.use_count, 0);
 
     // Record usage
@@ -370,28 +296,22 @@ async fn test_record_usage() {
 
 #[tokio::test]
 async fn test_search_agents() {
-    let (router, auth_token) = setup_test_environment().await;
+    let (router, auth_token, seed) = setup_test_environment().await;
 
     // Create agents with different content
-    AxumTestRequest::post("/api/agents")
-        .header("authorization", &auth_token)
-        .json(&json!({
-            "title": "Marathon Training Expert",
-            "system_prompt": "Running coach",
-            "tags": ["marathon", "running"]
-        }))
-        .send(router.clone())
-        .await;
+    seed.agent(json!({
+        "title": "Marathon Training Expert",
+        "system_prompt": "Running coach",
+        "tags": ["marathon", "running"]
+    }))
+    .await;
 
-    AxumTestRequest::post("/api/agents")
-        .header("authorization", &auth_token)
-        .json(&json!({
-            "title": "Nutrition Advisor",
-            "system_prompt": "Diet coach",
-            "tags": ["diet", "nutrition"]
-        }))
-        .send(router.clone())
-        .await;
+    seed.agent(json!({
+        "title": "Nutrition Advisor",
+        "system_prompt": "Diet coach",
+        "tags": ["diet", "nutrition"]
+    }))
+    .await;
 
     // Search for "marathon"
     let search_response = AxumTestRequest::get("/api/agents/search?q=marathon")
@@ -412,28 +332,22 @@ async fn test_search_agents() {
 
 #[tokio::test]
 async fn test_list_by_category() {
-    let (router, auth_token) = setup_test_environment().await;
+    let (router, auth_token, seed) = setup_test_environment().await;
 
     // Create agents in different categories
-    AxumTestRequest::post("/api/agents")
-        .header("authorization", &auth_token)
-        .json(&json!({
-            "title": "Training Coach",
-            "system_prompt": "Training",
-            "category": "training"
-        }))
-        .send(router.clone())
-        .await;
+    seed.agent(json!({
+        "title": "Training Coach",
+        "system_prompt": "Training",
+        "category": "training"
+    }))
+    .await;
 
-    AxumTestRequest::post("/api/agents")
-        .header("authorization", &auth_token)
-        .json(&json!({
-            "title": "Nutrition Coach",
-            "system_prompt": "Nutrition",
-            "category": "nutrition"
-        }))
-        .send(router.clone())
-        .await;
+    seed.agent(json!({
+        "title": "Nutrition Coach",
+        "system_prompt": "Nutrition",
+        "category": "nutrition"
+    }))
+    .await;
 
     // List only training agents
     let list_response = AxumTestRequest::get("/api/agents?category=training")
@@ -456,18 +370,15 @@ async fn test_list_by_category() {
 
 #[tokio::test]
 async fn test_list_agents_pagination() {
-    let (router, auth_token) = setup_test_environment().await;
+    let (router, auth_token, seed) = setup_test_environment().await;
 
     // Create 3 agents (max_coaches_per_user default quota is 3)
     for i in 1..=3 {
-        AxumTestRequest::post("/api/agents")
-            .header("authorization", &auth_token)
-            .json(&json!({
-                "title": format!("Coach {}", i),
-                "system_prompt": format!("Prompt {}", i)
-            }))
-            .send(router.clone())
-            .await;
+        seed.agent(json!({
+            "title": format!("Coach {}", i),
+            "system_prompt": format!("Prompt {}", i)
+        }))
+        .await;
     }
 
     // Get first page (limit=2)
@@ -494,44 +405,13 @@ async fn test_list_agents_pagination() {
 // Authentication Tests
 // ============================================================================
 
-#[tokio::test]
-async fn test_create_agent_unauthorized() {
-    let (router, _) = setup_test_environment().await;
-
-    let response = AxumTestRequest::post("/api/agents")
-        .json(&json!({
-            "title": "Test Coach",
-            "system_prompt": "Test"
-        }))
-        .send(router)
-        .await;
-
-    assert_eq!(response.status_code(), StatusCode::UNAUTHORIZED);
-}
-
-#[tokio::test]
-async fn test_create_agent_invalid_token() {
-    let (router, _) = setup_test_environment().await;
-
-    let response = AxumTestRequest::post("/api/agents")
-        .header("authorization", "Bearer invalid_token")
-        .json(&json!({
-            "title": "Test Coach",
-            "system_prompt": "Test"
-        }))
-        .send(router)
-        .await;
-
-    assert_eq!(response.status_code(), StatusCode::UNAUTHORIZED);
-}
-
 // ============================================================================
 // Not Found Tests
 // ============================================================================
 
 #[tokio::test]
 async fn test_get_nonexistent_agent() {
-    let (router, auth_token) = setup_test_environment().await;
+    let (router, auth_token, _) = setup_test_environment().await;
 
     let response = AxumTestRequest::get("/api/agents/nonexistent-id")
         .header("authorization", &auth_token)
@@ -543,7 +423,7 @@ async fn test_get_nonexistent_agent() {
 
 #[tokio::test]
 async fn test_update_nonexistent_agent() {
-    let (router, auth_token) = setup_test_environment().await;
+    let (router, auth_token, _) = setup_test_environment().await;
 
     let response = AxumTestRequest::put("/api/agents/nonexistent-id")
         .header("authorization", &auth_token)
@@ -558,7 +438,7 @@ async fn test_update_nonexistent_agent() {
 
 #[tokio::test]
 async fn test_delete_nonexistent_agent() {
-    let (router, auth_token) = setup_test_environment().await;
+    let (router, auth_token, _) = setup_test_environment().await;
 
     let response = AxumTestRequest::delete("/api/agents/nonexistent-id")
         .header("authorization", &auth_token)
@@ -569,20 +449,8 @@ async fn test_delete_nonexistent_agent() {
 }
 
 #[tokio::test]
-async fn test_toggle_favorite_nonexistent() {
-    let (router, auth_token) = setup_test_environment().await;
-
-    let response = AxumTestRequest::post("/api/agents/nonexistent-id/favorite")
-        .header("authorization", &auth_token)
-        .send(router)
-        .await;
-
-    assert_eq!(response.status_code(), StatusCode::NOT_FOUND);
-}
-
-#[tokio::test]
 async fn test_record_usage_nonexistent() {
-    let (router, auth_token) = setup_test_environment().await;
+    let (router, auth_token, _) = setup_test_environment().await;
 
     let response = AxumTestRequest::post("/api/agents/nonexistent-id/usage")
         .header("authorization", &auth_token)
@@ -714,198 +582,6 @@ async fn test_get_system_agent_by_id() {
 // Hide/Show Agent E2E Tests
 // ============================================================================
 
-/// E2E test: User can hide a system agent via the API
-#[tokio::test]
-async fn test_hide_system_agent_via_api() {
-    let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
-
-    // Get the user's tenant from the tenant where they are the owner
-    let all_tenants = resources.common.repos.tenants.get_all().await.unwrap();
-    let user_tenant = all_tenants
-        .iter()
-        .find(|t| t.owner_user_id == user_id)
-        .unwrap();
-    let tenant_id = user_tenant.id;
-
-    // Create a system agent
-    let agents_manager = &resources.common.repos.agents;
-    let system_request = CreateSystemAgentRequest {
-        title: "Hideable Coach".to_owned(),
-        description: None,
-        system_prompt: "You are a coach.".to_owned(),
-        category: AgentCategory::Training,
-        tags: vec![],
-        visibility: AgentVisibility::Tenant,
-        sample_prompts: vec![],
-    };
-    let system_coach = agents_manager
-        .create_system_agent(user_id, tenant_id, &system_request)
-        .await
-        .unwrap();
-
-    // Generate JWT token
-    let token = generate_test_token(&resources, &user).await;
-    let auth_token = format!("Bearer {token}");
-
-    let router = build_agents_router::<ServerContext>().with_state(resources);
-
-    // Hide the system agent via the API
-    let hide_response = AxumTestRequest::post(&format!("/api/agents/{}/hide", system_coach.id))
-        .header("authorization", &auth_token)
-        .send(router.clone())
-        .await;
-
-    assert_eq!(hide_response.status_code(), StatusCode::OK);
-
-    // Verify the agent is hidden by listing (without include_hidden)
-    let list_response = AxumTestRequest::get("/api/agents")
-        .header("authorization", &auth_token)
-        .send(router)
-        .await;
-
-    assert_eq!(list_response.status_code(), StatusCode::OK);
-
-    let list: ListAgentsResponse = list_response.json();
-    // The agent should not appear in the list (it's hidden)
-    let found_coach = list.agents.iter().find(|c| c.title == "Hideable Coach");
-    assert!(
-        found_coach.is_none(),
-        "Hidden coach should not appear in list"
-    );
-}
-
-/// E2E test: User can show (unhide) a hidden agent via the API
-#[tokio::test]
-async fn test_show_hidden_agent_via_api() {
-    let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
-
-    // Get the user's tenant from the tenant where they are the owner
-    let all_tenants = resources.common.repos.tenants.get_all().await.unwrap();
-    let user_tenant = all_tenants
-        .iter()
-        .find(|t| t.owner_user_id == user_id)
-        .unwrap();
-    let tenant_id = user_tenant.id;
-
-    // Create a system agent
-    let agents_manager = &resources.common.repos.agents;
-    let system_request = CreateSystemAgentRequest {
-        title: "Show Me Coach".to_owned(),
-        description: None,
-        system_prompt: "You are a coach.".to_owned(),
-        category: AgentCategory::Training,
-        tags: vec![],
-        visibility: AgentVisibility::Tenant,
-        sample_prompts: vec![],
-    };
-    let system_coach = agents_manager
-        .create_system_agent(user_id, tenant_id, &system_request)
-        .await
-        .unwrap();
-
-    // Hide the agent first (directly via manager)
-    agents_manager
-        .hide_agent(&system_coach.id.to_string(), user_id, tenant_id)
-        .await
-        .unwrap();
-
-    // Generate JWT token
-    let token = generate_test_token(&resources, &user).await;
-    let auth_token = format!("Bearer {token}");
-
-    let router = build_agents_router::<ServerContext>().with_state(resources);
-
-    // Show (unhide) the agent via the API - DELETE removes the hide preference
-    let show_response = AxumTestRequest::delete(&format!("/api/agents/{}/hide", system_coach.id))
-        .header("authorization", &auth_token)
-        .send(router.clone())
-        .await;
-
-    assert_eq!(show_response.status_code(), StatusCode::OK);
-
-    // Verify the agent is now visible by listing
-    let list_response = AxumTestRequest::get("/api/agents")
-        .header("authorization", &auth_token)
-        .send(router)
-        .await;
-
-    assert_eq!(list_response.status_code(), StatusCode::OK);
-
-    let list: ListAgentsResponse = list_response.json();
-    // The agent should now appear in the list
-    let found_coach = list.agents.iter().find(|c| c.title == "Show Me Coach");
-    assert!(
-        found_coach.is_some(),
-        "Unhidden coach should appear in list"
-    );
-}
-
-/// E2E test: a session with no active tenant is refused by show, exactly as
-/// by hide and every other agent route — and the refusal leaves the hidden-set
-/// row in place.
-#[tokio::test]
-async fn test_show_agent_without_tenant_is_refused_via_api() {
-    let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
-
-    let all_tenants = resources.common.repos.tenants.get_all().await.unwrap();
-    let tenant_id = all_tenants
-        .iter()
-        .find(|t| t.owner_user_id == user_id)
-        .unwrap()
-        .id;
-
-    let agents_manager = &resources.common.repos.agents;
-    let system_request = CreateSystemAgentRequest {
-        title: "Tenant-gated Coach".to_owned(),
-        description: None,
-        system_prompt: "You are a coach.".to_owned(),
-        category: AgentCategory::Training,
-        tags: vec![],
-        visibility: AgentVisibility::Tenant,
-        sample_prompts: vec![],
-    };
-    let system_coach = agents_manager
-        .create_system_agent(user_id, tenant_id, &system_request)
-        .await
-        .unwrap();
-    agents_manager
-        .hide_agent(&system_coach.id.to_string(), user_id, tenant_id)
-        .await
-        .unwrap();
-
-    // The same user, minted with no active tenant claim.
-    let tenantless_token = resources
-        .auth
-        .auth_manager
-        .generate_token_with_tenant(&user, &resources.auth.jwks_manager, None)
-        .unwrap();
-    let tenantless_auth = format!("Bearer {tenantless_token}");
-    let tenant_auth = format!("Bearer {}", generate_test_token(&resources, &user).await);
-
-    let router = build_agents_router::<ServerContext>().with_state(resources);
-
-    let show_response = AxumTestRequest::delete(&format!("/api/agents/{}/hide", system_coach.id))
-        .header("authorization", &tenantless_auth)
-        .send(router.clone())
-        .await;
-    assert_eq!(show_response.status_code(), StatusCode::UNAUTHORIZED);
-
-    // The refusal wrote nothing: the agent is still hidden for a tenant-bearing session.
-    let list_response = AxumTestRequest::get("/api/agents")
-        .header("authorization", &tenant_auth)
-        .send(router)
-        .await;
-    assert_eq!(list_response.status_code(), StatusCode::OK);
-    let list: ListAgentsResponse = list_response.json();
-    assert!(
-        !list.agents.iter().any(|c| c.title == "Tenant-gated Coach"),
-        "a refused show must leave the coach hidden"
-    );
-}
-
 /// E2E test: Hidden agents appear when `include_hidden=true`
 #[tokio::test]
 async fn test_list_with_include_hidden() {
@@ -981,7 +657,7 @@ async fn test_version_reads_denied_for_non_owner_same_tenant() {
     // Victim (owner) and their tenant.
     let (owner_id, owner) = create_test_user(&resources.agent.database).await.unwrap();
     let owner_token = format!("Bearer {}", generate_test_token(&resources, &owner).await);
-    let owner_tenant = resources
+    let owner_tenant_id = resources
         .common
         .repos
         .tenants
@@ -989,7 +665,9 @@ async fn test_version_reads_denied_for_non_owner_same_tenant() {
         .await
         .unwrap()
         .first()
-        .map(|t| t.id.to_string());
+        .map(|t| t.id)
+        .expect("test user owns a tenant");
+    let owner_tenant = Some(owner_tenant_id.to_string());
 
     // Attacker: a DIFFERENT user, but carrying the victim's active tenant in
     // their JWT so the request is same-tenant, different-user.
@@ -1006,19 +684,19 @@ async fn test_version_reads_denied_for_non_owner_same_tenant() {
             .unwrap()
     );
 
-    let router = build_agents_router::<ServerContext>().with_state(resources);
-
     // Owner creates a private agent.
-    let create = AxumTestRequest::post("/api/agents")
-        .header("authorization", &owner_token)
-        .json(&json!({
-            "title": "Private Coach",
-            "system_prompt": "secret system prompt"
-        }))
-        .send(router.clone())
-        .await;
-    assert_eq!(create.status_code(), StatusCode::CREATED);
-    let agent: AgentResponse = create.json();
+    let agent = Seed {
+        resources: Arc::clone(&resources),
+        user_id: owner_id,
+        tenant_id: owner_tenant_id,
+    }
+    .agent(json!({
+        "title": "Private Coach",
+        "system_prompt": "secret system prompt"
+    }))
+    .await;
+
+    let router = build_agents_router::<ServerContext>().with_state(resources);
 
     // Owner updates it to produce version 1 (snapshot of the original state).
     let update = AxumTestRequest::put(&format!("/api/agents/{}", agent.id))
@@ -1042,10 +720,123 @@ async fn test_version_reads_denied_for_non_owner_same_tenant() {
         "non-owner (same tenant) must not read version history"
     );
 
+    // Nor diff a stored version against the current content.
+    let attacker_diff = AxumTestRequest::get(&format!("/api/agents/{}/versions/1/diff", agent.id))
+        .header("authorization", &attacker_token)
+        .send(router.clone())
+        .await;
+    assert_eq!(
+        attacker_diff.status_code(),
+        StatusCode::NOT_FOUND,
+        "non-owner (same tenant) must not diff version history"
+    );
+
     // Positive control: the legitimate owner CAN read the history on the same URL.
     let owner_list = AxumTestRequest::get(&format!("/api/agents/{}/versions", agent.id))
         .header("authorization", &owner_token)
         .send(router)
         .await;
     assert_eq!(owner_list.status_code(), StatusCode::OK);
+}
+
+/// The web editor's version-history flow, end to end over the routes: two edits
+/// write two snapshots, the diff compares a stored version with the CURRENT
+/// content (which is never itself a stored version), and a revert snapshots the
+/// content it replaces so the latest edit is not lost.
+#[tokio::test]
+async fn test_version_history_diff_against_current_and_lossless_revert() {
+    let (router, auth, seed) = setup_test_environment().await;
+    let agent = seed
+        .agent(json!({ "title": "Tempo Coach", "system_prompt": "prompt one" }))
+        .await;
+
+    for (title, prompt) in [
+        ("Tempo Coach B", "prompt two"),
+        ("Tempo Coach C", "prompt three"),
+    ] {
+        let update = AxumTestRequest::put(&format!("/api/agents/{}", agent.id))
+            .header("authorization", &auth)
+            .json(&json!({ "title": title, "system_prompt": prompt }))
+            .send(router.clone())
+            .await;
+        assert_eq!(update.status_code(), StatusCode::OK);
+    }
+
+    let list: serde_json::Value =
+        AxumTestRequest::get(&format!("/api/agents/{}/versions", agent.id))
+            .header("authorization", &auth)
+            .send(router.clone())
+            .await
+            .assert_status(StatusCode::OK)
+            .json();
+    assert_eq!(list["current_version"], 2);
+    assert_eq!(list["total"], 2);
+    assert_eq!(list["versions"][0]["version"], 2);
+    assert_eq!(
+        list["versions"][0]["content_snapshot"]["title"],
+        "Tempo Coach B"
+    );
+    assert_eq!(
+        list["versions"][1]["content_snapshot"]["title"],
+        "Tempo Coach"
+    );
+
+    // Version 1 against the live agent ("Tempo Coach C"), not against version 2.
+    let diff: serde_json::Value =
+        AxumTestRequest::get(&format!("/api/agents/{}/versions/1/diff", agent.id))
+            .header("authorization", &auth)
+            .send(router.clone())
+            .await
+            .assert_status(StatusCode::OK)
+            .json();
+    assert_eq!(diff["version"], 1);
+    let changes = diff["changes"].as_array().unwrap();
+    let title = changes.iter().find(|c| c["field"] == "title").unwrap();
+    assert_eq!(title["old_value"], "Tempo Coach");
+    assert_eq!(title["new_value"], "Tempo Coach C");
+    let prompt = changes
+        .iter()
+        .find(|c| c["field"] == "system_prompt")
+        .unwrap();
+    assert_eq!(prompt["old_value"], "prompt one");
+    assert_eq!(prompt["new_value"], "prompt three");
+
+    let revert: serde_json::Value =
+        AxumTestRequest::post(&format!("/api/agents/{}/versions/1/revert", agent.id))
+            .header("authorization", &auth)
+            .send(router.clone())
+            .await
+            .assert_status(StatusCode::OK)
+            .json();
+    assert_eq!(revert["agent"]["title"], "Tempo Coach");
+    assert_eq!(revert["reverted_to_version"], 1);
+    assert_eq!(revert["new_version"], 3);
+
+    // Version 3 holds the edit the revert replaced, so it can be restored.
+    let after: serde_json::Value =
+        AxumTestRequest::get(&format!("/api/agents/{}/versions", agent.id))
+            .header("authorization", &auth)
+            .send(router.clone())
+            .await
+            .assert_status(StatusCode::OK)
+            .json();
+    assert_eq!(after["versions"][0]["version"], 3);
+    assert_eq!(
+        after["versions"][0]["content_snapshot"]["title"],
+        "Tempo Coach C"
+    );
+    assert_eq!(
+        after["versions"][0]["change_summary"],
+        "Reverted to version 1"
+    );
+
+    // Diffing version 1 against the reverted agent now shows no content change.
+    let clean: serde_json::Value =
+        AxumTestRequest::get(&format!("/api/agents/{}/versions/1/diff", agent.id))
+            .header("authorization", &auth)
+            .send(router)
+            .await
+            .assert_status(StatusCode::OK)
+            .json();
+    assert_eq!(clean["changes"].as_array().unwrap().len(), 0);
 }

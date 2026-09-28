@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! These are content tests over the seeded `training_catalogue/` — the nine
+//! These are content tests over the seeded contremaitre `training/` — the nine
 //! flavours and forty-four selection rows as shipped — not fixtures. The
 //! kernel's own tests cover the mechanics; what is asserted here is that the
 //! data, read through the tool, produces the answers the plan promised.
@@ -58,9 +58,6 @@ fn request(tool: &str, params: Value, user_id: Uuid, tenant_id: &str) -> Univers
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: Some(tenant_id.to_owned()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     }
 }
 

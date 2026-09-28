@@ -18,7 +18,7 @@ use crate::repositories::user_mcp_tokens::{
     generate_mcp_token, hash_mcp_token, impl_user_mcp_token_repository, mcp_token_column_error,
     mcp_token_prefix, usage_count_from_column, UserMcpTokenRepository, CREATE_MCP_TOKEN_SQL,
     FIND_MCP_TOKEN_BY_VALUE_SQL, GET_MCP_TOKEN_SQL, LIST_MCP_TOKENS_SQL, REVOKE_MCP_TOKEN_SQL,
-    SWEEP_EXPIRED_MCP_TOKENS_SQL, TOUCH_MCP_TOKEN_SQL,
+    TOUCH_MCP_TOKEN_SQL,
 };
 use crate::repositories::uuid_columns::NativeUuid;
 

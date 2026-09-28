@@ -35,7 +35,7 @@ use uuid::Uuid;
 macro_rules! client_state_columns {
     () => {
         "state, provider, user_id, tenant_id, redirect_uri, scope, pkce_code_verifier, \
-         created_at, expires_at, used, oauth_app_client_id, bridge_callback_token"
+         created_at, expires_at, used, oauth_app_client_id"
     };
 }
 
@@ -45,7 +45,7 @@ pub(crate) const STORE_CLIENT_STATE_SQL: &str = concat!(
             INSERT INTO oauth_client_states (",
     client_state_columns!(),
     ")
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             "
 );
 
@@ -115,7 +115,6 @@ where
         scope: optional("scope")?,
         pkce_code_verifier: optional("pkce_code_verifier")?,
         oauth_app_client_id: optional("oauth_app_client_id")?,
-        bridge_callback_token: optional("bridge_callback_token")?,
         created_at: row
             .try_get("created_at")
             .map_err(|e| AppError::database(format!("oauth_client_states created_at: {e}")))?,
@@ -152,7 +151,6 @@ macro_rules! impl_oauth_client_state_repository {
                     .bind(state.expires_at)
                     .bind(state.used)
                     .bind(&state.oauth_app_client_id)
-                    .bind(&state.bridge_callback_token)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

@@ -699,6 +699,7 @@ function delegatedLink(status: 'proposed' | 'confirmed', memberUserId: string, m
     status,
     proposed_at: '2026-09-24T08:00:00Z',
     confirmed_at: status === 'confirmed' ? '2026-09-24T09:00:00Z' : null,
+    read_refused: null,
     metadata: { timestamp: '2026-09-24T09:00:00Z', api_version: '1.0' },
   };
 }

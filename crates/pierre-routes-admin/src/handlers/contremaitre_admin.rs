@@ -20,7 +20,6 @@ use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use pierre_core::admin::models::{AdminPermission, ValidatedAdminToken};
 use pierre_core::errors::{AppError, ErrorCode};
-use pierre_core::models::agents::Agent;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
@@ -47,10 +46,6 @@ pub fn admin_routes(context: Arc<AdminApiContext>) -> Router {
         )
         .route("/api/admin/contremaitre/status", get(handle_status))
         .route("/api/admin/contremaitre/sync", post(handle_manual_sync))
-        .route(
-            "/api/admin/contremaitre/agents/{id}/promote",
-            post(handle_promote_agent),
-        )
         .with_state(context)
 }
 
@@ -216,7 +211,7 @@ async fn handle_update_system_prompt(
     Path(key): Path<String>,
     Json(body): Json<UpdateSystemPromptRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    admin_token.require_permission(&AdminPermission::ManageAdminTokens)?;
+    admin_token.require_permission(&AdminPermission::ManageConfiguration)?;
 
     // Compute new hash and update registry immediately (optimistic)
     let sha256 = compute_sha256(body.content.as_bytes());
@@ -330,7 +325,7 @@ async fn handle_manual_sync(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
 ) -> Result<impl IntoResponse, AppError> {
-    admin_token.require_permission(&AdminPermission::ManageAdminTokens)?;
+    admin_token.require_permission(&AdminPermission::ManageConfiguration)?;
 
     let Some(config) = &context.contremaitre_config else {
         return Err(AppError::new(
@@ -363,137 +358,4 @@ async fn handle_manual_sync(
             failed: result.failed,
         }),
     ))
-}
-
-/// Response after promoting an agent.
-#[derive(Serialize)]
-struct PromoteAgentResponse {
-    /// Whether the promotion succeeded
-    success: bool,
-    /// Path of the file in the contremaitre repo
-    path: String,
-    /// Git commit SHA
-    commit_sha: Option<String>,
-}
-
-/// POST /api/admin/contremaitre/agents/{id}/promote — promote an agent to contremaitre.
-///
-/// Reads the agent from the database, generates a markdown file, and commits it
-/// to the contremaitre GitHub repository. Updates the agent's `source` to "contremaitre".
-///
-/// # Errors
-///
-/// Returns an error if the agent is not found, the user is not an admin,
-/// or the GitHub commit fails.
-async fn handle_promote_agent(
-    State(context): State<Arc<AdminApiContext>>,
-    Extension(admin_token): Extension<ValidatedAdminToken>,
-    Path(agent_id): Path<String>,
-) -> Result<impl IntoResponse, AppError> {
-    admin_token.require_permission(&AdminPermission::ManageAdminTokens)?;
-
-    let Some(config) = &context.contremaitre_config else {
-        return Err(AppError::new(
-            ErrorCode::ConfigMissing,
-            "Contremaitre is not configured",
-        ));
-    };
-
-    // Fetch the agent from the database
-    let agent = context
-        .repos
-        .agents
-        .get_system_agent_any_tenant(&agent_id)
-        .await?
-        .ok_or_else(|| AppError::not_found(format!("Agent {agent_id}")))?;
-
-    // Build markdown content from agent fields
-    let markdown = build_agent_markdown(&agent);
-
-    // Determine the file path based on category. Promotion writes the
-    // canonical English copy at `prompts/agents/<category>/<slug>/en.md`;
-    // any French translation is added directly in the contremaitre repo.
-    let slug = agent
-        .title
-        .to_lowercase()
-        .replace(' ', "-")
-        .replace(|c: char| !c.is_alphanumeric() && c != '-', "");
-    let category = agent.category.as_str().to_lowercase();
-    let path = format!("prompts/agents/{category}/{slug}/en.md");
-    let message = format!("Promote agent: {}", agent.title);
-
-    // Commit to GitHub (create new file)
-    let client = config.github_client();
-    let commit_sha = match client.commit_file(&path, &markdown, &message, None).await {
-        Ok(sha) => {
-            info!(
-                agent_id,
-                path,
-                commit_sha = sha,
-                "Agent promoted to contremaitre"
-            );
-            Some(sha)
-        }
-        Err(e) => {
-            warn!(agent_id, error = %e, "Failed to promote agent to contremaitre");
-            return Err(AppError::new(
-                ErrorCode::ExternalServiceError,
-                format!("Failed to commit to GitHub: {e}"),
-            ));
-        }
-    };
-
-    // The agent source column will be updated to "contremaitre" on the next
-    // webhook sync when the contremaitre repo processes the new file.
-
-    Ok((
-        StatusCode::OK,
-        Json(PromoteAgentResponse {
-            success: true,
-            path,
-            commit_sha,
-        }),
-    ))
-}
-
-/// Build markdown content from a `Agent` model for the contremaitre repo.
-fn build_agent_markdown(agent: &Agent) -> String {
-    use std::fmt::Write;
-
-    let mut md = String::new();
-
-    // YAML frontmatter
-    md.push_str("---\n");
-    let _ = writeln!(md, "name: {}", agent.title.to_lowercase().replace(' ', "-"));
-    let _ = writeln!(md, "title: {}", agent.title);
-    let _ = writeln!(md, "category: {}", agent.category.as_str());
-    if !agent.tags.is_empty() {
-        let _ = writeln!(md, "tags: [{}]", agent.tags.join(", "));
-    }
-    let _ = writeln!(md, "visibility: {}", agent.visibility.as_str());
-    md.push_str("---\n\n");
-
-    // Sections
-    if let Some(purpose) = &agent.purpose {
-        let _ = writeln!(md, "## Purpose\n\n{purpose}\n");
-    }
-
-    // Instructions (or fall back to system_prompt)
-    let instructions = agent
-        .instructions
-        .as_deref()
-        .unwrap_or(&agent.system_prompt);
-    let _ = writeln!(md, "## Instructions\n\n{instructions}\n");
-
-    if let Some(inputs) = &agent.example_inputs {
-        let _ = writeln!(md, "## Example Inputs\n\n{inputs}\n");
-    }
-    if let Some(outputs) = &agent.example_outputs {
-        let _ = writeln!(md, "## Example Outputs\n\n{outputs}\n");
-    }
-    if let Some(criteria) = &agent.success_criteria {
-        let _ = writeln!(md, "## Success Criteria\n\n{criteria}\n");
-    }
-
-    md
 }

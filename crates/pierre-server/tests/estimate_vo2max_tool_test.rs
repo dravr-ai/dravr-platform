@@ -48,9 +48,6 @@ fn make_request(tool: &str, params: Value, user_id: Uuid, tenant_id: &str) -> Un
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: Some(tenant_id.to_owned()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     }
 }
 
@@ -501,6 +498,22 @@ async fn every_method_offers_the_threshold_pace_its_estimate_implies() -> Result
             "{params} implied an unusable pace: {pace}"
         );
     }
+
+    // VDOT 50 holds 260.77 m/min at VO2max on Daniels' curve; at the default
+    // lactate threshold of 0.85 threshold pace is 0.90 of that, 255.7 s/km —
+    // the pace cageux cuts the threshold zone around, so the two agree.
+    let result = estimate(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({ "method": "from_vdot", "vdot": 50 }),
+    )
+    .await?;
+    assert_eq!(
+        result["implied_threshold_pace_sec_per_km"],
+        json!(255.7),
+        "VDOT 50 threshold pace: {result}"
+    );
     Ok(())
 }
 

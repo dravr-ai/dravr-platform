@@ -10,8 +10,7 @@ use pierre_core::field_update::FieldUpdate;
 use pierre_core::models::agents::{AgentWithListing, DataRequirements};
 use pierre_database::database::agents::{
     Agent, AgentAssignment as DbAgentAssignment, AgentCategory, AgentListItem, AgentVersion,
-    AgentVisibility, CreateAgentRequest, CreateSystemAgentRequest as DbCreateSystemAgentRequest,
-    UpdateAgentRequest,
+    AgentVisibility, CreateSystemAgentRequest as DbCreateSystemAgentRequest, UpdateAgentRequest,
 };
 use pierre_services::agent_package::PackageReview;
 use serde::{Deserialize, Serialize};
@@ -244,36 +243,11 @@ pub struct SearchAgentsQuery {
     pub offset: Option<u32>,
 }
 
-/// Response for toggle favorite
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ToggleFavoriteResponse {
-    /// New favorite status
-    pub is_favorite: bool,
-}
-
 /// Response for record usage
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RecordUsageResponse {
     /// Whether the usage was recorded
     pub success: bool,
-}
-
-/// Response for hide/show agent operations
-#[derive(Debug, Serialize, Deserialize)]
-pub struct HideAgentResponse {
-    /// Whether the operation was successful
-    pub success: bool,
-    /// Whether the agent is now hidden (true) or visible (false)
-    pub is_hidden: bool,
-}
-
-/// Response for forking an agent
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ForkAgentResponse {
-    /// The newly created forked agent
-    pub agent: AgentResponse,
-    /// The ID of the original agent that was forked
-    pub source_agent_id: String,
 }
 
 /// Response for importing an agent from markdown
@@ -290,136 +264,9 @@ pub struct ImportAgentResponse {
     pub warnings: Vec<String>,
 }
 
-/// Response for previewing an agent import without saving
-#[derive(Debug, Serialize)]
-pub struct ImportPreviewResponse {
-    /// Whether the markdown parsed successfully
-    pub valid: bool,
-    /// Parsed agent fields (present when valid)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parsed: Option<ParsedAgentFields>,
-    /// Parse errors (present when invalid)
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub errors: Vec<String>,
-    /// Warnings about missing optional sections or quality issues
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub warnings: Vec<String>,
-    /// Content hash for deduplication
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content_hash: Option<String>,
-    /// Whether an agent with this content already exists for the user
-    pub duplicate_exists: bool,
-    /// ID of the existing duplicate agent (if any)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub duplicate_agent_id: Option<String>,
-    /// Estimated token count
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub token_count: Option<u32>,
-}
-
-/// Parsed agent fields extracted from markdown for preview
-#[derive(Debug, Serialize)]
-pub struct ParsedAgentFields {
-    /// Agent name/slug from frontmatter
-    pub name: String,
-    /// Display title
-    pub title: String,
-    /// Category
-    pub category: String,
-    /// Tags
-    pub tags: Vec<String>,
-    /// Purpose section content
-    pub purpose: String,
-    /// Whether instructions section is present
-    pub has_instructions: bool,
-    /// Whether `example_inputs` section is present
-    pub has_example_inputs: bool,
-    /// Whether `example_outputs` section is present
-    pub has_example_outputs: bool,
-    /// Whether `success_criteria` section is present
-    pub has_success_criteria: bool,
-}
-
-/// Request body for importing an agent from a URL
-#[derive(Debug, Deserialize)]
-pub struct ImportFromUrlBody {
-    /// HTTPS URL pointing to a markdown agent definition
-    pub url: String,
-    /// Whether to save the imported agent (true) or just preview (false)
-    #[serde(default = "default_save_true")]
-    pub save: bool,
-}
-
-const fn default_save_true() -> bool {
-    true
-}
-
 // ============================================
-// Create/Update Request Types
+// Update Request Types
 // ============================================
-
-/// Request body for creating an agent (mirrors `CreateAgentRequest` with serde derives)
-#[derive(Debug, Deserialize)]
-pub struct CreateAgentBody {
-    /// Display title for the agent
-    pub title: String,
-    /// Optional description explaining the agent's purpose
-    pub description: Option<String>,
-    /// System prompt that shapes AI responses
-    pub system_prompt: String,
-    /// Category for organization
-    pub category: Option<String>,
-    /// Tags for filtering and search
-    #[serde(default)]
-    pub tags: Vec<String>,
-    /// Sample prompts for quick-start suggestions
-    #[serde(default)]
-    pub sample_prompts: Vec<String>,
-    /// Query auto-sent on first message to provide analysis context
-    pub startup_query: Option<String>,
-    /// Structured data requirements for deterministic activity pre-fetching
-    pub data_requirements: Option<DataRequirements>,
-    /// Agent purpose (from ## Purpose section)
-    pub purpose: Option<String>,
-    /// Usage scenarios (from ## When to Use section)
-    pub when_to_use: Option<String>,
-    /// Core AI instructions (from ## Instructions section)
-    pub instructions: Option<String>,
-    /// Sample questions (from ## Example Inputs section)
-    pub example_inputs: Option<String>,
-    /// Response style guidance (from ## Example Outputs section)
-    pub example_outputs: Option<String>,
-    /// Success definition (from ## Success Criteria section)
-    pub success_criteria: Option<String>,
-    /// Per-turn tool-loop iteration budget for this agent. Omitted leaves the
-    /// agent on the `tool_execution.max_iterations` admin configuration value.
-    pub max_tool_iterations: Option<i32>,
-}
-
-impl From<CreateAgentBody> for CreateAgentRequest {
-    fn from(body: CreateAgentBody) -> Self {
-        Self {
-            title: body.title,
-            description: body.description,
-            system_prompt: body.system_prompt,
-            category: body
-                .category
-                .map(|c| AgentCategory::parse(&c))
-                .unwrap_or_default(),
-            tags: body.tags,
-            sample_prompts: body.sample_prompts,
-            startup_query: body.startup_query,
-            data_requirements: body.data_requirements,
-            purpose: body.purpose,
-            when_to_use: body.when_to_use,
-            instructions: body.instructions,
-            example_inputs: body.example_inputs,
-            example_outputs: body.example_outputs,
-            success_criteria: body.success_criteria,
-            max_tool_iterations: body.max_tool_iterations,
-        }
-    }
-}
 
 /// Request body for updating an agent
 #[derive(Debug, Deserialize)]
@@ -563,14 +410,12 @@ pub struct RevertVersionResponse {
     pub new_version: i32,
 }
 
-/// Response for comparing two versions
+/// Response for comparing a stored version with the agent's current content
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AgentDiffResponse {
-    /// Source version number
-    pub from_version: i32,
-    /// Target version number
-    pub to_version: i32,
-    /// List of field changes
+    /// The stored version compared (the `old_value` side of every change)
+    pub version: i32,
+    /// Field changes from that version to the current content
     pub changes: Vec<FieldChange>,
 }
 

@@ -157,6 +157,41 @@ code=0
 ( cd "$dir" && env -u GATE_BASE_REF "$UNDER_TEST" >/tmp/moved-symbols-test.out 2>&1 ) || code=$?
 expect "with no base argument the stranded importer is still caught" "$code" 1
 
+# 10. Dropping a crate-root re-export leaves submodule-path importers compiling:
+#     `demo::helpers::bar` still resolves, so it is not stranded. A grouped
+#     import that names the item AT the root still is.
+dir="$(make_repo)"
+printf 'pub mod util;\npub mod helpers;\npub use helpers::bar;\n' >"$dir/crates/demo/src/lib.rs"
+printf 'use demo::helpers::bar;\n#[test]\nfn t() { bar(); }\n' >"$dir/crates/demo/tests/sub_test.rs"
+commit_all "$dir" base
+printf 'pub mod util;\npub mod helpers;\n' >"$dir/crates/demo/src/lib.rs"
+commit_all "$dir" "drop the root re-export"
+expect "a submodule-path importer of a dropped root re-export passes" "$(run_gate "$dir")" 0
+printf 'use demo::{helpers, bar};\n#[test]\nfn t() { bar(); helpers::bar(); }\n' >"$dir/crates/demo/tests/root_test.rs"
+commit_all "$dir" "import bar at the root"
+printf 'pub mod util;\npub mod helpers;\npub use helpers::bar;\n' >"$dir/crates/demo/src/lib.rs"
+commit_all "$dir" "restore"
+printf 'pub mod util;\npub mod helpers;\n' >"$dir/crates/demo/src/lib.rs"
+commit_all "$dir" "drop it again"
+expect "a grouped root import of a dropped re-export fails" "$(run_gate "$dir")" 1
+
+# 11. A re-export that gains a name and outgrows the line is wrapped by
+#     rustfmt: the diff removes the one-line group and adds a multi-line one.
+#     Every name it held is still exported, so its importers are not stranded.
+dir="$(make_repo)"
+printf 'pub fn bar() {}\npub fn baz() {}\npub fn qux() {}\n' >"$dir/crates/demo/src/helpers.rs"
+printf 'pub mod util;\npub mod helpers;\npub use helpers::{bar, baz};\n' >"$dir/crates/demo/src/lib.rs"
+printf 'use demo::{bar, baz};\n#[test]\nfn t() { bar(); baz(); }\n' >"$dir/crates/demo/tests/wrapped_test.rs"
+commit_all "$dir" base
+printf 'pub mod util;\npub mod helpers;\npub use helpers::{\n    bar, baz, qux,\n};\n' >"$dir/crates/demo/src/lib.rs"
+commit_all "$dir" "grow the re-export past the line"
+expect "a re-export rustfmt wrapped as it grew strands nobody" "$(run_gate "$dir")" 0
+
+# 12. A wrapped group that drops a name still strands that name's importer.
+printf 'pub mod util;\npub mod helpers;\npub use helpers::{\n    bar, qux,\n};\n' >"$dir/crates/demo/src/lib.rs"
+commit_all "$dir" "drop baz from the wrapped re-export"
+expect "a name dropped from a wrapped re-export strands its importer" "$(run_gate "$dir")" 1
+
 echo ""
 if [ "$failures" -ne 0 ]; then
   echo "❌ $failures moved-symbols fixture case(s) failed"

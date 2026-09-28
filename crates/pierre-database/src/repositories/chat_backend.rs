@@ -529,19 +529,39 @@ macro_rules! impl_chat_repository {
                 Ok(messages)
             }
 
-            async fn get_message_count(
+            async fn list_assistant_messages_after(
                 &self,
-                conversation_id: &str,
-                user_id: &str,
                 tenant_id: TenantId,
-            ) -> AppResult<i64> {
-                sqlx::query_scalar(MESSAGE_COUNT_SQL)
-                    .bind(conversation_id)
-                    .bind($ids::bind_text(user_id)?)
+                since: Option<DateTime<Utc>>,
+                after_message_id: Option<&str>,
+                limit: i64,
+            ) -> AppResult<Vec<AssistantMessage>> {
+                let rows = sqlx::query(ASSISTANT_MESSAGES_AFTER_SQL)
                     .bind(tenant_id.to_string())
-                    .fetch_one(self.pool())
+                    .bind(since)
+                    .bind(after_message_id)
+                    .bind(limit)
+                    .fetch_all(self.pool())
                     .await
-                    .map_err(|e| AppError::database(format!("Failed to get message count: {e}")))
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to list assistant messages: {e}"))
+                    })?;
+                rows.iter()
+                    .map(|row| {
+                        let col = |name: &str| -> AppResult<String> {
+                            row.try_get(name).map_err(|e| chat_column_error(name, &e))
+                        };
+                        Ok(AssistantMessage {
+                            message_id: col("message_id")?,
+                            conversation_id: col("conversation_id")?,
+                            user_id: $ids::read_text(row, "user_id")?,
+                            agent_id: row
+                                .try_get("agent_id")
+                                .map_err(|e| chat_column_error("agent_id", &e))?,
+                            content: col("content")?,
+                        })
+                    })
+                    .collect()
             }
 
             async fn upsert_message_feedback(
@@ -630,22 +650,6 @@ macro_rules! impl_chat_repository {
                     .fetch_one(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to count conversations: {e}")))
-            }
-
-            async fn delete_all_user_conversations(
-                &self,
-                user_id: &str,
-                tenant_id: TenantId,
-            ) -> AppResult<i64> {
-                let result = sqlx::query(DELETE_USER_CONVERSATIONS_SQL)
-                    .bind($ids::bind_text(user_id)?)
-                    .bind(tenant_id.to_string())
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to delete user conversations: {e}"))
-                    })?;
-                Ok(i64::try_from(result.rows_affected()).unwrap_or(i64::MAX))
             }
 
             async fn add_participant(

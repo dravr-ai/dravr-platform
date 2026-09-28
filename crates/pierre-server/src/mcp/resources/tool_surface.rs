@@ -228,9 +228,6 @@ impl ToolSurface for TurnToolSurface {
             // operator event are attributed to.
             protocol: NATIVE_PROTOCOL.to_owned(),
             tenant_id: Some(self.tenant_id.to_string()),
-            progress_token: None,
-            cancellation_token: None,
-            progress_reporter: None,
         };
 
         match timeout(LOOPBACK_TOOL_TIMEOUT, self.executor.execute_tool(request)).await {

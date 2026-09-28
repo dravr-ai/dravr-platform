@@ -150,7 +150,7 @@ pub async fn handle_list_pending_followups(
     let total = rows.len();
 
     info!(
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         tenant = %params.tenant_id,
         total,
         "admin listed pending followups"
@@ -200,7 +200,7 @@ pub async fn handle_cancel_followup(
         })?;
 
     info!(
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         tenant = %params.tenant_id,
         followup_id = %followup_id,
         cancelled,

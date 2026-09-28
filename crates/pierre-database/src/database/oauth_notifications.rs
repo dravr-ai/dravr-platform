@@ -12,8 +12,8 @@ use uuid::Uuid;
 use crate::database::Database;
 use crate::repositories::notifications::{
     all_oauth_notifications_sql, impl_notification_repository, oauth_notification_from_row,
-    NotificationRepository, MARK_ALL_OAUTH_NOTIFICATIONS_READ_SQL,
-    MARK_OAUTH_NOTIFICATION_READ_SQL, STORE_OAUTH_NOTIFICATION_SQL, UNREAD_OAUTH_NOTIFICATIONS_SQL,
+    NotificationRepository, MARK_OAUTH_NOTIFICATION_READ_SQL, STORE_OAUTH_NOTIFICATION_SQL,
+    UNREAD_OAUTH_NOTIFICATIONS_SQL,
 };
 use crate::repositories::uuid_columns::TextUuid;
 

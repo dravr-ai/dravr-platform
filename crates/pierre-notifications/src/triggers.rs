@@ -61,33 +61,6 @@ fn spawn_dispatch(service: Arc<NotificationService>, dispatch: EventDispatch, ti
 // Intelligence / Training Triggers
 // ============================================================================
 
-/// Trigger notification when a new activity is synced from a provider.
-pub fn trigger_activity_synced(
-    service: &Arc<NotificationService>,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    activity_id: &str,
-    activity_type: &str,
-    distance_display: &str,
-    duration_display: &str,
-) {
-    let dispatch = EventDispatch {
-        user_id,
-        tenant_id,
-        category: NotificationCategory::Training,
-        event: NotificationEvent::ActivitySynced,
-        params: json!({
-            "activity_type": activity_type,
-            "distance_display": distance_display,
-            "duration_display": duration_display,
-        }),
-        route: json!({ "screen": "activity", "id": activity_id }),
-        actions: None,
-        bypass_frequency_cap: false,
-    };
-    spawn_dispatch(Arc::clone(service), dispatch, PushTier::P3);
-}
-
 /// Trigger notification when acute training load exceeds threshold.
 pub fn trigger_training_load_alert(
     service: &Arc<NotificationService>,
@@ -147,13 +120,18 @@ pub fn trigger_overtraining_warning(
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P2);
 }
 
-/// Trigger notification when a personal record is detected.
+/// Trigger notification when a synced run sets an all-time best effort.
+///
+/// `distance` is the standard distance's catalogue code (`5k`, `10k`,
+/// `half_marathon`, `marathon`), never a name: the renderer names it in the
+/// reader's own language, so the row reads right again after a language
+/// change. `time_display` is the effort's elapsed time, `h:mm:ss` or `m:ss`.
 pub fn trigger_personal_record(
     service: &Arc<NotificationService>,
     user_id: Uuid,
     tenant_id: TenantId,
     activity_id: &str,
-    distance_label: &str,
+    distance: &str,
     time_display: &str,
 ) {
     let dispatch = EventDispatch {
@@ -161,29 +139,8 @@ pub fn trigger_personal_record(
         tenant_id,
         category: NotificationCategory::Achievement,
         event: NotificationEvent::PersonalRecord,
-        params: json!({ "distance_label": distance_label, "time_display": time_display }),
+        params: json!({ "distance": distance, "time_display": time_display }),
         route: json!({ "screen": "activity", "id": activity_id }),
-        actions: None,
-        bypass_frequency_cap: false,
-    };
-    spawn_dispatch(Arc::clone(service), dispatch, PushTier::P3);
-}
-
-/// Trigger notification when a cumulative milestone is reached.
-pub fn trigger_milestone_reached(
-    service: &Arc<NotificationService>,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    value_display: &str,
-    unit: &str,
-) {
-    let dispatch = EventDispatch {
-        user_id,
-        tenant_id,
-        category: NotificationCategory::Achievement,
-        event: NotificationEvent::MilestoneReached,
-        params: json!({ "value_display": value_display, "unit": unit }),
-        route: json!({ "screen": "activities" }),
         actions: None,
         bypass_frequency_cap: false,
     };
@@ -259,46 +216,27 @@ pub fn trigger_plan_updated(
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P1);
 }
 
-/// Trigger notification when an agent leaves feedback on an athlete's activity.
-pub fn trigger_agent_feedback(
-    service: &Arc<NotificationService>,
-    athlete_id: Uuid,
-    tenant_id: TenantId,
-    activity_id: &str,
-    agent_name: &str,
-    activity_type: &str,
-) {
-    let dispatch = EventDispatch {
-        user_id: athlete_id,
-        tenant_id,
-        category: NotificationCategory::Coach,
-        event: NotificationEvent::AgentFeedback,
-        params: json!({ "agent_name": agent_name, "activity_type": activity_type }),
-        route: json!({ "screen": "activity", "id": activity_id }),
-        actions: None,
-        bypass_frequency_cap: true,
-    };
-    spawn_dispatch(Arc::clone(service), dispatch, PushTier::P1);
-}
-
 // ============================================================================
 // Provider / System Triggers
 // ============================================================================
 
 /// Trigger notification when a provider sync fails.
+///
+/// `provider_name` is the provider as the athlete knows it. The provider's own
+/// error never reaches the athlete: it is internal detail, and it is in no
+/// language the athlete reads.
 pub fn trigger_sync_failure(
     service: &Arc<NotificationService>,
     user_id: Uuid,
     tenant_id: TenantId,
     provider_name: &str,
-    error_summary: &str,
 ) {
     let dispatch = EventDispatch {
         user_id,
         tenant_id,
         category: NotificationCategory::System,
         event: NotificationEvent::SyncFailure,
-        params: json!({ "provider_name": provider_name, "error_summary": error_summary }),
+        params: json!({ "provider_name": provider_name }),
         route: json!({ "screen": "settings", "action": "reconnect", "provider": provider_name }),
         actions: Some(vec![NotificationActionSpec {
             id: ACTION_RECONNECT,

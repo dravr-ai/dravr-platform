@@ -9,7 +9,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_intelligence::{AnalysisConfig, ConfidenceLevel};
+use pierre_intelligence::analysis_config::AnalysisConfig;
+use pierre_intelligence::analysis_config::ConfidenceLevel;
 use serial_test::serial;
 use std::env;
 

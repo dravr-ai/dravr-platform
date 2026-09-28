@@ -1,5 +1,5 @@
-// ABOUTME: Endurance Phase 2 — history endpoint shape conformance + multi-tenant isolation via repository
-// ABOUTME: Validates HistoryResponse JSON shape against the persisted training_history rows
+// ABOUTME: Endurance Phase 2 — training_history row shape conformance + multi-tenant isolation via repository
+// ABOUTME: Validates the JSON keys the persisted DailyTrainingState rows serialise with
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,7 +12,7 @@ use pierre_core::models::{DailyTrainingState, TenantId};
 use pierre_database::backends::factory::Database;
 use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::DatabaseProvider;
-use serde::Serialize;
+use std::slice;
 use uuid::Uuid;
 
 async fn make_test_db() -> Database {
@@ -34,6 +34,7 @@ fn synthetic_state(day_offset: i64, daily_load: f64) -> DailyTrainingState {
         ctl: (day_offset as f64).mul_add(0.1, 45.0),
         atl: (day_offset as f64).mul_add(0.05, 50.0),
         tsb: -5.0,
+        form_ctl: (day_offset as f64).mul_add(0.1, 44.9),
         acwr: Some(1.0),
         monotony: Some(1.5),
         strain: Some(daily_load * 1.5 * 7.0),
@@ -42,17 +43,8 @@ fn synthetic_state(day_offset: i64, daily_load: f64) -> DailyTrainingState {
     }
 }
 
-/// Mirror of `routes::endurance::HistoryResponse` for shape testing without
-/// pulling `pierre_mcp_server`'s full HTTP stack into a unit test.
-#[derive(Debug, Serialize)]
-struct HistoryResponseShape {
-    from: NaiveDate,
-    to: NaiveDate,
-    days: Vec<DailyTrainingState>,
-}
-
 #[tokio::test]
-async fn history_response_serialises_with_endurance_keys() {
+async fn history_rows_serialise_with_endurance_keys() {
     let db = make_test_db().await;
     let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
@@ -73,14 +65,11 @@ async fn history_response_serialises_with_endurance_keys() {
         .get_training_history(tenant_id, user_id, from, to)
         .await
         .expect("get history");
-    let response = HistoryResponseShape { from, to, days };
-    let json = serde_json::to_value(&response).expect("serialize");
-    let obj = json.as_object().expect("object root");
-    for key in ["from", "to", "days"] {
-        assert!(obj.contains_key(key), "missing key: {key}");
-    }
-    let days_array = obj.get("days").and_then(|v| v.as_array()).unwrap();
+    let json = serde_json::to_value(&days).expect("serialize");
+    let days_array = json.as_array().expect("array root");
     assert_eq!(days_array.len(), 7);
+    assert_eq!(days_array[0]["date"], "2026-04-01");
+    assert_eq!(days_array[6]["date"], "2026-04-07");
     let day_obj = days_array[0].as_object().unwrap();
     for key in ["date", "ctl", "atl", "tsb", "daily_load"] {
         assert!(day_obj.contains_key(key), "missing per-day key: {key}");
@@ -103,12 +92,12 @@ async fn history_query_is_tenant_scoped() {
     let repos = db.repositories();
     repos
         .training_history
-        .upsert_training_history_day(tenant_a, user_id, &state_a)
+        .upsert_training_history_batch(tenant_a, user_id, slice::from_ref(&state_a))
         .await
         .expect("upsert A");
     repos
         .training_history
-        .upsert_training_history_day(tenant_b, user_id, &state_b)
+        .upsert_training_history_batch(tenant_b, user_id, slice::from_ref(&state_b))
         .await
         .expect("upsert B");
     let rows_a = repos

@@ -370,10 +370,10 @@ async fn test_oauth_notification_struct_creation() -> Result<()> {
     Ok(())
 }
 
-/// `mark_all_read` reports how many rows it flipped, and `get_all` returns
-/// read and unread rows alike, newest first, capped by the caller's limit.
+/// `mark_read` flips only the owner's row, and `get_all` returns read and
+/// unread rows alike, newest first, capped by the caller's limit.
 #[tokio::test]
-async fn mark_all_read_counts_the_rows_and_get_all_keeps_them() -> Result<()> {
+async fn mark_read_flips_the_owners_rows_and_get_all_keeps_them() -> Result<()> {
     let database = common::create_test_database().await?;
     let (user_id, _user) = common::create_test_user(&database).await?;
     let (other_user, _user) =
@@ -387,16 +387,16 @@ async fn mark_all_read_counts_the_rows_and_get_all_keeps_them() -> Result<()> {
     repo.store(other_user, "strava", true, "someone else's", None)
         .await?;
 
-    assert_eq!(
-        repo.mark_all_read(user_id).await?,
-        3,
-        "every unread row of the user is flipped, and only theirs"
-    );
-    assert_eq!(
-        repo.mark_all_read(user_id).await?,
-        0,
-        "a second pass finds nothing left to flip"
-    );
+    for unread in repo.get_unread(user_id).await? {
+        assert!(
+            repo.mark_read(&unread.id, user_id).await?,
+            "an unread row of the user is flipped"
+        );
+        assert!(
+            !repo.mark_read(&unread.id, other_user).await?,
+            "another user cannot flip it"
+        );
+    }
     assert!(repo.get_unread(user_id).await?.is_empty());
     assert_eq!(
         repo.get_unread(other_user).await?.len(),

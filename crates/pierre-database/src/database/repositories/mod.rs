@@ -6,9 +6,5 @@
 
 pub use crate::repositories::*;
 
-/// Agent version history — snapshot, list, revert
-mod agent_translations;
-mod agents_assignments;
-/// Direct `AgentsRepository` impl on `Database` (SQLite agents catalogue)
+/// The `AgentsRepository` shell on `Database` (`SQLite`), over the shared body
 mod agents_impl;
-mod agents_versions;

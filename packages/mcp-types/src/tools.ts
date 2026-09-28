@@ -705,13 +705,13 @@ export interface EstimateVo2maxParams {
 
 
 /**
- * Export the Endurance 'dossier.json' aggregate for the authenticated user — physiological profile (VO2max, FTP, threshold pace, fitness level), HR + power zones, goals, nutrition, and equipment slots — composed at read time from the underlying tables. Empty slots come back as `null` rather than 404, so agents can rely on the shape. Mirrors `GET /api/v1/endurance/dossier`.
+ * Export the Endurance 'dossier.json' aggregate for the authenticated user — physiological profile (VO2max, FTP, threshold pace, fitness level), HR + power zones, goals, nutrition, and equipment slots — composed at read time from the underlying tables. Empty slots come back as `null` rather than 404, so agents can rely on the shape.
  */
 export interface ExportDossierParams {}
 
 
 /**
- * Export the Endurance 'intervals.json' shape for a single activity — one row per lap with avg HR, normalized power, intensity factor, and decoupling. Use this when a coach needs the per-interval breakdown for tempo/threshold/VO2max workouts. Activities without laps return a single synthetic interval covering the whole session. Mirrors GET /api/v1/endurance/intervals/{activity_id}.
+ * Export the Endurance 'intervals.json' shape for a single activity — one row per lap with avg HR, normalized power, intensity factor, and decoupling. Use this when a coach needs the per-interval breakdown for tempo/threshold/VO2max workouts. Activities without laps return a single synthetic interval covering the whole session.
  */
 export interface ExportIntervalsParams {
 
@@ -721,7 +721,7 @@ export interface ExportIntervalsParams {
 
 
 /**
- * Export the Endurance 'latest.json' snapshot for the authenticated user — per-activity intensity factor, efficiency factor, variability index, aerobic decoupling, and time-in-zone distribution aggregated over a sliding window. Default window is 7 days; pass `window` (1..=365) to change it. Use this when a coach needs a structured per-activity training-state snapshot grounded in the Endurance deterministic-output contract. The response shape mirrors `GET /api/v1/endurance/latest`.
+ * Export the Endurance 'latest.json' snapshot for the authenticated user — per-activity intensity factor, efficiency factor, variability index, aerobic decoupling, and time-in-zone distribution aggregated over a sliding window. Default window is 7 days; pass `window` (1..=365) to change it. Use this when a coach needs a structured per-activity training-state snapshot grounded in the Endurance deterministic-output contract.
  */
 export interface ExportLatestSnapshotParams {
 
@@ -731,7 +731,7 @@ export interface ExportLatestSnapshotParams {
 
 
 /**
- * Export the Endurance 'routes.json' shape for a single activity — GPX-derived terrain mix (flat/rolling/climb/steep), elevation gain/loss, and distinct climb segments with Strava-style category. Requires the activity stream to include lat/lon and altitude. Mirrors GET /api/v1/endurance/routes/{activity_id}.
+ * Export the Endurance 'routes.json' shape for a single activity — GPX-derived terrain mix (flat/rolling/climb/steep), elevation gain/loss, and distinct climb segments with Strava-style category. Requires the activity stream to include lat/lon and altitude.
  */
 export interface ExportRoutesParams {
 
@@ -1118,24 +1118,24 @@ export interface GetUserConfigurationParams {}
 
 
 /**
- * Get the weather forecast (temperature in °C, conditions, humidity, wind) for a location and date, grounded in the Open-Meteo forecast API. Use this whenever the user asks you to base a session on the temperature or weather, or proposes an activity today or on an upcoming date. Pass either a place name via `place` (preferred — e.g. "Prévost, QC") or explicit `latitude`/`longitude`. Optionally pass `date` (YYYY-MM-DD, defaults to today UTC) and `hour` (0-23 UTC, defaults to 12). Forecast coverage is up to ~16 days ahead. Never invent the temperature — call this tool to obtain it.
+ * Forecast weather — temperature, humidity, wind and conditions — for the hour containing a timestamp up to about 16 days ahead, e.g. a planned session. Give the location either as latitude and longitude, or as a place name (optionally narrowed by country_code), which is geocoded; when both are given the coordinates win and place is ignored. For a place, the output names the town used, and an ambiguous name takes the top-ranked match and says so.
  */
 export interface GetWeatherForecastParams {
 
-  /** Target date as YYYY-MM-DD (UTC). Defaults to today. Must be within ~16 days for forecast coverage. */
-  date?: string;
+  /** ISO 3166-1 alpha-2 country narrowing place, e.g. "FR" */
+  country_code?: string;
 
-  /** Hour of day 0-23 (UTC). Defaults to 12 (midday). */
-  hour?: number;
-
-  /** Latitude in decimal degrees. Only used when `place` is NOT set. */
+  /** Decimal degrees, north-positive. Give with longitude, or give place instead */
   latitude?: number;
 
-  /** Longitude in decimal degrees. Only used when `place` is NOT set. */
+  /** Decimal degrees, east-positive. Give with latitude, or give place instead */
   longitude?: number;
 
-  /** Place name to resolve via Nominatim forward geocoding. Prefer this over latitude/longitude — pass natural strings like 'Prévost, QC'. When set, latitude/longitude are ignored. */
+  /** Place name to geocode instead of coordinates, e.g. "Chamonix" — the name only, no region or country appended. Ignored when latitude and longitude are given */
   place?: string;
+
+  /** Instant within the next ~16 days, RFC 3339; looked up at the hour it falls in */
+  timestamp: string;
 }
 
 

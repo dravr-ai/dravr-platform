@@ -25,10 +25,10 @@ impl A2AServer {
     ///
     /// Two token shapes are accepted, matching the card's `securitySchemes`:
     /// user JWTs (`sub` = user UUID), and `OAuth2` client-credentials JWTs
-    /// (`sub` = `client:{id}`, minted by `/a2a/auth`). A client token
-    /// acts as the client's registering user — the same semantics as
-    /// `A2AAuthenticator::authenticate_oauth2` — with the client identity
-    /// kept on the principal for task keying and scoping.
+    /// (`sub` = `client:{id}`, minted by the `/oauth2/token`
+    /// `client_credentials` grant). A client token acts as the client's
+    /// registering user, with the client identity kept on the principal for
+    /// task keying and scoping.
     ///
     /// A user JWT is admitted through
     /// [`McpAuthMiddleware`](pierre_middleware::McpAuthMiddleware), the pipeline
@@ -85,7 +85,7 @@ impl A2AServer {
         }
 
         // Client-credentials JWT: subject is client:{id} (the shape
-        // /a2a/auth mints via generate_client_credentials_token).
+        // /oauth2/token mints via generate_client_credentials_token).
         let Some(client_id) = claims.sub.strip_prefix("client:") else {
             return Err(Box::new(Self::auth_error(
                 "Invalid principal in authentication token",

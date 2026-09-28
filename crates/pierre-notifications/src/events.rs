@@ -39,26 +39,20 @@ pub const PARAMS_DATA_KEY: &str = "params";
 /// set is closed by the same strings the clients already route on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NotificationEvent {
-    /// A new activity arrived from a provider.
-    ActivitySynced,
     /// Acute training load crossed the alert threshold.
     TrainingLoadAlert,
     /// The recovery score dropped below the alert threshold.
     LowRecoveryScore,
     /// The training-stress trend suggests accumulating fatigue.
     OvertrainingWarning,
-    /// A personal record was detected on an activity.
+    /// A synced run set an all-time best effort at a standard distance.
     PersonalRecord,
-    /// A cumulative milestone was reached.
-    MilestoneReached,
     /// A fitness metric improved.
     FitnessImprovement,
     /// An agent sent the athlete a message.
     AgentMessage,
     /// An agent updated the athlete's training plan.
     PlanUpdated,
-    /// An agent left a note on an activity.
-    AgentFeedback,
     /// A provider sync failed.
     SyncFailure,
     /// The athlete's shared Strava seat will be released unless they come
@@ -93,16 +87,13 @@ impl NotificationEvent {
     #[must_use]
     pub const fn wire(self) -> &'static str {
         match self {
-            Self::ActivitySynced => "activity_synced",
             Self::TrainingLoadAlert => "training_load_alert",
             Self::LowRecoveryScore => "low_recovery_score",
             Self::OvertrainingWarning => "overtraining_warning",
             Self::PersonalRecord => "personal_record",
-            Self::MilestoneReached => "milestone_reached",
             Self::FitnessImprovement => "fitness_improvement",
             Self::AgentMessage => "coach_message",
             Self::PlanUpdated => "plan_updated",
-            Self::AgentFeedback => "coach_feedback",
             Self::SyncFailure => "sync_failure",
             Self::SeatReleaseWarning => "seat_release_warning",
             Self::DelegationProposed => "delegation_proposed",
@@ -120,16 +111,13 @@ impl NotificationEvent {
     #[must_use]
     pub fn from_wire(wire: &str) -> Option<Self> {
         [
-            Self::ActivitySynced,
             Self::TrainingLoadAlert,
             Self::LowRecoveryScore,
             Self::OvertrainingWarning,
             Self::PersonalRecord,
-            Self::MilestoneReached,
             Self::FitnessImprovement,
             Self::AgentMessage,
             Self::PlanUpdated,
-            Self::AgentFeedback,
             Self::SyncFailure,
             Self::SeatReleaseWarning,
             Self::DelegationProposed,
@@ -148,16 +136,13 @@ impl NotificationEvent {
     #[must_use]
     pub const fn title_key(self) -> &'static str {
         match self {
-            Self::ActivitySynced => "notifications.event.activity_synced.title",
             Self::TrainingLoadAlert => "notifications.event.training_load_alert.title",
             Self::LowRecoveryScore => "notifications.event.low_recovery_score.title",
             Self::OvertrainingWarning => "notifications.event.overtraining_warning.title",
             Self::PersonalRecord => "notifications.event.personal_record.title",
-            Self::MilestoneReached => "notifications.event.milestone_reached.title",
             Self::FitnessImprovement => "notifications.event.fitness_improvement.title",
             Self::AgentMessage => "notifications.event.agent_message.title",
             Self::PlanUpdated => "notifications.event.plan_updated.title",
-            Self::AgentFeedback => "notifications.event.agent_feedback.title",
             Self::SyncFailure => "notifications.event.sync_failure.title",
             Self::SeatReleaseWarning => "notifications.event.seat_release_warning.title",
             Self::DelegationProposed => "notifications.event.delegation_proposed.title",
@@ -176,16 +161,13 @@ impl NotificationEvent {
     #[must_use]
     pub const fn body_key(self) -> &'static str {
         match self {
-            Self::ActivitySynced => "notifications.event.activity_synced.body",
             Self::TrainingLoadAlert => "notifications.event.training_load_alert.body",
             Self::LowRecoveryScore => "notifications.event.low_recovery_score.body",
             Self::OvertrainingWarning => "notifications.event.overtraining_warning.body",
             Self::PersonalRecord => "notifications.event.personal_record.body",
-            Self::MilestoneReached => "notifications.event.milestone_reached.body",
             Self::FitnessImprovement => "notifications.event.fitness_improvement.body",
             Self::AgentMessage => "notifications.event.agent_message.body",
             Self::PlanUpdated => "notifications.event.plan_updated.body",
-            Self::AgentFeedback => "notifications.event.agent_feedback.body",
             Self::SyncFailure => "notifications.event.sync_failure.body",
             Self::SeatReleaseWarning => "notifications.event.seat_release_warning.body",
             Self::DelegationProposed => "notifications.event.delegation_proposed.body",
@@ -214,16 +196,13 @@ impl NotificationEvent {
     #[must_use]
     pub const fn body_params(self) -> &'static [&'static str] {
         match self {
-            Self::ActivitySynced => &["activity_type", "distance_display", "duration_display"],
             Self::TrainingLoadAlert => &["atl_value"],
             Self::LowRecoveryScore => &["score"],
             Self::OvertrainingWarning => &[],
-            Self::PersonalRecord => &["distance_label", "time_display"],
-            Self::MilestoneReached => &["value_display", "unit"],
+            Self::PersonalRecord => &["distance", "time_display"],
             Self::FitnessImprovement => &["metric_name", "value_display"],
             Self::AgentMessage | Self::PlanUpdated => &["agent_name"],
-            Self::AgentFeedback => &["agent_name", "activity_type"],
-            Self::SyncFailure => &["error_summary"],
+            Self::SyncFailure => &["provider_name"],
             Self::SeatReleaseWarning => &["idle_days", "provider_name", "days_left"],
             Self::DelegationProposed | Self::DelegationOffCoachRoster => {
                 &["coach_name", "group_name"]

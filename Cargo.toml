@@ -23,20 +23,20 @@ members = ["crates/*"]
 [workspace.dependencies]
 # Shared server/MCP foundation. From crates.io; every consumer moves in lockstep
 # because two tronc versions in the lockfile hard-fail the duplicate gate.
-dravr-tronc = "2.1.0"
+dravr-tronc = "3.0.0"
 
 # Sports science engine -- VDOT, TSS, TRIMP, FTP, VO2max, recovery, nutrition.
-dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.22.1" }
+dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.25.0" }
 
 # Messaging types and channel adapters.
-dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.4.30" }
+dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.6.0" }
 
 # Notification transport.
 dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", tag = "v0.3.4" }
 
 # Coach catalogue, locale strings and notify-event catalogue. Pinned by rev
 # rather than tag; contremaitre-bump.yml advances it.
-dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "947faf170734a94333e2b1ba449a411a15e11521" }
+dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "5ef33983cfb570ab04aa7cc016785d1a140d2464" }
 
 # Health provider sync. default-features off so pierre-enforme's own
 # provider-* features select the backends.
@@ -60,7 +60,7 @@ dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "
 dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.19.0" }
 
 # Billing capability, gated behind the billing-stripe feature.
-dravr-stripe = { git = "https://github.com/dravr-ai/dravr-stripe.git", tag = "v0.3.0" }
+dravr-stripe = { git = "https://github.com/dravr-ai/dravr-stripe.git", tag = "v0.4.0" }
 
 # ============================================================================
 # Build Profiles

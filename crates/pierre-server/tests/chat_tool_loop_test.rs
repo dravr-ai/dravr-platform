@@ -6,11 +6,12 @@
 
 //! Tests for chat tool loop strategies.
 
+use pierre_core::llm::tool_simulation::{generate_tool_catalog, parse_tool_call_blocks};
 use pierre_core::llm::MessageRole;
 use pierre_llm::{ChatMessage, FunctionDeclaration, FunctionResponse};
 use pierre_tool_runtime::tool_execution::{
-    generate_tool_catalog, inject_tool_catalog_into_system_prompt, parse_lenient_tool_call_blocks,
-    parse_tool_call_blocks, strip_simulation_artifacts,
+    inject_tool_catalog_into_system_prompt, parse_lenient_tool_call_blocks,
+    strip_simulation_artifacts,
 };
 use pierre_tool_runtime::tool_results::{extract_activity_list, format_tool_results_as_text};
 

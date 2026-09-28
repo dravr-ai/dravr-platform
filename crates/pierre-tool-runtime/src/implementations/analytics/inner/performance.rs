@@ -169,7 +169,8 @@ fn calculate_prediction_confidence(
     let mut owned_activities: Vec<_> = activities.iter().copied().cloned().collect();
     // Sort oldest-first — EMA calculation requires chronological order
     owned_activities.sort_by_key(Activity::start_date);
-    let calculator = TrainingLoadCalculator::from_config(algorithm_config.clone());
+    let calculator =
+        TrainingLoadCalculator::from_config(algorithm_config.clone(), Utc::now().date_naive());
     let ctl_score = if let Ok(training_load) =
         calculator.calculate_training_load(&owned_activities, None, None, None, None, None)
     {
@@ -215,15 +216,6 @@ pub fn handle_predict_performance(
         use parse_user_id_for_protocol;
         use DEFAULT_ACTIVITY_LIMIT;
 
-        // Check cancellation at start
-        if let Some(token) = &request.cancellation_token {
-            if token.is_cancelled().await {
-                return Err(ProtocolError::OperationCancelled(
-                    "predict_performance cancelled by user".to_owned(),
-                ));
-            }
-        }
-
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
         let provider_name = match resolve_provider_for_request(
             &request.parameters,
@@ -245,48 +237,12 @@ pub fn handle_predict_performance(
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);
 
-        // Report progress - starting authentication
-        if let Some(reporter) = &request.progress_reporter {
-            reporter.report(
-                20.0,
-                Some(100.0),
-                Some("Checking authentication...".to_owned()),
-            );
-        }
-
-        // Check cancellation before auth
-        if let Some(token) = &request.cancellation_token {
-            if token.is_cancelled().await {
-                return Err(ProtocolError::OperationCancelled(
-                    "predict_performance cancelled before authentication".to_owned(),
-                ));
-            }
-        }
-
         match executor
             .auth_service
             .create_authenticated_provider(&provider_name, user_uuid, request.tenant_id.as_deref())
             .await
         {
             Ok(provider) => {
-                // Report progress after auth
-                if let Some(reporter) = &request.progress_reporter {
-                    reporter.report(
-                        40.0,
-                        Some(100.0),
-                        Some("Authenticated - fetching activities...".to_owned()),
-                    );
-                }
-
-                // Check cancellation before provider creation
-                if let Some(token) = &request.cancellation_token {
-                    if token.is_cancelled().await {
-                        return Err(ProtocolError::OperationCancelled(
-                            "predict_performance cancelled before fetch".to_owned(),
-                        ));
-                    }
-                }
-
                 match provider
                     .get_activities(Some(DEFAULT_ACTIVITY_LIMIT), None)
                     .await
@@ -298,29 +254,12 @@ pub fn handle_predict_performance(
                         // PR as the canonical performance sample.
                         let (activities, _fragment_report) =
                             merge_duplicates(raw_activities, &DedupConfig::default());
-                        // Report progress before prediction
-                        if let Some(reporter) = &request.progress_reporter {
-                            reporter.report(
-                                70.0,
-                                Some(100.0),
-                                Some("Predicting race performance...".to_owned()),
-                            );
-                        }
 
                         let prediction = predict_race_performance(
                             &activities,
                             target_sport,
                             &executor.cageux_config().algorithms,
                         );
-
-                        // Report completion
-                        if let Some(reporter) = &request.progress_reporter {
-                            reporter.report(
-                                100.0,
-                                Some(100.0),
-                                Some("Performance prediction completed".to_owned()),
-                            );
-                        }
 
                         apply_format_typed(
                             UniversalResponse {

@@ -27,6 +27,7 @@ use pierre_mcp_server::services::messaging_ingress::reactions::{
     apply_reactions, channel_delivers_reactions, rating_for_emoji,
 };
 use pierre_messaging::channel::MessagingChannel;
+use pierre_messaging::channels::descriptor_for;
 use pierre_messaging::channels::messenger::MessengerChannel;
 use pierre_messaging::channels::whatsapp::WhatsAppChannel;
 use serde_json::json;
@@ -391,6 +392,28 @@ fn only_the_three_reaction_delivering_channels_reach_the_mapper() {
         assert!(
             !channel_delivers_reactions(channel),
             "{channel} delivers no reaction event; the ingress must not ask for one"
+        );
+    }
+}
+
+#[test]
+fn the_reaction_gate_reads_canots_descriptor_for_every_channel() {
+    // canot's `descriptor_for` is the one ChannelType -> descriptor lookup;
+    // the ingress gate must answer exactly what the descriptor declares.
+    for channel in [
+        ChannelType::Telegram,
+        ChannelType::Slack,
+        ChannelType::Discord,
+        ChannelType::WhatsApp,
+        ChannelType::Messenger,
+    ] {
+        let declared = descriptor_for(channel)
+            .expect("client-messaging compiles every channel")
+            .delivers_inbound_reactions();
+        assert_eq!(
+            channel_delivers_reactions(channel),
+            declared,
+            "{channel} reaction flag"
         );
     }
 }

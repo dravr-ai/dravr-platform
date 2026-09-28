@@ -20,6 +20,7 @@ fn make_token(
         is_super_admin,
         tenant_id: tenant_id.map(ToOwned::to_owned),
         user_info: None,
+        operator_user_id: None,
     }
 }
 

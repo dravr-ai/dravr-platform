@@ -8,7 +8,7 @@
 //!
 //! `user_physiological_profiles` is read by every computation that can be
 //! personalised — training-history TSS, the Endurance dossier and interval
-//! exports, `GET /api/v1/endurance/*`, and the athlete snapshot. Until this
+//! export tools, and the athlete snapshot. Until this
 //! tool existed nothing wrote it, so those readers always fell back to
 //! `AthleteInputs::default()` and every TSS estimate dropped to the static
 //! per-sport table or the duration-only rung.
@@ -36,11 +36,8 @@ use serde::Serialize;
 use serde_json::{json, Map, Value};
 use tracing::info;
 
-use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::conversions::{
-    answers_with, capabilities_to_tronc, ok_typed, tool_definition, tool_result_to_response,
-};
+use crate::conversions::{answers_with, ok_typed, tool_definition, tool_result_to_response};
 use crate::implementations::configuration::{
     derive_hr_zone_set, derive_power_zone_set, validate_parameter_ranges,
     validate_parameter_relationships,
@@ -51,13 +48,14 @@ use crate::implementations::plan_flavour::RecommendPlanFlavourTool;
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_config::environment::TrainingZonesConfig;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{HrZoneSet, PowerZoneSet, SportType, TenantId, UserPhysiologicalProfile};
-use pierre_fitness_compute::velocity_at_vo2max;
 use pierre_intelligence::algorithms::{VdotAlgorithm, Vo2maxAlgorithm};
+use pierre_intelligence::config::intelligence::VO2MaxCalculator;
+use pierre_intelligence::physiological_constants::physiological_defaults::DEFAULT_LACTATE_THRESHOLD;
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
 
@@ -620,18 +618,16 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
+    fn capabilities(&self) -> ToolCapabilities {
         // The write lands in `user_physiological_profiles` and the reply is the
         // profile re-read from storage, so this both writes and reads identity
         // data. Without PROFILE the bits resolve to fitness:write, and the
         // read is not declared at all.
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_TENANT
-                | ToolCapabilities::READS_DATA
-                | ToolCapabilities::WRITES_DATA
-                | ToolCapabilities::PROFILE,
-        )
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_TENANT
+            | ToolCapabilities::READS_DATA
+            | ToolCapabilities::WRITES_DATA
+            | ToolCapabilities::PROFILE
     }
 
     async fn execute(
@@ -757,13 +753,6 @@ const VO2MAX_METHODS: [&str; 6] = [
     "from_vdot",
     "race_result",
 ];
-
-/// Seconds in a minute, for turning a velocity in metres per minute into a
-/// pace in seconds per kilometre.
-const SECONDS_PER_MINUTE: f64 = 60.0;
-
-/// Metres in a kilometre.
-const METRES_PER_KM: f64 = 1_000.0;
 
 impl EstimateVo2maxTool {
     fn properties() -> BTreeMap<String, PropertySchema> {
@@ -1005,17 +994,15 @@ impl McpTool<dyn ToolRuntime> for EstimateVo2maxTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
+    fn capabilities(&self) -> ToolCapabilities {
         // Reads the stored profile for weight and age defaults and echoes
         // `stored_vo2_max`, so it discloses identity data. Runtime
         // requirements alone resolve to an empty scope list, which the
         // read-only default grant satisfies.
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_TENANT
-                | ToolCapabilities::READS_DATA
-                | ToolCapabilities::PROFILE,
-        )
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_TENANT
+            | ToolCapabilities::READS_DATA
+            | ToolCapabilities::PROFILE
     }
 
     async fn execute(
@@ -1067,6 +1054,10 @@ impl McpTool<dyn ToolRuntime> for EstimateVo2maxTool {
                     stored_vo2_max: profile.as_ref().and_then(|p| p.vo2_max),
                     implied_threshold_pace_sec_per_km: implied_threshold_pace(
                         vo2max,
+                        profile
+                            .as_ref()
+                            .and_then(|p| p.lactate_threshold_percentage)
+                            .unwrap_or(DEFAULT_LACTATE_THRESHOLD),
                         &context.resources.config().training_zones,
                     ),
                     saved: false,
@@ -1085,18 +1076,28 @@ impl McpTool<dyn ToolRuntime> for EstimateVo2maxTool {
 /// The threshold pace an estimated `VO2max` implies, in seconds per
 /// kilometre.
 ///
-/// Velocity at `VO2max` comes off Daniels' oxygen-cost curve; the threshold
-/// share of it is the same configured number the pace zones are cut at, so a
-/// pace offered here and a pace drawn in the zones cannot disagree. `None`
-/// when the velocity is not usable — an estimate that low describes no
-/// running pace, and inventing one would be worse than saying nothing.
-fn implied_threshold_pace(vo2max: f64, zones: &TrainingZonesConfig) -> Option<f64> {
-    let velocity_m_per_min = velocity_at_vo2max(vo2max) * zones.vdot_threshold_zone_percent;
-    if velocity_m_per_min <= 0.0 || !velocity_m_per_min.is_finite() {
+/// Read off cageux's [`VO2MaxCalculator::calculate_pace_zones`], the function
+/// the pace zones are cut by: threshold pace is the pace the athlete's lactate
+/// threshold (`lactate_threshold`, a fraction of `VO2max`) puts them at on
+/// Daniels' curve, and the threshold zone's slow edge is a configured multiple
+/// of it. So a pace offered here and a pace drawn in the zones cannot
+/// disagree. `None` when the pace is not usable — an estimate that low
+/// describes no running pace, and inventing one would be worse than saying
+/// nothing.
+fn implied_threshold_pace(
+    vo2max: f64,
+    lactate_threshold: f64,
+    zones: &TrainingZonesConfig,
+) -> Option<f64> {
+    if !vo2max.is_finite() || vo2max <= 0.0 || zones.vdot_threshold_zone_slow_factor <= 0.0 {
         return None;
     }
-    let pace = METRES_PER_KM / velocity_m_per_min * SECONDS_PER_MINUTE;
-    pace.is_finite().then(|| (pace * 10.0).round() / 10.0)
+    // Pace zones read only VO2max and the lactate threshold; the calculator's
+    // heart-rate fields and sport efficiency feed nothing asked for here.
+    let paces =
+        VO2MaxCalculator::new(vo2max, 0, 0, lactate_threshold, 1.0).calculate_pace_zones(zones);
+    let pace = paces.threshold_pace_range.0 / zones.vdot_threshold_zone_slow_factor;
+    (pace.is_finite() && pace > 0.0).then(|| (pace * 10.0).round() / 10.0)
 }
 
 /// Build the physiology tool set for registration.

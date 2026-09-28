@@ -480,8 +480,11 @@ pub struct User {
     /// [`Self::coaching_persona`]: a user can pick the
     /// [`CoachingPersona::Coach`] voice without `manages_roster=true`, and
     /// hold the permission without picking that voice. Granted automatically
-    /// when the user's TrainingPeaks connection reports a coach account, and
-    /// never revoked automatically.
+    /// when the user's TrainingPeaks connection reports a coach account whose
+    /// TrainingPeaks email is the user's verified email, and revoked when that
+    /// connection is disconnected or signs in as an athlete or as a coach
+    /// account that is not the user's, unless another TrainingPeaks coach
+    /// connection still holds it.
     #[serde(default)]
     pub manages_roster: bool,
     /// IANA timezone database name (e.g. `"America/Toronto"`,
@@ -526,6 +529,17 @@ pub fn default_locale() -> String {
     SUPPORTED_LOCALES[0].to_owned()
 }
 
+/// The one form an email is stored and compared in: trimmed, lower-case.
+///
+/// Emails are case-insensitive across the product, so `Jane@X.com` and
+/// `jane@x.com` name one person. Every write stores this form and every
+/// lookup compares against it, which is what lets a sign-in, a pre-approval
+/// or a coach's roster match an account whatever casing the person typed.
+#[must_use]
+pub fn normalize_email(email: impl AsRef<str>) -> String {
+    email.as_ref().trim().to_lowercase()
+}
+
 /// The `password_hash` of an account with no password.
 ///
 /// Such an account signs in only through a federated provider (Firebase:
@@ -534,7 +548,8 @@ pub fn default_locale() -> String {
 pub const FEDERATED_ONLY_PASSWORD_HASH: &str = "!firebase-auth-only!";
 
 impl User {
-    /// Create a new user with the given email and password hash
+    /// Create a new user with the given email and password hash. The email is
+    /// kept in its stored form ([`normalize_email`]).
     ///
     /// Tenant membership is managed separately via the `tenant_users` table.
     #[must_use]
@@ -542,7 +557,7 @@ impl User {
         let now = Utc::now();
         Self {
             id: Uuid::new_v4(),
-            email,
+            email: normalize_email(email),
             display_name,
             password_hash,
             tier: UserTier::Starter, // Default to starter tier

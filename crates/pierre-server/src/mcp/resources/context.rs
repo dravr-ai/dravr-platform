@@ -22,8 +22,6 @@ use super::slices::{
     A2ASlice, AgentSlice, AuthSlice, BillingSlice, CommonSlice, FitnessSlice, McpSlice, SseSlice,
 };
 use super::ServerContextBuilder;
-#[cfg(feature = "client-messaging")]
-use crate::services::user_approval_notifier::ApprovalNotifier;
 // Gated on `client-chat`, the feature that owns the only consumer
 // (`chat_pipeline_context`). It previously sat behind `provider-sciotte`, which
 // did not match its use — that combination is not a supported build today, so
@@ -39,19 +37,18 @@ use pierre_chat_pipeline::McpBridgeProvider;
 
 #[cfg(feature = "client-chat")]
 use super::tool_surface::HostedToolBridge;
-use pierre_core::errors::AppResult;
 use pierre_database::backends::StoreListingsRepository;
 use pierre_database::database::repositories::{
     AgentsRepository, MobilityRepository, RecipeRepository,
 };
-use pierre_mcp_schema::ProgressNotification;
-use pierre_mcp_transport::sampling_peer::SamplingPeer;
 #[cfg(feature = "client-messaging")]
 use pierre_messaging::ChannelRegistry;
-use pierre_tool_runtime::protocol::types::CancellationToken;
+#[cfg(feature = "health-sync")]
+use pierre_services::personal_bests::PersonalBests;
+#[cfg(feature = "health-sync")]
+use pierre_services::sync_failure_notice::SyncFailureNotices;
+#[cfg(feature = "health-sync")]
 use std::sync::Arc;
-use tokio::sync::mpsc;
-use tracing::{info, warn};
 
 /// Centralized resource container for dependency injection.
 ///
@@ -69,7 +66,7 @@ pub struct ServerContext {
     pub agent: AgentSlice,
     /// Fitness data and intelligence subsystem.
     pub fitness: FitnessSlice,
-    /// Push-notification transports (SSE, AG-UI, sampling, progress).
+    /// Push-notification transports (SSE, AG-UI).
     pub sse: SseSlice,
     /// Agent-to-agent protocol subsystem.
     pub a2a: A2ASlice,
@@ -80,52 +77,6 @@ pub struct ServerContext {
 }
 
 impl ServerContext {
-    /// Set the sampling peer for server-initiated LLM requests (stdio transport only)
-    pub fn set_sampling_peer(&mut self, peer: Arc<SamplingPeer>) {
-        self.sse.sampling_peer = Some(peer);
-    }
-
-    /// Set the progress notification sender (stdio transport only)
-    pub fn set_progress_notification_sender(
-        &mut self,
-        sender: mpsc::UnboundedSender<ProgressNotification>,
-    ) {
-        self.sse.progress_notification_sender = Some(sender);
-    }
-
-    /// Register a cancellation token for a progress token
-    pub async fn register_cancellation_token(
-        &self,
-        progress_token: String,
-        cancellation_token: CancellationToken,
-    ) {
-        let mut registry = self.sse.cancellation_registry.write().await;
-        registry.insert(progress_token, cancellation_token);
-    }
-
-    /// Cancel an operation by progress token (called from MCP notifications/cancelled)
-    pub async fn cancel_by_progress_token(&self, progress_token: &str) {
-        let registry = self.sse.cancellation_registry.read().await;
-        if let Some(token) = registry.get(progress_token) {
-            info!(
-                "Cancelling operation with progress token: {}",
-                progress_token
-            );
-            token.cancel().await;
-        } else {
-            warn!(
-                "Received cancellation for unknown progress token: {}",
-                progress_token
-            );
-        }
-    }
-
-    /// Cleanup a cancellation token after operation completes
-    pub async fn cleanup_cancellation_token(&self, progress_token: &str) {
-        let mut registry = self.sse.cancellation_registry.write().await;
-        registry.remove(progress_token);
-    }
-
     /// Create a new builder for `ServerContext`
     #[must_use]
     pub const fn builder() -> ServerContextBuilder {
@@ -155,15 +106,6 @@ impl ServerContext {
     #[must_use]
     pub fn recipe_repository(&self) -> &dyn RecipeRepository {
         self.common.repos.recipes.as_ref()
-    }
-
-    /// Get the agents repository (alias for compatibility)
-    ///
-    /// # Errors
-    ///
-    /// This method is infallible but returns `AppResult` for API compatibility.
-    pub fn agents_repository(&self) -> AppResult<&dyn AgentsRepository> {
-        Ok(self.common.repos.agents.as_ref())
     }
 
     /// Get the mobility repository
@@ -202,28 +144,10 @@ impl ServerContext {
         self.mcp.prompt_registry.messaging_context_prompt()
     }
 
-    /// Get the recommendation analysis prompt template.
+    /// Get the plan-then-verify planner's workflow grammar.
     #[must_use]
-    pub fn recommendation_analysis_prompt(&self) -> String {
-        self.mcp.prompt_registry.recommendation_analysis_prompt()
-    }
-
-    /// Get the recommendation system prompt.
-    #[must_use]
-    pub fn recommendation_system_prompt(&self) -> String {
-        self.mcp.prompt_registry.recommendation_system_prompt()
-    }
-
-    /// Get the activity analysis prompt template.
-    #[must_use]
-    pub fn activity_analysis_prompt(&self) -> String {
-        self.mcp.prompt_registry.activity_analysis_prompt()
-    }
-
-    /// Get the activity analysis system prompt.
-    #[must_use]
-    pub fn activity_analysis_system_prompt(&self) -> String {
-        self.mcp.prompt_registry.activity_analysis_system_prompt()
+    pub fn guardian_planner_prompt(&self) -> String {
+        self.mcp.prompt_registry.guardian_planner_prompt()
     }
 
     /// Get the mandatory tool-discipline prompt for non-messaging channels.
@@ -254,6 +178,39 @@ impl ServerContext {
 // `pierre_routes_auth::AuthRoutes::routes(...)` directly.
 #[cfg(feature = "protocol-rest")]
 impl ServerContext {
+    /// The sync-failure notices over this server's provider connections and
+    /// notification service: the one notice a failing provider owes an
+    /// athlete, re-armed when one of its syncs lands.
+    #[cfg(feature = "health-sync")]
+    #[must_use]
+    pub fn sync_failure_notices(&self) -> SyncFailureNotices {
+        #[cfg(feature = "client-notifications")]
+        let service = self.common.notification_service.clone();
+        #[cfg(not(feature = "client-notifications"))]
+        let service = None;
+        SyncFailureNotices::new(Arc::clone(&self.common.repos.provider_connections), service)
+    }
+
+    /// The athlete's personal bests over this server's repositories and
+    /// notification service, paced by its provider rate limiter, with each
+    /// athlete's measuring leased in the worker ledger: each run measured
+    /// once, and a beaten all-time best told once the walk of the athlete's
+    /// history is complete.
+    #[cfg(feature = "health-sync")]
+    #[must_use]
+    pub fn personal_bests(&self) -> PersonalBests {
+        #[cfg(feature = "client-notifications")]
+        let service = self.common.notification_service.clone();
+        #[cfg(not(feature = "client-notifications"))]
+        let service = None;
+        PersonalBests::new(
+            Arc::clone(&self.common.repos.personal_bests),
+            service,
+            Arc::clone(&self.fitness.provider_rate_limiter),
+            Arc::clone(&self.common.repos.worker_runs),
+        )
+    }
+
     /// Build an [`pierre_routes_auth::AuthRoutesContext`] view over this
     /// `ServerContext` — collects every Arc handle the auth route group
     /// needs (auth manager, JWKS, CSRF, repos, config, data, optional
@@ -278,10 +235,10 @@ impl ServerContext {
             sync_notifier: self.sse.sse_manager.clone(),
             #[cfg(feature = "health-sync")]
             sync_orchestrator: self.fitness.sync_orchestrator.clone(),
+            #[cfg(feature = "health-sync")]
+            sync_failure_notices: self.sync_failure_notices(),
             cache: self.common.cache.clone(),
             admin_jwt_secret: self.auth.admin_jwt_secret.clone(),
-            #[cfg(feature = "provider-sciotte")]
-            mint_rate_limiter: self.auth.mint_rate_limiter.clone(),
             #[cfg(feature = "provider-sciotte")]
             nonce_store: self.auth.nonce_store.clone(),
         }
@@ -398,8 +355,7 @@ impl ServerContext {
     /// Build a [`pierre_routes_web_admin::WebAdminContext`] view over this
     /// `ServerContext` — collects every Arc handle the cookie-auth
     /// `/api/admin/*` route group needs (auth manager, JWKS, CSRF, auth
-    /// middleware, repos, config, data context, admin JWT secret, and
-    /// tool-selection service).
+    /// middleware, repos, data context, and tool-selection service).
     #[cfg(feature = "client-admin-ui")]
     #[must_use]
     pub fn web_admin_context(&self) -> pierre_routes_web_admin::WebAdminContext {
@@ -409,20 +365,8 @@ impl ServerContext {
             csrf_manager: self.auth.csrf_manager.clone(),
             auth_middleware: self.auth.auth_middleware.clone(),
             repos: self.common.repos.clone(),
-            config: self.common.config.clone(),
             data: self.data(),
-            admin_jwt_secret: self.auth.admin_jwt_secret.clone(),
             tool_selection: self.mcp.tool_selection.clone(),
-            approval_notifier: {
-                #[cfg(feature = "client-messaging")]
-                {
-                    Some(ApprovalNotifier::from_context(self))
-                }
-                #[cfg(not(feature = "client-messaging"))]
-                {
-                    None
-                }
-            },
         }
     }
 }

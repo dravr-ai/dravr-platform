@@ -148,8 +148,7 @@ async fn route_summary_is_tenant_scoped() {
     );
 }
 
-/// The exact sequence `GET /api/v1/endurance/routes/{activity_id}` and the
-/// `export_routes` tool run on a warm cache: derive the stream's identity
+/// The exact sequence the `export_routes` tool runs on a warm cache: derive the stream's identity
 /// without the analysis, probe the cache with it, rebuild the summary from
 /// the stored blobs. Exercised against the real backend so a stored-JSON
 /// normalization difference (e.g. `JSONB` key order / number formatting)

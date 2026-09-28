@@ -83,9 +83,9 @@ mod delivered {
     impl Instance {
         async fn boot(provider: Arc<dyn LlmProvider>, sender_id: &str) -> Self {
             let signer = Arc::new(TestSigner::generate());
-            let certs = signer.serve_certs().await;
+            let jwks = signer.serve_jwks().await;
             let queue = QueueStub::accepting();
-            let runner = cloud_tasks_turn_runner(&queue.serve().await, &certs, CLAIM_WAIT);
+            let runner = cloud_tasks_turn_runner(&queue.serve().await, &jwks.url, CLAIM_WAIT);
             let resources = create_test_server_resources_with_chat_provider_and_runner(
                 provider,
                 Arc::clone(&runner),

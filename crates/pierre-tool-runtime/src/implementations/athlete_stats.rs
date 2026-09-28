@@ -25,11 +25,11 @@ use serde_json::{json, Value};
 use pierre_cache::{CacheKey, CacheResource};
 use uuid::Uuid;
 
-use crate::capabilities::{ToolCapabilities, PROVIDER_READ};
+use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, capabilities_to_tronc, format_property, object_schema, task_capable,
-    tool_definition, tool_result_to_response, Formatted,
+    answers_with, format_property, object_schema, task_capable, tool_definition,
+    tool_result_to_response, Formatted,
 };
 use crate::implementations::data_helpers::{parse_output_format, read_only_annotations};
 use crate::implementations::fitness_support::{
@@ -41,7 +41,7 @@ use crate::protocol::provider_helpers::resolve_provider_for_tool;
 use crate::protocol::UniversalExecutor;
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::AppResult;
 use pierre_mcp_schema::PropertySchema;
 use pierre_providers::backend_resolver;
@@ -104,11 +104,11 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
+    fn capabilities(&self) -> ToolCapabilities {
         // PROFILE: this returns who the athlete IS — name, sex, weight,
         // preferences — not the training they have accumulated, so it is
         // reached under `profile:read` and not `fitness:read`.
-        capabilities_to_tronc(PROVIDER_READ | ToolCapabilities::PROFILE)
+        PROVIDER_READ | ToolCapabilities::PROFILE
     }
 
     async fn execute(
@@ -247,8 +247,8 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_READ)
+    fn capabilities(&self) -> ToolCapabilities {
+        PROVIDER_READ
     }
 
     async fn execute(

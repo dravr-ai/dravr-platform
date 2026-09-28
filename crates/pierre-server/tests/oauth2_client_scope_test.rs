@@ -61,6 +61,7 @@ async fn env() -> Env {
         repos.users.clone(),
         auth_manager.clone(),
         common::get_shared_test_jwks(),
+        30,
     );
     let registration = ClientRegistrationManager::new(repos.oauth2_server.clone());
     Env {
@@ -355,6 +356,7 @@ async fn a_refresh_token_holding_admin_mints_a_token_without_it() {
             expires_at: Utc::now() + Duration::days(30),
             created_at: Utc::now(),
             revoked: false,
+            family_id: "test-family".to_owned(),
         })
         .await
         .unwrap();
@@ -380,6 +382,105 @@ async fn a_refresh_token_holding_admin_mints_a_token_without_it() {
     assert!(
         !OAuthScope::is_self_grant(&grant),
         "every delegated token stays narrower than the athlete's own grant"
+    );
+}
+
+// ============================================================================
+// Client credentials
+// ============================================================================
+
+/// A client registered for the `client_credentials` grant with `scope`.
+async fn machine_client(env: &Env, scope: &str) -> ClientRegistrationResponse {
+    let mut request = registration_request(Some(scope));
+    request.grant_types = Some(vec!["client_credentials".to_owned()]);
+    env.registration
+        .register_client(request, MAX_PENDING_REGISTRATIONS)
+        .await
+        .unwrap()
+}
+
+fn client_credentials_request(
+    client: &ClientRegistrationResponse,
+    scope: Option<&str>,
+) -> TokenRequest {
+    TokenRequest {
+        grant_type: "client_credentials".to_owned(),
+        code: None,
+        redirect_uri: None,
+        client_id: client.client_id.clone(),
+        client_secret: client.client_secret.clone(),
+        scope: scope.map(str::to_owned),
+        refresh_token: None,
+        code_verifier: None,
+    }
+}
+
+#[tokio::test]
+async fn client_credentials_refuses_a_scope_outside_the_vocabulary() {
+    let env = env().await;
+    let client = machine_client(&env, "fitness:read fitness:write").await;
+
+    // `goals:write` is the name the A2A card used to advertise. It used to be
+    // dropped silently and the rest minted, so the caller never learned why
+    // its write tools were refused.
+    let refusal = env
+        .server
+        .token(client_credentials_request(
+            &client,
+            Some("fitness:read goals:write"),
+        ))
+        .await
+        .unwrap_err();
+
+    assert_eq!(refusal.error, "invalid_scope");
+    assert!(
+        refusal
+            .error_description
+            .as_deref()
+            .is_some_and(|description| description.contains("goals:write")),
+        "the refusal names the unknown scope: {refusal:?}"
+    );
+}
+
+#[tokio::test]
+async fn client_credentials_refuses_a_scope_the_client_never_registered() {
+    let env = env().await;
+    let client = machine_client(&env, "fitness:read").await;
+
+    let refusal = env
+        .server
+        .token(client_credentials_request(
+            &client,
+            Some("fitness:read fitness:write"),
+        ))
+        .await
+        .unwrap_err();
+
+    assert_eq!(refusal.error, "invalid_scope");
+    assert!(refusal
+        .error_description
+        .as_deref()
+        .is_some_and(|description| description.contains("fitness:write")));
+}
+
+#[tokio::test]
+async fn client_credentials_mints_exactly_the_registered_scope_it_asked_for() {
+    let env = env().await;
+    let client = machine_client(&env, "fitness:read fitness:write").await;
+
+    let token = env
+        .server
+        .token(client_credentials_request(
+            &client,
+            Some("fitness:write fitness:read"),
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(token.scope.as_deref(), Some("fitness:read fitness:write"));
+    assert_eq!(
+        token_grant(&env, &token.access_token),
+        vec![OAuthScope::FitnessRead, OAuthScope::FitnessWrite]
     );
 }
 

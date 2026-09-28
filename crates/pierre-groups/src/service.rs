@@ -11,9 +11,8 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::{
     CoachingGroup, CreateGroupRequest, FlagEvidence, FreshMember, GroupAggregateStats,
     GroupContext, GroupDigestMode, GroupHealthFlag, GroupInvite, GroupInviteKind, GroupMember,
-    GroupRespondMode, GroupRole, GroupSummary, GroupWeeklyReport, HealthFlagSeverity,
-    MemberFitnessSnapshot, MemberFlag, MemberSummaryCard, OvertrainingRiskLevel,
-    UpdateGroupRequest,
+    GroupRespondMode, GroupRole, GroupWeeklyReport, HealthFlagSeverity, MemberFitnessSnapshot,
+    MemberFlag, MemberSummaryCard, OvertrainingRiskLevel, UpdateGroupRequest,
 };
 use pierre_core::models::FormBand;
 use pierre_core::models::{DelegationEndReason, TenantId};
@@ -581,15 +580,6 @@ impl GroupService {
         self.repo.get_group(group_id, tenant_id).await
     }
 
-    /// List groups for a user
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if database operations fail.
-    pub async fn list_groups(&self, user_id: Uuid) -> AppResult<Vec<GroupSummary>> {
-        self.repo.list_groups_for_user(user_id).await
-    }
-
     /// Update a group.
     ///
     /// `actor` is who changed it; `None` when the system does.
@@ -669,8 +659,8 @@ impl GroupService {
         Self::check_invite_usable(&invite)?;
 
         // Member invites never attach a coach — coach-kind invites are
-        // redeemed through `redeem_coach_invite`, which the route dispatches
-        // to based on `invite.kind`.
+        // redeemed through `redeem_coach_invite`, which `/group join`
+        // dispatches to based on `invite.kind`.
         if invite.kind == GroupInviteKind::Coach {
             return Err(AppError::invalid_input(
                 "This is a coach invite — redeem it from the coach flow, not group join",
@@ -770,15 +760,6 @@ impl GroupService {
                 .await?;
         }
         Ok(written)
-    }
-
-    /// List active groups the user is the attached human coach of.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if database operations fail.
-    pub async fn list_coached_groups(&self, user_id: Uuid) -> AppResult<Vec<CoachingGroup>> {
-        self.repo.list_groups_coached_by(user_id).await
     }
 
     /// Leave a group. The member's delegated connections in it end.
@@ -930,12 +911,13 @@ impl GroupService {
             .filter_map(|s| {
                 let mut flags = Vec::new();
 
-                // Form-based flags come off the shared band, never raw TSB.
-                // Without a chronic base the band is InsufficientHistory and
-                // no form flag is raised, so the risk level is the only signal.
-                let form_pct = s.tsb.zip(s.ctl).and_then(|(t, c)| FormBand::form_pct(t, c));
-                let band = FormBand::from_form_pct(form_pct);
-                if let (Some(pct), Some(tsb)) = (form_pct, s.tsb) {
+                // Form-based flags come off the shared band, never raw TSB,
+                // read from the snapshot's own TSB/CTL pair. Without a chronic
+                // base the band is InsufficientHistory and no form flag is
+                // raised, so the risk level is the only signal.
+                let reading = s.form_reading();
+                let band = reading.map_or(FormBand::InsufficientHistory, |r| r.band);
+                if let Some((pct, tsb)) = reading.and_then(|r| r.form_pct.map(|pct| (pct, r.tsb))) {
                     match band {
                         FormBand::DeepFatigue => flags.push(GroupHealthFlag {
                             user_id: s.user_id,
@@ -1020,13 +1002,16 @@ impl GroupService {
     /// with that form as a percentage of CTL.
     ///
     /// A merely positive TSB is not freshness — 0 to +5% of CTL is balanced,
-    /// and the same +8 is fresh at CTL 40 but balanced at CTL 150.
+    /// and the same +8 is fresh at CTL 40 but balanced at CTL 150. Form is
+    /// yesterday's CTL minus ATL, so a daily rider who has not trained yet
+    /// today reads as they did last night, not fresh.
     pub fn fresh_members(
         snapshots: &[MemberFitnessSnapshot],
     ) -> impl Iterator<Item = (&MemberFitnessSnapshot, f64)> {
         snapshots.iter().filter_map(|s| {
-            let pct = FormBand::form_pct(s.tsb?, s.ctl?)?;
-            (FormBand::from_form_pct(Some(pct)) == FormBand::Fresh).then_some((s, pct))
+            let reading = s.form_reading()?;
+            let pct = reading.form_pct?;
+            (reading.band == FormBand::Fresh).then_some((s, pct))
         })
     }
 

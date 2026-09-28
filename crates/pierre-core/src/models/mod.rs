@@ -58,7 +58,7 @@ pub mod sport_family;
 mod tenant;
 mod tool_selection;
 /// Endurance daily training-state rollup (`DailyTrainingState`) backing
-/// the `training_history` table and `GET /api/v1/endurance/history`.
+/// the `training_history` table and the training-history tools.
 pub mod training_history;
 mod user;
 /// Endurance calendar-ledger shapes (`PlannedSession`, `CalendarKey`,
@@ -119,14 +119,13 @@ pub use refresh::{
 
 // Stored health models for persistence (from dravr-equilibre)
 pub use dravr_equilibre::{
-    EventCategory, EventRecord, StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession,
-    SyncResult, SyncStatus, WorkoutDetails as StoredWorkoutDetails,
+    StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, SyncResult, SyncStatus,
 };
 
 // One record per night or date across providers, primary source first and
 // each metric it lacks taken from the next source that has it.
 pub use dravr_equilibre::{
-    merge_health_metrics, merge_recovery_metrics, merge_sleep_sessions, FilledMetric, Merged,
+    merge_health_metrics, merge_recovery_metrics, merge_sleep_sessions, Merged,
     SleepStageType as StoredSleepStageType,
 };
 
@@ -135,13 +134,15 @@ pub use nutrition::{FoodItem, MealEntry, MealType, NutritionLog};
 
 // Athlete domain
 pub use athlete::{Athlete, PeriodTotals, PersonalRecord, PrMetric, Stats};
-pub use delegated_connection::{DelegatedConnection, DelegationEndReason, DelegationStatus};
+pub use delegated_connection::{
+    DelegatedConnection, DelegationEndReason, DelegationStatus, RosterAthlete,
+};
 
 // User domain
 pub use user::{
-    default_locale, CoachingPersona, ColorScheme, PreApprovedEmail, User, UserDeletion, UserId,
-    UserPhysiologicalProfile, UserReference, UserReferenceKind, UserStatus, UserTier,
-    FEDERATED_ONLY_PASSWORD_HASH, SUPPORTED_LOCALES,
+    default_locale, normalize_email, CoachingPersona, ColorScheme, PreApprovedEmail, User,
+    UserDeletion, UserId, UserPhysiologicalProfile, UserReference, UserReferenceKind, UserStatus,
+    UserTier, FEDERATED_ONLY_PASSWORD_HASH, SUPPORTED_LOCALES,
 };
 
 // Endurance zones + dossier + training-history + workout-template domain
@@ -294,8 +295,8 @@ pub mod notifications;
 pub use groups::{
     CoachingGroup, CreateGroupRequest, FreshMember, GroupAggregateStats, GroupContext,
     GroupHealthFlag, GroupInvite, GroupMember, GroupRole, GroupSummary, GroupSummaryBlock,
-    GroupTranscriptEntry, GroupTrend, GroupWeeklyReport, HealthFlagSeverity, JoinGroupRequest,
-    MemberFitnessSnapshot, MemberFlag, MemberSummaryCard, NewGroupTranscriptEntry,
-    OvertrainingRiskLevel, SummaryDetailLevel, TranscriptSpeaker, UpdateGroupRequest,
+    GroupTranscriptEntry, GroupTrend, GroupWeeklyReport, HealthFlagSeverity, MemberFitnessSnapshot,
+    MemberFlag, MemberSummaryCard, NewGroupTranscriptEntry, OvertrainingRiskLevel,
+    SummaryDetailLevel, TranscriptSpeaker, UpdateGroupRequest,
 };
 pub use notifications::NotificationScreen;

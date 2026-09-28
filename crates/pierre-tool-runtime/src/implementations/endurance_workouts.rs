@@ -32,11 +32,9 @@ use super::calendar::{
 };
 use super::training_plan_telemetry::{emit_calendar_sync_completed, emit_calendar_sync_failed};
 use super::training_plans::{load_conversation, resolve_agent_slug};
-use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
-    tool_result_to_response,
+    answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
 use crate::implementations::endurance_workouts_output::{
     PrescribeWorkoutResult, TemplateFit, TemplateProgression, WithdrawWorkoutResult,
@@ -45,7 +43,7 @@ use crate::implementations::endurance_workouts_output::{
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
 
@@ -572,8 +570,8 @@ impl McpTool<dyn ToolRuntime> for ListWorkoutTemplatesTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
     }
 
     async fn execute(
@@ -792,13 +790,11 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_TENANT
-                | ToolCapabilities::REQUIRES_PROVIDER
-                | ToolCapabilities::WRITES_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_TENANT
+            | ToolCapabilities::REQUIRES_PROVIDER
+            | ToolCapabilities::WRITES_DATA
     }
 
     async fn execute(
@@ -999,13 +995,11 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_TENANT
-                | ToolCapabilities::REQUIRES_PROVIDER
-                | ToolCapabilities::WRITES_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_TENANT
+            | ToolCapabilities::REQUIRES_PROVIDER
+            | ToolCapabilities::WRITES_DATA
     }
 
     async fn execute(

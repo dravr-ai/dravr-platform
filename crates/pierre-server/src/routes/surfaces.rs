@@ -138,7 +138,7 @@ fn catalogue() -> SurfaceCapabilitiesResponse {
             .iter()
             .copied()
             .find(|channel| surface_id(*channel) == surface)
-            .map(transport_caps);
+            .and_then(transport_caps);
         surfaces.push(row(&SurfaceProfile::resolve(&SurfaceRequest {
             surface,
             locale: CATALOGUE_LOCALE.to_owned(),

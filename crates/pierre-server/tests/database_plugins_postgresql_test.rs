@@ -76,33 +76,6 @@ async fn test_pg_get_tool_catalog_entry() {
 }
 
 #[tokio::test]
-async fn test_pg_get_tools_by_category() {
-    let db = create_test_db().await.unwrap();
-    let repos = db.repositories();
-
-    let fitness_tools = repos
-        .tool_selection
-        .get_tools_by_category(ToolCategory::Fitness)
-        .await
-        .expect("Failed to get fitness tools");
-
-    assert!(
-        !fitness_tools.is_empty(),
-        "Should have fitness category tools"
-    );
-
-    // All returned tools should be in the fitness category
-    for tool in &fitness_tools {
-        assert_eq!(
-            tool.category,
-            ToolCategory::Fitness,
-            "Tool {} should be in Fitness category",
-            tool.tool_name
-        );
-    }
-}
-
-#[tokio::test]
 async fn test_pg_get_tools_by_min_plan() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
@@ -194,25 +167,6 @@ async fn test_pg_tenant_tool_overrides() {
         .await
         .expect("Query should not fail");
     assert!(after_delete.is_none(), "Override should be deleted");
-}
-
-#[tokio::test]
-async fn test_pg_count_enabled_tools() {
-    let db = create_test_db().await.unwrap();
-    let repos = db.repositories();
-
-    // Create a test tenant with starter plan
-    let tenant_id = TenantId::generate();
-    let user_id = create_pg_test_user(&db).await;
-    create_pg_test_tenant(&db, tenant_id, user_id).await;
-
-    let count = repos
-        .tool_selection
-        .count_enabled_tools(tenant_id)
-        .await
-        .expect("Failed to count enabled tools");
-
-    assert!(count > 0, "Should have some enabled tools");
 }
 
 // ============================================================================
@@ -515,56 +469,12 @@ async fn test_pg_chat_messages() {
     // Get message count (user_id required for ownership verification)
     let count = repos
         .chat
-        .get_message_count(&conv.id, &user_id_str, tenant_id)
+        .get_messages(&conv.id, &user_id_str, tenant_id)
         .await
-        .expect("Failed to get message count");
+        .expect("Failed to get message count")
+        .len();
 
     assert_eq!(count, 2, "Should have 2 messages");
-}
-
-#[tokio::test]
-async fn test_pg_chat_delete_all_user_conversations() {
-    let db = create_test_db().await.unwrap();
-    let repos = db.repositories();
-
-    let user_id = create_pg_test_user(&db).await;
-    let user_id_str = user_id.to_string();
-    let tenant_id = TenantId::from_uuid(Uuid::new_v4());
-
-    // Create multiple conversations
-    for i in 1..=3 {
-        repos
-            .chat
-            .create_conversation(
-                &user_id_str,
-                tenant_id,
-                &format!("Conv {i}"),
-                "gpt-4",
-                None,
-                None,
-            )
-            .await
-            .expect("Failed to create conversation");
-    }
-
-    // Delete all
-    let deleted_count = repos
-        .chat
-        .delete_all_user_conversations(&user_id_str, tenant_id)
-        .await
-        .expect("Failed to delete all conversations");
-
-    assert_eq!(deleted_count, 3, "Should delete 3 conversations");
-
-    // Verify
-    let remaining = repos
-        .chat
-        .list_conversations(&user_id_str, tenant_id, 100, 0)
-        .await
-        .expect("Failed to list conversations")
-        .items;
-
-    assert!(remaining.is_empty(), "No conversations should remain");
 }
 
 // ============================================================================

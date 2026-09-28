@@ -29,6 +29,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{Duration, NaiveDate, TimeZone, Utc};
+use pierre_core::civil_time::resolve_zone;
 use pierre_core::models::TenantId;
 use pierre_memory::commitments::{
     Commitment, CommitmentStatus, MAX_STATEMENT_LEN, MAX_TARGET_SESSIONS, MAX_WINDOW_DAYS,
@@ -40,16 +41,14 @@ use serde_json::Value;
 use tracing::info;
 use uuid::Uuid;
 
-use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
-    tool_result_to_response,
+    answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
@@ -133,9 +132,7 @@ fn require_whole_number(args: &Value, key: &str) -> AppResult<u32> {
 /// first instant that does. Rejecting the date instead would refuse a perfectly
 /// ordinary promise twice a year in those countries.
 fn window_end_for(due_date: NaiveDate, timezone: Option<&str>) -> AppResult<chrono::DateTime<Utc>> {
-    let tz: chrono_tz::Tz = timezone
-        .and_then(|name| name.parse().ok())
-        .unwrap_or(chrono_tz::UTC);
+    let tz = resolve_zone(timezone);
     let end_of_day = due_date
         .succ_opt()
         .and_then(|next| next.and_hms_opt(0, 0, 0))
@@ -242,12 +239,10 @@ impl McpTool<dyn ToolRuntime> for CommitmentCreateTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_TENANT
-                | ToolCapabilities::WRITES_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_TENANT
+            | ToolCapabilities::WRITES_DATA
     }
 
     async fn execute(
@@ -391,12 +386,10 @@ impl McpTool<dyn ToolRuntime> for CommitmentCancelTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_TENANT
-                | ToolCapabilities::WRITES_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_TENANT
+            | ToolCapabilities::WRITES_DATA
     }
 
     async fn execute(

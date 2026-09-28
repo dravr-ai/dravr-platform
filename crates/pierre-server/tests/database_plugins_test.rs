@@ -231,13 +231,6 @@ async fn test_goal_management() {
     let goal = &goals[0];
     assert_eq!(goal["type"], "distance");
     assert_eq!(goal["target"], 100.0);
-
-    // Test updating goal progress
-    repos
-        .profiles
-        .update_goal_progress(&goal_id, user_id, 50.0)
-        .await
-        .expect("Failed to update goal progress");
 }
 
 #[tokio::test]

@@ -111,8 +111,8 @@ test.describe('register → approve → login — real backend (no mocks)', () =
       expect(body.user.user_status).toBe('active');
     } finally {
       // Cleanup: suspend the account created above so runs stop accreting
-      // ACTIVE zombie users. Suspension (not deletion) because the JWT-authed
-      // web-admin surface deliberately has no user-delete route — permanent
+      // ACTIVE zombie users. Suspension (not deletion) because the console's
+      // session mount deliberately has no user-delete route — permanent
       // deletion lives only on the admin-token API (DELETE /admin/users/{id}),
       // which this spec's password-grant login cannot reach. Best-effort — a
       // cleanup failure must not mask the real test outcome, so it only logs.

@@ -1,5 +1,5 @@
 // ABOUTME: Host-integration seams wiring the platform onto the generic dravr-tronc MCP engine
-// ABOUTME: AuthHook (single auth), ToolDispatcher (per-tenant list + gated call), MethodHandler (resources/prompts/completion/roots/sampling)
+// ABOUTME: AuthHook (single auth), ToolDispatcher (per-tenant list + gated call), MethodHandler (resources/prompts)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -19,10 +19,9 @@
 //!   augmentation, usage recording) against the rich
 //!   [`pierre_tool_runtime::registry::ToolRegistry`].
 //! - [`PierreMethodHandler`] — serves the protocol areas the engine leaves open:
-//!   `resources/*`, `prompts/*`, `completion/*`, `roots/*`, `sampling/*`,
-//!   `authenticate`.
+//!   `resources/*` and `prompts/*`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -33,9 +32,8 @@ use dravr_tronc::mcp::auth::{AuthError, AuthHook};
 use dravr_tronc::mcp::host::{CallToolOutcome, MethodHandler, ToolDispatcher};
 use dravr_tronc::mcp::protocol::{JsonRpcRequest, JsonRpcResponse};
 use dravr_tronc::mcp::schema::{
-    CompleteRequest, CompleteResult, Completion, CompletionCapability, CreateMessageRequest,
-    LoggingCapability, OAuth2Capability, PromptsCapability, ResourcesCapability, Root,
-    ServerCapabilities, TaskSupport, Tool, ToolResponse, ToolSchema, ToolsCapability,
+    OAuth2Capability, PromptsCapability, ResourcesCapability, ServerCapabilities, TaskSupport,
+    Tool, ToolResponse, ToolSchema, ToolsCapability,
 };
 use dravr_tronc::mcp::server::{InstructionsSource, McpServer};
 use dravr_tronc::mcp::tasks::{TaskId, TaskManager, TaskOptions, TaskOwner, TaskStatus};
@@ -43,9 +41,8 @@ use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext, ToolRegistry};
 use pierre_auth::auth::AuthResult;
 use pierre_core::auth_header::is_api_key_format;
 use pierre_core::errors::{AppError, ErrorCode};
-use pierre_core::models::TenantId;
+use pierre_core::models::{EffectiveTool, TenantId, ToolEnablementSource};
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_mcp_schema::McpResponse;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
 use pierre_middleware::rate_limiting::report_request_operation;
 use pierre_tool_runtime::context::AuthMethod;
@@ -68,8 +65,7 @@ use super::resources::ServerContext;
 use super::task_store::{PierreTaskStore, MCP_TASK_POLL_INTERVAL_MS, MCP_TASK_TTL_MS};
 use super::tool_handlers::ToolHandlers;
 use crate::constants::errors::{
-    ERROR_INTERNAL_ERROR, ERROR_INVALID_PARAMS, ERROR_METHOD_NOT_FOUND, ERROR_SERIALIZATION,
-    MSG_SERIALIZATION,
+    ERROR_INTERNAL_ERROR, ERROR_INVALID_PARAMS, ERROR_RESOURCE_NOT_FOUND,
 };
 use crate::constants::get_server_config;
 use crate::constants::protocol::{server_name_multitenant, SERVER_VERSION};
@@ -567,13 +563,50 @@ impl PierreToolDispatcher {
     pub fn task_manager(&self) -> &Arc<TaskManager> {
         &self.task_manager
     }
+    /// Every tool, admin-only ones included, less those an operator switched
+    /// off: globally, for the tenant, or for this user ([`unlisted`]).
+    ///
+    /// The same `is_tool_enabled_for_user` precedence the call path enforces,
+    /// read in one pass, except that a tool the tenant's plan does not cover
+    /// stays listed and is refused at call time. A tool the catalogue does
+    /// not track stays listed, because the call path lets it run.
+    async fn admin_schemas(&self, tenant_id: TenantId, user_id: Uuid) -> Vec<ToolSchema> {
+        let mut schemas = self.resources.mcp.tool_registry.all_schemas();
+        match self
+            .resources
+            .mcp
+            .tool_selection
+            .get_effective_tools_for_user(tenant_id, user_id)
+            .await
+        {
+            Ok(effective) => {
+                let disabled: HashSet<String> = effective
+                    .into_iter()
+                    .filter(unlisted)
+                    .map(|tool| tool.tool_name)
+                    .collect();
+                schemas.retain(|schema| !disabled.contains(&schema.name));
+            }
+            Err(e) => {
+                warn!(
+                    tenant_id = %tenant_id,
+                    error = %e,
+                    "tools/list: admin enablement lookup failed; listing every tool"
+                );
+            }
+        }
+        schemas
+    }
+
     /// Resolve the tenant-filtered schemas for a non-admin caller.
     ///
-    /// Combines the `ToolSelectionService` catalog (enabled, non-admin tools)
-    /// with feature-flag tools not tracked by the catalog (agents, mobility).
-    /// When `user_id` is present, per-user tool overrides are overlaid on top of
-    /// the tenant computation so a tool disabled for this user is hidden from
-    /// discovery (and a user-enabled tool becomes visible).
+    /// Combines the `ToolSelectionService` catalog (non-admin tools no operator
+    /// switched off, see [`unlisted`]) with feature-flag tools not tracked by
+    /// the catalog (agents, mobility). When `user_id` is present, per-user
+    /// tool overrides are overlaid on top of the tenant computation so a tool
+    /// disabled for this user is hidden from discovery (and a user-enabled
+    /// tool becomes visible). A tool the tenant's plan does not cover stays
+    /// listed and is refused at call time.
     async fn tenant_filtered_schemas(
         &self,
         tenant_id: TenantId,
@@ -599,7 +632,7 @@ impl PierreToolDispatcher {
             Ok(all_effective_tools) => {
                 let enabled_names: Vec<String> = all_effective_tools
                     .iter()
-                    .filter(|t| t.is_enabled)
+                    .filter(|t| !unlisted(t))
                     .map(|t| t.tool_name.clone())
                     .collect();
                 let all_catalogued_names: Vec<String> = all_effective_tools
@@ -645,13 +678,19 @@ impl PierreToolDispatcher {
 #[async_trait]
 impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
     async fn list_tools(&self, _state: &Arc<dyn ToolRuntime>, ctx: &ToolContext) -> Vec<Tool> {
-        let mut schemas = if ctx.is_admin {
-            self.resources.mcp.tool_registry.all_schemas()
-        } else if let Some(tenant_id) = ctx.tenant_id.as_deref().and_then(parse_tenant_id) {
-            let user_id = ctx.user_id.as_deref().and_then(|s| Uuid::parse_str(s).ok());
-            self.tenant_filtered_schemas(tenant_id, user_id).await
-        } else {
-            self.resources.mcp.tool_registry.user_visible_schemas()
+        let tenant_id = ctx.tenant_id.as_deref().and_then(parse_tenant_id);
+        let user_id = ctx.user_id.as_deref().and_then(|s| Uuid::parse_str(s).ok());
+        let mut schemas = match (tenant_id, user_id) {
+            // `tools/call` refuses a caller with no user or no tenant
+            // (`run_dispatch`), so such a caller — the stdio transport, which
+            // carries no bearer — is offered nothing to invoke.
+            (None, _) | (_, None) => Vec::new(),
+            (Some(tenant_id), Some(user_id)) if ctx.is_admin => {
+                self.admin_schemas(tenant_id, user_id).await
+            }
+            (Some(tenant_id), Some(user_id)) => {
+                self.tenant_filtered_schemas(tenant_id, Some(user_id)).await
+            }
         };
 
         // A guided flow withholds plan-writing for its duration, and this is the
@@ -781,16 +820,28 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
 }
 
 /// Parse a tenant id string into a [`TenantId`], or `None` when malformed.
+/// Whether `tools/list` withholds a catalogued tool.
+///
+/// It withholds what an operator switched off — globally, for the tenant, or
+/// for this user, or off by catalogue default — because that is what the
+/// deployment offers. It does not withhold a tool the tenant's plan does not
+/// cover: the plan is the athlete's current state, and the list a client
+/// builds against must not change when it does. `tools/call` refuses that
+/// tool until the plan covers it.
+fn unlisted(tool: &EffectiveTool) -> bool {
+    !tool.is_enabled && tool.source != ToolEnablementSource::PlanRestriction
+}
+
 fn parse_tenant_id(value: &str) -> Option<TenantId> {
     Uuid::parse_str(value).ok().map(TenantId::from_uuid)
 }
 
 /// Handler for the JSON-RPC methods the generic engine leaves open.
 ///
-/// Serves `resources/*`, `prompts/*`, `completion/*`, `roots/*`, `sampling/*`,
-/// and `authenticate`; `initialize`/`ping`/`tools/*` are served by the engine.
+/// Serves `resources/*` and `prompts/*`; `initialize`/`ping`/`tools/*` are
+/// served by the engine. Anything else is left to the engine's -32601.
 pub struct PierreMethodHandler {
-    /// Shared server resources backing resources/prompts/sampling.
+    /// Shared server resources backing resources/prompts.
     pub resources: Arc<ServerContext>,
 }
 
@@ -807,15 +858,15 @@ impl MethodHandler<dyn ToolRuntime> for PierreMethodHandler {
         match method {
             "resources/list" => Some(self.handle_resources_list(id).await),
             "resources/read" => Some(self.handle_resources_read(id, params.as_ref()).await),
+            "resources/templates/list" => Some(JsonRpcResponse::success(
+                id,
+                resource_catalog::list_resource_templates(),
+            )),
             "prompts/list" => Some(JsonRpcResponse::success(
                 id,
                 prompt_templates::list_prompts(),
             )),
             "prompts/get" => Some(Self::handle_prompts_get(id, params.as_ref())),
-            "completion/complete" => Some(handle_completion_complete(id, params.as_ref())),
-            "roots/list" => Some(handle_roots_list(id)),
-            "sampling/createMessage" => Some(self.handle_create_message(id, params.as_ref()).await),
-            "authenticate" => Some(handle_authenticate(id)),
             _ => None,
         }
     }
@@ -873,7 +924,7 @@ impl PierreMethodHandler {
         {
             Ok(Some(agent_with_listing)) => agent_with_listing,
             Ok(None) => {
-                return JsonRpcResponse::error(id, ERROR_INVALID_PARAMS, "Resource not found");
+                return JsonRpcResponse::error(id, ERROR_RESOURCE_NOT_FOUND, "Resource not found");
             }
             Err(e) => {
                 error!("resources/read: failed to load coach: {e}");
@@ -917,57 +968,6 @@ impl PierreMethodHandler {
             ),
         }
     }
-
-    /// Serve `sampling/createMessage` — server-initiated LLM call over the
-    /// stdio sampling peer (unavailable on HTTP transport).
-    async fn handle_create_message(
-        &self,
-        id: Option<Value>,
-        params: Option<&Value>,
-    ) -> JsonRpcResponse {
-        let Some(sampling_peer) = &self.resources.sse.sampling_peer else {
-            return JsonRpcResponse::error(
-                id,
-                ERROR_METHOD_NOT_FOUND,
-                "Sampling not available (stdio transport only)",
-            );
-        };
-
-        let Some(params) = params else {
-            return JsonRpcResponse::error(id, ERROR_INVALID_PARAMS, "Missing sampling parameters");
-        };
-
-        let create_message_request =
-            match serde_json::from_value::<CreateMessageRequest>(params.clone()) {
-                Ok(req) => req,
-                Err(e) => {
-                    error!("Failed to parse sampling parameters: {e}");
-                    return JsonRpcResponse::error(
-                        id,
-                        ERROR_INVALID_PARAMS,
-                        "Invalid sampling parameters",
-                    );
-                }
-            };
-
-        match sampling_peer.create_message(create_message_request).await {
-            Ok(result) => match serde_json::to_value(&result) {
-                Ok(result_value) => JsonRpcResponse::success(id, result_value),
-                Err(e) => {
-                    error!("Failed to serialize sampling result: {e}");
-                    JsonRpcResponse::error(
-                        id,
-                        ERROR_INTERNAL_ERROR,
-                        "Failed to serialize sampling result",
-                    )
-                }
-            },
-            Err(e) => {
-                error!("Sampling request failed: {e}");
-                JsonRpcResponse::error(id, ERROR_INTERNAL_ERROR, "Sampling request failed")
-            }
-        }
-    }
 }
 
 /// Extract the `arguments` object from a prompts/get request into a string map.
@@ -991,127 +991,14 @@ fn extract_prompt_arguments(params: Option<&Value>) -> HashMap<String, String> {
         .unwrap_or_default()
 }
 
-/// Handle the `completion/complete` request for auto-complete suggestions.
-///
-/// Pure over the request params (no server state), so test harnesses can call it
-/// directly to validate completion behavior.
-#[must_use]
-pub fn handle_completion_complete(id: Option<Value>, params: Option<&Value>) -> McpResponse {
-    let request_id = id.unwrap_or_else(|| serde_json::json!(0));
-
-    let complete_request: Result<CompleteRequest, _> = params
-        .ok_or("Missing parameters")
-        .and_then(|p| serde_json::from_value(p.clone()).map_err(|_| "Invalid parameters"));
-
-    match complete_request {
-        Ok(req) => {
-            let completion = generate_completions(&req);
-            let result = CompleteResult { completion };
-
-            match serde_json::to_value(&result) {
-                Ok(result_value) => McpResponse::success(Some(request_id), result_value),
-                Err(e) => {
-                    error!("Failed to serialize completion result: {}", e);
-                    McpResponse::error(
-                        Some(request_id),
-                        ERROR_SERIALIZATION,
-                        format!("{MSG_SERIALIZATION}: {e}"),
-                    )
-                }
-            }
-        }
-        Err(e) => McpResponse::error(
-            Some(request_id),
-            ERROR_INVALID_PARAMS,
-            format!("Invalid completion request: {e}"),
-        ),
-    }
-}
-
-/// Generate completion suggestions based on the request reference + argument.
-fn generate_completions(req: &CompleteRequest) -> Completion {
-    match req.ref_.type_.as_str() {
-        "ref/prompt" => {
-            if req.argument.name == "activity_type" {
-                return prefix_completion(
-                    &["run", "ride", "swim", "strength", "walk", "hike"],
-                    &req.argument.value,
-                );
-            }
-            if req.argument.name == "provider" {
-                return prefix_completion(
-                    &[
-                        "strava",
-                        "garmin",
-                        "whoop",
-                        "terra",
-                        "sciotte",
-                        "trainingpeaks",
-                    ],
-                    &req.argument.value,
-                );
-            }
-            if req.argument.name == "goal_type" {
-                return prefix_completion(
-                    &["distance", "time", "frequency", "performance", "custom"],
-                    &req.argument.value,
-                );
-            }
-        }
-        "ref/resource" => {
-            return prefix_completion(&["oauth://notifications"], &req.argument.value);
-        }
-        _ => {}
-    }
-
-    Completion {
-        values: vec![],
-        total: Some(0),
-        has_more: Some(false),
-    }
-}
-
-/// Build a [`Completion`] from the candidates whose value starts with `prefix`.
-fn prefix_completion(candidates: &[&str], prefix: &str) -> Completion {
-    let matching: Vec<String> = candidates
-        .iter()
-        .filter(|c| c.starts_with(prefix))
-        .map(|c| (*c).to_owned())
-        .collect();
-    Completion {
-        total: Some(matching.len()),
-        values: matching,
-        has_more: Some(false),
-    }
-}
-
-/// Handle `roots/list` — Dravr exposes no filesystem roots to MCP clients.
-#[must_use]
-pub fn handle_roots_list(id: Option<Value>) -> McpResponse {
-    let request_id = id.unwrap_or_else(|| serde_json::json!(0));
-    let roots: Vec<Root> = vec![];
-    McpResponse::success(Some(request_id), serde_json::json!({ "roots": roots }))
-}
-
-/// Handle the `authenticate` method — always an invalid-params error; clients
-/// authenticate via the HTTP bearer token, not this JSON-RPC method.
-#[must_use]
-pub fn handle_authenticate(id: Option<Value>) -> McpResponse {
-    debug!("Handling authenticate request");
-    McpResponse::error(
-        id,
-        ERROR_INVALID_PARAMS,
-        "Invalid authentication parameters",
-    )
-}
-
 /// Build the platform's rich [`ServerCapabilities`] for `initialize`/`discover`.
 ///
-/// Advertises logging, prompts, resources, tools and completions, plus the
-/// tenant-level `OAuth2` endpoints (resolved from the configured base URL)
-/// under `experimental`, the one place the specification lets a server
-/// advertise a capability it does not define. Sampling is a client capability,
-/// so the server does not claim it.
+/// Advertises prompts, resources and tools — the areas this server answers —
+/// plus the tenant-level `OAuth2` endpoints (resolved from the configured base
+/// URL) under `experimental`, the one place the specification lets a server
+/// advertise a capability it does not define. It emits no log notifications
+/// and offers no argument completion, so it claims neither `logging` nor
+/// `completions`; sampling and roots are client capabilities.
 fn server_capabilities() -> ServerCapabilities {
     let base_url = get_server_config().map_or_else(
         || "http://localhost:8081".to_owned(),
@@ -1126,7 +1013,6 @@ fn server_capabilities() -> ServerCapabilities {
 
     ServerCapabilities {
         experimental: None,
-        logging: Some(LoggingCapability {}),
         prompts: Some(PromptsCapability {
             list_changed: Some(false),
         }),
@@ -1137,7 +1023,6 @@ fn server_capabilities() -> ServerCapabilities {
         tools: Some(ToolsCapability {
             list_changed: Some(false),
         }),
-        completions: Some(CompletionCapability {}),
         ..Default::default()
     }
     .with_oauth2(oauth2)

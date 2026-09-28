@@ -114,8 +114,13 @@ pub struct UpdateAutoApprovalRequest {
 /// Response for auto-approval setting
 #[derive(Debug, Serialize)]
 pub struct AutoApprovalResponse {
-    /// Whether auto-approval is currently enabled
+    /// Whether registrations are auto-approved right now (the effective value)
     pub enabled: bool,
+    /// Email domains auto-approved whatever `enabled` says
+    pub auto_approve_domains: Vec<String>,
+    /// True when `AUTO_APPROVE_USERS` in the environment decided `enabled`, so
+    /// a write to the stored setting has no effect
+    pub overridden_by_env: bool,
     /// Description of the setting
     pub description: String,
 }
@@ -123,7 +128,8 @@ pub struct AutoApprovalResponse {
 /// Query parameters for listing users
 #[derive(Debug, Deserialize)]
 pub struct ListUsersQuery {
-    /// Filter by status. Defaults to `active`.
+    /// Filter by status: `active` (the default), `pending`, `suspended`, or
+    /// `all` for every account.
     pub status: Option<String>,
     /// Filter by tier (`starter` / `professional` / `enterprise`). Unset = all.
     pub tier: Option<String>,

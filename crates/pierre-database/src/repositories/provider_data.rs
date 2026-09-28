@@ -17,8 +17,11 @@
 //!   `health_snapshots`, the `data_point_series` points and their daily
 //!   `data_point_series_archive` rollups, and the `data_sources` rows naming
 //!   the provider's devices;
-//! - its activities: `cached_activities`, and the route each one drew in
-//!   `activity_route_tracks`;
+//! - its activities: `cached_activities`, the route each one drew in
+//!   `activity_route_tracks`, the personal bests its runs set in
+//!   `personal_best_efforts`, the record of which runs were measured for one
+//!   in `best_effort_scans`, and how far the walk of the provider's history
+//!   for them got in `personal_best_seeds`, so a reconnect walks it again;
 //! - the sync state that describes those rows: `sync_state` cursors,
 //!   `activity_fetch_freshness` marks, `activity_backfill_coverage` depth and
 //!   owed `activity_backfill_jobs`. Left behind, they would tell a reconnect
@@ -29,6 +32,7 @@
 //! the health rows go before `data_sources` for the same reason.
 //!
 //! Every id column compared here is `TEXT` on both engines except in
+//! `personal_best_efforts`, `best_effort_scans`, `personal_best_seeds`,
 //! `activity_fetch_freshness` and `activity_backfill_coverage` (both ids) and
 //! `activity_backfill_jobs` (`tenant_id`), which are `uuid` on Postgres. Those
 //! compare `CAST(column AS TEXT)` against the hyphenated id, the same shape
@@ -89,7 +93,7 @@ macro_rules! provider_sources {
 
 /// What a user's disconnect deletes, in order: `(table, statement)`, each
 /// statement binding `$1` user id, `$2` tenant id and `$3` provider.
-pub(crate) const USER_PROVIDER_PURGE_SQL: [(&str, &str); 12] = [
+pub(crate) const USER_PROVIDER_PURGE_SQL: [(&str, &str); 15] = [
     (
         "data_point_series",
         concat!("DELETE FROM data_point_series WHERE ", user_sources!()),
@@ -126,6 +130,21 @@ pub(crate) const USER_PROVIDER_PURGE_SQL: [(&str, &str); 12] = [
         concat!("DELETE FROM activity_route_tracks WHERE ", user_rows!()),
     ),
     (
+        "personal_best_efforts",
+        concat!(
+            "DELETE FROM personal_best_efforts WHERE ",
+            user_rows_cast!()
+        ),
+    ),
+    (
+        "best_effort_scans",
+        concat!("DELETE FROM best_effort_scans WHERE ", user_rows_cast!()),
+    ),
+    (
+        "personal_best_seeds",
+        concat!("DELETE FROM personal_best_seeds WHERE ", user_rows_cast!()),
+    ),
+    (
         "sync_state",
         concat!("DELETE FROM sync_state WHERE ", user_rows!()),
     ),
@@ -160,7 +179,7 @@ pub(crate) const USER_PROVIDER_PURGE_SQL: [(&str, &str); 12] = [
 /// provider's terms can require across the whole platform (WHOOP API Terms
 /// §7), and are reachable only from the super-admin route that audits the
 /// call. No tenant- or user-facing path may run them.
-pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 12] = [
+pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 15] = [
     (
         "data_point_series",
         concat!("DELETE FROM data_point_series WHERE ", provider_sources!()),
@@ -195,6 +214,18 @@ pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 12] = [
     (
         "activity_route_tracks",
         concat!("DELETE FROM activity_route_tracks WHERE ", provider_rows!()),
+    ),
+    (
+        "personal_best_efforts",
+        concat!("DELETE FROM personal_best_efforts WHERE ", provider_rows!()),
+    ),
+    (
+        "best_effort_scans",
+        concat!("DELETE FROM best_effort_scans WHERE ", provider_rows!()),
+    ),
+    (
+        "personal_best_seeds",
+        concat!("DELETE FROM personal_best_seeds WHERE ", provider_rows!()),
     ),
     (
         "sync_state",

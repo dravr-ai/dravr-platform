@@ -1,5 +1,5 @@
 // ABOUTME: Handler for get_activity_intelligence tool with AI-powered analysis
-// ABOUTME: Fetches activity data from provider and generates insights via MCP sampling or static analysis
+// ABOUTME: Fetches activity data from provider and generates deterministic insights from its metrics
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -14,9 +14,8 @@ use crate::protocol::{
     auth_required_provider, UniversalRequest, UniversalResponse, UniversalToolExecutor,
 };
 use crate::protocols::ProtocolError;
-use crate::runtime::ToolRuntime;
 use pierre_config::constants::limits::METERS_PER_KILOMETER;
-use pierre_core::errors::{AppResult, ErrorCode};
+use pierre_core::errors::ErrorCode;
 use pierre_core::models::Activity;
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
@@ -25,16 +24,11 @@ use pierre_intelligence::physiological_constants::business_thresholds::{
     ACHIEVEMENT_DISTANCE_THRESHOLD_KM, ACHIEVEMENT_ELEVATION_THRESHOLD_M,
 };
 use pierre_intelligence::physiological_constants::heart_rate::HIGH_INTENSITY_HR_THRESHOLD;
-use pierre_mcp_schema::{Content, CreateMessageRequest, ModelPreferences, PromptMessage};
-use pierre_mcp_transport::sampling_peer::SamplingPeer;
 use pierre_providers::core::FitnessProvider;
 
-const ACTIVITY_SUMMARY_PLACEHOLDER: &str = "{activity_summary}";
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
-use tracing::{info, warn};
 
 /// Generate insights and recommendations from activity data
 fn generate_activity_insights(activity: &Activity) -> (Vec<String>, Vec<&'static str>) {
@@ -111,39 +105,16 @@ fn build_intelligence_metadata(
     metadata
 }
 
-/// Create intelligence analysis JSON response with optional MCP sampling
-async fn create_intelligence_response(
+/// Create the intelligence analysis for an activity from its own metrics.
+fn create_intelligence_response(
     activity: &Activity,
     activity_id: &str,
     user_uuid: uuid::Uuid,
     tenant_id: Option<String>,
-    sampling_peer: Option<&Arc<SamplingPeer>>,
-    resources: &dyn ToolRuntime,
 ) -> (
     ActivityIntelligenceResult,
     HashMap<String, serde_json::Value>,
 ) {
-    // The client's LLM writes the analysis when one is available. Its reply
-    // has to parse into the shape this tool declares — a model that answers
-    // something else is wrapped, not passed through, because whatever it
-    // emitted would otherwise become the tool's answer unchecked and no
-    // outputSchema could describe that.
-    let sampled = match sampling_peer {
-        Some(peer) => {
-            match generate_activity_intelligence_via_sampling(peer, resources, activity).await {
-                Ok(intelligence) => {
-                    info!("Generated activity intelligence using MCP sampling");
-                    Some(intelligence)
-                }
-                Err(e) => {
-                    warn!("MCP sampling failed, falling back to static analysis: {e}");
-                    None
-                }
-            }
-        }
-        None => None,
-    };
-
     let (insights, recommendations) = generate_activity_insights(activity);
 
     let summary = format!(
@@ -156,15 +127,12 @@ async fn create_intelligence_response(
         u32::try_from(activity.duration_seconds().min(u64::from(u32::MAX))).unwrap_or(u32::MAX),
     ) / 60.0;
 
-    // The identifying fields and the metrics are ours on BOTH paths. Only the
-    // prose may come from a model, and an LLM asked to restate an athlete's
-    // distance will sometimes get it wrong.
-    let intelligence = sampled.unwrap_or_else(|| ActivityIntelligence {
+    let intelligence = ActivityIntelligence {
         summary,
         insights,
         recommendations: recommendations.into_iter().map(ToOwned::to_owned).collect(),
         source: "deterministic".to_owned(),
-    });
+    };
 
     let analysis = ActivityIntelligenceResult {
         activity_id: activity_id.to_owned(),
@@ -206,21 +174,12 @@ async fn fetch_and_analyze_activity(
     activity_id: &str,
     user_uuid: uuid::Uuid,
     tenant_id: Option<String>,
-    sampling_peer: Option<&Arc<SamplingPeer>>,
-    resources: &dyn ToolRuntime,
     output_format: OutputFormat,
 ) -> Result<UniversalResponse, ProtocolError> {
     match provider.get_activity(activity_id).await {
         Ok(activity) => {
-            let (analysis, metadata) = create_intelligence_response(
-                &activity,
-                activity_id,
-                user_uuid,
-                tenant_id,
-                sampling_peer,
-                resources,
-            )
-            .await;
+            let (analysis, metadata) =
+                create_intelligence_response(&activity, activity_id, user_uuid, tenant_id);
             apply_format_typed(
                 UniversalResponse {
                     success: true,
@@ -259,10 +218,7 @@ async fn fetch_and_analyze_activity(
                             most_recent.id(),
                             user_uuid,
                             tenant_id,
-                            None, // No sampling in fallback path
-                            resources,
-                        )
-                        .await;
+                        );
 
                         // Say so on the payload rather than beside it: a client
                         // that reports "your activity" about a substitute is
@@ -322,111 +278,6 @@ async fn fetch_and_analyze_activity(
     }
 }
 
-/// Generate activity intelligence via MCP sampling
-///
-/// Analyzes a single activity using the client's LLM via MCP sampling for AI-powered insights.
-///
-/// # Arguments
-/// * `sampling_peer` - MCP sampling peer for LLM requests
-/// * `activity` - Activity to analyze
-///
-/// # Returns
-/// JSON response with LLM-generated activity analysis
-///
-/// # Errors
-/// Returns error if sampling request fails or response is invalid
-async fn generate_activity_intelligence_via_sampling(
-    sampling_peer: &Arc<SamplingPeer>,
-    resources: &dyn ToolRuntime,
-    activity: &Activity,
-) -> AppResult<ActivityIntelligence> {
-    use {Content, CreateMessageRequest, ModelPreferences, PromptMessage};
-
-    // Prepare activity data for LLM analysis
-    #[allow(clippy::cast_precision_loss)]
-    let duration_min = activity.duration_seconds() as f64 / 60.0;
-    let distance_km = activity.distance_meters().map(|d| d / 1000.0);
-    let avg_pace = activity
-        .average_speed()
-        .map(|s| if s > 0.0 { 1000.0 / (s * 60.0) } else { 0.0 });
-
-    let activity_summary = format!(
-        "Activity Type: {:?}\n\
-         Duration: {duration_min:.1} minutes\n\
-         Distance: {}\n\
-         Average Pace: {}\n\
-         Average Heart Rate: {}\n\
-         Calories: {}",
-        activity.sport_type(),
-        distance_km.map_or_else(|| "N/A".to_owned(), |d| format!("{d:.2} km")),
-        avg_pace.map_or_else(|| "N/A".to_owned(), |p| format!("{p:.2} min/km")),
-        activity
-            .average_heart_rate()
-            .map_or_else(|| "N/A".to_owned(), |hr| format!("{hr} bpm")),
-        activity
-            .calories()
-            .map_or_else(|| "N/A".to_owned(), |c| c.to_string())
-    );
-
-    // Create prompt for LLM from template
-    let prompt = resources
-        .activity_analysis_prompt()
-        .replace(ACTIVITY_SUMMARY_PLACEHOLDER, &activity_summary);
-
-    // Send sampling request to client's LLM
-    let request = CreateMessageRequest {
-        messages: vec![PromptMessage::user(Content::Text { text: prompt })],
-        model_preferences: Some(ModelPreferences {
-            // Hint for high-quality model - client decides actual model
-            hints: None,
-            intelligence_priority: Some(0.9),
-            cost_priority: None,
-            speed_priority: None,
-        }),
-        max_tokens: 800,
-        temperature: Some(0.7),
-        system_prompt: Some(
-            resources
-                .activity_analysis_system_prompt()
-                .trim()
-                .to_owned(),
-        ),
-        include_context: None,
-        stop_sequences: None,
-        metadata: None,
-    };
-
-    let result = sampling_peer.create_message(request).await?;
-
-    Ok(intelligence_from_model_reply(&result.content.text))
-}
-
-/// Turn a model's reply into the shape this tool declares.
-///
-/// The reply must parse into `ActivityIntelligence`. Anything else — prose, a
-/// different JSON object, a truncated one — is wrapped rather than passed
-/// through, because before this the parsed `Value` became the tool's answer
-/// whatever it said, and no `outputSchema` can describe "whatever the
-/// client's model emitted".
-///
-/// `source` is overwritten either way: a model does not get to claim its
-/// analysis was written here.
-#[must_use]
-pub fn intelligence_from_model_reply(text: &str) -> ActivityIntelligence {
-    serde_json::from_str::<ActivityIntelligence>(text).map_or_else(
-        |_| ActivityIntelligence {
-            summary: text.to_owned(),
-            insights: vec![text.to_owned()],
-            recommendations: Vec::new(),
-            source: "mcp_sampling".to_owned(),
-        },
-        |mut parsed| {
-            "mcp_sampling".clone_into(&mut parsed.source);
-            parsed
-        },
-    )
-}
-
 /// Handle `get_activity_intelligence` tool - get AI analysis for activity (async)
 ///
 /// # Errors
@@ -438,15 +289,6 @@ pub fn handle_get_activity_intelligence(
 ) -> Pin<Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + '_>> {
     Box::pin(async move {
         use parse_user_id_for_protocol;
-
-        // Check cancellation at start
-        if let Some(token) = &request.cancellation_token {
-            if token.is_cancelled().await {
-                return Err(ProtocolError::OperationCancelled(
-                    "get_activity_intelligence cancelled by user".to_owned(),
-                ));
-            }
-        }
 
         let activity_id = request
             .parameters
@@ -472,69 +314,20 @@ pub fn handle_get_activity_intelligence(
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);
 
-        // Report progress - starting authentication
-        if let Some(reporter) = &request.progress_reporter {
-            reporter.report(
-                25.0,
-                Some(100.0),
-                Some("Checking authentication...".to_owned()),
-            );
-        }
-
-        // Check cancellation before auth
-        if let Some(token) = &request.cancellation_token {
-            if token.is_cancelled().await {
-                return Err(ProtocolError::OperationCancelled(
-                    "get_activity_intelligence cancelled before authentication".to_owned(),
-                ));
-            }
-        }
-
         match executor
             .auth_service
             .create_authenticated_provider(&provider_name, user_uuid, request.tenant_id.as_deref())
             .await
         {
             Ok(provider) => {
-                // Report progress after auth
-                if let Some(reporter) = &request.progress_reporter {
-                    reporter.report(
-                        50.0,
-                        Some(100.0),
-                        Some("Authenticated - analyzing activity...".to_owned()),
-                    );
-                }
-
-                // Check cancellation before analysis
-                if let Some(token) = &request.cancellation_token {
-                    if token.is_cancelled().await {
-                        return Err(ProtocolError::OperationCancelled(
-                            "get_activity_intelligence cancelled before analysis".to_owned(),
-                        ));
-                    }
-                }
-
                 let result = fetch_and_analyze_activity(
                     provider,
                     activity_id,
                     user_uuid,
                     request.tenant_id,
-                    executor.resources.sampling_peer(),
-                    &*executor.resources,
                     output_format,
                 )
                 .await?;
-
-                // Report completion on success
-                if result.success {
-                    if let Some(reporter) = &request.progress_reporter {
-                        reporter.report(
-                            100.0,
-                            Some(100.0),
-                            Some("Activity intelligence retrieved".to_owned()),
-                        );
-                    }
-                }
 
                 Ok(result)
             }

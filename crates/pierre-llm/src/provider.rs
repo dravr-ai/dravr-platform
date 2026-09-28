@@ -433,12 +433,6 @@ impl ChatProvider {
         }
     }
 
-    /// Check if this provider supports tool calling
-    #[must_use]
-    pub fn supports_tool_calling(&self) -> bool {
-        self.capabilities().supports_function_calling()
-    }
-
     /// The inner [`EmbacleProvider`], when this is one.
     ///
     /// The headless tool loop reaches through it to the Copilot turn provider

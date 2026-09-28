@@ -90,17 +90,6 @@ macro_rules! data_source_columns {
     };
 }
 
-/// One data source by id.
-pub(crate) const GET_DATA_SOURCE_SQL: &str = concat!(
-    "
-            SELECT ",
-    data_source_columns!(),
-    "
-            FROM data_sources
-            WHERE id = $1
-            "
-);
-
 /// Every data source a user has under a tenant, newest first.
 pub(crate) const LIST_DATA_SOURCES_SQL: &str = concat!(
     "
@@ -112,21 +101,6 @@ pub(crate) const LIST_DATA_SOURCES_SQL: &str = concat!(
             ORDER BY created_at DESC
             "
 );
-
-/// Every data source a user has under a tenant for one provider, newest first.
-pub(crate) const LIST_DATA_SOURCES_BY_PROVIDER_SQL: &str = concat!(
-    "
-            SELECT ",
-    data_source_columns!(),
-    "
-            FROM data_sources
-            WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
-            ORDER BY created_at DESC
-            "
-);
-
-/// Remove a data source by id.
-pub(crate) const DELETE_DATA_SOURCE_SQL: &str = "DELETE FROM data_sources WHERE id = $1";
 
 // ============================================================================
 // sleep_sessions
@@ -176,23 +150,6 @@ pub(crate) const GET_SLEEP_SESSIONS_SQL: &str = concat!(
             ORDER BY start_time DESC
             "
 );
-
-/// The most recent live session.
-pub(crate) const LATEST_SLEEP_SESSION_SQL: &str = concat!(
-    "
-            SELECT ",
-    sleep_session_columns!(),
-    "
-            FROM sleep_sessions
-            WHERE user_id = $1 AND tenant_id = $2 AND deleted_at IS NULL
-            ORDER BY start_time DESC
-            LIMIT 1
-            "
-);
-
-/// Hard-delete every session a provider wrote for a user.
-pub(crate) const DELETE_SLEEP_SESSIONS_SQL: &str =
-    "DELETE FROM sleep_sessions WHERE user_id = $1 AND tenant_id = $2 AND provider = $3";
 
 /// Soft-delete one session: stamps `deleted_at` once, never twice.
 pub(crate) const SOFT_DELETE_SLEEP_SESSION_SQL: &str = "UPDATE sleep_sessions SET deleted_at = $1 \
@@ -254,19 +211,6 @@ pub(crate) const GET_RECOVERY_METRICS_SQL: &str = concat!(
             "
 );
 
-/// The most recent live recovery row.
-pub(crate) const LATEST_RECOVERY_SQL: &str = concat!(
-    "
-            SELECT ",
-    recovery_metrics_columns!(),
-    "
-            FROM recovery_metrics
-            WHERE user_id = $1 AND tenant_id = $2 AND deleted_at IS NULL
-            ORDER BY date DESC
-            LIMIT 1
-            "
-);
-
 /// Soft-delete one recovery row: stamps `deleted_at` once, never twice.
 pub(crate) const SOFT_DELETE_RECOVERY_METRIC_SQL: &str =
     "UPDATE recovery_metrics SET deleted_at = $1 \
@@ -323,19 +267,6 @@ pub(crate) const GET_HEALTH_SNAPSHOTS_SQL: &str = concat!(
             WHERE user_id = $1 AND tenant_id = $2 AND date >= $3 AND date <= $4
               AND deleted_at IS NULL
             ORDER BY date DESC
-            "
-);
-
-/// The most recent live snapshot.
-pub(crate) const LATEST_HEALTH_SNAPSHOT_SQL: &str = concat!(
-    "
-            SELECT ",
-    health_snapshot_columns!(),
-    "
-            FROM health_snapshots
-            WHERE user_id = $1 AND tenant_id = $2 AND deleted_at IS NULL
-            ORDER BY date DESC
-            LIMIT 1
             "
 );
 
@@ -607,16 +538,6 @@ macro_rules! impl_health_persistence_repositories {
                     .map_err(|e| AppError::database(format!("health column id: {e}")))
             }
 
-            async fn get_data_source(&self, id: &str) -> AppResult<Option<DataSource>> {
-                let row = sqlx::query(GET_DATA_SOURCE_SQL)
-                    .bind(id)
-                    .fetch_optional(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("Failed to get data source: {e}")))?;
-
-                row.as_ref().map(data_source_from_row).transpose()
-            }
-
             async fn list_data_sources(
                 &self,
                 user_id: Uuid,
@@ -630,37 +551,6 @@ macro_rules! impl_health_persistence_repositories {
                     .map_err(|e| AppError::database(format!("Failed to list data sources: {e}")))?;
 
                 rows.iter().map(data_source_from_row).collect()
-            }
-
-            async fn list_data_sources_by_provider(
-                &self,
-                user_id: Uuid,
-                tenant_id: &TenantId,
-                provider: &str,
-            ) -> AppResult<Vec<DataSource>> {
-                let rows = sqlx::query(LIST_DATA_SOURCES_BY_PROVIDER_SQL)
-                    .bind(user_id.to_string())
-                    .bind(tenant_id.to_string())
-                    .bind(provider)
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to list data sources by provider: {e}"))
-                    })?;
-
-                rows.iter().map(data_source_from_row).collect()
-            }
-
-            async fn delete_data_source(&self, id: &str) -> AppResult<()> {
-                sqlx::query(DELETE_DATA_SOURCE_SQL)
-                    .bind(id)
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to delete data source: {e}"))
-                    })?;
-
-                Ok(())
             }
         }
 
@@ -739,42 +629,6 @@ macro_rules! impl_health_persistence_repositories {
                     })?;
 
                 rows.iter().map(sleep_session_from_row).collect()
-            }
-
-            async fn get_latest_sleep_session(
-                &self,
-                user_id: Uuid,
-                tenant_id: &TenantId,
-            ) -> AppResult<Option<StoredSleepSession>> {
-                let row = sqlx::query(LATEST_SLEEP_SESSION_SQL)
-                    .bind(user_id.to_string())
-                    .bind(tenant_id.to_string())
-                    .fetch_optional(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to get latest sleep session: {e}"))
-                    })?;
-
-                row.as_ref().map(sleep_session_from_row).transpose()
-            }
-
-            async fn delete_sleep_sessions(
-                &self,
-                user_id: Uuid,
-                tenant_id: &TenantId,
-                provider: &str,
-            ) -> AppResult<u64> {
-                let result = sqlx::query(DELETE_SLEEP_SESSIONS_SQL)
-                    .bind(user_id.to_string())
-                    .bind(tenant_id.to_string())
-                    .bind(provider)
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to delete sleep sessions: {e}"))
-                    })?;
-
-                Ok(result.rows_affected())
             }
 
             async fn delete_sleep_session_by_id(
@@ -884,23 +738,6 @@ macro_rules! impl_health_persistence_repositories {
                     })?;
 
                 rows.iter().map(recovery_metrics_from_row).collect()
-            }
-
-            async fn get_latest_recovery(
-                &self,
-                user_id: Uuid,
-                tenant_id: &TenantId,
-            ) -> AppResult<Option<StoredRecoveryMetrics>> {
-                let row = sqlx::query(LATEST_RECOVERY_SQL)
-                    .bind(user_id.to_string())
-                    .bind(tenant_id.to_string())
-                    .fetch_optional(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to get latest recovery: {e}"))
-                    })?;
-
-                row.as_ref().map(recovery_metrics_from_row).transpose()
             }
 
             async fn delete_recovery_metric_by_id(
@@ -1017,23 +854,6 @@ macro_rules! impl_health_persistence_repositories {
                     })?;
 
                 rows.iter().map(health_metrics_from_row).collect()
-            }
-
-            async fn get_latest_health_snapshot(
-                &self,
-                user_id: Uuid,
-                tenant_id: &TenantId,
-            ) -> AppResult<Option<StoredHealthMetrics>> {
-                let row = sqlx::query(LATEST_HEALTH_SNAPSHOT_SQL)
-                    .bind(user_id.to_string())
-                    .bind(tenant_id.to_string())
-                    .fetch_optional(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to get latest health snapshot: {e}"))
-                    })?;
-
-                row.as_ref().map(health_metrics_from_row).transpose()
             }
 
             async fn delete_health_snapshot_by_id(

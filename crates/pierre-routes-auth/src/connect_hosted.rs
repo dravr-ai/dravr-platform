@@ -50,17 +50,10 @@ use crate::connect_hosted_templates;
 use crate::oauth::{compute_providers_status, require_oauth_start_notice};
 use crate::AuthRoutesContext;
 
-/// Bare OAuth provider rows that the connect picker hides — Strava is the
-/// `sciotte` card, Garmin the `sciotte_garmin` card and TrainingPeaks the
-/// `sciotte_trainingpeaks` card; the API-key and
-/// synthetic providers are out of the messaging connect scope.
-const HIDDEN_FROM_PICKER: &[&str] = &[
-    "strava",
-    "garmin",
-    "synthetic",
-    "synthetic_sleep",
-    "intervals_icu",
-];
+/// Catalogue cards the connect picker does not offer: the API-key and
+/// synthetic providers are out of the messaging connect scope. A raw card a
+/// mirror covers (`strava`, `garmin`) is never served by the catalogue.
+const HIDDEN_FROM_PICKER: &[&str] = &["synthetic", "synthetic_sleep", "intervals_icu"];
 
 /// Query parameters for the hosted connect page.
 #[derive(Debug, Deserialize)]
@@ -132,18 +125,12 @@ async fn build_connect_providers(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Option<Uuid>,
-) -> Vec<ConnectProviderCard> {
-    let status = compute_providers_status(resources, user_id, tenant_id).await;
+) -> Result<Vec<ConnectProviderCard>, AppError> {
+    let status = compute_providers_status(resources, user_id, tenant_id).await?;
 
-    // Mirror ProviderConnectionCards: the raw `strava` OAuth row is hidden (the
-    // sciotte card IS the Strava data path), but its connected state must merge
-    // into that card — otherwise a user already connected via Strava OAuth sees
-    // "Strava — Authorize" and can be pushed through a needless re-consent.
-    let strava_oauth_connected = status
-        .providers
-        .iter()
-        .any(|p| p.provider == "strava" && p.connected);
-
+    // The `sciotte` card already counts a native Strava OAuth grant as
+    // connected (`card_is_connected`), so a user connected either way never
+    // sees "Strava — Authorize" and a needless re-consent.
     let mut cards = Vec::new();
 
     for p in status.providers {
@@ -163,7 +150,7 @@ async fn build_connect_providers(
                         "sciotte".to_owned()
                     },
                     display_name: p.display_name,
-                    connected: p.connected || strava_oauth_connected,
+                    connected: p.connected,
                     kind: if oauth_first { "oauth" } else { "sciotte" },
                     target: "strava".to_owned(),
                     consent_required: p.consent_required,
@@ -208,7 +195,7 @@ async fn build_connect_providers(
             _ => {}
         }
     }
-    cards
+    Ok(cards)
 }
 
 /// GET `/providers/connect?token=...` — the hosted provider picker.
@@ -244,7 +231,16 @@ pub async fn handle_connect_hosted_page(
     // The link-token names the session's tenant; one it cannot parse asks
     // for no notice, as a session without a tenant does.
     let tenant_id = Uuid::parse_str(&claims.tid).ok();
-    let cards = build_connect_providers(&resources, user_id, tenant_id).await;
+    let cards = match build_connect_providers(&resources, user_id, tenant_id).await {
+        Ok(cards) => cards,
+        Err(e) => {
+            warn!(user_id = %user_id, error = %e, "Could not read the user's connections for the hosted connect picker");
+            return Html(connect_hosted_templates::render_connect_error_page(
+                "We could not load your connections. Please try again in a moment.",
+            ))
+            .into_response();
+        }
+    };
     let providers_json = serde_json::to_string(&cards).unwrap_or_else(|_| "[]".to_owned());
 
     info!(
@@ -326,7 +322,6 @@ pub async fn handle_connect_oauth_init(
             &provider,
             AuthUrlOptions {
                 return_redirect: Some(&return_url),
-                ..AuthUrlOptions::default()
             },
         )
         .await

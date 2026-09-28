@@ -160,9 +160,6 @@ async fn test_get_configuration_catalog_e2e() {
         parameters: json!({}),
         protocol: "mcp".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor
@@ -212,9 +209,6 @@ async fn test_get_configuration_profiles_e2e() {
         parameters: json!({}),
         protocol: "mcp".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor
@@ -267,9 +261,6 @@ async fn test_calculate_personalized_zones_e2e() {
         }),
         protocol: "mcp".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor
@@ -298,13 +289,28 @@ async fn test_calculate_personalized_zones_e2e() {
     let zones = &result["personalized_zones"];
     assert!(zones["heart_rate_zones"].is_object());
     assert!(zones["pace_zones"].is_object());
-    // Daniels' oxygen-cost curve puts VO2max 55 at 281.7 m/min; the easy zone
-    // is 70 % of that, banded 0.85–0.95, quoted as minutes per kilometre.
-    // Dropping the curve's squared term reads ~15 % fast and would quote
-    // 5:08–4:36 instead.
+    // Daniels' oxygen-cost curve puts VO2max 55 at 281.7 m/min; cageux cuts
+    // the easy zone at 59–74 % of that, quoted as minutes per kilometre with
+    // the fastest pace first. The zones are the same function the REST route
+    // and the athlete snapshot read, so every surface quotes 4:48–6:01.
     let easy = &zones["pace_zones"]["zone_1_easy"];
-    assert_eq!(easy["min_pace"], "5:58", "easy zone was {easy:?}");
-    assert_eq!(easy["max_pace"], "5:20", "easy zone was {easy:?}");
+    assert_eq!(easy["min_pace"], "4:48", "easy zone was {easy:?}");
+    assert_eq!(easy["max_pace"], "6:01", "easy zone was {easy:?}");
+    // Threshold pace at a lactate threshold of 0.85 is 0.90 of 281.7 m/min,
+    // 236.6 s/km; the threshold zone is 98–102 % of it.
+    let threshold = &zones["pace_zones"]["zone_3_threshold"];
+    assert_eq!(
+        threshold["min_pace"], "3:52",
+        "threshold zone was {threshold:?}"
+    );
+    assert_eq!(
+        threshold["max_pace"], "4:01",
+        "threshold zone was {threshold:?}"
+    );
+    assert_eq!(
+        zones["pace_zones"]["zone_5_neuromuscular_max_pace"], "3:23",
+        "neuromuscular pace is 105 % of velocity at VO2max"
+    );
     assert!(
         zones["power_zones"].is_null(),
         "power zones must be omitted without an FTP, got {:?}",
@@ -350,9 +356,6 @@ async fn test_validate_configuration_e2e() {
         }),
         protocol: "mcp".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor
@@ -390,9 +393,6 @@ async fn test_update_user_configuration_e2e() {
         }),
         protocol: "mcp".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor
@@ -430,9 +430,6 @@ async fn test_get_user_configuration_e2e() {
         parameters: json!({}),
         protocol: "mcp".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor
@@ -471,9 +468,6 @@ async fn test_configuration_tools_via_different_protocols() {
         parameters: json!({}),
         protocol: "mcp".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let mcp_response = executor
@@ -489,9 +483,6 @@ async fn test_configuration_tools_via_different_protocols() {
         parameters: json!({}),
         protocol: "a2a".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let a2a_response = executor
@@ -524,9 +515,6 @@ async fn test_configuration_system_error_handling() {
         parameters: json!({}),
         protocol: "mcp".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await;
@@ -542,9 +530,6 @@ async fn test_configuration_system_error_handling() {
         parameters: json!({}),
         protocol: "mcp".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let empty_response = executor
@@ -575,9 +560,6 @@ async fn test_configuration_system_error_handling() {
         }),
         protocol: "mcp".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let validation_response = executor

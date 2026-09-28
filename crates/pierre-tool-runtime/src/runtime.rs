@@ -43,7 +43,6 @@ use pierre_database::database::repositories::AgentsRepository;
 use pierre_database::RepositoryRegistry;
 use pierre_intelligence::{ActivityIntelligence, IntelligenceConfig};
 use pierre_llm::LlmProvider;
-use pierre_mcp_transport::sampling_peer::SamplingPeer;
 use pierre_providers::ProviderRegistry;
 use pierre_runtime_context::{AdminConfigLookup, DataContext};
 
@@ -207,19 +206,9 @@ pub trait ToolRuntime: Send + Sync + 'static {
     /// Coaches repository (kept as a method because it returns `&dyn`).
     fn agents_manager(&self) -> &dyn AgentsRepository;
 
-    /// Recommendation system prompt (delegates to the contremaitre prompt
-    /// registry when the feature is enabled, otherwise the compiled-in
-    /// default).
-    fn recommendation_system_prompt(&self) -> String;
-
-    /// Recommendation analysis prompt template.
-    fn recommendation_analysis_prompt(&self) -> String;
-
-    /// Activity analysis prompt template.
-    fn activity_analysis_prompt(&self) -> String;
-
-    /// Activity analysis system prompt.
-    fn activity_analysis_system_prompt(&self) -> String;
+    /// The plan-then-verify planner's workflow grammar, resolved from the
+    /// contremaitre prompt registry so an edit hot-reloads with its siblings.
+    fn guardian_planner_prompt(&self) -> String;
 
     /// Optional LLM provider (when configured).
     fn llm_provider(&self) -> Option<&Arc<dyn LlmProvider>>;
@@ -246,10 +235,6 @@ pub trait ToolRuntime: Send + Sync + 'static {
     fn backfill_notifier(&self) -> Option<&Arc<dyn BackfillNotifier>> {
         None
     }
-
-    /// Optional MCP sampling peer (present when an MCP client supports
-    /// sampling).
-    fn sampling_peer(&self) -> Option<&Arc<SamplingPeer>>;
 
     /// Optional notification service (present when `client-notifications`
     /// is enabled and a notification backend is wired).

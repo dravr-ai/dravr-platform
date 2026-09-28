@@ -44,8 +44,8 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
   });
 
   const allTokens: AdminToken[] = useMemo(
-    () => tokensResponse?.admin_tokens || [],
-    [tokensResponse?.admin_tokens]
+    () => tokensResponse?.tokens || [],
+    [tokensResponse?.tokens]
   );
 
   // Compute counts for the filter

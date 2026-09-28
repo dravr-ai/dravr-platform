@@ -30,13 +30,13 @@ use std::time::Duration;
 
 use base64::engine::general_purpose::STANDARD as Base64Standard;
 use base64::Engine as _;
-use pierre_auth::google_id_token::{GoogleIdTokenVerifier, GOOGLE_OIDC_CERTS_URL};
+use dravr_tronc::iam::{GoogleIdTokenVerifier, GoogleKeySet, IamError, GOOGLE_OIDC_JWKS_URL};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::gcp_token::{MetadataTokenProvider, TokenProvider};
-use pierre_core::http_client::api_client;
+use pierre_core::http_client::{api_client, api_inner_client};
 use pierre_core::models::TenantId;
 use serde_json::json;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 /// Selects the runner: `in_process` (the default when absent) or `cloud_tasks`.
 pub const ENV_TURN_RUNNER: &str = "PIERRE_TURN_RUNNER";
@@ -79,8 +79,9 @@ pub struct CloudTasksConfig {
     pub claim_wait: Duration,
     /// Cloud Tasks API base; overridden by tests to a local listener.
     pub api_base: String,
-    /// Google certificate endpoint the verifier reads; overridden by tests.
-    pub certs_url: String,
+    /// Google JWK set the verifier reads its signing keys from; overridden
+    /// by tests to a local listener.
+    pub jwks_url: String,
 }
 
 /// Where a messaging turn runs.
@@ -88,7 +89,7 @@ pub enum TurnRunner {
     /// Spawned through the in-flight tracker in this process.
     InProcess,
     /// Enqueued on Cloud Tasks and run inside the request it delivers. Boxed:
-    /// the runner carries a verifier and its certificate cache, the other arm
+    /// the runner carries a verifier and its key-set cache, the other arm
     /// nothing.
     CloudTasks(Box<CloudTasksRunner>),
 }
@@ -154,7 +155,7 @@ impl TurnRunner {
                     service_account: required(ENV_TURN_OIDC_SERVICE_ACCOUNT)?,
                     claim_wait,
                     api_base: CLOUD_TASKS_API_BASE.to_owned(),
-                    certs_url: GOOGLE_OIDC_CERTS_URL.to_owned(),
+                    jwks_url: GOOGLE_OIDC_JWKS_URL.to_owned(),
                 };
                 Ok(Self::CloudTasks(Box::new(CloudTasksRunner::new(
                     config,
@@ -183,6 +184,23 @@ impl TurnRunner {
         match self {
             Self::InProcess => "in_process",
             Self::CloudTasks(_) => "cloud_tasks",
+        }
+    }
+}
+
+/// The answer a delivery whose token did not verify gets.
+fn refuse_delivery(error: IamError) -> AppError {
+    match error {
+        IamError::Rejected(why) => {
+            // The reason can name the caller's email, which is PII at WARN;
+            // the refusal itself is what operators alert on.
+            warn!("turn delivery token refused");
+            debug!(reason = %why, "turn delivery token refusal reason");
+            AppError::auth_invalid("Invalid identity token")
+        }
+        other => {
+            warn!(error = %other, "turn delivery token could not be checked");
+            AppError::internal("Google signing keys are unavailable")
         }
     }
 }
@@ -240,11 +258,15 @@ impl CloudTasksRunner {
                 CLOUD_TASKS_MAX_DISPATCH_DEADLINE.as_secs()
             )));
         }
-        let verifier = GoogleIdTokenVerifier::with_certs_url(
+        // The audience is this service's own origin and the one caller
+        // allowed is the service account the tasks are minted on behalf of:
+        // a token for another service, or from any other identity, is
+        // refused before anything is read from the database.
+        let verifier = GoogleIdTokenVerifier::with_key_set(
             &config.target_url,
-            &config.service_account,
-            &config.certs_url,
-        );
+            GoogleKeySet::new(&config.jwks_url, api_inner_client().clone()),
+        )
+        .allowing([config.service_account.clone()]);
         Ok(Self {
             config,
             token_provider,
@@ -253,10 +275,33 @@ impl CloudTasksRunner {
         })
     }
 
-    /// The verifier the run route checks each delivery's token with.
+    /// The settings this runner was built from: the queue, the target the
+    /// tokens are audienced for, and the one service account they may be
+    /// minted on behalf of.
     #[must_use]
-    pub const fn verifier(&self) -> &GoogleIdTokenVerifier {
-        &self.verifier
+    pub const fn config(&self) -> &CloudTasksConfig {
+        &self.config
+    }
+
+    /// Check the bearer token a delivery carries.
+    ///
+    /// The route has no other gate — the backend runs with invoker IAM off —
+    /// so this is the whole authentication of a delivery. A refusal is logged
+    /// at WARN and its reason at DEBUG, and the reason is never returned: a
+    /// verifier that says which claim failed is a claim-guessing oracle.
+    ///
+    /// # Errors
+    ///
+    /// `AppError::auth_invalid` (401) when the token is malformed, not signed
+    /// by a key Google publishes, not issued by Google, expired, minted for
+    /// another audience, or minted on behalf of any identity but the
+    /// configured service account. `AppError::internal` when Google's signing
+    /// keys could not be fetched, so an outage is not recorded as somebody
+    /// presenting a bad token.
+    pub async fn verify_delivery(&self, token: &str) -> AppResult<()> {
+        let claims = self.verifier.verify(token).await.map_err(refuse_delivery)?;
+        debug!(sub = %claims.sub, aud = %claims.aud, "turn delivery token verified");
+        Ok(())
     }
 
     /// How long the run route waits, inside the request, for a blocked claim.

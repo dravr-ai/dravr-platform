@@ -240,21 +240,6 @@ test.describe('Pending Approval Page - Active User Redirect', () => {
       });
     });
 
-    // Mock dashboard overview for active user view
-    await page.route('**/admin/dashboard/overview', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          total_requests_today: 100,
-          total_requests_this_month: 1000,
-          active_api_keys: 5,
-          total_api_keys: 10,
-          error_rate_today: 1.5,
-        }),
-      });
-    });
-
     await page.goto('/');
     await page.waitForLoadState('networkidle');
     await page.locator('input[name="password"]').waitFor({ state: 'visible', timeout: 10000 });

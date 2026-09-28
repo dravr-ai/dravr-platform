@@ -39,71 +39,54 @@ fn create_test_activity(
     builder.build()
 }
 
-#[test]
-fn test_calculate_tsb() {
-    let ctl = 100.0;
-    let atl = 80.0;
-    let tsb = TrainingLoadCalculator::calculate_tsb(ctl, atl);
-    assert!((tsb - 20.0).abs() < f64::EPSILON, "TSB should be 20.0");
+/// A training load whose CTL did not move since yesterday, so the CTL form is
+/// a share of (`form_ctl`) equals the end-of-day CTL.
+fn steady(tsb: f64, form_ctl: f64) -> TrainingLoad {
+    TrainingLoad {
+        ctl: form_ctl,
+        atl: form_ctl - tsb,
+        tsb,
+        form_ctl,
+        tss_history: Vec::new(),
+    }
 }
 
 #[test]
 fn test_form_band_is_relative_to_ctl() {
+    let band = |tsb, form_ctl| FormBand::from_training_load(&steady(tsb, form_ctl));
     // Same TSB, different athletes: -25 on a CTL-100 elite is the deep end of
     // a normal block; -25 on a CTL-40 athlete is the deepest fatigue band.
-    assert_eq!(FormBand::from_tsb(-25.0, 100.0), FormBand::HeavyBlock);
-    assert_eq!(FormBand::from_tsb(-25.0, 40.0), FormBand::DeepFatigue);
+    assert_eq!(band(-25.0, 100.0), FormBand::HeavyBlock);
+    assert_eq!(band(-25.0, 40.0), FormBand::DeepFatigue);
     // Band edges on form as % of CTL
-    assert_eq!(FormBand::from_tsb(-35.0, 100.0), FormBand::DeepFatigue);
-    assert_eq!(FormBand::from_tsb(-15.0, 100.0), FormBand::Productive);
-    assert_eq!(FormBand::from_tsb(10.0, 100.0), FormBand::Fresh);
-    assert_eq!(FormBand::from_tsb(25.0, 100.0), FormBand::Detraining);
+    assert_eq!(band(-35.0, 100.0), FormBand::DeepFatigue);
+    assert_eq!(band(-15.0, 100.0), FormBand::Productive);
+    assert_eq!(band(10.0, 100.0), FormBand::Fresh);
+    assert_eq!(band(25.0, 100.0), FormBand::Detraining);
     // No chronic base: the honest answer is that form cannot be judged, not
     // a band read off the absolute number.
-    assert_eq!(
-        FormBand::from_tsb(-35.0, 0.0),
-        FormBand::InsufficientHistory
-    );
+    assert_eq!(band(-35.0, 0.0), FormBand::InsufficientHistory);
 }
 
 #[test]
 fn test_recommend_recovery_days_is_relative_to_ctl() {
+    let days =
+        |tsb, form_ctl| TrainingLoadCalculator::recommend_recovery_days(&steady(tsb, form_ctl));
     // Elite (CTL 100): -25% form is a normal block, no rest prescription
-    assert_eq!(
-        TrainingLoadCalculator::recommend_recovery_days(-25.0, 100.0),
-        0
-    );
-    assert_eq!(
-        TrainingLoadCalculator::recommend_recovery_days(-35.0, 100.0),
-        1
-    );
-    assert_eq!(
-        TrainingLoadCalculator::recommend_recovery_days(-45.0, 100.0),
-        2
-    );
-    assert_eq!(
-        TrainingLoadCalculator::recommend_recovery_days(-55.0, 100.0),
-        3
-    );
+    assert_eq!(days(-25.0, 100.0), 0);
+    assert_eq!(days(-35.0, 100.0), 1);
+    assert_eq!(days(-45.0, 100.0), 2);
+    assert_eq!(days(-55.0, 100.0), 3);
     // Low chronic base (CTL 40): the same -25 TSB is -62.5% form → 3 days
-    assert_eq!(
-        TrainingLoadCalculator::recommend_recovery_days(-25.0, 40.0),
-        3
-    );
-    assert_eq!(
-        TrainingLoadCalculator::recommend_recovery_days(5.0, 100.0),
-        0
-    );
+    assert_eq!(days(-25.0, 40.0), 3);
+    assert_eq!(days(5.0, 100.0), 0);
     // No chronic base: no prescription derived from an uninterpretable number
-    assert_eq!(
-        TrainingLoadCalculator::recommend_recovery_days(-35.0, 0.0),
-        0
-    );
+    assert_eq!(days(-35.0, 0.0), 0);
 }
 
 #[test]
 fn test_empty_activities() {
-    let calculator = TrainingLoadCalculator::new();
+    let calculator = TrainingLoadCalculator::new(Utc::now().date_naive());
     let result = calculator
         .calculate_training_load(&[], Some(250.0), None, Some(180.0), Some(60.0), Some(70.0))
         .unwrap();
@@ -115,7 +98,7 @@ fn test_empty_activities() {
 
 #[test]
 fn test_training_load_with_power() {
-    let calculator = TrainingLoadCalculator::new();
+    let calculator = TrainingLoadCalculator::new(Utc::now().date_naive());
     let now = Utc::now();
 
     let activities = vec![
@@ -147,6 +130,7 @@ fn test_overtraining_risk_detection() {
         ctl: 80.0,
         atl: 150.0, // Very high ATL
         tsb: -70.0, // Deep fatigue
+        form_ctl: 80.0,
         tss_history: Vec::new(),
     };
 
@@ -154,8 +138,9 @@ fn test_overtraining_risk_detection() {
     assert_eq!(risk.risk_level, RiskLevel::High);
     // One observation yields one factor. This used to assert `>= 2`, which the
     // old scheme satisfied by restating a single inequality: because
-    // tsb == ctl - atl, "ATL 30% above CTL" and form below -30% are the same
-    // condition, so severity was decided by counting it twice.
+    // form is the previous day's CTL minus ATL, "ATL 30% above CTL" and form
+    // below -30% are the same condition, so severity was decided by counting
+    // it twice.
     assert_eq!(
         risk.risk_factors.len(),
         1,
@@ -169,6 +154,7 @@ fn test_overtraining_risk_detection() {
         ctl: 100.0,
         atl: 125.0,
         tsb: -25.0, // form -25%: the deep end of a productive block
+        form_ctl: 100.0,
         tss_history: Vec::new(),
     };
     assert_eq!(
@@ -180,6 +166,7 @@ fn test_overtraining_risk_detection() {
         ctl: 90.0,
         atl: 80.0,
         tsb: 10.0,
+        form_ctl: 90.0,
         tss_history: Vec::new(),
     };
 
@@ -188,36 +175,66 @@ fn test_overtraining_risk_detection() {
 }
 
 // =============================================================================
-// Issue #1 regression: reverse-chronological input is rejected, not silently
-// zeroed. cageux validates TSS ordering (EMA needs days_span >= 0) and returns
-// an error instead of a misleading zero load; every production caller sorts
-// oldest-first before calling.
+// cageux sums TSS per calendar day and walks every day through the as-of day,
+// so input order does not change the load, and rest days after the last
+// activity decay it.
 // =============================================================================
 
 #[test]
-fn test_training_load_reverse_chronological_order_is_rejected() {
-    let calculator = TrainingLoadCalculator::new();
+fn test_training_load_is_independent_of_input_order() {
+    let calculator = TrainingLoadCalculator::new(Utc::now().date_naive());
     let now = Utc::now();
 
-    // Newest first (like Strava returns) — unsorted, so cageux rejects it.
-    let activities = vec![
+    // Newest first, the way Strava returns activities.
+    let newest_first = vec![
         create_test_activity(now, 3600, Some(210), None),
         create_test_activity(now - Duration::days(1), 3600, Some(220), None),
         create_test_activity(now - Duration::days(2), 3600, Some(200), None),
     ];
+    let mut oldest_first = newest_first.clone();
+    oldest_first.reverse();
 
-    let result =
-        calculator.calculate_training_load(&activities, Some(250.0), None, None, None, Some(70.0));
+    let unsorted = calculator
+        .calculate_training_load(&newest_first, Some(250.0), None, None, None, Some(70.0))
+        .unwrap();
+    let sorted = calculator
+        .calculate_training_load(&oldest_first, Some(250.0), None, None, None, Some(70.0))
+        .unwrap();
 
-    assert!(
-        result.is_err(),
-        "reverse-chronological (unsorted) activities must be rejected, not silently zeroed"
-    );
+    assert!(unsorted.ctl > 0.0 && unsorted.atl > 0.0, "{unsorted:?}");
+    assert!((unsorted.ctl - sorted.ctl).abs() < 1e-9);
+    assert!((unsorted.atl - sorted.atl).abs() < 1e-9);
+}
+
+#[test]
+fn test_training_load_decays_over_rest_days_to_the_as_of_day() {
+    let now = Utc::now();
+    let activities = vec![
+        create_test_activity(now - Duration::days(2), 3600, Some(200), None),
+        create_test_activity(now - Duration::days(1), 3600, Some(220), None),
+        create_test_activity(now, 3600, Some(210), None),
+    ];
+    let today = now.date_naive();
+    let load = |as_of| {
+        TrainingLoadCalculator::new(as_of)
+            .calculate_training_load(&activities, Some(250.0), None, None, None, Some(70.0))
+            .unwrap()
+    };
+    let on_the_day = load(today);
+    let after_rest = load(today + Duration::days(5));
+
+    // Five empty days multiply the 7-day EMA by (6/8)^5 and the 42-day one by
+    // (41/43)^5.
+    let atl_decay = (6.0_f64 / 8.0).powi(5);
+    let ctl_decay = (41.0_f64 / 43.0).powi(5);
+    assert!(on_the_day.atl.mul_add(-atl_decay, after_rest.atl).abs() < 1e-9);
+    assert!(on_the_day.ctl.mul_add(-ctl_decay, after_rest.ctl).abs() < 1e-9);
+    assert!(after_rest.tsb > on_the_day.tsb);
 }
 
 #[test]
 fn test_training_load_sorted_chronological_produces_nonzero() {
-    let calculator = TrainingLoadCalculator::new();
+    let calculator = TrainingLoadCalculator::new(Utc::now().date_naive());
     let now = Utc::now();
 
     // Oldest first (correct order for EMA)
@@ -243,7 +260,7 @@ fn test_training_load_sorted_chronological_produces_nonzero() {
 
 #[test]
 fn test_training_load_pace_fallback_no_physiological_params() {
-    let calculator = TrainingLoadCalculator::new();
+    let calculator = TrainingLoadCalculator::new(Utc::now().date_naive());
     let now = Utc::now();
 
     // Activities with 10km distance but no power/HR — pace fallback should work

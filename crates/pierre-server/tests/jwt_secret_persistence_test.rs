@@ -53,6 +53,7 @@ async fn test_jwt_secret_persistence_across_restarts() -> Result<()> {
             expires_in_days: Some(1),
             is_super_admin: true,
             tenant_id: None,
+            operator_user_id: None,
         };
 
         let generated_token = repos

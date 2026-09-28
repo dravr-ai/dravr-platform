@@ -28,8 +28,6 @@ pub trait A2ARepository: Send + Sync {
     async fn get_client(&self, client_id: &str) -> AppResult<Option<A2AClient>>;
     /// Get A2A client by API key ID
     async fn get_client_by_api_key_id(&self, api_key_id: &str) -> AppResult<Option<A2AClient>>;
-    /// Get A2A client by name
-    async fn get_client_by_name(&self, name: &str) -> AppResult<Option<A2AClient>>;
     /// List all A2A clients for a user
     async fn list_clients(&self, user_id: &Uuid) -> AppResult<Vec<A2AClient>>;
     /// Deactivate an A2A client
@@ -149,7 +147,8 @@ pub trait A2ARepository: Send + Sync {
 macro_rules! client_columns {
     () => {
         "client_id, user_id, name, description, api_key_hash, capabilities, redirect_uris, \
-         rate_limit_per_minute, rate_limit_per_day, is_active, created_at, updated_at"
+         contact_email, rate_limit_per_minute, rate_limit_per_day, is_active, created_at, \
+         updated_at"
     };
 }
 
@@ -157,10 +156,10 @@ macro_rules! client_columns {
 pub(crate) const INSERT_CLIENT_SQL: &str = r"
             INSERT INTO a2a_clients (
                 client_id, user_id, name, description, api_key_hash, client_secret_hash,
-                capabilities, redirect_uris,
+                capabilities, redirect_uris, contact_email,
                 rate_limit_per_minute, rate_limit_per_day, is_active,
                 created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             ";
 
 /// Bind a client to the API key it authenticates with.
@@ -179,19 +178,12 @@ pub(crate) const GET_CLIENT_SQL: &str = concat!(
 /// The active client behind an API key: how API-key auth resolves a caller.
 pub(crate) const GET_CLIENT_BY_API_KEY_SQL: &str = r"
             SELECT c.client_id, c.user_id, c.name, c.description, c.api_key_hash, c.capabilities,
-                   c.redirect_uris, c.rate_limit_per_minute, c.rate_limit_per_day, c.is_active,
-                   c.created_at, c.updated_at
+                   c.redirect_uris, c.contact_email, c.rate_limit_per_minute, c.rate_limit_per_day,
+                   c.is_active, c.created_at, c.updated_at
             FROM a2a_clients c
             INNER JOIN a2a_client_api_keys k ON c.client_id = k.client_id
             WHERE k.api_key_id = $1 AND c.is_active = TRUE
             ";
-
-/// One client by name, active or not.
-pub(crate) const GET_CLIENT_BY_NAME_SQL: &str = concat!(
-    "SELECT ",
-    client_columns!(),
-    " FROM a2a_clients WHERE name = $1"
-);
 
 /// Every active client, newest first: the system-wide (admin) listing.
 pub(crate) const LIST_ALL_CLIENTS_SQL: &str = concat!(

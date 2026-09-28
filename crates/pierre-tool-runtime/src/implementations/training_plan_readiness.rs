@@ -29,7 +29,7 @@ use pierre_core::models::periodization::{
     PhaseKind, ReadinessInput, ReadinessLevel, RecoveryDay, SubstitutionVerdict, TrainingAlert,
     WorkoutPurpose,
 };
-use pierre_core::models::{merge_recovery_metrics, merge_sleep_sessions, FormReading, TenantId};
+use pierre_core::models::{merge_recovery_metrics, merge_sleep_sessions, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek, TrainingPlan};
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
@@ -208,7 +208,7 @@ async fn gather(
         });
 
     let latest = history.iter().max_by_key(|day| day.date);
-    let form_pct = latest.and_then(|day| FormReading::new(day.ctl, day.atl, day.tsb).form_pct);
+    let form_pct = latest.and_then(|day| day.form_reading().form_pct);
     let load = latest.map_or_else(LoadDay::default, |day| LoadDay {
         acwr: day.acwr,
         monotony: day.monotony,

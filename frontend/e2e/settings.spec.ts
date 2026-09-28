@@ -88,52 +88,12 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
     });
   });
 
-  // Mock OAuth status
-  await page.route('**/api/oauth/status', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([
-        { provider: 'strava', connected: false },
-        { provider: 'whoop', connected: false },
-      ]),
-    });
-  });
-
-  // Mock dashboard overview (for admin)
-  await page.route('**/api/dashboard/overview**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        total_api_keys: 5,
-        active_api_keys: 3,
-        total_requests_today: 100,
-        total_requests_this_month: 2500,
-      }),
-    });
-  });
-
   // Mock pending users (for admin)
   await page.route('**/api/admin/users/pending', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify([]),
-    });
-  });
-
-  // Mock A2A dashboard (for admin)
-  await page.route('**/api/a2a/dashboard**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        total_clients: 0,
-        active_clients: 0,
-        requests_today: 0,
-        requests_this_month: 0,
-      }),
     });
   });
 
@@ -153,15 +113,6 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
         body: JSON.stringify({ message: 'Password changed successfully' }),
       });
     }
-  });
-
-  // Mock rate limit overview
-  await page.route('**/api/dashboard/rate-limits**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([]),
-    });
   });
 
   // Mock A2A clients list (used by API Tokens tab)
@@ -191,14 +142,6 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
     });
   });
 
-  await page.route('**/api/admin/config/audit**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ entries: [] }),
-    });
-  });
-
   // Mock tool availability (used by AdminConfiguration)
   await page.route('**/api/admin/tools**', async (route) => {
     await route.fulfill({
@@ -213,7 +156,7 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ data: { enabled: false, description: 'Auto-approve new users' } }),
+      body: JSON.stringify({ data: { enabled: false, auto_approve_domains: [], overridden_by_env: false, description: 'Auto-approve new users' } }),
     });
   });
 
@@ -329,7 +272,7 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ count: 0, users: [] }),
+      body: JSON.stringify({ success: true, message: 'Retrieved 0 pending users', data: { count: 0, users: [] } }),
     });
   });
 
@@ -338,7 +281,7 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ users: [], total_count: 0 }),
+      body: JSON.stringify({ success: true, message: 'Retrieved users', data: { users: [], total: 0, has_more: false } }),
     });
   });
 
@@ -348,20 +291,6 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ daily_usage: [] }),
-    });
-  });
-
-  // Mock A2A dashboard overview
-  await page.route('**/a2a/dashboard/overview', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        total_clients: 0,
-        active_clients: 0,
-        requests_today: 0,
-        requests_this_month: 0,
-      }),
     });
   });
 
@@ -376,19 +305,6 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
 
   // Mock admin LLM consumption endpoint
   await page.route('**/admin/usage/llm-consumption**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        summary: { total_tokens: 0, total_calls: 0, estimated_cost_usd: 0 },
-        breakdown: [],
-        daily_series: [],
-      }),
-    });
-  });
-
-  // Mock user LLM consumption endpoint
-  await page.route('**/api/usage/llm-consumption**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -729,6 +645,7 @@ test.describe('Settings Page - User Mode', () => {
           coach_display_name: 'Casey Coach',
           status: 'confirmed',
           coach_needs_reauth: false,
+          read_refused: null,
         },
       },
       {

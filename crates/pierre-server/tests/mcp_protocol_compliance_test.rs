@@ -164,8 +164,6 @@ async fn test_mcp_error_codes_compliance() {
         ERROR_AUTHENTICATION,
         ERROR_AUTHORIZATION,
         ERROR_SERIALIZATION,
-        ERROR_PROGRESS_TRACKING,
-        ERROR_OPERATION_CANCELLED,
     ];
 
     for &error_code in &server_errors {
@@ -210,31 +208,6 @@ async fn test_jsonrpc_message_format_compliance() {
     assert_eq!(serialized["id"], 123);
     assert!(serialized["result"].is_object());
     assert!(!serialized.as_object().unwrap().contains_key("error"));
-}
-
-/// Test progress notification format compliance
-#[tokio::test]
-async fn test_progress_notification_format() {
-    let progress_token = "test-token-123";
-    let notification = ProgressNotification::new(
-        progress_token.to_owned(),
-        25.0,
-        Some(100.0),
-        Some("Processing data...".to_owned()),
-    );
-
-    let serialized = serde_json::to_value(&notification).expect("Should serialize");
-
-    // Verify notification structure
-    assert_eq!(serialized["jsonrpc"], JSONRPC_VERSION);
-    assert_eq!(serialized["method"], "notifications/progress");
-    assert!(!serialized.as_object().unwrap().contains_key("id"));
-
-    let params = &serialized["params"];
-    assert_eq!(params["progressToken"], progress_token);
-    assert_eq!(params["progress"], 25.0);
-    assert_eq!(params["total"], 100.0);
-    assert_eq!(params["message"], "Processing data...");
 }
 
 /// Test cancellation request format compliance

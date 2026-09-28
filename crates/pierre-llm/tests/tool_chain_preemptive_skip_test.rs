@@ -1,5 +1,5 @@
 // ABOUTME: A tool-calling chain must honour the preemptive guard the same way complete() does
-// ABOUTME: Low GitHub headroom routes straight to the secondary without spending a primary call
+// ABOUTME: Low GitHub headroom routes past a Copilot primary without spending a call on it
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -21,12 +21,15 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::UNIX_EPOCH;
 
+use embacle::quota_http::GithubRateLimit;
 use embacle::types::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider as EmbacleLlmProvider,
     RunnerError,
 };
 use pierre_llm::chain_guard::{RateLimitTransition, CHAIN_GUARD, GITHUB_BUDGET_THRESHOLD};
+use pierre_llm::config::LlmProviderType;
 use pierre_llm::{ChatMessage, ChatProvider, EmbacleProvider};
 
 /// Answers with a fixed line and counts how many times it was asked.
@@ -94,14 +97,20 @@ impl EmbacleLlmProvider for Counted {
 }
 
 #[tokio::test]
-async fn a_low_github_budget_skips_the_primary_on_the_tool_calling_path() {
+async fn a_low_github_budget_skips_a_copilot_primary_on_the_tool_calling_path() {
+    let low = GithubRateLimit {
+        remaining: GITHUB_BUDGET_THRESHOLD - 1,
+        limit: 5000,
+        used: 5000 - (GITHUB_BUDGET_THRESHOLD - 1),
+        resets_at: UNIX_EPOCH,
+    };
     assert_eq!(
-        CHAIN_GUARD.record_github_rate_limit(GITHUB_BUDGET_THRESHOLD - 1, 0),
+        CHAIN_GUARD.record_github_headroom(&Ok(low)),
         RateLimitTransition::EnteredLow,
         "the probe starts from the fail-open unknown state"
     );
     assert!(
-        CHAIN_GUARD.should_skip_primary(),
+        CHAIN_GUARD.is_github_budget_low(),
         "the guard must read a sub-threshold budget as a reason to skip"
     );
 
@@ -109,7 +118,8 @@ async fn a_low_github_budget_skips_the_primary_on_the_tool_calling_path() {
     let (secondary, secondary_calls) = Counted::new("secondary", "Tu as couru 42 km ce mois-ci.");
     let chain = ChatProvider::Embacle(
         EmbacleProvider::chain(vec![
-            EmbacleProvider::from_runner(Box::new(primary), "primary"),
+            EmbacleProvider::from_runner(Box::new(primary), "primary")
+                .of_kind(LlmProviderType::CopilotSdk),
             EmbacleProvider::from_runner(Box::new(secondary), "secondary"),
         ])
         .expect("two tiers"),

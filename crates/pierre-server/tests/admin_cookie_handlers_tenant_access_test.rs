@@ -24,6 +24,7 @@
 
 mod common;
 
+use pierre_config::mcp::AppBehaviorConfig;
 use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
@@ -78,6 +79,7 @@ async fn build_context() -> (
         persona_contract_registry: Arc::new(PersonaContractRegistry::new()),
         training_catalogue_registry: Arc::new(pierre_contremaitre::TrainingCatalogueRegistry::new()),
         contremaitre_config: None,
+        app_behavior: AppBehaviorConfig::default(),
     });
 
     (Arc::new(context), repos_arc)
@@ -143,6 +145,7 @@ fn super_admin_token() -> ValidatedAdminToken {
         is_super_admin: true,
         tenant_id: None,
         user_info: None,
+        operator_user_id: None,
     }
 }
 
@@ -161,6 +164,7 @@ fn tenant_bound_token(tenant_id: TenantId) -> ValidatedAdminToken {
         is_super_admin: false,
         tenant_id: Some(tenant_id.as_uuid().to_string()),
         user_info: None,
+        operator_user_id: None,
     }
 }
 

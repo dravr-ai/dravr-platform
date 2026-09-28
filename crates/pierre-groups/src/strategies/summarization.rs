@@ -10,7 +10,7 @@ use std::fmt::Write;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::civil_time::{format_local_day, resolve_zone};
-use pierre_core::models::{FormBand, FormReading};
+use pierre_core::models::FormBand;
 
 use pierre_core::models::groups::{
     GroupSummaryBlock, MemberFitnessSnapshot, MemberFlag, MemberSummaryCard, OvertrainingRiskLevel,
@@ -114,11 +114,9 @@ impl RosterCardSummarizer {
         // missing a CTL-150 athlete at +6% who genuinely is fresh — on the same
         // card that prints the percentage.
         match snapshot
-            .tsb
-            .zip(snapshot.ctl)
-            .map_or(FormBand::InsufficientHistory, |(tsb, ctl)| {
-                FormBand::from_tsb(tsb, ctl)
-            }) {
+            .form_reading()
+            .map_or(FormBand::InsufficientHistory, |reading| reading.band)
+        {
             FormBand::Fresh => flags.push(MemberFlag::FreshForm),
             FormBand::DeepFatigue => flags.push(MemberFlag::DeepFatigue),
             _ => {}
@@ -148,12 +146,7 @@ impl GroupSummarizationStrategy for RosterCardSummarizer {
         // Through the one shared reading: the percentage AND the band's own
         // wording travel with the raw number, so the model cannot supply its
         // own reading of a bare `-77` (registre#199).
-        if let Some(tsb) = snapshot.tsb {
-            let reading = FormReading::new(
-                snapshot.ctl.unwrap_or(0.0),
-                snapshot.atl.unwrap_or(0.0),
-                tsb,
-            );
+        if let Some(reading) = snapshot.form_reading() {
             let _ = write!(text, " {}", reading.inline());
         }
         // Render duration alongside distance so HR/duration-only sources
@@ -240,15 +233,16 @@ impl GroupSummarizationStrategy for WeeklyDigestSummarizer {
         if !freshness.is_empty() {
             let _ = writeln!(text, "  Sources: {freshness}");
         }
-        if let (Some(ctl), Some(atl), Some(tsb)) = (snapshot.ctl, snapshot.atl, snapshot.tsb) {
+        if let Some(reading) = snapshot.form_reading() {
             // Form as % of CTL keeps the LLM from reading one athlete's normal
             // training block as another athlete's emergency — and when there is
             // no chronic base to divide by, the row says so instead of falling
             // back to the bare absolute number.
-            let reading = FormReading::new(ctl, atl, tsb);
             let _ = writeln!(
                 text,
-                "  CTL: {ctl:.0} | ATL: {atl:.0} | {}",
+                "  CTL: {:.0} | ATL: {:.0} | {}",
+                reading.ctl,
+                reading.atl,
                 reading.inline()
             );
         }

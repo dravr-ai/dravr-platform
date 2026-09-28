@@ -7,7 +7,7 @@
 // Test files: allow missing_docs (rustc lint) and unwrap (valid in tests per CLAUDE.md guidelines)
 #![allow(missing_docs, clippy::unwrap_used)]
 
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::groups::{CoachingGroup, GroupDigestMode, GroupRespondMode};
@@ -20,6 +20,8 @@ use pierre_database::backends::factory::Database;
 use pierre_database::database::test_utils::create_test_db;
 use pierre_database::repositories::ChatRepository;
 use std::sync::Arc;
+use std::time::Duration as StdDuration;
+use tokio::time::sleep;
 use uuid::Uuid;
 
 /// Deterministic tenant ID for tests (fixed bytes representing "tenant-1")
@@ -1048,70 +1050,6 @@ async fn test_message_updates_conversation_tokens() {
 }
 
 #[tokio::test]
-async fn test_get_message_count() {
-    let fx = open_fixture().await;
-    let manager = fx.chat();
-
-    let tenant_id = test_tenant_id();
-    let conv = manager
-        .create_conversation(
-            fx.athlete(),
-            tenant_id,
-            "Test Chat",
-            "gemini-1.5-flash",
-            None,
-            None,
-        )
-        .await
-        .unwrap();
-
-    // Initially 0
-    let count = manager
-        .get_message_count(&conv.id, fx.athlete(), tenant_id)
-        .await
-        .unwrap();
-    assert_eq!(count, 0);
-
-    // Add messages
-    manager
-        .add_message(&AddMessageParams {
-            tenant_id,
-            conversation_id: &conv.id,
-            user_id: fx.athlete(),
-            role: "user",
-            content: "1",
-            token_count: None,
-            finish_reason: None,
-            prompt_tokens: None,
-            model: None,
-            content_blocks: None,
-        })
-        .await
-        .unwrap();
-    manager
-        .add_message(&AddMessageParams {
-            tenant_id,
-            conversation_id: &conv.id,
-            user_id: fx.athlete(),
-            role: "assistant",
-            content: "2",
-            token_count: None,
-            finish_reason: None,
-            prompt_tokens: None,
-            model: None,
-            content_blocks: None,
-        })
-        .await
-        .unwrap();
-
-    let count = manager
-        .get_message_count(&conv.id, fx.athlete(), tenant_id)
-        .await
-        .unwrap();
-    assert_eq!(count, 2);
-}
-
-#[tokio::test]
 async fn test_cascade_delete_messages() {
     let fx = open_fixture().await;
     let manager = fx.chat();
@@ -1163,9 +1101,10 @@ async fn test_cascade_delete_messages() {
 
     // Verify messages exist
     let count = manager
-        .get_message_count(&conv.id, fx.athlete(), tenant_id)
+        .get_messages(&conv.id, fx.athlete(), tenant_id)
         .await
-        .unwrap();
+        .unwrap()
+        .len();
     assert_eq!(count, 2);
 
     // Delete conversation (should cascade delete messages)
@@ -1180,63 +1119,6 @@ async fn test_cascade_delete_messages() {
         .await
         .unwrap();
     assert!(messages.is_empty());
-}
-
-#[tokio::test]
-async fn test_delete_all_user_conversations() {
-    let fx = open_fixture().await;
-    let manager = fx.chat();
-
-    let tenant_id = test_tenant_id();
-    // Create multiple conversations
-    manager
-        .create_conversation(
-            fx.athlete(),
-            tenant_id,
-            "Chat 1",
-            "gemini-1.5-flash",
-            None,
-            None,
-        )
-        .await
-        .unwrap();
-    manager
-        .create_conversation(
-            fx.athlete(),
-            tenant_id,
-            "Chat 2",
-            "gemini-1.5-flash",
-            None,
-            None,
-        )
-        .await
-        .unwrap();
-    manager
-        .create_conversation(
-            fx.athlete(),
-            tenant_id,
-            "Chat 3",
-            "gemini-1.5-flash",
-            None,
-            None,
-        )
-        .await
-        .unwrap();
-
-    let deleted = manager
-        .delete_all_user_conversations(fx.athlete(), tenant_id)
-        .await
-        .unwrap();
-
-    assert_eq!(deleted, 3);
-
-    let remaining = manager
-        .list_conversations(fx.athlete(), tenant_id, 10, 0)
-        .await
-        .unwrap()
-        .items;
-
-    assert!(remaining.is_empty());
 }
 
 /// Persisting a `tool_call` row alongside its `tool_result` lets a follow-up
@@ -1741,9 +1623,10 @@ async fn test_added_participant_reads_and_posts_like_the_owner() {
     assert_eq!(messages.len(), 1);
     assert_eq!(
         manager
-            .get_message_count(&conv.id, fx.athlete(), tenant_id)
+            .get_messages(&conv.id, fx.athlete(), tenant_id)
             .await
-            .unwrap(),
+            .unwrap()
+            .len(),
         1
     );
     assert!(manager
@@ -1858,12 +1741,12 @@ async fn test_add_participant_refuses_a_conversation_outside_the_tenant() {
 }
 
 #[tokio::test]
-async fn test_count_and_delete_all_keep_owner_semantics() {
+async fn test_count_keeps_owner_semantics() {
     let fx = open_fixture().await;
     let manager = fx.chat();
     let tenant_id = test_tenant_id();
 
-    let owned = manager
+    manager
         .create_conversation(
             fx.athlete(),
             tenant_id,
@@ -1908,26 +1791,6 @@ async fn test_count_and_delete_all_keep_owner_semantics() {
             .len(),
         2
     );
-
-    // Account cleanup deletes the athlete's own thread and leaves the other
-    // owner's thread standing.
-    assert_eq!(
-        manager
-            .delete_all_user_conversations(fx.athlete(), tenant_id)
-            .await
-            .unwrap(),
-        1
-    );
-    assert!(manager
-        .get_conversation(&owned.id, fx.athlete(), tenant_id)
-        .await
-        .unwrap()
-        .is_none());
-    assert!(manager
-        .get_conversation(&joined.id, fx.other_owner(), tenant_id)
-        .await
-        .unwrap()
-        .is_some());
 }
 
 #[tokio::test]
@@ -2015,4 +1878,95 @@ async fn a_malformed_user_id_is_refused_as_invalid_input_on_every_read() {
         .unwrap()
         .unwrap();
     assert_eq!(own.title, "Mine");
+}
+
+/// The claim-verdict backfill walks a tenant's assistant replies through one
+/// statement both backends run: oldest first, only assistant rows, past the
+/// cursor message, from `since` on, capped by the limit — and an unknown
+/// cursor walks from the start rather than returning nothing.
+#[tokio::test]
+async fn assistant_messages_walk_in_order_past_the_cursor() {
+    let fx = open_fixture().await;
+    let manager = fx.chat();
+    let tenant_id = test_tenant_id();
+    let conv = manager
+        .create_conversation(
+            fx.athlete(),
+            tenant_id,
+            "Backfill walk",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    let before = Utc::now() - Duration::seconds(5);
+    let mut ids = Vec::new();
+    for (role, content) in [
+        ("user", "question"),
+        ("assistant", "first"),
+        ("assistant", "second"),
+    ] {
+        let message = manager
+            .add_message(&AddMessageParams {
+                tenant_id,
+                conversation_id: &conv.id,
+                user_id: fx.athlete(),
+                role,
+                content,
+                token_count: None,
+                finish_reason: None,
+                prompt_tokens: None,
+                model: None,
+                content_blocks: None,
+            })
+            .await
+            .unwrap();
+        ids.push(message.id);
+        sleep(StdDuration::from_millis(20)).await;
+    }
+    let walk = |since, after: Option<String>, limit| {
+        let manager = manager.clone();
+        async move {
+            manager
+                .list_assistant_messages_after(tenant_id, since, after.as_deref(), limit)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|m| m.message_id)
+                .collect::<Vec<_>>()
+        }
+    };
+
+    let all = manager
+        .list_assistant_messages_after(tenant_id, None, None, 10)
+        .await
+        .unwrap();
+    assert_eq!(
+        all.iter().map(|m| m.message_id.clone()).collect::<Vec<_>>(),
+        vec![ids[1].clone(), ids[2].clone()],
+        "assistant rows only, oldest first"
+    );
+    assert_eq!(all[0].conversation_id, conv.id);
+    assert_eq!(all[0].user_id, fx.athlete());
+    assert_eq!(all[0].content, "first");
+
+    assert_eq!(
+        walk(None, Some(ids[1].clone()), 10).await,
+        vec![ids[2].clone()]
+    );
+    assert_eq!(
+        walk(None, Some("no-such-message".to_owned()), 10).await,
+        vec![ids[1].clone(), ids[2].clone()]
+    );
+    assert_eq!(walk(Some(before), None, 10).await.len(), 2);
+    assert!(walk(Some(Utc::now() + Duration::hours(1)), None, 10)
+        .await
+        .is_empty());
+    assert_eq!(walk(None, None, 1).await, vec![ids[1].clone()]);
+    assert!(manager
+        .list_assistant_messages_after(TenantId::generate(), None, None, 10)
+        .await
+        .unwrap()
+        .is_empty());
 }

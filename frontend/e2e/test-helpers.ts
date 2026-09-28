@@ -161,43 +161,6 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
     });
   });
 
-  // Mock dashboard overview
-  await page.route('**/api/dashboard/overview', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        total_api_keys: 10,
-        active_api_keys: 8,
-        total_requests_today: 450,
-        total_requests_this_month: 12500,
-      }),
-    });
-  });
-
-  // Mock rate limits
-  await page.route('**/api/dashboard/rate-limits', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([]),
-    });
-  });
-
-  // Mock A2A dashboard
-  await page.route('**/a2a/dashboard/overview', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        total_clients: 5,
-        active_clients: 3,
-        requests_today: 100,
-        requests_this_month: 3000,
-      }),
-    });
-  });
-
   // Mock analytics
   await page.route('**/api/dashboard/analytics**', async (route) => {
     await route.fulfill({
@@ -212,7 +175,7 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ count: 0, users: [] }),
+      body: JSON.stringify({ success: true, message: 'Retrieved 0 pending users', data: { count: 0, users: [] } }),
     });
   });
 
@@ -221,7 +184,7 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ users: [], total_count: 0 }),
+      body: JSON.stringify({ success: true, message: 'Retrieved users', data: { users: [], total: 0, has_more: false } }),
     });
   });
 
@@ -235,16 +198,6 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
         activities_synced: 42,
         days_active: 7,
       }),
-    });
-  });
-
-  // Mock OAuth status endpoint (used by Connections tab)
-  // Note: Backend returns array directly, getStatus() wraps it in { providers: ... }
-  await page.route('**/api/oauth/status', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([]),
     });
   });
 
@@ -367,19 +320,6 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
     });
   });
 
-  // Mock user LLM consumption endpoint
-  await page.route('**/api/usage/llm-consumption**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        summary: { total_tokens: 0, total_calls: 0, estimated_cost_usd: 0 },
-        breakdown: [],
-        daily_series: [],
-      }),
-    });
-  });
-
   // Mock providers status (needed by ChatTab and ProviderConnectionCards)
   // Default: no connected providers. A spec that needs to control this —
   // including controlling *when* the answer arrives — passes
@@ -412,6 +352,16 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ agents: [], total: 0, metadata: { timestamp: new Date().toISOString(), api_version: 'v1' } }),
+    });
+  });
+
+  // Mock an agent's version history (the edit sheet lists it): a never-edited
+  // agent has none. Registered after the list mock so it wins for this sub-path.
+  await page.route('**/api/agents/*/versions', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ versions: [], current_version: 0, total: 0 }),
     });
   });
 

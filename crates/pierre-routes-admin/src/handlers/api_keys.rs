@@ -26,6 +26,7 @@ use pierre_core::constants::{
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::User;
 use pierre_database::database::repositories::{AdminRepository, UserRepository};
+use pierre_middleware::redaction::mask_email;
 
 use super::types::{
     AdminResponse, ListApiKeysQuery, ProvisionApiKeyRequest, ProvisionApiKeyResponse,
@@ -263,8 +264,9 @@ pub(crate) async fn handle_provision_api_key(
     }
 
     info!(
-        "Provisioning API key for user: {} by service: {}",
-        request.user_email, admin_token.service_name
+        "Provisioning API key for user: {} by token: {}",
+        mask_email(&request.user_email),
+        admin_token.token_id
     );
 
     let ctx = context.as_ref();
@@ -315,7 +317,8 @@ pub(crate) async fn handle_provision_api_key(
 
     info!(
         "API key provisioned successfully: {} for user: {}",
-        final_api_key.id, user.email
+        final_api_key.id,
+        mask_email(&user.email)
     );
 
     let provision_response =
@@ -352,8 +355,8 @@ pub(crate) async fn handle_revoke_api_key(
     }
 
     info!(
-        "Revoking API key: {} by service: {}",
-        request.api_key_id, admin_token.service_name
+        "Revoking API key: {} by token: {}",
+        request.api_key_id, admin_token.token_id
     );
 
     let ctx = context.as_ref();
@@ -441,7 +444,7 @@ pub(crate) async fn handle_list_api_keys(
         ));
     }
 
-    info!("Listing API keys by service: {}", admin_token.service_name);
+    info!("Listing API keys by token: {}", admin_token.token_id);
 
     let ctx = context.as_ref();
 

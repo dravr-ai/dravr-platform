@@ -19,9 +19,10 @@ use pierre_core::errors::protocol::ProtocolError;
 use pierre_core::models::{ConnectionType, Tenant, User};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_intelligence::insights::{Insight, InsightType};
+use pierre_intelligence::types::ContextualWeeklyLoad;
 use pierre_intelligence::{
-    ActivityIntelligence, ContextualFactors, ContextualWeeklyLoad, PerformanceMetrics, TimeOfDay,
-    TrendDirection, TrendIndicators,
+    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
+    TrendIndicators,
 };
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
@@ -74,7 +75,6 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
     // Create test config with correct structure
     let config = Arc::new(ServerConfig {
         http_port: 4000,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -320,9 +320,6 @@ async fn test_tool_execution_invalid_tool() -> Result<()> {
         user_id: Uuid::new_v4().to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let result = executor.execute_tool(request).await;
@@ -358,9 +355,6 @@ async fn test_connection_status_tool() -> Result<()> {
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: Some(tenant.id.to_string()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await?;
@@ -418,9 +412,6 @@ async fn test_connect_strava_tool() -> Result<()> {
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: Some(tenant.id.to_string()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     // A token-less provider short-circuits as the typed auth-required error —
@@ -451,9 +442,6 @@ async fn test_analyze_activity_without_tenant_context() -> Result<()> {
         user_id: Uuid::new_v4().to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await?;
@@ -515,7 +503,6 @@ async fn test_set_goal_tool() -> Result<()> {
     // Create test config with correct structure
     let config = Arc::new(ServerConfig {
         http_port: 4000,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -699,9 +686,6 @@ async fn test_set_goal_tool() -> Result<()> {
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await?;
@@ -743,9 +727,6 @@ async fn test_calculate_metrics_requires_an_activity_id() -> Result<()> {
         user_id: Uuid::new_v4().to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     match executor.execute_tool(request).await {
@@ -802,9 +783,6 @@ async fn test_analyze_performance_trends_tool() -> Result<()> {
         user_id: Uuid::new_v4().to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await?;
@@ -865,9 +843,6 @@ async fn test_compare_activities_tool() -> Result<()> {
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await?;
@@ -908,9 +883,6 @@ async fn test_detect_patterns_tool() -> Result<()> {
         user_id: Uuid::new_v4().to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await?;
@@ -945,9 +917,6 @@ async fn test_track_progress_tool() -> Result<()> {
         user_id: Uuid::new_v4().to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await?;
@@ -990,9 +959,6 @@ async fn test_suggest_goals_tool() -> Result<()> {
         user_id: Uuid::new_v4().to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await?;
@@ -1022,9 +988,6 @@ async fn test_analyze_goal_feasibility_tool() -> Result<()> {
         user_id: Uuid::new_v4().to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await?;
@@ -1061,9 +1024,6 @@ async fn test_generate_recommendations_tool() -> Result<()> {
         user_id: Uuid::new_v4().to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await?;
@@ -1108,9 +1068,6 @@ async fn test_calculate_fitness_score_tool() -> Result<()> {
         user_id: Uuid::new_v4().to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await?;
@@ -1151,9 +1108,6 @@ async fn test_predict_performance_tool() -> Result<()> {
         user_id: Uuid::new_v4().to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await?;
@@ -1209,9 +1163,6 @@ async fn test_analyze_training_load_tool() -> Result<()> {
         user_id: Uuid::new_v4().to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await?;
@@ -1282,7 +1233,6 @@ async fn test_disconnect_provider_tool() -> Result<()> {
     // Create test config with correct structure
     let config = Arc::new(ServerConfig {
         http_port: 4000,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -1471,9 +1421,6 @@ async fn test_disconnect_provider_tool() -> Result<()> {
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: Some(tenant.id.to_string()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await?;
@@ -1531,9 +1478,6 @@ async fn test_get_activities_async_no_token() -> Result<()> {
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     // A token-less provider short-circuits as the typed auth-required error
@@ -1583,9 +1527,6 @@ async fn test_get_athlete_async_no_token() -> Result<()> {
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await?;
@@ -1644,9 +1585,6 @@ async fn test_get_stats_async_no_token() -> Result<()> {
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await?;
@@ -1675,9 +1613,6 @@ async fn test_invalid_protocol_handling() -> Result<()> {
         user_id: "invalid-uuid".to_owned(),
         protocol: "invalid_protocol".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     // Should handle gracefully and return error response
@@ -1730,9 +1665,6 @@ async fn test_empty_parameters() -> Result<()> {
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: Some(tenant.id.to_string()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await?;
@@ -1754,9 +1686,6 @@ async fn test_malformed_parameters() -> Result<()> {
         user_id: Uuid::new_v4().to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     // Should handle gracefully and return error response

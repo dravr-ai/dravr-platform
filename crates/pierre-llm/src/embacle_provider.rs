@@ -13,21 +13,22 @@ use async_trait::async_trait;
 use embacle::auth::check_readiness;
 use embacle::config::parse_timeout;
 use embacle::pool::{credential_env_key, PooledTier};
-use embacle::quota_http::{AnthropicUsageChecker, GithubHeadroomChecker};
+use embacle::quota_http::AnthropicUsageChecker;
 use embacle::router::{Backend, PreferInOrder, RouterProvider};
 use embacle::types::LlmProvider as EmbacleLlmProvider;
 use embacle::{
     validate_capabilities, ClaudeCodeRunner, CliRunnerType, ClineCliRunner, CodexCliRunner,
     ContinueCliRunner, CopilotHeadlessConfig, CopilotHeadlessRunner, CopilotRunner,
     CopilotSdkConfig, CopilotSdkRunner, CursorAgentRunner, FallbackProvider, GeminiCliRunner,
-    GooseCliRunner, HeadlessTurnProvider, KiloCliRunner, KiroCliRunner, OpenAiApiConfig,
-    OpenAiApiRunner, OpenCodeRunner, ResponsePolicy, RunnerConfig, WarpCliRunner,
+    GooseCliRunner, HeadlessTurnProvider, KiloCliRunner, KiroCliRunner, OpenAiCompatibleConfig,
+    OpenAiCompatibleProvider, OpenCodeRunner, ResponsePolicy, RunnerConfig, WarpCliRunner,
 };
 use futures_util::StreamExt;
 use pierre_core::http_client::llm_inner_client;
 use tracing::{info, info_span, warn, Instrument, Span};
 
 use super::{ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider};
+use crate::chain_guard::copilot_headroom_checker;
 use crate::chain_observer::ChainObserver;
 use crate::config::{LlmProviderType, ProviderConstruction};
 use crate::errors::AppError;
@@ -71,6 +72,11 @@ pub struct EmbacleProvider {
     /// The chain minus its head, for the headless tool loop's re-run (see
     /// `run_headless_fallback` in pierre-tool-runtime). `None` when solo.
     fallback_tail: Option<Box<ChatProvider>>,
+    /// The provider kind the head was built as, when it was built from one
+    /// ([`Self::from_provider_type`], or a scripted runner tagged with
+    /// [`Self::of_kind`]). The chain guard reads it to know which tiers spend
+    /// the Copilot GitHub token; a runner of no kind spends none it measures.
+    kind: Option<LlmProviderType>,
 }
 
 impl EmbacleProvider {
@@ -90,7 +96,7 @@ impl EmbacleProvider {
         kind: LlmProviderType,
         model_override: Option<&str>,
     ) -> Result<Self, AppError> {
-        match kind.construction() {
+        let built = match kind.construction() {
             ProviderConstruction::HttpApi(http) => http_env::build(http, model_override),
             ProviderConstruction::Cli(runner_type) => {
                 let config = cli_runner_config(runner_type, model_override)?;
@@ -100,7 +106,26 @@ impl EmbacleProvider {
             ProviderConstruction::CopilotSdk => Ok(Self::build_sdk(model_override)),
             ProviderConstruction::Router => Self::build_router(),
             ProviderConstruction::OpenAiApi => Ok(Self::build_openai_api(model_override).await),
-        }
+        };
+        built.map(|provider| provider.of_kind(kind))
+    }
+
+    /// Record the provider kind this runner is, which decides whether a
+    /// chain's guard may pass it over for a low Copilot GitHub budget.
+    ///
+    /// [`Self::from_provider_type`] tags everything it builds; a runner built
+    /// any other way — a pooled account on its own token, a scripted runner —
+    /// has no kind until tagged, and is never passed over for that budget.
+    #[must_use]
+    pub const fn of_kind(mut self, kind: LlmProviderType) -> Self {
+        self.kind = Some(kind);
+        self
+    }
+
+    /// Whether this provider's head spends the token the chain guard measures.
+    fn spends_copilot_github_token(&self) -> bool {
+        self.kind
+            .is_some_and(LlmProviderType::spends_copilot_github_token)
     }
 
     /// Wrap an already-built embacle runner whose rate limit is the
@@ -118,6 +143,7 @@ impl EmbacleProvider {
             router: None,
             cached_display_name: display_name,
             fallback_tail: None,
+            kind: None,
         }
     }
 
@@ -127,8 +153,10 @@ impl EmbacleProvider {
     /// [`ResponsePolicy::strict`] — a provider fault or an empty completion
     /// moves the request to the next tier with its model reset; a
     /// deterministic rejection propagates — observed by the platform's
-    /// guarded [`ChainObserver`], which consults the chain guard before the
-    /// primary and records the primary's outcome on the breaker.
+    /// guarded [`ChainObserver`], which passes over a tier that spends the
+    /// Copilot GitHub token while that budget is low, passes over the primary
+    /// while the breaker is open, and records the primary's outcome on the
+    /// breaker.
     ///
     /// One tier is that tier, unchained. The tail (every tier but the first)
     /// is kept as its own unguarded chain for the headless tool loop's re-run.
@@ -137,7 +165,11 @@ impl EmbacleProvider {
     ///
     /// Returns a config error for an empty `tiers`.
     pub fn chain(tiers: Vec<Self>) -> Result<Self, AppError> {
-        Self::chain_observed(tiers, ChainObserver::guarded())
+        let copilot_tiers = tiers
+            .iter()
+            .map(Self::spends_copilot_github_token)
+            .collect();
+        Self::chain_observed(tiers, ChainObserver::guarded(copilot_tiers))
     }
 
     fn chain_observed(mut tiers: Vec<Self>, observer: ChainObserver) -> Result<Self, AppError> {
@@ -165,6 +197,7 @@ impl EmbacleProvider {
             router: head.router,
             cached_display_name: head.cached_display_name,
             fallback_tail: Some(Box::new(ChatProvider::Embacle(tail))),
+            kind: head.kind,
         })
     }
 
@@ -194,6 +227,7 @@ impl EmbacleProvider {
             router: None,
             cached_display_name: self.cached_display_name,
             fallback_tail: None,
+            kind: self.kind,
         }
     }
 
@@ -373,6 +407,7 @@ impl EmbacleProvider {
             router: None,
             cached_display_name: display_name,
             fallback_tail: None,
+            kind: None,
         }
     }
 
@@ -420,14 +455,12 @@ impl EmbacleProvider {
             }
         };
 
-        let fallback = match env::var("COPILOT_GITHUB_TOKEN") {
-            Ok(token) if !token.is_empty() => Backend::metered(
-                Box::new(Arc::clone(&headless)),
-                Box::new(GithubHeadroomChecker::new(token)),
-            ),
-            _ => Backend::unmetered(Box::new(Arc::clone(&headless))),
-        }
-        .with_headless(Arc::clone(&headless));
+        let fallback = copilot_headroom_checker()
+            .map_or_else(
+                || Backend::unmetered(Box::new(Arc::clone(&headless))),
+                |checker| Backend::metered(Box::new(Arc::clone(&headless)), Box::new(checker)),
+            )
+            .with_headless(Arc::clone(&headless));
 
         let mut router = RouterProvider::new(vec![lead, fallback], Box::new(PreferInOrder))
             .map_err(|e| AppError::config(format!("router: {}", e.message)))?;
@@ -449,28 +482,34 @@ impl EmbacleProvider {
             router: Some(router),
             cached_display_name: "Quota Router",
             fallback_tail: None,
+            kind: None,
         })
     }
 
-    /// Build an `OpenAI`-compatible HTTP API runner (via embacle `OpenAiApiRunner`)
+    /// Build the `OpenAI` API provider (embacle's `OpenAiCompatibleProvider`
+    /// configured for the `OpenAI` API)
     ///
     /// Reads configuration from `OPENAI_API_*` env vars. `model_override`
-    /// wins over `PIERRE_LLM_MODEL`, which wins over `OPENAI_API_MODEL`.
+    /// wins over `PIERRE_LLM_MODEL`, which wins over `OPENAI_API_MODEL`. The
+    /// published model list is the endpoint's own `/models`, kept at the
+    /// configured model when the endpoint does not answer.
     async fn build_openai_api(model_override: Option<&str>) -> Self {
-        let mut config = OpenAiApiConfig::from_env();
+        let mut config = OpenAiCompatibleConfig::openai_api_from_env();
         if let Some(model) = unified_model(model_override) {
-            config.model = model;
+            config.default_model = model;
         }
 
         info!(
             base_url = %config.base_url,
-            model = %config.model,
-            "Creating OpenAI API runner"
+            model = %config.default_model,
+            "Creating OpenAI API provider"
         );
 
         let client = llm_inner_client().clone();
-        let runner = OpenAiApiRunner::with_client(config, client).await;
-        Self::from_runner(Box::new(runner), "OpenAI API")
+        let provider = OpenAiCompatibleProvider::with_client(config, client)
+            .with_discovered_models()
+            .await;
+        Self::from_runner(Box::new(provider), "OpenAI API")
     }
 
     /// Access the Copilot turn provider currently able to serve a native tool turn.
@@ -509,6 +548,7 @@ impl fmt::Debug for EmbacleProvider {
             .field("router", &self.router.is_some())
             .field("cached_display_name", &self.cached_display_name)
             .field("fallback_tail", &self.fallback_tail)
+            .field("kind", &self.kind)
             .finish()
     }
 }

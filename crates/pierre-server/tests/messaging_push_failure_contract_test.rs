@@ -104,9 +104,12 @@ async fn failed_push_is_enqueued_for_retry_not_dropped() {
     //     session tenant — the queue row owner is `tenant_id`.
     let pending = repos
         .messaging
-        .get_pending_outbound(tenant_id, 10)
+        .get_all_pending_outbound(100)
         .await
-        .unwrap();
+        .unwrap()
+        .into_iter()
+        .filter(|entry| entry["tenant_id"].as_str() == Some(tenant_id.to_string().as_str()))
+        .collect::<Vec<_>>();
     assert!(
         !pending.is_empty(),
         "a failed push must enqueue a pending outbound entry, not drop it"
@@ -176,9 +179,12 @@ async fn successful_push_does_not_enqueue() {
     // ...and NOTHING is queued — the enqueue path fires only on failure.
     let pending = repos
         .messaging
-        .get_pending_outbound(tenant_id, 10)
+        .get_all_pending_outbound(100)
         .await
-        .unwrap();
+        .unwrap()
+        .into_iter()
+        .filter(|entry| entry["tenant_id"].as_str() == Some(tenant_id.to_string().as_str()))
+        .collect::<Vec<_>>();
     assert!(
         pending.is_empty(),
         "a successful push must not enqueue any outbound entry: {pending:?}"
@@ -256,9 +262,12 @@ async fn failed_reauth_nudge_is_enqueued_for_retry_not_dropped() {
     //     tenant — `tenant_id`.
     let pending = repos
         .messaging
-        .get_pending_outbound(tenant_id, 10)
+        .get_all_pending_outbound(100)
         .await
-        .unwrap();
+        .unwrap()
+        .into_iter()
+        .filter(|entry| entry["tenant_id"].as_str() == Some(tenant_id.to_string().as_str()))
+        .collect::<Vec<_>>();
     assert!(
         !pending.is_empty(),
         "a failed reauth nudge must enqueue a pending outbound entry, not drop it"

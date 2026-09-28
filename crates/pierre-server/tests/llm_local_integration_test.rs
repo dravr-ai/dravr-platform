@@ -510,6 +510,7 @@ async fn test_local_llm_server_not_running_error() {
         provider_name: "test".to_owned(),
         display_name: "Test".to_owned(),
         capabilities: LlmCapabilities::default(),
+        ..OpenAiCompatibleConfig::default()
     };
 
     let provider = wrap(config);

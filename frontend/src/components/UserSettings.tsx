@@ -31,9 +31,9 @@ import MessagingSettingsTab from './MessagingSettingsTab';
 import NotificationSettingsTab from './NotificationSettingsTab';
 import PrivacySettingsTab from './PrivacySettingsTab';
 import MemoryPanel from './memory/MemoryPanel';
-import { buildFitnessProviderCards } from '../utils/fitnessProviderCards';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import {
+  delegationRefusalKey,
   noticeRequired,
   providerScopeLabelKey,
   sciotteTargetForBackend,
@@ -189,11 +189,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
     refetchOnMount: 'always',
   });
 
-  // The raw list still carries the rows the cards hide (native `strava`,
-  // `garmin`). The exclusivity guard below reads it, because the backend it
-  // compares against is one of the hidden rows.
-  const allProviders: ProviderStatus[] = providersResponse?.providers ?? [];
-  const fitnessProviders = buildFitnessProviderCards(allProviders);
+  // The cards render as the server serves them: it withholds the raw rows a
+  // mirror card covers and coalesces both backends onto that card.
+  const fitnessProviders: ProviderStatus[] = providersResponse?.providers ?? [];
 
   // Fetch OAuth apps
   const { data: oauthAppsResponse, isLoading: isLoadingApps } = useQuery({
@@ -401,10 +399,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   const checkProviderConflict = (backendId: string): boolean => {
     if (!EXCLUSIVE_PROVIDERS.includes(backendId)) return false;
     const otherProvider = backendId === 'strava' ? 'sciotte' : 'strava';
-    // Search the raw list: native `strava` is filtered out of the cards, so a
-    // card-list lookup can never observe the Strava OAuth grant it guards.
-    const otherConnected = allProviders.find(p => p.provider === otherProvider && p.connected);
-    if (otherConnected) {
+    // The Strava card names the backend whose row serves it.
+    const stravaCard = fitnessProviders.find(p => p.provider === 'sciotte');
+    if (stravaCard?.connected && stravaCard.connected_backend === otherProvider) {
       setProviderConflict({
         connecting: backendId === 'sciotte' ? t('providers.stravaSciotte') : t('shell.sciotteTargetStrava'),
         disconnecting: otherProvider === 'sciotte' ? t('providers.stravaSciotte') : t('shell.sciotteTargetStrava'),
@@ -771,11 +768,13 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                 >
                                   <span
                                     aria-hidden="true"
-                                    className={`h-2 w-2 rounded-full ${delegation.coach_needs_reauth ? 'bg-warning' : 'bg-success'}`}
+                                    className={`h-2 w-2 rounded-full ${delegation.coach_needs_reauth || delegation.read_refused ? 'bg-warning' : 'bg-success'}`}
                                   />
-                                  {delegation.coach_needs_reauth
-                                    ? t('delegation.coachReconnectNeeded', { coach: delegation.coach_display_name })
-                                    : t('providers.connectedThrough', { coach: delegation.coach_display_name })}
+                                  {delegation.read_refused
+                                    ? t(delegationRefusalKey(delegation.read_refused))
+                                    : delegation.coach_needs_reauth
+                                      ? t('delegation.coachReconnectNeeded', { coach: delegation.coach_display_name })
+                                      : t('providers.connectedThrough', { coach: delegation.coach_display_name })}
                                 </span>
                               ) : provider.connected && (
                                 syncAuthorizationOwed(provider.provider, provider.connected, provider.consent_required) ? (
@@ -840,7 +839,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                 <Button
                                   variant="tertiary"
                                   size="sm"
-                                  onClick={() => setProviderToDisconnect(provider.connectionProvider)}
+                                  onClick={() => setProviderToDisconnect(provider.provider)}
                                   className="text-error"
                                   data-testid={`provider-disconnect-${provider.provider}`}
                                 >

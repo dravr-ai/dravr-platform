@@ -792,10 +792,10 @@ async fn test_user_credentials_default_rate_limits() -> Result<()> {
         )
         .await?;
 
-    // Strava has a higher default rate limit (15000/day)
+    // Strava's default is the standard read limit (1000/day)
     assert_eq!(
-        credentials.rate_limit_per_day, 15000,
-        "Strava should have 15000/day rate limit"
+        credentials.rate_limit_per_day, 1000,
+        "Strava should have 1000/day rate limit"
     );
 
     Ok(())
@@ -1062,10 +1062,10 @@ async fn test_all_provider_rate_limits() -> Result<()> {
 
     // Expected rate limits per provider (from src/constants/mod.rs)
     let expected_rate_limits = [
-        ("strava", 15000), // STRAVA_DEFAULT_DAILY_RATE_LIMIT
-        ("garmin", 1000),  // GARMIN_DEFAULT_DAILY_RATE_LIMIT
-        ("whoop", 1000),   // WHOOP_DEFAULT_DAILY_RATE_LIMIT
-        ("terra", 1000),   // TERRA_DEFAULT_DAILY_RATE_LIMIT
+        ("strava", 1000), // STRAVA_RATE_LIMIT_DAILY
+        ("garmin", 1000), // GARMIN_DEFAULT_DAILY_RATE_LIMIT
+        ("whoop", 1000),  // WHOOP_DEFAULT_DAILY_RATE_LIMIT
+        ("terra", 1000),  // TERRA_DEFAULT_DAILY_RATE_LIMIT
     ];
 
     for (provider, expected_limit) in &expected_rate_limits {

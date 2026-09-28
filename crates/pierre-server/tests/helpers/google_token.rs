@@ -1,33 +1,29 @@
-// ABOUTME: A Google-shaped signing identity for tests — an openssl-generated RSA key and certificate, tokens minted with it
-// ABOUTME: Serves the kid → certificate map the verifier reads, so a test authenticates a Cloud Tasks delivery without Google
+// ABOUTME: A Google-shaped signing identity for tests — an RSA key published as a JWK, tokens minted with it
+// ABOUTME: Serves the JWK set the verifiers read and counts its fetches, so a test authenticates without Google
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 #![allow(dead_code)]
 
-//! What a Cloud Tasks delivery looks like from the inside.
+//! What a Google-signed token looks like from the inside.
 //!
-//! Google signs the OIDC token a task carries with a key whose X.509
-//! certificate it publishes under a key id. The verifier reads that map and
-//! nothing else, so a test can be Google: generate a key and a self-signed
-//! certificate for it, serve the map from a local listener, and mint tokens
-//! with the key. The certificate is produced by the `openssl` CLI, present on
-//! every developer machine and every CI runner this suite runs on; the
-//! `rsa` crate can make the key but not the certificate the cache parses.
+//! Google signs the OIDC token a Cloud Tasks task carries, and every Firebase
+//! ID token, with a key whose modulus and exponent it publishes as a JWK under
+//! a key id. The verifiers read that set and nothing else, so a test can be
+//! Google: generate a key, serve its JWK from a local listener, and mint tokens
+//! with the key. The listener counts its fetches, so a test can pin how often
+//! a verifier goes back to Google.
 
-use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::process::Command;
+use std::net::{SocketAddr, TcpListener as StdTcpListener};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::{env, fs};
 
 use axum::extract::State;
-use axum::http::header::CACHE_CONTROL;
-use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+use pierre_auth::admin::jwks::{JsonWebKey, JsonWebKeySet, RsaKeyPair};
 use serde::Serialize;
 use tokio::net::TcpListener;
 use uuid::Uuid;
@@ -71,113 +67,119 @@ pub fn now_secs() -> u64 {
         .as_secs()
 }
 
-/// One signing identity: a private key, the certificate that vouches for it,
-/// and the key id the map serves it under.
+/// One signing identity: an RSA key and the key id its JWK is published under.
 pub struct TestSigner {
-    private_pem: String,
-    cert_pem: String,
-    /// The `kid` this signer's certificate is published under.
+    key: RsaKeyPair,
+    encoding_key: EncodingKey,
+    /// The `kid` this signer's JWK is published under.
     pub kid: String,
 }
 
 impl TestSigner {
-    /// Generate a fresh 2048-bit key and a one-day self-signed certificate.
+    /// Generate a fresh 2048-bit key under a fresh key id.
     #[must_use]
     pub fn generate() -> Self {
-        let dir = env::temp_dir().join(format!("pierre-test-signer-{}", Uuid::new_v4()));
-        fs::create_dir_all(&dir).expect("temp dir");
-        let key = dir.join("key.pem");
-        let cert = dir.join("cert.pem");
-        let status = Command::new("openssl")
-            .args([
-                "req",
-                "-x509",
-                "-newkey",
-                "rsa:2048",
-                "-nodes",
-                "-days",
-                "1",
-                "-subj",
-                "/CN=turn-runner-test",
-                "-keyout",
-            ])
-            .arg(&key)
-            .arg("-out")
-            .arg(&cert)
-            .output()
-            .expect("openssl is on PATH");
-        assert!(
-            status.status.success(),
-            "openssl could not mint the test certificate: {}",
-            String::from_utf8_lossy(&status.stderr)
-        );
-        let private_pem = fs::read_to_string(&key).expect("private key");
-        let cert_pem = fs::read_to_string(&cert).expect("certificate");
-        let _ = fs::remove_dir_all(&dir);
+        let kid = format!("test-kid-{}", Uuid::new_v4().simple());
+        let key = RsaKeyPair::generate_with_key_size(&kid, 2048).expect("RSA key");
+        let encoding_key = key.encoding_key().expect("encoding key");
         Self {
-            private_pem,
-            cert_pem,
-            kid: format!("test-kid-{}", Uuid::new_v4().simple()),
+            key,
+            encoding_key,
+            kid,
         }
     }
 
-    /// The certificate PEM, as the map serves it.
+    /// This signer's public key as the JWK set publishes it: modulus and
+    /// exponent, base64url.
     #[must_use]
-    pub fn cert_pem(&self) -> &str {
-        &self.cert_pem
+    pub fn jwk(&self) -> JsonWebKey {
+        self.key.to_jwk().expect("JWK")
     }
 
     /// Mint `claims` under this signer's key and key id.
     #[must_use]
-    pub fn mint(&self, claims: &GoogleClaims) -> String {
+    pub fn mint(&self, claims: &impl Serialize) -> String {
         self.mint_with_kid(claims, &self.kid)
     }
 
     /// Mint `claims` under this signer's key but a chosen key id — the way to
-    /// present a token the published map cannot vouch for.
+    /// present a token the published set cannot vouch for.
     #[must_use]
-    pub fn mint_with_kid(&self, claims: &GoogleClaims, kid: &str) -> String {
+    pub fn mint_with_kid(&self, claims: &impl Serialize, kid: &str) -> String {
         let mut header = Header::new(Algorithm::RS256);
         header.kid = Some(kid.to_owned());
         self.mint_with_header(claims, &header)
     }
 
-    /// Mint `claims` with no key id in the header at all — a token no
-    /// certificate map could ever vouch for.
+    /// Mint `claims` with no key id in the header at all — a token no key set
+    /// could ever vouch for.
     #[must_use]
-    pub fn mint_without_kid(&self, claims: &GoogleClaims) -> String {
+    pub fn mint_without_kid(&self, claims: &impl Serialize) -> String {
         self.mint_with_header(claims, &Header::new(Algorithm::RS256))
     }
 
-    fn mint_with_header(&self, claims: &GoogleClaims, header: &Header) -> String {
-        let key = EncodingKey::from_rsa_pem(self.private_pem.as_bytes()).expect("PEM key");
-        encode(header, claims, &key).expect("token")
+    fn mint_with_header(&self, claims: &impl Serialize, header: &Header) -> String {
+        encode(header, claims, &self.encoding_key).expect("token")
     }
 
-    /// Serve this signer's `kid` → certificate map from a local listener and
-    /// return its URL, the shape of `https://www.googleapis.com/oauth2/v1/certs`.
-    pub async fn serve_certs(&self) -> String {
-        let mut map = HashMap::new();
-        map.insert(self.kid.clone(), self.cert_pem.clone());
-        serve_cert_map(map).await
+    /// Serve this signer's JWK from a local listener, the shape of
+    /// `https://www.googleapis.com/oauth2/v3/certs`.
+    pub async fn serve_jwks(&self) -> KeySetServer {
+        serve_key_set(vec![self.jwk()]).await
     }
 }
 
-/// Serve an arbitrary `kid` → certificate map from a local listener.
-pub async fn serve_cert_map(map: HashMap<String, String>) -> String {
-    async fn handler(State(map): State<Arc<HashMap<String, String>>>) -> impl IntoResponse {
-        (
-            [(CACHE_CONTROL, "public, max-age=3600, must-revalidate")],
-            Json(map.as_ref().clone()),
-        )
+/// A local stand-in for a Google JWK set endpoint.
+pub struct KeySetServer {
+    /// Where the set is served.
+    pub url: String,
+    fetches: Arc<AtomicUsize>,
+}
+
+impl KeySetServer {
+    /// How many times the set has been fetched.
+    #[must_use]
+    pub fn fetches(&self) -> usize {
+        self.fetches.load(Ordering::SeqCst)
     }
+}
+
+/// Serve `keys` as a JWK set from a local listener, counting every fetch.
+pub async fn serve_key_set(keys: Vec<JsonWebKey>) -> KeySetServer {
+    /// The set to serve and the fetch counter, shared with every request task.
+    struct Served {
+        set: JsonWebKeySet,
+        fetches: Arc<AtomicUsize>,
+    }
+    async fn handler(State(served): State<Arc<Served>>) -> Json<JsonWebKeySet> {
+        served.fetches.fetch_add(1, Ordering::SeqCst);
+        Json(served.set.clone())
+    }
+    let fetches = Arc::new(AtomicUsize::new(0));
     let app = Router::new()
         .route("/certs", get(handler))
-        .with_state(Arc::new(map));
+        .with_state(Arc::new(Served {
+            set: JsonWebKeySet { keys },
+            fetches: Arc::clone(&fetches),
+        }));
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr: SocketAddr = listener.local_addr().expect("local addr");
     tokio::spawn(async move {
         axum::serve(listener, app).await.expect("serve");
     });
-    format!("http://{addr}/certs")
+    KeySetServer {
+        url: format!("http://{addr}/certs"),
+        fetches,
+    }
+}
+
+/// A key-set URL nothing listens on: a fetch from it fails to connect.
+#[must_use]
+pub fn unreachable_key_set_url() -> String {
+    let port = StdTcpListener::bind("127.0.0.1:0")
+        .expect("bind")
+        .local_addr()
+        .expect("local addr")
+        .port();
+    format!("http://127.0.0.1:{port}/certs")
 }

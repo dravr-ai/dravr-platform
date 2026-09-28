@@ -141,7 +141,7 @@ pub async fn handle_list_audit(
     let total = rows.len();
 
     info!(
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         tenant = %params.tenant_id,
         total,
         "admin listed coach note audit log"
@@ -238,7 +238,7 @@ async fn set_suppressed(
         })?;
 
     info!(
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         tenant = %params.tenant_id,
         note_id = %note_id,
         suppressed,

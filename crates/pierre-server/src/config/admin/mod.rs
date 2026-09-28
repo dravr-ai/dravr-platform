@@ -53,8 +53,12 @@
 //! let value = service.get_value("feature.weather_api_enabled", None).await?;
 //! ```
 
-/// Database-agnostic repository trait for admin configuration
+/// Database-agnostic repository trait for admin configuration, and the one
+/// set of statements both backends run
 pub mod repository;
+
+/// The one `AdminConfigRepository` body, emitted per backend
+mod backend;
 
 /// `SQLite` database operations for configuration management
 pub mod manager;

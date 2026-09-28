@@ -87,9 +87,6 @@ fn make_request(
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: tenant_id.map(str::to_owned),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     }
 }
 

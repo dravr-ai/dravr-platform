@@ -17,6 +17,7 @@ use std::error::Error as StdError;
 use std::io;
 use std::time::Instant;
 
+use dravr_tronc::http_client::describe_request_error;
 use dravr_tronc::server::request_guard::REQUEST_ID_HEADER;
 use pierre_core::errors::{AppError, ErrorCode};
 
@@ -88,20 +89,6 @@ fn closed_before_response(error: &reqwest::Error) -> bool {
     false
 }
 
-/// `error` and every cause beneath it, `: `-joined — without the URL reqwest
-/// prints, whose query string carries athlete ids.
-fn error_chain(error: reqwest::Error) -> String {
-    let error = error.without_url();
-    let mut chain = error.to_string();
-    let mut cause = error.source();
-    while let Some(current) = cause {
-        chain.push_str(": ");
-        chain.push_str(&current.to_string());
-        cause = current.source();
-    }
-    chain
-}
-
 /// The error for a request that produced no response.
 ///
 /// A timeout, an unreachable service and a connection closed mid-request are
@@ -122,7 +109,7 @@ pub fn transport_error(
         "sciotte {operation} request ({REQUEST_ID_HEADER} {request_id}) {} after {} ms: {}",
         failure.describe(),
         started.elapsed().as_millis(),
-        error_chain(error)
+        describe_request_error(error)
     );
     match failure {
         TransportFailure::Other => AppError::internal(message),

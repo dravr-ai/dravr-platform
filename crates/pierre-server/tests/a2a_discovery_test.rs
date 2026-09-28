@@ -6,6 +6,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
 
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::a2a::agent_card::{
     AgentCard, SecurityScheme, BINDING_HTTP_JSON, BINDING_JSONRPC, OAUTH2_TOKEN_PATH,
 };
@@ -280,4 +281,41 @@ fn test_advertised_token_url_is_the_client_credentials_route() {
         path, "/oauth/token",
         "the card must not advertise the password-only ROPC bridge for client_credentials"
     );
+}
+
+/// The card's OAuth flow publishes the vocabulary the authorization server
+/// grants, and nothing else. It used to list `analytics:read`, `goals:read`
+/// and `goals:write` — names the server does not define — and omit
+/// `fitness:write`, so a client that followed it could never obtain the
+/// scope its advertised `set_goal` skill needs.
+#[test]
+fn test_card_scopes_are_the_authorization_server_vocabulary() {
+    let card = AgentCard::with_base_url("https://api.dravr.ai");
+    let schemes = card.security_schemes.as_ref().expect("securitySchemes");
+    let Some(SecurityScheme::OAuth2(oauth2)) = schemes.get("oauth2ClientCredentials") else {
+        panic!("oauth2ClientCredentials must be an oauth2SecurityScheme");
+    };
+    let flow = oauth2
+        .flows
+        .client_credentials
+        .as_ref()
+        .expect("clientCredentials flow");
+
+    let advertised: Vec<&str> = flow.scopes.keys().map(String::as_str).collect();
+    assert_eq!(
+        advertised,
+        vec![
+            "fitness:read",
+            "fitness:write",
+            "profile:read",
+            "profile:write"
+        ]
+    );
+    let mut supported = OAuthScope::delegable_as_str();
+    supported.sort_unstable();
+    assert_eq!(advertised, supported);
+    assert!(flow
+        .scopes
+        .values()
+        .all(|description| !description.is_empty()));
 }

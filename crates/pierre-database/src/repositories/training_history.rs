@@ -1,4 +1,4 @@
-// ABOUTME: Shared statements and body for the daily training-state history behind /api/v1/endurance/history
+// ABOUTME: Shared statements and body for the daily training-state history behind the training-history tools
 // ABOUTME: One SQL text per operation; each backend shell supplies only how it binds a user id
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -9,6 +9,12 @@
 //! One row per `(tenant_id, user_id, date)` holding the day's computed load
 //! state; the upsert replaces every metric on conflict so a recompute is
 //! idempotent.
+//!
+//! A row without `form_ctl` holds the same-day TSB the platform stored before
+//! form followed the Coggan/TrainingPeaks convention (carnet#601), or was
+//! written by an older binary during a rollout. Its TSB is a different number
+//! and it has nothing to band form against, so the reads never return it; the
+//! next recompute of that day replaces it.
 //!
 //! The two backends differ in one respect only: `user_id` is a `uuid` column
 //! on Postgres and `TEXT` on `SQLite`, so the id is bound natively on one and
@@ -29,14 +35,15 @@ use pierre_core::models::DailyTrainingState;
 /// Insert or replace one day's state.
 pub(crate) const UPSERT_TRAINING_HISTORY_SQL: &str = r"
             INSERT INTO training_history (
-                tenant_id, user_id, date, ctl, atl, tsb,
+                tenant_id, user_id, date, ctl, atl, tsb, form_ctl,
                 acwr, monotony, strain, ramp_rate, daily_load, computed_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP)
             ON CONFLICT (tenant_id, user_id, date) DO UPDATE SET
                 ctl = EXCLUDED.ctl,
                 atl = EXCLUDED.atl,
                 tsb = EXCLUDED.tsb,
+                form_ctl = EXCLUDED.form_ctl,
                 acwr = EXCLUDED.acwr,
                 monotony = EXCLUDED.monotony,
                 strain = EXCLUDED.strain,
@@ -50,11 +57,12 @@ pub(crate) const UPSERT_TRAINING_HISTORY_SQL: &str = r"
 /// to [`DailyTrainingState`] reaches both at once.
 macro_rules! training_history_columns {
     () => {
-        "date, ctl, atl, tsb, acwr, monotony, strain, ramp_rate, daily_load"
+        "date, ctl, atl, tsb, form_ctl, acwr, monotony, strain, ramp_rate, daily_load"
     };
 }
 
-/// Every day inside an inclusive date window, oldest first.
+/// Every day inside an inclusive date window, oldest first — only rows that
+/// carry `form_ctl` (see the module docs).
 pub(crate) const GET_TRAINING_HISTORY_SQL: &str = concat!(
     "
             SELECT ",
@@ -63,6 +71,7 @@ pub(crate) const GET_TRAINING_HISTORY_SQL: &str = concat!(
             FROM training_history
             WHERE tenant_id = $1 AND user_id = $2
               AND date BETWEEN $3 AND $4
+              AND form_ctl IS NOT NULL
             ORDER BY date ASC
             "
 );
@@ -74,27 +83,14 @@ pub(crate) const DELETE_TRAINING_HISTORY_RANGE_SQL: &str = r"
               AND date BETWEEN $3 AND $4
             ";
 
-/// The most recent day on record.
-pub(crate) const LATEST_TRAINING_HISTORY_SQL: &str = concat!(
-    "
-            SELECT ",
-    training_history_columns!(),
-    "
-            FROM training_history
-            WHERE tenant_id = $1 AND user_id = $2
-            ORDER BY date DESC
-            LIMIT 1
-            "
-);
-
 /// Decode one history row. The three `NOT NULL DEFAULT 0.0` metrics fall
-/// back to zero on a decode surprise, matching the column default; the
-/// nullable derived metrics are decoded strictly so a corrupt value surfaces
-/// as an error rather than as `None`.
+/// back to zero on a decode surprise, matching the column default; `form_ctl`
+/// and the nullable derived metrics are decoded strictly so a corrupt value
+/// surfaces as an error rather than as a zero or `None`.
 ///
 /// # Errors
-/// Returns a database error when `date` or a nullable metric cannot be
-/// decoded.
+/// Returns a database error when `date`, `form_ctl` or a nullable metric
+/// cannot be decoded.
 pub(crate) fn training_state_from_row<R>(row: &R) -> AppResult<DailyTrainingState>
 where
     R: sqlx::Row,
@@ -115,6 +111,9 @@ where
         ctl: row.try_get("ctl").unwrap_or(0.0),
         atl: row.try_get("atl").unwrap_or(0.0),
         tsb: row.try_get("tsb").unwrap_or(0.0),
+        form_ctl: row
+            .try_get("form_ctl")
+            .map_err(|e| AppError::database(format!("read form_ctl: {e}")))?,
         acwr: optional("acwr")?,
         monotony: optional("monotony")?,
         strain: optional("strain")?,
@@ -138,30 +137,6 @@ macro_rules! impl_training_history_repository {
     ($ty:ty, $bind_id:path) => {
         #[async_trait::async_trait]
         impl TrainingHistoryRepository for $ty {
-            async fn upsert_training_history_day(
-                &self,
-                tenant_id: TenantId,
-                user_id: Uuid,
-                state: &DailyTrainingState,
-            ) -> AppResult<()> {
-                sqlx::query(UPSERT_TRAINING_HISTORY_SQL)
-                    .bind(tenant_id)
-                    .bind($bind_id(user_id))
-                    .bind(state.date)
-                    .bind(state.ctl)
-                    .bind(state.atl)
-                    .bind(state.tsb)
-                    .bind(state.acwr)
-                    .bind(state.monotony)
-                    .bind(state.strain)
-                    .bind(state.ramp_rate)
-                    .bind(state.daily_load)
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("upsert_training_history_day: {e}")))?;
-                Ok(())
-            }
-
             async fn upsert_training_history_batch(
                 &self,
                 tenant_id: TenantId,
@@ -181,6 +156,7 @@ macro_rules! impl_training_history_repository {
                         .bind(state.ctl)
                         .bind(state.atl)
                         .bind(state.tsb)
+                        .bind(state.form_ctl)
                         .bind(state.acwr)
                         .bind(state.monotony)
                         .bind(state.strain)
@@ -236,21 +212,6 @@ macro_rules! impl_training_history_repository {
                     })?;
 
                 Ok(result.rows_affected())
-            }
-
-            async fn latest_training_history(
-                &self,
-                tenant_id: TenantId,
-                user_id: Uuid,
-            ) -> AppResult<Option<DailyTrainingState>> {
-                let row = sqlx::query(LATEST_TRAINING_HISTORY_SQL)
-                    .bind(tenant_id)
-                    .bind($bind_id(user_id))
-                    .fetch_optional(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("latest_training_history: {e}")))?;
-
-                row.as_ref().map(training_state_from_row).transpose()
             }
         }
     };

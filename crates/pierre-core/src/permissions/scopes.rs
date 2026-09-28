@@ -173,6 +173,26 @@ impl OAuthScope {
         }
     }
 
+    /// What holding this scope lets a client do, in one line.
+    ///
+    /// Published beside the name wherever a document maps scope names to
+    /// descriptions — the A2A agent card's OAuth flow — so the vocabulary and
+    /// its explanation live in one place.
+    #[must_use]
+    pub const fn description(self) -> &'static str {
+        match self {
+            Self::FitnessRead => {
+                "Read the athlete's fitness data: activities, stats, sleep, analytics"
+            }
+            Self::FitnessWrite => {
+                "Create or modify the athlete's fitness data: goals, plans, logged work"
+            }
+            Self::ProfileRead => "Read the athlete's profile, configuration and linked providers",
+            Self::ProfileWrite => "Change the athlete's profile, configuration and provider links",
+            Self::Admin => "Operate the server",
+        }
+    }
+
     /// The scopes a client can be granted, as wire strings — what
     /// `scopes_supported` publishes on both metadata documents.
     ///

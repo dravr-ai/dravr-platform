@@ -222,15 +222,3 @@ pub fn api_client_with_middleware() -> ClientWithMiddleware {
 pub fn get_health_check_timeout_secs() -> u64 {
     get_config().health_check_timeout_secs
 }
-
-/// Get OAuth callback notification timeout configuration
-///
-/// # Returns
-/// OAuth callback notification timeout in seconds
-///
-/// # Panics
-/// Panics if HTTP client configuration was not initialized at server startup
-#[must_use]
-pub fn get_oauth_callback_notification_timeout_secs() -> u64 {
-    get_config().oauth_callback_notification_timeout_secs
-}

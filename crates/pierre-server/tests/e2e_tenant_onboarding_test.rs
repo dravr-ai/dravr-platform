@@ -293,9 +293,6 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         user_id: acme_admin_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: Some(acme_tenant_id.to_string()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let acme_response = executor.execute_tool(acme_request).await?;
@@ -316,9 +313,6 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         user_id: beta_admin_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: Some(beta_tenant_id.to_string()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let beta_response = executor.execute_tool(beta_request).await?;
@@ -368,8 +362,8 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
     // Both should start at 0 usage
     assert_eq!(acme_usage, 0);
     assert_eq!(beta_usage, 0);
-    assert_eq!(acme_limit, 15000); // Default Strava limit
-    assert_eq!(beta_limit, 15000);
+    assert_eq!(acme_limit, 1000); // Default Strava limit
+    assert_eq!(beta_limit, 1000);
 
     println!("Tenant rate limiting isolation verified");
 
@@ -578,7 +572,6 @@ fn create_test_server_config() -> ServerConfig {
 
     ServerConfig {
         http_port: 4000,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),

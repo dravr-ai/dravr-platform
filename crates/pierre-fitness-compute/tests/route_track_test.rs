@@ -54,6 +54,7 @@ fn climbing_streams(points: &[(f64, f64)]) -> TimeSeriesData {
         altitude: Some(altitude),
         temperature: None,
         gps_coordinates: Some(points.to_vec()),
+        distance: None,
     }
 }
 

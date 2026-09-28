@@ -21,11 +21,9 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use tracing::warn;
 
-use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
-    tool_result_to_response,
+    answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
 use crate::implementations::configuration_output::{
     ConfigurationCatalogResult, ConfigurationProfileEntry, ConfigurationProfilesResult,
@@ -36,16 +34,15 @@ use crate::implementations::configuration_output::{
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_config::catalog::CatalogBuilder;
 use pierre_config::constants::configuration_system::AVAILABLE_PARAMETERS_COUNT;
-use pierre_config::constants::limits::METERS_PER_KILOMETER;
 use pierre_config::environment::TrainingZonesConfig;
 use pierre_core::config::profiles::ProfileTemplates;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::zones::{HrZoneSet, PowerZoneSet};
 use pierre_core::models::{TenantId, UserPhysiologicalProfile};
-use pierre_fitness_compute::velocity_at_vo2max;
+use pierre_intelligence::config::intelligence::VO2MaxCalculator;
 use pierre_intelligence::physiological_constants::configuration_validation;
 use pierre_intelligence::physiological_constants::heart_rate_zones::{
     AEROBIC_THRESHOLD_PERMILLE, LACTATE_THRESHOLD_PERMILLE, PERMILLE_DIVISOR, ZONE_1_MAX_PERMILLE,
@@ -60,9 +57,6 @@ use pierre_tools_core::ToolResult;
 // ============================================================================
 // Helpers (inlined from former handlers/configuration.rs)
 // ============================================================================
-
-/// Seconds in a minute, in the float form the pace formatter multiplies by.
-const SECONDS_PER_MINUTE_F64: f64 = 60.0;
 
 /// Normalize stored configuration structure with defaults
 fn normalize_stored_configuration(stored_config: &Value) -> Value {
@@ -328,24 +322,24 @@ fn zone_calculations_payload(
 
 /// Render the VDOT pace zones for a tool payload.
 ///
-/// Every zone is a configured fraction of the velocity the athlete holds at
-/// `VO2max`, which [`velocity_at_vo2max`] derives from Daniels' oxygen-cost
-/// curve — the platform's one inversion of that relation.
-fn calculate_pace_zones_from_vo2max(vo2_max: f64, config: &TrainingZonesConfig) -> PaceZones {
-    let base_velocity = velocity_at_vo2max(vo2_max);
+/// The zones are cageux's [`VO2MaxCalculator::calculate_pace_zones`], the one
+/// pace-zone function every surface quotes: easy, `VO2max` and neuromuscular
+/// edges are fractions of Daniels' velocity at `VO2max`, marathon and
+/// threshold edges are multiples of the threshold pace the athlete's lactate
+/// threshold puts them at, and `config` carries every edge.
+fn calculate_pace_zones_from_vo2max(
+    vo2_max: f64,
+    lactate_threshold: f64,
+    sport_efficiency: f64,
+    config: &TrainingZonesConfig,
+) -> PaceZones {
+    // Pace zones read only VO2max and the lactate threshold; the heart-rate
+    // fields of the calculator feed its heart-rate zones, which this does not
+    // ask for.
+    let paces = VO2MaxCalculator::new(vo2_max, 0, 0, lactate_threshold, sport_efficiency)
+        .calculate_pace_zones(config);
 
-    let easy_velocity = base_velocity * config.vdot_easy_zone_percent;
-    let tempo_velocity = base_velocity * config.vdot_tempo_zone_percent;
-    let threshold_velocity = base_velocity * config.vdot_threshold_zone_percent;
-    let interval_velocity = base_velocity * config.vdot_interval_zone_percent;
-    let repetition_velocity = base_velocity * config.vdot_repetition_zone_percent;
-
-    let format_pace = |velocity_m_per_min: f64| -> String {
-        // Velocities are metres per minute, so a kilometre costs
-        // 1000 / velocity minutes; the payload quotes minutes and seconds.
-        let minutes_per_km = METERS_PER_KILOMETER / velocity_m_per_min.max(1.0);
-        let seconds_per_km = minutes_per_km * SECONDS_PER_MINUTE_F64;
-
+    let format_pace = |seconds_per_km: f64| -> String {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let total_secs = if !seconds_per_km.is_finite() || seconds_per_km < 0.0 {
             0_u32
@@ -360,16 +354,18 @@ fn calculate_pace_zones_from_vo2max(vo2_max: f64, config: &TrainingZonesConfig) 
         format!("{minutes}:{seconds:02}")
     };
 
-    let band = |lo: f64, hi: f64| PaceZone {
-        min_pace: format_pace(lo),
-        max_pace: format_pace(hi),
+    // cageux orders each range by its own convention; a zone quotes its
+    // fastest pace (fewest seconds per kilometre) first.
+    let band = |(a, b): (f64, f64)| PaceZone {
+        min_pace: format_pace(a.min(b)),
+        max_pace: format_pace(a.max(b)),
     };
     PaceZones {
-        zone_1_easy: band(easy_velocity * 0.85, easy_velocity * 0.95),
-        zone_2_moderate: band(tempo_velocity * 0.9, tempo_velocity * 1.05),
-        zone_3_threshold: band(threshold_velocity * 0.95, threshold_velocity * 1.05),
-        zone_4_interval: band(interval_velocity * 0.95, interval_velocity * 1.05),
-        zone_5_repetition: band(repetition_velocity * 0.95, repetition_velocity * 1.05),
+        zone_1_easy: band(paces.easy_pace_range),
+        zone_2_marathon: band(paces.marathon_pace_range),
+        zone_3_threshold: band(paces.threshold_pace_range),
+        zone_4_vo2max: band(paces.vo2max_pace_range),
+        zone_5_neuromuscular_max_pace: format_pace(paces.neuromuscular_pace_max),
     }
 }
 
@@ -574,8 +570,8 @@ impl McpTool<dyn ToolRuntime> for GetConfigurationCatalogTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
     }
 
     async fn execute(
@@ -622,8 +618,8 @@ impl McpTool<dyn ToolRuntime> for GetConfigurationProfilesTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
     }
 
     async fn execute(
@@ -681,12 +677,8 @@ impl McpTool<dyn ToolRuntime> for GetUserConfigurationTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::READS_DATA
-                | ToolCapabilities::PROFILE,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA | ToolCapabilities::PROFILE
     }
 
     async fn execute(
@@ -784,12 +776,8 @@ impl McpTool<dyn ToolRuntime> for UpdateUserConfigurationTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::WRITES_DATA
-                | ToolCapabilities::PROFILE,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA | ToolCapabilities::PROFILE
     }
 
     async fn execute(
@@ -937,11 +925,11 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
+    fn capabilities(&self) -> ToolCapabilities {
         // Deliberately not `REQUIRES_TENANT`: the saved profile is a fallback,
         // not a precondition, so a tenant-less call still answers from its own
         // arguments.
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
     }
 
     async fn execute(
@@ -999,7 +987,14 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
 
             let pace_zones = params
                 .vo2_max
-                .map(|vo2_max| calculate_pace_zones_from_vo2max(vo2_max, zones_config));
+                .map(|vo2_max| {
+                    calculate_pace_zones_from_vo2max(
+                        vo2_max,
+                        params.lactate_threshold,
+                        params.sport_efficiency,
+                        zones_config,
+                    )
+                });
             if pace_zones.is_none() {
                 unavailable.insert(
                     "pace_zones".to_owned(),
@@ -1069,8 +1064,8 @@ impl McpTool<dyn ToolRuntime> for ValidateConfigurationTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
     }
 
     async fn execute(

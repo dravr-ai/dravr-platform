@@ -73,12 +73,16 @@ export const ENDPOINTS = {
     USAGE: (id: string) => `/api/agents/${id}/usage`,
     /** Onboarding coach proposal (inferred profile + top-3 coaches) */
     PROPOSAL: '/api/agents/proposal',
+    /** A coach's version history, newest first */
+    VERSIONS: (id: string) => `/api/agents/${id}/versions`,
+    /** A stored version compared with the coach's current content */
+    VERSION_DIFF: (id: string, version: number) => `/api/agents/${id}/versions/${version}/diff`,
+    /** Restore a stored version's content */
+    VERSION_REVERT: (id: string, version: number) => `/api/agents/${id}/versions/${version}/revert`,
   },
 
   // ==================== OAUTH ====================
   OAUTH: {
-    /** Get OAuth connection status */
-    STATUS: '/api/oauth/status',
     /** Launch OAuth: 302s the browser to the provider. Open a popup directly on
      *  this — fetching the URL first leaves the popup blank for the round trip. */
     AUTHORIZE: (provider: string) => `/api/oauth/authorize/${provider}`,

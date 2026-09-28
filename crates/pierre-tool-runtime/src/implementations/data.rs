@@ -45,8 +45,8 @@ use crate::activity_fetch::{
 use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, capabilities_to_tronc, format_property, object_schema, ok_typed, task_capable,
-    tool_definition, tool_result_to_response,
+    answers_with, format_property, object_schema, ok_typed, task_capable, tool_definition,
+    tool_result_to_response,
 };
 use crate::implementations::activities_output::{BackfillPlaceholder, GetActivitiesResult};
 use crate::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
@@ -69,12 +69,11 @@ use crate::protocol::{auth_required_provider, UniversalExecutor};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::config::fitness::{activity_detail_threshold, EXPENSIVE_DETAIL_PROMOTION_BUDGET};
 use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::connection_needs_reauth;
-use pierre_fitness_compute::weather::build_provider as build_weather_provider;
 use pierre_fitness_compute::weather_cache_adapter::WeatherCacheRepoAdapter;
 use pierre_formatters::OutputFormat;
 use pierre_intelligence::physiological_constants::api_limits::{
@@ -88,7 +87,7 @@ use pierre_providers::deduplication::FragmentReport;
 use pierre_providers::spi::ProviderCapabilities;
 use pierre_services::weather_backfill;
 use pierre_tools_core::ToolResult;
-use pierre_weather::WeatherProvider;
+use pierre_weather::{provider_from_env, WeatherProvider};
 
 /// Tool for retrieving user activities from fitness providers.
 ///
@@ -216,8 +215,8 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_READ)
+    fn capabilities(&self) -> ToolCapabilities {
+        PROVIDER_READ
     }
 
     async fn execute(
@@ -464,7 +463,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     let cache_store = Arc::new(WeatherCacheRepoAdapter::new(
                         context.resources.repos().weather_cache.clone(),
                     ));
-                    match build_weather_provider(cache_store) {
+                    match provider_from_env(cache_store) {
                         Ok(provider) => Some(provider),
                         Err(e) => {
                             error!(error = %e, "weather backfill skipped: the weather provider is misconfigured");

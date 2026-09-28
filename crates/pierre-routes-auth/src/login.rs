@@ -24,7 +24,7 @@ use pierre_auth::security::cookies::{clear_auth_cookie, set_auth_cookie, set_csr
 use pierre_config::constants::error_messages;
 use pierre_core::auth_header::extract_bearer_token_owned;
 use pierre_core::errors::AppError;
-use pierre_core::models::{CoachingPersona, ColorScheme, UserStatus, SUPPORTED_LOCALES};
+use pierre_core::models::{CoachingPersona, ColorScheme, TenantId, UserStatus, SUPPORTED_LOCALES};
 
 use pierre_auth::dto::auth::{
     AnalyticsConsentRequest, ChangePasswordRequest, CompleteResetRequest, FirebaseLoginRequest,
@@ -377,17 +377,17 @@ pub async fn handle_session(
     // for this user carry their email (mirrors the consent-cache hydration).
     cache_user_email(&user_id.to_string(), &user.email);
 
-    // Preserve active_tenant_id from existing JWT, or look up user's default tenant
-    let active_tenant_id = if let Some(tid) = auth_result.active_tenant_id {
-        Some(tid.to_string())
-    } else {
-        let tenants = resources
-            .repos
-            .tenants
+    // Keep the JWT's tenant only while the user still belongs to it, so a
+    // restored session never re-mints a removed member's tenant.
+    let tenants = &resources.repos.tenants;
+    let active_tenant_id = match auth_result.active_tenant_id.map(TenantId::from_uuid) {
+        Some(tid) if tenants.get_user_role(user_id, tid).await?.is_some() => Some(tid.to_string()),
+        _ => tenants
             .list_for_user(user_id)
             .await
-            .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
-        tenants.first().map(|t| t.id.to_string())
+            .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?
+            .first()
+            .map(|t| t.id.to_string()),
     };
     let tenant_id_for_response = active_tenant_id.clone();
 

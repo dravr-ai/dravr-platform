@@ -46,6 +46,7 @@ function delegation(status: 'proposed' | 'confirmed', coachNeedsReauth = false):
     coach_display_name: 'Casey Coach',
     status,
     coach_needs_reauth: coachNeedsReauth,
+    read_refused: null,
   };
 }
 
@@ -97,6 +98,22 @@ describe('ConnectionsScreen — TrainingPeaks through a coach', () => {
       'Casey Coach needs to reconnect TrainingPeaks; your workouts are paused until then.',
     );
     expect(screen.queryByText('Expired')).toBeNull();
+  });
+
+  it('says why a link whose athlete is not the user by email reads nothing', async () => {
+    await renderWith(
+      trainingPeaks({
+        connected: true,
+        delegation: { ...delegation('confirmed'), read_refused: 'athlete_email_mismatch' },
+      }),
+    );
+
+    const subtitle = screen.getByTestId(`provider-subtitle-${ID}`);
+    expect(subtitle).toHaveTextContent(
+      "This athlete's TrainingPeaks email is not the member's Dravr email, so they cannot be linked.",
+    );
+    expect(subtitle).not.toHaveTextContent('Connected through Casey Coach');
+    expect(screen.getByTestId(`provider-action-${ID}`).props.children).toBe('Unlink');
   });
 
   it('labels the long-press menu row Unlink for a delegated connection', async () => {

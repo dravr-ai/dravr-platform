@@ -21,11 +21,8 @@ use async_trait::async_trait;
 use serde_json::Value;
 use tracing::info;
 
-use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::conversions::{
-    answers_with, capabilities_to_tronc, ok_typed, tool_definition, tool_result_to_response,
-};
+use crate::conversions::{answers_with, ok_typed, tool_definition, tool_result_to_response};
 use crate::implementations::configuration::{derive_power_zone_set, power_zones_payload};
 use crate::implementations::data_helpers::read_only_annotations;
 use crate::implementations::lactate_thresholds_output::{
@@ -35,7 +32,7 @@ use crate::implementations::lactate_thresholds_output::{
 use crate::implementations::physiology::optional_number;
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_config::environment::TrainingZonesConfig;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{TenantId, UserPhysiologicalProfile};
@@ -379,19 +376,17 @@ impl McpTool<dyn ToolRuntime> for EstimateLactateThresholdsTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
+    fn capabilities(&self) -> ToolCapabilities {
         // The analysis itself is pure arithmetic over what the athlete typed,
         // but the reply echoes their stored FTP, threshold pace and max HR, so
         // the call reads the profile and must carry `profile:read`. Declaring
         // only the runtime requirements would let a client holding the
         // read-only default grant (`fitness:read`) read identity data the
         // scope split exists to keep separate.
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_TENANT
-                | ToolCapabilities::READS_DATA
-                | ToolCapabilities::PROFILE,
-        )
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_TENANT
+            | ToolCapabilities::READS_DATA
+            | ToolCapabilities::PROFILE
     }
 
     async fn execute(

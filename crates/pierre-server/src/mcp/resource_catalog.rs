@@ -40,6 +40,24 @@ pub fn list_resources(published: &[AgentWithListing]) -> Value {
     json!({ "resources": resources })
 }
 
+/// Build the `resources/templates/list` payload.
+///
+/// One template: every published coach is readable at `dravr://coaches/{id}`,
+/// which is exactly the shape [`agent_id_from_uri`] accepts.
+#[must_use]
+pub fn list_resource_templates() -> Value {
+    json!({
+        "resourceTemplates": [
+            {
+                "uriTemplate": format!("{AGENT_URI_PREFIX}{{id}}"),
+                "name": "coach",
+                "description": "A coach published to the marketplace, as markdown",
+                "mimeType": AGENT_MIME_TYPE,
+            }
+        ]
+    })
+}
+
 /// Limit applied when fetching published agents for `resources/list`.
 #[must_use]
 pub const fn list_limit() -> u32 {

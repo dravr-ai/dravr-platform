@@ -218,6 +218,9 @@ pub fn local_from_credentials(
         capabilities: LlmCapabilities::STREAMING
             | LlmCapabilities::FUNCTION_CALLING
             | LlmCapabilities::SYSTEM_MESSAGES,
+        // The shared client below carries the request timeout; this one is
+        // read only by a provider that builds its own client.
+        ..OpenAiCompatibleConfig::default()
     };
     local_provider(config)
 }

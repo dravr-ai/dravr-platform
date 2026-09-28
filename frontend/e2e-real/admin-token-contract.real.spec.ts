@@ -59,10 +59,11 @@ test.describe('admin token list contract — real backend (no mocks)', () => {
     expect(list.ok(), `token list failed: ${list.status()}`).toBe(true);
 
     const body = await list.json();
-    expect(Array.isArray(body.admin_tokens)).toBe(true);
-    expect(body.admin_tokens.length).toBeGreaterThan(0);
+    const tokens = body.data?.tokens;
+    expect(Array.isArray(tokens)).toBe(true);
+    expect(tokens.length).toBeGreaterThan(0);
 
-    for (const token of body.admin_tokens) {
+    for (const token of tokens) {
       // usage_count: dereferenced as `.toLocaleString()` in ApiKeyDetails.
       expect(
         typeof token.usage_count,

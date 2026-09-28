@@ -886,12 +886,14 @@ if [ -z "$CANOT_SRC" ]; then
 else
     PHANTOM_ITEMS=""
 
-    # Capability predicates declared on the renderer/descriptor traits.
+    # Capability predicates declared on the renderer/descriptor traits. canot's
+    # `capabilities_for` copies each into a same-named `ChannelCapabilities`
+    # field, so reading the field consumes the predicate as much as calling it.
     CAPABILITY_FNS=$(rg -o 'fn (supports_[a-z_]+|max_[a-z_]+)' \
         "$CANOT_SRC/renderer.rs" "$CANOT_SRC/descriptor.rs" -I -N 2>/dev/null \
         | sed 's/^fn //' | sort -u || true)
     for fn_name in $CAPABILITY_FNS; do
-        CALL_SITES=$(rg "\.${fn_name}\(" crates/*/src -g '*.rs' 2>/dev/null | wc -l | tr -d ' ')
+        CALL_SITES=$(rg "\.${fn_name}\b" crates/*/src -g '*.rs' 2>/dev/null | wc -l | tr -d ' ')
         if [ "$CALL_SITES" -eq 0 ]; then
             MARKED=$(rg "LIMITATION\(registre#[0-9]+\):.*${fn_name}" crates/*/src -g '*.rs' 2>/dev/null | wc -l | tr -d ' ')
             if [ "$MARKED" -eq 0 ]; then
@@ -976,6 +978,20 @@ if [ "$CONFIG_DEBUG_LEAKS" -gt 0 ]; then
     fail_validation "ServerConfig/DatabaseConfig/OAuthProviderConfig derive Debug but contain secrets — log only the specific fields you need"
 else
     pass_validation "No config-struct debug formatting in log macros"
+fi
+
+# Check 4: an email address logged at INFO or above without mask_email.
+# Line greps cannot see this one: rustfmt wraps a log call with a few fields,
+# so `email = %user.email` lands on a line that does not start with `info!`.
+# The script reads whole macro invocations; exit 2 means it verified nothing
+# (no macro found, or one it could not close) and fails like a finding.
+# Self-test: scripts/ci/check-log-email-redaction.test.sh.
+if EMAIL_LOG_OUTPUT=$(python3 "$SCRIPT_DIR/check-log-email-redaction.py" "$SCRIPT_DIR/../.." 2>&1); then
+    pass_validation "No unmasked email in info!/warn!/error! macros"
+else
+    echo -e "${RED}❌ Email addresses logged at INFO or above without mask_email():${NC}"
+    printf '%s\n' "$EMAIL_LOG_OUTPUT" | head -20
+    fail_validation "Wrap the address with pierre_middleware::redaction::mask_email, or log it at debug!"
 fi
 
 echo ""

@@ -89,9 +89,6 @@ impl ProtocolConverter {
             user_id: user_id.to_owned(),
             protocol: "mcp".into(),
             tenant_id,
-            progress_token: None,
-            cancellation_token: None,
-            progress_reporter: None,
         }
     }
 

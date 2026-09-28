@@ -28,6 +28,7 @@ use crate::implementations::session_merge_summary::FragmentDedupSummary;
 use crate::protocol::format::formatted_response;
 use crate::protocol::types::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use pierre_cache::{Cache, CacheKey, CacheResource};
+use pierre_core::civil_time::parse_zone;
 use pierre_core::errors::protocol::ProtocolError;
 use pierre_core::json_value::to_value_as_written;
 use pierre_core::models::{
@@ -700,7 +701,7 @@ fn prepare_activity_data(
     if mode == "summary" {
         // Parse the user's IANA timezone once; activities carry UTC start_date,
         // so we localize for display without touching the timezone-stable UTC.
-        let tz = user_timezone.and_then(|s| s.parse::<chrono_tz::Tz>().ok());
+        let tz = parse_zone(user_timezone);
         let summaries: Vec<ActivitySummary> = activities
             .iter()
             .map(|a| {
@@ -724,7 +725,7 @@ fn prepare_activity_data(
         // timezone on file, so deep-dive responses display local start times.
         let mut value =
             detail_json(activities).map_err(|e| format!("Failed to serialize activities: {e}"))?;
-        if let Some(tz) = user_timezone.and_then(|s| s.parse::<chrono_tz::Tz>().ok()) {
+        if let Some(tz) = parse_zone(user_timezone) {
             if let Some(arr) = value.as_array_mut() {
                 for (obj, activity) in arr.iter_mut().zip(activities.iter()) {
                     if let Some(map) = obj.as_object_mut() {

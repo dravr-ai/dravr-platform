@@ -36,6 +36,7 @@ use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tracing::info;
+use uuid::Uuid;
 
 use pierre_core::admin::models::{
     CreateAdminTokenRequest, ValidatedAdminToken, DEVICE_CLI_SERVICE_PREFIX,
@@ -274,7 +275,12 @@ pub async fn handle_device_token(
 
 /// Single-use consume: delete the approved row, and only mint if we won the
 /// delete (so concurrent polls can never mint two tokens), then mint a fresh
-/// super-admin admin token attributed to the approver.
+/// super-admin admin token that acts as the approver.
+///
+/// `approved_by` is the approving super-admin's user id, recorded by the
+/// approval; the minted token stores it as its `operator_user_id`, the one
+/// identity the config routes and the pre-approval audit read. An approval
+/// made through a service token names no person, so its token has no operator.
 async fn mint_approved_token(
     context: &Arc<AdminApiContext>,
     hash: &str,
@@ -293,9 +299,27 @@ async fn mint_approved_token(
         ));
     }
 
-    let approver = approved_by.unwrap_or_else(|| "unknown".to_owned());
-    let request =
-        CreateAdminTokenRequest::super_admin(format!("{DEVICE_CLI_SERVICE_PREFIX}{approver}"));
+    let operator = approved_by
+        .as_deref()
+        .and_then(|id| Uuid::parse_str(id).ok());
+    let request = operator.map_or_else(
+        || CreateAdminTokenRequest::super_admin(format!("{DEVICE_CLI_SERVICE_PREFIX}service")),
+        |operator| {
+            CreateAdminTokenRequest::super_admin(format!("{DEVICE_CLI_SERVICE_PREFIX}{operator}"))
+                .operated_by(operator)
+        },
+    );
+    // The approver's address goes back to the CLI that asked ("approved by"),
+    // never into a log.
+    let subject = match operator {
+        Some(operator) => context
+            .repos
+            .users
+            .get_global(operator)
+            .await?
+            .map(|user| user.email),
+        None => None,
+    };
     let minted = context
         .repos
         .admin
@@ -307,7 +331,7 @@ async fn mint_approved_token(
         .await?;
 
     info!(
-        approved_by = %approver,
+        operator_user_id = ?operator,
         token_id = %minted.token_id,
         "Device login approved; minted super-admin admin token"
     );
@@ -317,7 +341,7 @@ async fn mint_approved_token(
         Json(DeviceTokenResponse {
             access_token: minted.jwt_token,
             token_type: "Bearer".to_owned(),
-            subject: Some(approver),
+            subject,
         }),
     )
         .into_response())
@@ -326,8 +350,9 @@ async fn mint_approved_token(
 /// `POST /admin/device/approve` — approve or deny a device login (super-admin).
 ///
 /// Body: `{ user_code, action? }` where `action` is `approve` (default) or
-/// `deny`. Gated on a super-admin admin token; the approver's `service_name`
-/// is recorded so the minted token is attributable.
+/// `deny`. Gated on a super-admin admin token; the operator that token acts as
+/// is recorded, so the minted token acts as the same person. A service token
+/// names no one, and the token its approval mints has no operator.
 ///
 /// # Errors
 /// Returns an error if the lookup or status update fails.
@@ -393,7 +418,7 @@ pub async fn handle_device_approve(
             .oauth2_server
             .deny_device_authorization(user_code)
             .await?;
-        info!(user_code = %user_code, approver = %admin_token.service_name, "Device login denied");
+        info!(user_code = %user_code, token_id = %admin_token.token_id, "Device login denied");
         return Ok(admin_json(
             AdminResponse {
                 success: true,
@@ -404,12 +429,16 @@ pub async fn handle_device_approve(
         ));
     }
 
+    let approver = admin_token
+        .operator_user_id
+        .map(|id| id.to_string())
+        .unwrap_or_default();
     context
         .repos
         .oauth2_server
-        .approve_device_authorization(user_code, &admin_token.service_name)
+        .approve_device_authorization(user_code, &approver)
         .await?;
-    info!(user_code = %user_code, approver = %admin_token.service_name, "Device login approved");
+    info!(user_code = %user_code, token_id = %admin_token.token_id, "Device login approved");
 
     Ok(admin_json(
         AdminResponse {

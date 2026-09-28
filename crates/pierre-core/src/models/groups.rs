@@ -8,8 +8,11 @@ use std::collections::HashMap;
 use std::fmt;
 
 use chrono::{DateTime, Utc};
+use dravr_cageux::algorithms::training_load::DailyTrainingLoad;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+use super::FormReading;
 
 /// Role within a coaching group
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -465,13 +468,6 @@ impl UpdateGroupRequest {
     }
 }
 
-/// Request to join a group via invite code
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct JoinGroupRequest {
-    /// The invite code
-    pub invite_code: String,
-}
-
 // ============================================================================
 // Response / Summary Types
 // ============================================================================
@@ -510,12 +506,16 @@ pub struct MemberFitnessSnapshot {
     pub user_id: Uuid,
     /// Display name
     pub display_name: String,
-    /// Chronic Training Load
+    /// Chronic Training Load at the end of the day the snapshot was computed
     pub ctl: Option<f64>,
-    /// Acute Training Load
+    /// Acute Training Load at the end of the day the snapshot was computed
     pub atl: Option<f64>,
-    /// Training Stress Balance (CTL - ATL)
+    /// Training Stress Balance — form on that day: CTL minus ATL at the end
+    /// of the day before
     pub tsb: Option<f64>,
+    /// CTL at the end of the day before — the fitness `tsb` is a share of.
+    /// Read form through [`Self::form_reading`], never as `tsb / ctl`.
+    pub form_ctl: Option<f64>,
     /// Weekly volume in kilometers
     pub weekly_volume_km: f64,
     /// Previous week's volume in kilometers (for trend calculation)
@@ -573,6 +573,22 @@ pub struct MemberFitnessSnapshot {
     pub timezone: Option<String>,
     /// When this snapshot was computed
     pub computed_at: DateTime<Utc>,
+}
+
+impl MemberFitnessSnapshot {
+    /// The member's form reading, banded by cageux from the `tsb`/`form_ctl`
+    /// pair of the day the snapshot was computed. `None` when the training
+    /// load could not be computed.
+    #[must_use]
+    pub fn form_reading(&self) -> Option<FormReading> {
+        Some(FormReading::from_daily_load(&DailyTrainingLoad {
+            date: self.computed_at.date_naive(),
+            ctl: self.ctl?,
+            atl: self.atl?,
+            tsb: self.tsb?,
+            form_ctl: self.form_ctl?,
+        }))
+    }
 }
 
 /// Compact per-activity record shared across consenting group members.

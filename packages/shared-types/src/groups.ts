@@ -288,7 +288,16 @@ export interface DelegatedConnection {
   status: DelegationStatus;
   proposed_at: string;
   confirmed_at: string | null;
+  /**
+   * Why a confirmed link reads nothing until the coach links the member
+   * again: the roster athlete it names is not the member by email. `null`
+   * while it reads, and for a proposal.
+   */
+  read_refused: DelegationReadRefusal | null;
 }
+
+/** Why a confirmed link reads nothing: its roster athlete is not its member by email. */
+export type DelegationReadRefusal = 'athlete_email_missing' | 'athlete_email_mismatch' | 'member_email_unverified';
 
 /** A group's live links: every one for its coach, their own for a member. */
 export interface DelegatedConnectionsResponse {
@@ -327,11 +336,15 @@ export interface ProposeDelegatedConnectionRequest {
 export type DelegationRefusalReason =
   | 'trainingpeaks_not_connected'
   | 'trainingpeaks_not_coach_account'
+  | 'trainingpeaks_email_missing'
+  | 'trainingpeaks_email_mismatch'
+  | 'dravr_email_unverified'
   | 'trainingpeaks_reconnect_needed'
   | 'trainingpeaks_terms_outdated'
   | 'unsupported_provider'
   | 'invalid_athlete'
   | 'athlete_not_on_roster'
+  | DelegationReadRefusal
   | 'member_is_coach'
   | 'already_proposed'
   | 'athlete_already_linked'

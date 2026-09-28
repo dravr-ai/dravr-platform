@@ -28,11 +28,11 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::Value;
 
-use crate::capabilities::{ToolCapabilities, PROVIDER_READ};
+use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, capabilities_to_tronc, object_schema, object_schema_with_format, task_capable,
-    tool_definition, tool_result_to_response, Formatted,
+    answers_with, object_schema, object_schema_with_format, task_capable, tool_definition,
+    tool_result_to_response, Formatted,
 };
 use crate::implementations::handler_bridge;
 use crate::implementations::sleep::output::{
@@ -42,7 +42,7 @@ use crate::protocol::UniversalExecutor;
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::AppResult;
 use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
@@ -114,8 +114,8 @@ impl McpTool<dyn ToolRuntime> for AnalyzeSleepQualityTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
     }
 
     async fn execute(
@@ -226,8 +226,8 @@ impl McpTool<dyn ToolRuntime> for CalculateRecoveryScoreTool {
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_READ)
+    fn capabilities(&self) -> ToolCapabilities {
+        PROVIDER_READ
     }
 
     async fn execute(
@@ -335,8 +335,8 @@ impl McpTool<dyn ToolRuntime> for SuggestRestDayTool {
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_READ)
+    fn capabilities(&self) -> ToolCapabilities {
+        PROVIDER_READ
     }
 
     async fn execute(
@@ -433,8 +433,8 @@ impl McpTool<dyn ToolRuntime> for TrackSleepTrendsTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
     }
 
     async fn execute(
@@ -501,8 +501,8 @@ impl McpTool<dyn ToolRuntime> for OptimizeSleepScheduleTool {
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_READ)
+    fn capabilities(&self) -> ToolCapabilities {
+        PROVIDER_READ
     }
 
     async fn execute(

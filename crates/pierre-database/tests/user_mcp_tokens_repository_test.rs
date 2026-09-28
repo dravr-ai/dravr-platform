@@ -190,7 +190,7 @@ async fn revoke_is_scoped_to_the_owner_and_stops_validation() {
 }
 
 #[tokio::test]
-async fn cleanup_revokes_only_the_expired_tokens() {
+async fn an_expired_token_is_refused_while_a_live_one_validates() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
     let owner = fresh_user(&repos).await;
@@ -225,24 +225,6 @@ async fn cleanup_revokes_only_the_expired_tokens() {
         .expect_err("a token past its window no longer validates");
     assert_eq!(denied.code, ErrorCode::AuthInvalid);
 
-    assert_eq!(
-        repos
-            .user_mcp_tokens
-            .cleanup_expired_tokens()
-            .await
-            .unwrap(),
-        1,
-        "exactly the expired token is swept"
-    );
-    assert_eq!(
-        repos
-            .user_mcp_tokens
-            .cleanup_expired_tokens()
-            .await
-            .unwrap(),
-        0,
-        "a second sweep finds nothing"
-    );
     assert_eq!(
         repos
             .user_mcp_tokens

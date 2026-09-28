@@ -9,8 +9,8 @@ use crate::strava_pool::select_strava_app;
 use chrono::Utc;
 use pierre_core::constants::oauth_providers;
 use pierre_core::constants::rate_limits::{
-    GARMIN_DEFAULT_DAILY_RATE_LIMIT, STRAVA_DEFAULT_DAILY_RATE_LIMIT,
-    TERRA_DEFAULT_DAILY_RATE_LIMIT, WHOOP_DEFAULT_DAILY_RATE_LIMIT,
+    GARMIN_DEFAULT_DAILY_RATE_LIMIT, STRAVA_RATE_LIMIT_DAILY, TERRA_DEFAULT_DAILY_RATE_LIMIT,
+    WHOOP_DEFAULT_DAILY_RATE_LIMIT,
 };
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{TenantId, TenantOAuthCredentials, UserOAuthApp};
@@ -530,7 +530,7 @@ impl TenantOAuthManager {
             } else {
                 strava_config.scopes.clone()
             },
-            rate_limit_per_day: STRAVA_DEFAULT_DAILY_RATE_LIMIT,
+            rate_limit_per_day: STRAVA_RATE_LIMIT_DAILY,
         }
     }
 
@@ -742,7 +742,7 @@ impl TenantOAuthManager {
     #[must_use]
     pub fn default_rate_limit_for_provider(provider: &str) -> u32 {
         match provider.to_lowercase().as_str() {
-            "strava" => STRAVA_DEFAULT_DAILY_RATE_LIMIT,
+            "strava" => STRAVA_RATE_LIMIT_DAILY,
             "garmin" => GARMIN_DEFAULT_DAILY_RATE_LIMIT,
             "whoop" => WHOOP_DEFAULT_DAILY_RATE_LIMIT,
             "terra" => TERRA_DEFAULT_DAILY_RATE_LIMIT,

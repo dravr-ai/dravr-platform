@@ -1,11 +1,10 @@
 // ABOUTME: Slack interactive actions handler for ops notifications and messaging command postbacks
-// ABOUTME: Verifies HMAC-SHA256 signature via dravr-tronc, routes ops actions and command callbacks
+// ABOUTME: Verifies and parses the payload through canot's Slack transport, routes ops and command callbacks
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 use std::env;
-use std::str;
 use std::sync::Arc;
 
 use axum::body::Bytes;
@@ -13,17 +12,21 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use dravr_tronc::notifications::{SlackClient, SlackConfig};
 use pierre_core::models::TenantId;
+use pierre_messaging::channels::slack::transport::{
+    parse_slack_body, verify_slack_signature as verify_slack_v0,
+};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
-use crate::services::messaging_ingress::resolve_messaging_locale;
 use crate::services::user_approval_notifier::ApprovalNotifier;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::UserStatus;
+use pierre_middleware::mask_email;
 use pierre_services::analytics::cache_user_email;
+use pierre_services::locale::resolve_channel_locale;
 use pierre_services::tenant_admin as tenant_admin_service;
 
 /// Channel type key Slack channel links are stored under in
@@ -50,11 +53,7 @@ pub(crate) async fn handle_slack_action(
     resources: &Arc<ServerContext>,
     body: &Bytes,
 ) -> AppResult<(StatusCode, Json<Value>)> {
-    // Parse the Slack interactive payload (form-encoded with `payload` key)
-    let payload = parse_interactive_payload(body)?;
-
-    // Extract action details
-    let action = extract_action(&payload)?;
+    let action = parse_slack_action(body)?;
 
     info!(
         action_id = %action.action_id,
@@ -62,12 +61,9 @@ pub(crate) async fn handle_slack_action(
         "Processing Slack interactive action"
     );
 
-    // Normalize action_id: Slack may URL-encode spaces as `+`
-    let normalized_action_id = action.action_id.replace('+', " ");
-
     // Route command postbacks (action_id starts with `/`) through the command system
-    if normalized_action_id.starts_with('/') {
-        return handle_command_postback(resources, &action, &normalized_action_id).await;
+    if action.action_id.starts_with('/') {
+        return handle_command_postback(resources, &action, &action.action_id).await;
     }
 
     // --- Ops actions below (approve/reject users) ---
@@ -128,34 +124,17 @@ pub(crate) async fn handle_slack_action(
     Ok((StatusCode::OK, Json(json!({ "status": "ok" }))))
 }
 
-/// Verify the Slack request signature using dravr-tronc's `SlackClient`
+/// Verify the Slack request signature with canot's v0 verifier
 ///
-/// Extracts timestamp and signature headers, delegates HMAC verification
-/// to the shared implementation.
+/// canot owns the Slack v0 scheme (HMAC-SHA256 over `v0:{timestamp}:{body}`,
+/// a 300 s replay window, a constant-time compare) for its own webhook
+/// transport; the interactive route verifies with the same function.
 pub(crate) fn verify_slack_signature(
     signing_secret: &str,
     headers: &HeaderMap,
     body: &[u8],
 ) -> AppResult<()> {
-    let timestamp = headers
-        .get("x-slack-request-timestamp")
-        .and_then(|v| v.to_str().ok())
-        .ok_or_else(|| AppError::auth_invalid("Missing x-slack-request-timestamp header"))?;
-
-    let signature = headers
-        .get("x-slack-signature")
-        .and_then(|v| v.to_str().ok())
-        .ok_or_else(|| AppError::auth_invalid("Missing x-slack-signature header"))?;
-
-    let config = SlackConfig {
-        bot_token: String::new(),
-        error_channel: String::new(),
-        signing_secret: Some(signing_secret.to_owned()),
-    };
-    let client = SlackClient::new(&config);
-
-    client
-        .verify_signature(timestamp, signature, body)
+    verify_slack_v0(signing_secret, headers, body)
         .map_err(|e| AppError::auth_invalid(format!("Slack signature verification failed: {e}")))
 }
 
@@ -239,12 +218,13 @@ pub async fn execute_postback_command(
         AppError::invalid_input(format!("No handler for command: {}", parsed.name))
     })?;
 
-    let locale = resolve_messaging_locale(
-        resources,
+    let locale = resolve_channel_locale(
+        resources.common.repos.messaging.as_ref(),
+        resources.common.repos.users.as_ref(),
         user_tenant,
-        user_id,
         SLACK_CHANNEL,
         slack_user_id,
+        Some(user_id),
     )
     .await;
 
@@ -358,17 +338,23 @@ fn build_slack_client(bot_token: &str) -> SlackClient {
 }
 
 /// Parsed Slack interactive action
-struct SlackAction {
-    action_id: String,
-    slack_user_id: String,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlackAction {
+    /// The tapped button's `action_id`: a `/command` postback or an
+    /// `approve_user:` / `reject_user:` ops action
+    pub action_id: String,
+    /// Slack user ID of the clicker
+    pub slack_user_id: String,
     /// Slack display handle of the clicker, carried in the interactive
     /// payload — used for attribution without a `users.info` lookup.
-    slack_username: String,
-    channel_id: String,
+    pub slack_username: String,
+    /// Channel ID the card lives in
+    pub channel_id: String,
     /// Channel name (without leading `#`) the action originated from, used to
     /// enforce the ops-channel trust boundary.
-    channel_name: String,
-    message_ts: String,
+    pub channel_name: String,
+    /// Timestamp of the card message, which addresses it for the update
+    pub message_ts: String,
 }
 
 enum ActionType {
@@ -376,26 +362,22 @@ enum ActionType {
     Reject,
 }
 
-/// Parse the form-encoded interactive payload from Slack
+/// Parse a Slack interactive request body into the action it carries
 ///
 /// Slack sends interactive payloads as `application/x-www-form-urlencoded`
-/// with a single `payload` key containing JSON.
-fn parse_interactive_payload(body: &Bytes) -> AppResult<Value> {
-    let body_str = str::from_utf8(body)
-        .map_err(|e| AppError::invalid_input(format!("Invalid UTF-8 in body: {e}")))?;
-
-    for pair in body_str.split('&') {
-        if let Some(value) = pair.strip_prefix("payload=") {
-            let decoded = urlencoding::decode(value)
-                .map_err(|e| AppError::invalid_input(format!("Invalid URL encoding: {e}")))?;
-            return serde_json::from_str(&decoded)
-                .map_err(|e| AppError::invalid_input(format!("Invalid JSON in payload: {e}")));
-        }
-    }
-
-    Err(AppError::invalid_input(
-        "Missing payload field in interactive request",
-    ))
+/// with a single `payload` key containing JSON. canot's `parse_slack_body`
+/// decodes it with the form rules — `+` is a space, `%2B` a literal plus — so
+/// every field arrives as the clicker's client sent it.
+///
+/// # Errors
+///
+/// Returns an invalid-input error when the body is not a Slack payload or is
+/// not a `block_actions` payload carrying an action, a user, a channel and a
+/// message timestamp.
+pub fn parse_slack_action(body: &[u8]) -> AppResult<SlackAction> {
+    let payload = parse_slack_body(body)
+        .map_err(|e| AppError::invalid_input(format!("Invalid Slack interactive payload: {e}")))?;
+    extract_action(&payload)
 }
 
 /// Extract the first action from a Slack `block_actions` payload
@@ -558,7 +540,7 @@ async fn approve_user(
 
     info!(
         user_id = %user_uuid,
-        email = %updated_user.email,
+        email = %mask_email(&updated_user.email),
         approved_by,
         "User approved via Slack action"
     );
@@ -615,7 +597,7 @@ async fn reject_user(
 
     info!(
         user_id = %user_uuid,
-        email = %updated_user.email,
+        email = %mask_email(&updated_user.email),
         rejected_by,
         "User rejected (suspended) via Slack action"
     );

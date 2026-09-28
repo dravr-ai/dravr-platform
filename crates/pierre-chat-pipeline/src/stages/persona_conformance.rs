@@ -69,6 +69,7 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_contremaitre::persona_contracts::{
     PersonaContract, PersonaContractRegistry, TOOL_NARRATION_PHRASES,
 };
+use pierre_contremaitre::PromptRegistry;
 
 /// One conformance violation surfaced by [`check_reply_conformance`].
 #[derive(Debug, Clone)]
@@ -214,12 +215,16 @@ fn athlete_suffix(id: &str) -> Option<String> {
 /// 2026-08-12) and `agent` inherits strict through the contract overlay;
 /// `casual` and `enthusiast` remain shadow-mode.
 ///
+/// The editor's instructions are the catalogue's `persona_style_editor`
+/// prompt, resolved from `prompts` at the call so an edit hot-reloads.
+///
 /// Callers run [`apply_isolation_redaction`] first; this function excludes
 /// isolation violations from the style path regardless, so a leak can never
 /// reach the fact-preserving rewrite even through a direct call.
 #[must_use]
 pub async fn enforce_conformance(
     chat_provider: Option<&Arc<ChatProvider>>,
+    prompts: &PromptRegistry,
     registry: &Arc<PersonaContractRegistry>,
     persona: CoachingPersona,
     content: String,
@@ -250,7 +255,15 @@ pub async fn enforce_conformance(
         return content;
     };
 
-    rewrite_to_satisfy_contract(provider, persona, content, &style_violations, active_model).await
+    rewrite_to_satisfy_contract(
+        provider,
+        prompts,
+        persona,
+        content,
+        &style_violations,
+        active_model,
+    )
+    .await
 }
 
 /// The leak-repair half of enforcement: when a `require_tenant_isolation`
@@ -335,6 +348,7 @@ fn redact_foreign_athlete_blocks(
 /// failure / empty response (fail open).
 async fn rewrite_to_satisfy_contract(
     provider: &Arc<ChatProvider>,
+    prompts: &PromptRegistry,
     persona: CoachingPersona,
     content: String,
     violations: &[ContractViolation],
@@ -345,6 +359,7 @@ async fn rewrite_to_satisfy_contract(
         .map(|v| format!("- {}", v.detail))
         .collect::<Vec<_>>()
         .join("\n");
+    // The instructions are the catalogue's `persona_style_editor` prompt.
     // "Change only wording, structure, and length" reads as a licence to
     // translate unless the language is named as something to preserve: this
     // editor sees an English instruction and a reply that may be in any of the
@@ -358,10 +373,12 @@ async fn rewrite_to_satisfy_contract(
     // "change length" alone reads as a licence to cut it — and a word-budget
     // repair is exactly the rewrite a reply grown by one sentence triggers. It
     // is named as something to keep for the same reason the language is.
-    let system = format!(
-        "You are a style editor for the '{}' coaching persona. The assistant reply below broke these output-style rules:\n{rules}\n\nRewrite the reply so it follows the rules. Preserve every fact, number, recommendation, and citation exactly — change only wording, structure, and length. If the reply opens with a sentence in which its speaker introduces itself, keep that sentence. Write the rewrite in the same language as the reply below; never translate it, whatever language these instructions are in. Output only the rewritten reply, with no preamble.",
-        persona.as_str()
-    );
+    let system = prompts
+        .persona_style_editor_prompt()
+        .replace("{{PERSONA}}", persona.as_str())
+        .replace("{{RULES}}", &rules)
+        .trim()
+        .to_owned();
     let request = ChatRequest::new(vec![
         ChatMessage::system(system),
         ChatMessage::user(content.clone()),

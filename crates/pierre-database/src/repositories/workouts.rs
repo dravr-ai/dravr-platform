@@ -13,20 +13,13 @@ use uuid::Uuid;
 
 /// Daily training-state rollup CRUD backing the `training_history` table.
 ///
-/// Each row captures one day of derived training metrics (CTL/ATL/TSB/ACWR/
-/// monotony/strain/`ramp_rate`/`daily_load`) for a single (`tenant_id`, `user_id`).
+/// Each row captures one day of derived training metrics (CTL/ATL/TSB/
+/// `form_ctl`/ACWR/monotony/strain/`ramp_rate`/`daily_load`) for a single
+/// (`tenant_id`, `user_id`).
 /// Computation is the responsibility of
 /// [`pierre_fitness_compute::training_history_compute`]; this repo only persists.
 #[async_trait]
 pub trait TrainingHistoryRepository: Send + Sync {
-    /// Insert or update a single day's row.
-    async fn upsert_training_history_day(
-        &self,
-        tenant_id: TenantId,
-        user_id: Uuid,
-        state: &DailyTrainingState,
-    ) -> AppResult<()>;
-
     /// Insert or update many days at once. Implementations may batch the
     /// underlying writes; callers must not assume atomicity across rows.
     async fn upsert_training_history_batch(
@@ -38,6 +31,10 @@ pub trait TrainingHistoryRepository: Send + Sync {
 
     /// Fetch all rows in `[from, to]` (inclusive on both ends) in
     /// chronological order (oldest first).
+    ///
+    /// A row stored without `form_ctl` carries the former same-day TSB
+    /// (before carnet#601) and is never returned; the next recompute of its
+    /// day replaces it.
     async fn get_training_history(
         &self,
         tenant_id: TenantId,
@@ -45,13 +42,6 @@ pub trait TrainingHistoryRepository: Send + Sync {
         from: chrono::NaiveDate,
         to: chrono::NaiveDate,
     ) -> AppResult<Vec<DailyTrainingState>>;
-
-    /// Fetch the most recent row for the user, if any.
-    async fn latest_training_history(
-        &self,
-        tenant_id: TenantId,
-        user_id: Uuid,
-    ) -> AppResult<Option<DailyTrainingState>>;
 
     /// Delete this user's rows in `[from, to]` inclusive, returning the count.
     ///

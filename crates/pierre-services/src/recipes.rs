@@ -1,78 +1,8 @@
-// ABOUTME: Recipe and agent export/import business logic extracted from route handlers
-// ABOUTME: Handles markdown conversion, filename generation, and diff computation
+// ABOUTME: Agent version diff computation extracted from the version-history route handlers
+// ABOUTME: Compares two version snapshots field by field
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
-
-use pierre_agent_parser::{AgentDefinition, AgentFrontmatter, AgentSections, AgentStartup};
-use pierre_core::models::agents::{Agent, AgentPrerequisites};
-
-/// Convert a Agent database model to `AgentDefinition` for export
-///
-/// Transforms the stored agent data into the markdown-exportable format
-/// used for agent file interchange.
-#[must_use]
-pub fn agent_to_definition(agent: &Agent) -> AgentDefinition {
-    let name = agent
-        .title
-        .to_lowercase()
-        .replace(' ', "-")
-        .chars()
-        .filter(|c| c.is_alphanumeric() || *c == '-')
-        .collect::<String>();
-
-    AgentDefinition {
-        frontmatter: AgentFrontmatter {
-            name,
-            title: agent.title.clone(),
-            category: agent.category,
-            tags: agent.tags.clone(),
-            prerequisites: AgentPrerequisites::default(),
-            visibility: agent.visibility,
-            startup: AgentStartup::default(),
-            replaces: vec![],
-        },
-        sections: AgentSections {
-            purpose: agent.description.clone().unwrap_or_default(),
-            when_to_use: None,
-            instructions: agent.system_prompt.clone(),
-            example_inputs: if agent.sample_prompts.is_empty() {
-                None
-            } else {
-                Some(
-                    agent
-                        .sample_prompts
-                        .iter()
-                        .map(|p| format!("- {p}"))
-                        .collect::<Vec<_>>()
-                        .join("\n"),
-                )
-            },
-            example_outputs: None,
-            success_criteria: None,
-            related_agents: Vec::new(),
-        },
-        source_file: format!("exported/{}.md", agent.id),
-        content_hash: String::new(),
-        token_count: agent.token_count,
-    }
-}
-
-/// Generate a safe filename from agent title for markdown export
-///
-/// Converts to lowercase, replaces spaces with hyphens, and strips
-/// non-alphanumeric characters (except hyphens).
-#[must_use]
-pub fn generate_agent_filename(title: &str) -> String {
-    let safe_name: String = title
-        .to_lowercase()
-        .replace(' ', "-")
-        .chars()
-        .filter(|c| c.is_alphanumeric() || *c == '-')
-        .collect();
-
-    format!("{safe_name}.md")
-}
 
 /// A field-level change between two agent version snapshots
 #[derive(Debug)]

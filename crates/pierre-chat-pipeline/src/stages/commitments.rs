@@ -23,6 +23,8 @@
 use std::fmt::Write as _;
 
 use chrono::{DateTime, Duration, Utc};
+use pierre_core::civil_time::resolve_zone;
+use pierre_core::untrusted::{cap, flatten_line};
 use pierre_memory::commitments::Commitment;
 use pierre_runtime_context::DataContext;
 
@@ -37,26 +39,10 @@ const COMMITMENT_FETCH_LIMIT: i64 = 20;
 /// Longest statement echoed into the prompt.
 ///
 /// The stored value is already bounded at write time; this is the second line
-/// of defense, alongside the whitespace collapse below, so a stored statement
-/// can never open what looks like a new prompt section.
+/// of defense, alongside the shared whitespace and control-character collapse
+/// (`flatten_line`), so a stored statement can never open what looks like a new
+/// prompt section.
 const MAX_RENDERED_STATEMENT: usize = 120;
-
-/// Collapse a stored statement into a single safe prompt line.
-///
-/// Newlines and control characters go first — a statement containing `\n##` or
-/// a fake instruction line is the only way this field could act on the agent —
-/// then the result is truncated on a character boundary.
-fn fence_statement(raw: &str) -> String {
-    let flattened: String = raw
-        .chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .collect();
-    let collapsed = flattened.split_whitespace().collect::<Vec<_>>().join(" ");
-    match collapsed.char_indices().nth(MAX_RENDERED_STATEMENT) {
-        Some((idx, _)) => format!("{}…", &collapsed[..idx]),
-        None => collapsed,
-    }
-}
 
 /// Render one commitment as a prompt bullet.
 fn render_line(commitment: &Commitment, timezone: Option<&str>) -> String {
@@ -68,7 +54,7 @@ fn render_line(commitment: &Commitment, timezone: Option<&str>) -> String {
     let due = local_date(commitment.window_end, timezone);
     format!(
         "- {what} by {due} — \"{}\" [id: {}]",
-        fence_statement(&commitment.statement),
+        cap(&flatten_line(&commitment.statement), MAX_RENDERED_STATEMENT),
         commitment.id
     )
 }
@@ -78,11 +64,8 @@ fn render_line(commitment: &Commitment, timezone: Option<&str>) -> String {
 /// `window_end` is local midnight *after* the due day, so a second is
 /// subtracted to land back on the day the athlete was actually given.
 fn local_date(window_end: DateTime<Utc>, timezone: Option<&str>) -> String {
-    let tz: chrono_tz::Tz = timezone
-        .and_then(|name| name.parse().ok())
-        .unwrap_or(chrono_tz::UTC);
     (window_end - Duration::seconds(1))
-        .with_timezone(&tz)
+        .with_timezone(&resolve_zone(timezone))
         .format("%a %-d %b")
         .to_string()
 }

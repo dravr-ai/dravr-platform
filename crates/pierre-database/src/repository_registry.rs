@@ -20,11 +20,11 @@ use crate::repositories::{
     ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository, McpTaskRepository,
     MemoryExtractionJobRepository, MessagingRepository, MobilityRepository, NotificationRepository,
     OAuth2ServerRepository, OAuthClientStateRepository, OAuthTokenRepository,
-    PasswordResetRepository, PlaybookRepository, PreApprovedEmailRepository,
-    PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository,
-    ProviderDataRepository, RecipeRepository, RecoveryRepository, ResumableTurnRepository,
-    RouteSummaryRepository, SecurityRepository, SeederRepository, SessionRefreshTokenRepository,
-    ShortLinkRepository, SleepRepository, StoreListingsRepository,
+    PasswordResetRepository, PersonalBestRepository, PlaybookRepository,
+    PreApprovedEmailRepository, PrescribedWorkoutRepository, ProfileRepository,
+    ProviderConnectionRepository, ProviderDataRepository, RecipeRepository, RecoveryRepository,
+    ResumableTurnRepository, RouteSummaryRepository, SecurityRepository, SeederRepository,
+    SessionRefreshTokenRepository, ShortLinkRepository, SleepRepository, StoreListingsRepository,
     StravaSeatReclaimWarningRepository, SubscriptionsRepository, SyncCursorRepository,
     TenantRepository, ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
     UsageCounterRepository, UsageRepository, UserMcpTokenRepository, UserOnboardingRepository,
@@ -99,6 +99,8 @@ pub struct RepositoryRegistry {
     pub short_links: Arc<dyn ShortLinkRepository>,
     /// Warnings the Strava seat-reclaim sweeper sent before a reclaim
     pub strava_seat_reclaim_warnings: Arc<dyn StravaSeatReclaimWarningRepository>,
+    /// All-time best efforts at the standard running distances, and the runs scanned for them
+    pub personal_bests: Arc<dyn PersonalBestRepository>,
     /// Durable per-user onboarding step completion state (server-driven onboarding flow)
     pub user_onboarding: Arc<dyn UserOnboardingRepository>,
     /// Store listings for agent marketplace
@@ -237,6 +239,7 @@ impl RepositoryRegistry {
             training_plans: db.clone(),
             short_links: db.clone(),
             strava_seat_reclaim_warnings: db.clone(),
+            personal_bests: db.clone(),
             user_onboarding: db.clone(),
             store_listings: db.clone(),
             tenants: db.clone(),
@@ -315,6 +318,7 @@ impl RepositoryRegistry {
             training_plans: db.clone(),
             short_links: db.clone(),
             strava_seat_reclaim_warnings: db.clone(),
+            personal_bests: db.clone(),
             user_onboarding: db.clone(),
             store_listings: db.clone(),
             tenants: db.clone(),

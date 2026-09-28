@@ -17,7 +17,7 @@
 
 use pierre_config::mcp::AppBehaviorConfig;
 use pierre_core::errors::AppError;
-use pierre_runtime_context::DataContext;
+use pierre_database::backends::factory::Database;
 use tracing::error;
 
 /// Resolved auto-approval settings combining env var and database state
@@ -44,13 +44,13 @@ pub struct AutoApprovalSettings {
 ///
 /// Returns `Internal` if the database read for the auto-approval flag fails.
 pub async fn get_auto_approval_settings(
-    data: &DataContext,
+    database: &Database,
     app_behavior: &AppBehaviorConfig,
 ) -> Result<AutoApprovalSettings, AppError> {
     let enabled = if app_behavior.auto_approve_users_from_env {
         app_behavior.auto_approve_users
     } else {
-        match data.database().is_auto_approval_enabled().await {
+        match database.is_auto_approval_enabled().await {
             Ok(Some(db_setting)) => db_setting,
             Ok(None) => app_behavior.auto_approve_users,
             Err(e) => {
@@ -79,8 +79,8 @@ pub async fn get_auto_approval_settings(
 /// # Errors
 ///
 /// Returns `Internal` if the database write fails.
-pub async fn set_auto_approval(data: &DataContext, enabled: bool) -> Result<(), AppError> {
-    data.database()
+pub async fn set_auto_approval(database: &Database, enabled: bool) -> Result<(), AppError> {
+    database
         .set_auto_approval_enabled(enabled)
         .await
         .map_err(|e| {

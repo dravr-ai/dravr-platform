@@ -42,6 +42,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::sync::{Arc, OnceLock};
 
+use pierre_contremaitre::PromptRegistry;
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest};
 
 use super::viz_route::{hydrate_route, RouteTracks};
@@ -161,6 +162,7 @@ pub fn schema_contract(schemas: &SchemaTexts) -> String {
 /// would tell the model nothing it could act on.
 pub async fn repair_refused_blocks(
     provider: &Arc<ChatProvider>,
+    prompts: &PromptRegistry,
     reply: &str,
     faults: &[String],
     active_model: &str,
@@ -173,12 +175,15 @@ pub async fn repair_refused_blocks(
         .map(|f| format!("- {f}"))
         .collect::<Vec<_>>()
         .join("\n");
-    // Preserve-the-language for the same reason the persona repair states it:
+    // The instructions are the catalogue's `viz_repair` prompt. They say
+    // preserve-the-language for the same reason the persona repair does:
     // this editor reads an English instruction and a reply that may be in any
     // of the five locales, and the turn's language rides on the rewrite.
-    let system = format!(
-        "The assistant reply below contains one or more ```dravr-viz blocks that failed schema validation and were rejected:\n{rules}\n\nReturn the same reply with each rejected block corrected so it satisfies the schema. Keep the prose, its facts and its numbers exactly as they are, and keep any block that was already accepted. If a chart's data genuinely cannot satisfy the schema, remove that block and leave the prose. Write in the same language as the reply below; never translate it, whatever language these instructions are in. Output only the corrected reply, with no preamble."
-    );
+    let system = prompts
+        .viz_repair_prompt()
+        .replace("{{RULES}}", &rules)
+        .trim()
+        .to_owned();
     let request = ChatRequest::new(vec![
         ChatMessage::system(system),
         ChatMessage::user(reply.to_owned()),

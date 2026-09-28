@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The Discover edit sheet for one of the athlete's own agents — loads it, saves it, deletes it
+// ABOUTME: The Discover edit sheet for one of the athlete's own agents — loads it, saves it, deletes it, reverts it
 // ABOUTME: The only agent editor left outside the admin console; agent creation is the /agent create command
 
 import { useEffect, useState } from 'react';
@@ -10,8 +10,10 @@ import { coachesApi } from '../../services/api';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 import { Button, ConfirmDialog } from '../ui';
 import CoachFormModal from './CoachFormModal';
+import CoachVersionHistory from './CoachVersionHistory';
 import { coachToFormData, formDataToUpdateRequest } from './coachForm';
 import type { AgentFormData } from './coachForm';
+import type { Agent } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
 
@@ -63,6 +65,13 @@ export default function CoachEditSheet({ agentId, onClose }: AgentEditSheetProps
     },
   });
 
+  // A revert rewrites the stored agent, so the form re-hydrates from it: a
+  // save after a revert must not write the pre-revert form back.
+  const handleReverted = (reverted: Agent) => {
+    queryClient.setQueryData(coachKey(agentId), reverted);
+    setFormData(coachToFormData(reverted));
+  };
+
   const remove = useMutation({
     mutationFn: () => coachesApi.delete(agentId),
     onSuccess: () => {
@@ -109,7 +118,9 @@ export default function CoachEditSheet({ agentId, onClose }: AgentEditSheetProps
         isSubmitting={save.isPending}
         submitError={save.isError}
         onDelete={() => setConfirmingDelete(true)}
-      />
+      >
+        <CoachVersionHistory agentId={agentId} onReverted={handleReverted} />
+      </CoachFormModal>
       <ConfirmDialog
         isOpen={confirmingDelete}
         onClose={() => setConfirmingDelete(false)}

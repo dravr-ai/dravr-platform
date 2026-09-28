@@ -37,6 +37,7 @@ fn create_test_time_series() -> TimeSeriesData {
             (40.008, -74.008),
             (40.009, -74.009),
         ]),
+        distance: None,
     }
 }
 
@@ -72,6 +73,7 @@ fn test_empty_time_series() {
         altitude: None,
         temperature: None,
         gps_coordinates: None,
+        distance: None,
     };
 
     let mut stats = StatsCollector::default();
@@ -92,6 +94,7 @@ fn test_partial_data() {
         altitude: None,
         temperature: None,
         gps_coordinates: None,
+        distance: None,
     };
 
     let mut stats = StatsCollector::default();
@@ -120,6 +123,7 @@ fn test_decoupling_detector() {
         altitude: None,
         temperature: None,
         gps_coordinates: None,
+        distance: None,
     };
 
     let mut detector = DecouplingDetector::default();
@@ -143,6 +147,7 @@ fn test_normalized_power_insufficient_data() {
         altitude: None,
         temperature: None,
         gps_coordinates: None,
+        distance: None,
     };
 
     let mut np_calc = NormalizedPowerCalculator::default();
@@ -164,6 +169,7 @@ fn test_normalized_power_calculation() {
         altitude: None,
         temperature: None,
         gps_coordinates: None,
+        distance: None,
     };
 
     let mut np_calc = NormalizedPowerCalculator::default();

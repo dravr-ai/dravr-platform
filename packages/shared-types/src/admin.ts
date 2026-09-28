@@ -3,14 +3,20 @@
 
 // ========== ADMIN TOKEN TYPES ==========
 
-/** Permission for admin tokens */
+/**
+ * Permission for admin tokens — the server's `AdminPermission` names. A
+ * super-admin token is minted with `is_super_admin`, not with a permission.
+ */
 export type AdminPermission =
   | 'provision_keys'
-  | 'revoke_keys'
   | 'list_keys'
+  | 'revoke_keys'
+  | 'update_key_limits'
   | 'manage_admin_tokens'
   | 'view_audit_logs'
-  | 'super_admin';
+  | 'manage_users'
+  | 'view_configuration'
+  | 'manage_configuration';
 
 /** An admin token for internal services */
 export interface AdminToken {
@@ -25,12 +31,19 @@ export interface AdminToken {
   last_used_at?: string;
   usage_count: number;
   token_prefix: string;
+  /** Tenant the token is bound to; null for a platform-wide token */
+  tenant_id?: string | null;
+  /** The operator a device-login token acts as; null for a service token */
+  operator_user_id?: string | null;
 }
 
-/** Response for listing admin tokens */
+/**
+ * `data` of `GET /api/admin/tokens`. A caller that is not super-admin is not
+ * shown super-admin tokens.
+ */
 export interface AdminTokensResponse {
-  admin_tokens: AdminToken[];
-  total_count: number;
+  tokens: AdminToken[];
+  count: number;
 }
 
 /** Request to create an admin token */
@@ -42,15 +55,20 @@ export interface CreateAdminTokenRequest {
   expires_in_days?: number;
 }
 
-/** Response for creating an admin token (includes JWT) */
+/** `data` of creating an admin token; the JWT is shown this once */
 export interface CreateAdminTokenResponse {
-  success: boolean;
   token_id: string;
   service_name: string;
   jwt_token: string;
   token_prefix: string;
   is_super_admin: boolean;
-  expires_at?: string;
+  expires_at?: string | null;
+}
+
+/** `data` of rotating an admin token: the replacement, shown this once */
+export interface RotateAdminTokenResponse extends CreateAdminTokenResponse {
+  /** The token the rotation retired */
+  old_token_id: string;
 }
 
 // ========== DASHBOARD TYPES ==========

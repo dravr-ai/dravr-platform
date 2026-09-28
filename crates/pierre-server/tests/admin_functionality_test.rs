@@ -141,6 +141,7 @@ async fn test_admin_token_database_operations() -> Result<()> {
         is_super_admin: false,
         expires_in_days: Some(30),
         tenant_id: None,
+        operator_user_id: None,
     };
 
     // Initialize JWKS manager for RS256 admin token signing
@@ -165,14 +166,6 @@ async fn test_admin_token_database_operations() -> Result<()> {
     let token = retrieved_token.unwrap();
     assert_eq!(token.service_name, "test_service");
     assert_eq!(token.id, generated_token.token_id);
-
-    // Retrieve by prefix
-    let prefix_token = repos
-        .admin
-        .get_token_by_prefix(&generated_token.token_prefix)
-        .await?;
-    assert!(prefix_token.is_some());
-    assert_eq!(prefix_token.unwrap().id, generated_token.token_id);
 
     // List tokens
     let tokens = repos.admin.list_tokens(true).await?;
@@ -208,6 +201,7 @@ async fn test_admin_token_usage_tracking() -> Result<()> {
         is_super_admin: false,
         expires_in_days: None,
         tenant_id: None,
+        operator_user_id: None,
     };
 
     // Initialize JWKS manager for RS256 admin token signing
@@ -218,23 +212,7 @@ async fn test_admin_token_usage_tracking() -> Result<()> {
         .create_token(&request, TEST_JWT_SECRET, &jwks_manager)
         .await?;
 
-    // Update last used
     let ip_address = "192.168.1.100";
-    repos
-        .admin
-        .update_token_last_used(&generated_token.token_id, Some(ip_address))
-        .await?;
-
-    // Verify last used was updated
-    let updated_token = repos
-        .admin
-        .get_token_by_id(&generated_token.token_id)
-        .await?;
-    assert!(updated_token.is_some());
-    let token = updated_token.unwrap();
-    assert!(token.last_used_at.is_some());
-    assert_eq!(token.last_used_ip, Some(ip_address.to_owned()));
-    assert!(token.usage_count > 0);
 
     // Record usage
     let usage = AdminTokenUsage {
@@ -294,88 +272,6 @@ async fn test_admin_token_usage_tracking() -> Result<()> {
     let second_id = usage_history[1].id.expect("an audit row carries its id");
     assert!(first_id > 0 && second_id > 0, "ids are database-assigned");
     assert_ne!(first_id, second_id, "each audit row has its own id");
-
-    Ok(())
-}
-
-#[tokio::test]
-#[serial]
-async fn test_admin_provisioned_keys_tracking() -> Result<()> {
-    let db = common::create_test_database().await?;
-    let repos = db.repositories();
-
-    // Create admin token
-    let request = CreateAdminTokenRequest {
-        service_name: "provisioning_service".to_owned(),
-        service_description: Some("Key provisioning test".to_owned()),
-        permissions: Some(vec![AdminPermission::ProvisionKeys]),
-        is_super_admin: false,
-        expires_in_days: None,
-        tenant_id: None,
-    };
-
-    // Initialize JWKS manager for RS256 admin token signing
-    let jwks_manager = common::get_shared_test_jwks();
-
-    let admin_token = repos
-        .admin
-        .create_token(&request, TEST_JWT_SECRET, &jwks_manager)
-        .await?;
-
-    // Create user and API key
-    let (user_id, user) = common::create_test_user(&db).await?;
-    let api_key = common::create_and_store_test_api_key(&db, user_id, "Test Key").await?;
-
-    // Record provisioned key
-    repos
-        .admin
-        .record_provisioned_key(
-            &admin_token.token_id,
-            &api_key.id,
-            &user.email,
-            "starter",
-            100,
-            "day",
-        )
-        .await?;
-
-    // Get provisioned keys history
-    let start_date = Utc::now() - chrono::Duration::hours(1);
-    let end_date = Utc::now() + chrono::Duration::hours(1);
-
-    // Test with specific admin token filter
-    let filtered_keys = repos
-        .admin
-        .get_provisioned_keys(Some(&admin_token.token_id), start_date, end_date)
-        .await?;
-
-    assert!(!filtered_keys.is_empty());
-    let provisioned_key = &filtered_keys[0];
-    assert_eq!(provisioned_key["admin_token_id"], admin_token.token_id);
-    assert_eq!(provisioned_key["api_key_id"], api_key.id);
-    assert_eq!(provisioned_key["user_email"], user.email);
-    assert_eq!(provisioned_key["requested_tier"], "starter");
-    assert_eq!(
-        provisioned_key["provisioned_by_service"],
-        "provisioning_service"
-    );
-    assert_eq!(provisioned_key["rate_limit_requests"], 100);
-    assert_eq!(provisioned_key["rate_limit_period"], "day");
-    assert_eq!(provisioned_key["key_status"], "active");
-    assert!(
-        provisioned_key["id"].as_i64().is_some_and(|id| id > 0),
-        "the ledger row carries a database-assigned id, got {}",
-        provisioned_key["id"]
-    );
-
-    // Test without admin token filter (all keys)
-    let all_keys = repos
-        .admin
-        .get_provisioned_keys(None, start_date, end_date)
-        .await?;
-
-    assert!(!all_keys.is_empty());
-    assert!(all_keys.iter().any(|k| k["api_key_id"] == api_key.id));
 
     Ok(())
 }
@@ -498,20 +394,9 @@ async fn test_admin_database_error_handling() -> Result<()> {
     let non_existent = repos.admin.get_token_by_id("non_existent_token").await?;
     assert!(non_existent.is_none());
 
-    // Test getting by invalid prefix
-    let invalid_prefix = repos.admin.get_token_by_prefix("invalid_prefix").await?;
-    assert!(invalid_prefix.is_none());
-
     // Test deactivating non-existent token (should not error)
     let deactivate_result = repos.admin.deactivate_token("non_existent").await;
     assert!(deactivate_result.is_ok());
-
-    // Test usage tracking for non-existent token (should not error)
-    let usage_result = repos
-        .admin
-        .update_token_last_used("non_existent", Some("127.0.0.1"))
-        .await;
-    assert!(usage_result.is_ok());
 
     Ok(())
 }
@@ -530,6 +415,7 @@ async fn test_admin_super_admin_privileges() -> Result<()> {
         is_super_admin: true,
         expires_in_days: None,
         tenant_id: None,
+        operator_user_id: None,
     };
 
     // Initialize JWKS manager for RS256 admin token signing
@@ -600,6 +486,7 @@ async fn test_admin_token_minted_by_repository_validates_through_service() -> Re
                 is_super_admin: false,
                 expires_in_days: Some(7),
                 tenant_id: Some("tenant-round-trip".to_owned()),
+                operator_user_id: None,
             },
             TEST_JWT_SECRET,
             &jwks_manager,
@@ -632,6 +519,7 @@ async fn test_admin_token_minted_by_repository_validates_through_service() -> Re
                 is_super_admin: true,
                 expires_in_days: None,
                 tenant_id: None,
+                operator_user_id: None,
             },
             TEST_JWT_SECRET,
             &jwks_manager,

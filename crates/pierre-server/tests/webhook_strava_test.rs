@@ -1,5 +1,5 @@
 // ABOUTME: Pins that a Strava activity webhook fetches the owner's activities into the cache through the OAuth path
-// ABOUTME: Drives the real /webhooks/strava route against a Strava-shaped mock; a no-op handler fails every assertion
+// ABOUTME: and scans each new run for personal records; drives the real /webhooks/strava route against a Strava mock
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -35,11 +35,16 @@ use axum::routing::get;
 use axum::{Json, Router};
 use chrono::Utc;
 use pierre_core::models::{TenantId, UserOAuthToken};
+use pierre_database::repositories::{PersonalBest, PersonalBestSeed};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::strava_webhook_gate::{
     FetchTiming, OwnerFetchGate, SUBSCRIPTION_ID_VAR,
 };
 use pierre_mcp_server::routes::webhooks::WebhookRoutes;
+#[cfg(feature = "client-notifications")]
+use pierre_notifications::events::event_params;
+#[cfg(feature = "client-notifications")]
+use pierre_notifications::TenantId as CommereTenantId;
 use serde_json::{json, Value};
 use serial_test::serial;
 use std::collections::HashMap;
@@ -122,6 +127,109 @@ async fn mock_strava() -> (String, Arc<MockStrava>) {
         axum::serve(listener, app).await.expect("serve");
     });
     (format!("http://{addr}"), recorder)
+}
+
+/// What the run-serving mock saw: activity list reads and streams reads.
+#[derive(Default)]
+struct MockRuns {
+    list_hits: AtomicUsize,
+    streams_hits: AtomicUsize,
+}
+
+/// The id of the run the run-serving mock lists.
+const RUN_ID: u64 = 9_101;
+
+/// Stand up a mock Strava listing one 6 km run at `seconds_per_km` and
+/// serving its streams: one sample a second with the cumulative distance, as
+/// Strava sends a run recorded by a watch.
+async fn mock_strava_run(seconds_per_km: u32) -> (String, Arc<MockRuns>) {
+    let recorder = Arc::new(MockRuns::default());
+    let list_recorder = Arc::clone(&recorder);
+    let streams_recorder = Arc::clone(&recorder);
+    let duration = seconds_per_km * 6;
+    let time: Vec<u32> = (0..=duration).collect();
+    let distance: Vec<f64> = time
+        .iter()
+        .map(|t| f64::from(*t) * 1000.0 / f64::from(seconds_per_km))
+        .collect();
+    let streams = json!({
+        "time": { "data": time },
+        "distance": { "data": distance }
+    });
+    let app = Router::new()
+        .route(
+            "/athlete/activities",
+            get(move || {
+                let recorder = Arc::clone(&list_recorder);
+                async move {
+                    recorder.list_hits.fetch_add(1, Ordering::SeqCst);
+                    Json(json!([
+                        {
+                            "id": RUN_ID,
+                            "name": "Tempo Run",
+                            "type": "Run",
+                            "sport_type": "Run",
+                            "start_date": Utc::now().to_rfc3339(),
+                            "distance": 6_000.0,
+                            "elapsed_time": duration,
+                            "total_elevation_gain": 20.0
+                        }
+                    ]))
+                }
+            }),
+        )
+        .route(
+            "/activities/{id}/streams",
+            get(move || {
+                let recorder = Arc::clone(&streams_recorder);
+                let streams = streams.clone();
+                async move {
+                    recorder.streams_hits.fetch_add(1, Ordering::SeqCst);
+                    Json(streams)
+                }
+            }),
+        );
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.expect("serve");
+    });
+    (format!("http://{addr}"), recorder)
+}
+
+/// The `personal_record` notices the athlete holds, as `(distance, time)`.
+#[cfg(feature = "client-notifications")]
+async fn record_notices(
+    resources: &ServerContext,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> Vec<(Value, Value)> {
+    sleep(Duration::from_millis(400)).await;
+    let service = resources
+        .common
+        .notification_service
+        .as_ref()
+        .expect("the server boots a notification service");
+    let (rows, _, _) = service
+        .list_notifications(
+            user_id,
+            CommereTenantId(tenant_id.as_uuid()),
+            50,
+            0,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+    rows.into_iter()
+        .filter(|row| row.notification_type == "personal_record")
+        .map(|row| {
+            let params = event_params(row.data.as_ref())
+                .expect("a record stores its parameters")
+                .clone();
+            (params["distance"].clone(), params["time_display"].clone())
+        })
+        .collect()
 }
 
 /// A server context whose Strava provider talks to `api_base`.
@@ -580,4 +688,150 @@ async fn verification_is_refused_while_no_verify_token_is_configured() {
         .await
         .unwrap();
     assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+}
+
+/// An athlete's first synced run is measured and stored, and nothing is told:
+/// the walk of their history has not completed, so there is nothing to beat.
+#[cfg(feature = "client-notifications")]
+#[tokio::test]
+#[serial]
+async fn the_first_synced_run_seeds_the_bests_silently() {
+    let (api_base, mock) = mock_strava_run(270).await;
+    let (resources, _env) = context_pointed_at(&api_base).await;
+    let (user_id, tenant_id) = seed_linked_athlete(&resources).await;
+
+    let event = strava_event("create", OWNER_ID, Utc::now().timestamp());
+    assert_eq!(post_event(&resources, &event).await, StatusCode::OK);
+    await_spawned_turns(&resources).await;
+
+    assert_eq!(mock.list_hits.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        mock.streams_hits.load(Ordering::SeqCst),
+        1,
+        "one streams request for the one new run"
+    );
+    let bests = resources
+        .common
+        .repos
+        .personal_bests
+        .personal_bests(user_id, tenant_id)
+        .await
+        .unwrap();
+    assert_eq!(bests.len(), 1, "a 6 km run covers the 5 km only");
+    assert_eq!(bests[0].distance, "5k");
+    assert!((bests[0].elapsed_seconds - 1350.0).abs() < f64::EPSILON);
+    assert_eq!(bests[0].activity_id, RUN_ID.to_string());
+    assert!(
+        record_notices(&resources, user_id, tenant_id)
+            .await
+            .is_empty(),
+        "nothing is told before the walk of the history completes"
+    );
+}
+
+/// Store what an earlier sync measured: a slower 5 km on another run.
+async fn store_slower_5k(resources: &ServerContext, user_id: Uuid, tenant_id: TenantId) {
+    let repo = &resources.common.repos.personal_bests;
+    repo.record_activity_scan(user_id, tenant_id, "strava", "8001", Utc::now())
+        .await
+        .unwrap();
+    repo.record_personal_best(
+        user_id,
+        tenant_id,
+        &PersonalBest {
+            distance: "5k".to_owned(),
+            elapsed_seconds: 1500.0,
+            provider: "strava".to_owned(),
+            activity_id: "8001".to_owned(),
+            achieved_at: Utc::now() - chrono::Duration::days(20),
+        },
+    )
+    .await
+    .unwrap();
+}
+
+/// A new run faster than the stored 5 km, while the walk of the athlete's
+/// history has not completed, replaces the best and tells nothing: the walk
+/// may still reach a faster one, and no record is told against part of a
+/// history.
+#[cfg(feature = "client-notifications")]
+#[tokio::test]
+#[serial]
+async fn a_faster_run_is_not_told_while_the_history_walk_is_incomplete() {
+    let (api_base, mock) = mock_strava_run(270).await;
+    let (resources, _env) = context_pointed_at(&api_base).await;
+    let (user_id, tenant_id) = seed_linked_athlete(&resources).await;
+    store_slower_5k(&resources, user_id, tenant_id).await;
+
+    let event = strava_event("create", OWNER_ID, Utc::now().timestamp());
+    assert_eq!(post_event(&resources, &event).await, StatusCode::OK);
+    await_spawned_turns(&resources).await;
+
+    assert_eq!(mock.streams_hits.load(Ordering::SeqCst), 1);
+    let best = resources
+        .common
+        .repos
+        .personal_bests
+        .personal_bests(user_id, tenant_id)
+        .await
+        .unwrap();
+    assert!(
+        (best[0].elapsed_seconds - 1350.0).abs() < f64::EPSILON,
+        "the faster 5 km is stored"
+    );
+    assert!(
+        record_notices(&resources, user_id, tenant_id)
+            .await
+            .is_empty(),
+        "no record is told before the walk completes"
+    );
+}
+
+/// Once the walk of the athlete's history is complete, a new run faster than
+/// the stored 5 km is told exactly once, with its time and the distance's
+/// code, holds the best from then on, and is recorded as scanned so a later
+/// sync listing it never fetches its streams again.
+#[cfg(feature = "client-notifications")]
+#[tokio::test]
+#[serial]
+async fn a_new_run_beating_the_stored_5k_is_told_once() {
+    let (api_base, mock) = mock_strava_run(270).await;
+    let (resources, _env) = context_pointed_at(&api_base).await;
+    let (user_id, tenant_id) = seed_linked_athlete(&resources).await;
+    store_slower_5k(&resources, user_id, tenant_id).await;
+    let repo = &resources.common.repos.personal_bests;
+    repo.save_personal_best_seed(
+        user_id,
+        tenant_id,
+        "strava",
+        &PersonalBestSeed {
+            cursor_before: Some((Utc::now() - chrono::Duration::days(900)).timestamp()),
+            completed_at: Some(Utc::now()),
+        },
+    )
+    .await
+    .unwrap();
+
+    let event = strava_event("create", OWNER_ID, Utc::now().timestamp());
+    assert_eq!(post_event(&resources, &event).await, StatusCode::OK);
+    await_spawned_turns(&resources).await;
+
+    assert_eq!(mock.streams_hits.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        record_notices(&resources, user_id, tenant_id).await,
+        vec![(json!("5k"), json!("22:30"))],
+        "one notice: the 5 km in 22:30"
+    );
+
+    // A later sync listing the same run finds it scanned: no second fetch.
+    assert!(repo
+        .is_activity_scanned(user_id, tenant_id, "strava", &RUN_ID.to_string())
+        .await
+        .unwrap());
+    let best = repo.personal_bests(user_id, tenant_id).await.unwrap();
+    assert_eq!(
+        best[0].activity_id,
+        RUN_ID.to_string(),
+        "the new run holds the 5 km"
+    );
 }

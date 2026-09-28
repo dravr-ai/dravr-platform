@@ -52,9 +52,6 @@ fn make_request(tool: &str, params: Value, user_id: Uuid, tenant_id: &str) -> Un
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: Some(tenant_id.to_owned()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     }
 }
 
@@ -563,7 +560,8 @@ async fn a_saved_ftp_changes_the_training_load_the_engine_computes() -> Result<(
     let from = to - Duration::days(13);
     let config = AlgorithmConfig::default();
 
-    let with_physiology = compute_training_history(&activities, inputs, from, to, &config, None);
+    let with_physiology = compute_training_history(&activities, inputs, from, to, &config, None)
+        .expect("training-load series");
     let without = compute_training_history(
         &activities,
         AthleteInputs::default(),
@@ -571,7 +569,8 @@ async fn a_saved_ftp_changes_the_training_load_the_engine_computes() -> Result<(
         to,
         &config,
         None,
-    );
+    )
+    .expect("training-load series");
 
     let ctl_with = with_physiology.last().expect("a final day").ctl;
     let ctl_without = without.last().expect("a final day").ctl;

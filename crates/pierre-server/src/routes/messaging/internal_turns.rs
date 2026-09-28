@@ -77,7 +77,7 @@ pub async fn run_turn(
             warn!(turn_id = %turn_id, "turn delivery carried no bearer token");
             AppError::auth_required()
         })?;
-    runner.verifier().verify(token).await?;
+    runner.verify_delivery(token).await?;
 
     let tenant_id = TenantId::parse_str(&body.tenant_id)
         .map_err(|_| AppError::invalid_input("tenant_id is not a tenant id"))?;

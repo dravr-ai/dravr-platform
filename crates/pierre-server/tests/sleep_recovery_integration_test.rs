@@ -108,7 +108,6 @@ fn create_test_security_config() -> SecurityConfig {
 fn create_test_config() -> Arc<ServerConfig> {
     Arc::new(ServerConfig {
         http_port: 4000,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -287,9 +286,6 @@ async fn test_analyze_sleep_quality_tool() -> Result<()> {
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await?;
@@ -342,9 +338,6 @@ async fn test_analyze_sleep_quality_poor_sleep() -> Result<()> {
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await?;
@@ -378,10 +371,8 @@ async fn test_calculate_recovery_score_tool() -> Result<()> {
         }),
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
-        tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
+        // The training-load read is tenant-scoped, as every tool call is.
+        tenant_id: Some(Uuid::new_v4().to_string()),
     };
 
     let response = executor.execute_tool(request).await?;
@@ -413,10 +404,8 @@ async fn test_calculate_recovery_score_fatigued() -> Result<()> {
         }),
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
-        tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
+        // The training-load read is tenant-scoped, as every tool call is.
+        tenant_id: Some(Uuid::new_v4().to_string()),
     };
 
     let response = executor.execute_tool(request).await?;
@@ -488,10 +477,8 @@ async fn test_suggest_rest_day_tool() -> Result<()> {
         }),
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
-        tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
+        // The training-load read is tenant-scoped, as every tool call is.
+        tenant_id: Some(Uuid::new_v4().to_string()),
     };
 
     let response = executor.execute_tool(request).await?;
@@ -610,9 +597,6 @@ async fn test_track_sleep_trends_tool() -> Result<()> {
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await?;
@@ -691,10 +675,8 @@ async fn test_optimize_sleep_schedule_tool() -> Result<()> {
         }),
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
-        tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
+        // The training-load read is tenant-scoped, as every tool call is.
+        tenant_id: Some(Uuid::new_v4().to_string()),
     };
 
     let response = executor.execute_tool(request).await?;
@@ -725,9 +707,6 @@ async fn test_missing_required_parameters() -> Result<()> {
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     // With neither argument the tool reads the synced sleep; a request that
@@ -759,9 +738,6 @@ async fn test_invalid_sleep_data_format() -> Result<()> {
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let result = executor.execute_tool(request).await;

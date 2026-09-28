@@ -12,11 +12,9 @@ use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
-use crate::runtime::ToolRuntime;
 use chrono::{Duration, Utc};
 use pierre_config::constants::limits::METERS_PER_KILOMETER;
 use pierre_core::civil_time::resolve_zone;
-use pierre_core::errors::AppResult;
 use pierre_core::models::Activity;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_intelligence::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
@@ -25,139 +23,12 @@ use pierre_intelligence::{
     AlgorithmConfig, FormBand, PatternDetector, PerformancePredictor, RiskLevel,
     TrainingLoadCalculator,
 };
-use pierre_mcp_schema::{Content, CreateMessageRequest, ModelPreferences, PromptMessage};
-use pierre_mcp_transport::sampling_peer::SamplingPeer;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 
-const ACTIVITY_SUMMARY_PLACEHOLDER: &str = "{activity_summary}";
-const RECOMMENDATION_TYPE_PLACEHOLDER: &str = "{recommendation_type}";
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
-use tracing::warn;
-
-/// Generate training recommendations via MCP sampling
-///
-/// Sends activity data to the client's LLM via MCP sampling for AI-powered coaching advice.
-/// Returns natural language recommendations based on training patterns.
-///
-/// # Arguments
-/// * `sampling_peer` - MCP sampling peer for LLM requests
-/// * `activities` - Recent activity data
-/// * `recommendation_type` - Type of recommendations requested
-///
-/// # Returns
-/// JSON response with LLM-generated training recommendations
-///
-/// # Errors
-/// Returns error if sampling request fails or response is invalid
-async fn generate_recommendations_via_sampling(
-    sampling_peer: &Arc<SamplingPeer>,
-    resources: &dyn ToolRuntime,
-    activities: &[Activity],
-    recommendation_type: &str,
-) -> AppResult<RecommendationsResult> {
-    use {Content, CreateMessageRequest, ModelPreferences, PromptMessage};
-
-    // Prepare activity summary for LLM analysis
-    let activity_summary = if activities.is_empty() {
-        "No recent training data available.".to_owned()
-    } else {
-        let recent_count = activities.len().min(10);
-        let recent_activities = &activities[..recent_count];
-
-        let total_distance: f64 = recent_activities
-            .iter()
-            .filter_map(Activity::distance_meters)
-            .sum();
-        let total_duration: u64 = recent_activities
-            .iter()
-            .map(Activity::duration_seconds)
-            .sum();
-        let activity_types: Vec<String> = recent_activities
-            .iter()
-            .map(|a| format!("{:?}", a.sport_type()))
-            .collect();
-
-        {
-            #[allow(clippy::cast_precision_loss)]
-            let duration_hours = total_duration as f64 / 3600.0;
-            #[allow(clippy::cast_precision_loss)]
-            let activities_per_week = recent_count as f64 / 4.0;
-
-            format!(
-                "Recent training data ({recent_count} activities):\n\
-                 - Total distance: {:.2} km\n\
-                 - Total duration: {duration_hours:.1} hours\n\
-                 - Activity types: {}\n\
-                 - Activities per week: {activities_per_week:.1}",
-                total_distance / 1000.0,
-                activity_types.join(", ")
-            )
-        }
-    };
-
-    // Create prompt for LLM from template
-    let prompt = resources
-        .recommendation_analysis_prompt()
-        .replace(ACTIVITY_SUMMARY_PLACEHOLDER, &activity_summary)
-        .replace(RECOMMENDATION_TYPE_PLACEHOLDER, recommendation_type);
-
-    // Send sampling request to client's LLM
-    let request = CreateMessageRequest {
-        messages: vec![PromptMessage::user(Content::Text { text: prompt })],
-        model_preferences: Some(ModelPreferences {
-            // High intelligence priority - client decides actual model
-            hints: None,
-            intelligence_priority: Some(0.8),
-            cost_priority: None,
-            speed_priority: None,
-        }),
-        max_tokens: 1024,
-        temperature: Some(0.7),
-        system_prompt: Some(resources.recommendation_system_prompt().trim().to_owned()),
-        include_context: None,
-        stop_sequences: None,
-        metadata: None,
-    };
-
-    let result = sampling_peer.create_message(request).await?;
-
-    // Validate the model's reply against the shape this tool declares, and
-    // fall back when it does not fit. Passing an arbitrary `Value` through
-    // made whatever the client's LLM emitted the tool's answer unchecked —
-    // a contract no outputSchema could state, and third-party output landing
-    // in an athlete's coaching context unread.
-    Ok(sampled_or_wrapped(
-        &result.content.text,
-        recommendation_type,
-    ))
-}
-
-/// Take the model's reply when it fits the declared shape, and wrap it as
-/// prose when it does not.
-///
-/// Public within the crate so the wrapping has a test. The model is the one
-/// input this tool does not control, and "it fit" versus "it did not" is the
-/// whole of what an `outputSchema` promises here.
-#[must_use]
-pub fn sampled_or_wrapped(response_text: &str, recommendation_type: &str) -> RecommendationsResult {
-    let mut sampled =
-        serde_json::from_str::<RecommendationsResult>(response_text).unwrap_or_else(|_| {
-            base_recommendations(
-                recommendation_type,
-                "medium",
-                "Generated via MCP sampling".to_owned(),
-                vec![response_text.to_owned()],
-            )
-        });
-    // Ours either way: a model that names itself something else is not
-    // allowed to hide that a model wrote this.
-    sampled.source = Some("mcp_sampling".to_owned());
-    sampled
-}
 
 /// A metrics block with nothing measured, for a mode to fill the fields it
 /// does measure and leave the rest absent.
@@ -281,7 +152,8 @@ fn generate_training_plan_recommendations(
     sorted.sort_by_key(Activity::start_date);
 
     // Calculate training load metrics
-    let calculator = TrainingLoadCalculator::from_config(algorithm_config.clone());
+    let calculator =
+        TrainingLoadCalculator::from_config(algorithm_config.clone(), Utc::now().date_naive());
     let training_load = calculator
         .calculate_training_load(&sorted, None, None, None, None, None)
         .ok();
@@ -396,8 +268,8 @@ fn process_tsb_recommendations(
     recovery_status: &mut &str,
     reasoning: &mut String,
 ) -> FormBand {
-    let band = FormBand::from_tsb(load.tsb, load.ctl);
-    let recovery_days = TrainingLoadCalculator::recommend_recovery_days(load.tsb, load.ctl);
+    let band = FormBand::from_training_load(load);
+    let recovery_days = TrainingLoadCalculator::recommend_recovery_days(load);
 
     match band {
         FormBand::InsufficientHistory => {
@@ -412,13 +284,13 @@ fn process_tsb_recommendations(
         FormBand::DeepFatigue => {
             recommendations.push(format!(
                 "Form is deep relative to your fitness (TSB {:.1} on CTL {:.0}) - favor {recovery_days} lighter day(s)",
-                load.tsb, load.ctl
+                load.tsb, load.form_ctl
             ));
             *priority = "high";
             *recovery_status = "deep_fatigue";
             *reasoning = format!(
                 "TSB {:.1} is beyond -30% of CTL {:.0} - the deepest fatigue band relative to this athlete's own chronic load",
-                load.tsb, load.ctl
+                load.tsb, load.form_ctl
             );
         }
         FormBand::HeavyBlock => {
@@ -499,7 +371,8 @@ fn generate_recovery_recommendations(
     sorted.sort_by_key(Activity::start_date);
 
     // Calculate TSB (Training Stress Balance)
-    let calculator = TrainingLoadCalculator::from_config(algorithm_config.clone());
+    let calculator =
+        TrainingLoadCalculator::from_config(algorithm_config.clone(), Utc::now().date_naive());
     let training_load = calculator
         .calculate_training_load(&sorted, None, None, None, None, None)
         .ok();
@@ -781,7 +654,8 @@ fn generate_comprehensive_recommendations(
     sorted.sort_by_key(Activity::start_date);
 
     // Comprehensive analysis using all available modules
-    let calculator = TrainingLoadCalculator::from_config(algorithm_config.clone());
+    let calculator =
+        TrainingLoadCalculator::from_config(algorithm_config.clone(), Utc::now().date_naive());
     let training_load = calculator
         .calculate_training_load(&sorted, None, None, None, None, None)
         .ok();
@@ -798,7 +672,7 @@ fn generate_comprehensive_recommendations(
     // banding them in one else-if chain hid the fitness insight from exactly the
     // athletes carrying the most fatigue.
     if let Some(load) = &training_load {
-        let form_pct = FormBand::form_pct(load.tsb, load.ctl);
+        let form_pct = load.form_pct();
         match FormBand::from_form_pct(form_pct) {
             FormBand::DeepFatigue => {
                 if let Some(pct) = form_pct {
@@ -903,15 +777,6 @@ pub fn handle_generate_recommendations(
         use parse_user_id_for_protocol;
         use DEFAULT_ACTIVITY_LIMIT;
 
-        // Check cancellation at start
-        if let Some(token) = &request.cancellation_token {
-            if token.is_cancelled().await {
-                return Err(ProtocolError::OperationCancelled(
-                    "generate_recommendations cancelled by user".to_owned(),
-                ));
-            }
-        }
-
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
         let provider_name = match resolve_provider_for_request(
             &request.parameters,
@@ -933,48 +798,12 @@ pub fn handle_generate_recommendations(
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);
 
-        // Report progress - starting authentication
-        if let Some(reporter) = &request.progress_reporter {
-            reporter.report(
-                20.0,
-                Some(100.0),
-                Some("Checking authentication...".to_owned()),
-            );
-        }
-
-        // Check cancellation before auth
-        if let Some(token) = &request.cancellation_token {
-            if token.is_cancelled().await {
-                return Err(ProtocolError::OperationCancelled(
-                    "generate_recommendations cancelled before authentication".to_owned(),
-                ));
-            }
-        }
-
         match executor
             .auth_service
             .create_authenticated_provider(&provider_name, user_uuid, request.tenant_id.as_deref())
             .await
         {
             Ok(provider) => {
-                // Report progress after auth
-                if let Some(reporter) = &request.progress_reporter {
-                    reporter.report(
-                        40.0,
-                        Some(100.0),
-                        Some("Authenticated - fetching activities...".to_owned()),
-                    );
-                }
-
-                // Check cancellation before provider creation
-                if let Some(token) = &request.cancellation_token {
-                    if token.is_cancelled().await {
-                        return Err(ProtocolError::OperationCancelled(
-                            "generate_recommendations cancelled before fetch".to_owned(),
-                        ));
-                    }
-                }
-
                 match provider
                     .get_activities(Some(DEFAULT_ACTIVITY_LIMIT), None)
                     .await
@@ -985,14 +814,6 @@ pub fn handle_generate_recommendations(
                         // before recommendation logic runs.
                         let (activities, _fragment_report) =
                             merge_duplicates(raw_activities, &DedupConfig::default());
-                        // Report progress before generating recommendations
-                        if let Some(reporter) = &request.progress_reporter {
-                            reporter.report(
-                                70.0,
-                                Some(100.0),
-                                Some("Generating training recommendations...".to_owned()),
-                            );
-                        }
 
                         // The athlete's own zone, for the weekly-schedule
                         // histogram behind the consistency score (registre#252).
@@ -1006,48 +827,12 @@ pub fn handle_generate_recommendations(
                             .flatten()
                             .and_then(|user| user.timezone);
 
-                        // Try to use MCP sampling if available, otherwise use static analysis
-                        let analysis = if let Some(sampling_peer) =
-                            &executor.resources.sampling_peer()
-                        {
-                            // Use MCP sampling (client's LLM) to generate personalized recommendations
-                            match generate_recommendations_via_sampling(
-                                sampling_peer,
-                                &*executor.resources,
-                                &activities,
-                                recommendation_type,
-                            )
-                            .await
-                            {
-                                Ok(llm_recommendations) => llm_recommendations,
-                                Err(e) => {
-                                    warn!("MCP sampling failed, falling back to static recommendations: {}", e);
-                                    generate_training_recommendations(
-                                        &activities,
-                                        recommendation_type,
-                                        &executor.cageux_config().algorithms,
-                                        user_timezone.as_deref(),
-                                    )
-                                }
-                            }
-                        } else {
-                            // Fall back to static recommendations
-                            generate_training_recommendations(
-                                &activities,
-                                recommendation_type,
-                                &executor.cageux_config().algorithms,
-                                user_timezone.as_deref(),
-                            )
-                        };
-
-                        // Report completion
-                        if let Some(reporter) = &request.progress_reporter {
-                            reporter.report(
-                                100.0,
-                                Some(100.0),
-                                Some("Recommendations generated successfully".to_owned()),
-                            );
-                        }
+                        let analysis = generate_training_recommendations(
+                            &activities,
+                            recommendation_type,
+                            &executor.cageux_config().algorithms,
+                            user_timezone.as_deref(),
+                        );
 
                         let result = UniversalResponse {
                             success: true,

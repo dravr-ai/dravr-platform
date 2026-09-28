@@ -7,9 +7,11 @@
 //! Pre-approved emails, written once.
 //!
 //! An operator "allow" recorded before the person has an account. Emails
-//! are stored and compared lowercase, so every lookup is case-insensitive;
-//! `allow` is idempotent because the primary key turns a repeat into zero
-//! rows affected.
+//! are stored normalized (trimmed, lowercase) and compared lower-cased on both
+//! sides, so every lookup is case-insensitive and a case variant can never be
+//! stored beside its address (`idx_pre_approved_emails_email_lower`); `allow`
+//! is idempotent because the primary key turns a repeat into zero rows
+//! affected.
 //!
 //! The two backends differ in one respect only: `allowed_by` is a `uuid`
 //! column on Postgres and `TEXT` on `SQLite`. The id is therefore bound
@@ -49,10 +51,11 @@ pub(crate) const ALLOW_EMAIL_SQL: &str = r"
             ON CONFLICT (email) DO NOTHING
             ";
 
-/// Remove the allow for an address.
-pub(crate) const REMOVE_EMAIL_SQL: &str = "DELETE FROM pre_approved_emails WHERE email = $1";
+/// Remove the allow for an address, case aside.
+pub(crate) const REMOVE_EMAIL_SQL: &str =
+    "DELETE FROM pre_approved_emails WHERE lower(email) = lower($1)";
 
-/// The allow for one address.
+/// The allow for one address, case aside.
 macro_rules! get_email_sql {
     ($text:literal) => {
         concat!(
@@ -61,7 +64,7 @@ macro_rules! get_email_sql {
             pre_approved_email_columns!($text),
             "
             FROM pre_approved_emails
-            WHERE email = $1
+            WHERE lower(email) = lower($1)
             "
         )
     };
@@ -146,7 +149,7 @@ macro_rules! impl_pre_approved_email_repository {
                 note: Option<&str>,
             ) -> AppResult<bool> {
                 let result = sqlx::query(ALLOW_EMAIL_SQL)
-                    .bind(email.to_lowercase())
+                    .bind(normalize_email(email))
                     .bind(allowed_by.map($bind_id))
                     .bind(note)
                     .bind(Utc::now())
@@ -161,7 +164,7 @@ macro_rules! impl_pre_approved_email_repository {
 
             async fn remove(&self, email: &str) -> AppResult<bool> {
                 let result = sqlx::query(REMOVE_EMAIL_SQL)
-                    .bind(email.to_lowercase())
+                    .bind(normalize_email(email))
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -173,7 +176,7 @@ macro_rules! impl_pre_approved_email_repository {
 
             async fn get(&self, email: &str) -> AppResult<Option<PreApprovedEmail>> {
                 let row = sqlx::query(get_email_sql!($text))
-                    .bind(email.to_lowercase())
+                    .bind(normalize_email(email))
                     .fetch_optional(self.pool())
                     .await
                     .map_err(|e| {

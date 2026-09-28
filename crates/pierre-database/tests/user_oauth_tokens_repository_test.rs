@@ -128,14 +128,6 @@ async fn get_tokens_orders_by_the_stored_created_at_not_by_insertion() {
     let across_tenants = repos.oauth_tokens.get_tokens(user_id, None).await.unwrap();
     let providers: Vec<&str> = across_tenants.iter().map(|t| t.provider.as_str()).collect();
     assert_eq!(providers, vec!["garmin", "strava"]);
-
-    let for_provider = repos
-        .oauth_tokens
-        .get_tenant_provider_tokens(tenant_id, "strava")
-        .await
-        .unwrap();
-    assert_eq!(for_provider.len(), 1);
-    assert_eq!(for_provider[0].created_at, older.created_at);
 }
 
 #[tokio::test]
@@ -471,15 +463,4 @@ async fn a_sync_stamp_is_absent_until_written_and_scoped_to_its_row() {
         1,
         "delete_token drops one provider's row"
     );
-    repos
-        .oauth_tokens
-        .delete_tokens(user_id, tenant_id)
-        .await
-        .unwrap();
-    assert!(repos
-        .oauth_tokens
-        .get_tokens(user_id, Some(tenant_id))
-        .await
-        .unwrap()
-        .is_empty());
 }

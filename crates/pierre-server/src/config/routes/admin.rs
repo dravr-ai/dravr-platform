@@ -13,22 +13,18 @@
 use crate::config::admin::{AdminConfigService, UpdateConfigContext};
 use crate::mcp::resources::ServerContext;
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Query, State},
     http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
     Json,
 };
 use pierre_auth::security::cookies::get_cookie_value;
-use pierre_config::admin_types::{
-    ConfigAuditFilter, ConfigAuditResponse, ConfigScope, ResetConfigRequest, UpdateConfigRequest,
-    ValidateConfigRequest,
-};
+use pierre_config::admin_types::{ConfigScope, ResetConfigRequest, UpdateConfigRequest};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_middleware::{require_admin, PeerAddress};
 use pierre_routes_admin::auth::service::AdminAuthService;
 use pierre_runtime_context::ConfigLookupScope;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::info;
 use uuid::Uuid;
@@ -64,10 +60,9 @@ impl AdminConfigState {
     /// Two credentials reach these routes. The admin console sends the
     /// operator's own session (a user JWT, in the header or the `auth_token`
     /// cookie). `pierre-cli` sends the super-admin *admin token* its device
-    /// login minted, which names no user by itself — so it is accepted only
-    /// when it carries the approving super-admin's email
-    /// ([`ValidatedAdminToken::device_cli_operator_email`]), resolved here to
-    /// the user every write is audited as. A service token minted by `token
+    /// login minted — accepted only when its stored row names the approving
+    /// super-admin ([`ValidatedAdminToken::operator_user_id`], written by the
+    /// device grant alone), the user every write is audited as. A service token minted by `token
     /// generate` names no operator and is refused, whatever its permissions:
     /// `admin_config_overrides.created_by` references `users`.
     ///
@@ -137,7 +132,7 @@ impl AdminConfigState {
                 "Admin token is not super-admin; admin config needs a super-admin device login",
             ));
         }
-        let Some(email) = validated.device_cli_operator_email() else {
+        let Some(operator_id) = validated.operator_user_id else {
             return Err(AppError::auth_invalid(
                 "Admin token names no operator; admin config writes are audited per user, so sign in with `pierre-cli auth login`",
             ));
@@ -147,7 +142,7 @@ impl AdminConfigState {
             .common
             .repos
             .users
-            .get_by_email(email)
+            .get_global(operator_id)
             .await?
             .ok_or_else(|| {
                 AppError::auth_invalid(
@@ -195,25 +190,8 @@ fn user_agent(headers: &HeaderMap) -> Option<&str> {
 // Request/Response Types
 // ============================================================================
 
-/// Query parameters for audit log endpoint
-#[derive(Debug, Deserialize)]
-pub struct AuditLogQuery {
-    /// Filter by category
-    pub category: Option<String>,
-    /// Filter by parameter key
-    pub config_key: Option<String>,
-    /// Filter by admin user ID
-    pub admin_user_id: Option<String>,
-    /// Filter by tenant ID
-    pub tenant_id: Option<String>,
-    /// Maximum results to return
-    pub limit: Option<usize>,
-    /// Offset for pagination
-    pub offset: Option<usize>,
-}
-
-/// Scope selector shared by every config endpoint — catalog, category,
-/// validate, update and reset all take the same two dimensions.
+/// Scope selector shared by every config endpoint — catalog, update and
+/// reset all take the same two dimensions.
 ///
 /// Naming both `user_id` and `tenant_id` is rejected rather than silently
 /// picking one: a caller that meant "this user" and a caller that meant
@@ -330,86 +308,6 @@ pub async fn get_config(
     }))
 }
 
-/// Get configuration for a specific category
-///
-/// `GET /api/admin/config/category/{category_name}`
-///
-/// Returns parameters for a specific category
-///
-/// # Errors
-///
-/// Returns an error if the category is not found or database access fails.
-pub async fn get_category_config(
-    State(state): State<Arc<AdminConfigState>>,
-    headers: HeaderMap,
-    Path(category_name): Path<String>,
-    Query(query): Query<ConfigScopeQuery>,
-) -> AppResult<impl IntoResponse> {
-    let auth = state.authenticate_admin(&headers).await?;
-    info!(
-        user_id = %auth.user_id,
-        category = %category_name,
-        tenant_id = ?query.tenant_id,
-        user_id_scope = ?query.user_id,
-        "Admin fetching category configuration"
-    );
-
-    let mut catalog = state.service.get_catalog(query.lookup()).await?;
-
-    // Filter to requested category
-    catalog.categories.retain(|c| c.name == category_name);
-
-    if catalog.categories.is_empty() {
-        return Err(AppError::not_found(format!(
-            "Category '{category_name}' not found"
-        )));
-    }
-
-    // Update counts for filtered catalog
-    catalog.total_parameters = catalog.categories.iter().map(|c| c.parameters.len()).sum();
-    catalog.runtime_configurable_count = catalog
-        .categories
-        .iter()
-        .flat_map(|c| &c.parameters)
-        .filter(|p| p.is_runtime_configurable)
-        .count();
-    catalog.static_count = catalog.total_parameters - catalog.runtime_configurable_count;
-
-    Ok(Json(AdminConfigApiResponse {
-        success: true,
-        data: catalog,
-    }))
-}
-
-/// Validate configuration values before applying
-///
-/// `POST /api/admin/config/validate`
-///
-/// Validates proposed configuration changes without applying them
-///
-/// # Errors
-///
-/// Returns an error if validation cannot be performed.
-pub async fn validate_config(
-    State(state): State<Arc<AdminConfigState>>,
-    headers: HeaderMap,
-    Json(request): Json<ValidateConfigRequest>,
-) -> AppResult<impl IntoResponse> {
-    let auth = state.authenticate_admin(&headers).await?;
-    info!(
-        user_id = %auth.user_id,
-        parameter_count = request.parameters.len(),
-        "Admin validating configuration changes"
-    );
-
-    let validation = state.service.validate(&request).await;
-
-    Ok(Json(AdminConfigApiResponse {
-        success: validation.is_valid,
-        data: validation,
-    }))
-}
-
 /// Update configuration values
 ///
 /// `PUT /api/admin/config`
@@ -443,93 +341,6 @@ pub async fn update_config(
         .service
         .update_config(
             &request,
-            UpdateConfigContext {
-                admin_user_id: &user_id,
-                admin_email: user_email,
-                scope,
-                ip_address: client_ip.as_deref(),
-                user_agent: user_agent(&headers),
-            },
-        )
-        .await?;
-
-    let status = if response.success {
-        StatusCode::OK
-    } else {
-        StatusCode::BAD_REQUEST
-    };
-
-    Ok((
-        status,
-        Json(AdminConfigApiResponse {
-            success: response.success,
-            data: response,
-        }),
-    ))
-}
-
-/// Update configuration for a specific category
-///
-/// `PUT /api/admin/config/category/{category_name}`
-///
-/// Updates parameters within a specific category
-///
-/// # Errors
-///
-/// Returns an error if the category is not found or update fails.
-pub async fn update_category_config(
-    State(state): State<Arc<AdminConfigState>>,
-    peer: PeerAddress,
-    headers: HeaderMap,
-    Path(category_name): Path<String>,
-    Query(query): Query<ConfigScopeQuery>,
-    Json(request): Json<UpdateConfigRequest>,
-) -> AppResult<impl IntoResponse> {
-    let auth = state.authenticate_admin(&headers).await?;
-    let client_ip = audit_client_ip(&state, peer, &headers);
-    let scope = query.scope()?;
-    let user_id = auth.user_id;
-    let user_email = &auth.email;
-    info!(
-        user_id = %user_id,
-        category = %category_name,
-        tenant_id = ?query.tenant_id,
-        user_id_scope = ?query.user_id,
-        parameter_count = request.parameters.len(),
-        "Admin updating category configuration"
-    );
-
-    // Filter parameters to only those in the requested category
-    let catalog = state.service.get_catalog(query.lookup()).await?;
-    let category_keys: HashSet<String> = catalog
-        .categories
-        .iter()
-        .find(|c| c.name == category_name)
-        .map(|c| c.parameters.iter().map(|p| p.key.clone()).collect())
-        .unwrap_or_default();
-
-    if category_keys.is_empty() {
-        return Err(AppError::not_found(format!(
-            "Category '{category_name}' not found"
-        )));
-    }
-
-    // Filter request to only include parameters from this category
-    let filtered_params: HashMap<String, serde_json::Value> = request
-        .parameters
-        .into_iter()
-        .filter(|(k, _)| category_keys.contains(k))
-        .collect();
-
-    let filtered_request = UpdateConfigRequest {
-        parameters: filtered_params,
-        reason: request.reason,
-    };
-
-    let response = state
-        .service
-        .update_config(
-            &filtered_request,
             UpdateConfigContext {
                 admin_user_id: &user_id,
                 admin_email: user_email,
@@ -604,51 +415,6 @@ pub async fn reset_config(
     }))
 }
 
-/// Get configuration audit log
-///
-/// `GET /api/admin/config/history`
-///
-/// Returns the audit log of configuration changes
-///
-/// # Errors
-///
-/// Returns an error if the audit log cannot be retrieved.
-pub async fn get_audit_log(
-    State(state): State<Arc<AdminConfigState>>,
-    headers: HeaderMap,
-    Query(query): Query<AuditLogQuery>,
-) -> AppResult<impl IntoResponse> {
-    let auth = state.authenticate_admin(&headers).await?;
-    info!(
-        user_id = %auth.user_id,
-        "Admin fetching configuration audit log"
-    );
-
-    let filter = ConfigAuditFilter {
-        category: query.category,
-        config_key: query.config_key,
-        admin_user_id: query.admin_user_id,
-        tenant_id: query.tenant_id,
-        from_timestamp: None,
-        to_timestamp: None,
-    };
-
-    let limit = query.limit.unwrap_or(50).min(500);
-    let offset = query.offset.unwrap_or(0);
-
-    let (entries, total_count) = state.service.get_audit_log(&filter, limit, offset).await?;
-
-    Ok(Json(AdminConfigApiResponse {
-        success: true,
-        data: ConfigAuditResponse {
-            entries,
-            total_count,
-            offset,
-            limit,
-        },
-    }))
-}
-
 // ============================================================================
 // Router Builder
 // ============================================================================
@@ -663,10 +429,6 @@ pub fn admin_config_router(state: Arc<AdminConfigState>) -> axum::Router {
         .route("/catalog", get(get_catalog))
         .route("/", get(get_config))
         .route("/", put(update_config))
-        .route("/category/{category_name}", get(get_category_config))
-        .route("/category/{category_name}", put(update_category_config))
-        .route("/validate", post(validate_config))
         .route("/reset", post(reset_config))
-        .route("/audit", get(get_audit_log))
         .with_state(state)
 }

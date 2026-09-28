@@ -30,16 +30,16 @@ use pierre_core::untrusted::fence_athlete_text;
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use crate::capabilities::{ToolCapabilities, PROVIDER_READ};
+use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, apply_format, capabilities_to_tronc, format_property, object_schema, ok_typed,
-    tool_definition, tool_result_to_response, Formatted,
+    answers_with, apply_format, format_property, object_schema, ok_typed, tool_definition,
+    tool_result_to_response, Formatted,
 };
 use crate::implementations::data_helpers::{parse_output_format, read_only_annotations};
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
 use pierre_tools_core::ToolResult;
@@ -93,9 +93,8 @@ pub fn parse_date_range(args: &Value) -> AppResult<(DateTime<Utc>, DateTime<Utc>
 }
 
 /// Build the standard date-range + format property set used by stored
-/// health-data queries (sleep, recovery, snapshots). Inferred from the
-/// handler bodies in `handlers/health_data.rs`, which read `start`, `end`,
-/// and `format` from `request.parameters`.
+/// health-data queries (sleep, recovery, snapshots), whose handlers read
+/// `start`, `end` and `format` from `request.parameters`.
 fn date_range_properties() -> BTreeMap<String, PropertySchema> {
     let mut properties = BTreeMap::new();
     properties.insert(
@@ -212,8 +211,8 @@ impl McpTool<dyn ToolRuntime> for GetSleepSessionsTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_READ)
+    fn capabilities(&self) -> ToolCapabilities {
+        PROVIDER_READ
     }
 
     async fn execute(
@@ -305,8 +304,8 @@ impl McpTool<dyn ToolRuntime> for GetRecoveryMetricsTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_READ)
+    fn capabilities(&self) -> ToolCapabilities {
+        PROVIDER_READ
     }
 
     async fn execute(
@@ -375,8 +374,8 @@ impl McpTool<dyn ToolRuntime> for GetHealthSnapshotsTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_READ)
+    fn capabilities(&self) -> ToolCapabilities {
+        PROVIDER_READ
     }
 
     async fn execute(
@@ -442,8 +441,8 @@ impl McpTool<dyn ToolRuntime> for ListDataSourcesTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
     }
 
     async fn execute(

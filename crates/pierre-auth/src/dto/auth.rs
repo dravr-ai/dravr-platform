@@ -311,17 +311,6 @@ pub struct OAuth2ErrorResponse {
     pub error_description: Option<String>,
 }
 
-/// OAuth provider connection status
-#[derive(Debug, Serialize)]
-pub struct OAuthStatus {
-    /// Name of the OAuth provider (e.g., "strava", "google")
-    pub provider: String,
-    /// Whether the user is currently connected to this provider
-    pub connected: bool,
-    /// When the last sync occurred (ISO 8601 format)
-    pub last_sync: Option<String>,
-}
-
 /// OAuth authorization response for provider auth URLs
 #[derive(Debug, Serialize)]
 pub struct OAuthAuthorizationResponse {
@@ -365,6 +354,13 @@ pub struct ProviderStatus {
     pub requires_oauth: bool,
     /// Whether the user is connected to this provider
     pub connected: bool,
+    /// The backend whose stored connection serves a connected card — for the
+    /// Strava card either `"strava"` (the native OAuth grant) or `"sciotte"`
+    /// (the mirror session). A client re-authing the card compares it with
+    /// the backend it is about to connect to tell a reconnect from a switch.
+    /// Absent while the card is not connected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connected_backend: Option<String>,
     /// Whether a connected provider's session is no longer usable and the user
     /// must reconnect (`ConnectionStatus::NeedsReauth`/`Revoked`). Meaningful only
     /// when `connected` is true — a dead scrape session or a non-recoverable OAuth
@@ -420,6 +416,10 @@ pub struct ProviderDelegation {
     /// Whether the coach must reconnect their own account before the user's
     /// workouts can be read again. The user has nothing to reconnect.
     pub coach_needs_reauth: bool,
+    /// Why a confirmed link reads nothing until the coach links the user
+    /// again: `athlete_email_missing`, `athlete_email_mismatch` or
+    /// `member_email_unverified`. `null` while it reads, and for a proposal.
+    pub read_refused: Option<&'static str>,
 }
 
 /// Response for the /api/providers endpoint

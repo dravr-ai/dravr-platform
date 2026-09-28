@@ -12,7 +12,7 @@ use uuid::Uuid;
 use crate::database::Database;
 use crate::repositories::training_history::{
     impl_training_history_repository, training_state_from_row, DELETE_TRAINING_HISTORY_RANGE_SQL,
-    GET_TRAINING_HISTORY_SQL, LATEST_TRAINING_HISTORY_SQL, UPSERT_TRAINING_HISTORY_SQL,
+    GET_TRAINING_HISTORY_SQL, UPSERT_TRAINING_HISTORY_SQL,
 };
 use crate::repositories::uuid_columns::TextUuid;
 use crate::repositories::TrainingHistoryRepository;

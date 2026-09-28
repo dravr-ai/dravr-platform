@@ -16,8 +16,7 @@
 //! overrides and any user's, and the integration suite drives exactly that
 //! with `pierre-cli user create` accounts. What the handlers owe on top is
 //! an honest audit row: the client address and agent the request carried,
-//! read back through the audit endpoint whose SELECT used to omit the
-//! `user_id` column it then read, and panicked on the first row.
+//! read back from `admin_config_audit` itself.
 //!
 //! Every assertion pins a status AND the written value or the refusal
 //! text, so a gate that refuses an operator (or admits an athlete) fails
@@ -31,10 +30,12 @@ use common::{create_test_server_resources, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::UserRole;
+use pierre_database::backends::factory::Database;
 use pierre_mcp_server::config::routes::{admin_config_router, AdminConfigState};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_admin::auth::service::AdminAuthService;
 use serde_json::{json, Value};
+use sqlx::Row;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -142,6 +143,32 @@ async fn effective_value(resources: &Arc<ServerContext>, auth: &str, query: &str
         .expect("the catalog lists the parameter with an integer current value")
 }
 
+/// The audit row the last write of [`PARAMETER`] left: `(ip_address,
+/// user_agent, new_value)`, read from the table the handler writes.
+async fn audit_row(resources: &Arc<ServerContext>) -> (Option<String>, Option<String>, String) {
+    const SELECT: &str = "SELECT ip_address, user_agent, new_value FROM admin_config_audit \
+                          WHERE config_key = $1 ORDER BY timestamp DESC LIMIT 1";
+    match resources.agent.database.as_ref() {
+        Database::SQLite(db) => {
+            let row = sqlx::query(SELECT)
+                .bind(PARAMETER)
+                .fetch_one(db.pool())
+                .await
+                .expect("the write must leave an audit entry");
+            (row.get(0), row.get(1), row.get(2))
+        }
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(db) => {
+            let row = sqlx::query(SELECT)
+                .bind(PARAMETER)
+                .fetch_one(db.pool())
+                .await
+                .expect("the write must leave an audit entry");
+            (row.get(0), row.get(1), row.get(2))
+        }
+    }
+}
+
 // ============================================================================
 // The operator writes and reads every scope
 // ============================================================================
@@ -177,28 +204,17 @@ async fn an_admin_writes_a_system_wide_override_and_the_audit_row_names_the_clie
     );
 
     // The audit row carries the client address and agent the handler read
-    // from the request, and the audit endpoint returns it — its SELECT once
-    // omitted the user_id column it read, and panicked on the first row. The
-    // address is the rightmost entry no trusted proxy wrote — the one the
-    // OAuth2 limits key on — never the forged leftmost entry.
-    let audit = AxumTestRequest::get("/api/admin/config/audit")
-        .header("authorization", &auth)
-        .send(router(&resources))
-        .await;
-    assert_eq!(audit.status(), 200);
-    let audit: Value = audit.json();
-    let entry = audit["data"]["entries"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|entry| entry["config_key"] == PARAMETER)
-        .expect("the write must leave an audit entry");
+    // from the request. The address is the rightmost entry no trusted proxy
+    // wrote — the one the OAuth2 limits key on — never the forged leftmost
+    // entry.
+    let (ip_address, user_agent, new_value) = audit_row(&resources).await;
     assert_eq!(
-        entry["ip_address"], "203.0.113.7",
+        ip_address.as_deref(),
+        Some("203.0.113.7"),
         "the client the trusted proxies saw, not the forged 192.0.2.66"
     );
-    assert_eq!(entry["user_agent"], "authz-test/1.0");
-    assert_eq!(entry["new_value"], 5);
+    assert_eq!(user_agent.as_deref(), Some("authz-test/1.0"));
+    assert_eq!(new_value, "5");
 }
 
 /// A request that reached the server from outside every trusted network came
@@ -221,19 +237,10 @@ async fn an_untrusted_peers_forwarded_for_never_becomes_the_audit_address() {
         .await;
     assert_eq!(response.status(), 200);
 
-    let audit: Value = AxumTestRequest::get("/api/admin/config/audit")
-        .header("authorization", &auth)
-        .send(router(&resources))
-        .await
-        .json();
-    let entry = audit["data"]["entries"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|entry| entry["config_key"] == PARAMETER)
-        .expect("the write must leave an audit entry");
+    let (ip_address, _, _) = audit_row(&resources).await;
     assert_eq!(
-        entry["ip_address"], "198.51.100.20",
+        ip_address.as_deref(),
+        Some("198.51.100.20"),
         "the untrusted peer itself, not the entry it wrote"
     );
 }
@@ -250,7 +257,6 @@ async fn an_admin_reads_and_writes_another_tenants_scope() {
     for path in [
         format!("/api/admin/config/catalog{query}"),
         format!("/api/admin/config{query}"),
-        format!("/api/admin/config/category/usage_quotas{query}"),
     ] {
         let response = AxumTestRequest::get(&path)
             .header("authorization", &admin_auth)

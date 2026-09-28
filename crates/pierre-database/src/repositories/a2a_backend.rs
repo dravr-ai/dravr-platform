@@ -162,6 +162,9 @@ macro_rules! impl_a2a_repository {
                 public_key: col("api_key_hash")?,
                 capabilities: $lists::read_json(row, "capabilities")?,
                 redirect_uris: $lists::read_json(row, "redirect_uris")?,
+                contact_email: row
+                    .try_get("contact_email")
+                    .map_err(|e| a2a_column_error("contact_email", &e))?,
                 is_active: row
                     .try_get("is_active")
                     .map_err(|e| a2a_column_error("is_active", &e))?,
@@ -289,6 +292,7 @@ macro_rules! impl_a2a_repository {
                     .bind(&secret_hash)
                     .bind($lists::bind_json(&client.capabilities))
                     .bind($lists::bind_json(&client.redirect_uris))
+                    .bind(client.contact_email.as_deref().map(normalize_email))
                     .bind(i32_from_u32(client.rate_limit_requests)?)
                     .bind(i32_from_u32(client.rate_limit_window_seconds)?)
                     .bind(client.is_active)
@@ -339,17 +343,6 @@ macro_rules! impl_a2a_repository {
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to query A2A client by API key: {e}"))
-                    })?;
-                row.as_ref().map(client_from_row).transpose()
-            }
-
-            async fn get_client_by_name(&self, name: &str) -> AppResult<Option<A2AClient>> {
-                let row = sqlx::query(GET_CLIENT_BY_NAME_SQL)
-                    .bind(name)
-                    .fetch_optional(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to query A2A client by name: {e}"))
                     })?;
                 row.as_ref().map(client_from_row).transpose()
             }

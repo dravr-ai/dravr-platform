@@ -1,5 +1,5 @@
 // ABOUTME: Streams round trip — get_activity_with_streams attaches real Strava per-second samples
-// ABOUTME: Pins null handling, GPS dropout dropping, timestamp sourcing, and that the detail tier never pays for streams
+// ABOUTME: Pins null handling, GPS dropout dropping, the distance channel, and that the detail tier never pays for streams
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,9 +8,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Once};
+use std::sync::{Arc, Mutex, Once};
 
+use axum::extract::Query;
 use axum::http::StatusCode;
 use axum::{routing::get, Json, Router};
 use chrono::Utc;
@@ -62,25 +64,51 @@ fn streams_payload() -> Value {
     })
 }
 
-/// Mock Strava serving the detail and (optionally) streams endpoints, with a
-/// hit counter on the streams route.
-async fn provider_with_streams(serve_streams: bool) -> (StravaProvider, Arc<AtomicUsize>) {
-    let streams_hits = Arc::new(AtomicUsize::new(0));
-    let counter = Arc::clone(&streams_hits);
+/// A run's keyed stream set as Strava sends it: one sample a second, the
+/// cumulative `distance` channel in metres beside `time`, and one distance
+/// dropout (`null`) while the watch lost the footpod.
+fn run_streams_payload() -> Value {
+    json!({
+        "time": { "data": [0, 1, 2, 3, 4, 5] },
+        "distance": { "data": [0.0, 3.2, 6.5, null, 13.1, 16.4] },
+        "heartrate": { "data": [140, 142, 145, 147, 150, 151] },
+        "velocity_smooth": { "data": [0.0, 3.2, 3.3, 3.3, 3.3, 3.3] },
+        "latlng": { "data": [[45.5, -73.6], [45.50003, -73.6], [45.50006, -73.6], [45.50009, -73.6], [45.50012, -73.6], [45.50015, -73.6]] }
+    })
+}
+
+/// What the mock's streams route saw: how often it was hit and the `keys`
+/// each request asked for.
+#[derive(Default)]
+struct StreamsHits {
+    count: AtomicUsize,
+    keys: Mutex<Vec<String>>,
+}
+
+/// Mock Strava serving the detail endpoint and the streams endpoint, which
+/// answers `streams` or a 404 when there is none.
+async fn provider_serving(streams: Option<Value>) -> (StravaProvider, Arc<StreamsHits>) {
+    let streams_hits = Arc::new(StreamsHits::default());
+    let recorder = Arc::clone(&streams_hits);
 
     let app = Router::new()
         .route("/activities/{id}", get(|| async { Json(detail_payload()) }))
         .route(
             "/activities/{id}/streams",
-            get(move || {
-                let counter = Arc::clone(&counter);
+            get(move |Query(query): Query<HashMap<String, String>>| {
+                let recorder = Arc::clone(&recorder);
+                let streams = streams.clone();
                 async move {
-                    counter.fetch_add(1, Ordering::Relaxed);
-                    if serve_streams {
-                        Json(streams_payload()).into_response()
-                    } else {
-                        StatusCode::NOT_FOUND.into_response()
-                    }
+                    recorder.count.fetch_add(1, Ordering::Relaxed);
+                    recorder
+                        .keys
+                        .lock()
+                        .unwrap()
+                        .push(query.get("keys").cloned().unwrap_or_default());
+                    streams.map_or_else(
+                        || StatusCode::NOT_FOUND.into_response(),
+                        |streams| Json(streams).into_response(),
+                    )
                 }
             }),
         );
@@ -115,6 +143,11 @@ async fn provider_with_streams(serve_streams: bool) -> (StravaProvider, Arc<Atom
     (provider, streams_hits)
 }
 
+/// Mock Strava serving the ride's stream set, or a 404 on the streams route.
+async fn provider_with_streams(serve_streams: bool) -> (StravaProvider, Arc<StreamsHits>) {
+    provider_serving(serve_streams.then(streams_payload)).await
+}
+
 use axum::response::IntoResponse;
 
 #[tokio::test]
@@ -127,7 +160,11 @@ async fn with_streams_attaches_real_samples_and_handles_dropouts() {
         .await
         .expect("activity with streams");
 
-    assert_eq!(hits.load(Ordering::Relaxed), 1, "one streams round trip");
+    assert_eq!(
+        hits.count.load(Ordering::Relaxed),
+        1,
+        "one streams round trip"
+    );
     let stream = activity
         .time_series_data()
         .expect("streams must be attached");
@@ -162,7 +199,7 @@ async fn a_streams_failure_degrades_to_the_plain_activity() {
         .expect("activity still served");
 
     assert_eq!(
-        hits.load(Ordering::Relaxed),
+        hits.count.load(Ordering::Relaxed),
         1,
         "the streams fetch was tried"
     );
@@ -184,10 +221,41 @@ async fn the_detail_tier_never_pays_for_streams() {
         .expect("detail activity");
 
     assert_eq!(
-        hits.load(Ordering::Relaxed),
+        hits.count.load(Ordering::Relaxed),
         0,
         "get_activity_detailed must not hit the streams endpoint — the N+1 \
          detail-promotion path rides on that"
     );
     assert!(activity.time_series_data().is_none());
+}
+
+/// A run's cumulative distance reaches the series sample for sample with its
+/// time axis, which is what best-effort detection reads; a dropout repeats
+/// the last reading instead of falling back to zero.
+#[tokio::test]
+async fn a_run_stream_fills_the_cumulative_distance_channel() {
+    ensure_http_clients_initialized();
+    let (provider, hits) = provider_serving(Some(run_streams_payload())).await;
+
+    let activity = provider
+        .get_activity_with_streams("4242")
+        .await
+        .expect("activity with streams");
+
+    let requested = hits.keys.lock().unwrap().clone();
+    assert_eq!(requested.len(), 1, "one streams round trip");
+    assert!(
+        requested[0].split(',').any(|key| key == "distance"),
+        "the distance stream must be asked for, or Strava never sends it: {}",
+        requested[0]
+    );
+    let stream = activity
+        .time_series_data()
+        .expect("streams must be attached");
+    assert_eq!(stream.timestamps, vec![0, 1, 2, 3, 4, 5]);
+    assert_eq!(
+        stream.distance.as_deref(),
+        Some(&[0.0, 3.2, 6.5, 6.5, 13.1, 16.4][..]),
+        "metres from the start, aligned with the time axis; the dropout keeps 6.5"
+    );
 }

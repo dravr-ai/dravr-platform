@@ -19,13 +19,15 @@ gcp-kms = []
 
 [dependencies]
 # Workspace crates
-# `http-client` carries the shared `api_client` the Google certificate cache
+# `http-client` carries the shared `api_inner_client` the Firebase key set
 # fetches with and the GCP `TokenProvider` the Cloud KMS KEK provider uses.
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "admin-jwt", "http-client"] }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
 # The OAuth2 endpoint limiter counts its windows in the server's shared cache
 pierre-cache = { version = "0.3.0", path = "../pierre-cache" }
 pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
+# Google's published signing keys (`GoogleKeySet`) for Firebase ID tokens
+dravr-tronc = { workspace = true, features = ["google-iam"] }
 
 # Async runtime and traits
 async-trait = "0.1"
@@ -70,9 +72,6 @@ zeroize = { version = "1.8", features = ["alloc"] }
 base64 = "0.22"
 hex = "0.4"
 urlencoding = "2.1"
-
-# X.509 certificate parsing (used by Firebase JWKS validation)
-x509-parser = "0.18.1"
 
 # Logging
 tracing = "0.1"

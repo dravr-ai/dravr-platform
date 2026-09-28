@@ -13,7 +13,7 @@ use chrono::Utc;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
-use super::activity_source::{fetch_provider_activities, select_activity_provider};
+use super::activity_source::training_load_activities;
 use crate::protocol::sleep_helpers::{latest_sleep_data, sleep_history_data};
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
@@ -60,15 +60,6 @@ pub fn handle_analyze_sleep_quality(
 ) -> Pin<Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + '_>> {
     Box::pin(async move {
         use parse_user_id_for_protocol;
-
-        // Check cancellation at start
-        if let Some(token) = &request.cancellation_token {
-            if token.is_cancelled().await {
-                return Err(ProtocolError::OperationCancelled(
-                    "handle_analyze_sleep_quality cancelled by user".to_owned(),
-                ));
-            }
-        }
 
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);
@@ -196,7 +187,7 @@ pub fn handle_analyze_sleep_quality(
 /// - Auto-selects the activity provider if not specified
 ///
 /// # Parameters
-/// - `activity_provider` (optional): Provider for activities (default: auto-select or strava)
+/// - `activity_provider` (optional): Provider for activities (default: the athlete's elected provider)
 /// - `sleep_provider` (optional): Read only this source's synced sleep (e.g., "whoop", "garmin")
 /// - `sleep_data` (optional): Manual sleep data JSON (used if `sleep_provider` not specified)
 /// - `user_config` (optional): User physiological parameters (FTP, LTHR, max HR, etc.)
@@ -215,40 +206,18 @@ pub fn handle_calculate_recovery_score(
     Box::pin(async move {
         use parse_user_id_for_protocol;
 
-        // Check cancellation at start
-        if let Some(token) = &request.cancellation_token {
-            if token.is_cancelled().await {
-                return Err(ProtocolError::OperationCancelled(
-                    "handle_calculate_recovery_score cancelled by user".to_owned(),
-                ));
-            }
-        }
-
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);
 
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
 
-        // Determine activity provider: explicit param > auto-select > strava fallback
-        let activity_provider = if let Some(provider) = request
-            .parameters
-            .get("activity_provider")
-            .and_then(serde_json::Value::as_str)
-        {
-            provider.to_owned()
-        } else {
-            // Auto-select best available activity provider
-            select_activity_provider(executor, user_uuid, request.tenant_id.as_deref())
-                .await
-                .unwrap_or_else(|| "strava".to_owned())
-        };
-
-        // Fetch activities from the selected provider
-        let activities = match fetch_provider_activities(
+        // Training load from the athlete's activity provider, elected and
+        // fetched the way every activity tool does.
+        let (activity_provider, activities) = match training_load_activities(
             executor,
+            &request.parameters,
             user_uuid,
             request.tenant_id.as_deref(),
-            &activity_provider,
         )
         .await
         {
@@ -278,8 +247,10 @@ pub fn handle_calculate_recovery_score(
             .and_then(serde_json::Value::as_f64);
 
         // Calculate training load (TSB)
-        let training_load_calculator =
-            TrainingLoadCalculator::from_config(executor.cageux_config().algorithms.clone());
+        let training_load_calculator = TrainingLoadCalculator::from_config(
+            executor.cageux_config().algorithms.clone(),
+            Utc::now().date_naive(),
+        );
         let training_load = training_load_calculator
             .calculate_training_load(&activities, ftp, lthr, max_hr, resting_hr, weight_kg)
             .map_err(|e| {
@@ -514,7 +485,7 @@ pub fn handle_calculate_recovery_score(
 /// - Auto-selects the activity provider if not specified
 ///
 /// # Parameters
-/// - `activity_provider` (optional): Provider for activities (default: auto-select)
+/// - `activity_provider` (optional): Provider for activities (default: the athlete's elected provider)
 /// - `sleep_provider` (optional): Read only this source's synced sleep
 /// - `sleep_data` (optional): Manual sleep data JSON (used if `sleep_provider` not specified)
 /// - `user_config` (optional): User physiological parameters
@@ -530,36 +501,15 @@ pub fn handle_suggest_rest_day(
     Box::pin(async move {
         use parse_user_id_for_protocol;
 
-        // Check cancellation at start
-        if let Some(token) = &request.cancellation_token {
-            if token.is_cancelled().await {
-                return Err(ProtocolError::OperationCancelled(
-                    "handle_suggest_rest_day cancelled by user".to_owned(),
-                ));
-            }
-        }
-
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
 
-        // Determine activity provider
-        let activity_provider = if let Some(provider) = request
-            .parameters
-            .get("activity_provider")
-            .and_then(serde_json::Value::as_str)
-        {
-            provider.to_owned()
-        } else {
-            select_activity_provider(executor, user_uuid, request.tenant_id.as_deref())
-                .await
-                .unwrap_or_else(|| "strava".to_owned())
-        };
-
-        // Get recent activities from selected provider
-        let activities = match fetch_provider_activities(
+        // Training load from the athlete's activity provider, elected and
+        // fetched the way every activity tool does.
+        let (_, activities) = match training_load_activities(
             executor,
+            &request.parameters,
             user_uuid,
             request.tenant_id.as_deref(),
-            &activity_provider,
         )
         .await
         {
@@ -589,8 +539,10 @@ pub fn handle_suggest_rest_day(
             .and_then(serde_json::Value::as_f64);
 
         // Calculate training load
-        let training_load_calculator =
-            TrainingLoadCalculator::from_config(executor.cageux_config().algorithms.clone());
+        let training_load_calculator = TrainingLoadCalculator::from_config(
+            executor.cageux_config().algorithms.clone(),
+            Utc::now().date_naive(),
+        );
         let training_load = training_load_calculator
             .calculate_training_load(&activities, ftp, lthr, max_hr, resting_hr, weight_kg)
             .map_err(|e| {
@@ -828,15 +780,6 @@ pub fn handle_track_sleep_trends(
     Box::pin(async move {
         use parse_user_id_for_protocol;
 
-        // Check cancellation at start
-        if let Some(token) = &request.cancellation_token {
-            if token.is_cancelled().await {
-                return Err(ProtocolError::OperationCancelled(
-                    "handle_track_sleep_trends cancelled by user".to_owned(),
-                ));
-            }
-        }
-
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);
 
@@ -1031,7 +974,7 @@ pub fn handle_track_sleep_trends(
 /// - Auto-selects best available provider if not specified
 ///
 /// # Parameters
-/// - `activity_provider` (optional): Provider for activities (default: auto-select)
+/// - `activity_provider` (optional): Provider for activities (default: the athlete's elected provider)
 /// - `user_config` (optional): User physiological parameters
 /// - `upcoming_workout_intensity` (optional): "low", "moderate", or "high"
 /// - `typical_wake_time` (optional): Wake time in "HH:MM" format (default: "06:00")
@@ -1049,25 +992,13 @@ pub fn handle_optimize_sleep_schedule(
 
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
 
-        // Determine activity provider
-        let activity_provider = if let Some(provider) = request
-            .parameters
-            .get("activity_provider")
-            .and_then(serde_json::Value::as_str)
-        {
-            provider.to_owned()
-        } else {
-            select_activity_provider(executor, user_uuid, request.tenant_id.as_deref())
-                .await
-                .unwrap_or_else(|| "strava".to_owned())
-        };
-
-        // Get recent activities for training load from selected provider
-        let activities = match fetch_provider_activities(
+        // Training load from the athlete's activity provider, elected and
+        // fetched the way every activity tool does.
+        let (_, activities) = match training_load_activities(
             executor,
+            &request.parameters,
             user_uuid,
             request.tenant_id.as_deref(),
-            &activity_provider,
         )
         .await
         {
@@ -1097,8 +1028,10 @@ pub fn handle_optimize_sleep_schedule(
             .and_then(serde_json::Value::as_f64);
 
         // Calculate training load
-        let training_load_calculator =
-            TrainingLoadCalculator::from_config(executor.cageux_config().algorithms.clone());
+        let training_load_calculator = TrainingLoadCalculator::from_config(
+            executor.cageux_config().algorithms.clone(),
+            Utc::now().date_naive(),
+        );
         let training_load = training_load_calculator
             .calculate_training_load(&activities, ftp, lthr, max_hr, resting_hr, weight_kg)
             .map_err(|e| {
@@ -1121,7 +1054,7 @@ pub fn handle_optimize_sleep_schedule(
         // Calculate recommended sleep duration
         let base_recommendation = config.sleep_duration.athlete_optimal_hours;
         // Fatigue vs this athlete's own base: -10 absolute flagged CTL-150 at -7%.
-        let band = FormBand::from_tsb(training_load.tsb, training_load.ctl);
+        let band = FormBand::from_training_load(&training_load);
         let carrying_fatigue = matches!(band, FormBand::DeepFatigue | FormBand::HeavyBlock);
 
         let recommended_hours = if carrying_fatigue {

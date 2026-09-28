@@ -86,17 +86,6 @@ impl From<AgentWithListing> for StoreAgentDetail {
     }
 }
 
-/// Category with agent count
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CategoryCount {
-    /// Category identifier
-    pub category: AgentCategory,
-    /// Human-readable category name
-    pub name: String,
-    /// Number of published agents in this category
-    pub count: usize,
-}
-
 /// Response for browse endpoint with cursor-based pagination
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BrowseAgentsResponse {
@@ -121,15 +110,6 @@ pub struct SearchAgentsResponse {
     pub metadata: StoreMetadata,
 }
 
-/// Response for categories endpoint
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CategoriesResponse {
-    /// Categories with counts
-    pub categories: Vec<CategoryCount>,
-    /// Response metadata
-    pub metadata: StoreMetadata,
-}
-
 /// Response metadata
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StoreMetadata {
@@ -145,7 +125,6 @@ pub struct StoreMetadata {
 ///
 /// - `GET /api/store/agents` - Browse published agents
 /// - `GET /api/store/agents/{id}` - Get agent details by ID
-/// - `GET /api/store/categories` - List categories with counts
 /// - `GET /api/store/search` - Search agents
 /// - `POST /api/store/agents/{id}/install` - Install an agent
 /// - `DELETE /api/store/agents/{id}/install` - Uninstall an agent
@@ -155,14 +134,12 @@ where
     C: AgentsCtx + MiddlewareCtx,
 {
     Router::new()
-        .route("/api/store/health", get(store_health))
         .route("/api/store/agents", get(handle_browse::<C>))
         .route("/api/store/agents/{id}", get(handle_get_agent::<C>))
         .route(
             "/api/store/agents/{id}/install",
             post(handle_install::<C>).delete(handle_uninstall::<C>),
         )
-        .route("/api/store/categories", get(handle_categories::<C>))
         .route("/api/store/search", get(handle_search::<C>))
         .route(
             "/api/store/installations",
@@ -275,63 +252,6 @@ async fn handle_get_agent<C: AgentsCtx + MiddlewareCtx>(
 
     let detail: StoreAgentDetail = cwl.into();
     Ok((StatusCode::OK, Json(detail)).into_response())
-}
-
-/// Handle GET /api/store/categories - List categories with counts
-async fn handle_categories<C: AgentsCtx + MiddlewareCtx>(
-    State(ctx): State<Arc<C>>,
-    auth: AuthenticatedUser,
-) -> Result<Response, AppError> {
-    let auth = auth.into_inner();
-
-    let manager = get_store_manager(&ctx);
-
-    // Use optimized single-query category count (replaces 7 queries with 1)
-    let counts = manager.get_category_counts().await?;
-
-    // Build response with all categories that have agents
-    let all_categories = [
-        AgentCategory::Training,
-        AgentCategory::Nutrition,
-        AgentCategory::Recovery,
-        AgentCategory::Recipes,
-        AgentCategory::Mobility,
-        AgentCategory::Analysis,
-        AgentCategory::Custom,
-    ];
-
-    let categories: Vec<CategoryCount> = all_categories
-        .iter()
-        .filter_map(|cat| {
-            counts.get(cat).and_then(|&count| {
-                if count > 0 {
-                    // Count from SQL COUNT is always non-negative and fits in usize
-                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                    let count_usize = count as usize;
-                    Some(CategoryCount {
-                        category: *cat,
-                        name: cat.display_name().to_owned(),
-                        count: count_usize,
-                    })
-                } else {
-                    None
-                }
-            })
-        })
-        .collect();
-
-    info!(
-        "User {} fetched {} store categories",
-        auth.user_id,
-        categories.len()
-    );
-
-    let response = CategoriesResponse {
-        categories,
-        metadata: build_metadata(),
-    };
-
-    Ok((StatusCode::OK, Json(response)).into_response())
 }
 
 /// Handle GET /api/store/search - Search published agents
@@ -542,9 +462,4 @@ pub struct InstallationsResponse {
     pub agents: Vec<StoreAgent>,
     /// Response metadata
     pub metadata: StoreMetadata,
-}
-
-/// Health check endpoint for store routes
-async fn store_health() -> &'static str {
-    "Store routes healthy"
 }

@@ -211,6 +211,7 @@ async fn apply_style_stages(
     );
     enforce_conformance(
         ctx.chat_provider.as_ref(),
+        &ctx.prompt_registry,
         &ctx.persona_contract_registry,
         persona,
         content,
@@ -264,9 +265,14 @@ async fn repaired_extraction(
         return None;
     }
     let provider = ctx.chat_provider.as_ref()?;
-    let repaired =
-        viz_blocks::repair_refused_blocks(provider, raw_content, &current.refusals, active_model)
-            .await?;
+    let repaired = viz_blocks::repair_refused_blocks(
+        provider,
+        &ctx.prompt_registry,
+        raw_content,
+        &current.refusals,
+        active_model,
+    )
+    .await?;
     // A repaired reply may name an activity the first pass never read. The
     // map is shared, so the ones it already holds cost nothing here.
     viz_route::read_route_tracks(ctx, input, granted, tools_called, &repaired, tracks).await;

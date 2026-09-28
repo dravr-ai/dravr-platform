@@ -120,9 +120,6 @@ async fn save_plan(
             user_id: user_id.to_string(),
             protocol: "test".to_owned(),
             tenant_id: Some(tenant_id.to_string()),
-            progress_token: None,
-            cancellation_token: None,
-            progress_reporter: None,
         })
         .await?;
     assert!(saved.success, "plan save failed: {:?}", saved.error);
@@ -573,9 +570,6 @@ async fn a_save_names_the_argument_keys_it_ignored() -> Result<()> {
             user_id: user_id.to_string(),
             protocol: "test".to_owned(),
             tenant_id: Some(tenant.to_string()),
-            progress_token: None,
-            cancellation_token: None,
-            progress_reporter: None,
         })
         .await?;
     assert!(saved.success, "the save still succeeds: {:?}", saved.error);
@@ -619,9 +613,6 @@ async fn a_well_formed_save_reports_no_ignored_arguments() -> Result<()> {
             user_id: user_id.to_string(),
             protocol: "test".to_owned(),
             tenant_id: Some(tenant.to_string()),
-            progress_token: None,
-            cancellation_token: None,
-            progress_reporter: None,
         })
         .await?;
     assert!(saved.success, "plan save failed: {:?}", saved.error);

@@ -38,16 +38,15 @@ use super::agents_output::{
 use super::agents_tool_shape::{
     destructive_annotations, extract_format, read_only_annotations, write_annotations,
 };
-use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, apply_format, capabilities_to_tronc, format_property, object_schema,
-    object_schema_with_format, ok_typed, tool_definition, tool_result_to_response, Formatted,
+    answers_with, apply_format, format_property, object_schema, object_schema_with_format,
+    ok_typed, tool_definition, tool_result_to_response, Formatted,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::field_update::FieldUpdate;
 use pierre_core::models::agents::{
@@ -118,12 +117,8 @@ impl McpTool<dyn ToolRuntime> for ListAgentsTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::AGENTS
-                | ToolCapabilities::READS_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
     }
 
     async fn execute(
@@ -277,12 +272,8 @@ impl McpTool<dyn ToolRuntime> for CreateAgentTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::AGENTS
-                | ToolCapabilities::WRITES_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA
     }
 
     async fn execute(
@@ -398,12 +389,8 @@ impl McpTool<dyn ToolRuntime> for GetAgentTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::AGENTS
-                | ToolCapabilities::READS_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
     }
 
     async fn execute(
@@ -517,12 +504,8 @@ impl McpTool<dyn ToolRuntime> for UpdateAgentTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::AGENTS
-                | ToolCapabilities::WRITES_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA
     }
 
     async fn execute(
@@ -633,12 +616,8 @@ impl McpTool<dyn ToolRuntime> for DeleteAgentTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::AGENTS
-                | ToolCapabilities::WRITES_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA
     }
 
     async fn execute(
@@ -711,12 +690,8 @@ impl McpTool<dyn ToolRuntime> for ToggleAgentFavoriteTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::AGENTS
-                | ToolCapabilities::WRITES_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA
     }
 
     async fn execute(
@@ -816,12 +791,8 @@ impl McpTool<dyn ToolRuntime> for SearchAgentsTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::AGENTS
-                | ToolCapabilities::READS_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
     }
 
     async fn execute(
@@ -896,12 +867,8 @@ impl McpTool<dyn ToolRuntime> for ActivateAgentTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::AGENTS
-                | ToolCapabilities::WRITES_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA
     }
 
     async fn execute(
@@ -965,12 +932,8 @@ impl McpTool<dyn ToolRuntime> for DeactivateAgentTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::AGENTS
-                | ToolCapabilities::WRITES_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA
     }
 
     async fn execute(
@@ -1022,12 +985,8 @@ impl McpTool<dyn ToolRuntime> for GetActiveAgentTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::AGENTS
-                | ToolCapabilities::READS_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
     }
 
     async fn execute(
@@ -1085,12 +1044,8 @@ impl McpTool<dyn ToolRuntime> for HideAgentTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::AGENTS
-                | ToolCapabilities::WRITES_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA
     }
 
     async fn execute(
@@ -1164,12 +1119,8 @@ impl McpTool<dyn ToolRuntime> for ShowAgentTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::AGENTS
-                | ToolCapabilities::WRITES_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA
     }
 
     async fn execute(
@@ -1232,12 +1183,8 @@ impl McpTool<dyn ToolRuntime> for ListHiddenAgentsTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::AGENTS
-                | ToolCapabilities::READS_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
     }
 
     async fn execute(

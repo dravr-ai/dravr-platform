@@ -134,9 +134,12 @@ fn activities_answer(session: &str, athlete: Option<&str>) -> (u16, Value) {
         None => (400, json!({ "error": ATHLETE_REQUIRED })),
         Some(LINKED_ATHLETE) => (
             200,
-            json!({ "activities": [workout(LINKED_WORKOUT)], "head_complete": true }),
+            json!({ "count": 1, "activities": [workout(LINKED_WORKOUT)], "head_complete": true }),
         ),
-        Some(UNNAMED_ATHLETE) => (200, json!({ "activities": [], "head_complete": true })),
+        Some(UNNAMED_ATHLETE) => (
+            200,
+            json!({ "count": 0, "activities": [], "head_complete": true }),
+        ),
         Some(other) => (
             403,
             json!({ "error": ATHLETE_NOT_ACCESSIBLE, "athlete": other }),

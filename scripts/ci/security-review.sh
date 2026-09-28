@@ -34,9 +34,9 @@ echo -e "${BLUE}=========================================${NC}"
 echo ""
 echo -e "${BLUE}--- 1. Authorization Boundaries ---${NC}"
 
-SUPER_ADMIN_CHECKS=$(rg "super.?admin|SuperAdmin" crates/pierre-server/src/routes/ --type rust -l 2>/dev/null | wc -l | tr -d ' ')
+SUPER_ADMIN_CHECKS=$(rg "super.?admin|SuperAdmin" crates/*/src/ --type rust -l 2>/dev/null | wc -l | tr -d ' ')
 if [ "$SUPER_ADMIN_CHECKS" -gt 0 ]; then
-    SUPER_ADMIN_GATING=$(rg "is_super_admin" crates/pierre-server/src/routes/ --type rust --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+    SUPER_ADMIN_GATING=$(rg "is_super_admin" crates/*/src/ --type rust --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
     if [ "$SUPER_ADMIN_GATING" -gt 0 ]; then
         pass "Super-admin gating found ($SUPER_ADMIN_GATING checks across routes)"
     else
@@ -108,8 +108,8 @@ fi
 echo ""
 echo -e "${BLUE}--- 4. OAuth & Protocol Compliance ---${NC}"
 
-STATE_VALIDATION=$(rg "state.*param|validate.*state|verify.*state|state_matches" crates/pierre-server/src/ --type rust --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
-PKCE_REFS=$(rg "code_challenge|code_verifier" crates/pierre-server/src/ --type rust --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+STATE_VALIDATION=$(rg "state.*param|validate.*state|verify.*state|state_matches" crates/*/src/ --type rust --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+PKCE_REFS=$(rg "code_challenge|code_verifier" crates/*/src/ --type rust --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 
 if [ "$STATE_VALIDATION" -gt 0 ]; then
     pass "OAuth state validation: $STATE_VALIDATION references"
@@ -152,14 +152,14 @@ fi
 
 # Check for unescaped HTML interpolation (server-only: HTML responses are rendered
 # exclusively in pierre-server; no other crate emits text/html).
-HTML_UNESCAPED=$(rg 'text/html|Content-Type.*html' crates/pierre-server/src/ --type rust -B 5 -A 10 2>/dev/null | \
+HTML_UNESCAPED=$(rg 'text/html|Content-Type.*html' crates/*/src/ --type rust -B 5 -A 10 2>/dev/null | \
   rg 'format!' | rg -v 'html_escape|encode_text' | wc -l | tr -d ' ')
 
 if [ "$HTML_UNESCAPED" -eq 0 ]; then
     pass "HTML output properly escaped"
 else
     fail "Found $HTML_UNESCAPED unescaped HTML interpolation patterns"
-    rg 'text/html|Content-Type.*html' crates/pierre-server/src/ --type rust -B 5 -A 10 -n 2>/dev/null | \
+    rg 'text/html|Content-Type.*html' crates/*/src/ --type rust -B 5 -A 10 -n 2>/dev/null | \
       rg 'format!' | rg -v 'html_escape|encode_text' | head -5
 fi
 
@@ -171,14 +171,14 @@ echo -e "${BLUE}--- 6. Tenant Isolation in Non-DB Code ---${NC}"
 
 # Check for global mutable OAuth credential storage that should be per-tenant
 # Excludes: read-only app config (ServerConfig, RouteTimeoutConfig), comment lines, provider definitions
-GLOBAL_OAUTH_STATE=$(rg 'static.*OAuth.*Mutex|static.*OAuth.*RwLock|LazyLock.*OAuth.*token|LazyLock.*OAuth.*credential' crates/pierre-server/src/ --type rust -n 2>/dev/null | \
+GLOBAL_OAUTH_STATE=$(rg 'static.*OAuth.*Mutex|static.*OAuth.*RwLock|LazyLock.*OAuth.*token|LazyLock.*OAuth.*credential' crates/*/src/ --type rust -n 2>/dev/null | \
   rg -v 'test|//|DEFAULT' | wc -l | tr -d ' ')
 
 if [ "$GLOBAL_OAUTH_STATE" -eq 0 ]; then
     pass "No global mutable OAuth credential storage"
 else
     fail "Found $GLOBAL_OAUTH_STATE global OAuth credential storage patterns (should be per-tenant)"
-    rg 'static.*OAuth.*Mutex|static.*OAuth.*RwLock|LazyLock.*OAuth.*token|LazyLock.*OAuth.*credential' crates/pierre-server/src/ --type rust -n 2>/dev/null | \
+    rg 'static.*OAuth.*Mutex|static.*OAuth.*RwLock|LazyLock.*OAuth.*token|LazyLock.*OAuth.*credential' crates/*/src/ --type rust -n 2>/dev/null | \
       rg -v 'test|//|DEFAULT' | head -5
 fi
 

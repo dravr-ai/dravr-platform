@@ -146,8 +146,9 @@ by its owner-only (0600) file mode.
 2. Bridge opens the server's provider authorization URL in the browser
 3. User authorizes with the provider
 4. Provider redirects to the server, which stores the provider token
-5. The server notifies the bridge's callback server; the host is told through
-   `notifications/message`
+5. The bridge polls `get_connection_status` for the provider over its MCP session
+   until it reads connected, inside the host's request budget; nothing is sent back
+   to the bridge's machine, so a bridge on any host learns the outcome
 
 ## Callback Server
 
@@ -156,8 +157,8 @@ by its owner-only (0600) file mode.
 - **Fallback**: Dynamic port if 35535 in use (EADDRINUSE)
 
 ### Endpoints
-- `GET /oauth/callback` - Receives OAuth authorization code
-- `POST /oauth/focus-recovery` - Restores the host's focus after OAuth
+- `GET /oauth/callback` - Receives the Dravr sign-in's authorization code. It is the only
+  route: provider flows complete on the server, which the bridge polls for the outcome
 
 ## MCP Protocol Mapping
 
@@ -191,7 +192,7 @@ Bridge: on a task, polls tasks/get until terminal, relaying progress to a host t
 - Initiates OAuth flow for fitness provider
 - Requires `provider` argument (e.g., "strava")
 - Opens browser for provider authorization
-- Answers inside the host's request deadline; an authorization still unfinished when the wait ends is reported as pending and announces itself through notifications/message when it lands
+- Answers inside the host's request deadline by polling `get_connection_status` every 2s until the provider reads connected; an authorization still unfinished when the wait ends is reported as pending, and running the tool again once the browser page is finished confirms it
 
 Any other tool called without a Dravr session starts the same sign-in, on the same bounded wait, and reports back naming itself: the tool runs when the sign-in lands inside the wait, and otherwise the reply asks for it to be run again once the browser sign-in is finished. One sign-in runs at a time - a second call joins the one in flight rather than opening a second browser page.
 

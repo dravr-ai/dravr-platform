@@ -12,6 +12,7 @@ use pierre_core::constants::tiers;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Tenant, TenantId};
 use pierre_database::RepositoryRegistry;
+use pierre_middleware::mask_email;
 
 /// Reserved tenant slugs that cannot be used for user-created tenants
 const RESERVED_SLUGS: &[&str] = &[
@@ -150,14 +151,18 @@ pub async fn provision_tenant_for_approval(
         .map_err(|e| {
             error!(
                 "Failed to create default tenant for user {}: {}",
-                user_email, e
+                mask_email(user_email),
+                e
             );
             AppError::internal(format!("Failed to create tenant: {e}"))
         })?;
 
+    // The tenant's name, not just the user's address, can carry the email: an
+    // approval with no display name names the tenant "<email>'s Organization".
     info!(
-        "Created default tenant '{}' for user {}",
-        tenant.name, user_email
+        "Created default tenant {} for user {}",
+        tenant.id,
+        mask_email(user_email)
     );
 
     database
@@ -167,7 +172,9 @@ pub async fn provision_tenant_for_approval(
         .map_err(|e| {
             error!(
                 "Failed to link user {} to tenant {}: {}",
-                user_email, tenant.id, e
+                mask_email(user_email),
+                tenant.id,
+                e
             );
             AppError::internal(format!("Failed to link user to created tenant: {e}"))
         })?;

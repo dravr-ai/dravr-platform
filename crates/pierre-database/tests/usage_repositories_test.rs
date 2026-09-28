@@ -563,19 +563,6 @@ async fn an_llm_usage_row_reads_back_as_its_insert_returned_it() {
             .unwrap()
             >= 3
     );
-
-    let spend = repo
-        .sum_cost_usd_for_tenant_period(
-            tenant,
-            Utc::now() - Duration::hours(1),
-            Utc::now() + Duration::hours(1),
-        )
-        .await
-        .unwrap();
-    assert!(
-        (spend - 0.0063).abs() < 1e-9,
-        "three calls' cost, got {spend}"
-    );
 }
 
 #[tokio::test]

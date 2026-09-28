@@ -6,7 +6,7 @@
 
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::ApiKey;
+use pierre_core::models::{normalize_email, ApiKey};
 use uuid::Uuid;
 
 use crate::database::Database;

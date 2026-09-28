@@ -240,6 +240,29 @@ impl LlmProviderType {
         }
     }
 
+    /// Whether this provider spends `COPILOT_GITHUB_TOKEN`, the token whose
+    /// GitHub core budget [`crate::chain_guard::copilot_headroom_checker`]
+    /// measures — so whether the chain guard may pass it over when that
+    /// budget is low or cannot be read.
+    ///
+    /// The Copilot CLI and both Copilot runtimes authenticate with it. Every
+    /// other provider spends a credential the checker does not read, and the
+    /// quota router leads with Claude Code and meters its own Copilot backend
+    /// against the same budget, so none of them may be skipped for it.
+    #[must_use]
+    pub(crate) const fn spends_copilot_github_token(self) -> bool {
+        match self.construction() {
+            ProviderConstruction::Cli(runner_type) => matches!(
+                runner_type,
+                CliRunnerType::Copilot | CliRunnerType::CopilotHeadless | CliRunnerType::CopilotSdk
+            ),
+            ProviderConstruction::CopilotHeadless | ProviderConstruction::CopilotSdk => true,
+            ProviderConstruction::HttpApi(_)
+            | ProviderConstruction::OpenAiApi
+            | ProviderConstruction::Router => false,
+        }
+    }
+
     /// How [`EmbacleProvider`](crate::EmbacleProvider) builds this provider.
     ///
     /// The CLI subprocess runners share one construction path keyed on their

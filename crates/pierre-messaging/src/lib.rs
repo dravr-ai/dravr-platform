@@ -32,7 +32,6 @@ pub use dravr_canot::descriptor;
 pub use dravr_canot::error;
 pub use dravr_canot::factory;
 pub use dravr_canot::http_client;
-pub use dravr_canot::meta_signature;
 pub use dravr_canot::models;
 pub use dravr_canot::observability;
 pub use dravr_canot::registry;

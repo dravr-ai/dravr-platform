@@ -483,7 +483,8 @@ pub struct FitnessLoadMetrics {
     pub ctl: f64,
     /// Acute training load — recent fatigue.
     pub atl: f64,
-    /// Training stress balance, `ctl - atl`.
+    /// Training stress balance — form today: CTL minus ATL at the end of
+    /// yesterday.
     pub tsb: f64,
 }
 
@@ -557,14 +558,17 @@ pub struct TrainingLoadDetail {
 /// The training-load numbers, rounded.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct LoadMetrics {
-    /// Chronic training load — long-run fitness.
+    /// Chronic training load — long-run fitness, at the end of today.
     pub ctl: f64,
-    /// Acute training load — recent fatigue.
+    /// Acute training load — recent fatigue, at the end of today.
     pub atl: f64,
-    /// Training stress balance, `ctl - atl`.
+    /// Training stress balance — form today: CTL minus ATL at the end of
+    /// yesterday, so today's session moves `ctl`/`atl` but not this.
     pub tsb: f64,
-    /// Form as a percentage of the athlete's own CTL, which is how the band
-    /// is decided. `None` when CTL is too small to divide by.
+    /// CTL at the end of yesterday — the fitness `tsb` is a share of.
+    pub form_ctl: f64,
+    /// Form as a percentage of `form_ctl`, which is how the band is decided.
+    /// `None` when that CTL is too small to divide by.
     pub tsb_pct_of_ctl: Option<f64>,
     /// Weekly TSS totals across the window, oldest week first.
     pub weekly_tss: Vec<WeeklyTss>,

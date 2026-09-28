@@ -17,8 +17,8 @@ use crate::repositories::llm_usage::{
     aggregate_from_row, call_sequence_column, daily_from_row, impl_llm_usage_repository,
     llm_usage_column_error, llm_usage_daily_series_sql, llm_usage_token_sums, recorded_at,
     since_bound, COUNT_LLM_CALLS_SINCE_SQL, INSERT_LLM_USAGE_SQL, LLM_USAGE_AGGREGATES_BY_USER_SQL,
-    LLM_USAGE_AGGREGATES_SQL, LLM_USAGE_BY_TURN_SQL, RECENT_LLM_CALLS_SQL,
-    SUM_COST_USD_FOR_TENANT_PERIOD_SQL, SUM_LLM_USAGE_SINCE_SQL, TENANT_TOOL_CALLS_SINCE_SQL,
+    LLM_USAGE_AGGREGATES_SQL, LLM_USAGE_BY_TURN_SQL, RECENT_LLM_CALLS_SQL, SUM_LLM_USAGE_SINCE_SQL,
+    TENANT_TOOL_CALLS_SINCE_SQL,
 };
 use crate::repositories::uuid_columns::NativeUuid;
 use crate::repositories::LlmUsageRepository;

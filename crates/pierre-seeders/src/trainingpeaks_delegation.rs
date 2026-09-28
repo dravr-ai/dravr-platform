@@ -18,7 +18,9 @@
 //! - a group named [`GROUP_NAME`], owned by `bob@startup.io`, is coached by
 //!   the coach and has the member (`mobiletest@pierre.dev`) in it, with the
 //!   member's and the coach's group threads filed;
-//! - one proposed link names roster athlete [`ATHLETE_ID`] ([`ATHLETE_NAME`]).
+//! - one proposed link names roster athlete [`ATHLETE_ID`] ([`ATHLETE_NAME`]),
+//!   whose roster email is the member's, and the member's email is verified:
+//!   a confirm binds the athlete to the member by that email.
 //!
 //! The session is a stand-in: nothing reads the coach's real `TrainingPeaks`
 //! through it, so a read after the member confirms fails at the scraper and is
@@ -39,9 +41,10 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::{
     AgentCategory, ConnectionType, CreateAgentRequest, DelegatedConnection, ProviderAccountRole,
-    TenantId, UserOAuthToken,
+    RosterAthlete, TenantId, UserOAuthToken,
 };
 use pierre_database::RepositoryRegistry;
+use pierre_middleware::mask_email;
 use serde_json::json;
 use tracing::info;
 use uuid::Uuid;
@@ -77,9 +80,10 @@ pub struct SeedArgs {
     pub model: Option<String>,
 }
 
-/// One seeded account and the tenant it acts in.
+/// One seeded account, its email and the tenant it acts in.
 struct Account {
     id: Uuid,
+    email: String,
     tenant: TenantId,
 }
 
@@ -109,7 +113,8 @@ pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
     seed_member_link(repos, &group, &coach, &member, &model).await?;
     info!(
         "Seeded {GROUP_NAME}: {} proposed {ATHLETE_NAME} ({ATHLETE_ID}) to {}",
-        args.coach_email, args.member_email
+        mask_email(&args.coach_email),
+        mask_email(&args.member_email)
     );
     Ok(())
 }
@@ -124,7 +129,10 @@ async fn coaches_the_group(
     let coached = repos.groups.list_groups_coached_by(coach.id).await?;
     let already = coached.iter().any(|group| group.name == GROUP_NAME);
     if already {
-        info!("{coach_email} already coaches {GROUP_NAME}; nothing to seed");
+        info!(
+            "{} already coaches {GROUP_NAME}; nothing to seed",
+            mask_email(coach_email)
+        );
     }
     Ok(already)
 }
@@ -155,14 +163,20 @@ async fn seed_member_link(
             )
             .await?;
     }
+    // The roster lists the member's own email for the athlete, and the
+    // member's email is verified: the pair a confirm binds by.
+    repos.email_verification.mark_verified(member.id).await?;
     let link = DelegatedConnection::propose(
         SCIOTTE_TRAININGPEAKS.to_owned(),
         group.id,
         coach.id,
         coach.tenant,
         member.id,
-        ATHLETE_ID.to_owned(),
-        Some(ATHLETE_NAME.to_owned()),
+        RosterAthlete {
+            id: ATHLETE_ID.to_owned(),
+            name: Some(ATHLETE_NAME.to_owned()),
+            email: Some(member.email.clone()),
+        },
     );
     repos
         .delegated_connections
@@ -194,6 +208,7 @@ async fn account(repos: &RepositoryRegistry, email: &str) -> AppResult<Account> 
         .map_err(|e| AppError::config(format!("Invalid tenant_id UUID for {email}: {e}")))?;
     Ok(Account {
         id: user.id,
+        email: user.email,
         tenant: TenantId::from_uuid(tenant),
     })
 }

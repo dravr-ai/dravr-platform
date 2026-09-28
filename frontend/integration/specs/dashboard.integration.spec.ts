@@ -105,9 +105,11 @@ test.describe('Dashboard Integration Tests', () => {
 
   test.describe('Error Handling', () => {
     test('dashboard handles API errors gracefully', async ({ page }) => {
-      await page.route('**/api/dashboard/overview', (route) => {
-        route.fulfill({ status: 500, body: JSON.stringify({ error: 'Internal error' }) });
-      });
+      // Fail the user list the admin landing (Users) fetches
+      await page.route(
+        (url) => url.pathname === '/api/admin/users',
+        (route) => route.fulfill({ status: 500, body: JSON.stringify({ error: 'Internal error' }) }),
+      );
 
       await page.reload();
 

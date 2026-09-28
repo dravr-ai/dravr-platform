@@ -87,11 +87,18 @@ pair_label() {
 # Every mirrored basename that exists on both sides today, spelled with basename
 # because BSD find has no -printf. mod.rs is the module
 # wiring, not a repository implementation.
+#
+# A SQLite file one level down (database/repositories/agents_assignments.rs)
+# still pairs with its Postgres namesake: the pair is spelled with the path
+# relative to each side's directory, and a file moved into a subdirectory stays
+# in scope.
 mapfile -t basename_pairs < <(
-    comm -12 \
-        <(find "$SQLITE_DIR" -maxdepth 1 -name '*.rs' -exec basename {} \; | sort) \
-        <(find "$PG_DIR" -maxdepth 1 -name '*.rs' -exec basename {} \; | sort) \
-    | grep -v '^mod\.rs$' | sed -E 's/^(.*)$/\1|\1/' || true
+    join -t "$(printf '\t')" -j 1 \
+        <(find "$SQLITE_DIR" -name '*.rs' | sed "s|^$SQLITE_DIR/||" \
+            | awk '{ n = $0; sub(/.*\//, "", n); print n "\t" $0 }' | sort) \
+        <(find "$PG_DIR" -name '*.rs' | sed "s|^$PG_DIR/||" \
+            | awk '{ n = $0; sub(/.*\//, "", n); print n "\t" $0 }' | sort) \
+    | awk -F '\t' '$1 != "mod.rs" { print $2 "|" $3 }' | sort -u || true
 )
 
 if [[ ${#basename_pairs[@]} -eq 0 ]]; then
@@ -125,17 +132,20 @@ trait_keys_of() {
     done < <(grep -oE '\bimpl_[a-z0-9_]+!\(' <<< "$stripped" | sed -E 's/!\($//' | sort -u)
 }
 
-# "<key>\t<basename>" for every impl file on one side.
+# "<key>\t<path relative to the side's directory>" for every impl file on one
+# side, at any depth: the SQLite agents impl lives in database/repositories/,
+# one level below the directory the basename scan reads, and an impl moved
+# into a subdirectory must not fall out of the scan by moving.
 keyed_files() {
     local dir="$1" f name key
-    for f in "$dir"/*.rs; do
-        name="$(basename "$f")"
-        [[ "$name" != "mod.rs" ]] || continue
+    while IFS= read -r f; do
+        name="${f#"$dir"/}"
+        [[ "$(basename "$name")" != "mod.rs" ]] || continue
         while read -r key; do
             [[ -n "$key" ]] || continue
             printf '%s\t%s\n' "$key" "$name"
         done < <(trait_keys_of "$f")
-    done | sort -u
+    done < <(find "$dir" -name '*.rs' | sort) | sort -u
 }
 
 # Trait-keyed pairs whose two files are NOT the same basename; a same-named
@@ -147,7 +157,7 @@ mapfile -t trait_pairs < <(
     join -t "$(printf '\t')" -j 1 \
         <(keyed_files "$SQLITE_DIR") \
         <(keyed_files "$PG_DIR") \
-    | awk -F '\t' '$2 != $3 { print $2 "|" $3 }' | sort -u || true
+    | awk -F '\t' '{ a = $2; b = $3; sub(/.*\//, "", a); sub(/.*\//, "", b); if (a != b) print $2 "|" $3 }' | sort -u || true
 )
 
 all_pairs=("${basename_pairs[@]}" "${trait_pairs[@]}")
@@ -174,6 +184,24 @@ trait_module_for() {
     done
 }
 
+# Whether a file spells out SQL statements of its own. Matched on statement
+# shape rather than on the bare keyword, and with comments dropped first, so a
+# clause named in prose or passed as a macro literal ("FOR UPDATE SKIP LOCKED")
+# is not mistaken for a copy of the SQL. Two shapes: a statement inline in a
+# string literal, and the raw-string layout the crate writes its SQL in, where
+# each clause opens its own line — `SELECT` with its `FROM` on the next line,
+# `UPDATE t SET` closing a line. That second shape is matched on a statement
+# keyword at line start, which Rust source never puts there outside a SQL
+# literal. The file is read into a variable first: with pipefail, `grep -q`
+# closing its end of a pipe early would surface as SIGPIPE from sed and the
+# match would be lost.
+carries_sql() {
+    local stripped
+    stripped="$(sed -E 's|//.*||' "$1")"
+    grep -qiE '(INSERT[[:space:]]+(OR[[:space:]]+(REPLACE|IGNORE)[[:space:]]+)?INTO[[:space:]]+[a-z_]|SELECT[[:space:]].*[[:space:]]FROM[[:space:]]+[a-z_]|UPDATE[[:space:]]+[a-z_]+[[:space:]]+SET[[:space:]]|DELETE[[:space:]]+FROM[[:space:]]+[a-z_])' <<< "$stripped" \
+        || grep -qiE '^[[:space:]]*(SELECT|INSERT[[:space:]]+(OR[[:space:]]+(REPLACE|IGNORE)[[:space:]]+)?INTO|UPDATE[[:space:]]+[a-z_]+|DELETE[[:space:]]+FROM)([[:space:]]|$)' <<< "$stripped"
+}
+
 # A pair is converged when the trait module declares shared SQL and both impl
 # files reach for it instead of carrying statements of their own.
 is_converged() {
@@ -197,9 +225,7 @@ is_converged() {
         # The file is read into a variable first: with pipefail, `grep -q`
         # closing its end of a pipe early would surface as SIGPIPE from sed
         # and the match would be lost.
-        stripped="$(sed -E 's|//.*||' "$side")"
-        if grep -qiE '(INSERT[[:space:]]+(OR[[:space:]]+(REPLACE|IGNORE)[[:space:]]+)?INTO[[:space:]]+[a-z_]|SELECT[[:space:]].*[[:space:]]FROM[[:space:]]+[a-z_]|UPDATE[[:space:]]+[a-z_]+[[:space:]]+SET[[:space:]]|DELETE[[:space:]]+FROM[[:space:]]+[a-z_])' <<< "$stripped" \
-            || grep -qiE '^[[:space:]]*(SELECT|INSERT[[:space:]]+(OR[[:space:]]+(REPLACE|IGNORE)[[:space:]]+)?INTO|UPDATE[[:space:]]+[a-z_]+|DELETE[[:space:]]+FROM)([[:space:]]|$)' <<< "$stripped"; then
+        if carries_sql "$side"; then
             return 1
         fi
         grep -qE '_SQL|_sql!' "$side" || return 1
@@ -217,10 +243,10 @@ if ! changed_paths="$(git diff --no-renames --name-only --diff-filter=AM "$BASE_
     exit 1
 fi
 mapfile -t changed_sqlite < <(
-    printf '%s\n' "$changed_paths" | grep "^$SQLITE_DIR/" | xargs -r -n1 basename | sort -u | grep -v '^mod\.rs$' || true
+    printf '%s\n' "$changed_paths" | grep "^$SQLITE_DIR/" | sed "s|^$SQLITE_DIR/||" | sort -u | grep -v '^mod\.rs$' || true
 )
 mapfile -t changed_pg < <(
-    printf '%s\n' "$changed_paths" | grep "^$PG_DIR/" | xargs -r -n1 basename | sort -u | grep -v '^mod\.rs$' || true
+    printf '%s\n' "$changed_paths" | grep "^$PG_DIR/" | sed "s|^$PG_DIR/||" | sort -u | grep -v '^mod\.rs$' || true
 )
 
 pair_touched() {
@@ -245,6 +271,72 @@ done
 standing=()
 for pair in "${all_pairs[@]}"; do
     is_converged "$pair" || standing+=("$(pair_label "$pair")")
+done
+
+# Pairs outside pierre-database: a repository trait implemented once over a
+# SQLite pool and once over a Postgres pool somewhere else in the workspace
+# (pierre-server's AdminConfigRepository is the standing case). The rule is the
+# one above: a pair the push touches must not carry SQL on both sides. The scan
+# covers every crate, because the backend directories above are only where the
+# convention puts a pair, not where one can be written.
+backend_of() {
+    if grep -qE 'SqlitePool|Pool<Sqlite>|sqlx::sqlite' "$1"; then
+        echo sqlite
+    elif grep -qE 'PgPool|Pool<Postgres>|sqlx::postgres' "$1"; then
+        echo pg
+    fi
+}
+if ! all_changed="$(git diff --no-renames --name-only --diff-filter=AM "$BASE_REF"...HEAD -- 'crates/*.rs')"; then
+    echo "❌ backend-pairs: git diff against '$BASE_REF' failed."
+    echo "FAIL: scan verified nothing."
+    exit 1
+fi
+mapfile -t crate_impls < <(
+    grep -rlE --include='*.rs' 'impl [A-Za-z0-9]+Repository for [A-Za-z0-9_]+' crates/*/src 2>/dev/null \
+        | grep -v "^$DB_ROOT/" | sort || true
+)
+crate_keyed=()
+for f in "${crate_impls[@]}"; do
+    backend="$(backend_of "$f")"
+    [[ -n "$backend" ]] || continue
+    while read -r trait; do
+        [[ -n "$trait" ]] && crate_keyed+=("$trait"$'\t'"$backend"$'\t'"$f")
+    done < <(sed -E 's|//.*||' "$f" | grep -oE 'impl [A-Za-z0-9]+Repository for' | awk '{print $2}' | sort -u)
+done
+mapfile -t crate_pairs < <(
+    join -t "$(printf '\t')" -j 1 \
+        <(printf '%s\n' "${crate_keyed[@]:-}" | awk -F '\t' '$2 == "sqlite" { print $1 "\t" $3 }' | sort) \
+        <(printf '%s\n' "${crate_keyed[@]:-}" | awk -F '\t' '$2 == "pg" { print $1 "\t" $3 }' | sort) \
+    | awk -F '\t' '{ print $2 "|" $3 }' | sort -u || true
+)
+for pair in "${crate_pairs[@]}"; do
+    [[ -n "$pair" ]] || continue
+    if carries_sql "${pair%%|*}" && carries_sql "${pair##*|}"; then
+        if printf '%s\n' "$all_changed" | grep -qxF -e "${pair%%|*}" -e "${pair##*|}"; then
+            echo "❌ '${pair%%|*} ↔ ${pair##*|}' is written twice: each side carries its own SQL."
+            fail=1
+        else
+            standing+=("${pair%%|*} ↔ ${pair##*|}")
+        fi
+    fi
+done
+
+# A backend chosen at query time: a match on the factory's `Database` variants
+# whose arms run their own SQL is the same duplication with no file boundary
+# to pair on (claim_verdict_backfill.rs was the standing case). Whole-tree and
+# fatal — the statement belongs in a repository written once. The factory's
+# own dispatch and the test-database factory are exempt: neither holds a
+# statement a production read runs.
+mapfile -t query_time_splits < <(
+    grep -rlE --include='*.rs' 'Database::(SQLite|PostgreSQL)\(' crates/*/src 2>/dev/null \
+        | grep -v "^$DB_ROOT/backends/factory/" | grep -vx "$DB_ROOT/database/test_utils.rs" | sort || true
+)
+for f in "${query_time_splits[@]}"; do
+    [[ -n "$f" ]] || continue
+    if grep -q 'sqlx::query' "$f" && carries_sql "$f"; then
+        echo "❌ '$f' picks a backend at query time and runs its own SQL in the arms."
+        fail=1
+    fi
 done
 
 if [[ "$fail" -ne 0 ]]; then

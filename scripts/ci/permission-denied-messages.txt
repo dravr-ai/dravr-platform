@@ -45,19 +45,18 @@ crates/pierre-routes-admin/src/handlers/admin_rate_limit_override.rs:Rate-limit 
 crates/pierre-routes-admin/src/handlers/feature_flags.rs:Feature-flag admin endpoints require cookie authentication
 crates/pierre-routes-admin/src/handlers/impersonation.rs:Cannot impersonate another super admin
 crates/pierre-routes-admin/src/handlers/impersonation.rs:Super admin privileges required for impersonation
+crates/pierre-routes-admin/src/handlers/user_removal.rs:Removing or disconnecting an admin account requires a super-admin token
 crates/pierre-routes-admin/src/handlers/user_removal.rs:Token is scoped to tenant {bound}; the user belongs to or holds a provider in a tenant outside it
-crates/pierre-routes-admin/src/tool_selection.rs:Tenant-scoped tool operations require super-admin privileges
-crates/pierre-routes-auth/src/oauth.rs:Cannot initiate OAuth flow for a different user
+crates/pierre-routes-admin/src/tool_selection.rs:Tool settings of this tenant are managed by its own admins
+crates/pierre-routes-auth/src/sciotte.rs:This login link is for another provider; ask for a fresh link for this one
 crates/pierre-routes-groups/src/delegated_connections.rs:Only the group's coach can link TrainingPeaks athletes
 crates/pierre-routes-groups/src/delegated_connections.rs:Only the group's coach or the linked member can end this link
 crates/pierre-routes-groups/src/delegated_connections.rs:Only the member a link names can confirm it
 crates/pierre-routes-groups/src/group_analytics.rs:Admin or owner role required for this operation
 crates/pierre-routes-groups/src/group_update_access.rs:The group's coach may change only its weekly digest
-crates/pierre-routes-groups/src/groups.rs:A coach must belong to the group's tenant to join it
 crates/pierre-routes-groups/src/groups.rs:Admin or owner role required for this operation
 crates/pierre-routes-groups/src/groups.rs:Cannot change the group owner's role
 crates/pierre-routes-groups/src/groups.rs:Cannot remove the group owner
-crates/pierre-routes-groups/src/groups.rs:Only roster-managing coaches can join a group as its coach
 crates/pierre-routes-groups/src/groups.rs:Only the owner can promote members to admin or owner
 crates/pierre-routes-groups/src/groups.rs:Owner cannot leave the group. Transfer ownership or delete the group instead.
 crates/pierre-routes-groups/src/groups.rs:Owner role required for this operation

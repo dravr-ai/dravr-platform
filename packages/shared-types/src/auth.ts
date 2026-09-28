@@ -1,6 +1,8 @@
 // ABOUTME: Shared TypeScript types for authentication and user management
 // ABOUTME: User types, login responses, OAuth types
 
+import type { DelegationReadRefusal } from './groups.js';
+
 // ========== USER TYPES ==========
 
 /** User role */
@@ -144,19 +146,19 @@ export interface ResetPasswordResponse {
 
 // ========== OAUTH TYPES ==========
 
-/** Status of a provider connection */
-export interface ProviderStatus {
-  provider: string;
-  connected: boolean;
-  last_sync: string | null;
-}
-
 /** Extended provider status from /api/providers endpoint */
 export interface ExtendedProviderStatus {
   provider: string;
   display_name: string;
   requires_oauth: boolean;
   connected: boolean;
+  /**
+   * The backend whose stored connection serves a connected card — for the
+   * Strava card `"strava"` (the native OAuth grant) or `"sciotte"` (the mirror
+   * session). Compare it with the backend a re-auth is about to use to tell a
+   * reconnect from a switch. Absent while the card is not connected.
+   */
+  connected_backend?: string;
   /**
    * A connected provider whose session is no longer usable and needs the user
    * to reconnect (a dead sciotte scrape session or a non-recoverable OAuth
@@ -217,6 +219,12 @@ export interface ProviderDelegation {
    * can be read again. The user has nothing to reconnect.
    */
   coach_needs_reauth: boolean;
+  /**
+   * Why a confirmed link reads nothing until the coach links the user again:
+   * the roster athlete it names is not the user by email. `null` while it
+   * reads, and for a proposal.
+   */
+  read_refused: DelegationReadRefusal | null;
 }
 
 /**
@@ -289,11 +297,14 @@ export interface McpToken {
 
 // ========== USER MANAGEMENT TYPES ==========
 
-/** Response for user management operations */
+/** Response for user management operations (approve, suspend) */
 export interface UserManagementResponse {
   success: boolean;
   message: string;
-  user?: AdminUser;
+  data?: {
+    user: Pick<AdminUser, 'id' | 'email' | 'user_status'>;
+    reason: string;
+  };
 }
 
 /** Request to approve a user */

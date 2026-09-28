@@ -504,53 +504,6 @@ mod dispatch_tests {
     // ════════════════════════════════════════════════════════════════
 
     #[tokio::test]
-    async fn test_trigger_activity_synced() {
-        let resources = create_test_server_resources().await.unwrap();
-        let (user, _token) = create_test_tenant(&resources, "activity_sync@example.com")
-            .await
-            .unwrap();
-        let tenants = resources
-            .common
-            .repos
-            .tenants
-            .list_for_user(user.id)
-            .await
-            .unwrap();
-        let tenant_id = TenantId(tenants[0].id.as_uuid());
-
-        let service = Arc::new(notification_service(&resources));
-
-        // Fire the trigger — it's async fire-and-forget
-        notification_triggers::trigger_activity_synced(
-            &service,
-            user.id,
-            tenant_id,
-            "activity_123",
-            "Run",
-            "10.2 km",
-            "52:14",
-        );
-
-        // Give the spawned task time to complete
-        sleep(Duration::from_millis(200)).await;
-
-        // Check that a notification was created
-        let (notifications, _total, _unread) = service
-            .list_notifications(user.id, tenant_id, 10, 0, Some("training"), false)
-            .await
-            .unwrap();
-
-        assert!(
-            !notifications.is_empty(),
-            "Activity synced trigger should create a notification"
-        );
-        assert_eq!(notifications[0].notification_type, "activity_synced");
-        assert_eq!(notifications[0].title, "Nouvelle activité synchronisée");
-        assert!(notifications[0].body.contains("Run"));
-        assert!(notifications[0].body.contains("10.2 km"));
-    }
-
-    #[tokio::test]
     async fn test_trigger_training_load_alert() {
         let resources = create_test_server_resources().await.unwrap();
         let (user, _token) = create_test_tenant(&resources, "load_alert@example.com")
@@ -664,8 +617,8 @@ mod dispatch_tests {
             user.id,
             tenant_id,
             "activity_456",
-            "5K",
-            "22:14",
+            "10k",
+            "44:14",
         );
 
         sleep(Duration::from_millis(200)).await;
@@ -677,42 +630,10 @@ mod dispatch_tests {
 
         assert!(!notifications.is_empty());
         assert_eq!(notifications[0].notification_type, "personal_record");
-        assert!(notifications[0].body.contains("5K"));
-        assert!(notifications[0].body.contains("22:14"));
-    }
-
-    #[tokio::test]
-    async fn test_trigger_milestone_reached() {
-        let resources = create_test_server_resources().await.unwrap();
-        let (user, _token) = create_test_tenant(&resources, "milestone@example.com")
-            .await
-            .unwrap();
-        let tenants = resources
-            .common
-            .repos
-            .tenants
-            .list_for_user(user.id)
-            .await
-            .unwrap();
-        let tenant_id = TenantId(tenants[0].id.as_uuid());
-
-        let service = Arc::new(notification_service(&resources));
-
-        notification_triggers::trigger_milestone_reached(
-            &service, user.id, tenant_id, "1,000", "km",
+        assert_eq!(
+            notifications[0].body, "Nouveau record sur 10 km : 44:14",
+            "the distance code is named in the athlete's language"
         );
-
-        sleep(Duration::from_millis(200)).await;
-
-        let (notifications, _total, _unread) = service
-            .list_notifications(user.id, tenant_id, 10, 0, Some("achievement"), false)
-            .await
-            .unwrap();
-
-        assert!(!notifications.is_empty());
-        assert_eq!(notifications[0].notification_type, "milestone_reached");
-        assert!(notifications[0].body.contains("1,000"));
-        assert!(notifications[0].body.contains("km"));
     }
 
     #[tokio::test]
@@ -945,49 +866,6 @@ mod dispatch_tests {
         assert_eq!(notifications[0].notification_type, "plan_updated");
         assert_eq!(notifications[0].title, "Plan d'entraînement mis à jour");
         assert!(notifications[0].body.contains("Endurance Agent"));
-    }
-
-    #[tokio::test]
-    async fn test_trigger_agent_feedback() {
-        let resources = create_test_server_resources().await.unwrap();
-        let (user, _token) = create_test_tenant(&resources, "coach_feedback@example.com")
-            .await
-            .unwrap();
-        let tenants = resources
-            .common
-            .repos
-            .tenants
-            .list_for_user(user.id)
-            .await
-            .unwrap();
-        let tenant_id = TenantId(tenants[0].id.as_uuid());
-
-        let service = Arc::new(notification_service(&resources));
-
-        notification_triggers::trigger_agent_feedback(
-            &service,
-            user.id,
-            tenant_id,
-            "activity-789",
-            "Speed Coach",
-            "interval session",
-        );
-
-        sleep(Duration::from_millis(200)).await;
-
-        let (notifications, _total, _unread) = service
-            .list_notifications(user.id, tenant_id, 10, 0, Some("coach"), false)
-            .await
-            .unwrap();
-
-        assert!(
-            !notifications.is_empty(),
-            "Coach feedback trigger should create notification"
-        );
-        assert_eq!(notifications[0].notification_type, "coach_feedback");
-        assert_eq!(notifications[0].title, "Retour de ton agent");
-        assert!(notifications[0].body.contains("Speed Coach"));
-        assert!(notifications[0].body.contains("interval session"));
     }
 
     // ════════════════════════════════════════════════════════════════

@@ -20,6 +20,7 @@ use pierre_evals::{
     check_claim, claim_extractor::ExtractedClaim, evidence_retriever::EvidenceCorpus,
     ConservativeStrategy, PersonalizedContext,
 };
+use pierre_intelligence::config::intelligence::TrainingZonesConfig;
 use pierre_intelligence::AlgorithmConfig;
 use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use pierre_services::athlete_snapshot::build_athlete_metrics;
@@ -95,8 +96,14 @@ async fn physiology_and_activities_drive_a_personalized_contradiction() -> Resul
         .await?;
 
     // Build the snapshot through the real service path.
-    let metrics =
-        build_athlete_metrics(&repos, &AlgorithmConfig::default(), tenant_id, user_id).await;
+    let metrics = build_athlete_metrics(
+        &repos,
+        &AlgorithmConfig::default(),
+        &TrainingZonesConfig::default(),
+        tenant_id,
+        user_id,
+    )
+    .await;
 
     assert!(
         metrics.is_usable(),
@@ -164,8 +171,14 @@ async fn missing_physiology_yields_unusable_snapshot() -> Result<()> {
     let repos = database.repositories();
     let user_id = Uuid::parse_str("00000000-0000-0000-0000-0000000000bb").unwrap();
 
-    let metrics =
-        build_athlete_metrics(&repos, &AlgorithmConfig::default(), tenant(), user_id).await;
+    let metrics = build_athlete_metrics(
+        &repos,
+        &AlgorithmConfig::default(),
+        &TrainingZonesConfig::default(),
+        tenant(),
+        user_id,
+    )
+    .await;
     assert!(!metrics.is_usable());
     assert_eq!(metrics.data_days, 0);
     assert_eq!(metrics.vdot, None);

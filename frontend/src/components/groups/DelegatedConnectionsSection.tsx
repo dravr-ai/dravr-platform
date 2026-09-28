@@ -221,7 +221,13 @@ function RosterRow({
       <p className="text-sm text-on-surface">{athleteName}</p>
       {link?.status === 'confirmed' ? (
         <div className="mt-1 flex items-center justify-between gap-3">
-          <StatusLine tone="success">{t('delegation.linkedTo', { member: linkedName })}</StatusLine>
+          {link.read_refused ? (
+            <StatusLine tone="warning" testId={`delegation-read-refused-${link.id}`}>
+              {t(delegationRefusalKey(link.read_refused))}
+            </StatusLine>
+          ) : (
+            <StatusLine tone="success">{t('delegation.linkedTo', { member: linkedName })}</StatusLine>
+          )}
           <Button
             variant="tertiary"
             size="sm"
@@ -379,7 +385,11 @@ function MemberLink({ groupId, link }: { groupId: string; link: DelegatedConnect
 
   return (
     <div className="flex items-center justify-between gap-3" data-testid="delegation-linked">
-      {coachNeedsReauth ? (
+      {link.read_refused ? (
+        <StatusLine tone="warning" testId="delegation-read-refused">
+          {t(delegationRefusalKey(link.read_refused))}
+        </StatusLine>
+      ) : coachNeedsReauth ? (
         <StatusLine tone="warning">{t('delegation.coachReconnectNeeded', { coach })}</StatusLine>
       ) : (
         <StatusLine tone="success">{t('delegation.confirmedBody', { coach })}</StatusLine>

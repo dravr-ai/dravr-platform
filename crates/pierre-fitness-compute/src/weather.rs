@@ -1,27 +1,19 @@
-// ABOUTME: Weather impact analytics + dravr-meteo provider factory for the platform
-// ABOUTME: Vendor abstraction (Open-Meteo, OpenWeatherMap, cache decorator) lives in dravr-meteo
+// ABOUTME: Weather impact analytics — scores a dravr-meteo sample against the physiological thresholds
+// ABOUTME: Vendor abstraction, vendor selection and the cache decorator all live in dravr-meteo
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Weather analytics + provider construction.
+//! Weather analytics.
 //!
-//! Vendor logic (HTTP calls, parsing, caching) lives in the `dravr-meteo`
-//! crate — this module is the platform-side glue:
-//!
-//! - [`analyze_weather_impact`] scores a sample against the cageux
-//!   physiological thresholds (heat stress, wind drag, precipitation).
-//! - [`build_provider`] reads `WEATHER_PROVIDER` / `OPENWEATHER_API_KEY`
-//!   and returns a cached provider ready for use by tools and the
-//!   activity-list backfill orchestrator.
+//! Vendor logic (HTTP calls, parsing, caching) and vendor selection
+//! (`dravr_meteo::provider_from_env`, reading `WEATHER_PROVIDER` /
+//! `OPENWEATHER_API_KEY`) live in the `dravr-meteo` crate. This module
+//! holds the platform's own half: [`analyze_weather_impact`] scores a sample
+//! against the cageux physiological thresholds (heat stress, wind drag,
+//! precipitation).
 
-use std::env;
-use std::sync::Arc;
-
-use pierre_weather::{
-    CachedProvider, OpenMeteoArchiveProvider, OpenWeatherMapProvider, WeatherCacheStore,
-    WeatherProvider, WeatherSample,
-};
+use pierre_weather::WeatherSample;
 use serde::{Deserialize, Serialize};
 
 use dravr_cageux::physiological_constants::{
@@ -36,59 +28,6 @@ use dravr_cageux::physiological_constants::{
         MODERATE_WIND_THRESHOLD, STRONG_WIND_THRESHOLD,
     },
 };
-
-/// Default weather vendor when `WEATHER_PROVIDER` is unset.
-const DEFAULT_WEATHER_PROVIDER: &str = "openmeteo";
-
-/// Weather configuration that cannot produce a working provider.
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub enum WeatherConfigError {
-    /// `WEATHER_PROVIDER` names a vendor this build does not know.
-    #[error("WEATHER_PROVIDER={0} is not a known vendor; use `openmeteo` or `openweathermap`")]
-    UnknownProvider(String),
-    /// `openweathermap` was selected with no key to call it with.
-    #[error("WEATHER_PROVIDER=openweathermap needs OPENWEATHER_API_KEY, which is unset or empty")]
-    MissingOpenWeatherKey,
-}
-
-/// Build a fully-cached `WeatherProvider` from environment configuration.
-///
-/// `WEATHER_PROVIDER` selects the vendor (`openmeteo` default,
-/// `openweathermap` opt-in).
-///
-/// The returned provider is wrapped in a `CachedProvider` against the
-/// supplied `cache` so geographic+hourly buckets are reused across
-/// activities.
-///
-/// # Errors
-///
-/// A configuration that cannot work is refused here rather than built: an
-/// unknown vendor name used to fall through to Open-Meteo silently, and
-/// `openweathermap` without a key used to get a provider holding an empty key
-/// that failed every lookup at the vendor. Both are now a
-/// [`WeatherConfigError`] the caller reports.
-pub fn build_provider(
-    cache: Arc<dyn WeatherCacheStore>,
-) -> Result<Arc<dyn WeatherProvider>, WeatherConfigError> {
-    let provider_name =
-        env::var("WEATHER_PROVIDER").unwrap_or_else(|_| DEFAULT_WEATHER_PROVIDER.to_owned());
-
-    match provider_name.as_str() {
-        "openweathermap" => {
-            let api_key = env::var("OPENWEATHER_API_KEY")
-                .ok()
-                .filter(|key| !key.is_empty())
-                .ok_or(WeatherConfigError::MissingOpenWeatherKey)?;
-            let inner = OpenWeatherMapProvider::new(api_key);
-            Ok(Arc::new(CachedProvider::new(inner, cache)))
-        }
-        "openmeteo" => {
-            let inner = OpenMeteoArchiveProvider::new();
-            Ok(Arc::new(CachedProvider::new(inner, cache)))
-        }
-        other => Err(WeatherConfigError::UnknownProvider(other.to_owned())),
-    }
-}
 
 /// Analyze weather impact on performance using physiological thresholds.
 ///

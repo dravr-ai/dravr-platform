@@ -1,21 +1,23 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // ABOUTME: E2E tests for the global LLM chain guard — preemptive fallback when
-// ABOUTME: the GitHub-Models budget is low and circuit-breaking after provider faults.
+// ABOUTME: the GitHub core budget is low and circuit-breaking after provider faults.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
+use embacle::quota_http::GithubRateLimit;
 use embacle::types::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider as EmbacleLlmProvider,
     RunnerError, StreamChunk, TokenUsage,
 };
 use futures_util::stream;
 use pierre_llm::chain_guard::{CHAIN_GUARD, CIRCUIT_FAILURE_THRESHOLD, GITHUB_BUDGET_THRESHOLD};
+use pierre_llm::config::LlmProviderType;
 use pierre_llm::{ChatMessage, ChatProvider, EmbacleProvider};
 use serial_test::serial;
 
@@ -116,10 +118,21 @@ impl EmbacleLlmProvider for MockProvider {
     }
 }
 
+/// A successful read of the GitHub core budget: `remaining` of 5000 left,
+/// the window resetting at `reset_at` (unix seconds).
+fn github_budget(remaining: u64, reset_at: u64) -> GithubRateLimit {
+    GithubRateLimit {
+        remaining,
+        limit: 5000,
+        used: 5000_u64.saturating_sub(remaining),
+        resets_at: UNIX_EPOCH + Duration::from_secs(reset_at),
+    }
+}
+
 /// Restore the chain guard to a clean baseline so the next test starts with a
-/// closed circuit and an unbounded GitHub budget.
+/// closed circuit and a full GitHub budget.
 fn reset_chain_guard() {
-    CHAIN_GUARD.record_github_rate_limit(u64::MAX, 0);
+    CHAIN_GUARD.record_github_headroom(&Ok(github_budget(5000, 0)));
     // Recording success closes the circuit and resets the failure counter.
     CHAIN_GUARD.record_primary_success();
 }
@@ -136,6 +149,20 @@ fn epoch_secs_in(offset_secs: i64) -> u64 {
 
 fn tier(runner: impl EmbacleLlmProvider + 'static) -> EmbacleProvider {
     EmbacleProvider::from_runner(Box::new(runner), "mock")
+}
+
+/// A scripted tier built as `kind`, the way `from_provider_type` tags a real
+/// one — which is what tells the guard whether it spends the Copilot token.
+fn tier_of(runner: impl EmbacleLlmProvider + 'static, kind: LlmProviderType) -> EmbacleProvider {
+    tier(runner).of_kind(kind)
+}
+
+/// A read of the GitHub budget that failed.
+fn unreadable_budget() -> Result<GithubRateLimit, RunnerError> {
+    Err(RunnerError::external_service(
+        "github-headroom",
+        "rate_limit returned HTTP 503",
+    ))
 }
 
 fn make_chain(tiers: Vec<EmbacleProvider>) -> ChatProvider {
@@ -275,15 +302,18 @@ async fn test_chain_preemptively_falls_back_when_guard_low() {
     // future window, so the chain decides to skip the primary outright.
     let low_budget = GITHUB_BUDGET_THRESHOLD.saturating_sub(1);
     let reset_at = epoch_secs_in(3_600);
-    CHAIN_GUARD.record_github_rate_limit(low_budget, reset_at);
+    CHAIN_GUARD.record_github_headroom(&Ok(github_budget(low_budget, reset_at)));
     assert!(
-        CHAIN_GUARD.should_skip_primary(),
-        "guard should report skip-primary with budget {low_budget} below {GITHUB_BUDGET_THRESHOLD}"
+        CHAIN_GUARD.is_github_budget_low(),
+        "guard should read budget {low_budget} as below {GITHUB_BUDGET_THRESHOLD}"
     );
 
     let (primary, primary_calls) = MockProvider::new_ok("mock-primary");
     let (secondary, secondary_calls) = MockProvider::new_ok("mock-secondary");
-    let chain = make_chain(vec![tier(primary), tier(secondary)]);
+    let chain = make_chain(vec![
+        tier_of(primary, LlmProviderType::CopilotSdk),
+        tier(secondary),
+    ]);
 
     let req = ChatRequest::new(vec![ChatMessage::user("hello")]);
     let response = chain.complete(&req).await.expect("chain should succeed");
@@ -363,18 +393,26 @@ async fn test_chain_opens_circuit_after_provider_faults() {
     reset_chain_guard();
 }
 
-/// The guard measures the primary only. In a three-tier chain a low budget
-/// skips tier 0 and asks tier 1; tier 2 is not consulted while tier 1 answers.
+/// A low budget passes over the Copilot primary only. In a three-tier chain
+/// it skips tier 0 and asks tier 1; tier 2 is not consulted while tier 1
+/// answers.
 #[tokio::test]
 #[serial(chain_guard)]
 async fn test_three_tier_guard_skips_only_the_primary() {
     reset_chain_guard();
-    CHAIN_GUARD.record_github_rate_limit(GITHUB_BUDGET_THRESHOLD - 1, epoch_secs_in(3_600));
+    CHAIN_GUARD.record_github_headroom(&Ok(github_budget(
+        GITHUB_BUDGET_THRESHOLD - 1,
+        epoch_secs_in(3_600),
+    )));
 
     let (primary, primary_calls) = MockProvider::new_ok("mock-primary");
     let (secondary, secondary_calls) = MockProvider::new_ok("mock-secondary");
     let (tertiary, tertiary_calls) = MockProvider::new_ok("mock-tertiary");
-    let chain = make_chain(vec![tier(primary), tier(secondary), tier(tertiary)]);
+    let chain = make_chain(vec![
+        tier_of(primary, LlmProviderType::CopilotSdk),
+        tier(secondary),
+        tier(tertiary),
+    ]);
 
     let req = ChatRequest::new(vec![ChatMessage::user("hello")]);
     let response = chain.complete(&req).await.expect("the secondary answers");
@@ -454,6 +492,173 @@ async fn test_tier_one_outcomes_do_not_touch_the_breaker() {
         CHAIN_GUARD.is_circuit_open(),
         "a later tier's success must not close the primary's circuit"
     );
+
+    reset_chain_guard();
+}
+
+/// Asks `chain` once and returns the reply text.
+async fn ask(chain: &ChatProvider) -> String {
+    let req = ChatRequest::new(vec![ChatMessage::user("hello")]);
+    chain.complete(&req).await.expect("a tier answers").content
+}
+
+/// Claude Code spends its own credential, so a low Copilot budget is no
+/// reason to pass it over: led by Claude, the chain asks Claude.
+#[tokio::test]
+#[serial(chain_guard)]
+async fn a_low_copilot_budget_never_skips_a_claude_code_primary() {
+    reset_chain_guard();
+    CHAIN_GUARD.record_github_headroom(&Ok(github_budget(10, epoch_secs_in(3_600))));
+
+    let (claude, claude_calls) = MockProvider::new_ok("claude-code");
+    let (copilot, copilot_calls) = MockProvider::new_ok("copilot-sdk");
+    let chain = make_chain(vec![
+        tier_of(claude, LlmProviderType::ClaudeCode),
+        tier_of(copilot, LlmProviderType::CopilotSdk),
+    ]);
+
+    let reply = ask(&chain).await;
+    assert!(
+        reply.contains("claude-code"),
+        "Claude Code answers: {reply}"
+    );
+    assert_eq!(claude_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(copilot_calls.load(Ordering::SeqCst), 0);
+
+    reset_chain_guard();
+}
+
+/// Led by Copilot, the same low budget passes Copilot over.
+#[tokio::test]
+#[serial(chain_guard)]
+async fn a_low_copilot_budget_skips_a_copilot_primary() {
+    reset_chain_guard();
+    CHAIN_GUARD.record_github_headroom(&Ok(github_budget(10, epoch_secs_in(3_600))));
+
+    let (copilot, copilot_calls) = MockProvider::new_ok("copilot-sdk");
+    let (claude, claude_calls) = MockProvider::new_ok("claude-code");
+    let chain = make_chain(vec![
+        tier_of(copilot, LlmProviderType::CopilotSdk),
+        tier_of(claude, LlmProviderType::ClaudeCode),
+    ]);
+
+    let reply = ask(&chain).await;
+    assert!(
+        reply.contains("claude-code"),
+        "Claude Code answers: {reply}"
+    );
+    assert_eq!(copilot_calls.load(Ordering::SeqCst), 0, "Copilot skipped");
+    assert_eq!(claude_calls.load(Ordering::SeqCst), 1);
+
+    reset_chain_guard();
+}
+
+/// A budget that cannot be read fails closed for the tier that spends it.
+#[tokio::test]
+#[serial(chain_guard)]
+async fn an_unreadable_copilot_budget_skips_a_copilot_primary() {
+    reset_chain_guard();
+    CHAIN_GUARD.record_github_headroom(&unreadable_budget());
+
+    let (copilot, copilot_calls) = MockProvider::new_ok("copilot-sdk");
+    let (claude, claude_calls) = MockProvider::new_ok("claude-code");
+    let chain = make_chain(vec![
+        tier_of(copilot, LlmProviderType::CopilotSdk),
+        tier_of(claude, LlmProviderType::ClaudeCode),
+    ]);
+
+    let reply = ask(&chain).await;
+    assert!(
+        reply.contains("claude-code"),
+        "Claude Code answers: {reply}"
+    );
+    assert_eq!(copilot_calls.load(Ordering::SeqCst), 0, "Copilot skipped");
+    assert_eq!(claude_calls.load(Ordering::SeqCst), 1);
+
+    reset_chain_guard();
+}
+
+/// ...and only for that tier: a Claude Code primary still runs.
+#[tokio::test]
+#[serial(chain_guard)]
+async fn an_unreadable_copilot_budget_never_skips_a_claude_code_primary() {
+    reset_chain_guard();
+    CHAIN_GUARD.record_github_headroom(&unreadable_budget());
+
+    let (claude, claude_calls) = MockProvider::new_ok("claude-code");
+    let (copilot, copilot_calls) = MockProvider::new_ok("copilot-sdk");
+    let chain = make_chain(vec![
+        tier_of(claude, LlmProviderType::ClaudeCode),
+        tier_of(copilot, LlmProviderType::CopilotSdk),
+    ]);
+
+    let reply = ask(&chain).await;
+    assert!(
+        reply.contains("claude-code"),
+        "Claude Code answers: {reply}"
+    );
+    assert_eq!(claude_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(copilot_calls.load(Ordering::SeqCst), 0);
+
+    reset_chain_guard();
+}
+
+/// The budget is Copilot's wherever Copilot sits: with Claude Code failing
+/// in front of it, a low budget passes the Copilot secondary over and the
+/// tertiary answers.
+#[tokio::test]
+#[serial(chain_guard)]
+async fn a_low_copilot_budget_skips_a_copilot_secondary() {
+    reset_chain_guard();
+    CHAIN_GUARD.record_github_headroom(&Ok(github_budget(10, epoch_secs_in(3_600))));
+
+    let (claude, claude_calls) = MockProvider::new_failing("claude-code");
+    let (copilot, copilot_calls) = MockProvider::new_ok("copilot-sdk");
+    let (gemini, gemini_calls) = MockProvider::new_ok("gemini");
+    let chain = make_chain(vec![
+        tier_of(claude, LlmProviderType::ClaudeCode),
+        tier_of(copilot, LlmProviderType::CopilotSdk),
+        tier_of(gemini, LlmProviderType::Gemini),
+    ]);
+
+    let reply = ask(&chain).await;
+    assert!(reply.contains("gemini"), "Gemini answers: {reply}");
+    assert_eq!(claude_calls.load(Ordering::SeqCst), 1, "Claude Code asked");
+    assert_eq!(copilot_calls.load(Ordering::SeqCst), 0, "Copilot skipped");
+    assert_eq!(gemini_calls.load(Ordering::SeqCst), 1);
+
+    reset_chain_guard();
+}
+
+/// Every Copilot kind spends the token; no other kind does, the quota
+/// router included (it leads with Claude Code and meters Copilot itself).
+#[tokio::test]
+#[serial(chain_guard)]
+async fn only_the_copilot_kinds_are_skipped_for_the_copilot_budget() {
+    for (kind, skipped) in [
+        (LlmProviderType::Copilot, true),
+        (LlmProviderType::CopilotHeadless, true),
+        (LlmProviderType::CopilotSdk, true),
+        (LlmProviderType::ClaudeCode, false),
+        (LlmProviderType::Router, false),
+        (LlmProviderType::Gemini, false),
+        (LlmProviderType::Cohere, false),
+        (LlmProviderType::OpenAiApi, false),
+    ] {
+        reset_chain_guard();
+        CHAIN_GUARD.record_github_headroom(&Ok(github_budget(10, epoch_secs_in(3_600))));
+
+        let (head, head_calls) = MockProvider::new_ok("head");
+        let (next, _) = MockProvider::new_ok("next");
+        let chain = make_chain(vec![tier_of(head, kind), tier(next)]);
+
+        let reply = ask(&chain).await;
+        assert_eq!(
+            head_calls.load(Ordering::SeqCst) == 0,
+            skipped,
+            "{kind}: skipped={skipped}, reply {reply}"
+        );
+    }
 
     reset_chain_guard();
 }

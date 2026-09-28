@@ -5,11 +5,11 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 #
-# Check 3 used to grep `tool_definition(` itself, beside the scan Check 9 and
+# Check 3 used to grep `tool_definition(` itself, beside the scan Check 7 and
 # check-declared-parameters.sh attribute properties with: two enumerations of
 # one registry, each with its own "scan incomplete" guard (carnet#583). A tree
 # that broke the shared scan's premise then read as "all tools in sync" to
-# Check 3, and the only gate that noticed was Check 9 — which skips whenever the
+# Check 3, and the only gate that noticed was Check 7 — which skips whenever the
 # contremaitre corpus cannot be resolved. Case 2 is that shape, and it passes
 # against the grep.
 #

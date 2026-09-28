@@ -142,16 +142,6 @@ pub(crate) const LIST_GROUPS_FOR_USER_SQL: &str = r"SELECT g.id, g.name, g.descr
               WHERE m.user_id = $1 AND m.left_at IS NULL AND g.is_active = TRUE
               ORDER BY g.updated_at DESC";
 
-/// Every active group of one agent within a tenant, newest first.
-pub(crate) const LIST_GROUPS_FOR_AGENT_SQL: &str = concat!(
-    "SELECT ",
-    group_columns!(""),
-    "
-              FROM coaching_groups
-              WHERE agent_id = $1 AND tenant_id = $2 AND is_active = TRUE
-              ORDER BY created_at DESC"
-);
-
 /// Every active group a human coach holds, across tenants: the coach
 /// attachment is the key.
 pub(crate) const LIST_GROUPS_COACHED_BY_SQL: &str = concat!(
@@ -593,23 +583,6 @@ macro_rules! impl_coaching_group_repository {
                     .map_err(|e| AppError::database(format!("Failed to list groups: {e}")))?;
 
                 rows.iter().map(row_to_summary).collect()
-            }
-
-            async fn list_groups_for_agent(
-                &self,
-                agent_id: &str,
-                tenant_id: TenantId,
-            ) -> AppResult<Vec<CoachingGroup>> {
-                let rows = sqlx::query(LIST_GROUPS_FOR_AGENT_SQL)
-                    .bind(agent_id)
-                    .bind(tenant_id.to_string())
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to list groups for coach: {e}"))
-                    })?;
-
-                rows.iter().map(row_to_group).collect()
             }
 
             async fn list_groups_coached_by(

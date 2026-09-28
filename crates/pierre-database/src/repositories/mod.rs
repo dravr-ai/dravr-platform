@@ -20,8 +20,12 @@ pub mod activity_route_tracks;
 pub mod admin;
 /// Repository trait for agent package artefacts (flavour, skeleton, workouts beside an agent's prompt).
 pub mod agent_artefacts;
+/// The agent row decoders both backends share, emitted per backend.
+pub(crate) mod agent_rows;
 /// Repository traits for the agents catalogue and coaching groups.
 pub mod agents;
+/// The one `AgentsRepository` body, emitted per backend.
+pub(crate) mod agents_backend;
 /// Shared statements, row decode and body for API-key and JWT usage accounting both backends serve.
 pub mod analytics;
 /// Repository trait for API keys.
@@ -85,6 +89,8 @@ pub mod oauth;
 pub mod oauth_client_state;
 /// Shared statements and body for password-reset tokens: issue, consume once under a lockout, invalidate, rate-limit.
 pub mod password_reset_tokens;
+/// Repository trait for an athlete's personal bests at the standard running distances.
+pub mod personal_bests;
 /// Repository trait for procedural coaching memory (playbooks + pending advice).
 pub mod playbooks;
 /// Shared statements and body for the pre-approved email allow-list.
@@ -120,6 +126,8 @@ pub mod strava_seat_reclaim_warnings;
 pub mod subscriptions;
 /// Shared statements, decoders and body for provider sync cursors and the connected-user roster.
 pub mod sync_cursors;
+/// The one body of the system-settings key/value store, emitted per backend.
+pub mod system_settings;
 /// Repository traits for tenants and subscriptions.
 pub mod tenants;
 /// Shared statements, decoder and body for the riviere time-series store.
@@ -160,7 +168,7 @@ pub mod user_tool_overrides;
 /// Repository traits for user accounts, profiles, password resets, physiological profile.
 pub mod users;
 /// The per-backend uuid column codec shared repository bodies take as an argument.
-pub(crate) mod uuid_columns;
+pub mod uuid_columns;
 /// Repository traits for weather cache persistence.
 pub mod weather;
 /// Repository trait for the periodic-worker ledger: last tick and current lease per worker.
@@ -196,6 +204,8 @@ pub use messaging::*;
 pub use mobility::*;
 pub use notifications::*;
 pub use oauth::*;
+pub use personal_bests::{PersonalBest, PersonalBestRepository};
+pub use personal_bests::{PersonalBestSeed, PersonalBestSeedCandidate};
 pub use playbooks::*;
 pub use prescribed_workouts::*;
 pub use provider_data::*;

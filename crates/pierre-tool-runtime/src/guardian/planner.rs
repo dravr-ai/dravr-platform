@@ -1,5 +1,5 @@
 // ABOUTME: The plan-then-verify executor — runs a VERIFIED frozen Workflow, binding real outputs to SymRefs.
-// ABOUTME: Plus the planner system prompt documenting the workflow JSON grammar the LLM emits.
+// ABOUTME: Each step still passes the runtime Guardian; the plan fixes which tools run and with what shape.
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -118,9 +118,6 @@ impl<'a> WorkflowExecutor<'a> {
                 user_id: self.user_id.to_owned(),
                 protocol: "chat".to_owned(),
                 tenant_id: Some(self.tenant_id.to_string()),
-                progress_token: None,
-                cancellation_token: None,
-                progress_reporter: None,
             };
 
             // A runtime Guardian block is stamped `success:false` +
@@ -183,25 +180,4 @@ impl<'a> WorkflowExecutor<'a> {
 
         Ok((outputs, denial))
     }
-}
-
-/// The planner system prompt.
-///
-/// Instructs the LLM to emit the whole plan up front as a single JSON workflow,
-/// with `$ref` references that thread a prior tool's output into a later
-/// argument instead of pasting the data.
-#[must_use]
-pub fn planner_system_prompt() -> String {
-    "You are a planning assistant. Instead of calling tools one at a time, emit \
-the ENTIRE plan up front as a single JSON object and nothing else:\n\n\
-{ \"steps\": [ { \"id\": 0, \"tool\": \"<tool_name>\", \"args\": { } } ] }\n\n\
-Rules:\n\
-- Each step has a unique integer \"id\" and a registered \"tool\" name with its \"args\".\n\
-- Steps run in order; a step may use a PRIOR step's output via a placeholder \
-instead of pasting the data: { \"$ref\": { \"step\": <earlier_id>, \"path\": \"<optional JSON pointer>\" } }\n\
-- Use literals for values you already know; use $ref ONLY to thread a prior \
-tool's output into a later argument.\n\
-- A later step may only reference an EARLIER step's id.\n\
-- Output ONLY the JSON object — no prose, no markdown code fences."
-        .to_owned()
 }

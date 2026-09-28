@@ -27,8 +27,10 @@ use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
     SecurityHeadersConfig, ServerConfig,
 };
+use pierre_core::models::UserStatus;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_routes_auth::AuthRoutes;
+use pierre_services::pre_approval::{self, AllowOutcome};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -324,5 +326,82 @@ async fn pending_user_promoted_on_next_login_with_attribution() {
         user.approved_by,
         Some(operator),
         "retroactive promotion must attribute the allow-listing operator"
+    );
+}
+
+/// The allow-list matches an address, not a spelling of it: a registration
+/// differing from the allow only in casing and surrounding whitespace is the
+/// allowed person, and lands active.
+#[tokio::test]
+async fn a_registration_in_another_casing_matches_the_allow() {
+    let resources = setup().await.expect("server context setup failed");
+    let operator = register_operator(&resources, "casing-operator-1@example.com").await;
+
+    resources
+        .common
+        .repos
+        .pre_approved_emails
+        .allow("cohort.two@example.com", Some(operator), None)
+        .await
+        .expect("recording the allow must succeed");
+
+    let (status, body) =
+        register(&resources, "  Cohort.Two@EXAMPLE.com ", "securePassword123").await;
+    assert_eq!(status, 201, "registration must succeed: {body}");
+    assert_eq!(
+        body["user_status"].as_str(),
+        Some("active"),
+        "casing and whitespace must not defeat the allow, got: {body}"
+    );
+    let user = resources
+        .common
+        .repos
+        .users
+        .get_by_email("cohort.two@example.com")
+        .await
+        .expect("user lookup must succeed")
+        .expect("registered user must exist");
+    assert_eq!(user.email, "cohort.two@example.com");
+    assert_eq!(user.approved_by, Some(operator));
+}
+
+/// An allow recorded after the person registered in another casing finds
+/// their pending account and approves it, instead of recording a standing
+/// allow nobody will ever register against again.
+#[tokio::test]
+async fn an_allow_approves_a_pending_account_registered_in_another_casing() {
+    let resources = setup().await.expect("server context setup failed");
+    let repos = &resources.common.repos;
+    let operator = register_operator(&resources, "casing-operator-2@example.com").await;
+
+    let (status, body) = register(&resources, "Late.Cohort@Example.COM", "securePassword123").await;
+    assert_eq!(status, 201, "registration must succeed: {body}");
+    assert_eq!(body["user_status"].as_str(), Some("pending"));
+
+    let result = pre_approval::allow(repos, "late.cohort@example.com", Some(operator), None)
+        .await
+        .expect("the allow must succeed");
+    assert_eq!(result.outcome, AllowOutcome::PendingApproved);
+    assert_eq!(
+        result.approved_user.map(|u| u.email).as_deref(),
+        Some("late.cohort@example.com")
+    );
+
+    let user = repos
+        .users
+        .get_by_email("LATE.COHORT@example.com")
+        .await
+        .expect("user lookup must succeed")
+        .expect("user must exist");
+    assert_eq!(user.user_status, UserStatus::Active);
+    assert_eq!(user.approved_by, Some(operator));
+    assert!(
+        repos
+            .pre_approved_emails
+            .get("late.cohort@example.com")
+            .await
+            .expect("lookup must succeed")
+            .is_none(),
+        "the pending account was approved, not a standing allow recorded"
     );
 }

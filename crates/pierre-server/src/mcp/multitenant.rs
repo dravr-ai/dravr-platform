@@ -12,25 +12,14 @@
 //! This module provides an MCP server that supports user authentication,
 //! secure token storage, and user-scoped data access.
 
-use super::{resources::ServerContext, tool_handlers::ToolRoutingContext};
-use crate::constants::{
-    errors::{ERROR_INTERNAL_ERROR, ERROR_INVALID_PARAMS, ERROR_METHOD_NOT_FOUND},
-    protocol::JSONRPC_VERSION,
-};
+use super::resources::ServerContext;
 use pierre_auth::auth::AuthManager;
-use pierre_auth::tenant::TenantContext;
 use pierre_config::environment::log_effective_base_url;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::backends::factory::Database;
-use pierre_mcp_schema::json_schemas;
-use pierre_mcp_schema::{McpError, McpResponse, ProgressNotification};
 #[cfg(feature = "client-admin-api")]
 use pierre_services::oauth_flow::OAuthService;
-use pierre_tool_runtime::protocol::types::{CancellationToken, ProgressReporter};
-use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
-use pierre_tool_runtime::protocols::converter::ProtocolConverter;
 // Trait methods dispatched through repos.notifications / repos.oauth_tokens
-use serde_json::Value;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_http::catch_panic::CatchPanicLayer;
@@ -38,13 +27,12 @@ use tower_http::compression::CompressionLayer;
 use tower_http::trace::{DefaultOnResponse, TraceLayer};
 use tower_http::LatencyUnit;
 use tracing::{error, info, info_span, Level, Span};
-use uuid::Uuid;
 
 use crate::constants::service_names::PIERRE_MCP_SERVER;
 use crate::routes::contremaitre_webhook::routes as contremaitre_webhook_routes;
 use crate::routes::oauth_grants::OAuthGrantsRoutes;
 #[cfg(feature = "client-settings")]
-use crate::routes::{athlete_home, endurance, user_profile::routes as user_profile_routes};
+use crate::routes::{athlete_home, user_profile::routes as user_profile_routes};
 use crate::routes::{onboarding::OnboardingRoutes, viz::VizRoutes};
 #[cfg(feature = "client-messaging")]
 use crate::services::user_approval_notifier::ApprovalNotifier;
@@ -107,36 +95,6 @@ impl ProviderToolRouter {
         self.resources.clone()
     }
 
-    /// Route provider-specific tool requests to appropriate handlers
-    ///
-    /// Tenant context is always available since tool execution requires it.
-    #[tracing::instrument(
-        skip(args, request_id, ctx),
-        fields(
-            tool_name = %tool_name,
-            user_id = %ctx.tenant_context.user_id,
-            tenant_id = %ctx.tenant_context.tenant_id,
-        )
-    )]
-    pub async fn route_provider_tool(
-        tool_name: &str,
-        args: &Value,
-        request_id: Value,
-        user_id: Uuid,
-        ctx: &ToolRoutingContext<'_>,
-    ) -> McpResponse {
-        // Tenant context is always available since tool execution requires it
-        Self::handle_tenant_tool_with_provider(
-            tool_name,
-            args,
-            request_id,
-            ctx.tenant_context,
-            ctx.resources,
-            user_id,
-        )
-        .await
-    }
-
     /// Get database reference for admin API
     #[must_use]
     pub fn database(&self) -> &Database {
@@ -147,231 +105,6 @@ impl ProviderToolRouter {
     #[must_use]
     pub fn auth_manager(&self) -> &AuthManager {
         &self.resources.auth.auth_manager
-    }
-
-    // === Tenant-Aware Tool Handlers ===
-
-    /// Create error response for tool execution failure
-    fn create_tool_error_response(
-        tool_name: &str,
-        provider_name: &str,
-        response_error: Option<String>,
-        request_id: Value,
-    ) -> McpResponse {
-        let error_msg = response_error
-            .unwrap_or_else(|| "Tool execution failed with no error message".to_owned());
-        error!(
-            "Tool execution failed for {} with provider {}: {} (success=false)",
-            tool_name, provider_name, error_msg
-        );
-        McpResponse {
-            jsonrpc: JSONRPC_VERSION.to_owned(),
-            result: None,
-            error: Some(McpError {
-                code: ERROR_INTERNAL_ERROR,
-                message: error_msg,
-                data: None,
-            }),
-            id: Some(request_id),
-        }
-    }
-
-    // Tool routing now uses ToolId::from_name() to validate tools
-    // All tools registered in ToolId enum are automatically routed through Universal Protocol
-
-    async fn handle_tenant_tool_with_provider(
-        tool_name: &str,
-        args: &Value,
-        request_id: Value,
-        tenant_context: &TenantContext,
-        resources: &Arc<ServerContext>,
-        user_id: Uuid,
-    ) -> McpResponse {
-        // Validate tool is known
-        if let Some(error_response) =
-            Self::validate_known_tool(tool_name, resources, request_id.clone())
-        {
-            return error_response;
-        }
-
-        let params = match serde_json::from_value::<json_schemas::ProviderParams>(args.clone()) {
-            Ok(p) => p,
-            Err(e) => {
-                return McpResponse {
-                    jsonrpc: JSONRPC_VERSION.to_owned(),
-                    result: None,
-                    error: Some(McpError {
-                        code: ERROR_INVALID_PARAMS,
-                        message: format!("Invalid provider parameters: {e}"),
-                        data: None,
-                    }),
-                    id: Some(request_id),
-                };
-            }
-        };
-        let provider_name = params.provider.as_deref().unwrap_or("");
-
-        info!(
-            "Executing tenant tool {} with provider {} for tenant {} user {}",
-            tool_name, provider_name, tenant_context.tenant_name, tenant_context.user_id
-        );
-
-        // Create Universal protocol request
-        let universal_request = Self::create_universal_request(
-            tool_name,
-            args,
-            user_id,
-            tenant_context,
-            resources,
-            &request_id,
-        );
-
-        // Execute tool through Universal protocol. Thread the session token
-        // (JWT `jti`) as the Guardian turn token so taint accumulates across a
-        // headless turn's native tool calls (which share one bridge-minted token).
-        Self::execute_and_convert_tool(
-            universal_request,
-            resources,
-            tool_name,
-            provider_name,
-            request_id,
-            tenant_context.session_id.clone(),
-        )
-        .await
-    }
-
-    /// Validate that the tool name resolves in the shared [`ToolRegistry`].
-    ///
-    /// Post-unification (2026-04-18): every tool — MCP protocol or chat
-    /// pipeline — lives in `resources.tool_registry`. A lookup miss is the
-    /// single source of truth for "unknown tool"; there is no fallback
-    /// enum to consult.
-    fn validate_known_tool(
-        tool_name: &str,
-        resources: &Arc<ServerContext>,
-        request_id: Value,
-    ) -> Option<McpResponse> {
-        if resources.mcp.tool_registry.get(tool_name).is_some() {
-            None
-        } else {
-            Some(McpResponse {
-                jsonrpc: JSONRPC_VERSION.to_owned(),
-                result: None,
-                error: Some(McpError {
-                    code: ERROR_METHOD_NOT_FOUND,
-                    message: format!("Unknown tool: {tool_name}"),
-                    data: None,
-                }),
-                id: Some(request_id),
-            })
-        }
-    }
-
-    /// Create Universal protocol request from tenant tool parameters
-    fn create_universal_request(
-        tool_name: &str,
-        args: &Value,
-        user_id: Uuid,
-        tenant_context: &TenantContext,
-        resources: &Arc<ServerContext>,
-        request_id: &Value,
-    ) -> UniversalRequest {
-        // Create progress reporter if notification sender is available
-        let progress_reporter = resources
-            .sse
-            .progress_notification_sender
-            .as_ref()
-            .map(|sender| {
-                let progress_token = format!("mcp-{request_id}");
-                let mut reporter = ProgressReporter::new(progress_token.clone());
-
-                // Set callback to send progress notifications
-                let sender_clone = sender.clone();
-                reporter.set_callback(move |progress, total, message| {
-                    let notification =
-                        ProgressNotification::new(progress_token.clone(), progress, total, message);
-                    let _ = sender_clone.send(notification);
-                });
-
-                reporter
-            });
-
-        // Create cancellation token for this operation
-        let cancellation_token = Some(CancellationToken::new());
-
-        UniversalRequest {
-            tool_name: tool_name.to_owned(),
-            parameters: args.clone(),
-            user_id: user_id.to_string(),
-            protocol: "mcp".to_owned(),
-            tenant_id: Some(tenant_context.tenant_id.to_string()),
-            progress_token: progress_reporter.as_ref().map(|r| r.progress_token.clone()),
-            cancellation_token,
-            progress_reporter,
-        }
-    }
-
-    /// Execute Universal protocol tool and convert response to MCP format
-    async fn execute_and_convert_tool(
-        universal_request: UniversalRequest,
-        resources: &Arc<ServerContext>,
-        tool_name: &str,
-        provider_name: &str,
-        request_id: Value,
-        turn_token: Option<String>,
-    ) -> McpResponse {
-        // Register cancellation token if present
-        if let (Some(progress_token), Some(cancellation_token)) = (
-            &universal_request.progress_token,
-            &universal_request.cancellation_token,
-        ) {
-            resources
-                .register_cancellation_token(progress_token.clone(), cancellation_token.clone())
-                .await;
-        }
-
-        // Guardian turn key only: a `/mcp` caller has no chat turn behind it,
-        // and the ACP subprocess that once did now reaches tools in-process.
-        let executor = turn_token.map_or_else(
-            || UniversalToolExecutor::new(resources.clone()),
-            |token| UniversalToolExecutor::new(resources.clone()).with_turn_token(token),
-        );
-
-        let result = executor.execute_tool(universal_request.clone()).await;
-
-        // Cleanup cancellation token after execution
-        if let Some(progress_token) = &universal_request.progress_token {
-            resources.cleanup_cancellation_token(progress_token).await;
-        }
-
-        match result {
-            Ok(response) => {
-                // Convert UniversalResponse to proper MCP ToolResponse format
-                let tool_response = ProtocolConverter::universal_to_mcp(response);
-
-                // Serialize ToolResponse to JSON for MCP result field
-                match serde_json::to_value(&tool_response) {
-                    Ok(result_value) => McpResponse {
-                        jsonrpc: JSONRPC_VERSION.to_owned(),
-                        result: Some(result_value),
-                        error: None,
-                        id: Some(request_id),
-                    },
-                    Err(e) => Self::create_tool_error_response(
-                        tool_name,
-                        provider_name,
-                        Some(format!("Failed to serialize tool response: {e}")),
-                        request_id,
-                    ),
-                }
-            }
-            Err(e) => Self::create_tool_error_response(
-                tool_name,
-                provider_name,
-                Some(format!("Tool execution error: {e}")),
-                request_id,
-            ),
-        }
     }
 }
 
@@ -596,7 +329,6 @@ impl ProviderToolRouter {
         #[cfg(feature = "client-settings")]
         use crate::routes::{
             configuration::ConfigurationRoutes, fitness::FitnessConfigurationRoutes,
-            health_data::HealthDataRoutes,
         };
         use crate::routes::{i18n::I18nRoutes, memory::MemoryRoutes, personas::PersonasRoutes};
         #[cfg(feature = "protocol-a2a")]
@@ -667,6 +399,7 @@ impl ProviderToolRouter {
                 persona_contract_registry: resources.fitness.persona_contract_registry.clone(),
                 training_catalogue_registry: resources.mcp.training_catalogue_registry.clone(),
                 contremaitre_config: resources.mcp.contremaitre_config.clone(),
+                app_behavior: resources.common.config.app_behavior.clone(),
             });
             admin_context
                 .email_service
@@ -692,13 +425,20 @@ impl ProviderToolRouter {
             // The config routes take the same validator: `pierre-cli config`
             // arrives with the admin token its device login minted.
             let admin_auth_for_config = admin_context.auth_service.clone();
-            let tool_selection_routes = ToolSelectionRoutes::routes(ToolSelectionContext {
+            let tool_selection_context = ToolSelectionContext {
                 tool_selection: resources.mcp.tool_selection.clone(),
-            })
-            .layer(middleware::from_fn_with_state(
-                auth_service.clone(),
-                pierre_routes_admin::admin_auth_middleware,
-            ));
+                repos: resources.common.repos.clone(),
+            };
+            let console_tool_selection_routes = ToolSelectionRoutes::console_routes::<ServerContext>(
+                tool_selection_context.clone(),
+                resources,
+            );
+            let tool_selection_routes = ToolSelectionRoutes::routes(tool_selection_context).layer(
+                middleware::from_fn_with_state(
+                    auth_service.clone(),
+                    pierre_routes_admin::admin_auth_middleware,
+                ),
+            );
             let diagnostics_ctx = DiagnosticsContext {
                 tool_registry: resources.mcp.tool_registry.clone(),
                 runtime: resources.clone(), // Safe: Arc clone coerced into the trait object
@@ -728,6 +468,7 @@ impl ProviderToolRouter {
 
             app.merge(admin_routes)
                 .merge(tool_selection_routes)
+                .merge(console_tool_selection_routes)
                 .merge(diagnostics_router)
                 .merge(cookie_admin_routes)
                 .nest("/api/admin/config", admin_config_routes)
@@ -754,6 +495,7 @@ impl ProviderToolRouter {
                 // OAuth2ServerConfig so the leaf crate has no pierre-server import.
                 config: Arc::new(resources.common.config.oauth2_server.clone()),
                 rate_limiter: resources.auth.oauth2_rate_limiter.clone(),
+                refresh_token_expiry_days: resources.common.config.auth.refresh_token_expiry_days,
             };
             app.merge(OAuth2Routes::routes(oauth2_context))
         };
@@ -808,9 +550,7 @@ impl ProviderToolRouter {
         let app = app
             .merge(ConfigurationRoutes::routes(Arc::clone(resources)))
             .merge(FitnessConfigurationRoutes::routes(Arc::clone(resources)))
-            .merge(HealthDataRoutes::routes(Arc::clone(resources)))
             .merge(pierre_routes_billing::billing_routes().with_state(Arc::clone(resources)))
-            .merge(endurance::endurance_routes().with_state(Arc::clone(resources)))
             .merge(athlete_home::athlete_home_routes().with_state(Arc::clone(resources)))
             .merge(user_profile_routes().with_state(Arc::clone(resources)));
 

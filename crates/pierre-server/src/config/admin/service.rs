@@ -8,21 +8,19 @@ use super::manager::AdminConfigManager;
 use super::repository::{AdminConfigRepository, LogChangeParams, SetOverrideParams};
 use chrono::Utc;
 use pierre_config::admin_definitions::{
-    register_activity_access_quotas, register_algorithm_selection, register_cache_ttl,
-    register_feature_flags, register_garmin_provider, register_group_permissions,
-    register_heart_rate_zones, register_llm_pricing, register_llm_provider_config,
-    register_mcp_network, register_monitoring, register_nutrition, register_recommendation_engine,
-    register_sleep_recovery, register_sqlx_pool, register_strava_provider,
-    register_strava_seat_reclaim, register_tokio_runtime, register_tool_execution,
-    register_training_stress_balance, register_usage_quotas, register_weather_analysis,
-    ParameterDefinition, ORDERED_PARAMETERS,
+    register_activity_access_quotas, register_algorithm_selection, register_feature_flags,
+    register_garmin_provider, register_group_permissions, register_heart_rate_zones,
+    register_llm_pricing, register_llm_provider_config, register_mcp_network, register_monitoring,
+    register_nutrition, register_recommendation_engine, register_sleep_recovery,
+    register_sqlx_pool, register_strava_provider, register_strava_seat_reclaim,
+    register_tokio_runtime, register_tool_execution, register_training_stress_balance,
+    register_usage_quotas, register_weather_analysis, ParameterDefinition, ORDERED_PARAMETERS,
 };
 use pierre_config::admin_env::{EnvConfigError, EnvConfigPins};
 use pierre_config::admin_types::{
-    validate_parameter_value, AdminConfigCategory, AdminConfigParameter, ConfigAuditEntry,
-    ConfigAuditFilter, ConfigCatalogResponse, ConfigOverride, ConfigScope, ConfigValidationError,
-    ResetConfigRequest, ResetConfigResponse, UpdateConfigRequest, UpdateConfigResponse,
-    ValidateConfigRequest, ValidateConfigResponse,
+    validate_parameter_value, AdminConfigCategory, AdminConfigParameter, ConfigCatalogResponse,
+    ConfigOverride, ConfigScope, ConfigValidationError, ResetConfigRequest, ResetConfigResponse,
+    UpdateConfigRequest, UpdateConfigResponse, ValidateConfigRequest, ValidateConfigResponse,
 };
 use pierre_config::tid_cuts::register_tid_cuts;
 use pierre_core::errors::{AppError, AppResult};
@@ -237,9 +235,6 @@ impl AdminConfigService {
 
         // SQLx Connection Pool Configuration — see config::admin::definitions::register_sqlx_pool
         register_sqlx_pool(&mut defs);
-
-        // Cache TTL Configuration — see config::admin::definitions::register_cache_ttl
-        register_cache_ttl(&mut defs);
 
         // Strava Provider Settings — see config::admin::definitions::register_strava_provider
         register_strava_provider(&mut defs);
@@ -1004,20 +999,6 @@ impl AdminConfigService {
             .map(|def| def.key.clone())
             .collect();
         Ok((reset_count, reset_keys))
-    }
-
-    /// Get audit log
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if reading the audit log from the database fails.
-    pub async fn get_audit_log(
-        &self,
-        filter: &ConfigAuditFilter,
-        limit: usize,
-        offset: usize,
-    ) -> AppResult<(Vec<ConfigAuditEntry>, usize)> {
-        self.manager.get_audit_log(filter, limit, offset).await
     }
 
     /// Get a specific configuration value

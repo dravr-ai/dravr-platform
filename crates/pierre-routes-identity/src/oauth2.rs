@@ -31,7 +31,7 @@ use pierre_auth::oauth2_server::{
 use pierre_auth::password::verify_password;
 use pierre_auth::rate_limiting::OAuth2Endpoint;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::html::with_hosted_page_css;
+use pierre_core::html::{escape_html_attribute, with_hosted_page_css};
 use pierre_core::models::OAuthClientGrant;
 use pierre_database::backends::{factory::Database, OAuth2ServerRepository};
 use pierre_database::database::repositories::{TenantRepository, UserRepository};
@@ -43,26 +43,6 @@ use tracing::{debug, error, info, trace, warn};
 
 use crate::authorize_redirect::{code_redirect, error_redirect, rejection_response};
 use crate::oauth2_rate_limited::{page_refusal, refusal};
-
-/// Escape a string for safe insertion into HTML attribute values.
-///
-/// Replaces the five HTML-special characters (`&`, `<`, `>`, `"`, `'`)
-/// with their corresponding HTML entities to prevent attribute breakout
-/// and script injection when rendering the OAuth login form.
-fn escape_html_attribute(input: &str) -> String {
-    let mut output = String::with_capacity(input.len());
-    for ch in input.chars() {
-        match ch {
-            '&' => output.push_str("&amp;"),
-            '<' => output.push_str("&lt;"),
-            '>' => output.push_str("&gt;"),
-            '"' => output.push_str("&quot;"),
-            '\'' => output.push_str("&#x27;"),
-            _ => output.push(ch),
-        }
-    }
-    output
-}
 
 /// OAuth 2.0 server context shared across all handlers
 #[derive(Clone)]
@@ -86,6 +66,8 @@ pub struct OAuth2Context {
     pub config: Arc<OAuth2ServerConfig>,
     /// Rate limiter for OAuth endpoints
     pub rate_limiter: Arc<OAuth2RateLimiter>,
+    /// Refresh-token lifetime in days, the `REFRESH_TOKEN_EXPIRY_DAYS` sessions read too
+    pub refresh_token_expiry_days: i64,
 }
 
 /// OAuth 2.0 routes implementation
@@ -439,6 +421,7 @@ impl OAuth2Routes {
             context.users.clone(),
             context.auth_manager.clone(),
             context.jwks_manager.clone(),
+            context.refresh_token_expiry_days,
         )
     }
 
@@ -557,13 +540,7 @@ impl OAuth2Routes {
             Err(error) => return (StatusCode::BAD_REQUEST, Json(error)).into_response(),
         };
 
-        let auth_server = OAuth2AuthorizationServer::new(
-            context.oauth2_server.clone(),
-            context.tenants.clone(),
-            context.users,
-            context.auth_manager,
-            context.jwks_manager,
-        );
+        let auth_server = Self::authorization_server(&context);
 
         Self::execute_token_exchange(auth_server, request, &form).await
     }
@@ -624,13 +601,7 @@ impl OAuth2Routes {
             access_token.len()
         );
 
-        let auth_server = OAuth2AuthorizationServer::new(
-            context.oauth2_server.clone(),
-            context.tenants.clone(),
-            context.users,
-            context.auth_manager,
-            context.jwks_manager,
-        );
+        let auth_server = Self::authorization_server(&context);
 
         match auth_server
             .validate_and_refresh(&access_token, request)

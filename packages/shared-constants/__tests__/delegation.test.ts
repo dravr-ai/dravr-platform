@@ -23,7 +23,7 @@ function lookup(key: string): unknown {
 describe('delegation refusal vocabulary', () => {
   it('names a key the catalogue carries for every reason', () => {
     const reasons = Object.keys(DELEGATION_REFUSAL_KEY);
-    expect(reasons).toHaveLength(12);
+    expect(reasons).toHaveLength(18);
     for (const reason of reasons) {
       const key = delegationRefusalKey(reason);
       expect(typeof lookup(key), `${reason} -> ${key}`).toBe('string');
@@ -55,6 +55,8 @@ describe('delegation refusal vocabulary', () => {
 
   it('sends the coach to connections only for their own connection gaps', () => {
     expect([...DELEGATION_CONNECTION_REFUSALS].sort()).toEqual([
+      'trainingpeaks_email_mismatch',
+      'trainingpeaks_email_missing',
       'trainingpeaks_not_connected',
       'trainingpeaks_reconnect_needed',
       'trainingpeaks_terms_outdated',

@@ -45,8 +45,8 @@ impl McpTestSetup {
     }
 
     /// Build a setup whose MCP origin allowlist is exactly `allowed_origins`.
-    /// An empty list is permit-any (the engine's own semantics), so a test that
-    /// wants the gate to actually reject something must pass a non-empty list.
+    /// An empty list admits only loopback browser origins (the engine's own
+    /// semantics); a request with no `Origin` is never gated.
     async fn with_allowed_origins(allowed_origins: Vec<String>) -> anyhow::Result<Self> {
         common::init_server_config();
         let database = common::create_test_database().await?;
@@ -1167,6 +1167,38 @@ async fn test_mcp_tools_rejects_disallowed_origin() {
         response.status(),
         200,
         "an absent Origin is a non-browser client and must not be blocked"
+    );
+}
+
+/// With no allowlist configured, `GET /mcp/tools` applies the engine's own
+/// rule: only a loopback browser origin is admitted. The route used to carry
+/// its own copy of the predicate that read an empty list as permit-any, so a
+/// page on any site could read the catalog of a server whose
+/// `MCP_ALLOWED_ORIGINS` was unset while `POST /mcp` refused the same page.
+#[tokio::test]
+async fn test_mcp_tools_empty_allowlist_admits_only_loopback_origins() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+
+    let response = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .header("origin", "https://evil.example.com")
+        .send(setup.routes())
+        .await;
+    assert_eq!(
+        response.status(),
+        403,
+        "an empty allowlist must refuse a non-loopback browser origin"
+    );
+
+    let response = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .header("origin", "http://localhost:3000")
+        .send(setup.routes())
+        .await;
+    assert_eq!(
+        response.status(),
+        200,
+        "an empty allowlist must admit a loopback origin"
     );
 }
 

@@ -239,10 +239,13 @@ mod messaging_otp_linking_tests {
             "Cannot get mutable reference to ServerContext — \
              ensure no clones exist before calling inject_dummy_email_service",
         );
-        inner.common.email_service = Some(Arc::new(ResendEmailService::new(
-            "re_fake_test_api_key".to_owned(),
-            "Pierre <noreply@test.pierre.dev>".to_owned(),
-        )));
+        inner.common.email_service = Some(Arc::new(
+            ResendEmailService::new(
+                "re_fake_test_api_key".to_owned(),
+                "Pierre <noreply@test.pierre.dev>".to_owned(),
+            )
+            .expect("a non-empty key builds the email service"),
+        ));
     }
 
     // ════════════════════════════════════════════════════════════════

@@ -26,10 +26,6 @@ use tokio::time::timeout;
 use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
-use crate::provider_rate_limiter::ProviderRateLimiter;
-#[cfg(feature = "health-sync")]
-use crate::provider_rate_limiter::RateLimitStatus;
-
 /// Push interface used by the refresh service to inform connected clients.
 ///
 /// Implemented by `pierre-server`'s `SseManager`; abstracted as a trait so
@@ -79,8 +75,6 @@ pub struct RefreshService {
     /// Optional notification service for push notifications on sync completion.
     #[cfg(feature = "client-notifications")]
     notification_service: Option<Arc<pierre_notifications::NotificationService>>,
-    /// Per-provider rate limiter shared across all tenants.
-    rate_limiter: Option<Arc<ProviderRateLimiter>>,
 }
 
 impl RefreshService {
@@ -103,7 +97,6 @@ impl RefreshService {
             sse_manager,
             #[cfg(feature = "client-notifications")]
             notification_service: None,
-            rate_limiter: None,
         }
     }
 
@@ -115,13 +108,6 @@ impl RefreshService {
         service: Option<Arc<pierre_notifications::NotificationService>>,
     ) -> Self {
         self.notification_service = service;
-        self
-    }
-
-    /// Set the per-provider rate limiter for API quota enforcement.
-    #[must_use]
-    pub fn with_rate_limiter(mut self, limiter: Arc<ProviderRateLimiter>) -> Self {
-        self.rate_limiter = Some(limiter);
         self
     }
 
@@ -473,21 +459,6 @@ impl RefreshService {
                 return;
             }
 
-            // Check per-provider rate limit before spawning the sync task.
-            if let Some(ref limiter) = self.rate_limiter {
-                match limiter.check_rate_limit(&provider) {
-                    RateLimitStatus::Allowed => limiter.record_call(&provider),
-                    RateLimitStatus::Exceeded { retry_after } => {
-                        warn!(
-                            provider = %provider,
-                            retry_after_secs = retry_after.as_secs(),
-                            "Provider rate limit exceeded, skipping on-demand sync"
-                        );
-                        return;
-                    }
-                }
-            }
-
             let repos = self.repos.clone();
             let sse = self.sse_manager.clone();
             let user_id_str = user_id.to_string();
@@ -796,6 +767,8 @@ pub fn compute_smart_interval(
 #[cfg(feature = "health-sync")]
 mod scheduled;
 
+#[cfg(feature = "health-sync")]
+pub use scheduled::token_tenant;
 #[cfg(feature = "health-sync")]
 pub use scheduled::{scrape_sync_not_due, start_scheduled_sync, SCRAPE_SYNC_MIN_INTERVAL};
 

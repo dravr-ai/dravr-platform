@@ -41,6 +41,7 @@ async fn test_admin_authentication_flow() {
                 expires_in_days: Some(1),
                 is_super_admin: false,
                 tenant_id: None,
+                operator_user_id: None,
             },
             jwt_secret,
             &*jwks_manager,

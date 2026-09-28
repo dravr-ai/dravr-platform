@@ -36,11 +36,6 @@ pub trait ToolSelectionRepository: Send + Sync {
     async fn get_tool_catalog(&self) -> AppResult<Vec<ToolCatalogEntry>>;
     /// Get a specific tool catalog entry by name
     async fn get_tool_catalog_entry(&self, tool_name: &str) -> AppResult<Option<ToolCatalogEntry>>;
-    /// Get tools filtered by category
-    async fn get_tools_by_category(
-        &self,
-        category: ToolCategory,
-    ) -> AppResult<Vec<ToolCatalogEntry>>;
     /// Get tools available for a specific plan level
     async fn get_tools_by_min_plan(&self, plan: TenantPlan) -> AppResult<Vec<ToolCatalogEntry>>;
     /// Get all tool overrides for a tenant
@@ -62,8 +57,6 @@ pub trait ToolSelectionRepository: Send + Sync {
     ) -> AppResult<TenantToolOverride>;
     /// Delete a tool override (revert to catalog default)
     async fn delete_override(&self, tenant_id: TenantId, tool_name: &str) -> AppResult<bool>;
-    /// Count enabled tools for a tenant
-    async fn count_enabled_tools(&self, tenant_id: TenantId) -> AppResult<usize>;
 
     /// Insert or update a tool catalog entry (used by startup catalog sync)
     async fn upsert_tool_catalog_entry(&self, entry: &ToolCatalogEntry) -> AppResult<()>;
@@ -91,13 +84,6 @@ pub(crate) const GET_TOOL_CATALOG_ENTRY_SQL: &str = concat!(
     "SELECT ",
     tool_catalog_columns!(),
     " FROM tool_catalog WHERE tool_name = $1"
-);
-
-/// The catalog entries of one category.
-pub(crate) const GET_TOOLS_BY_CATEGORY_SQL: &str = concat!(
-    "SELECT ",
-    tool_catalog_columns!(),
-    " FROM tool_catalog WHERE category = $1 ORDER BY tool_name"
 );
 
 /// The catalog entries a starter plan may use.
@@ -319,21 +305,6 @@ macro_rules! impl_tool_selection_repository {
                 row.as_ref().map(tool_catalog_entry_from_row).transpose()
             }
 
-            async fn get_tools_by_category(
-                &self,
-                category: ToolCategory,
-            ) -> AppResult<Vec<ToolCatalogEntry>> {
-                let rows = sqlx::query(GET_TOOLS_BY_CATEGORY_SQL)
-                    .bind(category.as_str())
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to fetch tools by category: {e}"))
-                    })?;
-
-                rows.iter().map(tool_catalog_entry_from_row).collect()
-            }
-
             async fn get_tools_by_min_plan(
                 &self,
                 plan: TenantPlan,
@@ -439,34 +410,6 @@ macro_rules! impl_tool_selection_repository {
                     })?;
 
                 Ok(result.rows_affected() > 0)
-            }
-
-            async fn count_enabled_tools(&self, tenant_id: TenantId) -> AppResult<usize> {
-                // The plan bounds the catalog; overrides then flip entries either way.
-                let tenant = TenantRepository::get_by_id(self, tenant_id).await?;
-                let plan = TenantPlan::parse_str(&tenant.plan).ok_or_else(|| {
-                    AppError::internal(format!("Invalid tenant plan: {}", tenant.plan))
-                })?;
-
-                let catalog = self.get_tools_by_min_plan(plan).await?;
-                let overrides = self.get_overrides(tenant_id).await?;
-
-                let override_map: HashMap<String, bool> = overrides
-                    .into_iter()
-                    .map(|o| (o.tool_name, o.is_enabled))
-                    .collect();
-
-                let count = catalog
-                    .iter()
-                    .filter(|tool| {
-                        override_map
-                            .get(&tool.tool_name)
-                            .copied()
-                            .unwrap_or(tool.is_enabled_by_default)
-                    })
-                    .count();
-
-                Ok(count)
             }
 
             async fn upsert_tool_catalog_entry(&self, entry: &ToolCatalogEntry) -> AppResult<()> {

@@ -26,7 +26,7 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::{
     AgentCategory, ConnectionType, CreateAgentRequest, DelegatedConnection, DelegationEndReason,
-    DelegationStatus, TenantId,
+    DelegationStatus, RosterAthlete, TenantId,
 };
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
@@ -172,8 +172,11 @@ impl Fixture {
             self.coach,
             self.coach_tenant,
             member,
-            athlete.to_owned(),
-            Some(format!("Athlete {athlete}")),
+            RosterAthlete {
+                id: athlete.to_owned(),
+                name: Some(format!("Athlete {athlete}")),
+                email: Some(format!("athlete-{athlete}@delegation.test")),
+            },
         )
     }
 
@@ -225,6 +228,10 @@ async fn a_proposal_round_trips_every_column_to_both_participants() {
     assert_eq!(
         stored.provider_athlete_name.as_deref(),
         Some("Athlete 900001")
+    );
+    assert_eq!(
+        stored.provider_athlete_email.as_deref(),
+        Some("athlete-900001@delegation.test")
     );
     assert_eq!(stored.status, DelegationStatus::Proposed);
     assert_eq!(

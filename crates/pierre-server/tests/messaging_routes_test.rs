@@ -27,8 +27,10 @@ mod messaging_routes_tests {
     };
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
+    use pierre_core::models::messaging::ChannelType;
     use pierre_core::models::ConnectionType;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
+    use pierre_messaging::channels::descriptor_for;
     use serde_json::json;
     use std::sync::Arc;
 
@@ -270,6 +272,63 @@ mod messaging_routes_tests {
             "a Telegram config with no bot_token cannot complete a link, so the \
              picker must withhold it instead of failing after the athlete taps"
         );
+    }
+
+    #[tokio::test]
+    async fn test_channels_available_names_every_channel_as_canot_does() {
+        let (router, token) = setup_messaging_router().await;
+
+        // Every channel, each with exactly the credentials its link needs, so
+        // all five reach the picker and each one's display name is read.
+        let configured = [
+            (
+                ChannelType::Telegram,
+                json!({ "bot_token": "12345:ABC-DEF" }),
+            ),
+            (
+                ChannelType::WhatsApp,
+                json!({ "phone_number": "15551234567" }),
+            ),
+            (ChannelType::Messenger, json!({ "account_id": "page-1" })),
+            (
+                ChannelType::Slack,
+                json!({ "api_key": "slack-id", "api_secret": "slack-secret" }),
+            ),
+            (
+                ChannelType::Discord,
+                json!({ "api_key": "discord-id", "api_secret": "discord-secret" }),
+            ),
+        ];
+        for (channel, credentials) in &configured {
+            AxumTestRequest::put(&format!("/api/messaging/channels/{channel}"))
+                .header("authorization", &token)
+                .json(&json!({ "enabled": true, "credentials": credentials }))
+                .send(router.clone())
+                .await;
+        }
+
+        let response = AxumTestRequest::get("/api/messaging/channels/available")
+            .header("authorization", &token)
+            .send(router)
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let body: serde_json::Value = response.json();
+        let channels = body.as_array().expect("available channels is an array");
+        assert_eq!(channels.len(), configured.len(), "every channel is offered");
+
+        // canot's `descriptor_for` is the one ChannelType -> descriptor lookup;
+        // the picker must show the name canot declares, channel for channel.
+        for (channel, _) in &configured {
+            let listed = channels
+                .iter()
+                .find(|c| c["channel"] == channel.to_string())
+                .unwrap_or_else(|| panic!("{channel} must be listed"));
+            let declared = descriptor_for(*channel)
+                .expect("client-messaging compiles every channel")
+                .display_name();
+            assert_eq!(listed["display_name"], declared, "{channel} display name");
+        }
     }
 
     #[tokio::test]
@@ -902,7 +961,13 @@ mod messaging_routes_tests {
         .unwrap();
 
         // Verify the message appears in the pending outbound queue
-        let pending = db.get_pending_outbound(tenant_id, 10).await.unwrap();
+        let pending = db
+            .get_all_pending_outbound(100)
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|entry| entry["tenant_id"].as_str() == Some(tenant_id.to_string().as_str()))
+            .collect::<Vec<_>>();
         assert!(
             pending.iter().any(|e| e["id"].as_str() == Some(&queue_id)),
             "Failed outbound should be enqueued for retry"

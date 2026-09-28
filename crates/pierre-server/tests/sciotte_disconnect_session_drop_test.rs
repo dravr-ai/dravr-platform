@@ -10,9 +10,8 @@
 //! The platform is the session-of-record for a scrape session, but the shared
 //! sciotte service keeps its own copy of the athlete's provider cookies until
 //! the session idles out. A disconnect therefore asks the service to drop it
-//! (`DELETE /auth/sessions/{id}`, carnet#566), through both disconnect paths:
-//! the chokepoint every surface funnels into (`disconnect_provider`) and the
-//! backend-pinned `DELETE /api/providers/sciotte/disconnect` route.
+//! (`DELETE /auth/sessions/{id}`, carnet#566), through the chokepoint every
+//! disconnect surface funnels into (`disconnect_provider`).
 //!
 //! The service answers `404 session_not_found` for a session it no longer
 //! holds, which is the state the disconnect asked for; a service that cannot
@@ -34,16 +33,13 @@ use axum::routing::delete;
 use axum::{Json, Router};
 use chrono::Utc;
 use common::{create_test_server_resources, create_test_user_with_email};
-use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth_providers::{
     GARMIN, SCIOTTE, SCIOTTE_GARMIN, SCIOTTE_TRAININGPEAKS, STRAVA, TOKEN_TYPE_SESSION,
     TRAININGPEAKS,
 };
 use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_middleware::provider_link_token::{mint_link_token, MintProviderLinkTokenArgs};
 use pierre_providers::sciotte_remote::{ENV_AUDIENCE, ENV_REMOTE_URL};
-use pierre_routes_auth::AuthRoutes;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::provider_revocation::{DisconnectReason, RevocationOutcome};
 use serde_json::{json, Value};
@@ -264,38 +260,6 @@ async fn a_session_already_gone_still_disconnects(
     assert_disconnected(resources, user_id, tenant_id, SCIOTTE_GARMIN).await;
 }
 
-/// The backend-pinned sciotte route drops the session the same way.
-async fn the_sciotte_route_drops_the_session(resources: &Arc<ServerContext>, scraper: &Scraper) {
-    let (user_id, tenant_id) = connected_by_session(resources, SCIOTTE, "sess-route-held").await;
-    let token = mint_link_token(
-        &MintProviderLinkTokenArgs {
-            user_id,
-            tenant_id: tenant_id.as_uuid(),
-            provider: "sciotte",
-            target: "strava",
-            channel: "slack",
-            channel_thread: None,
-        },
-        &resources.auth.admin_jwt_secret,
-    )
-    .expect("mint a sciotte link token");
-
-    let resp = AxumTestRequest::delete("/api/providers/sciotte/disconnect")
-        .header("authorization", &format!("Bearer {token}"))
-        .send(AuthRoutes::routes(resources.auth_routes_context()))
-        .await;
-
-    let status = resp.status();
-    let body = resp.text();
-    assert_eq!(status, 204, "{body}");
-    assert_eq!(
-        scraper.deletes().last().map(String::as_str),
-        Some("sess-route-held")
-    );
-    assert!(!scraper.holds("sess-route-held"));
-    assert_disconnected(resources, user_id, tenant_id, SCIOTTE).await;
-}
-
 /// A service that cannot be reached never blocks the local deletion: the
 /// session's idle lifetime on the service is the backstop.
 async fn an_unreachable_service_never_blocks_the_disconnect(resources: &Arc<ServerContext>) {
@@ -310,14 +274,13 @@ async fn an_unreachable_service_never_blocks_the_disconnect(resources: &Arc<Serv
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_sciotte_disconnect_drops_the_session_on_the_service() {
-    let scraper = Scraper::holding(&["sess-strava-held", "sess-route-held"]);
+    let scraper = Scraper::holding(&["sess-strava-held"]);
     env::set_var(ENV_REMOTE_URL, spawn_scraper(scraper.clone()).await);
     env::remove_var(ENV_AUDIENCE);
     let resources = create_test_server_resources().await.unwrap();
 
     a_held_session_is_dropped(&resources, &scraper).await;
     a_session_already_gone_still_disconnects(&resources, &scraper).await;
-    the_sciotte_route_drops_the_session(&resources, &scraper).await;
     an_unreachable_service_never_blocks_the_disconnect(&resources).await;
 
     env::remove_var(ENV_REMOTE_URL);

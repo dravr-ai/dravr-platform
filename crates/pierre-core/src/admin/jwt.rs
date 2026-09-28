@@ -209,6 +209,7 @@ impl AdminJwtManager {
             is_super_admin: claims.is_super_admin,
             tenant_id: claims.tenant_id,
             user_info: Some(user_info),
+            operator_user_id: None,
         })
     }
 

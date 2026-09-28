@@ -1,4 +1,4 @@
-// ABOUTME: The athlete's civil date, resolved from the timezone stored on their user row
+// ABOUTME: The athlete's civil date and zone, resolved from the timezone stored on their user row
 // ABOUTME: The one read-then-resolve every plan surface shares, over pierre-core's civil clock
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -26,6 +26,7 @@
 //! error. Every caller already holds the `Uuid`.
 
 use chrono::{NaiveDate, Utc};
+use chrono_tz::Tz;
 use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_database::RepositoryRegistry;
 use uuid::Uuid;
@@ -39,6 +40,16 @@ use uuid::Uuid;
 /// [`resolve_zone`] applies, so this agrees with the date anchor and the
 /// activity list rather than drifting from them.
 pub async fn athlete_today(repos: &RepositoryRegistry, user_id: Uuid) -> NaiveDate {
+    clock_date(Utc::now(), athlete_zone(repos, user_id).await)
+}
+
+/// The IANA zone the athlete lives in, read from their user row.
+///
+/// Best-effort in the same way as [`athlete_today`]: an unreadable row, an
+/// absent timezone and an unparseable one all resolve to UTC through
+/// [`resolve_zone`], for a surface that dates what it shows on the athlete's
+/// calendar rather than the server's.
+pub async fn athlete_zone(repos: &RepositoryRegistry, user_id: Uuid) -> Tz {
     let timezone = repos
         .users
         .get_global(user_id)
@@ -46,5 +57,5 @@ pub async fn athlete_today(repos: &RepositoryRegistry, user_id: Uuid) -> NaiveDa
         .ok()
         .flatten()
         .and_then(|user| user.timezone);
-    clock_date(Utc::now(), resolve_zone(timezone.as_deref()))
+    resolve_zone(timezone.as_deref())
 }

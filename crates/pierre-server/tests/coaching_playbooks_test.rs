@@ -65,18 +65,18 @@ async fn record_outcome_creates_then_increments_same_playbook() {
 
     let id1 = repos
         .playbooks
-        .record_playbook_outcome(&outcome)
+        .record_outcome_and_label(&outcome, "advice-without-row", LabelSource::DataHeuristic)
         .await
         .unwrap();
     let id2 = repos
         .playbooks
-        .record_playbook_outcome(&outcome)
+        .record_outcome_and_label(&outcome, "advice-without-row", LabelSource::DataHeuristic)
         .await
         .unwrap();
     outcome.label = OutcomeLabel::Failure;
     let id3 = repos
         .playbooks
-        .record_playbook_outcome(&outcome)
+        .record_outcome_and_label(&outcome, "advice-without-row", LabelSource::DataHeuristic)
         .await
         .unwrap();
 
@@ -123,7 +123,7 @@ async fn list_playbooks_is_tenant_isolated() {
         };
         repos
             .playbooks
-            .record_playbook_outcome(&outcome)
+            .record_outcome_and_label(&outcome, "advice-without-row", LabelSource::DataHeuristic)
             .await
             .unwrap();
     }
@@ -238,7 +238,7 @@ async fn agent_scoping_includes_agnostic_excludes_other_agent() {
         };
         repos
             .playbooks
-            .record_playbook_outcome(&outcome)
+            .record_outcome_and_label(&outcome, "advice-without-row", LabelSource::DataHeuristic)
             .await
             .unwrap();
     }
@@ -305,7 +305,7 @@ async fn forget_playbook_purges_pending_advice_so_it_cannot_resurrect() {
     };
     let playbook_id = repos
         .playbooks
-        .record_playbook_outcome(&outcome)
+        .record_outcome_and_label(&outcome, "advice-without-row", LabelSource::DataHeuristic)
         .await
         .unwrap();
     repos

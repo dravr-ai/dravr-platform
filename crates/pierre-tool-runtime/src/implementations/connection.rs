@@ -25,16 +25,14 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tracing::{error, info, warn};
 
-use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
-    tool_result_to_response,
+    answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_config::constants::oauth_config::AUTHORIZATION_EXPIRES_MINUTES;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::untrusted::display_line;
@@ -122,7 +120,11 @@ struct ProviderState {
 /// A provider read through the group coach's session (a delegated link)
 /// names the coach, and reads `coach_reconnect_needed` while the coach's own
 /// session needs the coach to sign in again: the athlete has nothing to
-/// re-authorize, so `needs_reauth` stays false.
+/// re-authorize, so `needs_reauth` stays false. A link whose roster athlete
+/// is not the athlete by email reads its reason instead
+/// (`athlete_email_missing`, `athlete_email_mismatch`,
+/// `member_email_unverified`), as every read through it is refused until the
+/// coach links the athlete again.
 async fn provider_state(
     repos: &RepositoryRegistry,
     status_by_provider: &HashMap<String, ConnectionStatus>,
@@ -130,22 +132,25 @@ async fn provider_state(
     status: CoalescedStatus,
 ) -> ProviderState {
     let needs_reauth = serving_row_needs_reauth(status_by_provider, provider, status.backend_kind);
-    let (delegated_by, coach_needs_reconnect) = match status.delegation {
+    let (delegated_by, coach_needs_reconnect, read_refused) = match status.delegation {
         Some(link) => match describe_link(repos, link).await {
             Ok(Some(view)) => (
                 Some(display_line(&view.coach_name, COACH_NAME_MAX_CHARS)),
                 view.coach_needs_reconnect,
+                view.read_refused,
             ),
-            Ok(None) => (None, false),
+            Ok(None) => (None, false, None),
             Err(e) => {
                 warn!(error = %e, "Could not read the coach behind a delegated provider");
-                (None, false)
+                (None, false, None)
             }
         },
-        None => (None, false),
+        None => (None, false, None),
     };
     let word = if needs_reauth {
         "needs_reauth"
+    } else if let Some(reason) = read_refused {
+        reason
     } else if coach_needs_reconnect {
         "coach_reconnect_needed"
     } else if status.connected {
@@ -315,8 +320,6 @@ pub async fn mint_oauth_authorize_url(
         pkce_code_verifier: None,
         // The shared-pool app the URL names, so the exchange uses its client.
         oauth_app_client_id: authorization.oauth_app_client_id,
-        // An MCP client that mints a link here has no bridge listener to notify.
-        bridge_callback_token: None,
         created_at: now,
         expires_at: now + Duration::minutes(i64::from(AUTHORIZATION_EXPIRES_MINUTES)),
         used: false,
@@ -398,9 +401,11 @@ pub struct ConnectProviderResult {
 pub struct ProviderConnectionStatus {
     /// Whether a usable token is on file, or a coach's link serves it.
     pub connected: bool,
-    /// The state in words: `connected`, `disconnected`, `needs_reauth`, or
+    /// The state in words: `connected`, `disconnected`, `needs_reauth`,
     /// `coach_reconnect_needed` while the coach whose session serves a
-    /// delegated provider must sign in again.
+    /// delegated provider must sign in again, or why a delegated provider
+    /// reads nothing (`athlete_email_missing`, `athlete_email_mismatch`,
+    /// `member_email_unverified`) until the coach links the athlete again.
     pub status: String,
     /// Whether the athlete must authorize again.
     pub needs_reauth: bool,
@@ -439,8 +444,10 @@ pub enum ConnectionStatusResult {
         /// The provider asked about.
         provider: String,
         /// The state in words: `connected`, `disconnected`, `needs_reauth`,
-        /// or `coach_reconnect_needed` while the coach whose session serves a
-        /// delegated provider must sign in again.
+        /// `coach_reconnect_needed` while the coach whose session serves a
+        /// delegated provider must sign in again, or why a delegated provider
+        /// reads nothing (`athlete_email_missing`, `athlete_email_mismatch`,
+        /// `member_email_unverified`) until the coach links the athlete again.
         status: String,
         /// Whether a usable token is on file, or a coach's link serves it.
         connected: bool,
@@ -527,19 +534,17 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
+    fn capabilities(&self) -> ToolCapabilities {
         // WRITES_DATA was missing: linking a provider writes an OAuth
         // grant onto the athlete's account. Its own twin,
         // `disconnect_provider`, has always declared the write — one half
         // of a pair declaring it and the other not is the evidence this
         // was an oversight rather than a decision. PROFILE because what
         // changes is which accounts are linked, i.e. who the athlete is.
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_TENANT
-                | ToolCapabilities::WRITES_DATA
-                | ToolCapabilities::PROFILE,
-        )
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_TENANT
+            | ToolCapabilities::WRITES_DATA
+            | ToolCapabilities::PROFILE
     }
 
     async fn execute(
@@ -719,12 +724,8 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::READS_DATA
-                | ToolCapabilities::PROFILE,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA | ToolCapabilities::PROFILE
     }
 
     async fn execute(
@@ -878,12 +879,8 @@ impl McpTool<dyn ToolRuntime> for DisconnectProviderTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::WRITES_DATA
-                | ToolCapabilities::PROFILE,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA | ToolCapabilities::PROFILE
     }
 
     async fn execute(

@@ -154,8 +154,8 @@ pub trait McpDispatchCtx: Send + Sync + 'static {
 
 /// Slice of runtime state the A2A (Agent-to-Agent) protocol layer needs.
 ///
-/// Covers what `pierre_a2a::protocol::A2AServer` and `pierre_a2a::auth::A2AAuthenticator`
-/// pull from `ServerContext` today: the JWT-validation auth pair (manager + JWKS) used
+/// Covers what `pierre_a2a::protocol::A2AServer`
+/// pulls from `ServerContext` today: the JWT-validation auth pair (manager + JWKS) used
 /// by the A2A protocol's bearer-token authentication, the repository registry for
 /// A2A-client / task / push-config lookups, and the configured server base URL
 /// used to construct the agent card's `supportedInterfaces` URLs.
@@ -164,10 +164,8 @@ pub trait McpDispatchCtx: Send + Sync + 'static {
 /// `pierre-tool-runtime` / `pierre-middleware` / `pierre-a2a` cycles):
 /// - `Arc<dyn ToolRuntime>` — `A2AServer` accepts a separate `Arc<dyn ToolRuntime>`
 ///   for `SendMessage` tool-intent dispatch.
-/// - `Arc<McpAuthMiddleware>` — `A2AAuthenticator` accepts a separate handle for
-///   API-key authentication.
-/// - `Arc<A2AClientManager>` — `A2AAuthenticator` accepts a separate handle for
-///   per-client rate-limit lookups (its type lives in `pierre-a2a`).
+/// - `Arc<McpAuthMiddleware>` — `A2AServer` accepts a separate handle for
+///   admitting a user JWT through the shared auth pipeline.
 pub trait A2ACtx: Send + Sync + 'static {
     /// Auth manager — validates JWT bearer tokens for A2A protocol requests.
     fn auth_manager(&self) -> &Arc<AuthManager>;

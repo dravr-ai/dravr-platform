@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use super::multitenant::ProviderToolRouter;
 use super::resources::ServerContext;
 use crate::constants::{
     errors::{ERROR_INTERNAL_ERROR, ERROR_METHOD_NOT_FOUND, ERROR_RATE_LIMIT_EXCEEDED},
@@ -644,9 +643,6 @@ impl ToolHandlers {
                 user_id: user_id.to_string(),
                 protocol: "mcp".to_owned(),
                 tenant_id: Some(ctx.tenant_context.tenant_id.to_string()),
-                progress_token: None,
-                cancellation_token: None,
-                progress_reporter: None,
             };
             let response = match executor.execute_tool(request).await {
                 Ok(universal) => ProtocolConverter::universal_to_mcp(universal),
@@ -663,8 +659,16 @@ impl ToolHandlers {
             };
             Self::tool_response_to_mcp_response(&response, request_id)
         } else {
-            // Fall back to provider tool routing for tools not in the registry
-            ProviderToolRouter::route_provider_tool(tool_name, args, request_id, user_id, ctx).await
+            McpResponse {
+                jsonrpc: JSONRPC_VERSION.to_owned(),
+                result: None,
+                error: Some(McpError {
+                    code: ERROR_METHOD_NOT_FOUND,
+                    message: format!("Unknown tool: {tool_name}"),
+                    data: None,
+                }),
+                id: Some(request_id),
+            }
         }
     }
 

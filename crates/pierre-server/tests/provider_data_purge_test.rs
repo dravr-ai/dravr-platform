@@ -55,7 +55,8 @@ use pierre_core::models::{
 };
 use pierre_database::backends::factory::Database;
 use pierre_database::repositories::{
-    ActivityBackfillJobRow, BackfillCoverage, ProviderDataPurge, StoredRouteTrack, SyncCursorRow,
+    ActivityBackfillJobRow, BackfillCoverage, PersonalBest, PersonalBestSeed, ProviderDataPurge,
+    StoredRouteTrack, SyncCursorRow,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_enforme::traits::timeseries_store::TimeSeriesPointStore;
@@ -82,7 +83,7 @@ const SEEDED_POINTS: u64 = 2;
 /// Tables one seeded scope holds exactly one row in. `activity_backfill_jobs`
 /// is apart: it is unique per `(user, provider)` across tenants, so an
 /// athlete holds at most one WHOOP job wherever they are.
-const ONE_ROW_TABLES: [&str; 10] = [
+const ONE_ROW_TABLES: [&str; 13] = [
     "sleep_sessions",
     "recovery_metrics",
     "health_snapshots",
@@ -90,6 +91,9 @@ const ONE_ROW_TABLES: [&str; 10] = [
     "data_point_series_archive",
     "cached_activities",
     "activity_route_tracks",
+    "personal_best_efforts",
+    "best_effort_scans",
+    "personal_best_seeds",
     "sync_state",
     "activity_fetch_freshness",
     "activity_backfill_coverage",
@@ -343,6 +347,45 @@ async fn seed_provider_rows(
         )
         .await
         .unwrap();
+    // The run was measured for best efforts and holds a personal best. Bests
+    // are one per distance whichever provider set them, so each provider's
+    // run holds its own distance and neither replaces the other's row.
+    repos
+        .personal_bests
+        .record_activity_scan(user_id, tenant, provider, &run_id, now)
+        .await
+        .unwrap();
+    let distance = if provider == "whoop" { "5k" } else { "10k" };
+    let stored = repos
+        .personal_bests
+        .record_personal_best(
+            user_id,
+            tenant,
+            &PersonalBest {
+                distance: distance.to_owned(),
+                elapsed_seconds: 1_500.0,
+                provider: provider.to_owned(),
+                activity_id: run_id.clone(),
+                achieved_at: night_start() + Duration::hours(13),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(stored, "the {provider} run's best is stored");
+    // The walk of the provider's history for those bests is under way.
+    repos
+        .personal_bests
+        .save_personal_best_seed(
+            user_id,
+            tenant,
+            provider,
+            &PersonalBestSeed {
+                cursor_before: Some((night_start() + Duration::hours(13)).timestamp()),
+                completed_at: None,
+            },
+        )
+        .await
+        .unwrap();
     repos
         .sync_cursors
         .upsert_sync_cursor(&SyncCursorRow {
@@ -574,10 +617,11 @@ async fn disconnecting_whoop_deletes_that_athletes_whoop_rows_through_the_chokep
     assert_eq!(bodies, ["garmin"]);
     assert!(repos
         .data_sources
-        .list_data_sources_by_provider(athlete, &tenant, "whoop")
+        .list_data_sources(athlete, &tenant)
         .await
         .unwrap()
-        .is_empty());
+        .iter()
+        .all(|source| source.provider != "whoop"));
     assert!(repos
         .time_series_points
         .latest(&world.whoop_ds, HEART_RATE_SERIES)
@@ -664,6 +708,7 @@ fn admin_context(resources: &Arc<ServerContext>) -> Arc<AdminApiContext> {
         persona_contract_registry: Arc::new(PersonaContractRegistry::new()),
         training_catalogue_registry: Arc::new(TrainingCatalogueRegistry::new()),
         contremaitre_config: None,
+        app_behavior: resources.common.config.app_behavior.clone(),
     }))
 }
 
@@ -681,6 +726,7 @@ async fn admin_token(world: &World, is_super_admin: bool) -> ValidatedAdminToken
                 expires_in_days: None,
                 is_super_admin,
                 tenant_id: None,
+                operator_user_id: None,
             },
             "test_admin_jwt_secret_for_provider_purge",
             world.resources.auth.jwks_manager.as_ref(),
@@ -698,6 +744,7 @@ async fn admin_token(world: &World, is_super_admin: bool) -> ValidatedAdminToken
         is_super_admin,
         tenant_id: None,
         user_info: None,
+        operator_user_id: None,
     }
 }
 

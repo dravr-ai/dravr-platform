@@ -128,11 +128,4 @@ impl ServerContextOptions {
         self.billing_provider = Some(provider);
         self
     }
-
-    /// Set where messaging turns are started.
-    #[must_use]
-    pub fn with_turn_runner(mut self, runner: Arc<TurnRunner>) -> Self {
-        self.turn_runner = Some(runner);
-        self
-    }
 }

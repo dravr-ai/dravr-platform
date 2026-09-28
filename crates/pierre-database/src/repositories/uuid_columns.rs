@@ -36,12 +36,14 @@ pub struct TextUuid;
 
 impl TextUuid {
     /// Bind an id the way `SQLite` stores it.
-    pub(crate) fn bind(id: Uuid) -> String {
+    #[must_use]
+    pub fn bind(id: Uuid) -> String {
         id.to_string()
     }
 
     /// Bind an optional id; `None` binds as SQL NULL.
-    pub(crate) fn bind_opt(id: Option<Uuid>) -> Option<String> {
+    #[must_use]
+    pub fn bind_opt(id: Option<Uuid>) -> Option<String> {
         id.map(|u| u.to_string())
     }
 
@@ -52,7 +54,7 @@ impl TextUuid {
     ///
     /// # Errors
     /// Returns an invalid-input error when the text is not a uuid.
-    pub(crate) fn bind_text(id: &str) -> AppResult<&str> {
+    pub fn bind_text(id: &str) -> AppResult<&str> {
         parse_uuid(id).map(|_| id)
     }
 
@@ -60,7 +62,7 @@ impl TextUuid {
     ///
     /// # Errors
     /// Returns an invalid-input error when the text is not a uuid.
-    pub(crate) fn bind_text_opt(id: Option<&str>) -> AppResult<Option<&str>> {
+    pub fn bind_text_opt(id: Option<&str>) -> AppResult<Option<&str>> {
         id.map(Self::bind_text).transpose()
     }
 
@@ -69,7 +71,7 @@ impl TextUuid {
     ///
     /// # Errors
     /// Returns a database error when the column is missing or NULL.
-    pub(crate) fn read_text(row: &SqliteRow, col: &str) -> AppResult<String> {
+    pub fn read_text(row: &SqliteRow, col: &str) -> AppResult<String> {
         row.try_get(col).map_err(|e| uuid_column_error(col, e))
     }
 
@@ -77,7 +79,7 @@ impl TextUuid {
     ///
     /// # Errors
     /// Returns a database error when the column is missing.
-    pub(crate) fn read_text_opt(row: &SqliteRow, col: &str) -> AppResult<Option<String>> {
+    pub fn read_text_opt(row: &SqliteRow, col: &str) -> AppResult<Option<String>> {
         row.try_get(col).map_err(|e| uuid_column_error(col, e))
     }
 
@@ -85,7 +87,7 @@ impl TextUuid {
     ///
     /// # Errors
     /// Returns a database error when the column is missing, NULL, or not a uuid.
-    pub(crate) fn read(row: &SqliteRow, col: &str) -> AppResult<Uuid> {
+    pub fn read(row: &SqliteRow, col: &str) -> AppResult<Uuid> {
         let raw: String = row.try_get(col).map_err(|e| uuid_column_error(col, e))?;
         Uuid::parse_str(&raw).map_err(|e| uuid_column_error(col, e))
     }
@@ -95,7 +97,7 @@ impl TextUuid {
     /// # Errors
     /// Returns a database error when the column is missing or holds text that
     /// is not a uuid.
-    pub(crate) fn read_opt(row: &SqliteRow, col: &str) -> AppResult<Option<Uuid>> {
+    pub fn read_opt(row: &SqliteRow, col: &str) -> AppResult<Option<Uuid>> {
         let raw: Option<String> = row.try_get(col).map_err(|e| uuid_column_error(col, e))?;
         raw.map(|s| Uuid::parse_str(&s).map_err(|e| uuid_column_error(col, e)))
             .transpose()
@@ -113,12 +115,14 @@ pub struct NativeUuid;
 #[cfg(feature = "postgresql")]
 impl NativeUuid {
     /// Bind an id the way Postgres stores it.
-    pub(crate) const fn bind(id: Uuid) -> Uuid {
+    #[must_use]
+    pub const fn bind(id: Uuid) -> Uuid {
         id
     }
 
     /// Bind an optional id; `None` binds as SQL NULL.
-    pub(crate) const fn bind_opt(id: Option<Uuid>) -> Option<Uuid> {
+    #[must_use]
+    pub const fn bind_opt(id: Option<Uuid>) -> Option<Uuid> {
         id
     }
 
@@ -127,7 +131,7 @@ impl NativeUuid {
     ///
     /// # Errors
     /// Returns an invalid-input error when the text is not a uuid.
-    pub(crate) fn bind_text(id: &str) -> AppResult<Uuid> {
+    pub fn bind_text(id: &str) -> AppResult<Uuid> {
         parse_uuid(id)
     }
 
@@ -135,7 +139,7 @@ impl NativeUuid {
     ///
     /// # Errors
     /// Returns an invalid-input error when the text is not a uuid.
-    pub(crate) fn bind_text_opt(id: Option<&str>) -> AppResult<Option<Uuid>> {
+    pub fn bind_text_opt(id: Option<&str>) -> AppResult<Option<Uuid>> {
         id.map(parse_uuid).transpose()
     }
 
@@ -144,7 +148,7 @@ impl NativeUuid {
     ///
     /// # Errors
     /// Returns a database error when the column is missing, NULL, or not a uuid.
-    pub(crate) fn read_text(row: &PgRow, col: &str) -> AppResult<String> {
+    pub fn read_text(row: &PgRow, col: &str) -> AppResult<String> {
         Self::read(row, col).map(|u| u.to_string())
     }
 
@@ -152,7 +156,7 @@ impl NativeUuid {
     ///
     /// # Errors
     /// Returns a database error when the column is missing or not a uuid.
-    pub(crate) fn read_text_opt(row: &PgRow, col: &str) -> AppResult<Option<String>> {
+    pub fn read_text_opt(row: &PgRow, col: &str) -> AppResult<Option<String>> {
         Self::read_opt(row, col).map(|u| u.map(|u| u.to_string()))
     }
 
@@ -160,7 +164,7 @@ impl NativeUuid {
     ///
     /// # Errors
     /// Returns a database error when the column is missing, NULL, or not a uuid.
-    pub(crate) fn read(row: &PgRow, col: &str) -> AppResult<Uuid> {
+    pub fn read(row: &PgRow, col: &str) -> AppResult<Uuid> {
         row.try_get(col).map_err(|e| uuid_column_error(col, e))
     }
 
@@ -168,7 +172,7 @@ impl NativeUuid {
     ///
     /// # Errors
     /// Returns a database error when the column is missing or not a uuid.
-    pub(crate) fn read_opt(row: &PgRow, col: &str) -> AppResult<Option<Uuid>> {
+    pub fn read_opt(row: &PgRow, col: &str) -> AppResult<Option<Uuid>> {
         row.try_get(col).map_err(|e| uuid_column_error(col, e))
     }
 }

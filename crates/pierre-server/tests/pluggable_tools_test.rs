@@ -11,26 +11,23 @@ use async_trait::async_trait;
 use pierre_core::errors::AppError;
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::runtime::ToolRuntime;
-use pierre_tool_runtime::ToolCapabilities;
 use pierre_tools_core::{NotificationType, ToolError, ToolNotification, ToolResult};
 use serde::Serialize;
 use serde_json::Value;
 use std::sync::Arc;
 
 use dravr_tronc::mcp::schema::{Content, Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{
-    McpTool, ToolCapabilities as TroncCapabilities, ToolContext as TroncToolContext,
-};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext as TroncToolContext};
 
 // A simple stub tool for testing. The tronc trait keys discovery and gating off
 // the host-agnostic capability set, so the stub stores tronc capabilities.
 struct StubTool {
     name: &'static str,
-    capabilities: TroncCapabilities,
+    capabilities: ToolCapabilities,
 }
 
 impl StubTool {
-    const fn new(name: &'static str, capabilities: TroncCapabilities) -> Self {
+    const fn new(name: &'static str, capabilities: ToolCapabilities) -> Self {
         Self { name, capabilities }
     }
 }
@@ -48,7 +45,7 @@ impl McpTool<dyn ToolRuntime> for StubTool {
         }
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
+    fn capabilities(&self) -> ToolCapabilities {
         self.capabilities
     }
 
@@ -69,44 +66,6 @@ impl McpTool<dyn ToolRuntime> for StubTool {
 }
 
 // ============================================================================
-// ToolCapabilities Tests
-// ============================================================================
-
-mod capabilities_tests {
-    use super::*;
-
-    #[test]
-    fn test_capabilities_empty() {
-        let caps = ToolCapabilities::empty();
-        assert!(caps.is_empty());
-    }
-
-    #[test]
-    fn test_capabilities_combination() {
-        let caps = ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA;
-        assert!(caps.requires_auth());
-        assert!(caps.reads_data());
-        assert!(!caps.writes_data());
-        assert!(!caps.is_admin_only());
-    }
-
-    #[test]
-    fn test_capabilities_admin_only() {
-        let caps = ToolCapabilities::ADMIN_ONLY | ToolCapabilities::REQUIRES_AUTH;
-        assert!(caps.is_admin_only());
-        assert!(caps.requires_auth());
-    }
-
-    #[test]
-    fn test_capabilities_describe() {
-        let caps = ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA;
-        let desc = caps.describe();
-        assert!(desc.contains("requires_auth"));
-        assert!(desc.contains("reads_data"));
-    }
-}
-
-// ============================================================================
 // ToolRegistry Tests
 // ============================================================================
 
@@ -116,7 +75,7 @@ mod registry_tests {
     #[test]
     fn test_registry_register() {
         let mut registry = ToolRegistry::new();
-        let tool = Arc::new(StubTool::new("test_tool", TroncCapabilities::REQUIRES_AUTH));
+        let tool = Arc::new(StubTool::new("test_tool", ToolCapabilities::REQUIRES_AUTH));
 
         assert!(registry.register(tool));
         assert!(registry.contains("test_tool"));
@@ -126,8 +85,8 @@ mod registry_tests {
     #[test]
     fn test_registry_duplicate_registration() {
         let mut registry = ToolRegistry::new();
-        let tool1 = Arc::new(StubTool::new("test_tool", TroncCapabilities::REQUIRES_AUTH));
-        let tool2 = Arc::new(StubTool::new("test_tool", TroncCapabilities::READS_DATA));
+        let tool1 = Arc::new(StubTool::new("test_tool", ToolCapabilities::REQUIRES_AUTH));
+        let tool2 = Arc::new(StubTool::new("test_tool", ToolCapabilities::READS_DATA));
 
         assert!(registry.register(tool1));
         assert!(!registry.register(tool2)); // Should return false for duplicate
@@ -138,10 +97,10 @@ mod registry_tests {
     fn test_registry_admin_filtering() {
         let mut registry = ToolRegistry::new();
 
-        let user_tool = Arc::new(StubTool::new("user_tool", TroncCapabilities::REQUIRES_AUTH));
+        let user_tool = Arc::new(StubTool::new("user_tool", ToolCapabilities::REQUIRES_AUTH));
         let admin_tool = Arc::new(StubTool::new(
             "admin_tool",
-            TroncCapabilities::REQUIRES_AUTH | TroncCapabilities::ADMIN_ONLY,
+            ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::ADMIN_ONLY,
         ));
 
         registry.register(user_tool);
@@ -161,8 +120,8 @@ mod registry_tests {
     fn test_registry_categories() {
         let mut registry = ToolRegistry::new();
 
-        let data_tool = Arc::new(StubTool::new("get_data", TroncCapabilities::READS_DATA));
-        let analytics_tool = Arc::new(StubTool::new("analyze", TroncCapabilities::READS_DATA));
+        let data_tool = Arc::new(StubTool::new("get_data", ToolCapabilities::READS_DATA));
+        let analytics_tool = Arc::new(StubTool::new("analyze", ToolCapabilities::READS_DATA));
 
         registry.register_with_category(data_tool, "data");
         registry.register_with_category(analytics_tool, "analytics");
@@ -176,8 +135,8 @@ mod registry_tests {
     fn test_registry_capability_filtering() {
         let mut registry = ToolRegistry::new();
 
-        let read_tool = Arc::new(StubTool::new("reader", TroncCapabilities::READS_DATA));
-        let write_tool = Arc::new(StubTool::new("writer", TroncCapabilities::WRITES_DATA));
+        let read_tool = Arc::new(StubTool::new("reader", ToolCapabilities::READS_DATA));
+        let write_tool = Arc::new(StubTool::new("writer", ToolCapabilities::WRITES_DATA));
 
         registry.register(read_tool);
         registry.register(write_tool);
@@ -341,8 +300,8 @@ mod audited_tool_tests {
             }
         }
 
-        fn capabilities(&self) -> TroncCapabilities {
-            TroncCapabilities::REQUIRES_AUTH | TroncCapabilities::ADMIN_ONLY
+        fn capabilities(&self) -> ToolCapabilities {
+            ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::ADMIN_ONLY
         }
 
         async fn execute(
@@ -384,8 +343,8 @@ mod audited_tool_tests {
         let audited = AuditedTool::new(inner);
 
         let caps = audited.capabilities();
-        assert!(caps.contains(TroncCapabilities::ADMIN_ONLY));
-        assert!(caps.contains(TroncCapabilities::REQUIRES_AUTH));
+        assert!(caps.contains(ToolCapabilities::ADMIN_ONLY));
+        assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
     }
 }
 

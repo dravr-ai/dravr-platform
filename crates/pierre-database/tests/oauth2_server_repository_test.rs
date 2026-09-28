@@ -213,6 +213,7 @@ async fn a_refresh_token_rotates_once_for_its_client_and_is_stored_hashed() {
         expires_at: Utc::now() + Duration::days(30),
         created_at: Utc::now(),
         revoked: false,
+        family_id: "test-family".to_owned(),
     };
     repos
         .oauth2_server

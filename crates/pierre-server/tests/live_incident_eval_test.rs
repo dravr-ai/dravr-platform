@@ -911,7 +911,7 @@ mod live_incident_eval {
             }
         }
         let count = activities.len();
-        let payload = json!({ "count": count, "activities": activities });
+        let payload = json!({ "count": count, "activities": activities, "head_complete": true });
 
         let app = Router::new()
             .route(

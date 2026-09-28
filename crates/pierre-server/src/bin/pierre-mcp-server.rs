@@ -960,6 +960,16 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         start_seat_reclaim_worker(&resources);
     }
 
+    // Start the personal-best seed (carnet#582): walks each Strava athlete's
+    // whole history once, one streams request per past run, paced by the
+    // background share of the shared Strava budget, so a personal record is
+    // only ever announced against the athlete's all-time bests.
+    #[cfg(feature = "health-sync")]
+    {
+        use pierre_mcp_server::start_personal_best_seed;
+        start_personal_best_seed(&resources);
+    }
+
     // Start the MCP task sweeper (deletes expired mcp_tasks rows hourly). The
     // tasks extension stamps every handle with `expires_at_ms` and advertises
     // the same budget to the client as `ttlMs`; reads filter on it, but until
@@ -1069,7 +1079,8 @@ async fn run_server(
 ///
 /// Drives the shared `dravr_tronc` MCP engine over stdin/stdout. The stdio
 /// transport carries no HTTP bearer, so requests run under the anonymous
-/// context — auth-gated tools reject; this mode suits a trusted local client.
+/// context: `tools/list` offers nothing, because `tools/call` needs a user and
+/// a tenant, and only the public `resources/*` and `prompts/*` answer.
 async fn run_stdio_only_mode(server: ProviderToolRouter) -> Result<()> {
     info!("Starting in stdio-only mode (HTTP/SSE transports disabled)");
     info!("Listening on stdin/stdout for MCP JSON-RPC messages");

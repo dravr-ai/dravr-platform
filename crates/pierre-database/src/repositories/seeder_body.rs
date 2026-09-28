@@ -340,26 +340,6 @@ macro_rules! impl_seeder_repository {
                 self.get_by_email(email).await
             }
 
-            async fn seed_get_non_admin_user_ids(&self) -> AppResult<Vec<Uuid>> {
-                let rows = sqlx::query(NON_ADMIN_USER_IDS_SQL)
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to get non-admin user IDs: {e}"))
-                    })?;
-                rows.iter().map(|r| $ids::read(r, "id")).collect()
-            }
-
-            async fn seed_count_non_admin_users(&self) -> AppResult<i64> {
-                let row = sqlx::query(COUNT_NON_ADMIN_USERS_SQL)
-                    .fetch_one(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to count non-admin users: {e}"))
-                    })?;
-                column(&row, "cnt")
-            }
-
             async fn seed_delete_llm_usage_by_tenant(&self, tenant_id: Uuid) -> AppResult<u64> {
                 let result = sqlx::query(DELETE_LLM_USAGE_BY_TENANT_SQL)
                     .bind(tenant_id.to_string())
@@ -463,7 +443,7 @@ macro_rules! impl_seeder_repository {
 
             async fn seed_check_user_exists(&self, email: &str) -> AppResult<Option<Uuid>> {
                 let row = sqlx::query(USER_ID_BY_EMAIL_SQL)
-                    .bind(email)
+                    .bind(normalize_email(email))
                     .fetch_optional(self.pool())
                     .await
                     .map_err(|e| {
@@ -487,7 +467,7 @@ macro_rules! impl_seeder_repository {
 
                 sqlx::query(UPSERT_DEMO_USER_SQL)
                     .bind($ids::bind(user.id))
-                    .bind(&user.email)
+                    .bind(normalize_email(&user.email))
                     .bind(&user.display_name)
                     .bind(&user.password_hash)
                     .bind(&user.tier)

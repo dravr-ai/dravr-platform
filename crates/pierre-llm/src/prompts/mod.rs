@@ -77,30 +77,6 @@ pub const TOOL_DISCIPLINE_SHARED_PROMPT: &str = system::TOOL_DISCIPLINE_SHARED;
 /// flow owns the turn.
 pub const PROGRESSION_GUARDRAILS_PROMPT: &str = system::PROGRESSION_GUARDRAILS;
 
-/// Recommendation analysis user prompt template
-///
-/// Contains the user-facing prompt for generating training recommendations.
-/// Template placeholders: `{activity_summary}`, `{recommendation_type}`.
-pub const RECOMMENDATION_ANALYSIS_PROMPT: &str = system::RECOMMENDATION_ANALYSIS;
-
-/// Recommendation analysis system prompt
-///
-/// System prompt for the LLM when generating training recommendations.
-/// Instructs the model to respond as an expert fitness agent with valid JSON.
-pub const RECOMMENDATION_SYSTEM_PROMPT: &str = system::RECOMMENDATION_SYSTEM;
-
-/// Activity analysis user prompt template
-///
-/// Contains the user-facing prompt for AI-powered activity analysis.
-/// Template placeholder: `{activity_summary}`.
-pub const ACTIVITY_ANALYSIS_PROMPT: &str = system::ACTIVITY_ANALYSIS;
-
-/// Activity analysis system prompt
-///
-/// System prompt for the LLM when analyzing individual activities.
-/// Instructs the model to respond as an expert fitness agent with valid JSON.
-pub const ACTIVITY_ANALYSIS_SYSTEM_PROMPT: &str = system::ACTIVITY_ANALYSIS_SYSTEM;
-
 /// Memory extraction system prompt (Tier 2 semantic user memory)
 ///
 /// Instructs the LLM to read one coaching exchange and emit a JSON array
@@ -153,6 +129,23 @@ pub const CLAIM_JUDGE_PROMPT: &str = system::CLAIM_JUDGE;
 /// Natural-language instructions the MCP server advertises in `initialize` —
 /// what an external agent reads as its system layer for this server.
 pub const MCP_SERVER_INSTRUCTIONS_PROMPT: &str = system::MCP_SERVER_INSTRUCTIONS;
+
+/// Persona style-editor prompt.
+///
+/// Instructs the call that rewrites a reply which broke its coaching persona's
+/// output-style rules. `{{PERSONA}}` is the persona's name and `{{RULES}}` the
+/// broken rules, one `- ` line each.
+pub const PERSONA_STYLE_EDITOR_PROMPT: &str = system::PERSONA_STYLE_EDITOR;
+
+/// Viz-repair prompt.
+///
+/// Instructs the single re-ask that corrects `dravr-viz` blocks the schema
+/// refused. `{{RULES}}` is the per-block refusal reasons.
+pub const VIZ_REPAIR_PROMPT: &str = system::VIZ_REPAIR;
+
+/// Guardian planner prompt — the JSON workflow grammar the plan-then-verify
+/// planner call emits, with `$ref` threading a prior step's output.
+pub const GUARDIAN_PLANNER_PROMPT: &str = system::GUARDIAN_PLANNER;
 
 /// Casual coaching persona block — friend-texting tone, prose, sub-150 words.
 pub const CASUAL_PERSONA_PROMPT: &str = personas::CASUAL;
@@ -211,36 +204,6 @@ pub const fn get_tool_discipline_messaging_prompt() -> &'static str {
 #[must_use]
 pub const fn get_tool_discipline_shared_prompt() -> &'static str {
     TOOL_DISCIPLINE_SHARED_PROMPT
-}
-
-/// Get the recommendation analysis user prompt template
-///
-/// Template with `{activity_summary}` and `{recommendation_type}` placeholders
-/// for generating training recommendations via MCP sampling.
-#[must_use]
-pub const fn get_recommendation_analysis_prompt() -> &'static str {
-    RECOMMENDATION_ANALYSIS_PROMPT
-}
-
-/// Get the recommendation analysis system prompt
-#[must_use]
-pub const fn get_recommendation_system_prompt() -> &'static str {
-    RECOMMENDATION_SYSTEM_PROMPT
-}
-
-/// Get the activity analysis user prompt template
-///
-/// Template with `{activity_summary}` placeholder for AI-powered
-/// activity analysis via MCP sampling.
-#[must_use]
-pub const fn get_activity_analysis_prompt() -> &'static str {
-    ACTIVITY_ANALYSIS_PROMPT
-}
-
-/// Get the activity analysis system prompt
-#[must_use]
-pub const fn get_activity_analysis_system_prompt() -> &'static str {
-    ACTIVITY_ANALYSIS_SYSTEM_PROMPT
 }
 
 /// Get the Tier 2 memory extraction system prompt.

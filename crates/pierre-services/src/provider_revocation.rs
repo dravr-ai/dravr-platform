@@ -25,7 +25,7 @@ use pierre_auth::oauth2_client::OAuth2Config;
 use pierre_core::constants::oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::http_client::{api_client, SharedHttpError};
-use pierre_core::models::{DelegationEndReason, TenantId, UserOAuthToken};
+use pierre_core::models::{DelegationEndReason, ProviderAccountRole, TenantId, UserOAuthToken};
 use pierre_database::RepositoryRegistry;
 use pierre_groups::delegation::DelegationStore;
 use pierre_providers::backend_resolver::is_mirror_backend;
@@ -38,6 +38,7 @@ use uuid::Uuid;
 
 use crate::delegated_connections::forget_coach_roster;
 use crate::oauth_flow::OAuthService;
+use crate::trainingpeaks_accounts::revoke_roster_for_coach_connection;
 
 /// Who asked for a provider to be disconnected, as the `provider.disconnected`
 /// notify event reports it.
@@ -770,12 +771,26 @@ pub async fn clear_backend(
         .await
         .map_err(|e| AppError::database(format!("Failed to delete OAuth token: {e}")))?;
 
+    // A TrainingPeaks coach connection is what earned `manages_roster`; read
+    // its role before the row goes, so the grant goes with it.
+    let was_coach = backend == oauth_providers::SCIOTTE_TRAININGPEAKS
+        && data
+            .repos()
+            .provider_connections
+            .get_for_user(user_id, Some(tenant_id))
+            .await?
+            .iter()
+            .any(|c| c.provider == backend && c.account_role == Some(ProviderAccountRole::Coach));
+
     data.repos()
         .provider_connections
         .remove_connection(user_id, tenant_id, backend)
         .await
         .map_err(|e| AppError::database(format!("Failed to remove provider connection: {e}")))?;
 
+    if was_coach {
+        revoke_roster_for_coach_connection(data.repos(), user_id, tenant_id).await?;
+    }
     if backend == oauth_providers::SCIOTTE_TRAININGPEAKS {
         end_delegated_connections(data, user_id, tenant_id, backend).await?;
         forget_coach_roster(data.cache(), user_id, tenant_id).await;

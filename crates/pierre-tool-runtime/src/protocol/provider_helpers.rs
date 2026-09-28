@@ -91,38 +91,9 @@ pub async fn resolve_provider_for_request(
     user_uuid: Uuid,
     tenant_id: Option<&str>,
 ) -> Result<String, Box<UniversalResponse>> {
-    // 1. Explicit arg
-    if let Some(p) = parameters
-        .get("provider")
-        .and_then(JsonValue::as_str)
-        .filter(|s| !s.is_empty())
-    {
-        return Ok(p.to_owned());
-    }
-
-    // 2. Env override
-    if let Some(env_p) = default_provider() {
-        return Ok(env_p);
-    }
-
-    // 3. User's most-recently-used connection
     let tenant = tenant_id.and_then(|t| TenantId::parse_str(t).ok());
-    match executor
-        .resources
-        .repos()
-        .provider_connections
-        .resolve_most_recent(user_uuid, tenant)
-        .await
-    {
-        Ok(Some(conn)) => {
-            info!(
-                target: "notify",
-                user_id = %user_uuid,
-                provider = %conn.provider,
-                "resolved provider from user's most-recent connection"
-            );
-            Ok(conn.provider)
-        }
+    match elect_provider(parameters, &executor.resources, user_uuid, tenant).await {
+        Ok(Some(provider)) => Ok(provider),
         Ok(None) => {
             warn!(
                 user_id = %user_uuid,
@@ -171,35 +142,55 @@ pub async fn resolve_provider_for_tool(
     args: &JsonValue,
     context: &ToolExecutionContext,
 ) -> Result<String, ToolResult> {
-    // 1. Explicit arg
-    if let Some(p) = args
-        .get("provider")
-        .and_then(JsonValue::as_str)
-        .filter(|s| !s.is_empty())
-    {
-        return Ok(p.to_owned());
-    }
-
-    // 2. Env override
-    if let Some(env_p) = default_provider() {
-        return Ok(env_p);
-    }
-
-    // 3. User's most-recently-used connection
     let tenant = context.tenant_id.map(TenantId::from_uuid);
-    match context
-        .resources
-        .repos()
-        .provider_connections
-        .resolve_most_recent(context.user_id, tenant)
-        .await
-    {
-        Ok(Some(conn)) => Ok(conn.provider),
+    match elect_provider(args, &context.resources, context.user_id, tenant).await {
+        Ok(Some(provider)) => Ok(provider),
         Ok(None) | Err(_) => Err(ToolResult::error(json!({
             "error": "No fitness provider connected. Connect Strava, Garmin, or another provider before asking for activity data.",
             "auth_required_provider": "sciotte"
         }))),
     }
+}
+
+/// The one priority chain both resolvers answer with: the explicit `provider`
+/// argument, then the deployment-wide `PIERRE_DEFAULT_PROVIDER`, then the
+/// user's most-recently-used connection. `None` when the user has none.
+async fn elect_provider(
+    parameters: &JsonValue,
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant: Option<TenantId>,
+) -> Result<Option<String>, AppError> {
+    // 1. Explicit arg
+    if let Some(p) = parameters
+        .get("provider")
+        .and_then(JsonValue::as_str)
+        .filter(|s| !s.is_empty())
+    {
+        return Ok(Some(p.to_owned()));
+    }
+
+    // 2. Env override
+    if let Some(env_p) = default_provider() {
+        return Ok(Some(env_p));
+    }
+
+    // 3. User's most-recently-used connection
+    let Some(conn) = runtime
+        .repos()
+        .provider_connections
+        .resolve_most_recent(user_id, tenant)
+        .await?
+    else {
+        return Ok(None);
+    };
+    info!(
+        target: "notify",
+        user_id = %user_id,
+        provider = %conn.provider,
+        "resolved provider from user's most-recent connection"
+    );
+    Ok(Some(conn.provider))
 }
 
 /// Create a standard auth error response

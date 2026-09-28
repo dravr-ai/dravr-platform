@@ -14,6 +14,7 @@ use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor
 use crate::protocols::ProtocolError;
 #[cfg(feature = "client-notifications")]
 use crate::runtime::ToolRuntime;
+use chrono::Utc;
 use pierre_core::models::Activity;
 use pierre_core::models::{FormBand, FormReading};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
@@ -176,13 +177,14 @@ pub fn analyze_detailed_training_load(
         });
     }
 
-    // Sort activities oldest-first — the EMA calculation in TrainingLoadCalculator
-    // requires chronological order (it computes days_span = last_date - first_date
-    // and returns 0 if negative). Strava returns activities newest-first.
+    // Sort activities oldest-first so the returned TSS history reads in
+    // chronological order; the loads themselves are order-independent.
+    // Strava returns activities newest-first.
     let mut sorted_activities = activities.to_vec();
     sorted_activities.sort_by_key(Activity::start_date);
 
-    let calculator = TrainingLoadCalculator::from_config(algorithm_config.clone());
+    let calculator =
+        TrainingLoadCalculator::from_config(algorithm_config.clone(), Utc::now().date_naive());
 
     // Pass user physiological data for accurate TSS calculation.
     // When present, enables power-based (FTP) or HR-based (LTHR) TSS
@@ -208,12 +210,13 @@ pub fn analyze_detailed_training_load(
 
     let ctl = training_load.ctl;
     let atl = training_load.atl;
-    let tsb = training_load.tsb;
-    // Form as % of CTL, and the single band derived from it. Every wording in
-    // this payload comes off `band`, so the response cannot tell the athlete
-    // that one number is both a normal training block and an elevated risk.
-    let form_pct = FormBand::form_pct(tsb, ctl);
-    let band = FormBand::from_form_pct(form_pct);
+    // Form as % of the CTL it was read from (yesterday's), and the single band
+    // derived from it. Every wording in this payload comes off `band`, so the
+    // response cannot tell the athlete that one number is both a normal
+    // training block and an elevated risk.
+    let form = FormReading::from_training_load(&training_load);
+    let form_pct = form.form_pct;
+    let band = form.band;
 
     // Calculate weekly TSS totals from TSS history
     let weekly_tss = calculate_weekly_tss_from_history(&training_load.tss_history);
@@ -241,7 +244,8 @@ pub fn analyze_detailed_training_load(
         load_metrics: LoadMetrics {
             ctl: ctl.round(),
             atl: atl.round(),
-            tsb: tsb.round(),
+            tsb: form.tsb.round(),
+            form_ctl: form.form_ctl.round(),
             tsb_pct_of_ctl: form_pct.map(f64::round),
             weekly_tss,
         },
@@ -399,15 +403,6 @@ pub fn handle_analyze_training_load(
     Box::pin(async move {
         use parse_user_id_for_protocol;
 
-        // Check cancellation at start
-        if let Some(token) = &request.cancellation_token {
-            if token.is_cancelled().await {
-                return Err(ProtocolError::OperationCancelled(
-                    "analyze_training_load cancelled by user".to_owned(),
-                ));
-            }
-        }
-
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
         let provider_name = match resolve_provider_for_request(
             &request.parameters,
@@ -430,48 +425,12 @@ pub fn handle_analyze_training_load(
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);
 
-        // Report progress - starting authentication
-        if let Some(reporter) = &request.progress_reporter {
-            reporter.report(
-                20.0,
-                Some(100.0),
-                Some("Checking authentication...".to_owned()),
-            );
-        }
-
-        // Check cancellation before auth
-        if let Some(token) = &request.cancellation_token {
-            if token.is_cancelled().await {
-                return Err(ProtocolError::OperationCancelled(
-                    "analyze_training_load cancelled before authentication".to_owned(),
-                ));
-            }
-        }
-
         match executor
             .auth_service
             .create_authenticated_provider(&provider_name, user_uuid, request.tenant_id.as_deref())
             .await
         {
             Ok(provider) => {
-                // Report progress after auth
-                if let Some(reporter) = &request.progress_reporter {
-                    reporter.report(
-                        40.0,
-                        Some(100.0),
-                        Some("Authenticated - fetching activities...".to_owned()),
-                    );
-                }
-
-                // Check cancellation before provider creation
-                if let Some(token) = &request.cancellation_token {
-                    if token.is_cancelled().await {
-                        return Err(ProtocolError::OperationCancelled(
-                            "analyze_training_load cancelled before fetch".to_owned(),
-                        ));
-                    }
-                }
-
                 let activity_limit = executor.resources.config().activity_fetch_limit;
                 match provider.get_activities(Some(activity_limit), None).await {
                     Ok(raw_activities) => {
@@ -489,17 +448,6 @@ pub fn handle_analyze_training_load(
                                 sessions = fragment_report.session_count,
                                 groups = fragment_report.groups.len(),
                                 "training_load: applied fragment dedup",
-                            );
-                        }
-                        // Report progress before analysis
-                        if let Some(reporter) = &request.progress_reporter {
-                            reporter.report(
-                                70.0,
-                                Some(100.0),
-                                Some(format!(
-                                    "Analyzing training load for {} activities...",
-                                    activities.len()
-                                )),
                             );
                         }
 
@@ -564,15 +512,6 @@ pub fn handle_analyze_training_load(
                         } else {
                             None
                         };
-
-                        // Report completion
-                        if let Some(reporter) = &request.progress_reporter {
-                            reporter.report(
-                                100.0,
-                                Some(100.0),
-                                Some("Training load analysis completed".to_owned()),
-                            );
-                        }
 
                         let result = UniversalResponse {
                             success: true,
@@ -652,11 +591,7 @@ fn fire_training_load_notifications(
     let TrainingLoadResult::Analyzed(detail) = analysis else {
         return;
     };
-    let (atl, ctl, tsb) = (
-        detail.load_metrics.atl,
-        detail.load_metrics.ctl,
-        detail.load_metrics.tsb,
-    );
+    let (atl, ctl) = (detail.load_metrics.atl, detail.load_metrics.ctl);
 
     // Trigger training load alert when ATL > RATIO * CTL
     if ctl > 0.0 && atl > ctl * TRAINING_LOAD_ALERT_ATL_RATIO {
@@ -664,10 +599,11 @@ fn fire_training_load_notifications(
     }
 
     // Trigger overtraining warning when form drops into the deepest fatigue
-    // band relative to the athlete's own chronic load. Athletes with no
+    // band relative to the athlete's own chronic load — the band the analysis
+    // already read from the calculation's own TSB/CTL pair. Athletes with no
     // chronic base band as InsufficientHistory and are never warned on a
     // number that cannot be interpreted.
-    if FormBand::from_tsb(tsb, ctl) == FormBand::DeepFatigue {
+    if detail.form_band == FormBand::DeepFatigue {
         notification_triggers::trigger_overtraining_warning(service, user_id, tenant_id);
     }
 }

@@ -32,31 +32,6 @@ async function setupAuthenticatedSession(page: Page) {
     });
   });
 
-  // Mock dashboard endpoints
-  await page.route('**/api/dashboard/overview', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ total_api_keys: 5, active_api_keys: 3, total_requests_today: 150, total_requests_month: 2500 }),
-    });
-  });
-
-  await page.route('**/api/dashboard/rate-limits', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ daily_limit: 1000, daily_used: 150, monthly_limit: 10000, monthly_used: 2500 }),
-    });
-  });
-
-  await page.route('**/a2a/dashboard/overview', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ total_clients: 2, active_sessions: 1, requests_today: 50, error_rate: 0.01 }),
-    });
-  });
-
   await page.route('**/api/dashboard/analytics**', async (route) => {
     await route.fulfill({
       status: 200,
@@ -70,7 +45,7 @@ async function setupAuthenticatedSession(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ count: 0, users: [] }),
+      body: JSON.stringify({ success: true, message: 'Retrieved 0 pending users', data: { count: 0, users: [] } }),
     });
   });
 
@@ -78,7 +53,7 @@ async function setupAuthenticatedSession(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ users: [], total_count: 0 }),
+      body: JSON.stringify({ success: true, message: 'Retrieved users', data: { users: [], total: 0, has_more: false } }),
     });
   });
 }
@@ -134,6 +109,15 @@ const sampleTokens = [
   },
 ];
 
+/** `GET /api/admin/tokens` as the admin handler answers it. */
+function tokenListing(tokens: typeof sampleTokens) {
+  return {
+    success: true,
+    message: `Retrieved ${tokens.length} admin tokens`,
+    data: { count: tokens.length, tokens },
+  };
+}
+
 test.describe('API Key List', () => {
   test.beforeEach(async ({ page }) => {
     await setupAuthenticatedSession(page);
@@ -144,7 +128,7 @@ test.describe('API Key List', () => {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ tokens: sampleTokens }),
+          body: JSON.stringify(tokenListing(sampleTokens)),
         });
       } else {
         await route.continue();
@@ -234,17 +218,23 @@ test.describe('API Key Creation', () => {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ tokens: sampleTokens }),
+          body: JSON.stringify(tokenListing(sampleTokens)),
         });
       } else if (route.request().method() === 'POST') {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
-            token: 'pierre_at_newtoken_full_jwt_here',
-            token_id: 'token-new',
-            service_name: 'New Service',
-            token_prefix: 'pierre_at_new123',
+            success: true,
+            message: 'Admin token created successfully',
+            data: {
+              token_id: 'token-new',
+              service_name: 'New Service',
+              jwt_token: 'pierre_at_newtoken_full_jwt_here',
+              token_prefix: 'pierre_at_new123',
+              is_super_admin: false,
+              expires_at: null,
+            },
           }),
         });
       } else {
@@ -401,7 +391,7 @@ test.describe('API Key Revocation', () => {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ tokens: sampleTokens }),
+          body: JSON.stringify(tokenListing(sampleTokens)),
         });
       } else {
         await route.continue();
@@ -413,7 +403,11 @@ test.describe('API Key Revocation', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ success: true, message: 'Token revoked successfully' }),
+        body: JSON.stringify({
+          success: true,
+          message: 'Admin token revoked successfully',
+          data: { token_id: 'token-1' },
+        }),
       });
     });
 
@@ -495,7 +489,7 @@ test.describe('API Key Rotation', () => {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ tokens: sampleTokens }),
+          body: JSON.stringify(tokenListing(sampleTokens)),
         });
       } else {
         await route.continue();
@@ -508,10 +502,17 @@ test.describe('API Key Rotation', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          token: 'pierre_at_rotated_new_jwt_token',
-          token_id: 'token-1',
-          service_name: 'CI/CD Pipeline',
-          token_prefix: 'pierre_at_rot123',
+          success: true,
+          message: 'Admin token rotated successfully',
+          data: {
+            old_token_id: 'token-1',
+            token_id: 'token-1-rotated',
+            service_name: 'CI/CD Pipeline',
+            jwt_token: 'pierre_at_rotated_new_jwt_token',
+            token_prefix: 'pierre_at_rot123',
+            is_super_admin: false,
+            expires_at: null,
+          },
         }),
       });
     });
@@ -571,7 +572,7 @@ test.describe('API Key Details', () => {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ tokens: sampleTokens }),
+          body: JSON.stringify(tokenListing(sampleTokens)),
         });
       } else {
         await route.continue();

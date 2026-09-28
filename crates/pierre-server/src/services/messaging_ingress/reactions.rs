@@ -47,11 +47,7 @@ use std::sync::Arc;
 use pierre_core::models::messaging::{ChannelType, InboundReaction, ReactionAction};
 use pierre_core::models::UpsertMessageFeedbackParams;
 use pierre_database::repositories::{MessagingRepository, ReactionFeedbackTarget};
-use pierre_messaging::channels::discord::DiscordDescriptor;
-use pierre_messaging::channels::messenger::MessengerDescriptor;
-use pierre_messaging::channels::slack::SlackDescriptor;
-use pierre_messaging::channels::telegram::TelegramDescriptor;
-use pierre_messaging::channels::whatsapp::WhatsAppDescriptor;
+use pierre_messaging::channels::descriptor_for;
 use pierre_messaging::descriptor::ChannelDescriptor;
 use tracing::{debug, info, warn};
 
@@ -113,20 +109,15 @@ const NEGATIVE_REACTIONS: &[&str] = &[
 
 /// Whether a channel's webhook API delivers inbound reaction events at all.
 ///
-/// Answers from the channel's own [`ChannelDescriptor`] rather than from its
-/// name: the predicate belongs to the channel adapter, and a host that
+/// Answers from the channel's own descriptor, looked up through canot's
+/// [`descriptor_for`], rather than from its name: the predicate belongs to the channel adapter, and a host that
 /// re-derives it from a slug drifts the first time a platform gains or loses
 /// the capability.
+///
+/// A channel whose adapter this build did not compile delivers nothing.
 #[must_use]
 pub fn channel_delivers_reactions(channel_type: ChannelType) -> bool {
-    let descriptor: &dyn ChannelDescriptor = match channel_type {
-        ChannelType::Telegram => &TelegramDescriptor,
-        ChannelType::Slack => &SlackDescriptor,
-        ChannelType::Discord => &DiscordDescriptor,
-        ChannelType::WhatsApp => &WhatsAppDescriptor,
-        ChannelType::Messenger => &MessengerDescriptor,
-    };
-    descriptor.delivers_inbound_reactions()
+    descriptor_for(channel_type).is_some_and(ChannelDescriptor::delivers_inbound_reactions)
 }
 
 /// The rating an emoji stands for, or `None` when it says nothing about the

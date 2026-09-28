@@ -12,6 +12,7 @@ mod common;
 use std::fs;
 use std::path::Path;
 
+use dravr_contremaitre::training;
 use pierre_core::models::{ArtefactKind, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_seeders::agents::{self, SeedArgs};
@@ -23,7 +24,13 @@ use uuid::Uuid;
 const PACKAGED: &str = "packaged-coach";
 const BARE: &str = "bare-coach";
 
-const CATALOGUE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../training_catalogue");
+/// One file of the pinned contremaitre training catalogue, by table and key.
+fn catalogue_file(table: &[(&str, &'static str)], key: &str) -> &'static str {
+    table.iter().find(|(k, _)| *k == key).map_or_else(
+        || panic!("the pinned catalogue carries {key}"),
+        |(_, text)| *text,
+    )
+}
 
 /// Bootstrap an operator so the agent seeder has an admin to own the rows.
 async fn seeded_repos() -> (RepositoryRegistry, Uuid, TenantId) {
@@ -73,14 +80,11 @@ fn write_agent(checkout: &Path, slug: &str) {
 /// prompt as the agent's package.
 fn write_package(checkout: &Path, slug: &str) {
     let dir = checkout.join("training").join(slug);
-    let flavour =
-        fs::read_to_string(Path::new(CATALOGUE_DIR).join("flavours/polarized-classic.yaml"))
-            .unwrap()
-            .replace("id: polarized-classic", "id: house-polarized");
+    let flavour = catalogue_file(training::FLAVOURS, "polarized-classic")
+        .replace("id: polarized-classic", "id: house-polarized");
     fs::write(dir.join("flavour.yaml"), flavour).unwrap();
     fs::create_dir_all(dir.join("workouts")).unwrap();
-    let workout = fs::read_to_string(Path::new(CATALOGUE_DIR).join("workouts/threshold_4x8.toml"))
-        .unwrap()
+    let workout = catalogue_file(training::WORKOUTS, "threshold_4x8")
         .replace("slug = \"threshold_4x8\"", "slug = \"house_4x8\"")
         .replace(
             "id = \"00000000-0000-0000-0000-000000000002\"",

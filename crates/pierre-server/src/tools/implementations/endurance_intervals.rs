@@ -18,16 +18,15 @@ use serde::Serialize;
 use serde_json::Value;
 
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_config::environment::default_provider;
 use pierre_core::models::TimeSeriesData;
 use pierre_fitness_compute::intervals::IntervalsExport;
 use pierre_fitness_compute::routes::RouteSummary;
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
-use pierre_tool_runtime::capabilities::ToolCapabilities;
 use pierre_tool_runtime::context::ToolExecutionContext;
 use pierre_tool_runtime::conversions::{
-    answers_with, capabilities_to_tronc, ok_typed, tool_definition, tool_result_to_response,
+    answers_with, ok_typed, tool_definition, tool_result_to_response,
 };
 use pierre_tool_runtime::protocol::provider_helpers::fetch_activity_from_provider;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -143,21 +142,17 @@ impl McpTool<dyn ToolRuntime> for ExportIntervalsTool {
              one row per lap with avg HR, normalized power, intensity factor, and \
              decoupling. Use this when a coach needs the per-interval breakdown \
              for tempo/threshold/VO2max workouts. Activities without laps return \
-             a single synthetic interval covering the whole session. Mirrors \
-             GET /api/v1/endurance/intervals/{activity_id}.",
+             a single synthetic interval covering the whole session.",
             schema,
             Some(read_only_annotations()),
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_TENANT
-                | ToolCapabilities::REQUIRES_PROVIDER
-                | ToolCapabilities::READS_DATA
-                | ToolCapabilities::ANALYTICS,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_TENANT
+            | ToolCapabilities::REQUIRES_PROVIDER
+            | ToolCapabilities::READS_DATA
     }
 
     async fn execute(
@@ -202,21 +197,17 @@ impl McpTool<dyn ToolRuntime> for ExportRoutesTool {
             "Export the Endurance 'routes.json' shape for a single activity — \
              GPX-derived terrain mix (flat/rolling/climb/steep), elevation gain/loss, \
              and distinct climb segments with Strava-style category. Requires the \
-             activity stream to include lat/lon and altitude. Mirrors \
-             GET /api/v1/endurance/routes/{activity_id}.",
+             activity stream to include lat/lon and altitude.",
             schema,
             Some(read_only_annotations()),
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_TENANT
-                | ToolCapabilities::REQUIRES_PROVIDER
-                | ToolCapabilities::READS_DATA
-                | ToolCapabilities::ANALYTICS,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_TENANT
+            | ToolCapabilities::REQUIRES_PROVIDER
+            | ToolCapabilities::READS_DATA
     }
 
     async fn execute(
@@ -250,8 +241,7 @@ impl McpTool<dyn ToolRuntime> for ExportRoutesTool {
             // Warm-cache path: the stream's cache identity (hash + point
             // count) is computable without the terrain/climb analysis, so a
             // matching `route_summaries` row serves the stored summary and
-            // skips the analysis and the write. Shared cache with
-            // GET /api/v1/endurance/routes/{activity_id}.
+            // skips the analysis and the write.
             let (gpx_hash, point_count) =
                 stream_route_identity(coords, altitudes).ok_or_else(|| {
                     AppError::not_found(
@@ -332,13 +322,11 @@ impl McpTool<dyn ToolRuntime> for ExtractActivityStreamsTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_TENANT
-                | ToolCapabilities::REQUIRES_PROVIDER
-                | ToolCapabilities::READS_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_TENANT
+            | ToolCapabilities::REQUIRES_PROVIDER
+            | ToolCapabilities::READS_DATA
     }
 
     async fn execute(

@@ -147,12 +147,12 @@ impl QueueStub {
 }
 
 /// A Cloud Tasks runner over the stub at `api_base`, verifying tokens against
-/// the certificate map at `certs_url`, waiting `claim_wait` for a blocked
-/// claim, with the production turn watchdog.
+/// the JWK set at `jwks_url`, waiting `claim_wait` for a blocked claim, with
+/// the production turn watchdog.
 #[must_use]
 pub fn cloud_tasks_runner(
     api_base: &str,
-    certs_url: &str,
+    jwks_url: &str,
     claim_wait: Duration,
 ) -> CloudTasksRunner {
     CloudTasksRunner::new(
@@ -162,7 +162,7 @@ pub fn cloud_tasks_runner(
             service_account: SERVICE_ACCOUNT.to_owned(),
             claim_wait,
             api_base: api_base.to_owned(),
-            certs_url: certs_url.to_owned(),
+            jwks_url: jwks_url.to_owned(),
         },
         Arc::new(StaticToken),
         Duration::from_mins(16),
@@ -174,10 +174,10 @@ pub fn cloud_tasks_runner(
 #[must_use]
 pub fn cloud_tasks_turn_runner(
     api_base: &str,
-    certs_url: &str,
+    jwks_url: &str,
     claim_wait: Duration,
 ) -> Arc<TurnRunner> {
     Arc::new(TurnRunner::CloudTasks(Box::new(cloud_tasks_runner(
-        api_base, certs_url, claim_wait,
+        api_base, jwks_url, claim_wait,
     ))))
 }

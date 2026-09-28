@@ -320,13 +320,6 @@ impl HarnessMemoryRepository for RecordingFacts {
     async fn touch_agent_session(&self, _session_id: &str, _tenant_id: TenantId) -> AppResult<()> {
         Err(off_path("touch_agent_session"))
     }
-    async fn archive_agent_session(
-        &self,
-        _session_id: &str,
-        _tenant_id: TenantId,
-    ) -> AppResult<bool> {
-        Err(off_path("archive_agent_session"))
-    }
 }
 
 // ---------------------------------------------------------------------------

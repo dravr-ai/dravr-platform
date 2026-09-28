@@ -208,16 +208,6 @@ impl<'a> PlanOwner<'a> {
 /// too (mirrors [`super::playbooks::PlaybookRepository`]).
 #[async_trait]
 pub trait TrainingPlanRepository: Send + Sync {
-    /// Persist a new plan outline, superseding the athlete's current active
-    /// outline for the same agent in the same transaction. The new row's
-    /// `supersedes_id` points at the replaced outline (audit chain), and the
-    /// replaced outline's still-active weeks are carried onto the new plan id
-    /// so the athlete's day-by-day schedule follows it. Returns the stored plan.
-    async fn save_training_plan(
-        &self,
-        params: &SaveTrainingPlanParams<'_>,
-    ) -> AppResult<TrainingPlan>;
-
     /// Atomically persist an optional outline plus zero or more weeks in a
     /// **single transaction**, so a mid-payload failure can never leave the
     /// athlete with a superseded old plan and a half-populated new one. This
@@ -1013,25 +1003,6 @@ macro_rules! impl_training_plan_repository {
 
         #[async_trait::async_trait]
         impl TrainingPlanRepository for $ty {
-            async fn save_training_plan(
-                &self,
-                params: &SaveTrainingPlanParams<'_>,
-            ) -> AppResult<TrainingPlan> {
-                // Supersede-then-insert in one transaction so the one-active partial
-                // unique index never sees two active outlines and a crash between the
-                // two writes cannot strand the athlete planless.
-                let mut tx = self
-                    .pool()
-                    .begin()
-                    .await
-                    .map_err(|e| AppError::database(format!("begin plan tx: {e}")))?;
-                let plan = supersede_and_insert_plan(&mut tx, params).await?;
-                tx.commit()
-                    .await
-                    .map_err(|e| AppError::database(format!("commit plan tx: {e}")))?;
-                Ok(plan)
-            }
-
             async fn save_plan_bundle(
                 &self,
                 params: &SavePlanBundleParams<'_>,

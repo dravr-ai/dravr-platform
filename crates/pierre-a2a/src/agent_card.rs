@@ -14,6 +14,7 @@
 use std::collections::BTreeMap;
 use std::env;
 
+use pierre_core::permissions::scopes::OAuthScope;
 use serde::{Deserialize, Serialize};
 
 use crate::protocol_types::A2A_VERSION;
@@ -320,7 +321,7 @@ impl AgentCard {
                     schemes: BTreeMap::from([(
                         "oauth2ClientCredentials".to_owned(),
                         StringListValue {
-                            values: vec!["fitness:read".to_owned()],
+                            values: vec![OAuthScope::FitnessRead.as_str().to_owned()],
                         },
                     )]),
                 },
@@ -339,21 +340,13 @@ impl AgentCard {
 
     /// Named security schemes advertised by the card
     fn create_security_schemes(base_url: &str) -> BTreeMap<String, SecurityScheme> {
-        let scopes = BTreeMap::from([
-            (
-                "fitness:read".to_owned(),
-                "Read fitness activities and athlete data".to_owned(),
-            ),
-            (
-                "analytics:read".to_owned(),
-                "Read analytics and intelligence outputs".to_owned(),
-            ),
-            ("goals:read".to_owned(), "Read fitness goals".to_owned()),
-            (
-                "goals:write".to_owned(),
-                "Create and update fitness goals".to_owned(),
-            ),
-        ]);
+        // The same vocabulary `scopes_supported` publishes: every scope the
+        // authorization server can grant a client, and nothing it would refuse.
+        let scopes = OAuthScope::ALL
+            .into_iter()
+            .filter(|scope| scope.is_delegable())
+            .map(|scope| (scope.as_str().to_owned(), scope.description().to_owned()))
+            .collect();
 
         BTreeMap::from([
             (

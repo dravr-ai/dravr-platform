@@ -128,16 +128,6 @@ async fn listings_carry_the_channel_binding_the_by_id_read_carries() {
         .expect("the group is active in its tenant");
     assert_same_group(listed, &by_id, "the per-tenant listing");
 
-    let for_agent = repos
-        .groups
-        .list_groups_for_agent(&agent_id, tenant_id)
-        .await
-        .unwrap();
-    let listed = for_agent
-        .iter()
-        .find(|g| g.id == created.id)
-        .expect("the group is listed under its agent");
-    assert_same_group(listed, &by_id, "the per-agent listing");
     assert_eq!(by_id.digest_mode, GroupDigestMode::Chat);
 }
 

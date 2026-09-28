@@ -122,7 +122,7 @@ impl AdminAuthService {
         ip_address: Option<&str>,
     ) -> AppResult<ValidatedAdminToken> {
         // Step 1: Validate JWT structure and extract token ID using RS256
-        let validated_token = self.jwt_manager.validate_token(token, &self.jwks_manager)?;
+        let mut validated_token = self.jwt_manager.validate_token(token, &self.jwks_manager)?;
 
         // Step 2: Check if token exists and is active in database
         let stored_token = self
@@ -154,6 +154,10 @@ impl AdminAuthService {
             }
         }
 
+        // The operator the token acts as lives on its row, written only by the
+        // device grant; the signed claims carry no identity of their own.
+        validated_token.operator_user_id = stored_token.operator_user_id;
+
         // Step 5: Log usage (no permission check)
         self.log_token_usage(&stored_token.id, "auth_check", None, ip_address, true, None)
             .await?;
@@ -168,8 +172,8 @@ impl AdminAuthService {
         }
 
         info!(
-            "Admin authentication successful: service={}",
-            validated_token.service_name
+            "Admin authentication successful: token_id={}",
+            validated_token.token_id
         );
 
         Ok(validated_token)

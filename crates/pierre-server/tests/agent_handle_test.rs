@@ -10,21 +10,13 @@
 mod common;
 mod helpers;
 
-use axum::http::StatusCode;
-use common::{
-    create_test_server_resources, create_test_user, create_test_user_with_plan, generate_test_token,
-};
-use helpers::axum_test::AxumTestRequest;
+use common::{create_test_server_resources, create_test_user_with_plan};
 use pierre_core::models::agents::{
     AgentCategory, AgentHandle, AgentVisibility, CreateSystemAgentRequest,
 };
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
-use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_routes_agents::agents::AgentResponse;
-use pierre_routes_agents::build_agents_router;
-use std::sync::Arc;
 use uuid::Uuid;
 
 /// A second origin row claiming an owned handle, which `idx_agents_handle` must refuse.
@@ -238,95 +230,4 @@ async fn install_carries_the_handle_and_only_installers_resolve_it() {
         .await
         .unwrap();
     assert!(gone.is_none(), "an uninstalled coach must stop resolving");
-}
-
-#[tokio::test]
-async fn fork_carries_the_handle_of_its_origin() {
-    let resources = create_test_server_resources().await.unwrap();
-    let repos = &resources.common.repos;
-    let (author_id, _author, tenant_id) =
-        create_test_user_with_plan(&resources.agent.database, "author@handle.test", "starter")
-            .await
-            .unwrap();
-    let origin = publish_agent(repos, author_id, tenant_id, "Strength Coach").await;
-
-    let fork = repos
-        .agents
-        .fork_agent(&origin.to_string(), author_id, tenant_id)
-        .await
-        .unwrap();
-    assert_eq!(fork.handle.as_deref(), Some("strength-coach"));
-
-    let resolved = repos
-        .agents
-        .find_installed_by_handle(
-            &AgentHandle::parse("strength-coach").unwrap(),
-            author_id,
-            tenant_id,
-        )
-        .await
-        .unwrap()
-        .expect("the fork resolves by its origin's handle");
-    assert_eq!(
-        resolved.id, fork.id,
-        "the user's own copy wins over the origin"
-    );
-}
-
-#[tokio::test]
-async fn by_handle_route_returns_the_installed_agent_and_404s_otherwise() {
-    let resources = create_test_server_resources().await.unwrap();
-    let repos = &resources.common.repos;
-    let (author_id, _author, author_tenant) =
-        create_test_user_with_plan(&resources.agent.database, "author@handle.test", "starter")
-            .await
-            .unwrap();
-    let origin = publish_agent(repos, author_id, author_tenant, "Mobility Coach").await;
-
-    let (athlete_id, athlete) = create_test_user(&resources.agent.database).await.unwrap();
-    let athlete_tenant = repos
-        .tenants
-        .list_for_user(athlete_id)
-        .await
-        .unwrap()
-        .first()
-        .map(|t| t.id)
-        .expect("test user owns a tenant");
-    let token = generate_test_token(&resources, &athlete).await;
-    let auth = format!("Bearer {token}");
-    let router = build_agents_router::<ServerContext>().with_state(Arc::clone(&resources));
-
-    // Not installed yet: the catalogue does not leak through the route.
-    let response = AxumTestRequest::get("/api/agents/by-handle/mobility-coach")
-        .header("authorization", &auth)
-        .send(router.clone())
-        .await;
-    assert_eq!(response.status_code(), StatusCode::NOT_FOUND);
-
-    // A malformed handle is rejected before any lookup.
-    let response = AxumTestRequest::get("/api/agents/by-handle/Not%20A%20Handle")
-        .header("authorization", &auth)
-        .send(router.clone())
-        .await;
-    assert_eq!(response.status_code(), StatusCode::BAD_REQUEST);
-
-    let installed = repos
-        .store_listings
-        .install_from_store(&origin.to_string(), athlete_id, athlete_tenant)
-        .await
-        .unwrap();
-
-    let response = AxumTestRequest::get("/api/agents/by-handle/mobility-coach")
-        .header("authorization", &auth)
-        .send(router)
-        .await;
-    assert_eq!(response.status_code(), StatusCode::OK);
-    let body: AgentResponse = response.json();
-    assert_eq!(body.id, installed.id.to_string());
-    assert_eq!(body.handle.as_deref(), Some("mobility-coach"));
-    assert_eq!(body.title, "Mobility Coach");
-    assert_eq!(
-        body.forked_from.as_deref(),
-        Some(origin.to_string().as_str())
-    );
 }

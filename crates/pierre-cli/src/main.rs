@@ -354,7 +354,7 @@ enum UserCommand {
         /// Email or user id. Omit to list.
         selector: Option<String>,
 
-        /// Filter by status (default: active)
+        /// Filter by status: active (the default), pending, suspended, or all
         #[arg(long)]
         status: Option<String>,
 

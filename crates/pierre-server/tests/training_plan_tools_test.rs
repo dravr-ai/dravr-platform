@@ -10,6 +10,7 @@
 use anyhow::Result;
 use chrono::Utc;
 use pierre_contremaitre::TrainingCatalogueRegistry;
+use pierre_core::llm::tool_simulation::generate_tool_catalog;
 use pierre_core::models::{
     Activity, ActivityBuilder, GuidedFlow, OnboardingState, Pillar, SportType, TenantId,
 };
@@ -24,7 +25,6 @@ use pierre_tool_runtime::implementations::training_plans::{
 use pierre_tool_runtime::protocol::UniversalExecutor;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::scopes::{missing_scope, required_scopes};
-use pierre_tool_runtime::tool_execution::generate_tool_catalog;
 use pierre_tool_runtime::McpTool;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -136,9 +136,6 @@ fn make_request(
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: tenant_id.map(str::to_owned),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     }
 }
 

@@ -56,11 +56,11 @@ pub mod provider_stop;
 /// Which tier of a fallback chain answered the current call
 pub mod served_tier;
 mod tool_bridge;
-/// The platform's tool-calling shapes
+/// The platform's tool surface and tool-carrying response
 mod tool_types;
 
+pub use embacle::McpToolDefinition;
 pub use embacle::OpenAiCompatibleConfig;
-pub use embacle::{AgentExecutor, AgentResult, FallbackProvider, MetricsProvider};
 pub use embacle::{
     ClaudeCodeRunner, CliRunnerType, ClineCliRunner, CodexCliRunner, ContinueCliRunner,
     CopilotRunner, CursorAgentRunner, GeminiCliRunner, GooseCliRunner, OpenCodeRunner,
@@ -71,16 +71,11 @@ pub use embacle::{
     HeadlessEventStream, HeadlessStreamEvent, HeadlessToolResponse, HeadlessTurnProvider,
     ObservedToolCall,
 };
-pub use embacle::{
-    McpToolDefinition, McpToolExecutor, OpenAiApiConfig, OpenAiApiRunner, QualityGateProvider,
-};
+pub use embacle::{FallbackProvider, MetricsProvider};
+pub use embacle::{FunctionCall, FunctionDeclaration, FunctionResponse};
 pub use embacle_provider::{cli_credential_env_keys, cli_runner_config, EmbacleProvider};
 pub use prompts::{
-    get_activity_analysis_prompt, get_activity_analysis_system_prompt, get_agent_generation_prompt,
-    get_messaging_context_prompt, get_pierre_system_prompt, get_recommendation_analysis_prompt,
-    get_recommendation_system_prompt,
+    get_agent_generation_prompt, get_messaging_context_prompt, get_pierre_system_prompt,
 };
 pub use provider::{ChainTiers, ChatProvider};
-pub use tool_types::{
-    ChatResponseWithTools, FunctionCall, FunctionDeclaration, FunctionResponse, Tool,
-};
+pub use tool_types::{ChatResponseWithTools, Tool};

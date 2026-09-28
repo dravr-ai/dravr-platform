@@ -143,6 +143,15 @@ async fn the_seeder_leaves_one_link_waiting_for_its_member() {
     assert_eq!(link.provider, SCIOTTE_TRAININGPEAKS);
     assert_eq!(link.provider_athlete_id, ATHLETE_ID);
     assert_eq!(link.provider_athlete_name.as_deref(), Some(ATHLETE_NAME));
+    assert_eq!(
+        link.provider_athlete_email.as_deref(),
+        Some("member@seed.test"),
+        "the roster email a confirm binds the member by"
+    );
+    assert!(
+        repos.email_verification.is_verified(member).await.unwrap(),
+        "the member's email is verified, so the seeded link can be confirmed"
+    );
 
     assert!(
         page.items

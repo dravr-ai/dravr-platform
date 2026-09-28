@@ -70,8 +70,8 @@ fn config_with_origins(mcp_origins: &[&str], cors: &str) -> ServerConfig {
 
 /// The configured allowlist must reach the engine.
 ///
-/// Before this wiring existed the list was always empty, which tronc treats as
-/// permit-any — so every browser origin reached `POST /mcp` unchecked.
+/// Before this wiring existed the list was always empty, which the tronc of the
+/// day treated as permit-any — so every browser origin reached `POST /mcp`.
 #[tokio::test]
 async fn test_configured_origins_reach_the_engine() {
     common::init_server_config();
@@ -87,7 +87,7 @@ async fn test_configured_origins_reach_the_engine() {
     assert_eq!(
         server.allowed_origins(),
         ["https://app.dravr.ai", "https://admin.dravr.ai"],
-        "MCP_ALLOWED_ORIGINS must reach the engine; an empty list is permit-any"
+        "MCP_ALLOWED_ORIGINS must reach the engine"
     );
 }
 
@@ -131,26 +131,28 @@ async fn test_env_list_is_split_and_trimmed() {
     assert_eq!(parsed, ["https://a.example", "https://b.example"]);
 }
 
-/// An unset `MCP_ALLOWED_ORIGINS` leaves the endpoint unrestricted.
+/// An unset `MCP_ALLOWED_ORIGINS` admits only loopback browser origins.
 ///
-/// Tronc treats an empty allowlist as permit-any. Pinned so the permissive
-/// local default is a stated choice rather than an accident, and so a future
-/// change to a restrictive default has to update this test deliberately.
+/// The engine reads an empty allowlist as loopback-only, so a page on another
+/// site that rebinds its name to 127.0.0.1 cannot drive a local server, while
+/// a local web client on `localhost` keeps working. A deployment that serves a
+/// browser client from a real hostname must list it.
 #[tokio::test]
-async fn test_unset_allowlist_is_unrestricted() {
+async fn test_unset_allowlist_admits_only_loopback_origins() {
     common::init_server_config();
 
-    let resources = Box::pin(common::create_test_server_resources_with_config(
-        config_with_origins(&[], ""),
-    ))
-    .await
-    .expect("Should build test resources");
+    let remote = Box::pin(post_mcp(&[], Some("https://evil.example.com"))).await;
+    assert_eq!(
+        remote,
+        StatusCode::FORBIDDEN,
+        "an unset MCP_ALLOWED_ORIGINS must refuse a non-loopback browser origin"
+    );
 
-    let server = build_mcp_server(resources);
-
-    assert!(
-        server.allowed_origins().is_empty(),
-        "an unset MCP_ALLOWED_ORIGINS must leave the allowlist empty (unrestricted)"
+    let local = Box::pin(post_mcp(&[], Some("http://localhost:3000"))).await;
+    assert_ne!(
+        local,
+        StatusCode::FORBIDDEN,
+        "an unset MCP_ALLOWED_ORIGINS must admit a loopback origin"
     );
 }
 
@@ -159,8 +161,7 @@ async fn test_unset_allowlist_is_unrestricted() {
 /// This is the behaviour the whole change exists for. The wiring assertions
 /// above prove the allowlist reaches the engine; this proves the composed
 /// system actually refuses a request, which is what DNS-rebinding protection
-/// means. Without the `with_allowed_origins` call the list is empty, tronc
-/// treats empty as permit-any, and this returns 401 instead of 403.
+/// means.
 #[tokio::test]
 async fn test_unlisted_origin_is_refused_with_403() {
     common::init_server_config();

@@ -134,7 +134,7 @@ pub async fn handle_purge_provider_data(
             if let Err(audit) = record_purge(&context, &admin_token, provider, Some(&e)).await {
                 error!(
                     provider = %provider,
-                    service = %admin_token.service_name,
+                    token_id = %admin_token.token_id,
                     error = %audit.internal_details(),
                     "Could not record the failed provider data purge"
                 );
@@ -146,7 +146,7 @@ pub async fn handle_purge_provider_data(
     let total = purge.total();
     info!(
         provider = %provider,
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         removed = total,
         rows_removed = ?purge.rows_removed,
         connections_remaining,

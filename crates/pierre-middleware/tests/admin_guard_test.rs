@@ -1,5 +1,5 @@
 // ABOUTME: Verifies cookie-admin authorization derives permissions from the user's
-// ABOUTME: actual role so a plain Admin is not silently elevated to super-admin.
+// ABOUTME: actual role: a plain Admin manages users but is never elevated to super-admin.
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -34,7 +34,7 @@ fn super_admin_role_grants_full_permissions() {
 }
 
 #[test]
-fn plain_admin_role_does_not_get_super_permissions() {
+fn plain_admin_role_manages_users_without_super_permissions() {
     let token = cookie_admin_token(&user_with_role(UserRole::Admin), None);
     assert!(
         !token.is_super_admin,
@@ -42,12 +42,25 @@ fn plain_admin_role_does_not_get_super_permissions() {
     );
     // Super-only permissions must be absent so the downstream
     // `require_permission`/`is_super_admin` gates actually deny.
-    assert!(!token
-        .permissions
-        .has_permission(&AdminPermission::ManageAdminTokens));
-    assert!(!token
+    for super_only in [
+        AdminPermission::ManageConfiguration,
+        AdminPermission::ViewConfiguration,
+        AdminPermission::ViewAuditLogs,
+    ] {
+        assert!(
+            !token.permissions.has_permission(&super_only),
+            "a plain Admin console session must not carry {super_only}"
+        );
+    }
+    // The console's user and token tabs are served by the admin-token
+    // handlers, which check these, so a plain Admin's session carries them;
+    // the token handlers keep super-admin tokens to super-admin callers.
+    assert!(token
         .permissions
         .has_permission(&AdminPermission::ManageUsers));
+    assert!(token
+        .permissions
+        .has_permission(&AdminPermission::ManageAdminTokens));
     // Key-management (default_admin) permissions remain available.
     assert!(token
         .permissions

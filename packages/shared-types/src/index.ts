@@ -28,6 +28,12 @@ export type {
   SportProfileSummary,
   ProposedAgent,
   AgentProposalResponse,
+  AgentContentSnapshot,
+  AgentVersion,
+  ListAgentVersionsResponse,
+  AgentFieldChange,
+  AgentVersionDiffResponse,
+  RevertAgentVersionResponse,
 } from './coaches.js';
 
 // Auth types (users, login, OAuth)
@@ -42,7 +48,6 @@ export type {
   RegisterResponse,
   FirebaseLoginResponse,
   SessionResponse,
-  ProviderStatus,
   ExtendedProviderStatus,
   ProviderDelegation,
   SciotteTarget,
@@ -176,6 +181,7 @@ export type {
   AdminTokensResponse,
   CreateAdminTokenRequest,
   CreateAdminTokenResponse,
+  RotateAdminTokenResponse,
   ToolUsageBreakdown,
   A2AClient,
   A2AClientRegistrationRequest,
@@ -224,6 +230,7 @@ export type {
   DelegationRosterResponse,
   ProposeDelegatedConnectionRequest,
   DelegationRefusalReason,
+  DelegationReadRefusal,
 } from './groups.js';
 
 // Feature-flag types (GET /api/me/features)

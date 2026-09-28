@@ -30,6 +30,7 @@ use pierre_database::seed_models::{
     SeedA2AClient, SeedA2AUsage, SeedApiKey, SeedApiKeyUsage, SeedDemoUser, SeedTenant, SEED_LOCALE,
 };
 use pierre_database::RepositoryRegistry;
+use pierre_middleware::mask_email;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use tracing::info;
@@ -537,7 +538,10 @@ fn is_weekend(dt: DateTime<Utc>) -> bool {
 /// Returns an error if no admin user is found or if any repository operation fails.
 pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
     let (admin_id, admin_email) = find_admin_user(repos, args.admin_email.as_deref()).await?;
-    info!("=== Pierre MCP Server Demo Data Seeder: admin {admin_email} ({admin_id}) ===");
+    info!(
+        "=== Pierre MCP Server Demo Data Seeder: admin {} ({admin_id}) ===",
+        mask_email(&admin_email)
+    );
 
     if args.reset {
         reset_usage_tables(repos).await?;
@@ -655,11 +659,15 @@ async fn seed_demo_users(repos: &RepositoryRegistry) -> AppResult<Vec<Uuid>> {
         let existing = repos.seeder.seed_check_user_exists(user.email).await?;
 
         let user_id = if let Some(id) = existing {
-            info!("  Found existing user: {}", user.email);
+            info!("  Found existing user: {} ({id})", mask_email(user.email));
             id
         } else {
             let id = create_demo_user(repos, user).await?;
-            info!("  Created user: {} ({})", user.email, user.status);
+            info!(
+                "  Created user: {} ({id}, {})",
+                mask_email(user.email),
+                user.status
+            );
             id
         };
         arm_exposure_notice(repos, user, user_id).await?;
@@ -682,7 +690,10 @@ async fn arm_exposure_notice(
             .feature_flags
             .set_user_override(user_id, FeatureKey::ProviderExposureNotice, true, None)
             .await?;
-        info!("  Armed the provider exposure notice for {}", user.email);
+        info!(
+            "  Armed the provider exposure notice for {} ({user_id})",
+            mask_email(user.email)
+        );
     }
     Ok(())
 }

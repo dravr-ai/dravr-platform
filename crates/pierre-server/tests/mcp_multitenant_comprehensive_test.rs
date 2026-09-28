@@ -201,36 +201,6 @@ async fn test_unknown_method_handling() -> Result<()> {
     Ok(())
 }
 
-// === Authentication Tests ===
-
-#[tokio::test]
-async fn test_authenticate_method_with_invalid_params() -> Result<()> {
-    let resources = common::create_test_server_resources().await?;
-
-    let request = McpRequest {
-        jsonrpc: "2.0".to_owned(),
-        method: "authenticate".to_owned(),
-        params: Some(json!({"invalid_field": "invalid_value"})),
-        id: Some(json!(6)),
-        auth_token: None,
-        headers: None,
-        metadata: HashMap::new(),
-    };
-
-    let response = build_mcp_server(resources.clone())
-        .handle_request(request)
-        .await;
-
-    let response = response.unwrap();
-    assert!(response.result.is_none());
-    assert!(response.error.is_some());
-
-    let error = response.error.unwrap();
-    assert!(error.message.contains("Invalid authentication parameters"));
-
-    Ok(())
-}
-
 // === Tool Call Tests ===
 
 #[tokio::test]

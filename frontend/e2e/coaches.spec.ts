@@ -200,7 +200,7 @@ async function setupCoachesMocks(page: Page, options: { isAdmin?: boolean; empty
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ users: mockUsers, total_count: mockUsers.length }),
+      body: JSON.stringify({ success: true, message: 'Retrieved users', data: { users: mockUsers, total: mockUsers.length, has_more: false } }),
     });
   });
 }

@@ -20,8 +20,6 @@
 pub mod auth;
 /// Configuration context with OAuth, tenant settings, and admin config management
 pub mod config;
-/// Extension context for plugins, sampling peer, and progress notifications
-pub mod extension;
 /// Security context for CSRF, redaction, and rate limiting
 pub mod security;
 /// Focused-context extractors layered on `ServerContext` (the canonical container)
@@ -33,7 +31,5 @@ pub use crate::mcp::resources::ServerContext;
 pub use auth::AuthContext;
 /// Configuration context
 pub use config::ConfigContext;
-/// Extension context
-pub use extension::ExtensionContext;
 /// Security context
 pub use security::SecurityContext;

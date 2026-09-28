@@ -71,6 +71,27 @@ fn tronc_context(user_id: Uuid, tenant_id: Option<TenantId>, is_admin: bool) -> 
     ctx
 }
 
+/// An admin caller with the user and tenant `tools/list` needs: the call path
+/// refuses a caller with no user or no tenant, so the listing offers such a
+/// caller nothing, and an admin is listed every tool no operator switched off.
+async fn listing_admin_context(resources: &Arc<ServerContext>) -> ToolContext {
+    let (user_id, _) = create_test_user(&resources.agent.database)
+        .await
+        .expect("Failed to create user");
+    let tenant_id = resources
+        .agent
+        .database
+        .repositories()
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .expect("tenants of the test user")
+        .first()
+        .expect("the test user owns a tenant")
+        .id;
+    tronc_context(user_id, Some(tenant_id), true)
+}
+
 /// First text content block of a tool response (the in-band error/result text).
 fn response_text(response: &ToolResponse) -> &str {
     response
@@ -795,15 +816,11 @@ async fn test_list_tools_carries_every_declared_output_schema() {
     let resources = create_test_server_resources()
         .await
         .expect("Failed to create test resources");
-    let (user_id, _) = create_test_user(&resources.agent.database)
-        .await
-        .expect("Failed to create user");
+    let context = listing_admin_context(&resources).await;
 
     let dispatcher = PierreToolDispatcher::new(resources.clone());
     let state: Arc<dyn ToolRuntime> = resources.clone();
-    let tools = dispatcher
-        .list_tools(&state, &tronc_context(user_id, None, true))
-        .await;
+    let tools = dispatcher.list_tools(&state, &context).await;
 
     // What the registry says is declared, read straight off each tool.
     let mut registry = ToolRegistry::new();
@@ -874,15 +891,11 @@ async fn test_list_tools_advertises_task_support() {
     let resources = create_test_server_resources()
         .await
         .expect("Failed to create test resources");
-    let (user_id, _) = create_test_user(&resources.agent.database)
-        .await
-        .expect("Failed to create user");
+    let context = listing_admin_context(&resources).await;
 
     let dispatcher = PierreToolDispatcher::new(resources.clone());
     let state: Arc<dyn ToolRuntime> = resources.clone();
-    let tools = dispatcher
-        .list_tools(&state, &tronc_context(user_id, None, true))
-        .await;
+    let tools = dispatcher.list_tools(&state, &context).await;
 
     let execution_of = |name: &str| {
         tools
@@ -934,15 +947,11 @@ async fn test_task_support_advertised_matches_the_registry_declaration() {
     let resources = create_test_server_resources()
         .await
         .expect("Failed to create test resources");
-    let (user_id, _) = create_test_user(&resources.agent.database)
-        .await
-        .expect("Failed to create user");
+    let context = listing_admin_context(&resources).await;
 
     let dispatcher = PierreToolDispatcher::new(resources.clone());
     let state: Arc<dyn ToolRuntime> = resources.clone();
-    let tools = dispatcher
-        .list_tools(&state, &tronc_context(user_id, None, true))
-        .await;
+    let tools = dispatcher.list_tools(&state, &context).await;
     assert!(!tools.is_empty(), "the registry serves tools at all");
 
     let registry = &resources.mcp.tool_registry;

@@ -165,7 +165,6 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
     let temp_dir = tempfile::tempdir()?;
     let config = Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -456,7 +455,6 @@ async fn test_user_login_success() -> Result<()> {
     let temp_dir = tempfile::tempdir()?;
     let config = Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -710,7 +708,7 @@ async fn test_user_login_invalid_password() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_user_login_case_sensitivity() -> Result<()> {
+async fn test_user_login_ignores_email_case() -> Result<()> {
     common::init_server_config();
     let auth_routes = create_test_auth_routes().await?;
 
@@ -721,19 +719,19 @@ async fn test_user_login_case_sensitivity() -> Result<()> {
         display_name: Some("Case User".to_owned()),
     };
 
-    auth_routes.register(register_request).await?;
+    let registered = auth_routes.register(register_request).await?;
 
-    // Try to login with uppercase email (should fail for security)
+    // Emails are case-insensitive: the uppercase spelling signs in to the
+    // same account, which answers with its stored, lowercase address.
     let login_request = LoginRequest {
         email: "CASE@EXAMPLE.COM".to_owned(),
         password: "casepassword123".to_owned(),
         timezone: None,
     };
 
-    let result = auth_routes.login(login_request).await;
-
-    // Email should be case-sensitive for security
-    assert!(result.is_err());
+    let response = auth_routes.login(login_request).await?;
+    assert_eq!(response.user.user_id, registered.user_id);
+    assert_eq!(response.user.email, "case@example.com");
 
     Ok(())
 }
@@ -748,7 +746,6 @@ async fn test_token_refresh_success() -> Result<()> {
     let temp_dir = tempfile::tempdir()?;
     let config = Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -996,7 +993,6 @@ async fn test_token_refresh_suspended_user() -> Result<()> {
     let temp_dir = tempfile::tempdir()?;
     let config = Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -1513,7 +1509,6 @@ async fn test_complete_auth_flow() -> Result<()> {
     let temp_dir = tempfile::tempdir()?;
     let config = Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -1831,7 +1826,6 @@ async fn test_concurrent_logins() -> Result<()> {
     let temp_dir = tempfile::tempdir()?;
     let config = Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),

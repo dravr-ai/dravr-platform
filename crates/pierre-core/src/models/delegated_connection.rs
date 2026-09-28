@@ -149,6 +149,12 @@ pub struct DelegatedConnection {
     /// The name the coach's provider roster shows for the athlete. Untrusted
     /// third-party text: rendered by the apps, never put into a prompt.
     pub provider_athlete_name: Option<String>,
+    /// The email the coach's provider roster lists for the athlete, stored
+    /// normalized ([`normalize_email`](super::normalize_email)). A proposal
+    /// is made only when it is the member's verified email, and the member's
+    /// confirm checks it again; a row that carries none cannot be confirmed.
+    /// Personal data: never logged.
+    pub provider_athlete_email: Option<String>,
     /// Where the link stands.
     pub status: DelegationStatus,
     /// When the coach proposed it.
@@ -164,6 +170,17 @@ pub struct DelegatedConnection {
     pub revoke_reason: Option<DelegationEndReason>,
 }
 
+/// The athlete a proposal names, as the coach's provider roster lists them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RosterAthlete {
+    /// The athlete's id on the provider.
+    pub id: String,
+    /// The athlete's name on the roster, when it has one.
+    pub name: Option<String>,
+    /// The athlete's email on the roster, when the provider shares one.
+    pub email: Option<String>,
+}
+
 impl DelegatedConnection {
     /// A fresh proposal: a new id, [`DelegationStatus::Proposed`], proposed now.
     #[must_use]
@@ -173,8 +190,7 @@ impl DelegatedConnection {
         coach_user_id: Uuid,
         coach_tenant_id: TenantId,
         member_user_id: Uuid,
-        provider_athlete_id: String,
-        provider_athlete_name: Option<String>,
+        athlete: RosterAthlete,
     ) -> Self {
         Self {
             id: Uuid::new_v4(),
@@ -184,8 +200,9 @@ impl DelegatedConnection {
             coach_tenant_id,
             member_user_id,
             member_tenant_id: None,
-            provider_athlete_id,
-            provider_athlete_name,
+            provider_athlete_id: athlete.id,
+            provider_athlete_name: athlete.name,
+            provider_athlete_email: athlete.email,
             status: DelegationStatus::Proposed,
             proposed_at: Utc::now(),
             confirmed_at: None,

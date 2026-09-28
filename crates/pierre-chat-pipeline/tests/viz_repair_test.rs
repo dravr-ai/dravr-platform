@@ -14,6 +14,7 @@ use dravr_contremaitre::schemas::DRAVR_VIZ_SCHEMA;
 use pierre_chat_pipeline::stages::viz_blocks::{extract_viz_blocks, repair_refused_blocks};
 use pierre_chat_pipeline::stages::viz_route::RouteTracks;
 use pierre_chat_pipeline::stages::viz_schema::SchemaTexts;
+use pierre_contremaitre::PromptRegistry;
 use pierre_core::errors::AppError;
 use pierre_llm::{
     ChatProvider, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider,
@@ -171,6 +172,7 @@ async fn a_repair_recovers_the_chart_the_schema_refused() {
 
     let repaired = repair_refused_blocks(
         &provider,
+        &PromptRegistry::new(),
         &reply_with_refused_block(),
         &first.refusals,
         "claude-sonnet-5",
@@ -210,6 +212,10 @@ async fn a_repair_recovers_the_chart_the_schema_refused() {
         system.contains("series/0/points"),
         "the repair prompt must name the offending field: {system}"
     );
+    assert!(
+        system.contains("failed schema validation") && !system.contains("{{RULES}}"),
+        "the repair prompt is the catalogue's viz_repair text with the faults filled in: {system}"
+    );
 }
 
 /// The turn's model must be pinned. Sending none resolves to the env default,
@@ -222,6 +228,7 @@ async fn the_repair_pins_the_turns_model() {
 
     repair_refused_blocks(
         &provider,
+        &PromptRegistry::new(),
         &reply_with_refused_block(),
         &faults,
         "gpt-5-mini",
@@ -242,7 +249,14 @@ async fn the_repair_pins_the_turns_model() {
 async fn nothing_refused_makes_no_provider_call() {
     let (provider, seen) = ScriptedRepairer::wired(&corrected_reply());
 
-    let out = repair_refused_blocks(&provider, "just prose", &[], "claude-sonnet-5").await;
+    let out = repair_refused_blocks(
+        &provider,
+        &PromptRegistry::new(),
+        "just prose",
+        &[],
+        "claude-sonnet-5",
+    )
+    .await;
 
     assert!(out.is_none(), "an empty fault list must not re-ask");
     assert!(
@@ -262,6 +276,7 @@ async fn a_failing_provider_fails_open() {
 
     let out = repair_refused_blocks(
         &provider,
+        &PromptRegistry::new(),
         &reply_with_refused_block(),
         &faults,
         "claude-sonnet-5",
@@ -280,6 +295,7 @@ async fn an_empty_completion_fails_open() {
 
     let out = repair_refused_blocks(
         &provider,
+        &PromptRegistry::new(),
         &reply_with_refused_block(),
         &faults,
         "claude-sonnet-5",

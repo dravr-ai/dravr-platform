@@ -32,7 +32,6 @@ fn minted(name: &str, user_id: Option<Uuid>, ttl: Duration) -> OAuthClientState 
         scope: Some("activity:read_all".to_owned()),
         pkce_code_verifier: Some("verifier-123".to_owned()),
         oauth_app_client_id: Some("app-7".to_owned()),
-        bridge_callback_token: Some("b".repeat(64)),
         created_at: now - Duration::minutes(1),
         expires_at: now + ttl,
         used: false,
@@ -64,10 +63,6 @@ async fn consume_returns_every_column_and_marks_the_state_used() {
     assert_eq!(consumed.scope.as_deref(), Some("activity:read_all"));
     assert_eq!(consumed.pkce_code_verifier.as_deref(), Some("verifier-123"));
     assert_eq!(consumed.oauth_app_client_id.as_deref(), Some("app-7"));
-    assert_eq!(
-        consumed.bridge_callback_token.as_deref(),
-        Some("b".repeat(64).as_str())
-    );
     assert!(same_instant(consumed.created_at, wanted.created_at));
     assert!(same_instant(consumed.expires_at, wanted.expires_at));
     assert!(consumed.used, "the row comes back already marked used");
@@ -88,7 +83,6 @@ async fn a_state_without_a_user_or_tenant_reads_back_as_none() {
     anonymous.scope = None;
     anonymous.pkce_code_verifier = None;
     anonymous.oauth_app_client_id = None;
-    anonymous.bridge_callback_token = None;
     repo.store_oauth_client_state(&anonymous).await.unwrap();
 
     let consumed = repo
@@ -101,7 +95,6 @@ async fn a_state_without_a_user_or_tenant_reads_back_as_none() {
     assert_eq!(consumed.scope, None);
     assert_eq!(consumed.pkce_code_verifier, None);
     assert_eq!(consumed.oauth_app_client_id, None);
-    assert_eq!(consumed.bridge_callback_token, None);
 }
 
 #[tokio::test]

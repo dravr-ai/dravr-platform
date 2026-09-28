@@ -34,14 +34,13 @@ pub const ERROR_TOOL_EXECUTION: i32 = -32000; // Server error - tool execution f
 pub const ERROR_RESOURCE_ACCESS: i32 = -32001; // Server error - resource access failed
 /// MCP authentication failed
 pub const ERROR_AUTHENTICATION: i32 = -32002; // Server error - authentication failed
+/// MCP `resources/read` of a URI no resource answers to (MCP server/resources,
+/// "Error Handling": resource not found is -32002)
+pub const ERROR_RESOURCE_NOT_FOUND: i32 = -32002;
 /// MCP authorization failed (insufficient permissions)
 pub const ERROR_AUTHORIZATION: i32 = -32003; // Server error - authorization failed
 /// Data serialization/deserialization failed
 pub const ERROR_SERIALIZATION: i32 = -32004; // Server error - data serialization failed
-/// Server error code for progress tracking failures
-pub const ERROR_PROGRESS_TRACKING: i32 = -32005; // Server error - progress tracking failed
-/// Server error code for cancelled operations
-pub const ERROR_OPERATION_CANCELLED: i32 = -32006; // Server error - operation cancelled
 
 /// Rate limit exceeded (daily or weekly quota exhausted)
 pub const ERROR_RATE_LIMIT_EXCEEDED: i32 = -32029; // Server error - rate limit exceeded

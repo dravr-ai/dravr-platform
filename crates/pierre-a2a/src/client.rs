@@ -108,6 +108,10 @@ impl A2AClientManager {
             public_key: keypair.public_key.clone(),   // Safe: String ownership for client struct
             capabilities: request.capabilities.clone(), // Safe: Vec ownership for client struct
             redirect_uris: request.redirect_uris.clone(),
+            // The repository stores it normalized; a blank one is no address.
+            contact_email: Some(request.contact_email.trim())
+                .filter(|email| !email.is_empty())
+                .map(ToOwned::to_owned),
             is_active: true,
             created_at: chrono::Utc::now(),
             permissions: vec!["read_activities".into()], // Default permissions
@@ -370,46 +374,6 @@ impl A2AClientManager {
             last_request_at,
             rate_limit_tier: tiers::PROFESSIONAL.into(), // Default for A2A clients
         })
-    }
-
-    /// Create a new session for a client
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if session creation in database fails
-    pub async fn create_session(
-        &self,
-        client_id: &str,
-        user_id: Option<&str>,
-    ) -> Result<String, A2AError> {
-        let user_uuid = user_id.and_then(|id| uuid::Uuid::parse_str(id).ok());
-        let granted_scopes = vec!["fitness:read".into(), "analytics:read".into()];
-
-        let session_token = self
-            .repos
-            .a2a
-            .create_session(client_id, user_uuid.as_ref(), &granted_scopes, 24)
-            .await
-            .map_err(|e| A2AError::InternalError(format!("Failed to create A2A session: {e}")))?;
-
-        // Cache the session for quick access
-        let session = A2ASession {
-            id: session_token.clone(),
-            client_id: client_id.to_owned(),
-            user_id: user_uuid,
-            granted_scopes,
-            created_at: chrono::Utc::now(),
-            expires_at: chrono::Utc::now() + chrono::Duration::hours(24),
-            last_activity: chrono::Utc::now(),
-            requests_count: 0,
-        };
-
-        self.active_sessions
-            .write()
-            .await
-            .insert(session_token.clone(), session);
-
-        Ok(session_token)
     }
 
     /// Update session activity

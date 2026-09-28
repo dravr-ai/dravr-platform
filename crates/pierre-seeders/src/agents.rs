@@ -44,6 +44,7 @@ use pierre_database::seed_models::{
     SeedAgent, SeedAgentAuthor, SeedAgentRelation, SeedAgentTranslation, SeedStoreListing,
 };
 use pierre_database::RepositoryRegistry;
+use pierre_middleware::mask_email;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -113,7 +114,7 @@ pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
     info!(
         "Found {} coach files, using admin {} (tenant: {})",
         discovery.agents.len(),
-        admin.email,
+        mask_email(&admin.email),
         admin.tenant_id
     );
 

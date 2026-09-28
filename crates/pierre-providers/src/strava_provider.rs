@@ -328,8 +328,10 @@ impl StravaProvider {
     /// to `0` for the numeric channels — "no reading", matching how the
     /// devices themselves render gaps — and are dropped from the GPS track,
     /// where a zero would be a coordinate off the coast of Africa rather
-    /// than an absence. Timestamps prefer Strava's own `time` stream and
-    /// fall back to sample indices when it is missing.
+    /// than an absence. The distance channel is cumulative, so a `null`
+    /// there repeats the last reading: no metres were recorded, none were
+    /// lost. Timestamps prefer Strava's own `time` stream and fall back to
+    /// sample indices when it is missing.
     fn streams_to_time_series(set: StravaStreamSet) -> Option<TimeSeriesData> {
         fn samples<T: Default>(stream: StravaStream<T>) -> Vec<T> {
             stream
@@ -352,6 +354,18 @@ impl StravaProvider {
         let speed = set.velocity_smooth.map(samples);
         let altitude = set.altitude.map(samples);
         let temperature = set.temp.map(samples);
+        let distance = set.distance.map(|stream| {
+            stream
+                .data
+                .into_iter()
+                .scan(0.0_f64, |covered, sample| {
+                    if let Some(meters) = sample {
+                        *covered = meters;
+                    }
+                    Some(*covered)
+                })
+                .collect::<Vec<f64>>()
+        });
 
         let sample_count = [
             heart_rate.as_ref().map(Vec::len),
@@ -361,6 +375,7 @@ impl StravaProvider {
             altitude.as_ref().map(Vec::len),
             temperature.as_ref().map(Vec::len),
             gps.as_ref().map(Vec::len),
+            distance.as_ref().map(Vec::len),
         ]
         .into_iter()
         .flatten()
@@ -383,6 +398,7 @@ impl StravaProvider {
             altitude,
             temperature,
             gps_coordinates: gps,
+            distance,
         })
     }
 
@@ -473,17 +489,24 @@ impl StravaProvider {
     async fn get_activity_details_with_streams(&self, id: &str) -> AppResult<Activity> {
         let endpoint = format!("activities/{id}");
         let detailed_activity: DetailedActivityResponse = self.api_request(&endpoint).await?;
-        let streams_endpoint = format!(
-            "activities/{id}/streams?keys=time,heartrate,watts,cadence,velocity_smooth,altitude,temp,latlng&key_by_type=true"
-        );
-        let streams = match self.api_request::<StravaStreamSet>(&streams_endpoint).await {
-            Ok(set) => Self::streams_to_time_series(set),
+        let streams = match self.fetch_streams(id).await {
+            Ok(streams) => streams,
             Err(e) => {
                 warn!(activity_id = %id, error = %e, "Strava streams fetch failed; serving the activity without them");
                 None
             }
         };
         Self::convert_detailed_strava_activity(detailed_activity, streams)
+    }
+
+    /// Fetch one activity's keyed stream set and fold it into a series: one
+    /// round trip, `None` for an activity Strava holds no samples for.
+    async fn fetch_streams(&self, id: &str) -> AppResult<Option<TimeSeriesData>> {
+        let endpoint = format!(
+            "activities/{id}/streams?keys=time,distance,heartrate,watts,cadence,velocity_smooth,altitude,temp,latlng&key_by_type=true"
+        );
+        let set: StravaStreamSet = self.api_request(&endpoint).await?;
+        Ok(Self::streams_to_time_series(set))
     }
 
     /// Fetch activities with optional detailed data enrichment
@@ -804,6 +827,10 @@ impl FitnessProvider for StravaProvider {
 
     async fn get_activity_with_streams(&self, id: &str) -> AppResult<Activity> {
         self.get_activity_details_with_streams(id).await
+    }
+
+    async fn get_activity_streams(&self, id: &str) -> AppResult<Option<TimeSeriesData>> {
+        self.fetch_streams(id).await
     }
 
     async fn get_stats(&self) -> AppResult<Stats> {

@@ -954,9 +954,6 @@ impl A2AServer {
             user_id: user_id.to_string(),
             protocol: "a2a".to_owned(),
             tenant_id: Some(tenant_context.tenant_id.to_string()),
-            progress_token: None,
-            cancellation_token: None,
-            progress_reporter: None,
         };
 
         match executor.execute_tool(request).await {

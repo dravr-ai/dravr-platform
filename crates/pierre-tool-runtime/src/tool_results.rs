@@ -25,22 +25,6 @@ use tracing::info;
 use crate::guardian::StepOutput;
 use crate::reconnect::offer_in_payload;
 
-/// Convert pierre-llm function responses to embacle `tool_simulation` responses.
-///
-/// Lives here rather than in `tool_execution` because this module is its only
-/// caller: the text loop reaches embacle's formatter through
-/// [`format_tool_results_as_text`], so the conversion travels with the
-/// formatting rather than with the loop.
-fn to_embacle_responses(resps: &[FunctionResponse]) -> Vec<tool_simulation::FunctionResponse> {
-    resps
-        .iter()
-        .map(|r| tool_simulation::FunctionResponse {
-            name: r.name.clone(),
-            response: r.response.clone(),
-        })
-        .collect()
-}
-
 /// Serialize one tool response for injection into the prompt.
 ///
 /// Projects a `get_activities` envelope through [`project_activities_payload`]
@@ -192,11 +176,10 @@ pub fn project_activities_payload(tool_name: &str, response: &Value) -> Option<V
     Some(Value::Object(projected))
 }
 
-/// Format pierre-llm function responses as `<tool_result>` text blocks.
+/// Format function responses as `<tool_result>` text blocks.
 ///
-/// Wraps [`embacle::tool_simulation::format_tool_results_as_text`] with the type
-/// conversion, and projects each payload through [`project_activities_payload`]
-/// first.
+/// Wraps [`embacle::tool_simulation::format_tool_results_as_text`], projecting
+/// each payload through [`project_activities_payload`] first.
 ///
 /// The projection belongs here rather than at each call site because embacle
 /// pretty-prints these blocks: a `get_activities` envelope costs *more* through
@@ -216,8 +199,7 @@ pub fn format_tool_results_as_text(responses: &[FunctionResponse]) -> String {
             )
         })
         .collect();
-    let embacle_responses = to_embacle_responses(&projected);
-    tool_simulation::format_tool_results_as_text(&embacle_responses)
+    tool_simulation::format_tool_results_as_text(&projected)
 }
 
 /// Extract activity list from function responses (for `get_activities` results).

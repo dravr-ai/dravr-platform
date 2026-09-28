@@ -52,13 +52,6 @@ pub struct RecordedOutcome<'a> {
 /// the boundary so the uniqueness key constrains those rows too.
 #[async_trait]
 pub trait PlaybookRepository: Send + Sync {
-    /// Fold an observed outcome into the matching playbook, creating the
-    /// playbook on first observation. Atomic: the counter increment is a single
-    /// `ON CONFLICT … DO UPDATE SET count = count + …`, so concurrent writers
-    /// cannot lose an increment. Returns the playbook id (new or existing) so
-    /// the caller can back-link the originating advice.
-    async fn record_playbook_outcome(&self, outcome: &RecordedOutcome<'_>) -> AppResult<String>;
-
     /// Atomically fold an observed outcome into its playbook and mark the
     /// originating advice labeled, in one transaction.
     ///
@@ -159,9 +152,9 @@ pub trait PlaybookRepository: Send + Sync {
 }
 
 /// Backend-agnostic computed bind values for the `coaching_playbooks` counter
-/// upsert. Shared by both backends' `record_playbook_outcome` and the
-/// transactional `record_outcome_and_label` so the hashing/serialization and the
-/// label → `(success, failure, neutral)` mapping are defined in exactly one place.
+/// upsert in the transactional `record_outcome_and_label`, so the
+/// hashing/serialization and the label → `(success, failure, neutral)` mapping
+/// are defined in exactly one place.
 pub(crate) struct OutcomeUpsertValues {
     /// Candidate new-row id (used only on first insert; ignored on conflict).
     pub id: String,
@@ -435,9 +428,9 @@ pub(crate) const PLAYBOOK_FETCH_CEILING: i64 = 500;
 pub(crate) const ARCHETYPE_PRIOR_FETCH_CEILING: i64 = 500;
 
 /// The `coaching_playbooks` counter upsert, returning the surviving row's id
-/// (the new id on insert, the existing one on conflict). Shared by
-/// `record_playbook_outcome` and `record_outcome_and_label` so the atomic
-/// `ON CONFLICT` increment is written once.
+/// (the new id on insert, the existing one on conflict), used by
+/// `record_outcome_and_label` so the atomic `ON CONFLICT` increment is written
+/// once.
 ///
 /// `$n` placeholders throughout: sqlx accepts them on `SQLite` as well as
 /// Postgres, and every bind on these tables is a plain `&str`/`i64`, so one
@@ -763,33 +756,6 @@ macro_rules! impl_playbook_repository {
     ($ty:ty) => {
         #[async_trait::async_trait]
         impl PlaybookRepository for $ty {
-            async fn record_playbook_outcome(
-                &self,
-                outcome: &RecordedOutcome<'_>,
-            ) -> AppResult<String> {
-                let v = outcome_upsert_values(outcome)?;
-                let row = sqlx::query(UPSERT_OUTCOME_SQL)
-                    .bind(&v.id)
-                    .bind(outcome.tenant_id)
-                    .bind(outcome.user_id)
-                    .bind(&v.agent_slug)
-                    .bind(&v.trigger_hash)
-                    .bind(&v.intervention_hash)
-                    .bind(&v.trigger_json)
-                    .bind(&v.intervention_json)
-                    .bind(&v.outcome_metric_json)
-                    .bind(v.sc)
-                    .bind(v.fc)
-                    .bind(v.nc)
-                    .bind(v.now)
-                    .bind(v.now)
-                    .bind(v.now)
-                    .fetch_one(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("upsert playbook outcome: {e}")))?;
-                row.try_get::<String, _>("id")
-                    .map_err(|e| AppError::database(format!("resolve playbook id: {e}")))
-            }
 
             async fn record_outcome_and_label(
                 &self,

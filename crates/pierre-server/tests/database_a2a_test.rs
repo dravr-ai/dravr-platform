@@ -18,7 +18,10 @@ use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::test_utils::create_test_db;
 use pierre_database::RepositoryRegistry;
-use pierre_mcp_server::a2a::{auth::A2AClient, client::A2ASession, protocol::TaskStatus};
+use pierre_mcp_server::a2a::{
+    client::{A2AClient, A2ASession},
+    protocol::TaskStatus,
+};
 use tokio::time::sleep;
 use uuid::Uuid;
 
@@ -100,6 +103,9 @@ async fn create_test_client_with_window(
         user_id: test_user_id,
         capabilities: vec!["fitness-data-analysis".into()],
         redirect_uris: vec!["https://test.example.com".into()],
+        // Typed with stray case and whitespace: the repository stores the
+        // normalized form, which every read must hand back.
+        contact_email: Some("  Ops.Team@Example.COM ".into()),
         // The canonical a2a_clients schema dropped the permissions column; it is no
         // longer persisted and reads back as the default ["read_activities"].
         permissions: vec!["read_activities".into()],
@@ -120,7 +126,8 @@ async fn create_test_client_with_window(
 
 /// The client the repository hands back is the one it was given: the public
 /// key the API serves, the rate limit and window the rate-limit route
-/// reports, the capability and redirect lists; it is reachable through the
+/// reports, the capability and redirect lists, the contact email in its
+/// normalized form; it is reachable through the
 /// API key it was registered against, which is how API-key auth resolves a
 /// caller; and the nil uuid lists every client, which is the admin listing.
 #[tokio::test]
@@ -144,12 +151,6 @@ async fn test_a2a_client_round_trips_through_every_read() {
         .await
         .expect("get_client_by_api_key_id must not error")
         .expect("client must resolve through the API key it was registered against");
-    let by_name = repos
-        .a2a
-        .get_client_by_name(&client.name)
-        .await
-        .expect("get_client_by_name must not error")
-        .expect("client must exist by name");
     let listed = repos
         .a2a
         .list_clients(&user_id)
@@ -172,7 +173,6 @@ async fn test_a2a_client_round_trips_through_every_read() {
     for (read, got) in [
         ("get_client", &by_id),
         ("get_client_by_api_key_id", &by_api_key),
-        ("get_client_by_name", &by_name),
         ("list_clients(owner)", listed_for_owner),
         ("list_clients(nil)", listed_for_admin),
     ] {
@@ -194,6 +194,11 @@ async fn test_a2a_client_round_trips_through_every_read() {
         assert_eq!(
             got.redirect_uris, client.redirect_uris,
             "{read}: redirect_uris"
+        );
+        assert_eq!(
+            got.contact_email.as_deref(),
+            Some("ops.team@example.com"),
+            "{read}: contact_email is stored normalized"
         );
         assert!(got.is_active, "{read}: is_active");
         assert_eq!(

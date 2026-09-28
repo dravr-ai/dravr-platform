@@ -13,6 +13,7 @@ mod helpers;
 use anyhow::Result;
 use helpers::axum_test::AxumTestRequest;
 use pierre_auth::auth::AuthManager;
+use pierre_config::mcp::AppBehaviorConfig;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
@@ -63,6 +64,7 @@ async fn test_complete_admin_user_approval_workflow() -> Result<()> {
         persona_contract_registry: Arc::new(PersonaContractRegistry::new()),
         training_catalogue_registry: Arc::new(pierre_contremaitre::TrainingCatalogueRegistry::new()),
         contremaitre_config: None,
+        app_behavior: AppBehaviorConfig::default(),
     });
 
     // Create admin routes
@@ -253,6 +255,7 @@ async fn test_admin_token_management_workflow() -> Result<()> {
         persona_contract_registry: Arc::new(PersonaContractRegistry::new()),
         training_catalogue_registry: Arc::new(pierre_contremaitre::TrainingCatalogueRegistry::new()),
         contremaitre_config: None,
+        app_behavior: AppBehaviorConfig::default(),
     });
     let admin_routes = AdminRoutes::routes(admin_context);
 
@@ -376,6 +379,7 @@ async fn test_admin_workflow_error_handling() -> Result<()> {
         persona_contract_registry: Arc::new(PersonaContractRegistry::new()),
         training_catalogue_registry: Arc::new(pierre_contremaitre::TrainingCatalogueRegistry::new()),
         contremaitre_config: None,
+        app_behavior: AppBehaviorConfig::default(),
     });
     let admin_routes = AdminRoutes::routes(admin_context);
 

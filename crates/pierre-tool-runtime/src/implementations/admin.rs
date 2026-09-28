@@ -37,16 +37,15 @@ use super::admin_output::{
     AdminGetSystemAgentResult, AdminListAgentAssignmentsResult, AdminListSystemAgentsResult,
     AdminUnassignAgentResult, AdminUpdateSystemAgentResult, AgentAssignmentEntry, SystemAgentEntry,
 };
-use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, apply_format, capabilities_to_tronc, object_schema, object_schema_with_format,
-    ok_typed, tool_definition, tool_result_to_response, Formatted,
+    answers_with, apply_format, object_schema, object_schema_with_format, ok_typed,
+    tool_definition, tool_result_to_response, Formatted,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::field_update::FieldUpdate;
 use pierre_core::models::agents::{
@@ -162,12 +161,10 @@ impl McpTool<dyn ToolRuntime> for AdminListSystemAgentsTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::READS_DATA
-                | ToolCapabilities::ADMIN_ONLY,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::READS_DATA
+            | ToolCapabilities::ADMIN_ONLY
     }
 
     async fn execute(
@@ -317,12 +314,10 @@ impl McpTool<dyn ToolRuntime> for AdminCreateSystemAgentTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::WRITES_DATA
-                | ToolCapabilities::ADMIN_ONLY,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::WRITES_DATA
+            | ToolCapabilities::ADMIN_ONLY
     }
 
     async fn execute(
@@ -414,12 +409,10 @@ impl McpTool<dyn ToolRuntime> for AdminGetSystemAgentTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::READS_DATA
-                | ToolCapabilities::ADMIN_ONLY,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::READS_DATA
+            | ToolCapabilities::ADMIN_ONLY
     }
 
     async fn execute(
@@ -547,12 +540,10 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemAgentTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::WRITES_DATA
-                | ToolCapabilities::ADMIN_ONLY,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::WRITES_DATA
+            | ToolCapabilities::ADMIN_ONLY
     }
 
     async fn execute(
@@ -676,12 +667,10 @@ impl McpTool<dyn ToolRuntime> for AdminDeleteSystemAgentTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::WRITES_DATA
-                | ToolCapabilities::ADMIN_ONLY,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::WRITES_DATA
+            | ToolCapabilities::ADMIN_ONLY
     }
 
     async fn execute(
@@ -766,12 +755,10 @@ impl McpTool<dyn ToolRuntime> for AdminAssignAgentTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::WRITES_DATA
-                | ToolCapabilities::ADMIN_ONLY,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::WRITES_DATA
+            | ToolCapabilities::ADMIN_ONLY
     }
 
     async fn execute(
@@ -876,12 +863,10 @@ impl McpTool<dyn ToolRuntime> for AdminUnassignAgentTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::WRITES_DATA
-                | ToolCapabilities::ADMIN_ONLY,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::WRITES_DATA
+            | ToolCapabilities::ADMIN_ONLY
     }
 
     async fn execute(
@@ -974,12 +959,10 @@ impl McpTool<dyn ToolRuntime> for AdminListAgentAssignmentsTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::READS_DATA
-                | ToolCapabilities::ADMIN_ONLY,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::READS_DATA
+            | ToolCapabilities::ADMIN_ONLY
     }
 
     async fn execute(

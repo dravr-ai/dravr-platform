@@ -18,7 +18,9 @@
 //! Both routes reach every tenant that holds the user, so a token scoped to
 //! one tenant acts only on a user who is held entirely within it; an unscoped
 //! `ManageUsers` token acts globally, as it does on the rest of the users
-//! surface.
+//! surface. An operator account — admin or super-admin — is removed or
+//! disconnected only by a super-admin token, the same rank impersonation
+//! requires, so a `ManageUsers` token cannot take out the operators above it.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -134,6 +136,22 @@ async fn require_within_token_tenant(
     ))
 }
 
+/// Refuse a token below super-admin acting on an admin or super-admin account.
+fn require_rank_over_target(admin_token: &ValidatedAdminToken, target: &User) -> AppResult<()> {
+    if admin_token.is_super_admin || !target.role.is_admin_or_higher() {
+        return Ok(());
+    }
+    warn!(
+        user_id = %target.id,
+        token_id = %admin_token.token_id,
+        "Operator account removal refused: token is not super-admin"
+    );
+    Err(AppError::new(
+        ErrorCode::PermissionDenied,
+        "Removing or disconnecting an admin account requires a super-admin token",
+    ))
+}
+
 /// The refusal a disconnect or delete takes when the composition root wired
 /// no chokepoint: acting without it would leave the grant authorized upstream.
 fn disconnect_unavailable() -> AppError {
@@ -177,7 +195,8 @@ async fn load_user(ctx: &AdminApiContext, user_id: &str) -> AppResult<(Uuid, Use
 /// # Errors
 ///
 /// Returns an invalid-input error for a malformed id, a not-found error for an
-/// unknown user, a permission error for a tenant-scoped token and a user held
+/// unknown user, a permission error for a token below super-admin and an
+/// admin or super-admin account, or for a tenant-scoped token and a user held
 /// outside its tenant, a resource-unavailable error when no chokepoint is
 /// wired, and a database error when the held providers cannot be read; nothing
 /// was changed then.
@@ -192,6 +211,7 @@ pub async fn handle_disconnect_user_provider(
 
     let ctx = context.as_ref();
     let (user_uuid, user) = load_user(ctx, &user_id).await?;
+    require_rank_over_target(&admin_token, &user)?;
     let disconnector = ctx
         .provider_disconnector
         .as_deref()
@@ -235,7 +255,7 @@ pub async fn handle_disconnect_user_provider(
         user_id = %user_uuid,
         provider = %provider,
         tenants = disconnected.len(),
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         "Operator disconnected a provider for a user"
     );
 
@@ -271,7 +291,8 @@ pub async fn handle_disconnect_user_provider(
 /// # Errors
 ///
 /// Returns an invalid-input error for a malformed id, a not-found error for an
-/// unknown user, a permission error for a tenant-scoped token and a user held
+/// unknown user, a permission error for a token below super-admin and an
+/// admin or super-admin account, or for a tenant-scoped token and a user held
 /// outside its tenant, a resource-unavailable error when the user holds
 /// providers and no chokepoint is wired, and a database error from the reads
 /// that precede any change. A disconnect or account delete that fails is
@@ -289,6 +310,7 @@ pub async fn handle_delete_user(
 
     let ctx = context.as_ref();
     let (user_uuid, user) = load_user(ctx, &user_id).await?;
+    require_rank_over_target(&admin_token, &user)?;
     let held = user_removal::held_providers(&ctx.repos, user_uuid).await?;
     require_within_token_tenant(ctx, &admin_token, user_uuid, &held).await?;
     let reason = request.reason.as_deref().unwrap_or("No reason provided");
@@ -302,7 +324,7 @@ pub async fn handle_delete_user(
             info!(
                 user_id = %user_uuid,
                 blockers = blockers.len(),
-                service = %admin_token.service_name,
+                token_id = %admin_token.token_id,
                 "User delete refused: references must be reassigned first"
             );
             return Ok(refusal(
@@ -319,7 +341,7 @@ pub async fn handle_delete_user(
 
     info!(
         user_id = %user_uuid,
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         reason = %reason,
         "User deleted by operator"
     );

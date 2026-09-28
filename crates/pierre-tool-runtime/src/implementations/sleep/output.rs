@@ -50,7 +50,8 @@ pub struct RecoveryTrainingLoad {
     pub ctl: f64,
     /// Acute training load — recent fatigue.
     pub atl: f64,
-    /// Training stress balance, `ctl - atl`.
+    /// Training stress balance — form today: CTL minus ATL at the end of
+    /// yesterday.
     pub tsb: f64,
 }
 

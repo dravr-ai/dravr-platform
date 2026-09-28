@@ -1,5 +1,5 @@
 // ABOUTME: A TrainingPeaks login records whether the account trains or coaches, off the login's own request
-// ABOUTME: Pins the manages_roster grant (never revoked), the coach refusal before any scrape, and the lazy discovery
+// ABOUTME: Pins the manages_roster grant and its revocation, the coach refusal before any scrape, and lazy discovery
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,9 +9,11 @@
 
 //! A TrainingPeaks coach account keeps no calendar of its own. Every login is
 //! probed for the account's role in a task of its own, so the login answers
-//! before the profile read lands; a coach account is granted `manages_roster`,
-//! which nothing here ever takes back, and the workouts misfiled under it
-//! before sciotte 0.14 are deleted. Once the role is known, a read of the
+//! before the profile read lands; a coach account whose TrainingPeaks email is
+//! the user's verified Dravr email is granted `manages_roster` for as long as
+//! a coach connection earns it, and the workouts misfiled under it before
+//! sciotte 0.14 are deleted. A coach account that is someone else's, or shares
+//! no email, earns nothing. Once the role is known, a read of the
 //! coach account's own workouts is refused in words before any scrape; a
 //! connection made before roles were recorded learns its role from the
 //! scraper's refusal, or from a reused login.
@@ -41,16 +43,20 @@ use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::constants::oauth_providers::TOKEN_TYPE_SESSION;
 use pierre_core::models::{
-    ActivityBuilder, ConnectionType, ProviderAccountRole, SportType, TenantId, UserOAuthToken,
+    ActivityBuilder, ConnectionType, ProviderAccountRole, SportType, Tenant, TenantId,
+    UserOAuthToken,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::sciotte_remote::{
-    sciotte_refusal, ATHLETE_REQUIRED, ENV_AUDIENCE, ENV_REMOTE_URL,
+    sciotte_refusal, AthleteProfile, ATHLETE_REQUIRED, ENV_AUDIENCE, ENV_REMOTE_URL,
 };
 use pierre_routes_auth::AuthRoutes;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::provider_revocation::DisconnectReason;
+use pierre_services::trainingpeaks_accounts::{
+    record_trainingpeaks_profile, AccountReading, EmailBinding,
+};
 use pierre_tool_runtime::activity_fetch::fetch_provider_head;
 use pierre_tool_runtime::protocol::{auth_required_provider, AuthService};
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -77,6 +83,8 @@ const LEGACY_READ_SESSION: &str = "legacy-coach-read";
 const LEGACY_LOGIN_SESSION: &str = "legacy-coach-login";
 /// A session stored long before the login that replaces it.
 const STALE_SESSION: &str = "stale-session";
+/// A coach account whose TrainingPeaks email is not the user's.
+const STRANGER_COACH_SESSION: &str = "stranger-coach-session";
 
 /// How long before a login the stale session was stored: well past the window
 /// in which a login reuses the stored session instead of signing in.
@@ -107,8 +115,19 @@ fn session_header(headers: &HeaderMap) -> String {
 fn is_coach(session: &str) -> bool {
     matches!(
         session,
-        COACH_SESSION | LEGACY_READ_SESSION | LEGACY_LOGIN_SESSION
+        COACH_SESSION | LEGACY_READ_SESSION | LEGACY_LOGIN_SESSION | STRANGER_COACH_SESSION
     )
+}
+
+/// The email TrainingPeaks lists for the coach account behind `session`:
+/// each one's user's own, except the stranger's.
+fn coach_email(session: &str) -> &'static str {
+    match session {
+        COACH_SESSION => "Coach-A@Example.Test",
+        LEGACY_READ_SESSION => "coach-c@example.test",
+        LEGACY_LOGIN_SESSION => "coach-d@example.test",
+        _ => "somebody-else@example.test",
+    }
 }
 
 fn session_json(session_id: &str) -> Value {
@@ -135,6 +154,8 @@ async fn spawn_scraper(calls: Calls) -> String {
                         .push(format!("/auth/login-with-credentials {email}"));
                     let session = if email.starts_with("coach") {
                         COACH_SESSION
+                    } else if email.starts_with("stranger") {
+                        STRANGER_COACH_SESSION
                     } else {
                         ATHLETE_SESSION
                     };
@@ -182,6 +203,7 @@ async fn spawn_scraper(calls: Calls) -> String {
                         return Json(json!({
                             "id": "900101",
                             "role": "coach",
+                            "email": coach_email(&session),
                             "coached_athletes": [
                                 { "id": "900001", "display_name": "Alex Athlete" }
                             ],
@@ -216,7 +238,7 @@ async fn spawn_scraper(calls: Calls) -> String {
                     }
                     (
                         StatusCode::OK,
-                        Json(json!({ "activities": [], "head_complete": true })),
+                        Json(json!({ "count": 0, "activities": [], "head_complete": true })),
                     )
                 },
             ),
@@ -324,9 +346,17 @@ async fn await_role(
     }
 }
 
-/// A user with an accepted TrainingPeaks notice, their tenant and a token.
+/// A user with a verified email and an accepted TrainingPeaks notice, their
+/// tenant and a token.
 async fn account(resources: &Arc<ServerContext>, email: &str) -> (Uuid, TenantId, String) {
     let (user_id, user) = create_test_user_with_email(&resources.agent.database, email)
+        .await
+        .unwrap();
+    resources
+        .common
+        .repos
+        .email_verification
+        .mark_verified(user_id)
         .await
         .unwrap();
     resources
@@ -415,7 +445,8 @@ async fn cached_trainingpeaks_rows(
 }
 
 /// A coach login answers before the profile read lands, then the probe
-/// grants `manages_roster`, records the role on the card, deletes the
+/// grants `manages_roster` — the account's TrainingPeaks email is the user's
+/// verified email, case aside — records the role on the card, deletes the
 /// workouts misfiled under the account, and prefetches nothing.
 async fn a_coach_login_is_granted_the_roster_off_the_request(
     resources: &Arc<ServerContext>,
@@ -564,8 +595,9 @@ async fn an_athlete_login_records_the_role_and_grants_nothing(
     );
 }
 
-/// A coach who later signs in with an athlete account keeps the permission.
-async fn the_grant_is_never_revoked(
+/// The grant goes with the coach connection that earned it: a disconnect
+/// takes it back, and an athlete account signed in afterwards earns nothing.
+async fn the_grant_goes_with_the_coach_connection(
     resources: &Arc<ServerContext>,
     coach: Uuid,
     tenant: TenantId,
@@ -580,18 +612,23 @@ async fn the_grant_is_never_revoked(
         )
         .await
         .expect("a TrainingPeaks disconnect succeeds");
+    assert!(
+        !manages_roster(resources, coach).await,
+        "disconnecting the coach connection takes the grant back"
+    );
     let (status, body) = login(resources, token, "athlete-a@example.test").await;
     assert_eq!(status, 200, "{body}");
     await_role(resources, coach, tenant, ProviderAccountRole::Athlete).await;
     assert!(
-        manages_roster(resources, coach).await,
-        "an athlete account signed in later never takes the grant back"
+        !manages_roster(resources, coach).await,
+        "an athlete account earns no grant"
     );
 }
 
 /// A connection made before roles were recorded learns it is a coach
 /// account from the scraper's refusal of its own read, and is refused before
-/// any scrape from then on.
+/// any scrape from then on. The refusal carries no email, so it grants
+/// nothing: the grant waits for a profile read that binds the account.
 async fn a_legacy_coach_read_is_discovered_from_the_refusal(
     resources: &Arc<ServerContext>,
     calls: &Calls,
@@ -616,7 +653,10 @@ async fn a_legacy_coach_read_is_discovered_from_the_refusal(
         Some(ProviderAccountRole::Coach),
         "the refusal records the role before the read returns"
     );
-    assert!(manages_roster(resources, coach).await);
+    assert!(
+        !manages_roster(resources, coach).await,
+        "a refusal names no email, so it binds no coach account to the user"
+    );
     assert_eq!(calls_to(calls, "/api/activities", LEGACY_READ_SESSION), 1);
 
     fetch_provider_head(&runtime, "trainingpeaks", coach, &tenant_str, &params)
@@ -649,6 +689,19 @@ async fn a_reused_legacy_session_is_probed(resources: &Arc<ServerContext>, calls
     );
     await_role(resources, coach, tenant, ProviderAccountRole::Coach).await;
     assert!(manages_roster(resources, coach).await);
+}
+
+/// A coach login whose TrainingPeaks account is someone else's records the
+/// role and earns no grant.
+async fn a_coach_account_that_is_not_the_users_earns_nothing(resources: &Arc<ServerContext>) {
+    let (user, tenant, token) = account(resources, "coach-f@example.test").await;
+    let (status, body) = login(resources, &token, "stranger@tp.example.test").await;
+    assert_eq!(status, 200, "{body}");
+    await_role(resources, user, tenant, ProviderAccountRole::Coach).await;
+    assert!(
+        !manages_roster(resources, user).await,
+        "a coach account whose email is not the user's grants them nothing"
+    );
 }
 
 /// A session stored long before the login is not reused: the credentials the
@@ -714,10 +767,169 @@ async fn a_trainingpeaks_account_role_is_read_recorded_and_acted_on() {
         a_coach_login_is_granted_the_roster_off_the_request(&resources, &calls).await;
     a_recorded_coach_account_is_refused_before_any_scrape(&resources, &calls, coach, tenant).await;
     an_athlete_login_records_the_role_and_grants_nothing(&resources, &calls).await;
-    the_grant_is_never_revoked(&resources, coach, tenant, &token).await;
+    the_grant_goes_with_the_coach_connection(&resources, coach, tenant, &token).await;
     a_legacy_coach_read_is_discovered_from_the_refusal(&resources, &calls).await;
     a_reused_legacy_session_is_probed(&resources, &calls).await;
     a_stale_session_signs_in_again(&resources, &calls).await;
+    a_coach_account_that_is_not_the_users_earns_nothing(&resources).await;
 
     env::remove_var(ENV_REMOTE_URL);
+}
+
+/// A TrainingPeaks profile as the scraper returns it: an account of `role`,
+/// listing `email` when it shares one.
+fn profile(role: &str, email: Option<&str>) -> AthleteProfile {
+    serde_json::from_value(json!({ "id": "900101", "role": role, "email": email })).unwrap()
+}
+
+/// Record `profile` for `user`'s TrainingPeaks connection in `tenant`, as the
+/// login probe does.
+async fn read_profile(
+    resources: &Arc<ServerContext>,
+    user: Uuid,
+    tenant: TenantId,
+    profile: &AthleteProfile,
+) -> AccountReading {
+    record_trainingpeaks_profile(&resources.common.repos, user, tenant, profile)
+        .await
+        .unwrap()
+}
+
+/// A TrainingPeaks connection for `user` in `tenant`, as a login registers it.
+async fn connect(resources: &Arc<ServerContext>, user: Uuid, tenant: TenantId) {
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(
+            user,
+            tenant,
+            oauth_providers::SCIOTTE_TRAININGPEAKS,
+            &ConnectionType::Manual,
+            None,
+        )
+        .await
+        .unwrap();
+}
+
+/// A coach account earns `manages_roster` only when its TrainingPeaks email
+/// is the user's verified Dravr email, case and surrounding space aside; a
+/// missing email, another person's, or an unverified Dravr email earns
+/// nothing, and a coach account that stops being the user's gives the grant
+/// back.
+#[tokio::test]
+async fn a_coach_grant_binds_the_trainingpeaks_email_to_the_verified_dravr_email() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (coach, tenant, _) = account(&resources, "bound-coach@example.test").await;
+    connect(&resources, coach, tenant).await;
+
+    let missing = read_profile(&resources, coach, tenant, &profile("coach", None)).await;
+    assert_eq!(missing.role, ProviderAccountRole::Coach);
+    assert_eq!(missing.binding, Some(EmailBinding::ProviderEmailMissing));
+    assert!(
+        !manages_roster(&resources, coach).await,
+        "no email, no grant"
+    );
+
+    let stranger = profile("coach", Some("someone-else@example.test"));
+    let mismatch = read_profile(&resources, coach, tenant, &stranger).await;
+    assert_eq!(mismatch.binding, Some(EmailBinding::Mismatch));
+    assert!(
+        !manages_roster(&resources, coach).await,
+        "another person's account"
+    );
+    assert_eq!(
+        recorded_role(&resources, coach, tenant).await,
+        Some(ProviderAccountRole::Coach),
+        "the role is recorded whoever the account is"
+    );
+
+    let own = profile("coach", Some("  Bound-Coach@Example.TEST "));
+    let bound = read_profile(&resources, coach, tenant, &own).await;
+    assert_eq!(bound.binding, Some(EmailBinding::Bound));
+    assert!(
+        manages_roster(&resources, coach).await,
+        "the user's own account"
+    );
+
+    // The same connection signing in to someone else's coach account gives the
+    // grant back.
+    let taken = read_profile(&resources, coach, tenant, &stranger).await;
+    assert_eq!(taken.binding, Some(EmailBinding::Mismatch));
+    assert!(!manages_roster(&resources, coach).await);
+
+    // A Dravr email nobody proved binds nothing, even when it is the one
+    // TrainingPeaks lists.
+    let (unproven, _) =
+        create_test_user_with_email(&resources.agent.database, "never-verified@example.test")
+            .await
+            .unwrap();
+    let unproven_tenant = resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(unproven)
+        .await
+        .unwrap()
+        .first()
+        .unwrap()
+        .id;
+    connect(&resources, unproven, unproven_tenant).await;
+    let reading = read_profile(
+        &resources,
+        unproven,
+        unproven_tenant,
+        &profile("coach", Some("never-verified@example.test")),
+    )
+    .await;
+    assert_eq!(reading.binding, Some(EmailBinding::DravrEmailUnverified));
+    assert!(!manages_roster(&resources, unproven).await);
+}
+
+/// A connection recorded as a coach that reads as an athlete on its next
+/// sign-in gives the grant back — unless a coach connection in another tenant
+/// still earns it.
+#[tokio::test]
+async fn a_coach_connection_turned_athlete_gives_the_grant_back() {
+    let resources = create_test_server_resources().await.unwrap();
+    let repos = &resources.common.repos;
+    let (coach, tenant, _) = account(&resources, "turned-athlete@example.test").await;
+    connect(&resources, coach, tenant).await;
+    let own = profile("coach", Some("turned-athlete@example.test"));
+    let athlete = profile("athlete", Some("turned-athlete@example.test"));
+
+    read_profile(&resources, coach, tenant, &own).await;
+    assert!(manages_roster(&resources, coach).await);
+
+    read_profile(&resources, coach, tenant, &athlete).await;
+    assert!(
+        !manages_roster(&resources, coach).await,
+        "the connection that earned the grant is no longer a coach's"
+    );
+
+    // A coach connection in a second tenant keeps the grant through the first
+    // one turning athlete.
+    let second = TenantId::generate();
+    repos
+        .tenants
+        .create(&Tenant {
+            id: second,
+            name: "Second club".to_owned(),
+            slug: format!("second-club-{second}"),
+            domain: None,
+            plan: "starter".to_owned(),
+            owner_user_id: coach,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        })
+        .await
+        .unwrap();
+    connect(&resources, coach, second).await;
+    read_profile(&resources, coach, second, &own).await;
+    read_profile(&resources, coach, tenant, &own).await;
+    read_profile(&resources, coach, tenant, &athlete).await;
+    assert!(
+        manages_roster(&resources, coach).await,
+        "the other tenant's coach connection still earns the grant"
+    );
 }

@@ -12,11 +12,9 @@ publish = false
 
 [dependencies]
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-client"] }
+dravr-tronc = { workspace = true, features = ["notifications"] }
 
 html-escape = "0.2.13"
-reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
-serde = { version = "1.0", features = ["derive"] }
-tokio = { version = "1.50", features = ["time"] }
 tracing = "0.1"
 
 [lints]

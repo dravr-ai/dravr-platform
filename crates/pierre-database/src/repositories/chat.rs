@@ -13,6 +13,22 @@ use pierre_core::models::UpsertMessageFeedbackParams;
 use pierre_core::models::{ConversationPage, ConversationParticipant, ConversationRecord};
 use pierre_core::models::{MessageFeedbackRecord, MessageRecord, TenantId};
 
+/// One assistant reply as the claim-verdict backfill reads it: the message,
+/// where it was said, and who it was said to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssistantMessage {
+    /// The message id.
+    pub message_id: String,
+    /// The conversation it belongs to.
+    pub conversation_id: String,
+    /// The conversation owner the reply was addressed to.
+    pub user_id: String,
+    /// The agent that spoke, when the conversation has one.
+    pub agent_id: Option<String>,
+    /// The reply text.
+    pub content: String,
+}
+
 /// Chat conversation and message management repository.
 ///
 /// Access is a membership question, not an ownership one. Every method that
@@ -150,13 +166,18 @@ pub trait ChatRepository: Send + Sync {
         tenant_id: TenantId,
         limit: i64,
     ) -> AppResult<Vec<MessageRecord>>;
-    /// Get message count for a conversation (verifies the user is a participant)
-    async fn get_message_count(
+
+    /// Every assistant message in `tenant_id`, oldest first, from `since`
+    /// on and past the `after_message_id` cursor when it names a stored
+    /// message: the claim-verdict backfill's tenant-wide walk. An unknown
+    /// cursor id walks from the start, as no cursor does.
+    async fn list_assistant_messages_after(
         &self,
-        conversation_id: &str,
-        user_id: &str,
         tenant_id: TenantId,
-    ) -> AppResult<i64>;
+        since: Option<DateTime<Utc>>,
+        after_message_id: Option<&str>,
+        limit: i64,
+    ) -> AppResult<Vec<AssistantMessage>>;
 
     /// Upsert the caller's thumbs up/down feedback on a single message.
     ///
@@ -190,14 +211,6 @@ pub trait ChatRepository: Send + Sync {
     /// purpose: this sizes the `max_active_conversations` quota, and a thread
     /// someone else opened must not count against the athlete added to it.
     async fn count_conversations(&self, user_id: &str, tenant_id: TenantId) -> AppResult<i64>;
-    /// Delete all conversations a user *owns* (account cleanup). Owner
-    /// semantics: the athlete's own threads go; their membership in other
-    /// people's threads is not theirs to destroy.
-    async fn delete_all_user_conversations(
-        &self,
-        user_id: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<i64>;
 
     /// Get recently updated conversations across all tenants (admin view)
     ///
@@ -617,16 +630,6 @@ pub(crate) const GET_RECENT_MESSAGES_SQL: &str = concat!(
      LIMIT $4"
 );
 
-/// How many messages a conversation holds, for a participant.
-pub(crate) const MESSAGE_COUNT_SQL: &str = concat!(
-    "SELECT COUNT(*) \
-     FROM chat_messages m \
-     JOIN chat_conversations c ON m.conversation_id = c.id \
-     JOIN conversation_participants p ON p.conversation_id = c.id \
-     WHERE m.conversation_id = $1 AND ",
-    participant_scope!()
-);
-
 /// Insert keyed on (`message_id`, `user_id`); on a repeat rating, overwrite the
 /// rating + comment and bump `updated_at`. The WHERE EXISTS gate lands the row
 /// only when the message belongs to a conversation the caller participates
@@ -673,11 +676,6 @@ pub(crate) const CONVERSATION_FEEDBACK_SQL: &str = concat!(
 pub(crate) const COUNT_CONVERSATIONS_SQL: &str = r"
     SELECT COUNT(*)
     FROM chat_conversations
-    WHERE user_id = $1 AND tenant_id = $2";
-
-/// Delete a user's own conversations in a tenant (account cleanup).
-pub(crate) const DELETE_USER_CONVERSATIONS_SQL: &str = r"
-    DELETE FROM chat_conversations
     WHERE user_id = $1 AND tenant_id = $2";
 
 /// The newest conversations across every tenant, for the operator console.
@@ -814,3 +812,29 @@ pub(crate) fn instant_from_rfc3339(since: &str) -> AppResult<DateTime<Utc>> {
         .map(|dt| dt.with_timezone(&Utc))
         .map_err(|e| AppError::invalid_input(format!("Invalid RFC 3339 instant '{since}': {e}")))
 }
+
+/// The backfill walk over a tenant's assistant replies, oldest first.
+///
+/// The cursor is resolved in the same statement: `mark` is the cursor
+/// message's `(created_at, id)`, empty when `$3` is NULL or names no stored
+/// message, and every row after it in `(created_at, id)` order qualifies.
+/// Both bounds bind as timestamps, so the comparison is the one the column
+/// was written with on either backend.
+pub(crate) const ASSISTANT_MESSAGES_AFTER_SQL: &str = r"
+    WITH mark AS (SELECT created_at, id FROM chat_messages WHERE id = $3)
+    SELECT m.id AS message_id,
+           m.conversation_id AS conversation_id,
+           c.user_id AS user_id,
+           c.agent_id AS agent_id,
+           m.content AS content
+    FROM chat_messages m
+    INNER JOIN chat_conversations c ON c.id = m.conversation_id
+    WHERE c.tenant_id = $1
+      AND m.role = 'assistant'
+      AND ($2 IS NULL OR m.created_at >= $2)
+      AND (NOT EXISTS (SELECT 1 FROM mark)
+           OR m.created_at > (SELECT created_at FROM mark)
+           OR (m.created_at = (SELECT created_at FROM mark)
+               AND m.id > (SELECT id FROM mark)))
+    ORDER BY m.created_at ASC, m.id ASC
+    LIMIT $4";

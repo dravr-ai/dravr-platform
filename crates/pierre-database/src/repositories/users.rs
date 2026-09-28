@@ -40,11 +40,10 @@ use uuid::Uuid;
 /// User account management repository
 #[async_trait]
 pub trait UserRepository: Send + Sync {
-    /// Insert a new user account.
+    /// Insert a new user account, its email stored normalized (trimmed, lowercase).
     ///
-    /// Insert-only on both engines: a duplicate email is `invalid_input`, never a
-    /// silent overwrite. Callers that mean "write this User over the existing row"
-    /// call [`UserRepository::update`].
+    /// Insert-only on both engines: a duplicate email in any casing is `invalid_input`,
+    /// never a silent overwrite; to write a User over its row, call [`UserRepository::update`].
     async fn create(&self, user: &User) -> AppResult<Uuid>;
     /// Write a whole `User` onto its existing row, matched by id.
     ///
@@ -62,9 +61,9 @@ pub trait UserRepository: Send + Sync {
     /// user id; ids with no matching row are omitted. Replaces per-id
     /// `get_global` loops with a single `WHERE id IN (...)` query.
     async fn get_global_many(&self, user_ids: &[Uuid]) -> AppResult<HashMap<Uuid, User>>;
-    /// Get user by email address
+    /// Get user by email address, compared case aside
     async fn get_by_email(&self, email: &str) -> AppResult<Option<User>>;
-    /// Get user by email (required - fails if not found)
+    /// Get user by email, case aside (required - fails if not found)
     async fn get_by_email_required(&self, email: &str) -> AppResult<User>;
     /// Get user by Firebase UID
     async fn get_by_firebase_uid(&self, firebase_uid: &str) -> AppResult<Option<User>>;
@@ -78,7 +77,8 @@ pub trait UserRepository: Send + Sync {
         status: &str,
         tenant_id: Option<TenantId>,
     ) -> AppResult<Vec<User>>;
-    /// Get users by status with cursor-based pagination
+    /// Get users by status with cursor-based pagination; the status
+    /// [`ALL_USER_STATUSES`] pages every account
     async fn get_by_status_cursor(
         &self,
         status: &str,
@@ -200,13 +200,6 @@ pub trait ProfileRepository: Send + Sync {
     async fn create_goal(&self, user_id: Uuid, goal_data: Value) -> AppResult<String>;
     /// Get all goals for a user
     async fn get_goals(&self, user_id: Uuid) -> AppResult<Vec<Value>>;
-    /// Update progress on a goal, scoped to the owning user
-    async fn update_goal_progress(
-        &self,
-        goal_id: &str,
-        user_id: Uuid,
-        current_value: f64,
-    ) -> AppResult<()>;
     /// Get user configuration data
     async fn get_configuration(&self, user_id: &str) -> AppResult<Option<String>>;
     /// Save user configuration data
@@ -324,8 +317,8 @@ pub trait SessionRefreshTokenRepository: Send + Sync {
 ///
 /// The registration approval decision consults this list so an allowed address
 /// lands `Active` without the pending queue; `pierre-cli user allow / disallow /
-/// list-allowed` manages it. Implementations store and compare emails
-/// lowercase, so lookups are case-insensitive.
+/// list-allowed` manages it. Implementations store emails normalized (trimmed,
+/// lowercase) and compare them lower-cased, so lookups are case-insensitive.
 #[async_trait]
 pub trait PreApprovedEmailRepository: Send + Sync {
     /// Record an allow for `email`. Idempotent: returns `false` when the
@@ -445,9 +438,12 @@ pub(crate) const GET_USER_IN_TENANT_SQL: &str = concat!(
 pub(crate) const GET_USER_BY_ID_SQL: &str =
     concat!("SELECT ", user_columns!(""), " FROM users WHERE id = $1");
 
-/// One user by email.
-pub(crate) const GET_USER_BY_EMAIL_SQL: &str =
-    concat!("SELECT ", user_columns!(""), " FROM users WHERE email = $1");
+/// One user by email, case aside: `lower(email)` is what `idx_users_email_lower` indexes.
+pub(crate) const GET_USER_BY_EMAIL_SQL: &str = concat!(
+    "SELECT ",
+    user_columns!(""),
+    " FROM users WHERE lower(email) = lower($1)"
+);
 
 /// One user by the Firebase UID they signed in with.
 pub(crate) const GET_USER_BY_FIREBASE_UID_SQL: &str = concat!(
@@ -510,12 +506,13 @@ pub(crate) const USERS_BY_STATUS_IN_TENANT_SQL: &str = concat!(
             ORDER BY u.created_at DESC"
 );
 
-/// The first page of a status listing under keyset pagination.
+/// The first page of a status listing under keyset pagination. The status
+/// [`ALL_USER_STATUSES`] lists every account.
 pub(crate) const USERS_BY_STATUS_PAGE_SQL: &str = concat!(
     "SELECT ",
     user_columns!(""),
     " FROM users
-            WHERE COALESCE(user_status, 'active') = $1
+            WHERE ($1 = 'all' OR COALESCE(user_status, 'active') = $1)
             ORDER BY created_at DESC, id DESC
             LIMIT $2"
 );
@@ -528,7 +525,7 @@ pub(crate) const USERS_BY_STATUS_AFTER_CURSOR_SQL: &str = concat!(
     "SELECT ",
     user_columns!(""),
     " FROM users
-            WHERE COALESCE(user_status, 'active') = $1
+            WHERE ($1 = 'all' OR COALESCE(user_status, 'active') = $1)
               AND (created_at < $2 OR (created_at = $2 AND id < $3))
             ORDER BY created_at DESC, id DESC
             LIMIT $4"
@@ -582,6 +579,22 @@ pub(crate) fn user_status_filter(status: &str) -> AppResult<&str> {
             "Invalid user status: {status}"
         ))),
     }
+}
+
+/// The listing status that selects every account, whatever its status. The
+/// paged SQL above spells the same literal.
+pub const ALL_USER_STATUSES: &str = "all";
+
+/// The status strings a paged listing may ask for: one status, or
+/// [`ALL_USER_STATUSES`].
+///
+/// # Errors
+/// Returns an invalid-input error for any other string.
+pub(crate) fn listing_status_filter(status: &str) -> AppResult<&str> {
+    if status == ALL_USER_STATUSES {
+        return Ok(status);
+    }
+    user_status_filter(status)
 }
 
 /// Decode one `users` row. The two uuid columns are read by the caller
@@ -709,7 +722,7 @@ macro_rules! impl_user_repository {
             async fn create(&self, user: &User) -> AppResult<Uuid> {
                 sqlx::query(CREATE_USER_SQL)
                     .bind($ids::bind(user.id))
-                    .bind(&user.email)
+                    .bind(normalize_email(&user.email))
                     .bind(&user.display_name)
                     .bind(&user.password_hash)
                     .bind(user.tier.as_str())
@@ -815,7 +828,7 @@ macro_rules! impl_user_repository {
 
             async fn get_by_email(&self, email: &str) -> AppResult<Option<User>> {
                 let row = sqlx::query(GET_USER_BY_EMAIL_SQL)
-                    .bind(email)
+                    .bind(normalize_email(email))
                     .fetch_optional(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to get user by email: {e}")))?;
@@ -892,7 +905,7 @@ macro_rules! impl_user_repository {
                 status: &str,
                 params: &PaginationParams,
             ) -> AppResult<CursorPage<User>> {
-                let status = user_status_filter(status)?;
+                let status = listing_status_filter(status)?;
                 // One more than asked for tells whether a next page exists.
                 let fetch_limit = i64::try_from(params.limit + 1)
                     .map_err(|_| AppError::invalid_input("Pagination limit too large"))?;

@@ -55,6 +55,7 @@ function link(overrides: Partial<DelegatedConnection> = {}): DelegatedConnection
     status: 'proposed',
     proposed_at: '2026-09-24T08:00:00Z',
     confirmed_at: null,
+    read_refused: null,
     ...overrides,
   };
 }
@@ -214,6 +215,61 @@ describe('DelegatedConnectionsSection — coach', () => {
     expect(screen.queryByTestId('delegation-refresh')).toBeNull();
   });
 
+  it('sends a coach whose TrainingPeaks account is not theirs by email to their connections', async () => {
+    vi.mocked(groupsApi.getDelegationRoster).mockRejectedValue(refusal(400, 'trainingpeaks_email_mismatch'));
+    const onOpenConnections = vi.fn();
+    const user = userEvent.setup();
+    renderSection({ onOpenConnections });
+
+    const refused = await screen.findByTestId('delegation-roster-refused');
+    expect(refused).toHaveTextContent(
+      'The TrainingPeaks account you connected uses a different email than your Dravr account.',
+    );
+    expect(refused).not.toHaveTextContent('English for an API caller');
+    await user.click(within(refused).getByTestId('delegation-open-connections'));
+    expect(onOpenConnections).toHaveBeenCalledTimes(1);
+  });
+
+  it('words a propose refused because the athlete is not the member by email', async () => {
+    vi.mocked(groupsApi.proposeDelegatedConnection).mockRejectedValue(refusal(400, 'athlete_email_mismatch'));
+    const user = userEvent.setup();
+    renderSection();
+
+    await user.click(await screen.findByTestId('delegation-propose-900001'));
+
+    expect(
+      await screen.findByText(
+        "This athlete's TrainingPeaks email is not the member's Dravr email, so they cannot be linked.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('English for an API caller')).toBeNull();
+  });
+
+  it('tells the coach why a confirmed link reads nothing, and keeps the unlink', async () => {
+    vi.mocked(groupsApi.getDelegationRoster).mockResolvedValue({
+      provider: 'trainingpeaks',
+      athletes: [
+        {
+          provider_athlete_id: '900001',
+          display_name: 'Alex Athlete',
+          connection: link({
+            status: 'confirmed',
+            confirmed_at: '2026-09-24T09:00:00Z',
+            read_refused: 'athlete_email_missing',
+          }),
+          suggested_member_user_id: null,
+        },
+      ],
+    });
+    renderSection();
+
+    expect(await screen.findByTestId('delegation-read-refused-dc-1')).toHaveTextContent(
+      'TrainingPeaks shares no email for this athlete, so Dravr cannot match them to a member.',
+    );
+    expect(screen.queryByText(/Linked to/)).toBeNull();
+    expect(screen.getByTestId('delegation-unlink-dc-1')).toBeInTheDocument();
+  });
+
   it('tells a coach whose account trains that it has no roster, with nowhere to send them', async () => {
     vi.mocked(groupsApi.getDelegationRoster).mockRejectedValue(
       refusal(400, 'trainingpeaks_not_coach_account'),
@@ -257,6 +313,40 @@ describe('DelegatedConnectionsSection — member', () => {
     ).toBeInTheDocument();
   });
 
+  it('words a confirm refused until the member verifies their email', async () => {
+    vi.mocked(groupsApi.confirmDelegatedConnection).mockRejectedValue(refusal(400, 'dravr_email_unverified'));
+    const user = userEvent.setup();
+    renderSection({ mode: 'member', connections: [link()] });
+
+    await user.click(await screen.findByTestId('delegation-confirm'));
+
+    expect(
+      await screen.findByText(
+        'Verify your Dravr email first: open the link in the confirmation email we sent you.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('tells the member why their confirmed link reads nothing', async () => {
+    vi.mocked(providersApi.getProvidersStatus).mockResolvedValue({ providers: [] });
+    renderSection({
+      mode: 'member',
+      connections: [
+        link({
+          status: 'confirmed',
+          confirmed_at: '2026-09-24T09:00:00Z',
+          read_refused: 'athlete_email_mismatch',
+        }),
+      ],
+    });
+
+    const linked = await screen.findByTestId('delegation-linked');
+    expect(within(linked).getByTestId('delegation-read-refused')).toHaveTextContent(
+      "This athlete's TrainingPeaks email is not the member's Dravr email, so they cannot be linked.",
+    );
+    expect(linked).not.toHaveTextContent("Casey Coach's account");
+  });
+
   it('says when the coach must reconnect, and unlinks behind a confirm', async () => {
     vi.mocked(providersApi.getProvidersStatus).mockResolvedValue({
       providers: [
@@ -275,6 +365,7 @@ describe('DelegatedConnectionsSection — member', () => {
             coach_display_name: 'Casey Coach',
             status: 'confirmed',
             coach_needs_reauth: true,
+            read_refused: null,
           },
         },
       ],

@@ -188,7 +188,8 @@ pub fn calculate_fitness_metrics(
     // input at ~28%. Chronic load is a point-in-time state, not a windowed
     // aggregate; truncating its input does not narrow the answer, it
     // understates it (registre#415).
-    let calculator = TrainingLoadCalculator::from_config(algorithm_config.clone());
+    let calculator =
+        TrainingLoadCalculator::from_config(algorithm_config.clone(), Utc::now().date_naive());
     let training_load = calculator
         .calculate_training_load(&chronological, None, None, None, None, None)
         .ok();
@@ -449,15 +450,6 @@ pub fn handle_calculate_fitness_score(
         use parse_user_id_for_protocol;
         use DEFAULT_ACTIVITY_LIMIT;
 
-        // Check cancellation at start
-        if let Some(token) = &request.cancellation_token {
-            if token.is_cancelled().await {
-                return Err(ProtocolError::OperationCancelled(
-                    "calculate_fitness_score cancelled by user".to_owned(),
-                ));
-            }
-        }
-
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
         let provider_name = match resolve_provider_for_request(
             &request.parameters,
@@ -485,48 +477,12 @@ pub fn handle_calculate_fitness_score(
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);
 
-        // Report progress - starting authentication
-        if let Some(reporter) = &request.progress_reporter {
-            reporter.report(
-                20.0,
-                Some(100.0),
-                Some("Checking authentication...".to_owned()),
-            );
-        }
-
-        // Check cancellation before auth
-        if let Some(token) = &request.cancellation_token {
-            if token.is_cancelled().await {
-                return Err(ProtocolError::OperationCancelled(
-                    "calculate_fitness_score cancelled before authentication".to_owned(),
-                ));
-            }
-        }
-
         match executor
             .auth_service
             .create_authenticated_provider(&provider_name, user_uuid, request.tenant_id.as_deref())
             .await
         {
             Ok(provider) => {
-                // Report progress after auth
-                if let Some(reporter) = &request.progress_reporter {
-                    reporter.report(
-                        40.0,
-                        Some(100.0),
-                        Some("Authenticated - fetching activities...".to_owned()),
-                    );
-                }
-
-                // Check cancellation before provider creation
-                if let Some(token) = &request.cancellation_token {
-                    if token.is_cancelled().await {
-                        return Err(ProtocolError::OperationCancelled(
-                            "calculate_fitness_score cancelled before fetch".to_owned(),
-                        ));
-                    }
-                }
-
                 match provider
                     .get_activities(Some(DEFAULT_ACTIVITY_LIMIT), None)
                     .await
@@ -537,14 +493,6 @@ pub fn handle_calculate_fitness_score(
                         // or auto-split GPS recordings of the same workout.
                         let (activities, _fragment_report) =
                             merge_duplicates(raw_activities, &DedupConfig::default());
-                        // Report progress before calculation
-                        if let Some(reporter) = &request.progress_reporter {
-                            reporter.report(
-                                70.0,
-                                Some(100.0),
-                                Some("Calculating fitness metrics...".to_owned()),
-                            );
-                        }
 
                         let mut analysis = calculate_fitness_metrics(
                             &activities,
@@ -580,15 +528,6 @@ pub fn handle_calculate_fitness_score(
                         } else {
                             None
                         };
-
-                        // Report completion
-                        if let Some(reporter) = &request.progress_reporter {
-                            reporter.report(
-                                100.0,
-                                Some(100.0),
-                                Some("Fitness score calculated".to_owned()),
-                            );
-                        }
 
                         // Add recovery and provider info to response
                         let adjustment = recovery_info.as_ref().map(|info| RecoveryAdjustment {

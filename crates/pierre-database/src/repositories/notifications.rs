@@ -40,8 +40,6 @@ pub trait NotificationRepository: Send + Sync {
     async fn get_unread(&self, user_id: Uuid) -> AppResult<Vec<OAuthNotification>>;
     /// Mark OAuth notification as read
     async fn mark_read(&self, notification_id: &str, user_id: Uuid) -> AppResult<bool>;
-    /// Mark all OAuth notifications as read for a user
-    async fn mark_all_read(&self, user_id: Uuid) -> AppResult<u64>;
     /// Get all OAuth notifications for a user (read and unread)
     async fn get_all(&self, user_id: Uuid, limit: Option<i64>)
         -> AppResult<Vec<OAuthNotification>>;
@@ -67,13 +65,6 @@ pub(crate) const MARK_OAUTH_NOTIFICATION_READ_SQL: &str = r"
             UPDATE oauth_notifications
             SET read_at = CURRENT_TIMESTAMP
             WHERE id = $1 AND user_id = $2 AND read_at IS NULL
-            ";
-
-/// Mark every unread notification of the user read.
-pub(crate) const MARK_ALL_OAUTH_NOTIFICATIONS_READ_SQL: &str = r"
-            UPDATE oauth_notifications
-            SET read_at = CURRENT_TIMESTAMP
-            WHERE user_id = $1 AND read_at IS NULL
             ";
 
 /// Every notification of the user, read or not, newest first; the caller's
@@ -210,20 +201,6 @@ macro_rules! impl_notification_repository {
                     })?;
 
                 Ok(result.rows_affected() > 0)
-            }
-
-            async fn mark_all_read(&self, user_id: Uuid) -> AppResult<u64> {
-                let result = sqlx::query(MARK_ALL_OAUTH_NOTIFICATIONS_READ_SQL)
-                    .bind($ids::bind(user_id))
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!(
-                            "Failed to mark all OAuth notifications as read: {e}"
-                        ))
-                    })?;
-
-                Ok(result.rows_affected())
             }
 
             async fn get_all(

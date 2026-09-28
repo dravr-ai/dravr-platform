@@ -343,15 +343,6 @@ pub fn handle_detect_patterns(
     Box::pin(async move {
         use parse_user_id_for_protocol;
 
-        // Check cancellation at start
-        if let Some(token) = &request.cancellation_token {
-            if token.is_cancelled().await {
-                return Err(ProtocolError::OperationCancelled(
-                    "detect_patterns cancelled by user".to_owned(),
-                ));
-            }
-        }
-
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
         let provider_name = match resolve_provider_for_request(
             &request.parameters,
@@ -378,48 +369,12 @@ pub fn handle_detect_patterns(
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);
 
-        // Report progress - starting authentication
-        if let Some(reporter) = &request.progress_reporter {
-            reporter.report(
-                25.0,
-                Some(100.0),
-                Some("Checking authentication...".to_owned()),
-            );
-        }
-
-        // Check cancellation before auth
-        if let Some(token) = &request.cancellation_token {
-            if token.is_cancelled().await {
-                return Err(ProtocolError::OperationCancelled(
-                    "detect_patterns cancelled before authentication".to_owned(),
-                ));
-            }
-        }
-
         match executor
             .auth_service
             .create_authenticated_provider(&provider_name, user_uuid, request.tenant_id.as_deref())
             .await
         {
             Ok(provider) => {
-                // Report progress after auth
-                if let Some(reporter) = &request.progress_reporter {
-                    reporter.report(
-                        50.0,
-                        Some(100.0),
-                        Some("Authenticated - analyzing activities for patterns...".to_owned()),
-                    );
-                }
-
-                // Check cancellation before pattern detection
-                if let Some(token) = &request.cancellation_token {
-                    if token.is_cancelled().await {
-                        return Err(ProtocolError::OperationCancelled(
-                            "detect_patterns cancelled before analysis".to_owned(),
-                        ));
-                    }
-                }
-
                 // The athlete's own zone: the weekly-schedule histograms are
                 // counted on their civil clock, not the server's (registre#252).
                 let user_timezone = executor
@@ -440,17 +395,6 @@ pub fn handle_detect_patterns(
                     output_format,
                 )
                 .await?;
-
-                // Report completion on success
-                if result.success {
-                    if let Some(reporter) = &request.progress_reporter {
-                        reporter.report(
-                            100.0,
-                            Some(100.0),
-                            Some("Pattern detection completed".to_owned()),
-                        );
-                    }
-                }
 
                 Ok(result)
             }

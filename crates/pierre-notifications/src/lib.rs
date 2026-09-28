@@ -49,7 +49,6 @@ use tracing::{debug, info};
 
 // Re-export all public modules from dravr-commere
 pub use dravr_commere::constants;
-pub use dravr_commere::expo_push;
 pub use dravr_commere::models;
 
 /// The closed product-event vocabulary a notification row records, and the

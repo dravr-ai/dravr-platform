@@ -53,14 +53,6 @@ pub trait RecipeRepository: Send + Sync {
     ) -> AppResult<bool>;
     /// Delete a recipe
     async fn delete(&self, recipe_id: &str, user_id: Uuid, tenant_id: TenantId) -> AppResult<bool>;
-    /// Update cached nutrition data for a recipe
-    async fn update_nutrition_cache(
-        &self,
-        recipe_id: &str,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        nutrition: &ValidatedNutrition,
-    ) -> AppResult<bool>;
     /// Search recipes by text query
     async fn search(
         &self,
@@ -162,13 +154,6 @@ pub(crate) const DELETE_INGREDIENTS_SQL: &str =
 /// Delete an owner's recipe; its ingredients go by `ON DELETE CASCADE`.
 pub(crate) const DELETE_RECIPE_SQL: &str =
     "DELETE FROM recipes WHERE id = $1 AND user_id = $2 AND tenant_id = $3";
-
-/// Store validated nutrition on an owner's recipe.
-pub(crate) const UPDATE_NUTRITION_CACHE_SQL: &str = "UPDATE recipes SET \
-     cached_calories = $1, cached_protein_g = $2, cached_carbs_g = $3, \
-     cached_fat_g = $4, cached_fiber_g = $5, cached_sodium_mg = $6, \
-     cached_sugar_g = $7, nutrition_validated_at = $8, updated_at = $9 \
-     WHERE id = $10 AND user_id = $11 AND tenant_id = $12";
 
 /// A page of the owner's recipes whose name, tags or description contains
 /// the query. `$like` is the backend's case-folding match operator.
@@ -755,34 +740,6 @@ macro_rules! impl_recipe_repository {
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to delete recipe: {e}")))?;
-                Ok(result.rows_affected() > 0)
-            }
-
-            async fn update_nutrition_cache(
-                &self,
-                recipe_id: &str,
-                user_id: Uuid,
-                tenant_id: TenantId,
-                nutrition: &ValidatedNutrition,
-            ) -> AppResult<bool> {
-                let result = sqlx::query(UPDATE_NUTRITION_CACHE_SQL)
-                    .bind(nutrition.calories)
-                    .bind(nutrition.protein_g)
-                    .bind(nutrition.carbs_g)
-                    .bind(nutrition.fat_g)
-                    .bind(nutrition.fiber_g)
-                    .bind(nutrition.sodium_mg)
-                    .bind(nutrition.sugar_g)
-                    .bind(nutrition.validated_at)
-                    .bind(Utc::now())
-                    .bind(recipe_id)
-                    .bind($ids::bind(user_id))
-                    .bind(tenant_id.to_string())
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to update nutrition cache: {e}"))
-                    })?;
                 Ok(result.rows_affected() > 0)
             }
 

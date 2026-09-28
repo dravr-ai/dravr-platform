@@ -100,11 +100,5 @@ async fn test_goals_management() {
         .expect("Failed to get user goals");
     assert_eq!(goals.len(), 1);
     assert_eq!(goals[0]["type"], "weekly_distance");
-
-    // Update goal progress
-    repos
-        .profiles
-        .update_goal_progress(&goal_id, user.id, 25.0)
-        .await
-        .expect("Failed to update goal progress");
+    assert_eq!(goals[0]["goal_id"].as_str(), Some(goal_id.as_str()));
 }

@@ -131,7 +131,6 @@
     "blockSend": "Enviar",
     "brandApple": "Apple",
     "brandGarmin": "Garmin",
-    "brandGarminConnect": "Garmin Connect",
     "brandGoogle": "Google",
     "brandStrava": "Strava",
     "cancelTryDifferentProvider": "Cancelar y probar otro proveedor",
@@ -350,8 +349,6 @@
     "forgotPasswordLink": "¿Has olvidado la contraseña?",
     "freshForm": "Forma fresca",
     "fromChannel": "Desde {{channel}}",
-    "garminAccount": "Cuenta de Garmin",
-    "garminEmail": "Correo de Garmin",
     "googleEmail": "Correo de Google",
     "group": "Grupo",
     "groupArchivedPermanently": "El grupo se ha archivado de forma permanente.",
@@ -743,13 +740,9 @@
     "youllReceiveApproval": "Recibirás un correo de aprobación",
     "yourActivitiesCount": "Tus actividades ({{count}})",
     "brandTrainingPeaks": "TrainingPeaks",
-    "trainingpeaksAccount": "Cuenta de TrainingPeaks",
-    "trainingpeaksUsername": "Usuario de TrainingPeaks",
     "provTrainingPeaksBlurb": "Entrenamientos completados y su carga de entrenamiento desde TrainingPeaks",
     "provTrainingPeaksShort": "Entrenamientos completados y carga",
     "brandCoros": "COROS",
-    "corosAccount": "Cuenta de COROS",
-    "corosEmail": "Correo de COROS",
     "provCorosBlurb": "Actividades y métricas de recuperación de los relojes COROS",
     "provCorosShort": "Actividades y vueltas"
   },
@@ -1405,6 +1398,10 @@
     "alreadyLinked": "Tu TrainingPeaks ya está vinculado a través de otro grupo.",
     "alreadyProposed": "Este miembro ya tiene un vínculo de TrainingPeaks en este grupo.",
     "athleteAlreadyLinked": "Este atleta ya está vinculado.",
+    "athleteEmailMismatch": "El correo de TrainingPeaks de este atleta no es el correo de Dravr del miembro, así que no se pueden vincular.",
+    "athleteEmailMissing": "TrainingPeaks no comparte ningún correo de este atleta, así que Dravr no puede asociarlo a un miembro.",
+    "coachEmailMismatch": "La cuenta de TrainingPeaks que conectaste usa un correo distinto al de tu cuenta de Dravr. Conecta la cuenta de TrainingPeaks registrada con tu correo de Dravr.",
+    "coachEmailMissing": "TrainingPeaks no comparte ningún correo de la cuenta que conectaste, así que Dravr no puede comprobar que es tuya.",
     "coachHint": "Vincula cada atleta de tu lista de TrainingPeaks con el miembro que es en este grupo. Confirma antes de que Dravr lea sus entrenamientos a través de tu cuenta de TrainingPeaks.",
     "coachReconnectNeeded": "{{coach}} tiene que volver a conectar TrainingPeaks; tus entrenamientos quedan en pausa hasta entonces.",
     "confirm": "Confirmar",
@@ -1413,8 +1410,10 @@
     "connectFirst": "Conecta TrainingPeaks con la cuenta en la que están tus atletas para vincularlos.",
     "decline": "Rechazar",
     "declinedToast": "Vínculo rechazado",
+    "emailUnverified": "Primero verifica tu correo de Dravr: abre el enlace del correo de confirmación que te enviamos.",
     "leaveEndsLink": "Tu vínculo de TrainingPeaks a través de este grupo también termina.",
     "linkedTo": "Vinculado con {{member}}",
+    "memberEmailUnverified": "Este miembro aún no ha verificado su correo de Dravr, así que no se puede vincular.",
     "memberLabel": "Miembro",
     "memberPlaceholder": "Elige un miembro",
     "memberSectionTitle": "TrainingPeaks a través de tu entrenador humano",
@@ -1520,6 +1519,29 @@
     "tryAgain": "Reintentar",
     "updateAgentFailed": "No se pudo actualizar el agente. Inténtalo de nuevo.",
     "useCount": "Usos",
+    "versionCompare": "Comparar con ahora",
+    "versionDiffLoadFailed": "No se pudo comparar esta versión",
+    "versionEmptyValue": "(vacío)",
+    "versionHideCompare": "Ocultar comparación",
+    "versionHistoryEmpty": "Aún no hay versiones anteriores. Cada guardado añade una aquí.",
+    "versionHistoryHint": "Cada guardado conserva el contenido que reemplaza. Compara una versión con tu agente tal como está ahora, o recupérala.",
+    "versionHistoryLoadFailed": "No se pudo cargar el historial de versiones",
+    "versionHistoryTitle": "Historial de versiones",
+    "versionLabel": "Versión {{version}}",
+    "versionNoChanges": "Mismo contenido que tu agente actual.",
+    "versionNow": "Ahora",
+    "versionReplaced": "Reemplazada el {{date}}",
+    "versionReplacedBy": "Reemplazada el {{date}} por {{author}}",
+    "versionRevert": "Volver a esta versión",
+    "versionRevertConfirm": "Volver",
+    "versionRevertConfirmMessage": "Tu agente recupera el contenido de esta versión. Lo que tiene ahora se guarda como una nueva versión, así que puedes deshacerlo.",
+    "versionRevertConfirmTitle": "¿Volver a la versión {{version}}?",
+    "versionRevertFailed": "No se pudo volver a esta versión",
+    "versionThen": "En esta versión",
+    "versionVisibilityLabel": "Visibilidad",
+    "visibilityGlobal": "Todos",
+    "visibilityPrivate": "Solo tú",
+    "visibilityTenant": "Tu organización",
     "whenToUseSection": "Cuándo usarlo"
   },
   "errors": {
@@ -2054,14 +2076,6 @@
       "title": "Tu resumen semanal de notificaciones"
     },
     "event": {
-      "activity_synced": {
-        "body": "{0} — {1} en {2}",
-        "title": "Nueva actividad sincronizada"
-      },
-      "agent_feedback": {
-        "body": "{0} ha dejado una nota sobre tu {1}",
-        "title": "Comentario de tu agente"
-      },
       "agent_message": {
         "body": "{0} te ha enviado un mensaje",
         "title": "Mensaje de tu agente"
@@ -2094,10 +2108,6 @@
         "body": "Tu puntuación de recuperación es {0}/100 — se recomienda un día suave",
         "title": "Puntuación de recuperación baja"
       },
-      "milestone_reached": {
-        "body": "Has acumulado {0} {1} este año",
-        "title": "¡Hito alcanzado!"
-      },
       "overtraining_warning": {
         "body": "La tendencia de tu carga de entrenamiento indica acumulación de fatiga",
         "title": "Riesgo de sobreentrenamiento detectado"
@@ -2115,7 +2125,7 @@
         "title": "Tu conexión con {0} se liberará pronto"
       },
       "sync_failure": {
-        "body": "{0}",
+        "body": "Dravr no pudo obtener tus últimos datos de {0}. Lo reintentará solo; vuelve a conectar si sigue fallando.",
         "collapsed_body": "{0} sincronizaciones de actividades han fallado recientemente",
         "collapsed_title": "{0} errores de sincronización",
         "title": "Error de sincronización de {0}"
@@ -2151,7 +2161,13 @@
     },
     "hoursAgo": "hace {{count}} h",
     "justNow": "Ahora mismo",
-    "minutesAgo": "hace {{count}} min"
+    "minutesAgo": "hace {{count}} min",
+    "pr_distance": {
+      "5k": "5 km",
+      "10k": "10 km",
+      "half_marathon": "media maratón",
+      "marathon": "maratón"
+    }
   },
   "onboarding": {
     "aboutYouHint": "Tres preguntas rápidas para que tu agente te conozca desde el principio. Sáltate las que quieras — el resto lo iremos recogiendo por el camino.",

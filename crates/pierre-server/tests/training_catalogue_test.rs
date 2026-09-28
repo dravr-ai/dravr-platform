@@ -1,10 +1,11 @@
 // ABOUTME: Pins the seeded training catalogue — counts, slugs, the KB numbers of named files, every file through the kernel
-// ABOUTME: Cross-file rules: no dangling evidence ref, every named session has a carrier fitting its phase, the embedded table mirrors disk
+// ABOUTME: Cross-file rules: no dangling evidence ref, every named session has a carrier fitting its phase, the seed mirrors the pinned tables
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The registry is seeded from `training_catalogue/` at build time. A file
+//! The registry is seeded from `dravr_contremaitre::training`, the tables the
+//! pinned dravr-contremaitre rev compiles from its `training/` tree. A file
 //! that fails to parse is logged and left out rather than failing the boot,
 //! so the exact counts here are what stops a broken file from reaching a
 //! release: 9 flavours, 12 skeletons, 33 workouts, one selection table.
@@ -13,9 +14,8 @@
 #![allow(missing_docs)]
 
 use std::collections::{BTreeSet, HashSet};
-use std::fs;
-use std::path::{Path, PathBuf};
 
+use dravr_contremaitre::{evidence, training};
 use pierre_contremaitre::manifest::compute_sha256;
 use pierre_contremaitre::training_catalogue::{
     CatalogueItem, CatalogueKind, TrainingCatalogueRegistry, SELECTION_SLUG,
@@ -96,25 +96,21 @@ const SKELETON_IDS: [&str; 12] = [
 /// Files the seed carries: 9 + 12 + 33 + the selection table.
 const SEED_FILE_COUNT: usize = 55;
 
-fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+/// The pinned table for one file shape: `(stem, text)` per file.
+fn table(kind: CatalogueKind) -> &'static [(&'static str, &'static str)] {
+    match kind {
+        CatalogueKind::Flavour => training::FLAVOURS,
+        CatalogueKind::Skeleton => training::SKELETONS,
+        CatalogueKind::Workout => training::WORKOUTS,
+        CatalogueKind::Selection => panic!("the selection table is one document, not a table"),
+    }
 }
 
-fn catalogue_dir() -> PathBuf {
-    repo_root().join("training_catalogue")
-}
-
-fn evidence_dir() -> PathBuf {
-    repo_root().join("crates/pierre-evals/fixtures/sports_science")
-}
-
-/// The file stems under `dir` carrying `extension`, sorted.
-fn stems(dir: &Path, extension: &str) -> BTreeSet<String> {
-    fs::read_dir(dir)
-        .unwrap_or_else(|e| panic!("read {}: {e}", dir.display()))
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == extension))
-        .map(|path| path.file_stem().unwrap().to_string_lossy().into_owned())
+/// The file stems the pinned table carries for `kind`, sorted.
+fn stems(kind: CatalogueKind) -> BTreeSet<String> {
+    table(kind)
+        .iter()
+        .map(|(stem, _)| (*stem).to_owned())
         .collect()
 }
 
@@ -122,25 +118,16 @@ fn as_set(ids: &[&str]) -> BTreeSet<String> {
     ids.iter().map(|id| (*id).to_owned()).collect()
 }
 
-/// Every `(category, slug)` the evidence fixtures answer for, keyed the way
-/// `evidence_ref_parts` splits a ref — so `README.md` never counts.
+/// Every `(category, slug)` the pinned evidence corpus answers for, keyed the
+/// way `evidence_ref_parts` splits a ref.
 fn evidence_keys() -> HashSet<(String, String)> {
-    let mut keys = HashSet::new();
-    for category in fs::read_dir(evidence_dir()).unwrap() {
-        let category = category.unwrap().path();
-        if !category.is_dir() {
-            continue;
-        }
-        let category_name = category.file_name().unwrap().to_string_lossy().into_owned();
-        for file in fs::read_dir(&category).unwrap() {
-            let file = file.unwrap().file_name().to_string_lossy().into_owned();
-            let path = format!("evidence/sports_science/{category_name}/{file}");
-            if let Some((category, slug)) = evidence_ref_parts(&path) {
-                keys.insert((category.to_owned(), slug.to_owned()));
-            }
-        }
-    }
-    keys
+    evidence::SPORTS_SCIENCE
+        .iter()
+        .filter_map(|(key, _)| {
+            let path = format!("evidence/sports_science/{key}");
+            evidence_ref_parts(&path).map(|(category, slug)| (category.to_owned(), slug.to_owned()))
+        })
+        .collect()
 }
 
 // ============================================================================
@@ -305,61 +292,28 @@ fn no_skeleton_drops_its_taper_or_peak() {
 // ============================================================================
 
 #[test]
-fn the_tree_holds_only_the_four_shapes() {
-    let top: BTreeSet<String> = fs::read_dir(catalogue_dir())
-        .unwrap()
-        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-        .collect();
-    assert_eq!(
-        top,
-        as_set(&["flavours", "selection.yaml", "skeletons", "workouts"])
-    );
-    for (dir, extension) in [
-        ("flavours", "yaml"),
-        ("skeletons", "yaml"),
-        ("workouts", "toml"),
-    ] {
-        let stray: Vec<String> = fs::read_dir(catalogue_dir().join(dir))
-            .unwrap()
-            .map(|e| e.unwrap().path())
-            .filter(|p| p.extension().is_none_or(|ext| ext != extension))
-            .map(|p| p.display().to_string())
-            .collect();
-        assert!(
-            stray.is_empty(),
-            "{dir}/ holds files that are not .{extension}: {stray:?}"
-        );
-    }
-}
-
-#[test]
-fn every_file_on_disk_passes_the_kernel() {
-    let dir = catalogue_dir();
+fn every_pinned_file_passes_the_kernel() {
     let mut parsed = 0;
-    for id in stems(&dir.join("flavours"), "yaml") {
-        let text = fs::read_to_string(dir.join("flavours").join(format!("{id}.yaml"))).unwrap();
+    for (id, text) in training::FLAVOURS {
         let flavour =
-            Flavour::from_yaml(&text).unwrap_or_else(|e| panic!("flavours/{id}.yaml: {e}"));
-        assert_eq!(flavour.id, id, "a flavour's id is its file stem");
+            Flavour::from_yaml(text).unwrap_or_else(|e| panic!("flavours/{id}.yaml: {e}"));
+        assert_eq!(flavour.id, *id, "a flavour's id is its file stem");
         parsed += 1;
     }
-    for id in stems(&dir.join("skeletons"), "yaml") {
-        let text = fs::read_to_string(dir.join("skeletons").join(format!("{id}.yaml"))).unwrap();
-        let skeleton = SkeletonTemplate::from_yaml(&text)
+    for (id, text) in training::SKELETONS {
+        let skeleton = SkeletonTemplate::from_yaml(text)
             .unwrap_or_else(|e| panic!("skeletons/{id}.yaml: {e}"));
-        assert_eq!(skeleton.id, id, "a skeleton's id is its file stem");
+        assert_eq!(skeleton.id, *id, "a skeleton's id is its file stem");
         parsed += 1;
     }
-    for slug in stems(&dir.join("workouts"), "toml") {
-        let text = fs::read_to_string(dir.join("workouts").join(format!("{slug}.toml"))).unwrap();
-        let workout = WorkoutTemplate::from_toml(&text)
+    for (slug, text) in training::WORKOUTS {
+        let workout = WorkoutTemplate::from_toml(text)
             .unwrap_or_else(|e| panic!("workouts/{slug}.toml: {e}"));
-        assert_eq!(workout.slug, slug, "a workout's slug is its file stem");
+        assert_eq!(workout.slug, *slug, "a workout's slug is its file stem");
         parsed += 1;
     }
-    let selection = fs::read_to_string(dir.join("selection.yaml")).unwrap();
-    let table =
-        SelectionTable::from_yaml(&selection).unwrap_or_else(|e| panic!("selection.yaml: {e}"));
+    let table = SelectionTable::from_yaml(training::SELECTION)
+        .unwrap_or_else(|e| panic!("selection.yaml: {e}"));
     assert!(
         table.rows.len() >= 43,
         "{} selection rows",
@@ -370,11 +324,11 @@ fn every_file_on_disk_passes_the_kernel() {
 }
 
 #[test]
-fn every_evidence_ref_resolves_against_the_fixtures() {
+fn every_evidence_ref_resolves_against_the_pinned_corpus() {
     let keys = evidence_keys();
     assert!(
         keys.len() >= 100,
-        "the fixture walk found {} propositions",
+        "the pinned corpus holds {} propositions",
         keys.len()
     );
     assert!(
@@ -397,77 +351,41 @@ fn every_evidence_ref_resolves_against_the_fixtures() {
 }
 
 // ============================================================================
-// The embedded table and the seed mirror the directory
+// The seed mirrors the pinned tables
 // ============================================================================
 
 #[test]
-fn the_embedded_table_lists_exactly_the_files_on_disk() {
-    let table = fs::read_to_string(
-        repo_root().join("crates/pierre-contremaitre/src/training_catalogue_embedded.rs"),
-    )
-    .unwrap();
-    let marker = "include_str!(\"../../../training_catalogue/";
-    let embedded: BTreeSet<String> = table
-        .lines()
-        .filter_map(|line| line.split_once(marker))
-        .map(|(_, rest)| rest.split('"').next().unwrap().to_owned())
-        .collect();
-
-    let dir = catalogue_dir();
-    let mut on_disk = BTreeSet::new();
-    for id in stems(&dir.join("flavours"), "yaml") {
-        on_disk.insert(format!("flavours/{id}.yaml"));
-    }
-    for id in stems(&dir.join("skeletons"), "yaml") {
-        on_disk.insert(format!("skeletons/{id}.yaml"));
-    }
-    for slug in stems(&dir.join("workouts"), "toml") {
-        on_disk.insert(format!("workouts/{slug}.toml"));
-    }
-    on_disk.insert("selection.yaml".to_owned());
-    assert_eq!(
-        embedded, on_disk,
-        "regenerate with scripts/ci/sync-contremaitre-fallback.sh"
-    );
-    assert_eq!(embedded.len(), SEED_FILE_COUNT);
-}
-
-#[test]
-fn the_seed_slugs_equal_the_directory_listing_per_kind() {
+fn the_seed_slugs_equal_the_pinned_table_per_kind() {
     let registry = TrainingCatalogueRegistry::new();
-    let dir = catalogue_dir();
     let flavours: BTreeSet<String> = registry.flavours().into_iter().map(|f| f.id).collect();
-    assert_eq!(flavours, stems(&dir.join("flavours"), "yaml"));
+    assert_eq!(flavours, stems(CatalogueKind::Flavour));
     let skeletons: BTreeSet<String> = registry.skeletons().into_iter().map(|s| s.id).collect();
-    assert_eq!(skeletons, stems(&dir.join("skeletons"), "yaml"));
+    assert_eq!(skeletons, stems(CatalogueKind::Skeleton));
     let workouts: BTreeSet<String> = registry.workouts().into_iter().map(|w| w.slug).collect();
-    assert_eq!(workouts, stems(&dir.join("workouts"), "toml"));
+    assert_eq!(workouts, stems(CatalogueKind::Workout));
 }
 
 #[test]
-fn a_seeded_sha_is_the_sha_of_the_file_on_disk() {
+fn a_seeded_sha_is_the_sha_of_the_pinned_file() {
     let registry = TrainingCatalogueRegistry::new();
-    let dir = catalogue_dir();
     let mut checked = 0;
-    for (kind, sub, extension) in [
-        (CatalogueKind::Flavour, "flavours", "yaml"),
-        (CatalogueKind::Skeleton, "skeletons", "yaml"),
-        (CatalogueKind::Workout, "workouts", "toml"),
+    for kind in [
+        CatalogueKind::Flavour,
+        CatalogueKind::Skeleton,
+        CatalogueKind::Workout,
     ] {
-        for slug in stems(&dir.join(sub), extension) {
-            let bytes = fs::read(dir.join(sub).join(format!("{slug}.{extension}"))).unwrap();
+        for (slug, text) in table(kind) {
             assert_eq!(
-                registry.sha256(kind, &slug).as_deref(),
-                Some(compute_sha256(&bytes).as_str()),
-                "{sub}/{slug}.{extension}"
+                registry.sha256(kind, slug).as_deref(),
+                Some(compute_sha256(text.as_bytes()).as_str()),
+                "{kind:?}/{slug}"
             );
             checked += 1;
         }
     }
-    let selection = fs::read(dir.join("selection.yaml")).unwrap();
     assert_eq!(
         registry.sha256(CatalogueKind::Selection, SELECTION_SLUG),
-        Some(compute_sha256(&selection))
+        Some(compute_sha256(training::SELECTION.as_bytes()))
     );
     checked += 1;
     assert_eq!(checked, SEED_FILE_COUNT);

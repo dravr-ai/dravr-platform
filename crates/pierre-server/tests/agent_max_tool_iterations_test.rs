@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests for the per-agent and tenant-wide tool-loop budget
-// ABOUTME: Covers the REST keep/clear/set round-trip, range rejection, and the admin config parameter
+// ABOUTME: Covers the REST update keep/clear/set round-trip, range rejection, and the admin config parameter
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -22,6 +22,7 @@ use pierre_config::admin_types::{ConfigDataType, ValidateConfigRequest};
 use pierre_core::constants::tool_execution::{
     DEFAULT_MAX_TOOL_ITERATIONS, MAX_MAX_TOOL_ITERATIONS, MIN_MAX_TOOL_ITERATIONS,
 };
+use pierre_core::models::agents::CreateAgentRequest;
 use pierre_core::models::TenantId;
 use pierre_database::database::test_utils::create_test_db;
 use pierre_mcp_server::config::admin::service::AdminConfigService;
@@ -29,10 +30,11 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_agents::agents::AgentResponse;
 use pierre_routes_agents::build_agents_router;
 use pierre_runtime_context::ConfigLookupScope;
+use uuid::Uuid;
 
 /// Build an agents router plus the bearer header and the context the runtime
 /// read path needs, so a test can assert what the chat turn would load.
-async fn setup() -> (axum::Router, String, Arc<ServerContext>, TenantId) {
+async fn setup() -> (axum::Router, String, Arc<ServerContext>, TenantId, Uuid) {
     let resources = create_test_server_resources().await.unwrap();
     let (_user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
     let token = generate_test_token(&resources, &user).await;
@@ -50,7 +52,32 @@ async fn setup() -> (axum::Router, String, Arc<ServerContext>, TenantId) {
         .expect("test user belongs to a tenant");
 
     let router = build_agents_router::<ServerContext>().with_state(Arc::clone(&resources));
-    (router, format!("Bearer {token}"), resources, tenant_id)
+    (
+        router,
+        format!("Bearer {token}"),
+        resources,
+        tenant_id,
+        user.id,
+    )
+}
+
+/// Store an agent the way every creation surface does, through the repository.
+async fn seed_agent(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    body: serde_json::Value,
+) -> AgentResponse {
+    let request: CreateAgentRequest = serde_json::from_value(body).unwrap();
+    resources
+        .agent
+        .database
+        .repositories()
+        .agents
+        .create(user_id, tenant_id, &request)
+        .await
+        .unwrap()
+        .into()
 }
 
 // ============================================================================
@@ -58,84 +85,20 @@ async fn setup() -> (axum::Router, String, Arc<ServerContext>, TenantId) {
 // ============================================================================
 
 #[tokio::test]
-async fn create_agent_persists_max_tool_iterations_to_the_turn_path() {
-    let (router, auth, resources, tenant_id) = setup().await;
-
-    let created: AgentResponse = AxumTestRequest::post("/api/agents")
-        .header("authorization", &auth)
-        .json(&json!({
-            "title": "Deep Analysis Coach",
-            "system_prompt": "You dig through many activities before answering.",
-            "max_tool_iterations": 27
-        }))
-        .send(router.clone())
-        .await
-        .json();
-
-    assert_eq!(created.max_tool_iterations, Some(27));
-
-    let fetched: AgentResponse = AxumTestRequest::get(&format!("/api/agents/{}", created.id))
-        .header("authorization", &auth)
-        .send(router)
-        .await
-        .json();
-    assert_eq!(fetched.max_tool_iterations, Some(27));
-
-    // The column the chat turn actually reads carries the same value.
-    let runtime = resources
-        .agent
-        .database
-        .repositories()
-        .agents
-        .get_agent_runtime_context(&created.id, tenant_id)
-        .await
-        .unwrap()
-        .expect("coach runtime context");
-    assert_eq!(runtime.max_tool_iterations, Some(27));
-}
-
-#[tokio::test]
-async fn create_agent_without_a_budget_leaves_the_agent_inheriting() {
-    let (router, auth, resources, tenant_id) = setup().await;
-
-    let created: AgentResponse = AxumTestRequest::post("/api/agents")
-        .header("authorization", &auth)
-        .json(&json!({
-            "title": "Inheriting Coach",
-            "system_prompt": "You use whatever budget the tenant sets."
-        }))
-        .send(router)
-        .await
-        .json();
-
-    assert_eq!(created.max_tool_iterations, None);
-
-    let runtime = resources
-        .agent
-        .database
-        .repositories()
-        .agents
-        .get_agent_runtime_context(&created.id, tenant_id)
-        .await
-        .unwrap()
-        .expect("coach runtime context");
-    assert_eq!(runtime.max_tool_iterations, None);
-}
-
-#[tokio::test]
 async fn update_agent_writes_a_new_budget_and_keeps_it_when_omitted() {
-    let (router, auth, _resources, _tenant_id) = setup().await;
+    let (router, auth, resources, tenant_id, user_id) = setup().await;
 
-    let created: AgentResponse = AxumTestRequest::post("/api/agents")
-        .header("authorization", &auth)
-        .json(&json!({
+    let created: AgentResponse = seed_agent(
+        &resources,
+        user_id,
+        tenant_id,
+        json!({
             "title": "Adjustable Coach",
             "system_prompt": "Original prompt",
             "max_tool_iterations": 12
-        }))
-        .send(router.clone())
-        .await
-        .json();
+        }),
+    )
+    .await;
     assert_eq!(created.max_tool_iterations, Some(12));
 
     let updated: AgentResponse = AxumTestRequest::put(&format!("/api/agents/{}", created.id))
@@ -159,18 +122,19 @@ async fn update_agent_writes_a_new_budget_and_keeps_it_when_omitted() {
 
 #[tokio::test]
 async fn update_agent_omitting_the_budget_keeps_the_stored_one_on_the_turn_path() {
-    let (router, auth, resources, tenant_id) = setup().await;
+    let (router, auth, resources, tenant_id, user_id) = setup().await;
 
-    let created: AgentResponse = AxumTestRequest::post("/api/agents")
-        .header("authorization", &auth)
-        .json(&json!({
+    let created: AgentResponse = seed_agent(
+        &resources,
+        user_id,
+        tenant_id,
+        json!({
             "title": "Pinned Coach",
             "system_prompt": "You get twenty-three rounds.",
             "max_tool_iterations": 23
-        }))
-        .send(router.clone())
-        .await
-        .json();
+        }),
+    )
+    .await;
     assert_eq!(created.max_tool_iterations, Some(23));
 
     // The web form omits an untouched field. Absent must mean preserve, all the
@@ -198,18 +162,19 @@ async fn update_agent_omitting_the_budget_keeps_the_stored_one_on_the_turn_path(
 
 #[tokio::test]
 async fn update_agent_with_an_explicit_null_clears_the_budget_back_to_the_admin_value() {
-    let (router, auth, resources, tenant_id) = setup().await;
+    let (router, auth, resources, tenant_id, user_id) = setup().await;
 
-    let created: AgentResponse = AxumTestRequest::post("/api/agents")
-        .header("authorization", &auth)
-        .json(&json!({
+    let created: AgentResponse = seed_agent(
+        &resources,
+        user_id,
+        tenant_id,
+        json!({
             "title": "Unpinnable Coach",
             "system_prompt": "You get twenty-three rounds until told otherwise.",
             "max_tool_iterations": 23
-        }))
-        .send(router.clone())
-        .await
-        .json();
+        }),
+    )
+    .await;
     assert_eq!(created.max_tool_iterations, Some(23));
 
     // An explicit null is the form clearing the box: it must reset the pin,
@@ -254,95 +219,25 @@ async fn update_agent_with_an_explicit_null_clears_the_budget_back_to_the_admin_
     assert_eq!(i64::from(DEFAULT_MAX_TOOL_ITERATIONS), 10);
 }
 
-#[tokio::test]
-async fn create_agent_accepts_both_ends_of_the_band() {
-    let (router, auth, _resources, _tenant_id) = setup().await;
-
-    let floor: AgentResponse = AxumTestRequest::post("/api/agents")
-        .header("authorization", &auth)
-        .json(&json!({
-            "title": "Floor Coach",
-            "system_prompt": "One round only.",
-            "max_tool_iterations": MIN_MAX_TOOL_ITERATIONS
-        }))
-        .send(router.clone())
-        .await
-        .json();
-    assert_eq!(floor.max_tool_iterations, Some(1));
-
-    let ceiling: AgentResponse = AxumTestRequest::post("/api/agents")
-        .header("authorization", &auth)
-        .json(&json!({
-            "title": "Ceiling Coach",
-            "system_prompt": "Every round.",
-            "max_tool_iterations": MAX_MAX_TOOL_ITERATIONS
-        }))
-        .send(router)
-        .await
-        .json();
-    assert_eq!(ceiling.max_tool_iterations, Some(50));
-}
-
 // ============================================================================
 // Range rejection
 // ============================================================================
 
 #[tokio::test]
-async fn create_agent_rejects_a_budget_above_the_ceiling() {
-    let (router, auth, _resources, _tenant_id) = setup().await;
-
-    let response = AxumTestRequest::post("/api/agents")
-        .header("authorization", &auth)
-        .json(&json!({
-            "title": "Runaway Coach",
-            "system_prompt": "Loop forever.",
-            "max_tool_iterations": i32::from(MAX_MAX_TOOL_ITERATIONS) + 1
-        }))
-        .send(router.clone())
-        .await;
-
-    assert_eq!(response.status_code(), StatusCode::BAD_REQUEST);
-
-    // The rejected create left no agent behind.
-    let listed: serde_json::Value = AxumTestRequest::get("/api/agents")
-        .header("authorization", &auth)
-        .send(router)
-        .await
-        .json();
-    assert_eq!(listed["total"], json!(0));
-}
-
-#[tokio::test]
-async fn create_agent_rejects_a_budget_below_the_floor() {
-    let (router, auth, _resources, _tenant_id) = setup().await;
-
-    let response = AxumTestRequest::post("/api/agents")
-        .header("authorization", &auth)
-        .json(&json!({
-            "title": "Zero Coach",
-            "system_prompt": "Never call a tool.",
-            "max_tool_iterations": 0
-        }))
-        .send(router)
-        .await;
-
-    assert_eq!(response.status_code(), StatusCode::BAD_REQUEST);
-}
-
-#[tokio::test]
 async fn update_agent_rejects_an_explicit_budget_above_the_ceiling() {
-    let (router, auth, _resources, _tenant_id) = setup().await;
+    let (router, auth, resources, tenant_id, user_id) = setup().await;
 
-    let created: AgentResponse = AxumTestRequest::post("/api/agents")
-        .header("authorization", &auth)
-        .json(&json!({
+    let created: AgentResponse = seed_agent(
+        &resources,
+        user_id,
+        tenant_id,
+        json!({
             "title": "Capped Coach",
             "system_prompt": "Original prompt",
             "max_tool_iterations": 23
-        }))
-        .send(router.clone())
-        .await
-        .json();
+        }),
+    )
+    .await;
 
     // Clearing is the only way past the bounds check; a supplied number is
     // still range-checked exactly as before.
@@ -363,18 +258,19 @@ async fn update_agent_rejects_an_explicit_budget_above_the_ceiling() {
 
 #[tokio::test]
 async fn update_agent_rejects_an_out_of_range_budget_and_keeps_the_stored_one() {
-    let (router, auth, _resources, _tenant_id) = setup().await;
+    let (router, auth, resources, tenant_id, user_id) = setup().await;
 
-    let created: AgentResponse = AxumTestRequest::post("/api/agents")
-        .header("authorization", &auth)
-        .json(&json!({
+    let created: AgentResponse = seed_agent(
+        &resources,
+        user_id,
+        tenant_id,
+        json!({
             "title": "Guarded Coach",
             "system_prompt": "Original prompt",
             "max_tool_iterations": 9
-        }))
-        .send(router.clone())
-        .await
-        .json();
+        }),
+    )
+    .await;
 
     let response = AxumTestRequest::put(&format!("/api/agents/{}", created.id))
         .header("authorization", &auth)

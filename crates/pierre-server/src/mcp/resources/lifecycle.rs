@@ -73,6 +73,8 @@ type TelegramMenuList = (Vec<(String, String)>, CommandScope, Option<&'static st
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
 use pierre_contremaitre::ContremaitreConfig;
 use pierre_core::billing::{dummy::DummyProvider, BillingProvider};
+#[cfg(feature = "health-sync")]
+use pierre_core::constants::oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
 #[cfg(feature = "client-messaging")]
 use pierre_core::models::SUPPORTED_LOCALES;
@@ -94,14 +96,13 @@ use pierre_messaging::commands::CommandRegistry;
 #[cfg(feature = "client-messaging")]
 use pierre_messaging::ChannelRegistry;
 #[cfg(feature = "provider-sciotte")]
-use pierre_middleware::provider_link_token::{
-    MintRateLimiter, NonceStore, MINT_RATE_LIMIT_PER_WINDOW, MINT_RATE_LIMIT_WINDOW_SECS,
-};
+use pierre_middleware::provider_link_token::NonceStore;
 use pierre_middleware::redaction::RedactionConfig;
 use pierre_middleware::McpAuthMiddleware;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::NotificationService;
 use pierre_providers::registry::ProviderRegistry;
+use pierre_services::api_key_cleanup::start_api_key_cleanup_task;
 #[cfg(feature = "health-sync")]
 use pierre_services::health_sync::PierreSyncStorage;
 #[cfg(feature = "client-messaging")]
@@ -113,6 +114,10 @@ use pierre_services::notification_localizer::UserLocaleNotificationLocalizer;
 #[cfg(feature = "client-notifications")]
 use pierre_services::persona_notification_policy_gate::PersonaNotificationPolicyGate;
 use pierre_services::pricing_loader;
+#[cfg(feature = "health-sync")]
+use pierre_services::provider_rate_limiter::{ProviderRateLimiter, FIFTEEN_MINUTES, ONE_DAY};
+#[cfg(feature = "health-sync")]
+use pierre_services::sync_failure_notice::SyncFailureNotices;
 #[cfg(feature = "client-messaging")]
 use pierre_services::telegram_bot_commands::{
     publish_telegram_commands, CommandScope, PERSONAL_MARKER,
@@ -124,6 +129,7 @@ use pierre_sse::SseManager;
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::tool_selection::ToolSelectionService;
+#[cfg(feature = "client-messaging")]
 use std::collections::HashMap;
 // Only `CommandRegistries` carries a HashSet, and that whole type is
 // client-messaging-gated.
@@ -138,9 +144,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 #[cfg(feature = "client-messaging")]
 use std::sync::OnceLock;
-#[cfg(feature = "provider-sciotte")]
-use std::time::Duration;
-use tokio::sync::RwLock;
 #[cfg(feature = "health-sync")]
 use tokio::task::AbortHandle;
 use tracing::{error, info, warn};
@@ -263,11 +266,6 @@ impl ServerContext {
         #[cfg(feature = "transport-sse")]
         let sse_manager = Arc::new(SseManager::new(config.sse.max_buffer_size));
 
-        // Initialize health data sync with Pierre-aware scheduler (needs sse_manager)
-        #[cfg(feature = "health-sync")]
-        let (sync_storage, sync_orchestrator, sync_scheduler_abort_handle) =
-            Self::init_health_sync(&repos, &sse_manager);
-
         // Create auth middleware after jwks_manager is initialized
         let auth_middleware = Arc::new(McpAuthMiddleware::new(
             (*auth_manager_arc).clone(),
@@ -308,6 +306,9 @@ impl ServerContext {
                 Arc::clone(&repos.worker_runs),
             )
         });
+
+        // Hourly sweep of expired API keys, on the shared worker ledger.
+        start_api_key_cleanup_task(Arc::clone(&repos.api_keys), Arc::clone(&repos.worker_runs));
 
         // Create tool selection service for per-tenant tool filtering
         let tool_selection = Arc::new(ToolSelectionService::new(&repos));
@@ -455,15 +456,26 @@ impl ServerContext {
         #[cfg(feature = "client-notifications")]
         let scheduler_abort_handle = notification_service.as_ref().map(|s| s.start_scheduler());
 
-        // Cache-backed nonce store + rate limiter for channel-initiated provider links
+        // Initialize health data sync with the Pierre-aware scheduler. After
+        // the notification service, which tells an athlete when a provider's
+        // scheduled sync fails.
+        #[cfg(all(feature = "health-sync", feature = "client-notifications"))]
+        let sync_notice_service = notification_service.clone();
+        #[cfg(all(feature = "health-sync", not(feature = "client-notifications")))]
+        let sync_notice_service = None;
+        #[cfg(feature = "health-sync")]
+        let provider_rate_limiter = Self::create_provider_rate_limiter(&config, &repos);
+        #[cfg(feature = "health-sync")]
+        let (sync_storage, sync_orchestrator, sync_scheduler_abort_handle) = Self::init_health_sync(
+            &repos,
+            &sse_manager,
+            SyncFailureNotices::new(Arc::clone(&repos.provider_connections), sync_notice_service),
+            &provider_rate_limiter,
+        );
+
+        // Cache-backed nonce store for channel-initiated provider links
         #[cfg(feature = "provider-sciotte")]
         let nonce_store = Arc::new(NonceStore::new(cache_arc.clone()));
-        #[cfg(feature = "provider-sciotte")]
-        let mint_rate_limiter = Arc::new(MintRateLimiter::new(
-            MINT_RATE_LIMIT_PER_WINDOW,
-            Duration::from_secs(MINT_RATE_LIMIT_WINDOW_SECS),
-            cache_arc.clone(),
-        ));
 
         // Phase 1 → 4: load admin pricing overrides into the process-wide
         // PricingRegistry before the first chat request can land. Failures
@@ -530,8 +542,6 @@ impl ServerContext {
             tenant_oauth_client,
             #[cfg(feature = "provider-sciotte")]
             nonce_store,
-            #[cfg(feature = "provider-sciotte")]
-            mint_rate_limiter,
             repos: auth_repos_view,
         };
 
@@ -550,6 +560,8 @@ impl ServerContext {
             sync_storage: Some(sync_storage),
             #[cfg(feature = "health-sync")]
             sync_scheduler_abort_handle: Some(sync_scheduler_abort_handle),
+            #[cfg(feature = "health-sync")]
+            provider_rate_limiter,
             cageux_config_registry,
             harness_config_registry,
             guardian_config_registry,
@@ -561,9 +573,6 @@ impl ServerContext {
             #[cfg(feature = "transport-sse")]
             sse_manager,
             agui_registry: Arc::new(AgUiRunRegistry::new()),
-            sampling_peer: None,
-            progress_notification_sender: None,
-            cancellation_registry: Arc::new(RwLock::new(HashMap::new())),
         };
 
         let a2a = super::slices::A2ASlice {
@@ -653,11 +662,13 @@ impl ServerContext {
             }
             return None;
         };
-        info!("Resend email service configured");
-        Some(Arc::new(ResendEmailService::new(
-            api_key.to_owned(),
-            from_email.to_owned(),
-        )))
+        ResendEmailService::new(api_key.to_owned(), from_email.to_owned())
+            .inspect(|_| info!("Resend email service configured"))
+            .inspect_err(|e| {
+                warn!(error = %e, "Resend email service not built — transactional email will be skipped");
+            })
+            .ok()
+            .map(Arc::new)
     }
 
     /// Load messaging slash-command definitions and register their handlers.
@@ -792,6 +803,35 @@ impl ServerContext {
         Arc::new(service)
     }
 
+    /// The provider rate limiter, counting in `usage_counters` so every
+    /// instance shares its windows, with Strava's 15-minute and daily budgets
+    /// as `STRAVA_RATE_LIMIT_15MIN` and `STRAVA_RATE_LIMIT_DAILY` configure
+    /// them.
+    ///
+    /// A budget of zero would refuse every counted Strava request, and it is
+    /// what a config built by `Default` rather than from the environment
+    /// carries, so only a pair of positive budgets replaces the limiter's
+    /// built-in Strava windows, which hold the same defaults the environment
+    /// falls back to.
+    #[cfg(feature = "health-sync")]
+    fn create_provider_rate_limiter(
+        config: &ServerConfig,
+        repos: &Arc<RepositoryRegistry>,
+    ) -> Arc<ProviderRateLimiter> {
+        let strava = config.strava_api_config();
+        let limiter = ProviderRateLimiter::new(Arc::clone(&repos.usage_counters));
+        if strava.rate_limit_15min > 0 && strava.rate_limit_daily > 0 {
+            limiter.set_budgets(
+                oauth_providers::STRAVA,
+                &[
+                    (strava.rate_limit_15min, FIFTEEN_MINUTES),
+                    (strava.rate_limit_daily, ONE_DAY),
+                ],
+            );
+        }
+        Arc::new(limiter)
+    }
+
     /// Initialize the health data sync orchestrator and start the Pierre-aware scheduler.
     ///
     /// Uses Pierre's `start_scheduled_sync` instead of enforme's built-in scheduler
@@ -804,6 +844,8 @@ impl ServerContext {
     fn init_health_sync(
         repos: &Arc<RepositoryRegistry>,
         sse_manager: &Arc<SseManager>,
+        notices: SyncFailureNotices,
+        rate_limiter: &Arc<ProviderRateLimiter>,
     ) -> (
         Arc<PierreSyncStorage>,
         Arc<pierre_enforme::SyncOrchestrator>,
@@ -811,19 +853,17 @@ impl ServerContext {
     ) {
         use pierre_services::provider_refresh::start_scheduled_sync;
 
-        use pierre_services::provider_rate_limiter::ProviderRateLimiter;
-
         use pierre_services::provider_refresh::SyncNotifier;
         let adapter = Arc::new(PierreSyncStorage::new(repos));
         let orchestrator = adapter.build_orchestrator();
-        let rate_limiter = Arc::new(ProviderRateLimiter::new());
         let notifier: Arc<dyn SyncNotifier> = Arc::clone(sse_manager) as Arc<dyn SyncNotifier>;
         let auth_repos = repos.auth_repos();
         let abort_handle = start_scheduled_sync(
             Arc::clone(&orchestrator),
             &auth_repos,
             notifier,
-            Some(rate_limiter),
+            Some(Arc::clone(rate_limiter)),
+            notices,
         );
         info!("Health data sync scheduler started (Pierre-aware)");
         (adapter, orchestrator, abort_handle)

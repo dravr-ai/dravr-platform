@@ -10,13 +10,12 @@
 mod common;
 mod helpers;
 
-use std::fs;
-use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
 use axum::Router;
 use common::{create_test_server_resources, generate_test_token};
+use dravr_contremaitre::training;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::{ArtefactKind, PackageArtefact, Tenant, TenantId, User, UserStatus};
@@ -29,7 +28,13 @@ use serde_json::Value;
 use serial_test::serial;
 use uuid::Uuid;
 
-const CATALOGUE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../training_catalogue");
+/// One file of the pinned contremaitre training catalogue, by table and key.
+fn catalogue_file(table: &[(&str, &'static str)], key: &str) -> &'static str {
+    table.iter().find(|(k, _)| *k == key).map_or_else(
+        || panic!("the pinned catalogue carries {key}"),
+        |(_, text)| *text,
+    )
+}
 
 /// A router is consumed by each `send`, so build one per request.
 fn router(resources: &Arc<ServerContext>) -> Router {
@@ -104,10 +109,9 @@ async fn pending_agent_with_package(
         .submit_for_review(&id, author, tenant)
         .await?;
 
-    let flavour =
-        fs::read_to_string(Path::new(CATALOGUE_DIR).join("flavours/polarized-classic.yaml"))?
-            .replace("id: polarized-classic", "id: house-polarized");
-    let workout = fs::read_to_string(Path::new(CATALOGUE_DIR).join("workouts/threshold_4x8.toml"))?
+    let flavour = catalogue_file(training::FLAVOURS, "polarized-classic")
+        .replace("id: polarized-classic", "id: house-polarized");
+    let workout = catalogue_file(training::WORKOUTS, "threshold_4x8")
         .replace("slug = \"threshold_4x8\"", "slug = \"house_4x8\"")
         .replace(
             "id = \"00000000-0000-0000-0000-000000000002\"",

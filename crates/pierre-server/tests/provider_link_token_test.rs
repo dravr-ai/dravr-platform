@@ -8,15 +8,12 @@
 #![allow(missing_docs)]
 
 use std::sync::Arc;
-use std::time::Duration;
-
-use tokio::time::sleep;
 
 use pierre_cache::{Cache, CacheConfig};
 use pierre_middleware::provider_link_token::{
     extract_bearer_link_token, mint_connect_link_token, mint_link_token, provider_scope,
-    verify_link_token, MintProviderLinkTokenArgs, MintRateLimiter, NonceStore,
-    CONNECT_LINK_TOKEN_TTL_MINUTES, CONNECT_PROVIDER, PROVIDER_LINK_TOKEN_TTL_MINUTES,
+    verify_link_token, MintProviderLinkTokenArgs, NonceStore, CONNECT_LINK_TOKEN_TTL_MINUTES,
+    CONNECT_PROVIDER, PROVIDER_LINK_TOKEN_TTL_MINUTES,
 };
 use uuid::Uuid;
 
@@ -231,53 +228,4 @@ async fn nonce_store_accepts_distinct_jtis() {
     assert!(store.burn("jti-1").await.is_err());
     assert!(store.burn("jti-2").await.is_err());
     assert!(store.burn("jti-3").await.is_err());
-}
-
-#[tokio::test]
-async fn mint_rate_limiter_allows_up_to_limit() {
-    let cache = test_cache().await;
-    let limiter = MintRateLimiter::new(3, Duration::from_hours(1), cache);
-    let user = Uuid::new_v4();
-
-    assert!(limiter.record_attempt(user).await.is_ok());
-    assert!(limiter.record_attempt(user).await.is_ok());
-    assert!(limiter.record_attempt(user).await.is_ok());
-
-    let err = limiter.record_attempt(user).await.unwrap_err();
-    assert!(
-        format!("{err}").contains("Too many"),
-        "over-limit should reject: {err}"
-    );
-}
-
-#[tokio::test]
-async fn mint_rate_limiter_buckets_per_user() {
-    let cache = test_cache().await;
-    let limiter = MintRateLimiter::new(1, Duration::from_hours(1), cache);
-    let alice = Uuid::new_v4();
-    let bob = Uuid::new_v4();
-
-    assert!(limiter.record_attempt(alice).await.is_ok());
-    assert!(limiter.record_attempt(alice).await.is_err());
-    // Bob is a separate bucket
-    assert!(limiter.record_attempt(bob).await.is_ok());
-    assert!(limiter.record_attempt(bob).await.is_err());
-}
-
-#[tokio::test]
-async fn mint_rate_limiter_expires_hits() {
-    let cache = test_cache().await;
-    // Window must be >= 2 seconds because the rate limiter uses second-precision
-    // timestamps (Utc::now().timestamp()). Sub-second windows round to 0.
-    let limiter = MintRateLimiter::new(1, Duration::from_secs(2), cache);
-    let user = Uuid::new_v4();
-
-    assert!(limiter.record_attempt(user).await.is_ok());
-    assert!(limiter.record_attempt(user).await.is_err());
-
-    sleep(Duration::from_secs(3)).await;
-    assert!(
-        limiter.record_attempt(user).await.is_ok(),
-        "window should have expired"
-    );
 }

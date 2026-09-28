@@ -190,6 +190,7 @@ mod inject_tests {
             ctl: Some(50.0),
             atl: Some(45.0),
             tsb: Some(5.0),
+            form_ctl: Some(50.0),
             weekly_volume_km: 30.0,
             previous_week_volume_km: Some(28.0),
             weekly_activity_count: 4,

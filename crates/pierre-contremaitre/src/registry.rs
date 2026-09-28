@@ -13,15 +13,14 @@ use pierre_core::models::CoachingPersona;
 
 use super::messaging_strings::DEFAULT_LOCALE;
 use pierre_llm::prompts::{
-    get_coaching_persona_prompt, ACTIVITY_ANALYSIS_PROMPT, ACTIVITY_ANALYSIS_SYSTEM_PROMPT,
-    ADVICE_EXTRACTION_PROMPT, AGENT_GENERATION_PROMPT, AGENT_RERANK_PROMPT, CASUAL_PERSONA_PROMPT,
-    CLAIM_JUDGE_PROMPT, COACH_PERSONA_PROMPT, CONVERSATION_SUMMARY_PROMPT,
-    ENTHUSIAST_PERSONA_PROMPT, INSIGHT_GENERATION_PROMPT, INSIGHT_VALIDATION_PROMPT,
-    MCP_SERVER_INSTRUCTIONS_PROMPT, MEMORY_EXTRACTION_PROMPT, MESSAGING_CONTEXT_PROMPT,
-    OUTCOME_JUDGE_PROMPT, PIERRE_SYSTEM_PROMPT, PLATFORM_CONTRACT_PROMPT,
-    POWER_ATHLETE_PERSONA_PROMPT, PROGRESSION_GUARDRAILS_PROMPT, RECOMMENDATION_ANALYSIS_PROMPT,
-    RECOMMENDATION_SYSTEM_PROMPT, TOOL_DISCIPLINE_MESSAGING_PROMPT, TOOL_DISCIPLINE_PROMPT,
-    TOOL_DISCIPLINE_SHARED_PROMPT, VISUAL_BLOCKS_PROMPT,
+    get_coaching_persona_prompt, ADVICE_EXTRACTION_PROMPT, AGENT_GENERATION_PROMPT,
+    AGENT_RERANK_PROMPT, CASUAL_PERSONA_PROMPT, CLAIM_JUDGE_PROMPT, COACH_PERSONA_PROMPT,
+    CONVERSATION_SUMMARY_PROMPT, ENTHUSIAST_PERSONA_PROMPT, GUARDIAN_PLANNER_PROMPT,
+    INSIGHT_GENERATION_PROMPT, INSIGHT_VALIDATION_PROMPT, MCP_SERVER_INSTRUCTIONS_PROMPT,
+    MEMORY_EXTRACTION_PROMPT, MESSAGING_CONTEXT_PROMPT, OUTCOME_JUDGE_PROMPT,
+    PERSONA_STYLE_EDITOR_PROMPT, PIERRE_SYSTEM_PROMPT, PLATFORM_CONTRACT_PROMPT,
+    POWER_ATHLETE_PERSONA_PROMPT, PROGRESSION_GUARDRAILS_PROMPT, TOOL_DISCIPLINE_MESSAGING_PROMPT,
+    TOOL_DISCIPLINE_PROMPT, TOOL_DISCIPLINE_SHARED_PROMPT, VISUAL_BLOCKS_PROMPT, VIZ_REPAIR_PROMPT,
 };
 
 /// Origin of a prompt entry in the registry.
@@ -105,10 +104,6 @@ const COMPILED_IN_SYSTEM_PROMPTS: &[(&str, &str)] = &[
     ("platform_contract", PLATFORM_CONTRACT_PROMPT),
     ("coach_generation", AGENT_GENERATION_PROMPT),
     ("messaging_context", MESSAGING_CONTEXT_PROMPT),
-    ("recommendation_analysis", RECOMMENDATION_ANALYSIS_PROMPT),
-    ("recommendation_system", RECOMMENDATION_SYSTEM_PROMPT),
-    ("activity_analysis", ACTIVITY_ANALYSIS_PROMPT),
-    ("activity_analysis_system", ACTIVITY_ANALYSIS_SYSTEM_PROMPT),
     ("tool_discipline", TOOL_DISCIPLINE_PROMPT),
     (
         "tool_discipline_messaging",
@@ -126,6 +121,9 @@ const COMPILED_IN_SYSTEM_PROMPTS: &[(&str, &str)] = &[
     ("outcome_judge", OUTCOME_JUDGE_PROMPT),
     ("claim_judge", CLAIM_JUDGE_PROMPT),
     ("mcp_server_instructions", MCP_SERVER_INSTRUCTIONS_PROMPT),
+    ("persona_style_editor", PERSONA_STYLE_EDITOR_PROMPT),
+    ("viz_repair", VIZ_REPAIR_PROMPT),
+    ("guardian_planner", GUARDIAN_PLANNER_PROMPT),
 ];
 
 impl PromptRegistry {
@@ -203,26 +201,6 @@ impl PromptRegistry {
     /// Get the messaging context prompt.
     pub fn messaging_context_prompt(&self) -> String {
         self.get_system_prompt("messaging_context")
-    }
-
-    /// Get the recommendation analysis prompt template.
-    pub fn recommendation_analysis_prompt(&self) -> String {
-        self.get_system_prompt("recommendation_analysis")
-    }
-
-    /// Get the recommendation system prompt.
-    pub fn recommendation_system_prompt(&self) -> String {
-        self.get_system_prompt("recommendation_system")
-    }
-
-    /// Get the activity analysis prompt template.
-    pub fn activity_analysis_prompt(&self) -> String {
-        self.get_system_prompt("activity_analysis")
-    }
-
-    /// Get the activity analysis system prompt.
-    pub fn activity_analysis_system_prompt(&self) -> String {
-        self.get_system_prompt("activity_analysis_system")
     }
 
     /// Get the mandatory tool-discipline prompt for non-messaging channels.
@@ -312,6 +290,23 @@ impl PromptRegistry {
     /// Get the instructions the MCP server advertises in `initialize`.
     pub fn mcp_server_instructions_prompt(&self) -> String {
         self.get_system_prompt("mcp_server_instructions")
+    }
+
+    /// Get the instructions for the persona style-editor rewrite, with
+    /// `{{PERSONA}}` and `{{RULES}}` left for the caller to fill.
+    pub fn persona_style_editor_prompt(&self) -> String {
+        self.get_system_prompt("persona_style_editor")
+    }
+
+    /// Get the instructions for the `dravr-viz` repair re-ask, with
+    /// `{{RULES}}` left for the caller to fill.
+    pub fn viz_repair_prompt(&self) -> String {
+        self.get_system_prompt("viz_repair")
+    }
+
+    /// Get the plan-then-verify planner's workflow grammar.
+    pub fn guardian_planner_prompt(&self) -> String {
+        self.get_system_prompt("guardian_planner")
     }
 
     // ── Generic accessors ──────────────────────────────────────────────
@@ -437,21 +432,6 @@ impl PromptRegistry {
                 loaded_at: Utc::now(),
             },
         );
-    }
-
-    /// Remove a single agent-locale prompt from the registry. Drops the
-    /// entire slug entry once its last locale is gone so the registry never
-    /// holds an empty per-slug map.
-    pub fn remove_agent_prompt(&self, slug: &str, locale: &str) -> bool {
-        let mut guard = self.write_agents();
-        let Some(locales) = guard.get_mut(slug) else {
-            return false;
-        };
-        let removed = locales.remove(locale).is_some();
-        if removed && locales.is_empty() {
-            guard.remove(slug);
-        }
-        removed
     }
 
     // ── Listing / diagnostics ──────────────────────────────────────────

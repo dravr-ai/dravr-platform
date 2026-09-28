@@ -270,7 +270,8 @@ pub async fn compute_and_persist_history(
         to,
         &resources.cageux_config().algorithms,
         timezone.as_deref(),
-    );
+    )
+    .map_err(|e| AppError::internal(format!("training-load series: {e}")))?;
     let rows_upserted = states.len();
     if rows_upserted > 0 {
         resources

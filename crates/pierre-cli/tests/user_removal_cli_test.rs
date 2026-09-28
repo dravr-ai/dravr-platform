@@ -146,7 +146,7 @@ fn empty_home() -> String {
     dir.to_string_lossy().into_owned()
 }
 
-/// The listing page the email lookup reads for one status.
+/// The listing page the email lookup reads (every status).
 fn listing(users: &[(&str, &str)]) -> Value {
     let users: Vec<Value> = users
         .iter()
@@ -169,11 +169,7 @@ fn disconnected_strava(revocation: &Value) -> Value {
 fn delete_without_yes_previews_the_providers_and_deletes_nothing() {
     let id = Uuid::new_v4().to_string();
     let stub = StubServer::serve(vec![
-        route(
-            "GET /admin/users?status=active",
-            200,
-            listing(&[(EMAIL, &id)]),
-        ),
+        route("GET /admin/users?status=all", 200, listing(&[(EMAIL, &id)])),
         route(
             format!("GET /admin/users/{id} "),
             200,
@@ -218,11 +214,7 @@ fn delete_without_yes_previews_the_providers_and_deletes_nothing() {
 fn delete_with_yes_sends_the_reason_and_reports_each_revocation() {
     let id = Uuid::new_v4().to_string();
     let stub = StubServer::serve(vec![
-        route(
-            "GET /admin/users?status=active",
-            200,
-            listing(&[(EMAIL, &id)]),
-        ),
+        route("GET /admin/users?status=all", 200, listing(&[(EMAIL, &id)])),
         route(
             format!("DELETE /admin/users/{id} "),
             200,
@@ -274,15 +266,16 @@ fn delete_with_yes_sends_the_reason_and_reports_each_revocation() {
 }
 
 #[test]
-fn disconnect_finds_a_suspended_account_and_calls_the_provider_route() {
+fn disconnect_finds_an_account_in_one_listing_walk_and_calls_the_provider_route() {
     let id = Uuid::new_v4().to_string();
     let stub = StubServer::serve(vec![
-        route("GET /admin/users?status=active", 200, listing(&[])),
-        route("GET /admin/users?status=pending", 200, listing(&[])),
         route(
-            "GET /admin/users?status=suspended",
+            "GET /admin/users?status=all",
             200,
-            listing(&[(EMAIL, &id)]),
+            listing(&[
+                ("someone-else@example.com", &Uuid::new_v4().to_string()),
+                (EMAIL, &id),
+            ]),
         ),
         route(
             format!("DELETE /admin/users/{id}/providers/strava "),
@@ -327,21 +320,18 @@ fn disconnect_finds_a_suspended_account_and_calls_the_provider_route() {
     let requests = stub.requests();
     assert_eq!(
         requests.len(),
-        4,
-        "three status lookups, then the disconnect: {requests:?}"
+        2,
+        "one lookup over every status, then the disconnect: {requests:?}"
     );
-    assert!(requests[3].starts_with(&format!("DELETE /admin/users/{id}/providers/strava ")));
+    assert!(requests[0].starts_with("GET /admin/users?status=all"));
+    assert!(requests[1].starts_with(&format!("DELETE /admin/users/{id}/providers/strava ")));
 }
 
 #[test]
 fn disconnect_says_so_when_the_provider_did_not_confirm_the_revocation() {
     let id = Uuid::new_v4().to_string();
     let stub = StubServer::serve(vec![
-        route(
-            "GET /admin/users?status=active",
-            200,
-            listing(&[(EMAIL, &id)]),
-        ),
+        route("GET /admin/users?status=all", 200, listing(&[(EMAIL, &id)])),
         route(
             format!("DELETE /admin/users/{id}/providers/strava "),
             200,

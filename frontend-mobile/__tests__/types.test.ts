@@ -5,7 +5,7 @@ import type {
   User,
   Conversation,
   Message,
-  ProviderStatus,
+  ExtendedProviderStatus,
   McpToken,
 } from '../src/types';
 
@@ -76,14 +76,19 @@ describe('Type Definitions', () => {
     });
   });
 
-  describe('ProviderStatus type', () => {
-    it('should track connection status', () => {
-      const status: ProviderStatus = {
-        provider: 'strava',
+  describe('ExtendedProviderStatus type', () => {
+    it('names the backend behind a connected card', () => {
+      const status: ExtendedProviderStatus = {
+        provider: 'sciotte',
+        display_name: 'Strava',
+        requires_oauth: false,
         connected: true,
-        last_sync: '2024-01-01T00:00:00Z',
+        connected_backend: 'strava',
+        needs_reauth: false,
+        capabilities: ['activities'],
+        consent_required: false,
       };
-      expect(status.connected).toBe(true);
+      expect(status.connected_backend).toBe('strava');
     });
   });
 });

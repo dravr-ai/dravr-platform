@@ -6,16 +6,15 @@
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::mobility::{
-    ActivityMuscleMapping, ListStretchingFilter, ListYogaFilter, StretchingExercise, YogaPose,
+    ListStretchingFilter, ListYogaFilter, StretchingExercise, YogaPose,
 };
 
 use super::PostgresDatabase;
 use crate::repositories::mobility::{
-    contains_pattern, impl_mobility_repository, json_array_pattern, limit_or, list_stretching_sql,
-    list_yoga_sql, muscle_mapping_from_row, poses_for_recovery_sql, search_stretching_sql,
-    search_yoga_sql, stretches_for_activity_sql, stretching_columns, stretching_from_row,
-    yoga_columns, yoga_pose_from_row, MobilityRepository, GET_MUSCLE_MAPPING_SQL,
-    GET_STRETCHING_EXERCISE_SQL, GET_YOGA_POSE_SQL, LIST_MUSCLE_MAPPINGS_SQL,
+    impl_mobility_repository, json_array_pattern, limit_or, list_stretching_sql, list_yoga_sql,
+    poses_for_recovery_sql, stretches_for_activity_sql, stretching_columns, stretching_from_row,
+    yoga_columns, yoga_pose_from_row, MobilityRepository, GET_STRETCHING_EXERCISE_SQL,
+    GET_YOGA_POSE_SQL,
 };
 
 impl_mobility_repository!(PostgresDatabase, "ILIKE");

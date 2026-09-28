@@ -658,9 +658,8 @@ fn register_route_tools(registry: &mut ToolRegistry) {
 
 /// Register Endurance export tools (`export_latest_snapshot`, `export_dossier`).
 ///
-/// Both are read-only data tools that surface the same payloads as the
-/// `/api/v1/endurance/{latest,dossier}` HTTP endpoints, so agents can
-/// pull the structured Endurance contracts via MCP.
+/// Both are read-only data tools through which agents pull the structured
+/// Endurance latest-snapshot and dossier contracts via MCP.
 #[cfg(feature = "tools-data")]
 fn register_endurance_export_tools(registry: &mut ToolRegistry) {
     use super::implementations::endurance_export::create_endurance_export_tools;
@@ -736,8 +735,8 @@ fn register_endurance_intervals_tools(registry: &mut ToolRegistry) {
 /// `get_training_history`).
 ///
 /// Read tool surfaces the persisted daily rollup; write tool triggers an
-/// on-demand backfill / recompute. Both share the
-/// `/api/v1/endurance/history` semantics.
+/// on-demand backfill / recompute. Both read and write the
+/// `training_history` rollup.
 #[cfg(feature = "tools-data")]
 fn register_endurance_history_tools(registry: &mut ToolRegistry) {
     use super::implementations::endurance_history::create_endurance_history_tools;

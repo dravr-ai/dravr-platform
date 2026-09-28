@@ -13,14 +13,10 @@
 //!   REST paths (`/a2a/message:send`, `/a2a/tasks/…`), both enforcing
 //!   `A2A-Version` negotiation.
 //!
-//! - Client-management surface (`/a2a/clients/*`, `/a2a/dashboard/*`,
-//!   `/a2a/status`, `/.well-known/agent-card.json`) implemented as
+//! - Client-management surface (`/a2a/clients/*`, `/a2a/status`,
+//!   `/.well-known/agent-card.json`) implemented as
 //!   free-function handlers attached to [`A2ARoutesState`] — the JWT-auth
 //!   gate is supplied by [`pierre_middleware::AuthenticatedUser`].
-//!
-//! - Service-style surface ([`service::A2ARoutes`]) used by the transport
-//!   layer for client-credential authentication and dashboards — wraps the
-//!   client manager, the authenticator, and the universal tool executor.
 //!
 //! ## Composition root state
 //!
@@ -39,8 +35,6 @@
 
 /// A2A 1.0 transport bindings (JSONRPC + HTTP+JSON, SSE streaming).
 pub mod binding;
-/// Service layer for A2A protocol operations (JSON-RPC dispatch surface).
-pub mod service;
 
 use axum::{
     extract::{FromRequestParts, Path, State},
@@ -117,8 +111,7 @@ pub struct A2ARoutesState<C: MiddlewareCtx + A2ACtx> {
     /// A2A client manager — registration, credential lookups, rate-limit status.
     pub client_manager: Arc<A2AClientManager>,
     /// MCP auth middleware — admits a user JWT on the protocol routes
-    /// (account status, request budget, usage row, budget report), and backs
-    /// the [`pierre_a2a::auth::A2AAuthenticator`] for the API-key flow.
+    /// (account status, request budget, usage row, budget report).
     pub auth_middleware: Arc<McpAuthMiddleware>,
     /// Tool runtime — backs the universal tool executor used by the
     /// JSON-RPC `tools.execute` dispatch path in [`service::A2ARoutes`].
@@ -154,6 +147,10 @@ pub struct A2AClientResponse {
     pub capabilities: Vec<String>,
     /// List of permissions granted to this client
     pub permissions: Vec<String>,
+    /// Contact address of the client's administrator, in its stored
+    /// (normalized) form; omitted for a client registered without one
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contact_email: Option<String>,
     /// Whether this client is active
     pub is_active: bool,
     /// When this client was created
@@ -222,7 +219,7 @@ impl A2ARoutes {
     /// - GET /.well-known/agent-card.json - Agent card discovery
     ///
     /// Management surface (frontend API expectations):
-    /// - /a2a/status, /a2a/clients[/{id}], /a2a/dashboard/*
+    /// - /a2a/status, `/a2a/clients[/{client_id}]`
     /// - POST /a2a/credentials - store per-user OAuth app credentials
     pub fn routes<C: MiddlewareCtx + A2ACtx>(state: A2ARoutesState<C>) -> Router {
         Router::new()
@@ -282,15 +279,6 @@ impl A2ARoutes {
             .route(
                 "/a2a/clients/{client_id}/rate-limit",
                 get(Self::handle_client_rate_limit::<C>),
-            )
-            // Dashboard routes
-            .route(
-                "/a2a/dashboard/overview",
-                get(Self::handle_dashboard_overview::<C>),
-            )
-            .route(
-                "/a2a/dashboard/analytics",
-                get(Self::handle_dashboard_analytics::<C>),
             )
             .with_state(state)
     }
@@ -384,6 +372,7 @@ impl A2ARoutes {
                 public_key: c.public_key,
                 capabilities: c.capabilities,
                 permissions: c.permissions,
+                contact_email: c.contact_email,
                 is_active: c.is_active,
                 created_at: c.created_at.to_rfc3339(),
                 updated_at: c.updated_at.to_rfc3339(),
@@ -472,6 +461,7 @@ impl A2ARoutes {
             public_key: client.public_key,
             capabilities: client.capabilities,
             permissions: client.permissions,
+            contact_email: client.contact_email,
             is_active: client.is_active,
             created_at: client.created_at.to_rfc3339(),
             updated_at: client.updated_at.to_rfc3339(),
@@ -595,52 +585,6 @@ impl A2ARoutes {
                 "current_usage": current_usage,
                 "remaining": remaining,
                 "reset_at": Utc::now().to_rfc3339()
-            })),
-        )
-            .into_response())
-    }
-
-    /// Handle A2A dashboard overview
-    async fn handle_dashboard_overview<C: MiddlewareCtx + A2ACtx>(
-        State(state): State<A2ARoutesState<C>>,
-        auth: A2AAuth,
-    ) -> Result<Response, AppError> {
-        let auth = auth.into_inner();
-        let user_id = auth.user_id;
-
-        let clients = A2ACtx::repos(state.ctx.as_ref())
-            .a2a
-            .list_clients(&user_id)
-            .await?;
-        let active_count = clients.iter().filter(|c| c.is_active).count();
-
-        Ok((
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "total_clients": clients.len(),
-                "active_clients": active_count,
-                "total_requests": 0,
-                "requests_today": 0,
-                "status": "active"
-            })),
-        )
-            .into_response())
-    }
-
-    /// Handle A2A dashboard analytics
-    async fn handle_dashboard_analytics<C: MiddlewareCtx + A2ACtx>(
-        State(_state): State<A2ARoutesState<C>>,
-        _: A2AAuth,
-    ) -> Result<Response, AppError> {
-        // Yield to scheduler for cooperative multitasking
-        task::yield_now().await;
-        Ok((
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "daily_requests": [],
-                "top_clients": [],
-                "request_types": {},
-                "period_days": 30
             })),
         )
             .into_response())

@@ -4,8 +4,14 @@ Unified internationalization for the Dravr web and mobile apps.
 
 ## The contract this package exists to keep
 
-There is **one string catalogue**: the five nested files in `src/locales/<locale>/translation.json`.
-Everything a user reads comes out of them, on every surface:
+There is **one string catalogue**, and it is authored in
+[dravr-contremaitre](https://github.com/dravr-ai/dravr-contremaitre), `strings/<locale>.json`.
+The five nested files in `src/locales/<locale>/translation.json` are the platform's
+**byte-identical copy of the pinned contremaitre rev**: the contremaitre bump lane
+regenerates them with `scripts/ci/sync-contremaitre-fallback.sh` in the same commit as
+the pin, and they are never edited by hand — `scripts/ci/check-contremaitre-sync.sh`
+(pre-push Tier 1b) fails a push on any byte of difference. Everything a user reads comes
+out of them, on every surface:
 
 - the **server** embeds them at build time (`include_str!` in
   `crates/pierre-contremaitre/src/messaging_strings.rs`) and seeds the
@@ -19,11 +25,11 @@ Everything a user reads comes out of them, on every surface:
 The same catalogue used to exist twice — a Rust table of 213 messaging keys and a
 JSON corpus of ~2000 chrome keys, each with its own five-locale gate — and a
 sentence could be French in the chat and English in the onboarding wizard on one
-screen. Now a key exists once, in all five locales, or the push fails:
-`scripts/ci/check-contremaitre-sync.sh` (pre-push Tier 1b, compile-free) requires
-an identical key set across the five files and every `KEY_*` the registry declares
-to be present; `crates/pierre-server/tests/contremaitre_test.rs` proves the same
-at compile time; `packages/i18n/__tests__/locale-corpus.test.ts` pins the count.
+screen. Now a key exists once, in all five locales: contremaitre's own tests hold the
+catalogue to that, and on this side Tier 1b requires an identical key set across the
+five files and every `KEY_*` the registry declares to be present;
+`crates/pierre-server/tests/contremaitre_test.rs` proves the same at compile time, and
+`packages/i18n/__tests__/locale-corpus.test.ts` pins which file each offered locale reads.
 
 **A key is rendered by exactly one side.** Server-rendered keys (`messaging.*`,
 `commands.*`, `notifications.*`, `persona.*` — the ones with a `KEY_*` constant) use
@@ -110,11 +116,13 @@ Interpolation uses `{{name}}`: `t('validation.minLength', { min: 8 })`.
 
 ## Adding a string
 
-Add the key to **all five** `src/locales/<locale>/translation.json` files, nested
-under its namespace, and nothing else. A string the server renders also gets a
+Add the key to **all five** `strings/<locale>.json` files in dravr-contremaitre, nested
+under its namespace, and land it there. The platform receives it when the contremaitre
+pin moves: the bump lane copies the files here and commits them with the pin. Never add
+or edit a string in this package first — the byte-identity check fails the push, and the
+next bump would revert it anyway. A string the server renders also gets a
 `pub const KEY_*` in `messaging_strings.rs` naming the dotted key, and uses `{0}`
-placeholders. Tier 1b fails the push on a key that is short of a locale, and
-`locale-corpus.test.ts` needs its count bumped — that bump is the review prompt.
+placeholders; that constant lands in the platform after the pin bump that carries its key.
 
 A string is never written into a component, a constants package or a Rust
 literal: `frontend/src/i18n/untranslatedScan.ts` ratchets the athlete surface at
@@ -150,13 +158,14 @@ answer in. The order is:
 
 1. add the locale to `SUPPORTED_LOCALES` in `crates/pierre-core/src/models/user.rs`
    — the registry, `PUT /api/user/locale` and `GET /api/i18n/{locale}` all read it;
-2. create `src/locales/<tag>/translation.json` with **every** key translated, and
-   embed it in `messaging_strings.rs` next to the other five;
+2. add `strings/<tag>.json` with **every** key translated to dravr-contremaitre, bump
+   the pin, create `src/locales/<tag>/` so the sync script copies it (it refuses a
+   locale on one side only), and embed it in `messaging_strings.rs` next to the other five;
 3. add it to `SUPPORTED_LANGUAGES`, `LANGUAGE_NAMES` and `defaultI18nConfig.resources`;
 4. add its flag to both `LanguageSwitcher` components.
 
 `packages/i18n/__tests__/locale-corpus.test.ts` fails on a locale that is declared
-but short of keys, or that never diverged from English.
+but not bound to its own catalogue file.
 
 ## License
 

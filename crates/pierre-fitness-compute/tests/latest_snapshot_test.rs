@@ -78,6 +78,7 @@ fn flat_power_stream(seconds: usize, watts: u32) -> TimeSeriesData {
         altitude: None,
         temperature: None,
         gps_coordinates: None,
+        distance: None,
     }
 }
 
@@ -95,6 +96,7 @@ fn flat_hr_stream(seconds: usize, bpm: u32) -> TimeSeriesData {
         altitude: None,
         temperature: None,
         gps_coordinates: None,
+        distance: None,
     }
 }
 

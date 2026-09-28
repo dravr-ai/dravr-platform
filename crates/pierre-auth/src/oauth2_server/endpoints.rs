@@ -17,6 +17,9 @@ use super::pkce::{check_code_challenge, verify_challenge};
 use super::request_text::{refuse_control_characters, refuse_oversized_state};
 use crate::admin::jwks::JwksManager;
 use crate::auth::{AuthManager, Claims, JwtValidationError};
+use crate::refresh_rotation::{
+    consume_or_revoke_family, generate_refresh_token, refresh_token_lifetime,
+};
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{Duration, Utc};
 use jsonwebtoken::dangerous::insecure_decode;
@@ -51,10 +54,15 @@ pub struct OAuth2AuthorizationServer {
     tenants: Arc<dyn TenantRepository>,
     /// User repository for token validation user lookups
     users: Arc<dyn UserRepository>,
+    /// How long each issued refresh token stays exchangeable
+    refresh_token_lifetime: Duration,
 }
 
 impl OAuth2AuthorizationServer {
-    /// Creates a new `OAuth2` authorization server instance
+    /// Creates a new `OAuth2` authorization server instance.
+    ///
+    /// `refresh_token_expiry_days` is the one `REFRESH_TOKEN_EXPIRY_DAYS`
+    /// setting first-party session refresh tokens read as well.
     #[must_use]
     pub fn new(
         oauth2_server: Arc<dyn OAuth2ServerRepository>,
@@ -62,6 +70,7 @@ impl OAuth2AuthorizationServer {
         users: Arc<dyn UserRepository>,
         auth_manager: Arc<AuthManager>,
         jwks_manager: Arc<JwksManager>,
+        refresh_token_expiry_days: i64,
     ) -> Self {
         let client_manager = ClientRegistrationManager::new(oauth2_server.clone()); // Safe: Arc clone for manager construction
 
@@ -72,6 +81,7 @@ impl OAuth2AuthorizationServer {
             oauth2_server,
             tenants,
             users,
+            refresh_token_lifetime: refresh_token_lifetime(refresh_token_expiry_days),
         }
     }
 
@@ -278,7 +288,7 @@ impl OAuth2AuthorizationServer {
 
         match request.grant_type.as_str() {
             "authorization_code" => self.handle_authorization_code_grant(request).await,
-            "client_credentials" => self.handle_client_credentials_grant(request).await,
+            "client_credentials" => self.handle_client_credentials_grant(&client, request).await,
             "refresh_token" => self.handle_refresh_token_grant(request).await,
             _ => Err(OAuth2Error::unsupported_grant_type()),
         }
@@ -320,12 +330,12 @@ impl OAuth2AuthorizationServer {
                 OAuth2Error::server_error("Failed to generate access token")
             })?;
 
-        // Generate refresh token
-        let refresh_token_value = Self::generate_refresh_token().map_err(|e| {
+        // Generate refresh token: the first of a new rotation chain
+        let refresh_token_value = generate_refresh_token().map_err(|e| {
             error!("Failed to generate secure refresh token: {:#}", e);
             OAuth2Error::server_error("Failed to generate secure refresh token")
         })?;
-        let refresh_token_expires_at = Utc::now() + Duration::days(30); // 30 days
+        let now = Utc::now();
 
         let refresh_token = super::models::OAuth2RefreshToken {
             token: refresh_token_value.clone(),   // Safe: Clone for storage
@@ -333,9 +343,10 @@ impl OAuth2AuthorizationServer {
             user_id: auth_code.user_id,
             tenant_id: auth_code.tenant_id.clone(), // Safe: Clone for tenant isolation
             scope: Self::rendered_scope(&granted),
-            expires_at: refresh_token_expires_at,
-            created_at: Utc::now(),
+            expires_at: now + self.refresh_token_lifetime,
+            created_at: now,
             revoked: false,
+            family_id: Uuid::new_v4().to_string(),
         };
 
         // Store refresh token
@@ -359,12 +370,18 @@ impl OAuth2AuthorizationServer {
     }
 
     /// Handle client credentials grant
+    ///
+    /// The requested scope is checked exactly as an authorization request's
+    /// is (RFC 6749 §3.3, §5.2): an unknown or undelegable name, or one
+    /// outside what the client registered, is `invalid_scope` — never dropped
+    /// while the rest is minted.
     async fn handle_client_credentials_grant(
         &self,
+        client: &OAuth2Client,
         request: TokenRequest,
     ) -> Result<TokenResponse, OAuth2Error> {
-        // Generate JWT access token for client
-        let granted = Self::delegated_grant(request.scope.as_deref());
+        let scope = Self::authorized_scope(client, request.scope.as_deref())?;
+        let granted = OAuthScope::parse_granted(&scope);
         let access_token = self
             .generate_access_token(
                 &request.client_id,
@@ -398,10 +415,28 @@ impl OAuth2AuthorizationServer {
             .refresh_token
             .ok_or_else(|| OAuth2Error::invalid_request("Missing refresh_token"))?;
 
-        // Validate and atomically consume existing refresh token (already marks as revoked)
-        let old_refresh_token = self
-            .validate_and_consume_refresh_token(&refresh_token_value, &request.client_id)
-            .await?;
+        // Consume the presented token and issue its successor; a replayed one
+        // revokes its whole chain instead
+        let (old_refresh_token, new_refresh_token_value) = self
+            .rotate_refresh_token(&refresh_token_value, &request.client_id)
+            .await
+            .map_err(|e| {
+                // Every cause in here (the consume, the family revocation, the
+                // successor's RNG and store) is the server failing, not the
+                // presented token being refused: that is the `None` below.
+                error!(
+                    "Failed to rotate refresh token for client_id={}: {:#}",
+                    request.client_id, e
+                );
+                OAuth2Error::server_error("Failed to rotate refresh token")
+            })?
+            .ok_or_else(|| {
+                warn!(
+                    "Refresh token validation failed for client_id={}: token not found, already revoked, expired, or mismatched client",
+                    request.client_id
+                );
+                OAuth2Error::invalid_grant("Invalid or expired refresh token")
+            })?;
 
         // Generate new access token
         let granted = Self::delegated_grant(old_refresh_token.scope.as_deref());
@@ -418,38 +453,6 @@ impl OAuth2AuthorizationServer {
                     request.client_id, e
                 );
                 OAuth2Error::server_error("Failed to generate access token")
-            })?;
-
-        // Generate new refresh token (rotation)
-        let new_refresh_token_value = Self::generate_refresh_token().map_err(|e| {
-            error!(
-                "Failed to generate new refresh token during rotation: {:#}",
-                e
-            );
-            OAuth2Error::server_error("Failed to generate secure refresh token")
-        })?;
-        let refresh_token_expires_at = Utc::now() + Duration::days(30); // 30 days
-
-        let new_refresh_token = super::models::OAuth2RefreshToken {
-            token: new_refresh_token_value.clone(), // Safe: Clone for storage
-            client_id: request.client_id.clone(),   // Safe: Clone for ownership
-            user_id: old_refresh_token.user_id,
-            tenant_id: old_refresh_token.tenant_id.clone(), // Safe: Clone for tenant isolation
-            scope: Self::rendered_scope(&granted),
-            expires_at: refresh_token_expires_at,
-            created_at: Utc::now(),
-            revoked: false,
-        };
-
-        // Store new refresh token
-        self.store_refresh_token(&new_refresh_token)
-            .await
-            .map_err(|e| {
-                error!(
-                    "Failed to store new refresh token for client_id={}: {:#}",
-                    request.client_id, e
-                );
-                OAuth2Error::server_error("Failed to store new refresh token")
             })?;
 
         info!(
@@ -708,9 +711,9 @@ impl OAuth2AuthorizationServer {
     /// The grant a token minted for a stored or requested `scope` carries: the
     /// names this server defines, less any that cannot be delegated.
     ///
-    /// Registration and authorization already refuse `admin`, so this bites
-    /// only on a refresh token or a client-credentials request that predates
-    /// or bypasses those checks. It is also the one place that keeps every
+    /// Registration, authorization and the client-credentials grant already
+    /// refuse `admin`, so this bites only on a stored code or refresh token
+    /// that predates those checks. It is also the one place that keeps every
     /// delegated token strictly narrower than the self grant, which is how a
     /// route that reads no scope tells a third party from the athlete.
     fn delegated_grant(scope: Option<&str>) -> Vec<OAuthScope> {
@@ -819,15 +822,6 @@ impl OAuth2AuthorizationServer {
         self.oauth2_server.store_auth_code(auth_code).await
     }
 
-    /// Generate refresh token with secure randomness
-    ///
-    /// # Errors
-    /// Returns an error if system RNG fails
-    fn generate_refresh_token() -> AppResult<String> {
-        // Generate 32 bytes (256 bits) of secure random data
-        Self::generate_random_string(32)
-    }
-
     /// Store refresh token (database operation)
     async fn store_refresh_token(
         &self,
@@ -836,35 +830,46 @@ impl OAuth2AuthorizationServer {
         self.oauth2_server.store_refresh_token(refresh_token).await
     }
 
-    /// Validate and consume refresh token
-    async fn validate_and_consume_refresh_token(
+    /// Exchange a presented refresh token for its successor.
+    ///
+    /// Follows the one rotation rule in [`crate::refresh_rotation`]: the token
+    /// is consumed in the statement that reads it (live, unexpired and owned by
+    /// `client_id`), and the successor joins its family. A token that no longer
+    /// exchanges revokes its whole family and yields `None`, as does an
+    /// unknown one.
+    ///
+    /// Returns the consumed token's record and the successor's value.
+    async fn rotate_refresh_token(
         &self,
-        token: &str,
+        presented: &str,
         client_id: &str,
-    ) -> Result<super::models::OAuth2RefreshToken, OAuth2Error> {
-        // Atomically consume refresh token (prevents TOCTOU race conditions)
-        // This validates client_id, revoked status, and expiration in a single atomic operation
-        let refresh_token = self
-            .oauth2_server
-            .consume_refresh_token(token, client_id, Utc::now())
-            .await
-            .map_err(|e| {
-                error!(
-                    "Failed to atomically consume refresh token for client_id={}: {:#}",
-                    client_id,
-                    e
-                );
-                OAuth2Error::server_error("Failed to consume refresh token")
-            })?
-            .ok_or_else(|| {
-                warn!(
-                    "Refresh token validation failed for client_id={}: token not found, already revoked, expired, or mismatched client",
-                    client_id
-                );
-                OAuth2Error::invalid_grant("Invalid or expired refresh token")
-            })?;
+    ) -> AppResult<Option<(super::models::OAuth2RefreshToken, String)>> {
+        let now = Utc::now();
+        let Some(consumed) = consume_or_revoke_family(
+            self.oauth2_server
+                .consume_refresh_token(presented, client_id, now),
+            || self.oauth2_server.revoke_refresh_token_family(presented),
+        )
+        .await?
+        else {
+            return Ok(None);
+        };
 
-        Ok(refresh_token)
+        let successor_value = generate_refresh_token()?;
+        let successor = super::models::OAuth2RefreshToken {
+            token: successor_value.clone(), // Safe: Clone for storage
+            client_id: consumed.client_id.clone(),
+            user_id: consumed.user_id,
+            tenant_id: consumed.tenant_id.clone(), // Safe: Clone for tenant isolation
+            scope: Self::rendered_scope(&Self::delegated_grant(consumed.scope.as_deref())),
+            expires_at: now + self.refresh_token_lifetime,
+            created_at: now,
+            revoked: false,
+            family_id: consumed.family_id.clone(),
+        };
+        self.store_refresh_token(&successor).await?;
+
+        Ok(Some((consumed, successor_value)))
     }
 
     /// Validate and optionally refresh an access token
@@ -939,57 +944,6 @@ impl OAuth2AuthorizationServer {
         }
     }
 
-    /// Atomically consume an old refresh token and store a rotated replacement
-    ///
-    /// Returns the new refresh token value on success.
-    async fn consume_and_rotate_refresh_token(
-        &self,
-        old_token_value: &str,
-        old_token_data: &super::models::OAuth2RefreshToken,
-    ) -> AppResult<String> {
-        // Atomically consume the old refresh token
-        let consumed = self
-            .oauth2_server
-            .consume_refresh_token(old_token_value, &old_token_data.client_id, Utc::now())
-            .await
-            .map_err(|e| {
-                error!("Failed to consume refresh token: {:#}", e);
-                AppError::new(ErrorCode::DatabaseError, "Failed to consume refresh token")
-            })?;
-
-        if consumed.is_none() {
-            return Err(AppError::new(
-                ErrorCode::AuthInvalid,
-                "Refresh token already consumed (possible replay)",
-            ));
-        }
-
-        // Generate and store the rotated refresh token
-        let new_value = Self::generate_refresh_token()?;
-        let new_refresh_token = super::models::OAuth2RefreshToken {
-            token: new_value.clone(),
-            client_id: old_token_data.client_id.clone(),
-            user_id: old_token_data.user_id,
-            tenant_id: old_token_data.tenant_id.clone(),
-            scope: old_token_data.scope.clone(),
-            expires_at: Utc::now() + Duration::days(30),
-            created_at: Utc::now(),
-            revoked: false,
-        };
-
-        self.store_refresh_token(&new_refresh_token)
-            .await
-            .map_err(|e| {
-                error!("Failed to store rotated refresh token: {:#}", e);
-                AppError::new(
-                    ErrorCode::DatabaseError,
-                    "Failed to store rotated refresh token",
-                )
-            })?;
-
-        Ok(new_value)
-    }
-
     /// Execute the refresh token rotation and access token generation
     ///
     /// Uses `?` propagation — caller converts errors to invalid responses.
@@ -1002,9 +956,15 @@ impl OAuth2AuthorizationServer {
             .lookup_and_validate_refresh_token(refresh_token_value, user_id_str)
             .await?;
 
-        let new_refresh_token_value = self
-            .consume_and_rotate_refresh_token(refresh_token_value, &refresh_token_data)
-            .await?;
+        let (_, new_refresh_token_value) = self
+            .rotate_refresh_token(refresh_token_value, &refresh_token_data.client_id)
+            .await?
+            .ok_or_else(|| {
+                AppError::new(
+                    ErrorCode::AuthInvalid,
+                    "Refresh token already consumed (possible replay)",
+                )
+            })?;
 
         let new_access_token = self
             .generate_access_token(

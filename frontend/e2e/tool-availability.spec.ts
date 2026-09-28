@@ -139,7 +139,7 @@ async function setupToolAvailabilityMocks(page: Page) {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        data: { enabled: false, description: "Auto-approve new users" },
+        data: { enabled: false, auto_approve_domains: [], overridden_by_env: false, description: "Auto-approve new users" },
       }),
     });
   });
@@ -709,7 +709,7 @@ test.describe("Tool Availability - Error Handling", () => {
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          data: { enabled: false, description: "Auto-approve new users" },
+          data: { enabled: false, auto_approve_domains: [], overridden_by_env: false, description: "Auto-approve new users" },
         }),
       });
     });

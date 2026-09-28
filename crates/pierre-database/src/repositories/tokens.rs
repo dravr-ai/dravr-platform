@@ -119,13 +119,13 @@ pub(crate) const CONSUME_OAUTH2_AUTH_CODE_SQL: &str = r"
 
 /// Store a refresh token under its HMAC.
 pub(crate) const STORE_OAUTH2_REFRESH_TOKEN_SQL: &str = r"
-            INSERT INTO oauth2_refresh_tokens (token, client_id, user_id, tenant_id, scope, created_at, expires_at, revoked)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO oauth2_refresh_tokens (token, client_id, user_id, tenant_id, scope, created_at, expires_at, revoked, family_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ";
 
 /// A refresh token by its HMAC, whatever its state.
 pub(crate) const GET_OAUTH2_REFRESH_TOKEN_SQL: &str = r"
-            SELECT token, client_id, user_id, tenant_id, scope, created_at, expires_at, revoked
+            SELECT token, client_id, user_id, tenant_id, scope, created_at, expires_at, revoked, family_id
             FROM oauth2_refresh_tokens
             WHERE token = $1
             ";
@@ -139,7 +139,18 @@ pub(crate) const CONSUME_OAUTH2_REFRESH_TOKEN_SQL: &str = r"
               AND client_id = $2
               AND revoked = FALSE
               AND expires_at > $3
-            RETURNING token, client_id, user_id, tenant_id, scope, created_at, expires_at, revoked
+            RETURNING token, client_id, user_id, tenant_id, scope, created_at, expires_at, revoked, family_id
+            ";
+
+/// Revoke every live member of the rotation chain the token (by HMAC)
+/// belongs to.
+pub(crate) const REVOKE_OAUTH2_REFRESH_TOKEN_FAMILY_SQL: &str = r"
+            UPDATE oauth2_refresh_tokens
+            SET revoked = TRUE
+            WHERE revoked = FALSE
+              AND family_id = (
+                  SELECT family_id FROM oauth2_refresh_tokens WHERE token = $1
+              )
             ";
 
 /// Mint a CSRF state for one authorization round trip.
@@ -374,6 +385,9 @@ where
         revoked: row
             .try_get("revoked")
             .map_err(|e| column_error("revoked", e))?,
+        family_id: row
+            .try_get("family_id")
+            .map_err(|e| column_error("family_id", e))?,
     })
 }
 
@@ -626,6 +640,7 @@ macro_rules! impl_oauth2_server_repository {
                     .bind(refresh_token.created_at)
                     .bind(refresh_token.expires_at)
                     .bind(refresh_token.revoked)
+                    .bind(&refresh_token.family_id)
                     .execute(&mut *tx)
                     .await
                     .map_err(store_error)?;
@@ -680,6 +695,22 @@ macro_rules! impl_oauth2_server_repository {
 
                 row.map(|row| oauth2_refresh_token_from_row(&row))
                     .transpose()
+            }
+
+            async fn revoke_refresh_token_family(&self, token: &str) -> AppResult<u64> {
+                let token_hash = HasEncryption::hash_token_for_storage(self, token)?;
+
+                let result = sqlx::query(REVOKE_OAUTH2_REFRESH_TOKEN_FAMILY_SQL)
+                    .bind(&token_hash)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to revoke OAuth2 refresh token family: {e}"
+                        ))
+                    })?;
+
+                Ok(result.rows_affected())
             }
 
             async fn get_refresh_token_by_value(

@@ -161,7 +161,7 @@ fn bench_training_load_calculation(c: &mut Criterion) {
             BenchmarkId::new("calculate_training_load", count),
             &activities,
             |b, activities| {
-                let calculator = TrainingLoadCalculator::new();
+                let calculator = TrainingLoadCalculator::new(Utc::now().date_naive());
                 b.iter(|| {
                     calculator.calculate_training_load(
                         black_box(activities),
@@ -187,7 +187,7 @@ fn bench_tss_calculation(c: &mut Criterion) {
     let activities = generate_activities(ActivityBatchSize::Medium);
 
     group.bench_function("single_activity_tss", |b| {
-        let calculator = TrainingLoadCalculator::new();
+        let calculator = TrainingLoadCalculator::new(Utc::now().date_naive());
         let activity = &activities[0];
         b.iter(|| {
             calculator.calculate_tss(
@@ -203,7 +203,7 @@ fn bench_tss_calculation(c: &mut Criterion) {
 
     group.throughput(Throughput::Elements(activities.len() as u64));
     group.bench_function("batch_tss_100_activities", |b| {
-        let calculator = TrainingLoadCalculator::new();
+        let calculator = TrainingLoadCalculator::new(Utc::now().date_naive());
         b.iter(|| {
             for activity in black_box(&activities) {
                 let _ = calculator.calculate_tss(
@@ -316,7 +316,7 @@ fn bench_training_pipeline(c: &mut Criterion) {
     group.bench_function("full_training_analysis", |b| {
         b.iter(|| {
             // 1. Calculate training load
-            let tl_calc = TrainingLoadCalculator::new();
+            let tl_calc = TrainingLoadCalculator::new(Utc::now().date_naive());
             let _training_load = tl_calc.calculate_training_load(
                 black_box(&activities),
                 Some(250.0),

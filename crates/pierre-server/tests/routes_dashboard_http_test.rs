@@ -1,5 +1,5 @@
 // ABOUTME: HTTP integration tests for dashboard routes
-// ABOUTME: Tests all dashboard endpoints with authentication, authorization, and error handling
+// ABOUTME: Tests the dashboard analytics endpoints with authentication and query parameters
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -28,7 +28,6 @@ use std::sync::Arc;
 /// Test setup helper for dashboard route testing
 struct DashboardTestSetup {
     resources: Arc<ServerContext>,
-    user_id: uuid::Uuid,
     jwt_token: String,
 }
 
@@ -100,7 +99,6 @@ impl DashboardTestSetup {
 
         Ok(Self {
             resources,
-            user_id,
             jwt_token,
         })
     }
@@ -115,163 +113,7 @@ impl DashboardTestSetup {
 }
 
 // ============================================================================
-// GET /dashboard/status - Dashboard Overview Tests
-// ============================================================================
-
-#[tokio::test]
-async fn test_dashboard_status_success() {
-    let setup = DashboardTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
-
-    let response = AxumTestRequest::get("/dashboard/status")
-        .header("authorization", &setup.auth_header())
-        .send(routes)
-        .await;
-
-    assert_eq!(response.status(), 200);
-
-    let body: serde_json::Value = response.json();
-    assert!(body["total_api_keys"].is_number());
-    assert!(body["active_api_keys"].is_number());
-    assert!(body["total_requests_today"].is_number());
-    assert!(body["total_requests_this_month"].is_number());
-    assert!(body["current_month_usage_by_tier"].is_array());
-    assert!(body["recent_activity"].is_array());
-}
-
-#[tokio::test]
-async fn test_dashboard_status_missing_auth() {
-    let setup = DashboardTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
-
-    let response = AxumTestRequest::get("/dashboard/status").send(routes).await;
-
-    assert_eq!(response.status(), 401);
-}
-
-#[tokio::test]
-async fn test_dashboard_status_invalid_auth() {
-    let setup = DashboardTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
-
-    let response = AxumTestRequest::get("/dashboard/status")
-        .header("authorization", "Bearer invalid_token")
-        .send(routes)
-        .await;
-
-    assert_eq!(response.status(), 401);
-}
-
-// ============================================================================
-// GET /dashboard/user - User Dashboard Tests
-// ============================================================================
-
-#[tokio::test]
-async fn test_dashboard_user_success() {
-    let setup = DashboardTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
-
-    let response = AxumTestRequest::get("/dashboard/user")
-        .header("authorization", &setup.auth_header())
-        .send(routes)
-        .await;
-
-    assert_eq!(response.status(), 200);
-
-    let body: serde_json::Value = response.json();
-    assert!(body["total_api_keys"].is_number());
-}
-
-#[tokio::test]
-async fn test_dashboard_user_missing_auth() {
-    let setup = DashboardTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
-
-    let response = AxumTestRequest::get("/dashboard/user").send(routes).await;
-
-    assert_eq!(response.status(), 401);
-}
-
-#[tokio::test]
-async fn test_dashboard_user_invalid_auth() {
-    let setup = DashboardTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
-
-    let response = AxumTestRequest::get("/dashboard/user")
-        .header("authorization", "Bearer invalid_token")
-        .send(routes)
-        .await;
-
-    assert_eq!(response.status(), 401);
-}
-
-// ============================================================================
-// GET /dashboard/admin - Admin Dashboard Tests
-// ============================================================================
-
-#[tokio::test]
-async fn test_dashboard_admin_success() {
-    let setup = DashboardTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
-
-    let response = AxumTestRequest::get("/dashboard/admin")
-        .header("authorization", &setup.auth_header())
-        .send(routes)
-        .await;
-
-    assert_eq!(response.status(), 200);
-
-    let body: serde_json::Value = response.json();
-    assert!(body["total_api_keys"].is_number());
-}
-
-#[tokio::test]
-async fn test_dashboard_admin_missing_auth() {
-    let setup = DashboardTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
-
-    let response = AxumTestRequest::get("/dashboard/admin").send(routes).await;
-
-    assert_eq!(response.status(), 401);
-}
-
-// ============================================================================
-// GET /dashboard/detailed - Detailed Stats Tests
-// ============================================================================
-
-#[tokio::test]
-async fn test_dashboard_detailed_success() {
-    let setup = DashboardTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
-
-    let response = AxumTestRequest::get("/dashboard/detailed")
-        .header("authorization", &setup.auth_header())
-        .send(routes)
-        .await;
-
-    assert_eq!(response.status(), 200);
-
-    let body: serde_json::Value = response.json();
-    assert!(body["total_requests"].is_number());
-    assert!(body["successful_requests"].is_number());
-    assert!(body["failed_requests"].is_number());
-    assert!(body["average_response_time"].is_number());
-}
-
-#[tokio::test]
-async fn test_dashboard_detailed_missing_auth() {
-    let setup = DashboardTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
-
-    let response = AxumTestRequest::get("/dashboard/detailed")
-        .send(routes)
-        .await;
-
-    assert_eq!(response.status(), 401);
-}
-
-// ============================================================================
-// GET /dashboard/usage - Usage Analytics Tests (with query params)
+// GET /api/dashboard/analytics - Usage Analytics Tests (with query params)
 // ============================================================================
 
 #[tokio::test]
@@ -279,7 +121,7 @@ async fn test_dashboard_usage_default_days() {
     let setup = DashboardTestSetup::new().await.expect("Setup failed");
     let routes = setup.routes();
 
-    let response = AxumTestRequest::get("/dashboard/usage")
+    let response = AxumTestRequest::get("/api/dashboard/analytics")
         .header("authorization", &setup.auth_header())
         .send(routes)
         .await;
@@ -300,7 +142,7 @@ async fn test_dashboard_usage_with_days_param() {
     let setup = DashboardTestSetup::new().await.expect("Setup failed");
     let routes = setup.routes();
 
-    let response = AxumTestRequest::get("/dashboard/usage?days=7")
+    let response = AxumTestRequest::get("/api/dashboard/analytics?days=7")
         .header("authorization", &setup.auth_header())
         .send(routes)
         .await;
@@ -321,7 +163,7 @@ async fn test_dashboard_usage_different_timeframes() {
     let routes = setup.routes();
 
     for days in [1, 7, 14, 30, 90] {
-        let response = AxumTestRequest::get(&format!("/dashboard/usage?days={}", days))
+        let response = AxumTestRequest::get(&format!("/api/dashboard/analytics?days={}", days))
             .header("authorization", &setup.auth_header())
             .send(routes.clone())
             .await;
@@ -339,131 +181,11 @@ async fn test_dashboard_usage_missing_auth() {
     let setup = DashboardTestSetup::new().await.expect("Setup failed");
     let routes = setup.routes();
 
-    let response = AxumTestRequest::get("/dashboard/usage?days=7")
+    let response = AxumTestRequest::get("/api/dashboard/analytics?days=7")
         .send(routes)
         .await;
 
     assert_eq!(response.status(), 401);
-}
-
-// ============================================================================
-// GET /dashboard/rate-limits - Rate Limits Overview Tests
-// ============================================================================
-
-#[tokio::test]
-async fn test_dashboard_rate_limits_success() {
-    let setup = DashboardTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
-
-    let response = AxumTestRequest::get("/dashboard/rate-limits")
-        .header("authorization", &setup.auth_header())
-        .send(routes)
-        .await;
-
-    assert_eq!(response.status(), 200);
-
-    let body: serde_json::Value = response.json();
-    assert!(body.is_array());
-
-    // Verify rate limit info structure
-    if let Some(first_limit) = body.as_array().and_then(|arr| arr.first()) {
-        assert!(first_limit["api_key_id"].is_string());
-        assert!(first_limit["api_key_name"].is_string());
-        assert!(first_limit["tier"].is_string());
-        assert!(first_limit["current_usage"].is_number());
-        assert!(first_limit["usage_percentage"].is_number());
-    }
-}
-
-#[tokio::test]
-async fn test_dashboard_rate_limits_missing_auth() {
-    let setup = DashboardTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
-
-    let response = AxumTestRequest::get("/dashboard/rate-limits")
-        .send(routes)
-        .await;
-
-    assert_eq!(response.status(), 401);
-}
-
-// ============================================================================
-// GET /dashboard/logs - Request Logs Tests (with query params)
-// ============================================================================
-
-#[tokio::test]
-async fn test_dashboard_logs_no_filter() {
-    let setup = DashboardTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
-
-    let response = AxumTestRequest::get("/dashboard/logs")
-        .header("authorization", &setup.auth_header())
-        .send(routes)
-        .await;
-
-    assert_eq!(response.status(), 200);
-
-    let body: serde_json::Value = response.json();
-    assert!(body.is_array());
-}
-
-#[tokio::test]
-async fn test_dashboard_logs_with_api_key_filter() {
-    let setup = DashboardTestSetup::new().await.expect("Setup failed");
-
-    // Create an API key
-    let key = common::create_and_store_test_api_key(
-        setup.resources.agent.database.as_ref(),
-        setup.user_id,
-        "Key for Logs",
-    )
-    .await
-    .expect("Failed to create test key");
-
-    let routes = setup.routes();
-
-    let response = AxumTestRequest::get(&format!("/dashboard/logs?api_key={}", key.id))
-        .header("authorization", &setup.auth_header())
-        .send(routes)
-        .await;
-
-    assert_eq!(response.status(), 200);
-
-    let body: serde_json::Value = response.json();
-    assert!(body.is_array());
-
-    // All logs should be for the specified API key
-    for log in body.as_array().unwrap() {
-        if log["api_key_id"].is_string() {
-            assert_eq!(log["api_key_id"].as_str().unwrap(), key.id);
-        }
-    }
-}
-
-#[tokio::test]
-async fn test_dashboard_logs_missing_auth() {
-    let setup = DashboardTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
-
-    let response = AxumTestRequest::get("/dashboard/logs?api_key=test_key")
-        .send(routes)
-        .await;
-
-    assert_eq!(response.status(), 401);
-}
-
-#[tokio::test]
-async fn test_dashboard_logs_invalid_api_key() {
-    let setup = DashboardTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
-
-    let response = AxumTestRequest::get("/dashboard/logs?api_key=nonexistent_key_id")
-        .header("authorization", &setup.auth_header())
-        .send(routes)
-        .await;
-
-    // Should return empty array or error
-    assert!(response.status() == 200 || response.status() == 404);
 }
 
 // ============================================================================
@@ -471,75 +193,11 @@ async fn test_dashboard_logs_invalid_api_key() {
 // ============================================================================
 
 #[tokio::test]
-async fn test_dashboard_user_isolation() {
-    let setup1 = DashboardTestSetup::new().await.expect("Setup 1 failed");
-    let setup2 = DashboardTestSetup::new().await.expect("Setup 2 failed");
-
-    // User 1 creates API keys
-    let _ = common::create_and_store_test_api_key(
-        setup1.resources.agent.database.as_ref(),
-        setup1.user_id,
-        "User 1 Key",
-    )
-    .await
-    .expect("Failed to create key for user 1");
-
-    // User 2 views dashboard - should only see their data
-    let routes2 = setup2.routes();
-    let response = AxumTestRequest::get("/dashboard/status")
-        .header("authorization", &setup2.auth_header())
-        .send(routes2)
-        .await;
-
-    assert_eq!(response.status(), 200);
-
-    let body: serde_json::Value = response.json();
-    // User 2 should have their own key count (1 from setup)
-    assert_eq!(body["total_api_keys"], 1);
-}
-
-#[tokio::test]
-async fn test_dashboard_concurrent_requests() {
-    let setup = DashboardTestSetup::new().await.expect("Setup failed");
-
-    // Make multiple dashboard requests concurrently
-    let mut handles = vec![];
-
-    for _ in 0..5 {
-        let routes = setup.routes();
-        let auth = setup.auth_header();
-
-        let handle = tokio::spawn(async move {
-            AxumTestRequest::get("/dashboard/status")
-                .header("authorization", &auth)
-                .send(routes)
-                .await
-        });
-
-        handles.push(handle);
-    }
-
-    // All requests should succeed
-    for handle in handles {
-        let response = handle.await.expect("Task panicked");
-        assert_eq!(response.status(), 200);
-    }
-}
-
-#[tokio::test]
 async fn test_dashboard_all_endpoints_authenticated() {
     let setup = DashboardTestSetup::new().await.expect("Setup failed");
     let routes = setup.routes();
 
-    let endpoints = vec![
-        "/dashboard/status",
-        "/dashboard/user",
-        "/dashboard/admin",
-        "/dashboard/detailed",
-        "/dashboard/usage",
-        "/dashboard/rate-limits",
-        "/dashboard/logs",
-    ];
+    let endpoints = vec!["/api/dashboard/analytics", "/api/dashboard/tool-usage"];
 
     for endpoint in endpoints {
         let response = AxumTestRequest::get(endpoint)

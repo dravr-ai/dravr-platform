@@ -1,5 +1,5 @@
 // ABOUTME: Endurance Phase 3 GPX terrain classification + climb detection — pure compute over GPX track points
-// ABOUTME: Outputs RouteSummary (terrain mix + climbs); no IO; powers GET /api/v1/endurance/routes/{activity_id}
+// ABOUTME: Outputs RouteSummary (terrain mix + climbs); no IO; powers the export_routes tool
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

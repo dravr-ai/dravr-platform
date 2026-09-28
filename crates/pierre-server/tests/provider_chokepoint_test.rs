@@ -51,9 +51,6 @@ fn request(user_id: Uuid, tenant_id: &str) -> UniversalRequest {
         user_id: user_id.to_string(),
         protocol: "chat".to_owned(),
         tenant_id: Some(tenant_id.to_owned()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     }
 }
 

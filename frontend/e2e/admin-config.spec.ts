@@ -12,9 +12,6 @@ async function setupAdminMocks(page: Page) {
   await setupDashboardMocks(page, { role: 'admin' });
 
   // Mock tool availability endpoints used by ToolAvailability component
-  await page.route('**/api/admin/tools/catalog', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tools: [] }) }),
-  );
   await page.route('**/api/admin/tools/global-disabled', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tools: [] }) }),
   );
@@ -26,7 +23,7 @@ async function setupAdminMocks(page: Page) {
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ data: { enabled: false, description: 'Auto-approval disabled' } }),
+      body: JSON.stringify({ data: { enabled: false, auto_approve_domains: [], overridden_by_env: false, description: 'Auto-approval disabled' } }),
     }),
   );
 }

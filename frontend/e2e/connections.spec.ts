@@ -97,8 +97,12 @@ async function setupConnectionsMocks(page: Page, options: { isAdmin?: boolean } 
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          admin_tokens: sampleAdminTokens,
-          total_count: sampleAdminTokens.length
+          success: true,
+          message: 'Retrieved admin tokens',
+          data: {
+            tokens: sampleAdminTokens,
+            count: sampleAdminTokens.length,
+          },
         }),
       });
     } else if (route.request().method() === 'POST') {
@@ -106,18 +110,16 @@ async function setupConnectionsMocks(page: Page, options: { isAdmin?: boolean } 
         status: 201,
         contentType: 'application/json',
         body: JSON.stringify({
-          admin_token: {
-            id: 'token-new',
+          success: true,
+          message: 'Admin token created successfully',
+          data: {
+            token_id: 'token-new',
             service_name: 'New Service',
-            service_description: 'Newly created service',
-            permissions: ['list_keys'],
-            is_super_admin: false,
-            is_active: true,
+            jwt_token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test',
             token_prefix: 'pk_new_',
-            usage_count: 0,
-            created_at: new Date().toISOString(),
+            is_super_admin: false,
+            expires_at: null,
           },
-          jwt_token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test',
         }),
       });
     } else if (route.request().method() === 'DELETE') {
@@ -209,8 +211,12 @@ async function setupConnectionsMocks(page: Page, options: { isAdmin?: boolean } 
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          admin_tokens: sampleAdminTokens,
-          total_count: sampleAdminTokens.length,
+          success: true,
+          message: 'Retrieved admin tokens',
+          data: {
+            tokens: sampleAdminTokens,
+            count: sampleAdminTokens.length,
+          },
         }),
       });
     } else {
@@ -222,37 +228,6 @@ async function setupConnectionsMocks(page: Page, options: { isAdmin?: boolean } 
     }
   });
 
-  // Mock request logs for monitor
-  await page.route('**/api/dashboard/request-logs**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([
-        {
-          id: 'req-1',
-          timestamp: new Date().toISOString(),
-          tool: 'get_activities',
-          status: 'success',
-          duration_ms: 120,
-        },
-      ]),
-    });
-  });
-
-  // Mock request stats for monitor (required for RequestMonitor component)
-  await page.route('**/api/dashboard/request-stats**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        total_requests: 1500,
-        successful_requests: 1450,
-        failed_requests: 50,
-        average_response_time: 125,
-        requests_per_minute: 2.5,
-      }),
-    });
-  });
 }
 
 async function loginAndNavigateToConnections(page: Page) {
@@ -555,7 +530,7 @@ test.describe('Connections Tab - Empty States', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ tokens: [], total: 0 }),
+        body: JSON.stringify({ success: true, message: 'Retrieved 0 admin tokens', data: { count: 0, tokens: [] } }),
       });
     });
 

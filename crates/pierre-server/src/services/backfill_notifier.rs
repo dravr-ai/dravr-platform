@@ -40,10 +40,12 @@ use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, TimeZone, Utc};
+use chrono_tz::Tz;
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, DEFAULT_LOCALE, KEY_BACKFILL_LIST_HEADER, KEY_BACKFILL_LIST_MORE,
-    KEY_BACKFILL_READY, KEY_PROVIDER_REAUTH_REQUIRED,
+    MessagingStringsRegistry, KEY_BACKFILL_LIST_HEADER, KEY_BACKFILL_LIST_MORE, KEY_BACKFILL_READY,
+    KEY_PROVIDER_REAUTH_REQUIRED,
 };
+use pierre_core::civil_time::format_local_day;
 use pierre_core::models::messaging::{ChannelConfig, ChannelType};
 use pierre_core::models::{is_in_app_channel, Activity, ConversationRecord, ReauthMark, TenantId};
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
@@ -55,6 +57,9 @@ use pierre_messaging::factory::create_adapter_from_config;
 use pierre_middleware::provider_link_token::{mint_link_token, MintProviderLinkTokenArgs};
 use pierre_providers::backend_resolver;
 use pierre_providers::registry::global_registry;
+use pierre_services::athlete_clock::athlete_zone;
+use pierre_services::locale::{resolve_channel_locale, resolve_user_locale};
+use pierre_tool_runtime::implementations::sport_labels::localized_sport_name;
 use pierre_tool_runtime::runtime::BackfillNotifier;
 use serde_json::Value;
 use tracing::{error, info, warn};
@@ -420,31 +425,28 @@ impl ServerBackfillNotifier {
     /// projection. `messaging_sessions` has no `locale` in either backend's
     /// `SELECT`, so the previous `session.get("locale")` was always `None` and
     /// pinned every completion notice and reconnect nudge to `DEFAULT_LOCALE`
-    /// whatever the athlete reads in. Same chain the commitment sweep walks.
+    /// whatever the athlete reads in. The chain is the shared
+    /// [`resolve_channel_locale`].
     async fn resolve_locale(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
         route: Option<&ResolvedRoute>,
     ) -> String {
-        if let Some(route) = route {
-            if let Ok(Some(override_locale)) = self
-                .repos
-                .messaging
-                .get_channel_link_locale(tenant_id, &route.channel_str, &route.channel_user_id)
+        match route {
+            Some(route) => {
+                resolve_channel_locale(
+                    self.repos.messaging.as_ref(),
+                    self.repos.users.as_ref(),
+                    tenant_id,
+                    &route.channel_str,
+                    &route.channel_user_id,
+                    Some(user_id),
+                )
                 .await
-            {
-                if !override_locale.trim().is_empty() {
-                    return override_locale;
-                }
             }
+            None => resolve_user_locale(self.repos.users.as_ref(), user_id).await,
         }
-        if let Ok(Some(user)) = self.repos.users.get_global(user_id).await {
-            if !user.locale.trim().is_empty() {
-                return user.locale;
-            }
-        }
-        DEFAULT_LOCALE.to_owned()
     }
 
     /// Reverse-look-up the messaging session by Pierre conversation id. Returns
@@ -541,10 +543,10 @@ impl ServerBackfillNotifier {
     /// compact, Rust-rendered list of up to [`BACKFILL_LIST_MAX`] activities,
     /// then a localized "… and N more" footer when the window is larger.
     ///
-    /// Only the header/footer phrases are localized; the per-activity lines
-    /// (name · date · sport · distance) are formatted here from the `Activity`
-    /// fields so the rendering stays in Rust.
-    fn render_list_body(&self, locale: &str, activities: &[Activity]) -> String {
+    /// The header and footer are catalogue phrases; each activity line (name ·
+    /// day · sport · distance) is dated on the athlete's calendar (`zone`) and
+    /// names the sport in `locale`.
+    fn render_list_body(&self, locale: &str, zone: Tz, activities: &[Activity]) -> String {
         let total = activities.len();
         let count = total.to_string();
         let mut body = self
@@ -553,7 +555,7 @@ impl ServerBackfillNotifier {
 
         for activity in activities.iter().take(BACKFILL_LIST_MAX) {
             body.push('\n');
-            body.push_str(&format_activity_line(activity));
+            body.push_str(&format_activity_line(activity, locale, zone));
         }
 
         if total > BACKFILL_LIST_MAX {
@@ -649,9 +651,13 @@ impl ServerBackfillNotifier {
 /// line. Distance is shown in kilometres (one decimal) only when present; sport
 /// uses the canonical display name. Pure formatting over the cheaply-available
 /// `Activity` accessors — no allocation beyond the returned line.
-fn format_activity_line(activity: &Activity) -> String {
-    let date = activity.start_date().format("%Y-%m-%d");
-    let sport = activity.sport_type().display_name();
+fn format_activity_line(activity: &Activity, locale: &str, zone: Tz) -> String {
+    // The day on the athlete's calendar and the sport in their language, from
+    // the same helpers the activity list the agent reads uses: the notice is
+    // stored in the conversation the model reads back, so a UTC date or an
+    // English sport here would contradict that list.
+    let date = format_local_day(activity.start_date(), zone, locale);
+    let sport = localized_sport_name(activity.sport_type(), locale);
     // The list is persisted in the conversation the model reads back, and the
     // name is whatever the provider account's writers typed.
     let name = display_line(activity.name(), ACTIVITY_NAME_MAX_CHARS);
@@ -688,6 +694,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
             Destination::InApp => None,
         };
         let locale = self.resolve_locale(user_id, tenant_id, route).await;
+        let zone = athlete_zone(&self.repos, user_id).await;
 
         // Durable cross-replica dedup. The resolution above has already
         // confirmed there is somewhere to deliver; claim the
@@ -758,7 +765,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
                     &self.strings,
                     &locale,
                 ),
-                None => RenderedReply::plain(self.render_list_body(&locale, &warmed)),
+                None => RenderedReply::plain(self.render_list_body(&locale, zone, &warmed)),
             }
         } else {
             // In-app: the list, never a re-entry turn. `pierre_chat_pipeline::execute`
@@ -771,7 +778,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
             // the spine and leaves the fabricated turn unwritten. The fabricated
             // row is itself a defect on the channel surfaces, where the unified
             // chat list shows it: carnet#246.
-            RenderedReply::plain(self.render_list_body(&locale, &warmed))
+            RenderedReply::plain(self.render_list_body(&locale, zone, &warmed))
         };
 
         // The window's true size: `warmed` when the cache read landed, else the

@@ -39,6 +39,10 @@ pub struct AdminToken {
     pub is_active: bool,
     /// Tenant this token is scoped to (`None` for super-admin / global tokens)
     pub tenant_id: Option<String>,
+    /// The operator this token acts as: the super-admin who approved the
+    /// device login that minted it. `None` for a service token, which names
+    /// no person.
+    pub operator_user_id: Option<Uuid>,
     /// When the token was created
     pub created_at: DateTime<Utc>,
     /// Optional token expiration time
@@ -62,14 +66,19 @@ pub struct AdminTokenSummary {
     pub service_description: Option<String>,
     /// First 8 characters of token for identification
     pub token_prefix: String,
-    /// Granted admin permissions
-    pub permissions: AdminPermissions,
+    /// Granted admin permissions, as a flat list: what the console renders
+    /// with `permissions.map()` and what `packages/shared-types` declares
+    pub permissions: Vec<AdminPermission>,
     /// Whether this is a super admin token
     pub is_super_admin: bool,
     /// Whether the token is active
     pub is_active: bool,
     /// Tenant this token is scoped to (`None` for super-admin / global tokens)
     pub tenant_id: Option<String>,
+    /// The operator this token acts as: the super-admin who approved the
+    /// device login that minted it. `None` for a service token, which names
+    /// no person.
+    pub operator_user_id: Option<Uuid>,
     /// When the token was created
     pub created_at: DateTime<Utc>,
     /// Optional token expiration time
@@ -87,10 +96,11 @@ impl From<AdminToken> for AdminTokenSummary {
             service_name: token.service_name,
             service_description: token.service_description,
             token_prefix: token.token_prefix,
-            permissions: token.permissions,
+            permissions: token.permissions.to_vec(),
             is_super_admin: token.is_super_admin,
             is_active: token.is_active,
             tenant_id: token.tenant_id,
+            operator_user_id: token.operator_user_id,
             created_at: token.created_at,
             expires_at: token.expires_at,
             last_used_at: token.last_used_at,
@@ -124,6 +134,25 @@ impl AdminPermissions {
             AdminPermission::RevokeKeys,
             AdminPermission::UpdateKeyLimits,
         ])
+    }
+
+    /// Permissions of a plain `Admin` signed in to the web console.
+    ///
+    /// [`Self::default_admin`] plus `ManageUsers` and `ManageAdminTokens`: the
+    /// console's user and token tabs are served by the same handlers the
+    /// admin-token API mounts, and those check these permissions. The token
+    /// handlers keep super-admin tokens to super-admin callers whatever the
+    /// permission set, so a plain Admin mints, rotates and revokes only
+    /// non-super tokens, and grants only permissions it holds itself. A console
+    /// session and an admin token of the same role therefore grant different
+    /// authority by design. Configuration, audit logs and tiers stay out of
+    /// this set.
+    #[must_use]
+    pub fn console_admin() -> Self {
+        let mut permissions = Self::default_admin();
+        permissions.add_permission(AdminPermission::ManageUsers);
+        permissions.add_permission(AdminPermission::ManageAdminTokens);
+        permissions
     }
 
     /// Create super admin permissions (every [`AdminPermission`] variant).
@@ -265,6 +294,11 @@ pub struct CreateAdminTokenRequest {
     pub is_super_admin: bool,
     /// Tenant to scope this token to (`None` for global / super-admin)
     pub tenant_id: Option<String>,
+    /// The operator the token acts as, set only by the device grant from the
+    /// approving super-admin's account. Never read from a request body: an
+    /// operator identity is earned by approving a login, not named.
+    #[serde(skip)]
+    pub operator_user_id: Option<Uuid>,
 }
 
 impl CreateAdminTokenRequest {
@@ -278,6 +312,7 @@ impl CreateAdminTokenRequest {
             expires_in_days: Some(365), // 1 year default
             is_super_admin: false,
             tenant_id: None,
+            operator_user_id: None,
         }
     }
 
@@ -291,18 +326,67 @@ impl CreateAdminTokenRequest {
             expires_in_days: None, // Never expires
             is_super_admin: true,
             tenant_id: None,
+            operator_user_id: None,
         }
+    }
+
+    /// The request that replaces `existing` on rotation: same name, scope and
+    /// super-admin flag, a fresh expiry. The operator it acts as carries over
+    /// only when `rotated_by` is that operator, so a rotation never hands one
+    /// operator's identity to whoever rotated the token.
+    #[must_use]
+    pub fn rotation_of(
+        existing: AdminToken,
+        expires_in_days: u64,
+        rotated_by: Option<Uuid>,
+    ) -> Self {
+        Self {
+            service_name: existing.service_name,
+            service_description: existing.service_description,
+            permissions: None,
+            expires_in_days: Some(expires_in_days),
+            is_super_admin: existing.is_super_admin,
+            tenant_id: existing.tenant_id,
+            operator_user_id: existing
+                .operator_user_id
+                .filter(|operator| rotated_by == Some(*operator)),
+        }
+    }
+
+    /// The request as an admin-token creator may submit it.
+    ///
+    /// Names starting with [`DEVICE_CLI_SERVICE_PREFIX`] belong to the device
+    /// grant alone, so a token named like one was minted by an approved login.
+    /// The operator a token acts as is its `operator_user_id`, never its name,
+    /// so a look-alike could not borrow an identity either way — this keeps
+    /// the token list from showing one.
+    ///
+    /// # Errors
+    /// Returns an invalid-input error for a reserved name.
+    pub fn for_creator(self) -> AppResult<Self> {
+        if self.service_name.starts_with(DEVICE_CLI_SERVICE_PREFIX) {
+            return Err(AppError::invalid_input(format!(
+                "Service names starting with '{DEVICE_CLI_SERVICE_PREFIX}' are reserved for device logins"
+            )));
+        }
+        Ok(self)
+    }
+
+    /// The same request, for a token that acts as `operator_user_id`.
+    #[must_use]
+    pub const fn operated_by(mut self, operator_user_id: Uuid) -> Self {
+        self.operator_user_id = Some(operator_user_id);
+        self
     }
 }
 
 /// Service-name prefix of the super-admin token a device login mints.
 ///
-/// The rest of the name is the email of the super-admin who approved the
-/// login in the browser, so the token carries an operator identity: a route
-/// whose audit row must name a *user* (`admin_config_overrides.created_by`
-/// references `users`) resolves that email, where a plain service token
-/// names no one. Written once here and read by the device grant and by
-/// [`ValidatedAdminToken::device_cli_operator_email`], never spelled twice.
+/// The rest of the name is the id of the super-admin who approved the login —
+/// a label for the token list, never an identity and never an email (service
+/// names are logged). The identity is the token's `operator_user_id`, stored
+/// on its row at the device grant; creators may not choose a name with this
+/// prefix ([`CreateAdminTokenRequest::for_creator`]).
 pub const DEVICE_CLI_SERVICE_PREFIX: &str = "device-cli:";
 
 /// Generated admin token response
@@ -503,19 +587,15 @@ pub struct ValidatedAdminToken {
     pub is_super_admin: bool,
     /// Tenant this token is scoped to (`None` for super-admin / global tokens)
     pub tenant_id: Option<String>,
+    /// The operator the token acts as: the approving super-admin for a
+    /// device-login token (from its stored row), the signed-in admin for a
+    /// console session; `None` for a service token, which names no person
+    pub operator_user_id: Option<Uuid>,
     /// Additional user info from JWT claims
     pub user_info: Option<serde_json::Value>,
 }
 
 impl ValidatedAdminToken {
-    /// The email of the super-admin who approved this token's device login,
-    /// when the token was minted by one (see [`DEVICE_CLI_SERVICE_PREFIX`]);
-    /// `None` for every other admin token.
-    #[must_use]
-    pub fn device_cli_operator_email(&self) -> Option<&str> {
-        self.service_name.strip_prefix(DEVICE_CLI_SERVICE_PREFIX)
-    }
-
     /// Check if the token has the required permission.
     ///
     /// Super admin tokens bypass permission checks.

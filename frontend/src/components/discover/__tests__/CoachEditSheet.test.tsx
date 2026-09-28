@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests for the Discover edit sheet — load, save, delete — and the update request it builds
+// ABOUTME: Tests for the Discover edit sheet — load, save, delete, revert — and the update request it builds
 // ABOUTME: Pins the three-state tool budget on the wire: absent inherits, a number pins, null clears
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -9,6 +9,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Agent } from '@pierre/shared-types';
+import { i18n } from '@pierre/i18n';
 import CoachEditSheet from '../CoachEditSheet';
 import { DEFAULT_COACH_FORM_DATA, formDataToUpdateRequest, type AgentFormData } from '../coachForm';
 import { apiRefusal } from '../../../test/apiRefusal';
@@ -16,12 +17,17 @@ import { apiRefusal } from '../../../test/apiRefusal';
 const getCoach = vi.fn();
 const updateCoach = vi.fn();
 const deleteCoach = vi.fn();
+const listVersions = vi.fn();
+const revertToVersion = vi.fn();
 
 vi.mock('../../../services/api', () => ({
   coachesApi: {
     get: (...a: unknown[]) => getCoach(...a),
     update: (...a: unknown[]) => updateCoach(...a),
     delete: (...a: unknown[]) => deleteCoach(...a),
+    listVersions: (...a: unknown[]) => listVersions(...a),
+    diffVersion: vi.fn(),
+    revertToVersion: (...a: unknown[]) => revertToVersion(...a),
   },
 }));
 
@@ -72,6 +78,7 @@ describe('CoachEditSheet', () => {
       storedCoach({ ...(request as Partial<Agent>) }),
     );
     deleteCoach.mockResolvedValue(undefined);
+    listVersions.mockResolvedValue({ versions: [], current_version: 0, total: 0 });
   });
 
   it('loads the agent by id and hydrates the form from it', async () => {
@@ -130,6 +137,42 @@ describe('CoachEditSheet', () => {
     expect(deleteCoach).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByRole('heading', { name: 'Edit Agent' })).toBeInTheDocument();
+  });
+
+  it('re-hydrates the form from the reverted agent, so a later save keeps the revert', async () => {
+    const user = userEvent.setup();
+    listVersions.mockResolvedValue({
+      versions: [
+        {
+          version: 1,
+          content_snapshot: { title: 'Threshold Coach' },
+          change_summary: null,
+          created_at: '2026-08-01T10:00:00Z',
+          created_by_name: 'Ada',
+        },
+      ],
+      current_version: 1,
+      total: 1,
+    });
+    revertToVersion.mockResolvedValue({
+      agent: storedCoach({ title: 'Threshold Coach' }),
+      reverted_to_version: 1,
+      new_version: 2,
+    });
+    renderSheet();
+    await screen.findByRole('heading', { name: 'Edit Agent' });
+
+    await user.click(await screen.findByTestId('agent-version-revert-1'));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: i18n.t('discover.versionRevertConfirm') }));
+
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText('e.g., Marathon Training Agent')).toHaveValue('Threshold Coach'),
+    );
+    expect(revertToVersion).toHaveBeenCalledWith(COACH_ID, 1);
+
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => expect(updateCoach).toHaveBeenCalledTimes(1));
+    expect((updateCoach.mock.calls[0] as [string, { title: string }])[1].title).toBe('Threshold Coach');
   });
 
   it('shows the load failure instead of an empty form', async () => {

@@ -26,9 +26,10 @@ use pierre_core::models::{
 use pierre_core::permissions::UserRole;
 use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_intelligence::insights::{Insight, InsightType};
+use pierre_intelligence::types::ContextualWeeklyLoad;
 use pierre_intelligence::{
-    ActivityIntelligence, ContextualFactors, ContextualWeeklyLoad, PerformanceMetrics, TimeOfDay,
-    TrendDirection, TrendIndicators,
+    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
+    TrendIndicators,
 };
 use pierre_mcp_server::{
     constants::oauth_providers,
@@ -123,7 +124,6 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
     // Create test config with correct structure
     let config = Arc::new(ServerConfig {
         http_port: 4000,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -586,9 +586,6 @@ fn create_request(
         user_id: user_id.to_owned(),
         protocol: "test".to_owned(),
         tenant_id: Some(tenant_id.to_string()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     }
 }
 
@@ -613,9 +610,6 @@ fn create_request_with_client_credentials(
         user_id: user_id.to_owned(),
         protocol: "test".to_owned(),
         tenant_id: Some(tenant_id.to_string()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     }
 }
 
@@ -664,9 +658,6 @@ async fn test_get_athlete(
         user_id: user_id.to_owned(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None, // Use direct user tokens
     };
     let result = execute_and_evaluate(executor, request_direct, "get_athlete").await;
 
@@ -703,9 +694,6 @@ async fn test_get_stats(
         user_id: user_id.to_owned(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None, // Use direct user tokens
     };
     let result = execute_and_evaluate(executor, request_direct, "get_stats").await;
     handle_ci_mode_result(result, "get_stats")
@@ -789,9 +777,6 @@ async fn test_analyze_performance_trends(
         user_id: user_id.to_owned(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None, // Use direct user tokens
     };
     let result = execute_and_evaluate(executor, request_direct, "analyze_performance_trends").await;
     handle_ci_mode_result(result, "analyze_performance_trends")
@@ -827,9 +812,6 @@ async fn test_compare_activities(
         user_id: user_id.to_owned(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None, // Use direct user tokens
     };
     let result = execute_and_evaluate(executor, request_direct, "compare_activities").await;
     handle_ci_mode_result(result, "compare_activities")

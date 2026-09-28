@@ -20,7 +20,12 @@
 //! naming the member's athlete id on every read. The member's own login wins
 //! over a link. The link is found through its group, so a member who left, an
 //! archived group or a replaced coach reads nothing even if the eager end of
-//! the link was missed.
+//! the link was missed. It reads only while the roster athlete it names is
+//! the member by email ([`link_binding`]): a link that stored no athlete email,
+//! as one confirmed before links stored it, or one whose email is not the
+//! member's verified email, is refused with the reason until the coach
+//! proposes it again and the member confirms. The link is left standing, so
+//! the coach and the member see why on the link itself.
 //!
 //! None of these refusals is the member's authentication failure: signing in
 //! again leaves a coach account a coach account, and a link's reader cannot
@@ -45,9 +50,11 @@ use pierre_providers::sciotte_remote::{
 };
 use pierre_providers::{CoreFitnessProvider, OAuth2Credentials};
 use pierre_services::delegated_connections::{
-    coach_session_state, end_off_roster, person_name, CoachSession,
+    coach_session_state, end_off_roster, person_name, unbound_link_reason, CoachSession,
 };
-use pierre_services::trainingpeaks_accounts::record_trainingpeaks_role;
+use pierre_services::trainingpeaks_accounts::{
+    link_binding, record_trainingpeaks_role, EmailBinding,
+};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -85,6 +92,31 @@ const fn refusal(text: String) -> UniversalResponse {
     }
 }
 
+/// What a linked member's read answers while the roster athlete the link
+/// names is not the member by email, worded for `binding`; `None` for a link
+/// that binds.
+fn unbound_link_refusal(binding: EmailBinding) -> Option<UniversalResponse> {
+    let why = match binding {
+        EmailBinding::Bound => return None,
+        EmailBinding::ProviderEmailMissing => {
+            "the link lists no TrainingPeaks email for the roster athlete it names, so nothing \
+             shows that athlete is this one"
+        }
+        EmailBinding::Mismatch => {
+            "the roster athlete the link names has a TrainingPeaks email that is not this \
+             athlete's verified Dravr email"
+        }
+        EmailBinding::DravrEmailUnverified => {
+            "this athlete's Dravr email is not verified, so it cannot show the roster athlete \
+             the link names is them"
+        }
+    };
+    Some(refusal(format!(
+        "This athlete's TrainingPeaks workouts are not read through their coach's account: \
+         {why}. The coach links the athlete again from the group, and the athlete confirms."
+    )))
+}
+
 /// What a read of a `TrainingPeaks` coach account's own calendar answers: the
 /// refusal the scraper's own is worded as, with no reconnect tag.
 fn coach_account_refusal() -> UniversalResponse {
@@ -113,8 +145,9 @@ impl AuthService {
     ///    refused before any scrape;
     /// 2. the user's own stored session wins over any link;
     /// 3. a confirmed link, found through its group, is read through the
-    ///    coach's session ([`Self::serve_through_coach`]); a delegated
-    ///    connection whose link no longer reads is released and refused;
+    ///    coach's session ([`Self::serve_through_coach`]) while its athlete is
+    ///    the member by email; a delegated connection whose link no longer
+    ///    reads is released and refused;
     /// 4. with neither, the ordinary path answers its missing-token refusal.
     ///
     /// A failed read of the user's connections or token falls through as
@@ -185,8 +218,9 @@ impl AuthService {
     }
 
     /// Serve a read by `member_user_id`, who holds no session of their own,
-    /// through their confirmed link, or `None` when they have no link and no
-    /// `delegated_row` says they had one.
+    /// through their confirmed link while its athlete is the member by email,
+    /// or `None` when they have no link and no `delegated_row` says they had
+    /// one.
     async fn linked_read(
         &self,
         member_user_id: Uuid,
@@ -200,7 +234,10 @@ impl AuthService {
             .find_active_for_member(member_user_id, tenant, SCIOTTE_TRAININGPEAKS)
             .await
         {
-            Ok(Some(link)) => Some(self.serve_through_coach(&link).await),
+            Ok(Some(link)) => Some(match self.refuse_unbound_link(&link).await {
+                Ok(()) => self.serve_through_coach(&link).await,
+                Err(refused) => Err(refused),
+            }),
             Ok(None) if delegated_row => {
                 self.release_unreachable_link(member_user_id, tenant).await;
                 Some(Err(Box::new(refusal(LINK_ENDED.to_owned()))))
@@ -298,6 +335,35 @@ impl AuthService {
         Ok(provider)
     }
 
+    /// Refuse a read through `link` while the roster athlete it names is not
+    /// the member by email ([`link_binding`]), in words saying why. The link
+    /// is left standing: it reads again once the coach proposes it anew and
+    /// the member confirms.
+    async fn refuse_unbound_link(
+        &self,
+        link: &DelegatedConnection,
+    ) -> Result<(), Box<UniversalResponse>> {
+        let binding = link_binding(self.runtime().repos(), link)
+            .await
+            .map_err(|e| {
+                warn!(
+                    link_id = %link.id,
+                    error = %e,
+                    "Could not check the TrainingPeaks link's athlete against the member"
+                );
+                Box::new(refusal(LINK_UNREADABLE.to_owned()))
+            })?;
+        unbound_link_refusal(binding).map_or(Ok(()), |refused| {
+            info!(
+                link_id = %link.id,
+                user_id = %link.member_user_id,
+                reason = unbound_link_reason(binding).unwrap_or_default(),
+                "TrainingPeaks link refused: its athlete is not the member by email"
+            );
+            Err(Box::new(refused))
+        })
+    }
+
     /// Release a member's delegated connection whose link no longer reads.
     ///
     /// Either the link is still confirmed but its group, the member's place
@@ -370,10 +436,11 @@ impl AuthService {
     ///   told.
     /// - The scraper refused a read that named no athlete because the session
     ///   is a coach account's (`athlete_required`): the connection is recorded
-    ///   as a coach account — which also grants the account `manages_roster`
-    ///   and removes the workouts misfiled under it (see
-    ///   [`record_trainingpeaks_role`]) — so the next read is refused before
-    ///   any scrape.
+    ///   as a coach account — which removes the workouts misfiled under it
+    ///   (see [`record_trainingpeaks_role`]) — so the next read is refused
+    ///   before any scrape. The refusal carries no email, so it grants no
+    ///   `manages_roster`: that waits for a profile read binding the account
+    ///   to the user.
     ///
     /// Best-effort: the read has already failed with the scraper's own words,
     /// and a write that fails here is logged.

@@ -103,7 +103,6 @@ describe('carnet #64 — mobile MCP token revocation', () => {
     stub = installHttpStub({
       'GET /api/me/features': { data: features(true) },
       'GET /api/user/mcp-tokens': () => ({ data: { tokens: listedTokens } }),
-      'GET /api/oauth/status': { data: { providers: [] } },
       'DELETE /api/user/mcp-tokens/tok-laptop': () => {
         listedTokens = listedTokens.filter((token) => token.id !== 'tok-laptop');
         return { data: { success: true } };
@@ -163,7 +162,6 @@ describe('carnet #64 — mobile MCP token revocation', () => {
   it('offers the API Tokens pane once the gate answers on', async () => {
     stub = installHttpStub({
       'GET /api/me/features': { data: features(true) },
-      'GET /api/oauth/status': { data: { providers: [] } },
     });
 
     const { getByTestId } = renderWith(<SettingsScreen />);
@@ -176,7 +174,6 @@ describe('carnet #64 — mobile MCP token revocation', () => {
   it('renders no token surface at all while api_tokens is off', async () => {
     stub = installHttpStub({
       'GET /api/me/features': { data: features(false) },
-      'GET /api/oauth/status': { data: { providers: [] } },
     });
 
     const { getByTestId, queryByTestId } = renderWith(<SettingsScreen />);

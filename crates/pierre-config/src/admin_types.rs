@@ -165,39 +165,6 @@ pub struct ConfigOverride {
     pub reason: Option<String>,
 }
 
-/// Audit log entry for configuration changes
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConfigAuditEntry {
-    /// Audit record ID
-    pub id: String,
-    /// When the change occurred
-    pub timestamp: DateTime<Utc>,
-    /// Admin user who made the change
-    pub admin_user_id: String,
-    /// Admin email for display
-    pub admin_email: String,
-    /// Category of the changed parameter
-    pub category: String,
-    /// Parameter key that was changed
-    pub config_key: String,
-    /// Previous value (None for new settings)
-    pub old_value: Option<serde_json::Value>,
-    /// New value
-    pub new_value: serde_json::Value,
-    /// Data type
-    pub data_type: ConfigDataType,
-    /// Reason for the change
-    pub reason: Option<String>,
-    /// Tenant ID if tenant-specific
-    pub tenant_id: Option<String>,
-    /// Target user if the change was a per-user override
-    pub user_id: Option<String>,
-    /// Client IP address
-    pub ip_address: Option<String>,
-    /// Client user agent
-    pub user_agent: Option<String>,
-}
-
 // ============================================================================
 // API Request/Response Types
 // ============================================================================
@@ -475,42 +442,6 @@ pub struct ValidateConfigResponse {
     pub errors: Vec<ConfigValidationError>,
     /// Warnings (valid but potentially problematic)
     pub warnings: Vec<String>,
-}
-
-/// Filter options for audit log queries
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ConfigAuditFilter {
-    /// Filter by category
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub category: Option<String>,
-    /// Filter by parameter key
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub config_key: Option<String>,
-    /// Filter by admin user ID
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub admin_user_id: Option<String>,
-    /// Filter by tenant ID
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tenant_id: Option<String>,
-    /// Start timestamp
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub from_timestamp: Option<DateTime<Utc>>,
-    /// End timestamp
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub to_timestamp: Option<DateTime<Utc>>,
-}
-
-/// Paginated audit log response
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConfigAuditResponse {
-    /// Audit entries
-    pub entries: Vec<ConfigAuditEntry>,
-    /// Total count for pagination
-    pub total_count: usize,
-    /// Current page offset
-    pub offset: usize,
-    /// Page size limit
-    pub limit: usize,
 }
 
 /// Configuration export format

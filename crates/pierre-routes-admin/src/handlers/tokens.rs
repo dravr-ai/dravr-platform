@@ -1,23 +1,34 @@
 // ABOUTME: Admin token management route handlers
-// ABOUTME: Handles CRUD operations for admin service tokens (create, list, get, revoke, rotate)
+// ABOUTME: Create, list, get, revoke and rotate admin service tokens for the CLI and the console
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+//! One handler per operation, for both admin mounts.
+//!
+//! `pierre-cli` reaches them under `/admin/tokens` and the console under
+//! `/api/admin/tokens`.
+//!
+//! `ManageAdminTokens` opens the surface; a super-admin token stays out of
+//! reach of every caller that is not itself super-admin — it is not listed to
+//! them, cannot be read, revoked or rotated by them, and cannot be minted by
+//! them — and a caller that is not super-admin grants only permissions it holds.
+
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     Extension, Json,
 };
-use serde_json::{json, to_value, Value};
+use serde::Deserialize;
+use serde_json::{json, to_value};
 use tracing::{error, info};
 
 use pierre_core::admin::models::{
-    AdminPermission, AdminPermission as AdminPerm, AdminTokenSummary, CreateAdminTokenRequest,
-    ValidatedAdminToken,
+    AdminPermission, AdminPermission as AdminPerm, AdminToken, AdminTokenSummary,
+    CreateAdminTokenRequest, ValidatedAdminToken,
 };
 use pierre_core::errors::{AppError, AppResult};
 
@@ -25,96 +36,141 @@ use super::api_keys::json_response;
 use super::types::AdminResponse;
 use crate::context::AdminApiContext;
 
+/// Lifetime of a rotated token when the request names none.
+const DEFAULT_ROTATION_DAYS: u64 = 365;
+
+/// Body of `POST /admin/tokens`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct CreateAdminTokenBody {
+    /// Name of the service the token is for
+    service_name: String,
+    /// What the service is
+    service_description: Option<String>,
+    /// Permission names; the role default when absent
+    permissions: Option<Vec<String>>,
+    /// Mint a super-admin token (super-admin callers only)
+    #[serde(default)]
+    is_super_admin: bool,
+    /// Lifetime in days; no expiry when absent
+    expires_in_days: Option<u64>,
+}
+
+/// Query of `GET /admin/tokens`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct ListAdminTokensQuery {
+    /// Return revoked tokens alongside live ones. The console asks for them
+    /// to render its Inactive badge; a bare listing is live tokens only.
+    #[serde(default)]
+    include_inactive: bool,
+}
+
+/// Body of `POST /admin/tokens/{id}/rotate`; every field is optional, so a
+/// bare `{}` rotates on the default lifetime.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct RotateAdminTokenBody {
+    /// Lifetime of the replacement in days
+    expires_in_days: Option<u64>,
+}
+
+/// A 403 in the admin response envelope.
+fn forbidden(message: &str) -> Response {
+    json_response(
+        AdminResponse {
+            success: false,
+            message: message.to_owned(),
+            data: None,
+        },
+        StatusCode::FORBIDDEN,
+    )
+    .into_response()
+}
+
+/// Deny a request whose token lacks `ManageAdminTokens`.
+fn deny_without_manage_admin_tokens(token: &ValidatedAdminToken) -> Option<Response> {
+    (!token.is_super_admin
+        && !token
+            .permissions
+            .has_permission(&AdminPerm::ManageAdminTokens))
+    .then(|| forbidden("Permission denied: ManageAdminTokens required"))
+}
+
+/// Load a token by id, answering 404 for an unknown one. `deactivate_token` is
+/// an unconditional UPDATE, so without this a miss would report a revocation
+/// that touched no row.
+async fn load_token(ctx: &AdminApiContext, token_id: &str) -> AppResult<AdminToken> {
+    ctx.repos
+        .admin
+        .get_token_by_id(token_id)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to get admin token");
+            AppError::internal(format!("Failed to get admin token: {e}"))
+        })?
+        .ok_or_else(|| AppError::not_found(format!("Admin token {token_id}")))
+}
+
 /// Handle admin token creation
 pub(crate) async fn handle_create_admin_token(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
-    Json(request): Json<serde_json::Value>,
+    Json(request): Json<CreateAdminTokenBody>,
 ) -> AppResult<impl IntoResponse> {
-    if !admin_token
-        .permissions
-        .has_permission(&AdminPerm::ManageAdminTokens)
-    {
-        return Ok(json_response(
-            AdminResponse {
-                success: false,
-                message: "Permission denied: ManageAdminTokens required".to_owned(),
-                data: None,
-            },
-            StatusCode::FORBIDDEN,
+    if let Some(denied) = deny_without_manage_admin_tokens(&admin_token) {
+        return Ok(denied);
+    }
+
+    info!("Creating admin token by token: {}", admin_token.token_id);
+
+    if request.is_super_admin && !admin_token.is_super_admin {
+        return Ok(forbidden(
+            "Only super-admin tokens can create super-admin tokens",
         ));
     }
 
-    info!(
-        "Creating admin token by service: {}",
-        admin_token.service_name
-    );
-
-    let ctx = context.as_ref();
-
-    let service_name = request
-        .get("service_name")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::invalid_input("service_name is required"))?
-        .to_owned();
-
-    let service_description = request
-        .get("service_description")
-        .and_then(|v| v.as_str())
-        .map(String::from);
-
-    let is_super_admin = request
-        .get("is_super_admin")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-
-    if is_super_admin && !admin_token.is_super_admin {
-        return Ok(json_response(
-            AdminResponse {
-                success: false,
-                message: "Only super-admin tokens can create super-admin tokens".to_owned(),
-                data: None,
-            },
-            StatusCode::FORBIDDEN,
-        ));
-    }
-
-    let expires_in_days = request.get("expires_in_days").and_then(Value::as_u64);
-
-    let permissions =
-        if let Some(perms_array) = request.get("permissions").and_then(|v| v.as_array()) {
-            let mut parsed_permissions = Vec::new();
-            for p in perms_array {
-                if let Some(perm_str) = p.as_str() {
-                    match perm_str.parse::<AdminPermission>() {
-                        Ok(perm) => parsed_permissions.push(perm),
-                        Err(_) => {
-                            return Ok(json_response(
-                                AdminResponse {
-                                    success: false,
-                                    message: format!("Invalid permission: {perm_str}"),
-                                    data: None,
-                                },
-                                StatusCode::BAD_REQUEST,
-                            ));
-                        }
-                    }
+    let permissions = match request.permissions {
+        Some(names) => {
+            let mut parsed = Vec::with_capacity(names.len());
+            for name in &names {
+                let Ok(permission) = name.parse::<AdminPermission>() else {
+                    return Ok(json_response(
+                        AdminResponse {
+                            success: false,
+                            message: format!("Invalid permission: {name}"),
+                            data: None,
+                        },
+                        StatusCode::BAD_REQUEST,
+                    )
+                    .into_response());
+                };
+                // A caller that is not super-admin cannot hand out authority it
+                // does not hold, or a console session could mint its way to
+                // configuration access.
+                if !admin_token.is_super_admin
+                    && !admin_token.permissions.has_permission(&permission)
+                {
+                    return Ok(forbidden(&format!(
+                        "Cannot grant {permission}: the caller does not hold it"
+                    )));
                 }
+                parsed.push(permission);
             }
-            Some(parsed_permissions)
-        } else {
-            None
-        };
-
-    let token_request = CreateAdminTokenRequest {
-        service_name,
-        service_description,
-        permissions,
-        expires_in_days,
-        is_super_admin,
-        tenant_id: None,
+            Some(parsed)
+        }
+        None => None,
     };
 
+    let token_request = CreateAdminTokenRequest {
+        service_name: request.service_name,
+        service_description: request.service_description,
+        permissions,
+        expires_in_days: request.expires_in_days,
+        is_super_admin: request.is_super_admin,
+        tenant_id: None,
+        operator_user_id: None,
+    }
+    .for_creator()?;
+
+    let ctx = context.as_ref();
     let generated_token = ctx
         .repos
         .admin
@@ -142,57 +198,56 @@ pub(crate) async fn handle_create_admin_token(
             .ok(),
         },
         StatusCode::CREATED,
-    ))
+    )
+    .into_response())
 }
 
 /// Handle listing admin tokens
+///
+/// A caller that is not super-admin is not shown super-admin tokens.
 pub(crate) async fn handle_list_admin_tokens(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
+    Query(query): Query<ListAdminTokensQuery>,
 ) -> AppResult<impl IntoResponse> {
-    if !admin_token
-        .permissions
-        .has_permission(&AdminPerm::ManageAdminTokens)
-    {
-        return Ok(json_response(
-            AdminResponse {
-                success: false,
-                message: "Permission denied: ManageAdminTokens required".to_owned(),
-                data: None,
-            },
-            StatusCode::FORBIDDEN,
-        ));
+    if let Some(denied) = deny_without_manage_admin_tokens(&admin_token) {
+        return Ok(denied);
     }
 
     info!(
-        "Listing admin tokens by service: {}",
-        admin_token.service_name
+        include_inactive = query.include_inactive,
+        "Listing admin tokens by token: {}", admin_token.token_id
     );
 
-    let ctx = context.as_ref();
+    let tokens = context
+        .repos
+        .admin
+        .list_tokens(query.include_inactive)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to list admin tokens");
+            AppError::internal(format!("Failed to list admin tokens: {e}"))
+        })?;
 
-    let tokens = ctx.repos.admin.list_tokens(false).await.map_err(|e| {
-        error!(error = %e, "Failed to list admin tokens");
-        AppError::internal(format!("Failed to list admin tokens: {e}"))
-    })?;
-
-    info!("Retrieved {} admin tokens", tokens.len());
-
-    let redacted_tokens: Vec<AdminTokenSummary> =
-        tokens.into_iter().map(AdminTokenSummary::from).collect();
+    let visible: Vec<AdminTokenSummary> = tokens
+        .into_iter()
+        .filter(|token| admin_token.is_super_admin || !token.is_super_admin)
+        .map(AdminTokenSummary::from)
+        .collect();
 
     Ok(json_response(
         AdminResponse {
             success: true,
-            message: format!("Retrieved {} admin tokens", redacted_tokens.len()),
+            message: format!("Retrieved {} admin tokens", visible.len()),
             data: to_value(json!({
-                "count": redacted_tokens.len(),
-                "tokens": redacted_tokens
+                "count": visible.len(),
+                "tokens": visible
             }))
             .ok(),
         },
         StatusCode::OK,
-    ))
+    )
+    .into_response())
 }
 
 /// Handle getting admin token details
@@ -201,92 +256,56 @@ pub(crate) async fn handle_get_admin_token(
     Extension(admin_token): Extension<ValidatedAdminToken>,
     Path(token_id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
-    if !admin_token
-        .permissions
-        .has_permission(&AdminPerm::ManageAdminTokens)
-    {
-        return Ok(json_response(
-            AdminResponse {
-                success: false,
-                message: "Permission denied: ManageAdminTokens required".to_owned(),
-                data: None,
-            },
-            StatusCode::FORBIDDEN,
-        ));
+    if let Some(denied) = deny_without_manage_admin_tokens(&admin_token) {
+        return Ok(denied);
     }
 
-    info!(
-        "Getting admin token {} by service: {}",
-        token_id, admin_token.service_name
-    );
-
-    let ctx = context.as_ref();
-
-    let token = match ctx.repos.admin.get_token_by_id(&token_id).await {
-        Ok(Some(token)) => token,
-        Ok(None) => {
-            return Ok(json_response(
-                AdminResponse {
-                    success: false,
-                    message: "Admin token not found".to_owned(),
-                    data: None,
-                },
-                StatusCode::NOT_FOUND,
-            ));
-        }
-        Err(e) => {
-            error!(error = %e, "Failed to get admin token");
-            return Ok(json_response(
-                AdminResponse {
-                    success: false,
-                    message: format!("Failed to get admin token: {e}"),
-                    data: None,
-                },
-                StatusCode::INTERNAL_SERVER_ERROR,
-            ));
-        }
-    };
-
-    let redacted_token = AdminTokenSummary::from(token);
+    let token = load_token(&context, &token_id).await?;
+    if token.is_super_admin && !admin_token.is_super_admin {
+        return Ok(forbidden(
+            "Only super-admin tokens can read super-admin tokens",
+        ));
+    }
 
     Ok(json_response(
         AdminResponse {
             success: true,
             message: "Admin token retrieved successfully".to_owned(),
-            data: to_value(redacted_token).ok(),
+            data: to_value(AdminTokenSummary::from(token)).ok(),
         },
         StatusCode::OK,
-    ))
+    )
+    .into_response())
 }
 
 /// Handle revoking admin token
+///
+/// An unknown id answers 404, and a super-admin token can be revoked only by a
+/// super-admin caller: revoking one is a denial of service against the
+/// platform's own operators.
 pub(crate) async fn handle_revoke_admin_token(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
     Path(token_id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
-    if !admin_token
-        .permissions
-        .has_permission(&AdminPerm::ManageAdminTokens)
-    {
-        return Ok(json_response(
-            AdminResponse {
-                success: false,
-                message: "Permission denied: ManageAdminTokens required".to_owned(),
-                data: None,
-            },
-            StatusCode::FORBIDDEN,
-        ));
+    if let Some(denied) = deny_without_manage_admin_tokens(&admin_token) {
+        return Ok(denied);
     }
 
     info!(
-        "Revoking admin token {} by service: {}",
-        token_id, admin_token.service_name
+        "Revoking admin token {} by token: {}",
+        token_id, admin_token.token_id
     );
 
-    let ctx = context.as_ref();
+    let existing = load_token(&context, &token_id).await?;
+    if existing.is_super_admin && !admin_token.is_super_admin {
+        return Ok(forbidden(
+            "Only super-admin tokens can revoke super-admin tokens",
+        ));
+    }
 
-    ctx.repos
+    context
+        .repos
         .admin
         .deactivate_token(&token_id)
         .await
@@ -301,69 +320,42 @@ pub(crate) async fn handle_revoke_admin_token(
         AdminResponse {
             success: true,
             message: "Admin token revoked successfully".to_owned(),
-            data: to_value(json!({
-                "token_id": token_id
-            }))
-            .ok(),
+            data: to_value(json!({ "token_id": token_id })).ok(),
         },
         StatusCode::OK,
-    ))
+    )
+    .into_response())
 }
 
 /// Handle rotating admin token
+///
+/// Deactivates the token and mints a replacement with the same name, scope and
+/// super-admin flag, returned once in this response.
 pub(crate) async fn handle_rotate_admin_token(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
     Path(token_id): Path<String>,
+    body: Option<Json<RotateAdminTokenBody>>,
 ) -> AppResult<impl IntoResponse> {
-    if !admin_token
-        .permissions
-        .has_permission(&AdminPerm::ManageAdminTokens)
-    {
-        return Ok(json_response(
-            AdminResponse {
-                success: false,
-                message: "Permission denied: ManageAdminTokens required".to_owned(),
-                data: None,
-            },
-            StatusCode::FORBIDDEN,
-        ));
+    if let Some(denied) = deny_without_manage_admin_tokens(&admin_token) {
+        return Ok(denied);
     }
 
     info!(
-        "Rotating admin token {} by service: {}",
-        token_id, admin_token.service_name
+        "Rotating admin token {} by token: {}",
+        token_id, admin_token.token_id
     );
 
     let ctx = context.as_ref();
-
-    let existing_token = ctx
-        .repos
-        .admin
-        .get_token_by_id(&token_id)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to get admin token");
-            AppError::internal(format!("Failed to get admin token: {e}"))
-        })?
-        .ok_or_else(|| AppError::not_found("Admin token not found"))?;
+    let existing_token = load_token(ctx, &token_id).await?;
 
     // Rotation mints the replacement at the old token's privilege level, so a
     // super-admin token rotated by a caller who is not super-admin would hand
-    // that caller a fresh super-admin JWT. `handle_create_admin_token` refuses
-    // the same escalation on the create path, and the cookie surface refuses it
-    // for every rotation via `require_super_admin`; `ManageAdminTokens` alone is
-    // mintable on a non-super-admin token, so the permission check above does
-    // not imply it. Checked before `deactivate_token` — a refused rotation must
-    // leave the existing credential intact.
+    // that caller a fresh super-admin JWT. Checked before `deactivate_token` —
+    // a refused rotation must leave the existing credential intact.
     if existing_token.is_super_admin && !admin_token.is_super_admin {
-        return Ok(json_response(
-            AdminResponse {
-                success: false,
-                message: "Only super-admin tokens can rotate super-admin tokens".to_owned(),
-                data: None,
-            },
-            StatusCode::FORBIDDEN,
+        return Ok(forbidden(
+            "Only super-admin tokens can rotate super-admin tokens",
         ));
     }
 
@@ -376,14 +368,16 @@ pub(crate) async fn handle_rotate_admin_token(
             AppError::internal(format!("Failed to deactivate old token: {e}"))
         })?;
 
-    let token_request = CreateAdminTokenRequest {
-        service_name: existing_token.service_name.clone(),
-        service_description: existing_token.service_description.clone(),
-        permissions: None,
-        is_super_admin: existing_token.is_super_admin,
-        expires_in_days: Some(365_u64),
-        tenant_id: existing_token.tenant_id.clone(),
-    };
+    let expires_in_days = body
+        .map(|Json(body)| body)
+        .unwrap_or_default()
+        .expires_in_days
+        .unwrap_or(DEFAULT_ROTATION_DAYS);
+    let token_request = CreateAdminTokenRequest::rotation_of(
+        existing_token,
+        expires_in_days,
+        admin_token.operator_user_id,
+    );
 
     let new_token = ctx
         .repos
@@ -406,16 +400,16 @@ pub(crate) async fn handle_rotate_admin_token(
             message: "Admin token rotated successfully".to_owned(),
             data: to_value(json!({
                 "old_token_id": token_id,
-                "new_token": {
-                    "token_id": new_token.token_id,
-                    "service_name": new_token.service_name,
-                    "jwt_token": new_token.jwt_token,
-                    "token_prefix": new_token.token_prefix,
-                    "expires_at": new_token.expires_at.map(|t| t.to_rfc3339()),
-                }
+                "token_id": new_token.token_id,
+                "service_name": new_token.service_name,
+                "jwt_token": new_token.jwt_token,
+                "token_prefix": new_token.token_prefix,
+                "is_super_admin": new_token.is_super_admin,
+                "expires_at": new_token.expires_at.map(|t| t.to_rfc3339()),
             }))
             .ok(),
         },
         StatusCode::OK,
-    ))
+    )
+    .into_response())
 }

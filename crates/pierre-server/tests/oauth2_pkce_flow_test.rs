@@ -28,6 +28,10 @@ use pierre_database::{
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
+/// The refresh-token lifetime the test server is configured with; not the
+/// 30-day default, so a hard-coded lifetime would show.
+const REFRESH_TOKEN_EXPIRY_DAYS: i64 = 7;
+
 /// Helper to create test database and auth manager
 async fn setup_test_env() -> (
     Arc<Database>,
@@ -53,6 +57,7 @@ async fn setup_test_env() -> (
         repos.users.clone(),
         auth_manager.clone(),
         jwks_manager,
+        REFRESH_TOKEN_EXPIRY_DAYS,
     );
     let registration_manager = ClientRegistrationManager::new(repos.oauth2_server.clone());
     let registration_request = ClientRegistrationRequest {
@@ -566,6 +571,17 @@ async fn test_refresh_token_rotation() {
     let token_response = oauth_server.token(token_request).await.unwrap();
     let old_refresh_token = token_response.refresh_token.unwrap();
 
+    // The token lives the configured lifetime, not a constant of its own.
+    let stored = database
+        .repositories()
+        .oauth2_server
+        .get_refresh_token_by_value(&old_refresh_token)
+        .await
+        .unwrap()
+        .expect("the issued refresh token is on record");
+    let lifetime = stored.expires_at - stored.created_at;
+    assert_eq!(lifetime.num_days(), REFRESH_TOKEN_EXPIRY_DAYS);
+
     // Use refresh token to get new tokens (first refresh - should succeed)
     let refresh_request = TokenRequest {
         grant_type: "refresh_token".to_owned(),
@@ -578,16 +594,22 @@ async fn test_refresh_token_rotation() {
         code_verifier: None,
     };
 
-    let refresh_response = oauth_server.token(refresh_request).await;
-    assert!(refresh_response.is_ok());
+    let refresh_response = oauth_server.token(refresh_request).await.unwrap();
+    let successor = refresh_response
+        .refresh_token
+        .expect("a refresh exchange issues a successor");
+    assert_ne!(
+        successor, old_refresh_token,
+        "the exchange rotates the token"
+    );
 
     // Attempt to reuse OLD refresh token (should fail - token rotation)
     let replay_refresh_request = TokenRequest {
         grant_type: "refresh_token".to_owned(),
         code: None,
         redirect_uri: None,
-        client_id,
-        client_secret,
+        client_id: client_id.clone(),
+        client_secret: client_secret.clone(),
         scope: None,
         refresh_token: Some(old_refresh_token),
         code_verifier: None,
@@ -596,5 +618,20 @@ async fn test_refresh_token_rotation() {
     let result = oauth_server.token(replay_refresh_request).await;
     assert!(result.is_err());
     let error = result.unwrap_err();
+    assert_eq!(error.error, "invalid_grant");
+
+    // The replay revoked the whole rotation chain: the successor the
+    // legitimate client holds no longer exchanges either.
+    let successor_request = TokenRequest {
+        grant_type: "refresh_token".to_owned(),
+        code: None,
+        redirect_uri: None,
+        client_id,
+        client_secret,
+        scope: None,
+        refresh_token: Some(successor),
+        code_verifier: None,
+    };
+    let error = oauth_server.token(successor_request).await.unwrap_err();
     assert_eq!(error.error, "invalid_grant");
 }

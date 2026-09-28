@@ -36,7 +36,7 @@ bench = false
 [features]
 default = ["sqlite", "server-full", "sqlx/migrate"]
 sqlite = []
-postgresql = ["sqlx/postgres", "pierre-core/sqlx-postgres", "pierre-database/postgresql", "pierre-health/postgresql", "pierre-fitness-compute/postgresql", "pierre-notifications/postgresql", "pierre-services/postgresql"]
+postgresql = ["sqlx/postgres", "pierre-core/sqlx-postgres", "pierre-database/postgresql", "pierre-fitness-compute/postgresql", "pierre-notifications/postgresql", "pierre-services/postgresql"]
 testing = []
 telemetry = ["pierre-logging/telemetry", "pierre-middleware/telemetry", "pierre-core/telemetry"]
 toon = ["dep:toon-format", "pierre-formatters/toon"]
@@ -179,8 +179,8 @@ server-full = ["protocol-all", "transport-all", "client-all", "client-messaging"
 server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-garmin", "provider-sciotte", "provider-intervals-icu", "tools-all", "toon", "health-sync", "analytics-posthog", "gcp-kms"]
 
 [dependencies]
-embacle = { version = "0.30.0" }
-embacle-tool-host = "0.30.0"
+embacle = { version = "0.32.0" }
+embacle-tool-host = "0.32.0"
 # Workspace crates (sibling crates under crates/)
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "http-client", "billing", "billing-stripe"] }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
@@ -218,7 +218,6 @@ pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
 pierre-evals = { version = "0.3.0", path = "../pierre-evals", optional = true }
 pierre-cache = { version = "0.3.0", path = "../pierre-cache", features = ["redis"] }
 pierre-config = { version = "0.3.0", path = "../pierre-config" }
-pierre-health = { version = "0.3.0", path = "../pierre-health" }
 pierre-a2a = { version = "0.3.0", path = "../pierre-a2a", optional = true }
 pierre-routes-a2a = { version = "0.3.0", path = "../pierre-routes-a2a", optional = true }
 pierre-messaging = { version = "0.3.0", path = "../pierre-messaging", optional = true }
@@ -323,7 +322,7 @@ jsonschema = { version = "0.46.5", default-features = false }
 # against the same inputs. Production language detection lives in
 # pierre-chat-pipeline's turn service, which carries its own dependency.
 whatlang = "0.16"
-embacle = { version = "0.30.0" }
+embacle = { version = "0.32.0" }
 tempfile = "3.26"
 serial_test = "3.4"
 criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }

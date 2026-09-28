@@ -15,13 +15,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, NaiveDate, Utc};
 use futures_util::future::join_all;
 use pierre_core::models::groups::{MemberFitnessSnapshot, OvertrainingRiskLevel, RosterActivity};
 use pierre_core::models::FormBand;
 use pierre_core::models::{Activity, ProviderConnection, TenantId};
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
-use pierre_intelligence::{AlgorithmConfig, TrainingLoadCalculator};
+use pierre_intelligence::{AlgorithmConfig, TrainingLoad, TrainingLoadCalculator};
 use pierre_providers::core::ActivityQueryParams;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -220,19 +220,21 @@ pub async fn fetch_member_snapshots(
 // tools' `athlete=` resolution all render a member by that one function.
 use crate::athlete_display_name::fetch_athlete_identity;
 
-/// Compute training load metrics from a list of activities.
+/// Compute the training load as of `as_of` from a list of activities.
 ///
-/// Uses `TrainingLoadCalculator` to compute CTL, ATL, and TSB.
-/// Returns `(None, None, None)` if calculation fails.
+/// Uses `TrainingLoadCalculator`: CTL and ATL at the end of `as_of`, form
+/// (`tsb` over `form_ctl`) from the end of the day before. Returns `None` if
+/// the calculation fails.
 fn compute_training_metrics(
     activities: &[Activity],
     algorithm_config: &AlgorithmConfig,
-) -> (Option<f64>, Option<f64>, Option<f64>) {
+    as_of: NaiveDate,
+) -> Option<TrainingLoad> {
     // Sort oldest-first — EMA calculation requires chronological order
     let mut sorted = activities.to_vec();
     sorted.sort_by_key(Activity::start_date);
 
-    let calculator = TrainingLoadCalculator::from_config(algorithm_config.clone());
+    let calculator = TrainingLoadCalculator::from_config(algorithm_config.clone(), as_of);
     log_per_activity_tss(&calculator, &sorted);
 
     match calculator.calculate_training_load(
@@ -242,10 +244,10 @@ fn compute_training_metrics(
         None, // resting_hr
         None, // weight_kg
     ) {
-        Ok(load) => (Some(load.ctl), Some(load.atl), Some(load.tsb)),
+        Ok(load) => Some(load),
         Err(e) => {
             debug!(error = ?e, "Training load calculation failed");
-            (None, None, None)
+            None
         }
     }
 }
@@ -577,19 +579,22 @@ fn build_snapshot_from_activities(
     now: DateTime<Utc>,
     algorithm_config: &AlgorithmConfig,
 ) -> MemberFitnessSnapshot {
-    let (ctl, atl, tsb) = compute_training_metrics(activities, algorithm_config);
+    // As of the snapshot's own day, so `computed_at` names the day its form
+    // reading describes.
+    let load = compute_training_metrics(activities, algorithm_config, now.date_naive());
     let weekly = compute_weekly_metrics(activities, now);
     let primary_sport = determine_primary_sport(activities);
-    let overtraining_risk = assess_overtraining_risk(ctl, tsb);
+    let overtraining_risk = assess_overtraining_risk(load.as_ref());
     let last_activity_per_provider = compute_last_activity_per_provider(activities);
     let recent_activities = compute_recent_activities(activities, now);
 
     MemberFitnessSnapshot {
         user_id,
         display_name,
-        ctl,
-        atl,
-        tsb,
+        ctl: load.as_ref().map(|l| l.ctl),
+        atl: load.as_ref().map(|l| l.atl),
+        tsb: load.as_ref().map(|l| l.tsb),
+        form_ctl: load.as_ref().map(|l| l.form_ctl),
         weekly_volume_km: weekly.volume_km,
         previous_week_volume_km: weekly.previous_week_volume_km,
         weekly_activity_count: weekly.activity_count,
@@ -687,6 +692,7 @@ fn empty_snapshot(
         ctl: None,
         atl: None,
         tsb: None,
+        form_ctl: None,
         weekly_volume_km: 0.0,
         previous_week_volume_km: None,
         weekly_activity_count: 0,
@@ -727,22 +733,18 @@ fn determine_primary_sport(activities: &[Activity]) -> Option<String> {
 /// [`FormBand::DeepFatigue`] → High, [`FormBand::HeavyBlock`] → Moderate,
 /// otherwise Low.
 ///
-/// The ATL/CTL ratio is deliberately absent: because `tsb == ctl - atl`,
-/// `DeepFatigue` (form below -30% of CTL) *is* `atl > 1.3 * ctl`, so a ratio
-/// test alongside the band is the same inequality counted twice — it read as a
-/// second corroborating signal while adding no information. One axis, stated
-/// once.
+/// The ATL/CTL ratio is deliberately absent: because form is the previous
+/// day's CTL minus ATL, `DeepFatigue` (form below -30% of that CTL) *is*
+/// `atl > 1.3 * ctl` at the end of that day, so a ratio test alongside the band
+/// is the same inequality counted twice — it read as a second corroborating
+/// signal while adding no information. One axis, stated once.
 ///
 /// An athlete with no chronic base bands as [`FormBand::InsufficientHistory`]
 /// and is reported Low: at a near-zero CTL a single session swings the ratio
 /// wildly, so there is no honest risk claim to make, and inventing one is how
 /// beginners collected critical flags for an ordinary hard week.
-fn assess_overtraining_risk(ctl: Option<f64>, tsb: Option<f64>) -> OvertrainingRiskLevel {
-    match tsb
-        .zip(ctl)
-        .map_or(FormBand::InsufficientHistory, |(t, c)| {
-            FormBand::from_tsb(t, c)
-        }) {
+fn assess_overtraining_risk(load: Option<&TrainingLoad>) -> OvertrainingRiskLevel {
+    match load.map_or(FormBand::InsufficientHistory, FormBand::from_training_load) {
         FormBand::DeepFatigue => OvertrainingRiskLevel::High,
         FormBand::HeavyBlock => OvertrainingRiskLevel::Moderate,
         _ => OvertrainingRiskLevel::Low,

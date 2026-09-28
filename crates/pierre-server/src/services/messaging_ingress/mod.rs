@@ -31,8 +31,6 @@ pub use viz_delivery::card_or_rich_text;
 mod dispatch;
 /// Channel-linking commands (`/start <code>`, `LINK <code>`) + analytics-consent hydration.
 mod linking;
-/// Messaging-turn stored-locale resolution (channel link, then user profile).
-pub mod locale;
 /// In-chat OTP linking flow + logout + supporting helpers.
 mod otp;
 mod outbound_persist;
@@ -60,8 +58,6 @@ mod slash;
 use outbound_send::{send_channel_response, send_private_channel_response, OutboundPersistSpec};
 /// Ambient room-chatter capture into the shared group transcript read model.
 mod transcript;
-
-pub use locale::resolve_messaging_locale;
 
 /// Lays an assistant turn's blocks out as ordered channel messages, splitting
 /// prose past the channel's per-message ceiling.
@@ -97,6 +93,7 @@ use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_core::safety::{scan as scan_for_injection, SanitizationOutcome};
 use pierre_database::backends::{InsertMessageParams, MessagingRepository};
 use pierre_messaging::channel::MessagingChannel;
+use pierre_services::locale::resolve_channel_locale;
 use pierre_services::messaging_outbound::start_outbound_worker;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
@@ -106,7 +103,6 @@ use serde_json::Value;
 
 use crate::mcp::resources::ServerContext;
 use pierre_chat_pipeline::SurfaceProfile;
-use pierre_contremaitre::messaging_strings::DEFAULT_LOCALE;
 use pierre_services::analytics::hash_id;
 
 /// Outcome of persisting a single inbound message
@@ -217,7 +213,7 @@ pub(crate) struct PendingDispatch {
     /// their own exchanges with the agent.
     pub(super) is_group_chat: bool,
     /// The athlete's stored BCP-47 locale for this channel, resolved via
-    /// [`resolve_messaging_locale`] when the dispatch is enqueued.
+    /// [`resolve_channel_locale`] when the dispatch is enqueued.
     ///
     /// The language of everything the platform says *around* a turn: the
     /// status placeholder, the connect card, an error apology, a quota
@@ -668,13 +664,15 @@ async fn persist_single_message(
     // agent-choice answer, and every downstream stage of a dispatched turn
     // (guardrails, verification, empty-reply). Channel-link override first,
     // then the user profile, then the registry default.
-    let locale = match Uuid::parse_str(&session.user_id) {
-        Ok(uuid) => {
-            resolve_messaging_locale(resources, user_tenant_id, uuid, channel, &message.sender_id)
-                .await
-        }
-        Err(_) => DEFAULT_LOCALE.to_owned(),
-    };
+    let locale = resolve_channel_locale(
+        resources.common.repos.messaging.as_ref(),
+        resources.common.repos.users.as_ref(),
+        user_tenant_id,
+        channel,
+        &message.sender_id,
+        Uuid::parse_str(&session.user_id).ok(),
+    )
+    .await;
 
     // An answer to a question the platform asked: profile type, or one of the
     // seven PAR-Q+ questions. Sits ahead of the agent-proposal reply because an

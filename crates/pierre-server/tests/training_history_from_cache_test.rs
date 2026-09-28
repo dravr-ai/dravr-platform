@@ -304,6 +304,7 @@ async fn seed_fabricated_rows(fx: &Fixture, from: NaiveDate, to: NaiveDate) {
             ctl: 11.5,
             atl: 9.0,
             tsb: 2.5,
+            form_ctl: 11.5,
             acwr: None,
             monotony: None,
             strain: None,

@@ -1,4 +1,4 @@
-// ABOUTME: A2A (Agent-to-Agent) protocol — types, agent card, server, client manager, auth
+// ABOUTME: A2A (Agent-to-Agent) protocol — types, agent card, server, client manager
 // ABOUTME: Decoupled from pierre-server via the A2ACtx trait in pierre-runtime-context
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,10 +8,9 @@
 //!
 //! Standalone implementation of the A2A (Agent-to-Agent) protocol for the
 //! Pierre platform. Exposes the message types, agent card, JSON-RPC server,
-//! client-management facade, system-user provisioning, and authenticator
-//! used by `pierre-server`'s `/api/a2a/*` routes.
+//! client-management facade and system-user provisioning used by `pierre-server`'s `/api/a2a/*` routes.
 //!
-//! Server-side modules (`auth`, `client`, `protocol`, `system_user`) accept
+//! Server-side modules (`client`, `protocol`, `system_user`) accept
 //! the narrow `A2ACtx` trait from `pierre-runtime-context` instead of the
 //! full `ServerContext` — that's how this crate stays leaf-shaped while still
 //! reaching the auth manager, JWKS, repositories, and configured base URL.
@@ -19,7 +18,6 @@
 //! ## Modules
 //!
 //! * [`agent_card`] — A2A 1.0 agent card (interfaces, capabilities, skills, security)
-//! * [`auth`] — A2A authenticator (API key + `OAuth2`)
 //! * [`client`] — A2A client manager (registration, sessions, usage, rate limits)
 //! * [`client_types`] — Client registration, credentials, usage types
 //! * [`events`] — Per-task event bus backing streaming (SSE) subscriptions
@@ -38,8 +36,6 @@ pub use pierre_core::models;
 
 /// Agent card metadata and capabilities
 pub mod agent_card;
-/// A2A authentication and authorization
-pub mod auth;
 /// A2A client management
 pub mod client;
 /// Client registration and credential types
@@ -64,7 +60,7 @@ pub(crate) mod task_events;
 pub use agent_card::AgentCard;
 pub use client::A2AClientManager;
 pub use client_types::{
-    A2AClientTier, A2ARateLimitStatus, A2AToken, A2AUsageParams, ClientCredentials,
+    A2AClientTier, A2ARateLimitStatus, A2AUsageParams, ClientCredentials,
     ClientRegistrationRequest, ClientUsageStats,
 };
 pub use jsonrpc::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, JSONRPC_VERSION};

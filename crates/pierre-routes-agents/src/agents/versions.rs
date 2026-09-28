@@ -97,11 +97,15 @@ pub(super) async fn handle_revert_version<C: AgentsCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle GET /api/agents/:id/versions/:v1/diff/:v2 - Compare two versions
-pub(super) async fn handle_diff_versions<C: AgentsCtx + MiddlewareCtx>(
+/// Handle GET /api/agents/:id/versions/:version/diff - Compare a version with the current content
+///
+/// The history snapshots an agent *before* each edit, so the current content is
+/// never itself a stored version; the diff therefore compares the stored
+/// snapshot against the live agent, built in the same snapshot shape.
+pub(super) async fn handle_diff_version<C: AgentsCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
-    Path((id, v1, v2)): Path<(String, i32, i32)>,
+    Path((id, version)): Path<(String, i32)>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     let tenant_id = super::get_user_tenant(&auth)?;
@@ -110,32 +114,19 @@ pub(super) async fn handle_diff_versions<C: AgentsCtx + MiddlewareCtx>(
 
     // Authorization: mirror the agent-detail access rule (owner, assigned, or
     // system) before exposing version snapshot content through the diff.
-    if manager
+    let current = manager
         .get_by_id(&id, auth.user_id, tenant_id)
         .await?
-        .is_none()
-    {
-        return Err(AppError::not_found(format!("Coach {id}")));
-    }
+        .ok_or_else(|| AppError::not_found(format!("Coach {id}")))?;
 
-    let version1 = manager
-        .get_version(&id, v1, tenant_id)
+    let stored = manager
+        .get_version(&id, version, tenant_id)
         .await?
-        .ok_or_else(|| AppError::not_found(format!("Version {v1} for coach {id}")))?;
+        .ok_or_else(|| AppError::not_found(format!("Version {version} for coach {id}")))?;
 
-    let version2 = manager
-        .get_version(&id, v2, tenant_id)
-        .await?
-        .ok_or_else(|| AppError::not_found(format!("Version {v2} for coach {id}")))?;
+    let changes = compute_diff(&stored.content_snapshot, &current.content_snapshot());
 
-    // Compare the content snapshots
-    let changes = compute_diff(&version1.content_snapshot, &version2.content_snapshot);
-
-    let response = AgentDiffResponse {
-        from_version: v1,
-        to_version: v2,
-        changes,
-    };
+    let response = AgentDiffResponse { version, changes };
 
     Ok((StatusCode::OK, Json(response)).into_response())
 }

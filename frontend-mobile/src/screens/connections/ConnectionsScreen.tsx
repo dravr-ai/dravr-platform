@@ -27,7 +27,12 @@ import { oauthApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { ExtendedProviderStatus } from '../../types';
 import { useTranslation } from '@pierre/i18n';
-import { noticeRequired, sciotteTargetForBackend, syncAuthorizationOwed } from '@pierre/shared-constants';
+import {
+  delegationRefusalKey,
+  noticeRequired,
+  sciotteTargetForBackend,
+  syncAuthorizationOwed,
+} from '@pierre/shared-constants';
 import type { SciotteTarget } from '@pierre/shared-types';
 import { presentProviderMenu } from './presentProviderMenu';
 import { ProviderGlyph } from '../../components/ProviderGlyph';
@@ -310,9 +315,13 @@ export function ConnectionsScreen() {
     if (owesAuthorization) {
       subtitle = t('providers.authorizeToKeepSyncing', { provider: provider.display_name });
     } else if (isDelegated) {
-      subtitle = delegation.coach_needs_reauth
-        ? t('delegation.coachReconnectNeeded', { coach: delegation.coach_display_name })
-        : t('providers.connectedThrough', { coach: delegation.coach_display_name });
+      if (delegation.read_refused) {
+        subtitle = t(delegationRefusalKey(delegation.read_refused));
+      } else {
+        subtitle = delegation.coach_needs_reauth
+          ? t('delegation.coachReconnectNeeded', { coach: delegation.coach_display_name })
+          : t('providers.connectedThrough', { coach: delegation.coach_display_name });
+      }
     } else if (delegation?.status === 'proposed') {
       subtitle = t('providers.pendingLink', {
         coach: delegation.coach_display_name,
@@ -328,7 +337,7 @@ export function ConnectionsScreen() {
     if (isDelegated) {
       trailing = (
         <>
-          <StatusDot tone={delegation.coach_needs_reauth ? 'warning' : 'success'} />
+          <StatusDot tone={delegation.coach_needs_reauth || delegation.read_refused ? 'warning' : 'success'} />
           {action(t('delegation.unlink'), disconnect)}
         </>
       );
@@ -413,14 +422,9 @@ export function ConnectionsScreen() {
     );
   };
 
-  // After the 2026-Q2 provider cleanup the API surfaces sciotte,
-  // sciotte_garmin, whoop and intervals_icu. The bare `strava` row is hidden:
-  // official OAuth is reached exclusively through the Sciotte modal's
-  // t('app.useOwnStravaApp') button, so a separate strava row would duplicate
-  // the entry, and `connected` already counts either backend behind a row —
-  // the server coalesces it (carnet#255). Mirrors
-  // frontend/src/components/ProviderConnectionCards.tsx.
-  const visibleProviders = providers.filter((p) => p.provider !== 'strava');
+  // Rendered as served: the server withholds the raw `strava` / `garmin` rows
+  // a mirror card covers and coalesces a card's two backends before answering
+  // (carnet#255, carnet#574), so no client filters or merges them again.
 
   return (
     <View className="flex-1 bg-background-primary" testID="connections-screen">
@@ -457,8 +461,8 @@ export function ConnectionsScreen() {
               </View>
             ) : (
               <View>
-                {visibleProviders.map((provider, index) =>
-                  renderProvider(provider, index === visibleProviders.length - 1),
+                {providers.map((provider, index) =>
+                  renderProvider(provider, index === providers.length - 1),
                 )}
               </View>
             )}

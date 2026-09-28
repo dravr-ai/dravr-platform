@@ -201,28 +201,27 @@ fn test_manifest_round_trip() {
 /// minute through the webhook. `visual_blocks` — the inline-chart contract,
 /// athlete-visible — sat outside the registry that way (carnet#312).
 const MANIFEST_SYSTEM_PROMPT_KEYS: &[&str] = &[
-    "activity_analysis",
-    "activity_analysis_system",
     "advice_extraction",
     "agent_rerank",
     "claim_judge",
     "coach_generation",
     "conversation_summary",
+    "guardian_planner",
     "insight_generation",
     "insight_validation",
     "mcp_server_instructions",
     "memory_extraction",
     "messaging_context",
     "outcome_judge",
+    "persona_style_editor",
     "pierre_system",
     "platform_contract",
     "progression_guardrails",
-    "recommendation_analysis",
-    "recommendation_system",
     "tool_discipline",
     "tool_discipline_messaging",
     "tool_discipline_shared",
     "visual_blocks",
+    "viz_repair",
 ];
 
 /// Coaching personas the registry seeds beside the system prompts (casual,
@@ -380,15 +379,6 @@ fn test_coach_prompt_crud() {
         registry.get_agent_prompt("marathon-coach", "en").as_deref(),
         Some("Updated marathon instructions")
     );
-
-    // Removing one locale keeps siblings; removing the last clears the slug.
-    assert!(registry.remove_agent_prompt("marathon-coach", "fr"));
-    assert!(registry.get_agent_prompt("marathon-coach", "fr").is_none());
-    assert!(registry.get_agent_prompt("marathon-coach", "en").is_some());
-    assert!(registry.remove_agent_prompt("marathon-coach", "en"));
-    assert!(registry.get_agent_prompt("marathon-coach", "en").is_none());
-    assert!(!registry.remove_agent_prompt("marathon-coach", "en"));
-    assert!(!registry.remove_agent_prompt("nonexistent", "en"));
 }
 
 #[test]

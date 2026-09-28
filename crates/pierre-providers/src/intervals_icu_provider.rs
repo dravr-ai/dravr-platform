@@ -734,6 +734,7 @@ fn streams_to_time_series(streams: &[IntervalsIcuStream]) -> TimeSeriesData {
         } else {
             Some(latlng)
         },
+        distance: None,
     }
 }
 

@@ -99,24 +99,19 @@ jobs:
           cargo update -p dravr-contremaitre
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
-      - name: Sync the in-tree contremaitre fallbacks to the bumped rev
-        # The missing half of the bump. This lane moved the pin and nothing
-        # else, while check-contremaitre-sync.sh demands an exact mirror of
-        # contremaitre's evidence/ — so every corpus addition upstream red main
-        # the moment the hourly cron fired. On 2026-09-04 Phil's PR #6 added 69
-        # propositions and 43 seconds later this workflow pushed the pin without
-        # them: main red, five sessions blocked mid-merge, three extra CI cycles
-        # to recover (carnet#325). The sync belongs in the same commit as the
-        # pin it follows, not in a human's hands afterwards.
+      - name: Sync the platform's string copy to the bumped rev
+        # Strings are authored in dravr-contremaitre; packages/i18n holds a
+        # byte-identical copy of the pinned strings/<locale>.json, which the
+        # server compiles in as the messaging registry's seed and both clients
+        # bundle as their cold-start catalogue. check-contremaitre-sync.sh
+        # refuses any byte of difference, so the copy moves in the same commit
+        # as the pin it follows, never in a human's hands afterwards
+        # (carnet#593). The training catalogue and the evidence corpus need no
+        # copy: the pinned crate compiles them in.
         #
-        # The same script mirrors contremaitre's training/ into the root
-        # training_catalogue/ and regenerates the compiled-in table in
-        # pierre-contremaitre (carnet#332) — one mechanism for both fallbacks,
-        # so a catalogue change upstream cannot red main either.
-        #
-        # `cargo fetch` first because the sync reads the canonical trees from
-        # the pinned checkout on disk rather than cloning contremaitre a second
-        # time; `cargo update` above populates the git db but not the checkout.
+        # `cargo fetch` first because the sync reads the pinned checkout on
+        # disk rather than cloning contremaitre a second time; `cargo update`
+        # above populates the git db but not the checkout.
         if: steps.bump.outputs.changed == 'true'
         run: |
           cargo fetch
@@ -142,19 +137,15 @@ jobs:
           SHORT_NEW=$(echo "${{ steps.target.outputs.new_sha }}" | cut -c1-8)
           # Re-discover and stage all consumer manifests + the lockfile, so the
           # commit carries every file the bump touched (no hardcoded list).
-          # Stage the manifests, the lockfile, AND whatever the fallback sync
-          # rewrote — the pin and the fallbacks it implies travel together or the
+          # Stage the manifests, the lockfile, AND the string copy the sync
+          # rewrote — the pin and the copy it implies travel together or the
           # commit reintroduces the drift it was meant to close.
           git add $(grep -rl 'dravr-contremaitre = { git' crates/ Cargo.toml --include=Cargo.toml) Cargo.lock \
-                  crates/pierre-evals/fixtures/sports_science \
-                  crates/pierre-services/src/claim_verification.rs \
-                  training_catalogue \
-                  crates/pierre-contremaitre/src/training_catalogue_embedded.rs
+                  packages/i18n/src/locales
           CORPUS_NOTE=""
-          if ! git diff --cached --quiet -- crates/pierre-evals/fixtures/sports_science training_catalogue; then
-            CORPUS_NOTE=$(printf '\n\nSyncs the in-tree contremaitre fallbacks to match: %s, %s.' \
-              "$(git diff --cached --numstat -- crates/pierre-evals/fixtures/sports_science | wc -l | tr -d ' ') proposition file(s) changed" \
-              "$(git diff --cached --numstat -- training_catalogue | wc -l | tr -d ' ') training catalogue file(s) changed")
+          if ! git diff --cached --quiet -- packages/i18n/src/locales; then
+            CORPUS_NOTE=$(printf '\n\nSyncs the platform string copy to match: %s locale file(s) changed.' \
+              "$(git diff --cached --numstat -- packages/i18n/src/locales | wc -l | tr -d ' ')")
           fi
           git commit -m "chore(contremaitre): bump dravr-contremaitre rev to ${SHORT_NEW}${CORPUS_NOTE}"
           # main moves while this hourly lane runs, and a bare push then rejects

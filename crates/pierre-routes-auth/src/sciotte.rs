@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use chrono::Utc;
@@ -24,7 +24,6 @@ use pierre_providers::registry::{global_registry, ProviderRegistry};
 use pierre_providers::sciotte_provider::SciotteTarget;
 use pierre_services::delegated_connections::forget_coach_roster;
 use pierre_services::provider_notice::require_notice_accepted;
-use pierre_services::provider_revocation::{drop_scrape_session, DisconnectReason};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -41,7 +40,7 @@ use crate::AuthRoutesContext;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::redaction::redact_url;
 use pierre_middleware::provider_link_token::{
-    extract_bearer_link_token, verify_link_token, ProviderLinkTokenClaims,
+    extract_bearer_link_token, verify_link_token, ProviderLinkTokenClaims, CONNECT_PROVIDER,
 };
 
 /// The parked remote-login state the platform remembers between the initial
@@ -293,11 +292,6 @@ pub struct SciotteSelectTwoFactorRequest {
 #[derive(Debug, Deserialize)]
 pub struct SciotteOtpRequest {
     pub code: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct SciotteConnectRequest {
-    pub session_id: String,
 }
 
 /// notify: scrape session established. One helper for both session-write
@@ -608,8 +602,9 @@ pub struct LinkContext {
 ///
 /// Accepts two authentication methods, tried in order:
 /// 1. A channel-initiated provider link-token (`Authorization: Bearer <link-token>`),
-///    minted by `POST /api/channels/provider/sciotte/link-token`. This is the path
-///    used by the hosted Sciotte login page embedded in chat channels.
+///    minted in-process by the messaging pipeline or the backfill notifier. This
+///    is the path used by the hosted Sciotte login page embedded in chat
+///    channels, and it reaches only the login, 2FA and OTP routes.
 /// 2. A standard Pierre session (cookie or Bearer JWT) — used by the web/mobile
 ///    `SciotteLoginModal` component.
 ///
@@ -843,6 +838,21 @@ pub async fn handle_sciotte_login(
 ) -> Result<Response, AppError> {
     let (user_id, tenant_id, link_context) = authenticate(&resources, &headers).await?;
 
+    // A provider-specific link-token signs in only to the platform it was
+    // minted for — it must not accept another platform's notice or store a
+    // session under it. The connect picker's token leaves the choice to the
+    // page, so it carries no platform of its own.
+    if let Some(link) = link_context.as_ref() {
+        let minted_for = SciotteTarget::from_target_param(&link.target).provider_name();
+        let requested = SciotteTarget::from_target_param(&request.target).provider_name();
+        if link.target != CONNECT_PROVIDER && minted_for != requested {
+            return Err(AppError::new(
+                ErrorCode::PermissionDenied,
+                "This login link is for another provider; ask for a fresh link for this one",
+            ));
+        }
+    }
+
     if request.email.is_empty() || request.password.is_empty() {
         return Err(AppError::invalid_input("Email and password are required"));
     }
@@ -1004,99 +1014,4 @@ pub async fn handle_sciotte_submit_otp(
         link_context.as_ref(),
     )
     .await
-}
-
-/// Connect with a pre-existing serialized session (used by external sciotte CLI)
-pub async fn handle_sciotte_connect(
-    State(resources): State<AuthRoutesContext>,
-    headers: HeaderMap,
-    Json(request): Json<SciotteConnectRequest>,
-) -> Result<Response, AppError> {
-    let (user_id, tenant_id, _) = authenticate(&resources, &headers).await?;
-
-    if request.session_id.is_empty() {
-        return Err(AppError::invalid_input("session_id is required"));
-    }
-
-    let now = Utc::now();
-    let token = UserOAuthToken {
-        id: Uuid::new_v4().to_string(),
-        user_id,
-        tenant_id: tenant_id.to_string(),
-        provider: "sciotte".to_owned(),
-        access_token: request.session_id,
-        refresh_token: None,
-        token_type: TOKEN_TYPE_SESSION.to_owned(),
-        expires_at: None,
-        scope: None,
-        provider_user_id: None,
-        oauth_app_client_id: None,
-        created_at: now,
-        updated_at: now,
-    };
-
-    resources.repos.oauth_tokens.upsert_token(&token).await?;
-
-    let tenant = TenantId::from_uuid(tenant_id);
-    resources
-        .repos
-        .provider_connections
-        .register_connection(user_id, tenant, "sciotte", &ConnectionType::Manual, None)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to register connection: {e}")))?;
-
-    notify_sciotte_connected(user_id, tenant_id, "sciotte");
-
-    Ok(Json(serde_json::json!({"status": "connected", "provider": "sciotte"})).into_response())
-}
-
-/// Disconnect the sciotte session
-pub async fn handle_sciotte_disconnect(
-    State(resources): State<AuthRoutesContext>,
-    headers: HeaderMap,
-) -> Result<Response, AppError> {
-    let (user_id, tenant_id, _) = authenticate(&resources, &headers).await?;
-    let tenant = TenantId::from_uuid(tenant_id);
-
-    // Before the row goes: it names the session the sciotte service still
-    // holds the provider cookies under.
-    drop_scrape_session(&resources.repos, user_id, tenant, "sciotte").await;
-
-    resources
-        .repos
-        .oauth_tokens
-        .delete_token(user_id, tenant, "sciotte")
-        .await?;
-
-    // Remove the connection row in lockstep with the token. The two tables are
-    // separate sources of truth (provider_connections drives the "connected"
-    // badge + coaching fetch enumeration; oauth_tokens drives resolve_backend +
-    // the scrape session); leaving an orphaned connection row makes the UI show
-    // "Connected" for a session that no longer exists and routes later fetches
-    // to a dead backend.
-    resources
-        .repos
-        .provider_connections
-        .remove_connection(user_id, tenant, "sciotte")
-        .await?;
-
-    // notify: scrape session torn down. Emitted inline rather than through
-    // `OAuthService::disconnect_provider` because this route's contract is
-    // backend-pinned — it tears down the "sciotte" session specifically,
-    // while the service resolves user-facing names and would delete a Strava
-    // OAuth token instead for a user holding both. Field shape mirrors
-    // `notify_sciotte_connected` so the pair stays on one measurement axis,
-    // plus the `reason` every disconnect event carries.
-    info!(
-        target: "notify",
-        event = "provider.disconnected",
-        provider = %backend_resolver::user_facing_name("sciotte"),
-        backend = "sciotte",
-        user_id = %user_id,
-        tenant_id = %tenant_id,
-        reason = DisconnectReason::Athlete.as_str(),
-        "user disconnected fitness provider (scrape session)"
-    );
-
-    Ok(StatusCode::NO_CONTENT.into_response())
 }

@@ -15,9 +15,10 @@
 
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::Result;
+use dravr_contremaitre::training;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_agent_parser::read_package_artefacts;
 use pierre_contremaitre::{EvidenceRegistry, TrainingCatalogueRegistry};
@@ -32,6 +33,7 @@ use pierre_services::agent_package::{
     load_agent_package, review_package, CatalogueTier, PackagedCatalogue,
 };
 use pierre_tool_runtime::context::CONVERSATION_ID;
+use pierre_tool_runtime::implementations::endurance_workouts::ListWorkoutTemplatesTool;
 use pierre_tool_runtime::implementations::plan_flavour::RecommendPlanFlavourTool;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -43,32 +45,33 @@ mod common;
 mod helpers;
 
 use helpers::agent_fixtures::publish_catalogue_agent_tagged;
-use helpers::axum_test::AxumTestRequest;
 use pierre_database::repositories::training_plans::PlanOwner;
-use pierre_mcp_server::routes::endurance::endurance_routes;
 
-const CATALOGUE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../training_catalogue");
+/// One file of the pinned contremaitre training catalogue, by table and key.
+fn catalogue_file(table: &[(&str, &'static str)], key: &str) -> &'static str {
+    table.iter().find(|(k, _)| *k == key).map_or_else(
+        || panic!("the pinned catalogue carries {key}"),
+        |(_, text)| *text,
+    )
+}
 
 /// The catalogue's polarized flavour, re-labelled as a house flavour with
 /// its own id — a flavour no selection row names.
 fn house_flavour_yaml() -> String {
-    let text = fs::read_to_string(Path::new(CATALOGUE_DIR).join("flavours/polarized-classic.yaml"))
-        .expect("catalogue flavour readable");
+    let text = catalogue_file(training::FLAVOURS, "polarized-classic");
     text.replace("id: polarized-classic", "id: house-polarized")
 }
 
 /// The catalogue's polarized flavour under its own id, with a tighter hard
 /// session cap — an override of a catalogue flavour.
 fn override_flavour_yaml() -> String {
-    let text = fs::read_to_string(Path::new(CATALOGUE_DIR).join("flavours/polarized-classic.yaml"))
-        .expect("catalogue flavour readable");
+    let text = catalogue_file(training::FLAVOURS, "polarized-classic");
     text.replace("  min: 1\n  max: 2\n", "  min: 1\n  max: 1\n")
 }
 
 /// The catalogue's threshold session under a package slug.
 fn package_workout_toml(slug: &str) -> String {
-    let text = fs::read_to_string(Path::new(CATALOGUE_DIR).join("workouts/threshold_4x8.toml"))
-        .expect("catalogue workout readable");
+    let text = catalogue_file(training::WORKOUTS, "threshold_4x8");
     text.replace("slug = \"threshold_4x8\"", &format!("slug = \"{slug}\""))
         .replace(
             "id = \"00000000-0000-0000-0000-000000000002\"",
@@ -101,8 +104,7 @@ fn a_coach_directory_yields_its_artefacts_in_order() {
     fs::write(dir.join("flavour.yaml"), house_flavour_yaml()).unwrap();
     fs::write(
         dir.join("skeleton.yaml"),
-        fs::read_to_string(Path::new(CATALOGUE_DIR).join("skeletons/marathon-linear.yaml"))
-            .unwrap(),
+        catalogue_file(training::SKELETONS, "marathon-linear"),
     )
     .unwrap();
     fs::write(
@@ -455,9 +457,6 @@ fn request(tool: &str, params: Value, user_id: Uuid, tenant: TenantId) -> Univer
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: Some(tenant.to_string()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     }
 }
 
@@ -663,37 +662,47 @@ async fn the_rule_pins_the_house_flavour_with_package_provenance() -> Result<()>
 }
 
 #[tokio::test]
-async fn the_rest_template_list_lays_the_selected_coachs_package_over_the_catalogue() -> Result<()>
-{
-    common::init_server_config();
-    common::init_test_http_clients();
-    let resources = common::create_test_server_resources().await?;
-    let runtime: Arc<dyn ToolRuntime> = resources.clone();
-    let executor =
-        Arc::new(UniversalToolExecutor::new(runtime).with_scopes(OAuthScope::self_grant()));
+async fn the_template_list_lays_the_conversation_coachs_package_over_the_catalogue() -> Result<()> {
+    let executor = create_executor().await?;
     let (user_id, tenant) = create_test_user(&executor).await?;
-    let repos = resources.repos();
+    let repos = executor.resources.repos();
     let agent_id =
         published_coach_with_package(repos, user_id, tenant, &house_flavour_yaml()).await;
-    repos
-        .tenants
-        .set_selected_agent(tenant, user_id, Some(&agent_id.to_string()))
-        .await?;
 
-    let user = repos
-        .users
-        .get_global(user_id)
-        .await?
-        .expect("the athlete exists");
-    let token = common::generate_test_token(&resources, &user).await;
-    let router = endurance_routes().with_state(Arc::clone(&resources));
-    let response = AxumTestRequest::get("/api/v1/endurance/workout-templates")
-        .header("Authorization", &format!("Bearer {token}"))
-        .send(router)
+    // The tool reads the agent from the conversation, so the call runs
+    // inside a chat with that agent.
+    let conversation = repos
+        .chat
+        .create_conversation(
+            &user_id.to_string(),
+            tenant,
+            "dm",
+            "gemini-2.0-flash",
+            Some(&agent_id.to_string()),
+            None,
+        )
+        .await?;
+    let runtime: Arc<dyn ToolRuntime> = executor.resources.clone();
+    let ctx = ToolContext::new()
+        .with_user(user_id.to_string())
+        .with_tenant(tenant.to_string())
+        .with_auth_method("jwt_bearer");
+    let response = CONVERSATION_ID
+        .scope(Some(conversation.id), async {
+            ListWorkoutTemplatesTool
+                .execute(&runtime, &ctx, json!({}))
+                .await
+        })
         .await;
-    assert_eq!(response.status(), 200);
-    let body: Value = response.json();
-    let slugs: Vec<&str> = body
+    let result = response
+        .structured_content
+        .expect("tool result carries structured content");
+    assert!(
+        result.get("error").is_none(),
+        "tool failed: {}",
+        result["error"]
+    );
+    let slugs: Vec<&str> = result["templates"]
         .as_array()
         .expect("a list")
         .iter()
@@ -703,7 +712,7 @@ async fn the_rest_template_list_lays_the_selected_coachs_package_over_the_catalo
         slugs[0], "house_4x8",
         "package templates come first: {slugs:?}"
     );
-    assert!(slugs.contains(&"house_easy"));
+    assert!(slugs.contains(&"house_easy"), "{slugs:?}");
     assert!(
         slugs.contains(&"threshold_4x8"),
         "the catalogue is still listed"

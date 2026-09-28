@@ -129,13 +129,6 @@ pub trait AgentsRepository: Send + Sync {
 
     // --- User methods ---
 
-    /// Fork an agent into a user-owned copy
-    async fn fork_agent(
-        &self,
-        source_agent_id: &str,
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> AppResult<Agent>;
     /// Activate an agent for the user
     async fn activate_agent(
         &self,
@@ -177,8 +170,6 @@ pub trait AgentsRepository: Send + Sync {
         agent_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<Option<Agent>>;
-    /// Get a system agent by ID regardless of tenant
-    async fn get_system_agent_any_tenant(&self, agent_id: &str) -> AppResult<Option<Agent>>;
     /// Update a system agent
     async fn update_system_agent(
         &self,
@@ -322,13 +313,6 @@ pub trait CoachingGroupRepository: Send + Sync {
     /// List groups the user belongs to (as member, admin, or owner).
     /// Membership-based lookup — no tenant filter since members join cross-tenant.
     async fn list_groups_for_user(&self, user_id: Uuid) -> AppResult<Vec<GroupSummary>>;
-
-    /// List groups that use a specific agent persona
-    async fn list_groups_for_agent(
-        &self,
-        agent_id: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<Vec<CoachingGroup>>;
 
     /// List active groups where the given user is the attached human coach
     /// (`coach_user_id`). No tenant filter — groups span tenants and the
@@ -525,4 +509,420 @@ pub trait CoachingGroupRepository: Send + Sync {
         week_key: &str,
         now_ms: i64,
     ) -> AppResult<()>;
+}
+
+// ============================================================================
+// Agents catalogue, written once
+// ============================================================================
+//
+// One SQL text per operation for both backends; `agents_backend.rs` emits the
+// `AgentsRepository` impl over these for each backend type.
+//
+// `$n` placeholders throughout: sqlx accepts them on `SQLite` as well as
+// Postgres. Booleans bind as `bool` and are spelled `TRUE`/`FALSE`: Postgres
+// has the type, `SQLite` stores 1/0 and reads them back as `bool`. Timestamps
+// bind as `DateTime<Utc>` on both; sqlx-sqlite writes the RFC 3339 text the
+// `SQLite` TEXT columns always held. `agents.user_id` and every other
+// `users(id)` reference are `uuid` on Postgres and TEXT on `SQLite`, so the
+// shared body binds them through a [`super::uuid_columns`] codec.
+// `agents.tenant_id` and `tenant_users.tenant_id` bind as a `TenantId`, which
+// encodes as a uuid on Postgres and as its text on `SQLite`.
+
+/// The columns every agent read decodes, each prefixed with `$p` (`""` for the
+/// bare table, `"c."` inside a join). One list, so a column added to `Agent`
+/// reaches every read at once.
+macro_rules! agent_columns {
+    ($p:literal) => {
+        concat!(
+            $p,
+            "id, ",
+            $p,
+            "user_id, ",
+            $p,
+            "tenant_id, ",
+            $p,
+            "title, ",
+            $p,
+            "description, ",
+            $p,
+            "system_prompt, ",
+            $p,
+            "category, ",
+            $p,
+            "tags, ",
+            $p,
+            "sample_prompts, ",
+            $p,
+            "token_count, ",
+            $p,
+            "created_at, ",
+            $p,
+            "updated_at, ",
+            $p,
+            "is_system, ",
+            $p,
+            "visibility, ",
+            $p,
+            "prerequisites, ",
+            $p,
+            "forked_from, ",
+            $p,
+            "slug, ",
+            $p,
+            "max_tool_iterations, ",
+            $p,
+            "temperature, ",
+            $p,
+            "startup_query, ",
+            $p,
+            "data_requirements, ",
+            $p,
+            "purpose, ",
+            $p,
+            "when_to_use, ",
+            $p,
+            "instructions, ",
+            $p,
+            "example_inputs, ",
+            $p,
+            "example_outputs, ",
+            $p,
+            "success_criteria"
+        )
+    };
+}
+
+/// Give a user an assignment row for an agent unless they already hold one;
+/// the user assigns themselves. Favourites, usage and selection all update
+/// that row, so each of them makes sure it exists first.
+pub(crate) const ENSURE_ASSIGNMENT_SQL: &str = r"
+    INSERT INTO agent_assignments (id, agent_id, user_id, assigned_by, created_at, is_favorite, use_count, last_used_at)
+    VALUES ($1, $2, $3, $3, $4, FALSE, 0, NULL)
+    ON CONFLICT (agent_id, user_id) DO NOTHING
+";
+
+/// Whether an agent is a system agent.
+pub(crate) const AGENT_IS_SYSTEM_SQL: &str =
+    "SELECT 1 FROM agents WHERE id = $1 AND is_system = TRUE";
+
+/// Whether an agent of the caller's tenant is assigned to the caller. The
+/// tenant join keeps an agent id from another tenant answering the same as a
+/// nonexistent one.
+pub(crate) const AGENT_ASSIGNED_IN_TENANT_SQL: &str = r"
+    SELECT 1 FROM agent_assignments ca
+    INNER JOIN agents c ON c.id = ca.agent_id
+    WHERE ca.agent_id = $1 AND ca.user_id = $2 AND c.tenant_id = $3
+";
+
+/// Create a user's agent.
+pub(crate) const INSERT_AGENT_SQL: &str = r"
+    INSERT INTO agents (
+        id, user_id, tenant_id, title, description, system_prompt,
+        category, tags, sample_prompts, token_count,
+        created_at, updated_at, is_system, visibility, prerequisites,
+        forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
+        purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria,
+        content_hash
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, FALSE, $12, NULL, NULL, $13, NULL,
+              $14, $15, $16, $17, $18, $19, $20, $21, $22)
+";
+
+/// An agent the user owns in the tenant, a system agent, or one assigned to them.
+pub(crate) const GET_AGENT_SQL: &str = concat!(
+    "SELECT ",
+    agent_columns!(""),
+    " FROM agents WHERE id = $1 AND (
+        (user_id = $2 AND tenant_id = $3)
+        OR is_system = TRUE
+        OR id IN (SELECT agent_id FROM agent_assignments WHERE user_id = $2)
+    )"
+);
+
+/// An agent of the tenant, or a system agent.
+pub(crate) const GET_AGENT_IN_TENANT_SQL: &str = concat!(
+    "SELECT ",
+    agent_columns!(""),
+    " FROM agents WHERE id = $1 AND (tenant_id = $2 OR is_system = TRUE)"
+);
+
+/// The copy of a handle the user has installed: their own first, then the
+/// oldest.
+pub(crate) const FIND_INSTALLED_BY_HANDLE_SQL: &str = concat!(
+    "SELECT ",
+    agent_columns!("c."),
+    " FROM agents c
+    JOIN agent_assignments ca ON ca.agent_id = c.id AND ca.user_id = $1
+    WHERE c.slug = $2 AND (c.tenant_id = $3 OR c.is_system = TRUE)
+    ORDER BY CASE WHEN c.user_id = $1 THEN 0 ELSE 1 END, c.created_at ASC
+    LIMIT 1"
+);
+
+/// The agents a user sees, with their per-user assignment state.
+///
+/// The filters are parameters, not composed text: `$5` includes system
+/// agents, `$6` restricts to one category when not NULL, `$7` keeps
+/// favourites only, and `$8` includes the agents the user hid.
+pub(crate) const LIST_AGENTS_SQL: &str = concat!(
+    "SELECT ",
+    agent_columns!("c."),
+    ",
+        CASE WHEN ca.agent_id IS NOT NULL THEN TRUE ELSE FALSE END AS is_assigned,
+        COALESCE(ca.is_favorite, FALSE) AS is_favorite,
+        CASE WHEN tu.selected_agent_id = c.id THEN TRUE ELSE FALSE END AS is_active,
+        COALESCE(ca.use_count, 0) AS use_count,
+        ca.last_used_at
+    FROM agents c
+    LEFT JOIN agent_assignments ca ON c.id = ca.agent_id AND ca.user_id = $1
+    LEFT JOIN tenant_users tu ON tu.user_id = $1 AND tu.tenant_id = $2
+    WHERE (
+        (c.user_id = $1 AND c.is_system = FALSE AND c.tenant_id = $2)
+        OR ($5 AND c.is_system = TRUE)
+        OR c.id IN (SELECT agent_id FROM agent_assignments WHERE user_id = $1)
+    )
+    AND ($6 IS NULL OR c.category = $6)
+    AND (NOT $7 OR ca.is_favorite = TRUE)
+    AND ($8 OR c.id NOT IN (
+        SELECT agent_id FROM user_agent_preferences WHERE user_id = $1 AND is_hidden = TRUE))
+    ORDER BY c.updated_at DESC LIMIT $3 OFFSET $4"
+);
+
+/// The stored startup query, kept by an update that does not name one.
+pub(crate) const AGENT_STARTUP_QUERY_SQL: &str = "SELECT startup_query FROM agents WHERE id = $1";
+
+/// The stored data requirements, kept by an update that does not name them.
+pub(crate) const AGENT_DATA_REQUIREMENTS_SQL: &str =
+    "SELECT data_requirements FROM agents WHERE id = $1";
+
+/// Update a user's own agent.
+pub(crate) const UPDATE_AGENT_SQL: &str = r"
+    UPDATE agents SET
+        title = $1, description = $2, system_prompt = $3,
+        category = $4, tags = $5, sample_prompts = $6, token_count = $7, updated_at = $8,
+        startup_query = $12, data_requirements = $13,
+        purpose = $14, when_to_use = $15, instructions = $16,
+        example_inputs = $17, example_outputs = $18, success_criteria = $19,
+        max_tool_iterations = $20
+    WHERE id = $9 AND user_id = $10 AND tenant_id = $11
+";
+
+/// Delete a user's own agent.
+pub(crate) const DELETE_AGENT_SQL: &str =
+    "DELETE FROM agents WHERE id = $1 AND user_id = $2 AND tenant_id = $3";
+
+/// Whether the caller can reach an agent: one of their tenant, or a system
+/// agent. System agents are pinned to the seed tenant but exposed to every
+/// tenant through the catalogue, so usage, favourites and selection accept
+/// them unconditionally.
+pub(crate) const AGENT_REACHABLE_SQL: &str =
+    "SELECT 1 FROM agents WHERE id = $1 AND (tenant_id = $2 OR is_system = TRUE)";
+
+/// Count one use of an agent.
+pub(crate) const RECORD_USAGE_SQL: &str = r"
+    UPDATE agent_assignments SET use_count = use_count + 1, last_used_at = $1
+    WHERE agent_id = $2 AND user_id = $3
+";
+
+/// Whether the user marked an agent a favourite.
+pub(crate) const FAVORITE_STATUS_SQL: &str =
+    "SELECT is_favorite FROM agent_assignments WHERE agent_id = $1 AND user_id = $2";
+
+/// Set the favourite flag.
+pub(crate) const SET_FAVORITE_SQL: &str =
+    "UPDATE agent_assignments SET is_favorite = $1 WHERE agent_id = $2 AND user_id = $3";
+
+/// Search a user's own agents by title, description or tags, ignoring case.
+/// `LOWER` on both sides rather than Postgres's `ILIKE`, which `SQLite` lacks;
+/// `SQLite`'s `LOWER` folds ASCII letters only, as its `LIKE` does.
+pub(crate) const SEARCH_AGENTS_SQL: &str = concat!(
+    "SELECT ",
+    agent_columns!(""),
+    " FROM agents WHERE user_id = $1 AND tenant_id = $2 AND (
+        LOWER(title) LIKE LOWER($3) OR LOWER(description) LIKE LOWER($3)
+        OR LOWER(tags) LIKE LOWER($3))
+    ORDER BY updated_at DESC LIMIT $4 OFFSET $5"
+);
+
+/// How many agents a user owns in the tenant.
+pub(crate) const COUNT_AGENTS_SQL: &str =
+    "SELECT COUNT(*) AS count FROM agents WHERE user_id = $1 AND tenant_id = $2";
+
+/// Select the agent a user talks to: one pointer on their membership row, so
+/// they can never hold zero or two.
+pub(crate) const SELECT_AGENT_SQL: &str =
+    "UPDATE tenant_users SET selected_agent_id = $1 WHERE user_id = $2 AND tenant_id = $3";
+
+/// Clear the selection, leaving the roster row intact.
+pub(crate) const DESELECT_AGENT_SQL: &str = r"
+    UPDATE tenant_users SET selected_agent_id = NULL
+    WHERE user_id = $1 AND tenant_id = $2 AND selected_agent_id IS NOT NULL
+";
+
+/// The agent a user selected in the tenant.
+pub(crate) const GET_ACTIVE_AGENT_SQL: &str = concat!(
+    "SELECT ",
+    agent_columns!("c."),
+    " FROM agents c
+    JOIN tenant_users tu ON c.id = tu.selected_agent_id
+    WHERE tu.user_id = $1 AND tu.tenant_id = $2"
+);
+
+/// A user's agent with a given content hash, for deduplicating a create.
+pub(crate) const FIND_BY_CONTENT_HASH_SQL: &str = concat!(
+    "SELECT ",
+    agent_columns!(""),
+    " FROM agents WHERE content_hash = $1 AND user_id = $2 AND tenant_id = $3 LIMIT 1"
+);
+
+/// Create a system agent.
+pub(crate) const INSERT_SYSTEM_AGENT_SQL: &str = r"
+    INSERT INTO agents (
+        id, user_id, tenant_id, title, description, system_prompt,
+        category, tags, sample_prompts, token_count,
+        created_at, updated_at, is_system, visibility, prerequisites,
+        forked_from, max_tool_iterations, temperature, startup_query, data_requirements
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, TRUE, $12,
+              NULL, NULL, NULL, NULL, NULL, NULL)
+";
+
+/// A tenant's system agents, newest first.
+pub(crate) const LIST_SYSTEM_AGENTS_SQL: &str = concat!(
+    "SELECT ",
+    agent_columns!(""),
+    " FROM agents WHERE tenant_id = $1 AND is_system = TRUE ORDER BY created_at DESC"
+);
+
+/// One system agent of the tenant.
+pub(crate) const GET_SYSTEM_AGENT_SQL: &str = concat!(
+    "SELECT ",
+    agent_columns!(""),
+    " FROM agents WHERE id = $1 AND tenant_id = $2 AND is_system = TRUE"
+);
+
+/// Update a system agent's content.
+pub(crate) const UPDATE_SYSTEM_AGENT_SQL: &str = r"
+    UPDATE agents SET title = $1, description = $2, system_prompt = $3,
+        category = $4, tags = $5, sample_prompts = $6, token_count = $7, updated_at = $8
+    WHERE id = $9 AND tenant_id = $10 AND is_system = TRUE
+";
+
+/// Delete a system agent.
+pub(crate) const DELETE_SYSTEM_AGENT_SQL: &str =
+    "DELETE FROM agents WHERE id = $1 AND tenant_id = $2 AND is_system = TRUE";
+
+/// A user's favourite flag, use count and last use of an agent.
+pub(crate) const USER_PREFERENCES_SQL: &str = r"
+    SELECT is_favorite, use_count, last_used_at
+    FROM agent_assignments WHERE agent_id = $1 AND user_id = $2
+";
+
+/// Assign an agent to a user on someone's behalf; a second assignment is a no-op.
+pub(crate) const ASSIGN_AGENT_SQL: &str = r"
+    INSERT INTO agent_assignments (id, agent_id, user_id, assigned_by, created_at, is_favorite, use_count, last_used_at)
+    VALUES ($1, $2, $3, $4, $5, FALSE, 0, NULL)
+    ON CONFLICT (agent_id, user_id) DO NOTHING
+";
+
+/// Remove a user's assignment.
+pub(crate) const UNASSIGN_AGENT_SQL: &str =
+    "DELETE FROM agent_assignments WHERE agent_id = $1 AND user_id = $2";
+
+/// Every assignment of an agent, newest first.
+pub(crate) const LIST_ASSIGNMENTS_SQL: &str = r"
+    SELECT ca.user_id, ca.created_at, ca.assigned_by, u.email
+    FROM agent_assignments ca LEFT JOIN users u ON ca.user_id = u.id
+    WHERE ca.agent_id = $1 ORDER BY ca.created_at DESC
+";
+
+/// The assignments of an agent held by members of one tenant, newest first.
+pub(crate) const LIST_ASSIGNMENTS_FOR_TENANT_SQL: &str = r"
+    SELECT ca.user_id, ca.created_at, ca.assigned_by, u.email
+    FROM agent_assignments ca LEFT JOIN users u ON ca.user_id = u.id
+    INNER JOIN tenant_users tu ON ca.user_id = tu.user_id AND tu.tenant_id = $2
+    WHERE ca.agent_id = $1 ORDER BY ca.created_at DESC
+";
+
+/// Hide an agent from a user's list.
+pub(crate) const HIDE_AGENT_SQL: &str = r"
+    INSERT INTO user_agent_preferences (id, user_id, agent_id, is_hidden, created_at)
+    VALUES ($1, $2, $3, TRUE, $4)
+    ON CONFLICT (user_id, agent_id) DO UPDATE SET is_hidden = TRUE
+";
+
+/// Show a hidden agent again. `user_agent_preferences` has no tenant column:
+/// the hidden set is a per-user preference and the handler gates the tenant.
+pub(crate) const SHOW_AGENT_SQL: &str =
+    "DELETE FROM user_agent_preferences WHERE agent_id = $1 AND user_id = $2 AND is_hidden = TRUE";
+
+/// The agents of the tenant a user hid, by title.
+pub(crate) const LIST_HIDDEN_AGENTS_SQL: &str = concat!(
+    "SELECT ",
+    agent_columns!("c."),
+    " FROM agents c
+    INNER JOIN user_agent_preferences ucp ON c.id = ucp.agent_id
+    WHERE ucp.user_id = $1 AND ucp.is_hidden = TRUE AND c.tenant_id = $2
+    ORDER BY c.title"
+);
+
+/// An agent by id alone, for the version snapshot.
+pub(crate) const AGENT_BY_ID_SQL: &str =
+    concat!("SELECT ", agent_columns!(""), " FROM agents WHERE id = $1");
+
+/// An agent of the tenant by id, read back after a revert.
+pub(crate) const AGENT_OF_TENANT_SQL: &str = concat!(
+    "SELECT ",
+    agent_columns!(""),
+    " FROM agents WHERE id = $1 AND tenant_id = $2"
+);
+
+/// Whether an agent belongs to the tenant.
+pub(crate) const AGENT_IN_TENANT_EXISTS_SQL: &str =
+    "SELECT 1 FROM agents WHERE id = $1 AND tenant_id = $2";
+
+/// An agent's latest version number, 0 before its first snapshot.
+pub(crate) const MAX_VERSION_SQL: &str =
+    "SELECT COALESCE(MAX(version), 0) AS max_version FROM agent_versions WHERE agent_id = $1";
+
+/// Record a version snapshot.
+pub(crate) const INSERT_VERSION_SQL: &str = r"
+    INSERT INTO agent_versions (id, agent_id, version, content_hash, content_snapshot, change_summary, created_at, created_by)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+";
+
+/// An agent's versions, newest first.
+pub(crate) const LIST_VERSIONS_SQL: &str = r"
+    SELECT id, agent_id, version, content_hash, content_snapshot, change_summary, created_at, created_by
+    FROM agent_versions WHERE agent_id = $1 ORDER BY version DESC LIMIT $2
+";
+
+/// One version of an agent.
+pub(crate) const GET_VERSION_SQL: &str = r"
+    SELECT id, agent_id, version, content_hash, content_snapshot, change_summary, created_at, created_by
+    FROM agent_versions WHERE agent_id = $1 AND version = $2
+";
+
+/// Restore a snapshot onto the agent. Owner-gated like `UPDATE_AGENT_SQL`:
+/// a non-owner in the same tenant matches no row, which closes the
+/// version-revert IDOR.
+pub(crate) const REVERT_AGENT_SQL: &str = r"
+    UPDATE agents SET title = $1, description = $2, system_prompt = $3,
+        category = $4, tags = $5, sample_prompts = $6, token_count = $7, updated_at = $8
+    WHERE id = $9 AND user_id = $10 AND tenant_id = $11
+";
+
+/// What a chat turn needs of an agent of the tenant, or a system agent.
+pub(crate) const RUNTIME_CONTEXT_SQL: &str = r"
+    SELECT slug, title, source, system_prompt, startup_query, data_requirements, visuals,
+           max_tool_iterations, temperature, category
+    FROM agents WHERE id = $1 AND (tenant_id = $2 OR is_system = TRUE) LIMIT 1
+";
+
+/// The translation overlays of `count` agents in one locale: `$1` is the
+/// locale and `$2`… the agent ids.
+pub(crate) fn translation_overlays_sql(count: usize) -> String {
+    let placeholders: Vec<String> = (0..count).map(|i| format!("${}", i + 2)).collect();
+    format!(
+        "SELECT agent_id, title, description, purpose, instructions, tags \
+         FROM agent_translations WHERE locale = $1 AND agent_id IN ({})",
+        placeholders.join(", ")
+    )
 }

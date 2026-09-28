@@ -89,7 +89,7 @@ pub async fn handle_get_summary(
         })?;
 
     info!(
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         tenant = %params.tenant_id,
         verdicts_scanned = summary.verdicts_scanned,
         flagged_total = summary.flagged_total,
@@ -137,7 +137,7 @@ pub(crate) async fn handle_promote_topic(
     .await?;
 
     info!(
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         topic = %response.topic,
         added = response.added,
         total_blocked_topics = response.total_blocked_topics,

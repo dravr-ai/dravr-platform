@@ -28,19 +28,14 @@
 
 use std::time::Duration;
 
-#[cfg(feature = "postgresql")]
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::Row;
 use tokio::time::sleep;
 use tracing::{info, warn};
 
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::Database;
-#[cfg(feature = "postgresql")]
-use pierre_database::backends::postgres::PostgresDatabase;
-use pierre_database::database::Database as SqliteBackend;
-use pierre_database::repositories::InsertClaimVerdictParams;
+use pierre_database::repositories::{AssistantMessage, InsertClaimVerdictParams};
 use pierre_database::RepositoryRegistry;
 use pierre_evals::claim_extractor::ExtractedClaim;
 use pierre_evals::evidence_retriever::EvidenceCorpus;
@@ -157,15 +152,6 @@ pub struct BackfillStats {
     pub persistence_errors: u64,
 }
 
-/// Row yielded by the message walker.
-struct AssistantMessageRow {
-    message_id: String,
-    conversation_id: String,
-    user_id: String,
-    agent_id: Option<String>,
-    content: String,
-}
-
 /// Run the backfill for `params.tenant_id` using the supplied
 /// [`VerificationConfig`] (typically `VerificationConfig::default()`
 /// for the CLI wiring; admins can plug in tenant overrides later).
@@ -197,7 +183,7 @@ pub async fn run_backfill(
         "starting claim verdict backfill"
     );
 
-    let rows = fetch_assistant_messages(database, params, cursor.as_deref(), limit).await?;
+    let rows = fetch_assistant_messages(repos, params, cursor.as_deref(), limit).await?;
     // CLI callers skip `resolve_corpus` because they don't have a
     // `ServerContext` handle and the compiled-in `corpus()` is the
     // same data the runtime registry falls back to when empty.
@@ -240,7 +226,7 @@ pub async fn run_backfill(
 /// work and folds the persistence branch in cleanly here.
 async fn process_message_row(
     repos: &RepositoryRegistry,
-    row: &AssistantMessageRow,
+    row: &AssistantMessage,
     params: &BackfillParams<'_>,
     config: &VerificationConfig,
     corpus: &EvidenceCorpus,
@@ -296,7 +282,7 @@ fn accumulate_status(by_status: &mut BackfillStatusCounts, status: ClaimStatus) 
 /// Persist a single claim verdict, updating `stats` on success or failure.
 async fn persist_verdict(
     repos: &RepositoryRegistry,
-    row: &AssistantMessageRow,
+    row: &AssistantMessage,
     tenant_id: TenantId,
     claim: &ExtractedClaim,
     outcome: &VerdictOutcome,
@@ -330,160 +316,36 @@ async fn persist_verdict(
     }
 }
 
+/// The walk's next page, through the one chat statement both backends run.
+///
+/// `since` must be an RFC 3339 timestamp; it bounds the walk from below.
 async fn fetch_assistant_messages(
-    database: &Database,
+    repos: &RepositoryRegistry,
     params: &BackfillParams<'_>,
     cursor_message_id: Option<&str>,
     limit: u64,
-) -> AppResult<Vec<AssistantMessageRow>> {
-    let tenant_str = params.tenant_id.to_string();
-    let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
-
-    match database {
-        Database::SQLite(db) => {
-            let (cursor_created, cursor_id) = match cursor_message_id {
-                Some(id) => load_cursor_timestamp_sqlite(db, id).await?,
-                None => (None, None),
-            };
-            let since = params.since.unwrap_or("");
-            let cursor_created_ref = cursor_created.as_deref().unwrap_or("");
-            let cursor_id_ref = cursor_id.as_deref().unwrap_or("");
-
-            let sql = r"
-                SELECT m.id AS message_id,
-                       m.conversation_id AS conversation_id,
-                       c.user_id AS user_id,
-                       c.agent_id AS agent_id,
-                       m.content AS content,
-                       m.created_at AS created_at
-                FROM chat_messages m
-                INNER JOIN chat_conversations c ON c.id = m.conversation_id
-                WHERE c.tenant_id = $1
-                  AND m.role = 'assistant'
-                  AND ($2 = '' OR m.created_at >= $2)
-                  AND ($3 = '' OR m.created_at > $3
-                       OR (m.created_at = $3 AND m.id > $4))
-                ORDER BY m.created_at ASC, m.id ASC
-                LIMIT $5
-            ";
-
-            let rows = sqlx::query(sql)
-                .bind(&tenant_str)
-                .bind(since)
-                .bind(cursor_created_ref)
-                .bind(cursor_id_ref)
-                .bind(limit_i64)
-                .fetch_all(db.pool())
-                .await
-                .map_err(|e| AppError::database(format!("Failed to fetch messages: {e}")))?;
-
-            let mut out = Vec::with_capacity(rows.len());
-            for row in rows {
-                out.push(AssistantMessageRow {
-                    message_id: row.get("message_id"),
-                    conversation_id: row.get("conversation_id"),
-                    user_id: row.get("user_id"),
-                    agent_id: row.try_get("agent_id").ok(),
-                    content: row.get("content"),
-                });
-            }
-            Ok(out)
-        }
-        #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => {
-            let (cursor_created, cursor_id) = match cursor_message_id {
-                Some(id) => load_cursor_timestamp_postgres(db, id).await?,
-                None => (None, None),
-            };
-            let since = params
-                .since
-                .map(|since| {
-                    DateTime::parse_from_rfc3339(since)
-                        .map(|dt| dt.with_timezone(&Utc))
-                        .map_err(|e| {
-                            AppError::invalid_input(format!(
-                                "since must be an RFC 3339 timestamp, got {since:?}: {e}"
-                            ))
-                        })
+) -> AppResult<Vec<AssistantMessage>> {
+    let since = params
+        .since
+        .map(|since| {
+            DateTime::parse_from_rfc3339(since)
+                .map(|dt| dt.with_timezone(&Utc))
+                .map_err(|e| {
+                    AppError::invalid_input(format!(
+                        "since must be an RFC 3339 timestamp, got {since:?}: {e}"
+                    ))
                 })
-                .transpose()?;
-
-            // `created_at` is `TIMESTAMPTZ` here, so the bounds bind as
-            // timestamps and an absent bound is a NULL rather than the empty
-            // string the text-typed `SQLite` column compares against.
-            let sql = r"
-                SELECT m.id AS message_id,
-                       m.conversation_id AS conversation_id,
-                       c.user_id::text AS user_id,
-                       c.agent_id AS agent_id,
-                       m.content AS content
-                FROM chat_messages m
-                INNER JOIN chat_conversations c ON c.id = m.conversation_id
-                WHERE c.tenant_id = $1
-                  AND m.role = 'assistant'
-                  AND ($2::timestamptz IS NULL OR m.created_at >= $2)
-                  AND ($3::timestamptz IS NULL OR m.created_at > $3
-                       OR (m.created_at = $3 AND m.id > $4))
-                ORDER BY m.created_at ASC, m.id ASC
-                LIMIT $5
-            ";
-
-            let rows = sqlx::query(sql)
-                .bind(&tenant_str)
-                .bind(since)
-                .bind(cursor_created)
-                .bind(cursor_id)
-                .bind(limit_i64)
-                .fetch_all(db.pool())
-                .await
-                .map_err(|e| AppError::database(format!("Failed to fetch messages: {e}")))?;
-
-            let mut out = Vec::with_capacity(rows.len());
-            for row in rows {
-                out.push(AssistantMessageRow {
-                    message_id: row.get("message_id"),
-                    conversation_id: row.get("conversation_id"),
-                    user_id: row.get("user_id"),
-                    agent_id: row.try_get("agent_id").ok(),
-                    content: row.get("content"),
-                });
-            }
-            Ok(out)
-        }
-    }
-}
-
-#[cfg(feature = "postgresql")]
-async fn load_cursor_timestamp_postgres(
-    db: &PostgresDatabase,
-    message_id: &str,
-) -> AppResult<(Option<DateTime<Utc>>, Option<String>)> {
-    let sql = "SELECT id, created_at FROM chat_messages WHERE id = $1";
-    let row = sqlx::query(sql)
-        .bind(message_id)
-        .fetch_optional(db.pool())
+        })
+        .transpose()?;
+    repos
+        .chat
+        .list_assistant_messages_after(
+            params.tenant_id,
+            since,
+            cursor_message_id,
+            i64::try_from(limit).unwrap_or(i64::MAX),
+        )
         .await
-        .map_err(|e| AppError::database(format!("Failed to load cursor message: {e}")))?;
-    row.map_or_else(
-        || Ok((None, None)),
-        |row| Ok((Some(row.get("created_at")), Some(row.get("id")))),
-    )
-}
-
-async fn load_cursor_timestamp_sqlite(
-    db: &SqliteBackend,
-    message_id: &str,
-) -> AppResult<(Option<String>, Option<String>)> {
-    let sql = "SELECT id, created_at FROM chat_messages WHERE id = $1";
-    let row = sqlx::query(sql)
-        .bind(message_id)
-        .fetch_optional(db.pool())
-        .await
-        .map_err(|e| AppError::database(format!("Failed to load cursor message: {e}")))?;
-    row.map_or_else(
-        || Ok((None, None)),
-        |row| Ok((Some(row.get("created_at")), Some(row.get("id")))),
-    )
 }
 
 async fn load_cursor(database: &Database, tenant_id: TenantId) -> AppResult<Option<String>> {

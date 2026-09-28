@@ -104,13 +104,14 @@ impl AdminRoutes {
     /// auth + `is_admin` check.
     ///
     /// Counterpart to [`Self::routes`] — these power the admin web UI tabs
-    /// (Claim Verdicts, Agent Grades, Myth Busting, Memory Worker, Agent
-    /// Followups, Agent Notes Audit, Harness Config, Guardian Config, and
-    /// optionally Eval Harness when `tools-verification` is enabled). Single
-    /// mount, single auth for all of these EXCEPT harness and guardian
-    /// settings, which also mount admin-token twins in
-    /// [`Self::settings_routes`] so `pierre-cli settings` can reach them
-    /// with a bearer token.
+    /// (users, auto-approval, admin tokens, Claim Verdicts, Agent Grades, Myth
+    /// Busting, Memory Worker, Agent Followups, Agent Notes Audit, Harness
+    /// Config, Guardian Config, and optionally Eval Harness when
+    /// `tools-verification` is enabled). Every handler here is the one handler
+    /// for its operation: users, auto-approval, tokens, harness and guardian
+    /// are also mounted under `/admin` for `pierre-cli`'s bearer token
+    /// ([`Self::console_user_routes`], [`Self::console_token_routes`],
+    /// [`Self::settings_routes`]).
     ///
     /// The cookie middleware is generic over [`MiddlewareCtx`]; the
     /// composition root in `pierre-server` passes `Arc<ServerContext>` as
@@ -135,6 +136,8 @@ impl AdminRoutes {
         let guardian_config_routes = Self::guardian_config_routes(context.clone());
         let feature_flag_admin_routes = Self::feature_flag_admin_routes(context.clone());
         let rate_limit_override_routes = Self::rate_limit_override_routes(Arc::clone(&context));
+        let user_management_routes = Self::console_user_routes(Arc::clone(&context));
+        let token_routes = Self::console_token_routes(Arc::clone(&context));
 
         let human_admin = Router::new()
             .merge(claim_verdict_routes)
@@ -146,7 +149,9 @@ impl AdminRoutes {
             .merge(harness_config_routes)
             .merge(guardian_config_routes)
             .merge(feature_flag_admin_routes)
-            .merge(rate_limit_override_routes);
+            .merge(rate_limit_override_routes)
+            .merge(user_management_routes)
+            .merge(token_routes);
 
         let human_admin = human_admin.merge(contremaitre_admin::admin_routes(Arc::clone(&context)));
 
@@ -262,10 +267,6 @@ impl AdminRoutes {
                 get(claim_verdicts::handle_verdict_health),
             )
             .route(
-                "/api/admin/claim-verdicts/conversations/{conversation_id}",
-                get(claim_verdicts::handle_list_verdicts_by_conversation),
-            )
-            .route(
                 "/api/admin/claim-verdicts/messages/{message_id}",
                 get(claim_verdicts::handle_list_verdicts_by_message),
             )
@@ -290,10 +291,33 @@ impl AdminRoutes {
             .with_state(context)
     }
 
-    /// User management routes (Axum)
+    /// Admin-token-only user routes: the listing, the per-user read and delete,
+    /// and the provider disconnect `pierre-cli` drives. The operations the
+    /// console shares are in [`Self::token_user_management_routes`].
     fn user_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
             .route("/admin/users", get(users::handle_list_users))
+            .route(
+                "/admin/users/{user_id}",
+                get(users::handle_get_user).delete(user_removal::handle_delete_user),
+            )
+            // Disconnect one provider for a user through the same chokepoint
+            // their own disconnect uses, so the grant is revoked upstream.
+            .route(
+                "/admin/users/{user_id}/providers/{provider}",
+                delete(user_removal::handle_disconnect_user_provider),
+            )
+            .with_state(Arc::clone(&context))
+            .merge(Self::token_user_management_routes(context))
+    }
+
+    /// User management `pierre-cli` drives with its admin token: pending users,
+    /// approval, suspension, password reset, rate limit, activity, tier and the
+    /// standing pre-approval allow-list. [`Self::console_user_routes`] mounts
+    /// the same handlers for the console; the paths are spelled out on both
+    /// so every route stays a string literal the route scanners can read.
+    fn token_user_management_routes(context: Arc<AdminApiContext>) -> Router {
+        Router::new()
             .route("/admin/pending-users", get(users::handle_pending_users))
             .route(
                 "/admin/approve-user/{user_id}",
@@ -315,25 +339,11 @@ impl AdminRoutes {
                 "/admin/users/{user_id}/activity",
                 get(users::handle_get_user_activity),
             )
-            .route(
-                "/admin/users/{user_id}",
-                get(users::handle_get_user).delete(user_removal::handle_delete_user),
-            )
-            // Disconnect one provider for a user through the same chokepoint
-            // their own disconnect uses, so the grant is revoked upstream.
-            .route(
-                "/admin/users/{user_id}/providers/{provider}",
-                delete(user_removal::handle_disconnect_user_provider),
-            )
+            // Super-admin only inside the handler, whichever surface reaches it.
             .route(
                 "/admin/users/{user_id}/tier",
                 post(users::handle_set_user_tier).delete(users::handle_clear_user_tier_override),
             )
-            // The standing pre-approval allow-list, which `pierre-cli user
-            // allow / disallow / list-allowed` drives with its device-login
-            // token. Bearer twins of the cookie mounts in
-            // `WebAdminRoutes::routes`, sharing one service so an allow means
-            // the same thing whichever surface records it.
             .route(
                 "/admin/pre-approved-emails",
                 get(users::handle_list_pre_approved_emails).post(users::handle_allow_email),
@@ -345,12 +355,63 @@ impl AdminRoutes {
             .with_state(context)
     }
 
-    /// System settings routes — admin-token surface for auto-approval,
-    /// harness, and guardian config. Harness and guardian
-    /// share their handlers with the cookie mounts in
-    /// [`Self::harness_config_routes`] / [`Self::guardian_config_routes`];
-    /// these bearer twins are what `pierre-cli settings` reaches with its
-    /// device-login token.
+    /// The console's user tabs, behind session auth: the same handlers as
+    /// [`Self::token_user_management_routes`], plus the user listing (from
+    /// [`Self::user_routes`]) and the auto-approval setting (from
+    /// [`Self::settings_routes`]) — one handler per operation. A console session
+    /// carries `ManageUsers` (see `pierre_middleware::cookie_admin_token`), so
+    /// the permission checks inside each handler are the same checks a token
+    /// meets.
+    fn console_user_routes(context: Arc<AdminApiContext>) -> Router {
+        Router::new()
+            // The listing pages per status; the console asks for `status=all`.
+            .route("/api/admin/users", get(users::handle_list_users))
+            .route(
+                "/api/admin/settings/auto-approval",
+                get(settings::handle_get_auto_approval).put(settings::handle_set_auto_approval),
+            )
+            .route("/api/admin/pending-users", get(users::handle_pending_users))
+            .route(
+                "/api/admin/approve-user/{user_id}",
+                post(users::handle_approve_user),
+            )
+            .route(
+                "/api/admin/suspend-user/{user_id}",
+                post(users::handle_suspend_user),
+            )
+            .route(
+                "/api/admin/users/{user_id}/reset-password",
+                post(users::handle_reset_user_password),
+            )
+            .route(
+                "/api/admin/users/{user_id}/rate-limit",
+                get(users::handle_get_user_rate_limit),
+            )
+            .route(
+                "/api/admin/users/{user_id}/activity",
+                get(users::handle_get_user_activity),
+            )
+            // Super-admin only inside the handler, whichever surface reaches it.
+            .route(
+                "/api/admin/users/{user_id}/tier",
+                post(users::handle_set_user_tier).delete(users::handle_clear_user_tier_override),
+            )
+            .route(
+                "/api/admin/pre-approved-emails",
+                get(users::handle_list_pre_approved_emails).post(users::handle_allow_email),
+            )
+            .route(
+                "/api/admin/pre-approved-emails/{email}",
+                delete(users::handle_disallow_email),
+            )
+            .with_state(context)
+    }
+
+    /// System settings routes — admin-token mounts of the auto-approval,
+    /// harness, and guardian handlers, which the console reaches through
+    /// [`Self::console_user_routes`], [`Self::harness_config_routes`] and
+    /// [`Self::guardian_config_routes`]. These are what `pierre-cli settings`
+    /// reaches with its device-login token.
     fn settings_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
             .route(
@@ -455,6 +516,27 @@ impl AdminRoutes {
             .route("/admin/setup", post(setup::handle_admin_setup))
             .route("/admin/setup/status", get(setup::handle_setup_status))
             .route("/admin/health", get(setup::handle_health))
+            .with_state(context)
+    }
+
+    /// The console's admin-token tab behind session auth: the same handlers
+    /// as [`Self::admin_token_routes`]. A plain Admin's session carries
+    /// `ManageAdminTokens`; the handlers keep super-admin tokens to
+    /// super-admin callers.
+    fn console_token_routes(context: Arc<AdminApiContext>) -> Router {
+        Router::new()
+            .route(
+                "/api/admin/tokens",
+                get(tokens::handle_list_admin_tokens).post(tokens::handle_create_admin_token),
+            )
+            .route(
+                "/api/admin/tokens/{token_id}/revoke",
+                post(tokens::handle_revoke_admin_token),
+            )
+            .route(
+                "/api/admin/tokens/{token_id}/rotate",
+                post(tokens::handle_rotate_admin_token),
+            )
             .with_state(context)
     }
 

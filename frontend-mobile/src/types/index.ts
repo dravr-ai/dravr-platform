@@ -12,7 +12,6 @@ export type {
   LoginResponse,
   RegisterResponse,
   FirebaseLoginResponse,
-  ProviderStatus,
   ExtendedProviderStatus,
   ProvidersStatusResponse,
   OAuthApp,

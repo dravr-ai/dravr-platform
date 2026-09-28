@@ -135,11 +135,6 @@ describe('ConnectionsScreen rows', () => {
     expect(polarRow.findAllByType(InitialsAvatar)).toHaveLength(1);
   });
 
-  it('hides the bare strava row the Strava-branded sciotte row stands in for', async () => {
-    await renderWith([disconnectedStrava, provider('strava', 'Strava', { requires_oauth: true })]);
-    expect(screen.queryByTestId('provider-row-strava')).toBeNull();
-  });
-
   it('a disconnected provider carries the ink "Connect" and no status word', async () => {
     await renderWith([disconnectedStrava]);
 

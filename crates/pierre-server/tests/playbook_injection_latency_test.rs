@@ -37,8 +37,8 @@ use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
 use pierre_database::repositories::{ArchetypePriorUpsert, RecordedOutcome};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::playbooks::{
-    ArchetypePrior, Band, Intervention, InterventionKind, OutcomeLabel, OutcomeMetric, Playbook,
-    TriggerKind, TriggerPattern,
+    ArchetypePrior, Band, Intervention, InterventionKind, LabelSource, OutcomeLabel, OutcomeMetric,
+    Playbook, TriggerKind, TriggerPattern,
 };
 use pierre_services::playbook_render::{render_archetype_block, render_playbooks_block};
 use serde_json::Value;
@@ -193,7 +193,11 @@ async fn seed_playbooks(repos: &RepositoryRegistry, tenant: &str, user: &str, n:
             };
             repos
                 .playbooks
-                .record_playbook_outcome(&outcome)
+                .record_outcome_and_label(
+                    &outcome,
+                    "advice-without-row",
+                    LabelSource::DataHeuristic,
+                )
                 .await
                 .unwrap();
         }

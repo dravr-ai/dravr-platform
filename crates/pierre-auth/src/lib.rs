@@ -43,12 +43,6 @@ pub mod dto;
 /// Firebase Authentication ID-token validation (social login providers via Firebase)
 pub mod firebase;
 
-/// Google public-certificate cache shared by every Google-signed ID-token verifier
-pub mod google_certs;
-
-/// Verification of the Google-signed OIDC token a Cloud Tasks delivery carries
-pub mod google_id_token;
-
 /// Two-tier key management system
 pub mod key_management;
 
@@ -67,6 +61,9 @@ pub mod password;
 
 /// Unified rate limiting system
 pub mod rate_limiting;
+
+/// The refresh-token rotation rule both token stores follow
+pub mod refresh_rotation;
 
 /// Secure cookies and CSRF protection
 pub mod security;

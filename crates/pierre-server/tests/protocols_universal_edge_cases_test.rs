@@ -41,7 +41,6 @@ fn create_test_user(email: &str, display_name: Option<String>) -> User {
 fn create_test_config() -> Arc<ServerConfig> {
     Arc::new(ServerConfig {
         http_port: 4000,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -288,9 +287,6 @@ async fn test_oauth_configuration_errors() -> Result<()> {
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: Some(tenant.id.to_string()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     // A token-less provider short-circuits as the typed auth-required error —
@@ -348,9 +344,6 @@ async fn test_invalid_provider_tokens() -> Result<()> {
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     // An expired token whose refresh cannot succeed short-circuits as the
@@ -382,9 +375,6 @@ async fn test_malformed_user_id() -> Result<()> {
         user_id: "not-a-valid-uuid".to_owned(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let result = executor.execute_tool(request).await;
@@ -414,9 +404,6 @@ async fn test_non_existent_user() -> Result<()> {
         user_id: non_existent_user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: Some(synthetic_tenant_id.to_string()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await?;
@@ -461,9 +448,6 @@ async fn test_invalid_tool_parameters() -> Result<()> {
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: Some(tenant_id.to_string()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     // The auth gate runs before parameter validation for provider-backed tools,
@@ -501,9 +485,6 @@ async fn test_invalid_tool_parameters() -> Result<()> {
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: Some(tenant_id.to_string()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let result = executor.execute_tool(request).await;
@@ -533,9 +514,6 @@ async fn test_database_error_handling() -> Result<()> {
         user_id: "00000000-0000-0000-0000-000000000000".to_owned(),
         protocol: "test".to_owned(),
         tenant_id: Some(synthetic_tenant_id.to_string()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await?;
@@ -581,9 +559,6 @@ async fn test_concurrent_tool_execution() -> Result<()> {
                 user_id: user_id_str.clone(),
                 protocol: format!("test_{i}"),
                 tenant_id: Some(tenant_id_str),
-                progress_token: None,
-                cancellation_token: None,
-                progress_reporter: None,
             };
 
             executor_clone.execute_tool(request).await
@@ -630,9 +605,6 @@ async fn test_tool_response_metadata() -> Result<()> {
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: Some(tenant_id.to_string()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await?;
@@ -669,9 +641,6 @@ async fn test_intelligence_integration_errors() -> Result<()> {
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await?;
@@ -702,9 +671,6 @@ async fn test_provider_unavailable() -> Result<()> {
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let response = executor.execute_tool(request).await?;

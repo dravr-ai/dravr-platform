@@ -296,13 +296,6 @@ pub(crate) const TOUCH_AGENT_SESSION_SQL: &str = r"
             WHERE id = $2 AND tenant_id = $3
             ";
 
-/// Archive an active session; `$1` is both `archived_at` and `updated_at`.
-pub(crate) const ARCHIVE_AGENT_SESSION_SQL: &str = r"
-            UPDATE agent_sessions
-            SET status = 'archived', archived_at = $1, updated_at = $1
-            WHERE id = $2 AND tenant_id = $3 AND status = 'active'
-            ";
-
 /// Clamp a signed row count to `u64`, folding impossible negatives to `0`.
 /// Counts from aggregate queries are domain-guaranteed non-negative but
 /// `sqlx` decodes them as `i64`.
@@ -1122,24 +1115,6 @@ macro_rules! impl_harness_memory_repository {
                         AppError::database(format!("Failed to touch coach session: {e}"))
                     })?;
                 Ok(())
-            }
-
-            async fn archive_agent_session(
-                &self,
-                session_id: &str,
-                tenant_id: TenantId,
-            ) -> AppResult<bool> {
-                let result = sqlx::query(ARCHIVE_AGENT_SESSION_SQL)
-                    .bind(Utc::now())
-                    .bind(session_id)
-                    .bind(tenant_id.to_string())
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to archive coach session: {e}"))
-                    })?;
-
-                Ok(result.rows_affected() > 0)
             }
         }
     };

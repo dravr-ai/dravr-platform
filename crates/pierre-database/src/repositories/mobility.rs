@@ -4,15 +4,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::collections::HashMap;
 use std::fmt::Display;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::mobility::{
-    ActivityMuscleMapping, DifficultyLevel, ListStretchingFilter, ListYogaFilter,
-    StretchingCategory, StretchingExercise, YogaCategory, YogaPose, YogaPoseType,
+    DifficultyLevel, ListStretchingFilter, ListYogaFilter, StretchingCategory, StretchingExercise,
+    YogaCategory, YogaPose, YogaPoseType,
 };
 use serde::de::DeserializeOwned;
 use sqlx::{ColumnIndex, Decode, Row, Type};
@@ -27,12 +26,6 @@ pub trait MobilityRepository: Send + Sync {
         &self,
         filter: &ListStretchingFilter,
     ) -> AppResult<Vec<StretchingExercise>>;
-    /// Search stretching exercises by text query
-    async fn search_stretching_exercises(
-        &self,
-        query: &str,
-        limit: Option<u32>,
-    ) -> AppResult<Vec<StretchingExercise>>;
     /// Get stretches recommended for a specific activity type
     async fn get_stretches_for_activity(
         &self,
@@ -43,21 +36,12 @@ pub trait MobilityRepository: Send + Sync {
     async fn get_yoga_pose(&self, id: &str) -> AppResult<Option<YogaPose>>;
     /// List yoga poses with optional filtering
     async fn list_yoga_poses(&self, filter: &ListYogaFilter) -> AppResult<Vec<YogaPose>>;
-    /// Search yoga poses by text query
-    async fn search_yoga_poses(&self, query: &str, limit: Option<u32>) -> AppResult<Vec<YogaPose>>;
     /// Get yoga poses recommended for a recovery context
     async fn get_poses_for_recovery(
         &self,
         recovery_context: &str,
         limit: Option<u32>,
     ) -> AppResult<Vec<YogaPose>>;
-    /// Get muscle mapping for a specific activity type
-    async fn get_activity_muscle_mapping(
-        &self,
-        activity_type: &str,
-    ) -> AppResult<Option<ActivityMuscleMapping>>;
-    /// List all activity-to-muscle mappings
-    async fn list_activity_muscle_mappings(&self) -> AppResult<Vec<ActivityMuscleMapping>>;
 }
 
 // ============================================================================
@@ -100,39 +84,12 @@ macro_rules! yoga_columns {
 }
 pub(crate) use yoga_columns;
 
-/// The eight columns every read of `activity_muscle_mapping` returns, in the
-/// order [`muscle_mapping_from_row`] reads them.
-macro_rules! muscle_mapping_columns {
-    () => {
-        "id, activity_type, primary_muscles, secondary_muscles, \
-         recommended_stretch_categories, recommended_yoga_categories, \
-         created_at, updated_at"
-    };
-}
-
 /// One stretching exercise by id.
 pub(crate) const GET_STRETCHING_EXERCISE_SQL: &str = concat!(
     "SELECT ",
     stretching_columns!(),
     " FROM stretching_exercises WHERE id = $1"
 );
-
-/// Stretching exercises whose name or description contains the query.
-/// `$like` is the backend's case-folding match operator.
-macro_rules! search_stretching_sql {
-    ($like:literal) => {
-        concat!(
-            "SELECT ",
-            stretching_columns!(),
-            " FROM stretching_exercises WHERE name ",
-            $like,
-            " $1 OR description ",
-            $like,
-            " $1 ORDER BY name ASC LIMIT $2"
-        )
-    };
-}
-pub(crate) use search_stretching_sql;
 
 /// Stretching exercises recommended for one activity type; `$1` is the
 /// JSON-array element pattern from [`json_array_pattern`].
@@ -153,25 +110,6 @@ pub(crate) use stretches_for_activity_sql;
 pub(crate) const GET_YOGA_POSE_SQL: &str =
     concat!("SELECT ", yoga_columns!(), " FROM yoga_poses WHERE id = $1");
 
-/// Yoga poses whose English name, Sanskrit name or description contains the
-/// query. `$like` is the backend's case-folding match operator.
-macro_rules! search_yoga_sql {
-    ($like:literal) => {
-        concat!(
-            "SELECT ",
-            yoga_columns!(),
-            " FROM yoga_poses WHERE english_name ",
-            $like,
-            " $1 OR sanskrit_name ",
-            $like,
-            " $1 OR description ",
-            $like,
-            " $1 ORDER BY english_name ASC LIMIT $2"
-        )
-    };
-}
-pub(crate) use search_yoga_sql;
-
 /// Yoga poses recommended for one recovery context; `$1` is the JSON-array
 /// element pattern from [`json_array_pattern`].
 macro_rules! poses_for_recovery_sql {
@@ -187,20 +125,6 @@ macro_rules! poses_for_recovery_sql {
 }
 pub(crate) use poses_for_recovery_sql;
 
-/// The muscle mapping for one activity type.
-pub(crate) const GET_MUSCLE_MAPPING_SQL: &str = concat!(
-    "SELECT ",
-    muscle_mapping_columns!(),
-    " FROM activity_muscle_mapping WHERE activity_type = $1"
-);
-
-/// Every muscle mapping, by activity type.
-pub(crate) const LIST_MUSCLE_MAPPINGS_SQL: &str = concat!(
-    "SELECT ",
-    muscle_mapping_columns!(),
-    " FROM activity_muscle_mapping ORDER BY activity_type ASC"
-);
-
 /// The `LIKE` pattern that matches one element of a JSON-array column.
 ///
 /// `primary_muscles`, `recommended_for_activities` and
@@ -209,11 +133,6 @@ pub(crate) const LIST_MUSCLE_MAPPINGS_SQL: &str = concat!(
 /// trailing `%` is what lets the element sit before the closing `]`.
 pub(crate) fn json_array_pattern(element: &str) -> String {
     format!("%\"{element}\"%")
-}
-
-/// The `%query%` pattern for a free-text search.
-pub(crate) fn contains_pattern(query: &str) -> String {
-    format!("%{query}%")
 }
 
 /// A `LIMIT` that a caller left unset or out of `i32` range falls to the
@@ -515,36 +434,6 @@ where
     })
 }
 
-/// Convert a catalogue row to an [`ActivityMuscleMapping`]; see
-/// [`stretching_from_row`].
-///
-/// # Errors
-/// Returns a database error naming the column that would not decode.
-pub(crate) fn muscle_mapping_from_row<'r, R>(row: &'r R) -> AppResult<ActivityMuscleMapping>
-where
-    R: Row,
-    for<'a> &'a str: ColumnIndex<R>,
-    String: Decode<'r, R::Database> + Type<R::Database>,
-    DateTime<Utc>: Decode<'r, R::Database> + Type<R::Database>,
-{
-    Ok(ActivityMuscleMapping {
-        id: column(row, "id")?,
-        activity_type: column(row, "activity_type")?,
-        primary_muscles: json_column::<_, HashMap<String, u8>>(row, "primary_muscles")?,
-        secondary_muscles: json_column_or_default::<_, HashMap<String, u8>>(
-            row,
-            "secondary_muscles",
-        )?,
-        recommended_stretch_categories: json_column_or_default(
-            row,
-            "recommended_stretch_categories",
-        )?,
-        recommended_yoga_categories: json_column_or_default(row, "recommended_yoga_categories")?,
-        created_at: column(row, "created_at")?,
-        updated_at: column(row, "updated_at")?,
-    })
-}
-
 // ============================================================================
 // The implementation, emitted once per backend
 // ============================================================================
@@ -597,22 +486,6 @@ macro_rules! impl_mobility_repository {
                 rows.iter().map(stretching_from_row).collect()
             }
 
-            async fn search_stretching_exercises(
-                &self,
-                query: &str,
-                limit: Option<u32>,
-            ) -> AppResult<Vec<StretchingExercise>> {
-                let rows = sqlx::query(search_stretching_sql!($like))
-                    .bind(contains_pattern(query))
-                    .bind(limit_or(limit, 20))
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to search stretching exercises: {e}"))
-                    })?;
-                rows.iter().map(stretching_from_row).collect()
-            }
-
             async fn get_stretches_for_activity(
                 &self,
                 activity_type: &str,
@@ -653,20 +526,6 @@ macro_rules! impl_mobility_repository {
                 rows.iter().map(yoga_pose_from_row).collect()
             }
 
-            async fn search_yoga_poses(
-                &self,
-                query: &str,
-                limit: Option<u32>,
-            ) -> AppResult<Vec<YogaPose>> {
-                let rows = sqlx::query(search_yoga_sql!($like))
-                    .bind(contains_pattern(query))
-                    .bind(limit_or(limit, 20))
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("Failed to search yoga poses: {e}")))?;
-                rows.iter().map(yoga_pose_from_row).collect()
-            }
-
             async fn get_poses_for_recovery(
                 &self,
                 recovery_context: &str,
@@ -681,30 +540,6 @@ macro_rules! impl_mobility_repository {
                         AppError::database(format!("Failed to get poses for recovery: {e}"))
                     })?;
                 rows.iter().map(yoga_pose_from_row).collect()
-            }
-
-            async fn get_activity_muscle_mapping(
-                &self,
-                activity_type: &str,
-            ) -> AppResult<Option<ActivityMuscleMapping>> {
-                let row = sqlx::query(GET_MUSCLE_MAPPING_SQL)
-                    .bind(activity_type)
-                    .fetch_optional(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to get activity muscle mapping: {e}"))
-                    })?;
-                row.as_ref().map(muscle_mapping_from_row).transpose()
-            }
-
-            async fn list_activity_muscle_mappings(&self) -> AppResult<Vec<ActivityMuscleMapping>> {
-                let rows = sqlx::query(LIST_MUSCLE_MAPPINGS_SQL)
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to list activity muscle mappings: {e}"))
-                    })?;
-                rows.iter().map(muscle_mapping_from_row).collect()
             }
         }
     };

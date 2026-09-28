@@ -1,5 +1,5 @@
 // ABOUTME: Direct StoreListingsRepository tests on whichever backend the test factory opens (SQLite or PostgreSQL)
-// ABOUTME: Pins the review paths no route test reaches: ensure_listing, reject, the rejected list, admin stats, the install clamp
+// ABOUTME: Pins the review paths no route test reaches: submit, reject, the rejected list, admin stats, the install clamp
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,7 +7,7 @@
 //! The store routes exercise browse, search, install and uninstall over
 //! HTTP, and the handle tests take an agent through submit and approve.
 //! This file calls the trait itself for the rest of the review workflow —
-//! a draft listing, a rejection, the rejected queue, the admin counts — and
+//! a submission, a rejection, the rejected queue, the admin counts — and
 //! for the install counter's floor at zero, so every value is pinned on both
 //! drivers.
 
@@ -60,7 +60,7 @@ async fn installs(store: &dyn StoreListingsRepository, agent_id: &str) -> u32 {
 }
 
 #[tokio::test]
-async fn draft_listing_is_submitted_rejected_and_counted() {
+async fn listing_is_submitted_rejected_and_counted() {
     let db = create_test_db().await;
     let (author_id, tenant_id) = seed_user(&db).await;
     let admin_id = Uuid::new_v4();
@@ -70,32 +70,23 @@ async fn draft_listing_is_submitted_rejected_and_counted() {
     let agent_id = create_agent(&db, author_id, tenant_id, "Tempo Coach").await;
     assert!(store.get_listing(&agent_id).await.unwrap().is_none());
 
-    // ensure_listing creates the draft once and then returns that same row.
-    let draft = store.ensure_listing(&agent_id, tenant_id).await.unwrap();
-    assert_eq!(draft.agent_id.to_string(), agent_id);
-    assert_eq!(draft.tenant_id, tenant_id.to_string());
-    assert_eq!(draft.publish_status, PublishStatus::Draft);
-    assert_eq!(draft.install_count, 0);
-    assert_eq!(draft.review_submitted_at, None);
-    assert_eq!(draft.published_at, None);
-    let again = store.ensure_listing(&agent_id, tenant_id).await.unwrap();
-    assert_eq!(again.id, draft.id);
-
     assert!(store
         .get_pending_review_agents(tenant_id, None, None)
         .await
         .unwrap()
         .is_empty());
 
-    // Submitting moves the existing draft into review in place.
+    // Submitting creates the listing straight into review.
     let pending = store
         .submit_for_review(&agent_id, author_id, tenant_id)
         .await
         .unwrap();
-    assert_eq!(pending.id, draft.id);
+    assert_eq!(pending.agent_id.to_string(), agent_id);
+    assert_eq!(pending.tenant_id, tenant_id.to_string());
     assert_eq!(pending.publish_status, PublishStatus::PendingReview);
+    assert_eq!(pending.install_count, 0);
+    assert_eq!(pending.published_at, None);
     assert!(pending.review_submitted_at.is_some());
-    assert!(pending.updated_at >= draft.updated_at);
 
     let queue = store
         .get_pending_review_agents(tenant_id, None, None)
@@ -104,7 +95,7 @@ async fn draft_listing_is_submitted_rejected_and_counted() {
     assert_eq!(queue.len(), 1);
     assert_eq!(queue[0].agent.id.to_string(), agent_id);
     assert_eq!(queue[0].agent.title, "Tempo Coach");
-    assert_eq!(queue[0].listing.id, draft.id);
+    assert_eq!(queue[0].listing.id, pending.id);
     assert_eq!(
         queue[0].listing.publish_status,
         PublishStatus::PendingReview

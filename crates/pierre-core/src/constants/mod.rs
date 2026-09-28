@@ -57,8 +57,6 @@ pub mod ports {
     pub const DEFAULT_MCP_PORT: u16 = 8081;
     /// Default docs port
     pub const DEFAULT_DOCS_PORT: u16 = 8082;
-    /// Default OAuth callback port (for bridge focus recovery)
-    pub const DEFAULT_OAUTH_CALLBACK_PORT: u16 = 35535;
 }
 
 /// API routes
@@ -140,8 +138,6 @@ pub mod timeouts {
     pub const API_CLIENT_CONNECT_TIMEOUT_SECS: u64 = 10;
     /// Health check client timeout in seconds
     pub const HEALTH_CHECK_TIMEOUT_SECS: u64 = 5;
-    /// OAuth callback notification timeout in seconds
-    pub const OAUTH_CALLBACK_NOTIFICATION_TIMEOUT_SECS: u64 = 5;
     /// Database connection timeout in seconds
     pub const DATABASE_TIMEOUT_SECS: u64 = 10;
     /// OAuth callback wait timeout in seconds (for bridge flow)
@@ -464,12 +460,12 @@ pub mod error_messages {
 
 /// Rate limiting constants
 pub mod rate_limits {
-    /// Strava 15-minute rate limit
+    /// Strava's read budget per 15-minute window, per app: the standard read
+    /// limit the Dravr app holds. `STRAVA_RATE_LIMIT_15MIN` overrides it.
     pub const STRAVA_RATE_LIMIT_15MIN: u32 = 100;
-    /// Strava daily rate limit
-    pub const STRAVA_RATE_LIMIT_DAILY: u32 = 15000;
-    /// Strava default daily rate limit
-    pub const STRAVA_DEFAULT_DAILY_RATE_LIMIT: u32 = 15000;
+    /// Strava's read budget per day, per app: the standard read limit the
+    /// Dravr app holds. `STRAVA_RATE_LIMIT_DAILY` overrides it.
+    pub const STRAVA_RATE_LIMIT_DAILY: u32 = 1000;
     /// Garmin default daily rate limit
     pub const GARMIN_DEFAULT_DAILY_RATE_LIMIT: u32 = 1000;
     /// WHOOP default daily rate limit
@@ -548,11 +544,6 @@ pub mod user_defaults {
 
 /// API provider limits
 pub mod api_provider_limits {
-    /// Strava rate limit per 15 minutes
-    pub const STRAVA_RATE_LIMIT_15MIN: u32 = 100;
-    /// Strava daily rate limit
-    pub const STRAVA_RATE_LIMIT_DAILY: u32 = 15000;
-
     /// Strava specific limits
     pub mod strava {
         /// Estimated rate-limit block duration (seconds).

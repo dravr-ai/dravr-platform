@@ -563,7 +563,7 @@ if [[ -n "$BASE_REF" ]]; then
 
     # A route this change ADDS that no client mentions. The standing stock is
     # reported above and not gated: it holds deliberate external surfaces (the
-    # /api/v1 endurance API, the Slack action webhook) alongside real phantoms,
+    # Slack action webhook) alongside real phantoms,
     # and this check cannot tell them apart. What it can tell is that a route
     # arriving right now has nothing on the other end — decide that while the
     # reason is still in someone's head.

@@ -14,9 +14,7 @@ import {
   ReadResourceRequestSchema,
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
-  CompleteRequestSchema,
   PingRequestSchema,
-  SetLevelRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import {
   validateMcpToolResponse,
@@ -32,12 +30,13 @@ import {
 import { openUrlInBrowserWithFocus } from "./browser-launcher.js";
 import { installBatchGuard, createBatchGuardMessageHandler } from "./batch-guard-transport.js";
 import { PierreError, PierreErrorCode } from "./errors.js";
+import { startProviderOAuth, type ProviderOAuthStart } from "./provider-oauth-start.js";
 import {
-  CALLBACK_TOKEN_HEADER,
-  isNoticeRefusal,
-  providerNoticeMessage,
-  startProviderOAuth,
-} from "./provider-oauth-start.js";
+  PROVIDER_STATUS_POLL_INTERVAL_MS,
+  isProviderConnected,
+  pollProviderConnection,
+  type ProviderConnectionWait,
+} from "./provider-connection-status.js";
 import {
   McpHttpClient,
   McpHttpError,
@@ -116,11 +115,6 @@ export interface BridgeConfigApiKey extends BridgeConfigBase {
 
 /** Discriminated union for authentication modes */
 export type BridgeConfig = BridgeConfigJwt | BridgeConfigOAuth | BridgeConfigApiKey;
-
-/** The page connect_provider opens, or the notice that stands between the account and it. */
-type ProviderAuthorizationPage =
-  | { kind: "open"; url: string }
-  | { kind: "notice_required"; message: string };
 
 export class PierreMcpClient {
   private config: BridgeConfig;
@@ -201,27 +195,6 @@ export class PierreMcpClient {
     // Set up Dravr connection parameters
     this.mcpUrl = `${this.config.pierreServerUrl}/mcp`;
 
-    // Create OAuth provider with callback to notify MCP host when provider OAuth completes
-    const onProviderOAuthComplete = async (provider: string): Promise<void> => {
-      if (this.mcpServer) {
-        const capitalizedProvider =
-          provider.charAt(0).toUpperCase() + provider.slice(1);
-        await this.mcpServer.notification({
-          method: "notifications/message",
-          params: {
-            level: "info",
-            logger: "pierre-oauth",
-            data: {
-              provider: provider,
-              event: "oauth_completed",
-              message: `${capitalizedProvider} connected successfully! You can now access your fitness data.`,
-            },
-          },
-        });
-        this.log(`Sent ${provider} OAuth completion notification to MCP host`);
-      }
-    };
-
     // Convert BridgeConfig to OAuthSessionConfig (both use same discriminated union pattern)
     const baseConfig = {
       pierreServerUrl: this.config.pierreServerUrl,
@@ -246,7 +219,6 @@ export class PierreMcpClient {
     this.oauthProvider = new PierreOAuthClientProvider(
       this.config.pierreServerUrl,
       oauthConfig,
-      onProviderOAuthComplete,
     );
 
     // Initialize secure storage before any operations that might need it
@@ -767,12 +739,9 @@ export class PierreMcpClient {
     return { tools: this.cachedTools.tools };
   }
 
-  getClientSideTokenStatus(): {
-    pierre: boolean;
-    providers: Record<string, boolean>;
-  } {
+  getClientSideTokenStatus(): { pierre: boolean } {
     if (!this.oauthProvider) {
-      return { pierre: false, providers: {} };
+      return { pierre: false };
     }
 
     return this.oauthProvider.getTokenStatus();
@@ -796,8 +765,6 @@ export class PierreMcpClient {
           tools: { listChanged: true },
           resources: {},
           prompts: {},
-          logging: {},
-          completions: {},
         },
       },
     );
@@ -1184,32 +1151,6 @@ export class PierreMcpClient {
       return {};
     });
 
-    // Handle logging/setLevel requests
-    this.mcpServer.setRequestHandler(SetLevelRequestSchema, async (request) => {
-      this.log(`Setting log level to: ${request.params.level}`);
-      return {};
-    });
-
-    // Bridge completion requests
-    this.mcpServer.setRequestHandler(CompleteRequestSchema, async (request) => {
-      this.log("Bridging completion request");
-
-      if (!this.pierreClient) {
-        return {
-          completion: {
-            values: [],
-            total: 0,
-            hasMore: false,
-          },
-        };
-      }
-
-      return (await this.pierreClient.request(
-        "completion/complete",
-        request.params,
-      )) as any;
-    });
-
     this.log("Request handlers configured");
   }
 
@@ -1425,55 +1366,22 @@ export class PierreMcpClient {
         this.log("Dravr already authenticated");
       }
 
-      // Step 2: Check if provider is already connected
+      // Step 2: A provider already connected needs no authorization. The same reading
+      // of get_connection_status decides, after the page opens, that the flow completed.
       this.log(`Checking if ${provider} is already connected`);
       try {
-        if (this.pierreClient) {
-          const connectionStatus = await this.pierreClient.callTool({
-            name: "get_connection_status",
-            arguments: { provider: provider },
-          });
-
-          // Check if the provider is already connected
-          // The server returns structuredContent with providers array containing connection status
-          if (connectionStatus) {
-            this.log(
-              `Full connection status response: ${JSON.stringify(connectionStatus).substring(0, 500)}...`,
-            );
-
-            // Access the structured content with provider connection status
-            const structured = (connectionStatus as any).structuredContent;
-            if (
-              structured &&
-              structured.providers &&
-              Array.isArray(structured.providers)
-            ) {
-              const providerInfo = structured.providers.find(
-                (p: any) =>
-                  p.provider &&
-                  p.provider.toLowerCase() === provider.toLowerCase(),
-              );
-
-              if (providerInfo && providerInfo.connected === true) {
-                this.log(`${provider} is already connected - no OAuth needed`);
-                return {
-                  content: [
-                    {
-                      type: "text",
-                      text: `Already connected to ${provider.toUpperCase()}! You can now access your ${provider} fitness data.`,
-                    },
-                  ],
-                  isError: false,
-                };
-              } else {
-                this.log(
-                  `${provider} connected status: ${providerInfo ? providerInfo.connected : "not found"}`,
-                );
-              }
-            }
-          }
+        if (await this.readProviderConnected(provider)) {
+          this.log(`${provider} is already connected - no OAuth needed`);
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Already connected to ${provider.toUpperCase()}! You can now access your ${provider} fitness data.`,
+              },
+            ],
+            isError: false,
+          };
         }
-
         this.log(`${provider} not connected - proceeding with OAuth flow`);
       } catch (error: any) {
         this.log(
@@ -1481,22 +1389,10 @@ export class PierreMcpClient {
         );
       }
 
-      // Step 3: Bind the callback listener before the flow starts. Dravr posts the
-      // provider tokens there when the flow completes, and the listener accepts that
-      // POST only with its per-flow token, which travels with the start below.
-      await this.oauthProvider.ensureCallbackServerBound();
-      const callbackToken = this.oauthProvider.callbackAuthToken;
-      if (!callbackToken) {
-        throw new PierreError(
-          PierreErrorCode.CONFIG_ERROR,
-          "Callback listener is bound but holds no per-flow token",
-        );
-      }
-
-      // Step 4: Start the provider's authorization before any browser opens: a provider
-      // whose notice the account owes (WHOOP's owner authorization) is refused, and the
-      // user reads where to accept it rather than a raw 400 page.
-      const page = await this.startProviderAuthorization(provider, callbackToken);
+      // Step 3: Have Dravr mint the provider's authorization page before any browser
+      // opens: a provider whose notice the account owes (WHOOP's owner authorization) is
+      // refused, and the user reads where to accept it rather than an error page.
+      const page = await this.startProviderAuthorization(provider);
       if (page.kind === "notice_required") {
         this.log(`${provider} OAuth refused: the account owes the provider's notice`);
         return {
@@ -1517,9 +1413,9 @@ export class PierreMcpClient {
         this.log(`Opened ${provider} OAuth in browser: ${providerOAuthUrl}`);
         this.log(`Waiting for ${provider} OAuth to complete...`);
 
-        // Wait for provider OAuth to complete, inside the host's request budget and
-        // under its cancellation. Whatever the outcome here, the browser flow keeps
-        // running and announces itself through notifications/message when it lands.
+        // Step 4: The flow completes on Dravr, which stores the provider token; nothing is
+        // sent to this machine. Ask Dravr for the provider's connection status until it
+        // reads connected, inside the host's request budget and under its cancellation.
         const { waitMs, progressToken } = this.hostInteractiveBudget(extra);
         const stopProgress = this.reportInteractiveProgress(
           extra,
@@ -1528,8 +1424,9 @@ export class PierreMcpClient {
           `Waiting for ${provider} authorization in your browser`,
         );
 
+        let outcome: ProviderConnectionWait;
         try {
-          await this.oauthProvider.waitForProviderOAuth(
+          outcome = await this.waitForProviderConnection(
             provider,
             waitMs,
             extra?.signal,
@@ -1538,57 +1435,56 @@ export class PierreMcpClient {
           stopProgress();
         }
 
-        this.log(`${provider} OAuth completed successfully`);
-
         const capitalizedProvider =
           provider.charAt(0).toUpperCase() + provider.slice(1);
 
-        return {
-          content: [
-            {
-              type: "text",
-              text: `${capitalizedProvider} connected successfully!\n\nYou now have full access to your ${capitalizedProvider} fitness data. Try asking me about your recent activities, stats, or training insights!`,
-            },
-          ],
-          isError: false,
-        };
+        switch (outcome) {
+          case "connected":
+            this.log(`${provider} OAuth completed successfully`);
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `${capitalizedProvider} connected successfully!\n\nYou now have full access to your ${capitalizedProvider} fitness data. Try asking me about your recent activities, stats, or training insights!`,
+                },
+              ],
+              isError: false,
+            };
+          case "cancelled":
+            this.log(
+              `${provider} OAuth wait ended because the host cancelled the request`,
+            );
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Stopped waiting for ${provider.toUpperCase()} authorization. The page is still open in your browser - finishing there completes the connection.`,
+                },
+              ],
+              isError: false,
+            };
+          case "pending":
+            // Not a failure. The authorization page is still open and Dravr still completes
+            // the connection whenever the user finishes there, so the connection is
+            // unconfirmed rather than broken - reporting it as failed is what told users a
+            // connection had failed while it was in fact completing.
+            this.log(
+              `${provider} OAuth not confirmed within the host request budget - reporting it as still pending`,
+            );
+            return {
+              content: [
+                {
+                  type: "text",
+                  text:
+                    `${provider.toUpperCase()} authorization is still open in your browser and is not confirmed yet.\n\n` +
+                    `Finish signing in there, then run connect_provider again: it confirms the connection once Dravr has it. ` +
+                    `If you closed the page, running it again opens a new one.`,
+                },
+              ],
+              isError: false,
+            };
+        }
       } catch (error: any) {
-        if (extra?.signal?.aborted) {
-          this.log(
-            `${provider} OAuth wait ended because the host cancelled the request`,
-          );
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Stopped waiting for ${provider.toUpperCase()} authorization. The page is still open in your browser - finishing there completes the connection.`,
-              },
-            ],
-            isError: false,
-          };
-        }
-
-        if (error.code === PierreErrorCode.TIMEOUT_ERROR) {
-          // Not a failure. The authorization page is still open and its callback still
-          // arrives whenever the user finishes, so the connection is unconfirmed rather
-          // than broken - reporting it as failed is what told users a connection had
-          // failed while it was in fact completing.
-          this.log(
-            `${provider} OAuth not confirmed within the host request budget - reporting it as still pending`,
-          );
-          return {
-            content: [
-              {
-                type: "text",
-                text:
-                  `${provider.toUpperCase()} authorization is still open in your browser and is not confirmed yet.\n\n` +
-                  `Finish signing in there and you will get a confirmation message as soon as it completes - then ask for your ${provider} data. ` +
-                  `If you closed the page, run connect_provider again.`,
-              },
-            ],
-            isError: false,
-          };
-        }
         this.log(`Failed to complete ${provider} OAuth: ${error.message}`);
         return {
           content: [
@@ -1616,89 +1512,67 @@ export class PierreMcpClient {
   }
 
   /**
+   * Whether Dravr reports `provider` connected for the athlete this bridge acts for, read
+   * from `get_connection_status` over the bridge's own MCP session - the session every auth
+   * mode already holds, so the read needs no credential of its own.
+   */
+  private async readProviderConnected(
+    provider: string,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    if (!this.pierreClient) {
+      throw new PierreError(
+        PierreErrorCode.CONFIG_ERROR,
+        "No Dravr session to read the connection status over",
+      );
+    }
+    const status = await this.pierreClient.callTool(
+      { name: "get_connection_status", arguments: { provider } },
+      { signal },
+    );
+    return isProviderConnected(status);
+  }
+
+  /**
+   * Waits for `provider` to read connected on Dravr, asking every `intervalMs` until the
+   * host's budget `waitMs` is spent or `signal` - the host's cancellation - aborts. The
+   * provider flow completes on the server wherever this bridge runs, so the answer is the
+   * server's own record of the connection.
+   */
+  private waitForProviderConnection(
+    provider: string,
+    waitMs: number,
+    signal?: AbortSignal,
+    intervalMs: number = PROVIDER_STATUS_POLL_INTERVAL_MS,
+  ): Promise<ProviderConnectionWait> {
+    return pollProviderConnection(
+      (readSignal) => this.readProviderConnected(provider, readSignal),
+      { waitMs, intervalMs, signal, log: (message) => this.log(message) },
+    );
+  }
+
+  /**
    * Starts `provider`'s authorization for the athlete this bridge acts for and names the
    * page the browser opens, or the notice the account owes before it may start.
    *
-   * A Dravr session token names its athlete in the JWT `sub` claim, and the flow starts on
-   * Dravr's initiation route for that user id. An API key names no athlete the bridge can
-   * read, so in api-key mode Dravr is asked for the provider's authorization URL instead:
-   * the key authenticates that request, and Dravr mints the URL for the key's athlete and
-   * records the flow's state on its side. Either way a refusal naming the provider's
-   * notice becomes the message that says where to accept it.
-   *
-   * Both starts carry `callbackToken`, the callback listener's per-flow token, in a request
-   * header: Dravr keeps it with the flow's state and presents it on the completion POST, the
-   * one request the listener accepts provider tokens from. It never rides a URL, so neither
-   * a request log nor the browser's history holds it.
+   * Dravr's `connect_provider` tool mints the page over the bridge's own MCP session, so
+   * the credential that session carries - a session token, an API key, or a delegated
+   * OAuth grant - alone decides whose flow starts, in every auth mode. No REST launch
+   * route is asked: those refuse a delegated grant, which only MCP dispatch reads the
+   * scopes of.
    */
   private async startProviderAuthorization(
     provider: string,
-    callbackToken: string,
-  ): Promise<ProviderAuthorizationPage> {
-    if (this.config.mode === "api-key") {
-      // A REST route reads an API key as the whole Authorization value, with no scheme:
-      // there `Bearer` introduces a session token. The MCP transport strips `Bearer`
-      // before it looks, which is why /mcp requests carry the key under that scheme.
-      const response = await fetch(
-        `${this.config.pierreServerUrl}/api/oauth/mobile/init/${encodeURIComponent(provider)}`,
-        {
-          headers: {
-            Authorization: this.config.apiKey,
-            [CALLBACK_TOKEN_HEADER]: callbackToken,
-          },
-        },
+  ): Promise<ProviderOAuthStart> {
+    const client = this.pierreClient;
+    if (!client) {
+      throw new PierreError(
+        PierreErrorCode.CONFIG_ERROR,
+        `No Dravr session to start ${provider} authorization over`,
       );
-      if (!response.ok) {
-        const refusal: unknown = await response.json().catch(() => null);
-        if (isNoticeRefusal(response.status, refusal)) {
-          return { kind: "notice_required", message: providerNoticeMessage(provider) };
-        }
-        throw new PierreError(
-          PierreErrorCode.PROVIDER_ERROR,
-          `Dravr refused to start ${provider} authorization for the configured API key (HTTP ${response.status})`,
-        );
-      }
-      const minted = (await response.json()) as { authorization_url?: unknown };
-      if (typeof minted.authorization_url !== "string") {
-        throw new PierreError(
-          PierreErrorCode.PROVIDER_ERROR,
-          `Dravr answered the ${provider} authorization request without an authorization_url`,
-        );
-      }
-      this.log(`Initiating ${provider} OAuth flow for the configured API key`);
-      return { kind: "open", url: minted.authorization_url };
     }
-
-    const tokens = await this.oauthProvider?.tokens();
-    if (!tokens?.access_token) {
-      throw new PierreError(PierreErrorCode.AUTH_ERROR, "No access token available");
-    }
-
-    // Decode JWT to get user_id (JWT format: header.payload.signature)
-    const payload = tokens.access_token.split(".")[1];
-    const decoded = JSON.parse(Buffer.from(payload, "base64").toString());
-    const userId = decoded.sub;
-
-    if (!userId) {
-      throw new PierreError(PierreErrorCode.AUTH_ERROR, "Could not extract user_id from JWT token");
-    }
-
-    this.log(`Initiating ${provider} OAuth flow for user: ${userId}`);
-    const initiateUrl = `${this.config.pierreServerUrl}/api/oauth/auth/${provider}/${userId}`;
-    const start = await startProviderOAuth(
-      initiateUrl,
-      tokens.access_token,
-      provider,
-      callbackToken,
-    );
-    switch (start.kind) {
-      case "notice_required":
-        return start;
-      case "authorize":
-        return { kind: "open", url: start.url };
-      case "open_initiate":
-        return { kind: "open", url: initiateUrl };
-    }
+    this.log(`Initiating ${provider} OAuth flow through Dravr's connect_provider tool`);
+    return startProviderOAuth((params) => client.callTool(params), provider);
   }
 
   private async startBridge(): Promise<void> {

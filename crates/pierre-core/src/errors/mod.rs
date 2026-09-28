@@ -897,9 +897,6 @@ impl From<ProtocolError> for AppError {
             } => Self::invalid_input(format!(
                 "Rate limit exceeded: {requests} requests in {window_secs}s"
             )),
-            ProtocolError::OperationCancelled(message) => {
-                Self::invalid_input(format!("Operation cancelled: {message}"))
-            }
             ProtocolError::ProviderAuthRequired { provider } => {
                 Self::provider_auth_required(provider)
             }

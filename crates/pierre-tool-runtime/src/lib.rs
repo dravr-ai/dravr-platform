@@ -11,9 +11,8 @@
 //!
 //! ## What lives here
 //!
-//! - [`ToolCapabilities`] — bitflags describing what a tool requires
-//!   (`REQUIRES_AUTH`, `REQUIRES_PROVIDER`, `ADMIN_ONLY`, …) and helpers
-//!   for capability-based filtering.
+//! - [`capabilities::PROVIDER_READ`] — the capability set shared by the
+//!   provider-backed read tools, on dravr-tronc's `ToolCapabilities`.
 //! - [`ToolSelectionService`] — per-tenant tool filtering that combines
 //!   global env-driven disabling, plan restrictions, and admin-configured
 //!   per-tenant overrides into a single effective tool list with LRU caching.
@@ -35,8 +34,6 @@
 //!   `crate::tools::implementations::{admin,agents,mobility}` paths stay
 //!   stable for the registry-builtin wiring and tests.
 //! - `tools::protocol::*` — JSON-RPC envelope, executor, auth, format helpers.
-//! - `tools::engine.rs` / `tools::providers.rs` — pierre-server-internal
-//!   plumbing tied to the HTTP transport.
 //! - `tools::registry_builtin::register_builtin_tools` — wires the
 //!   `super::implementations::*` modules into a [`registry::ToolRegistry`]
 //!   instance at startup.
@@ -75,8 +72,6 @@ pub mod context;
 /// Conversions wiring host tool types onto the tronc MCP tool trait surface.
 pub mod conversions;
 pub mod decorators;
-/// Unified tool execution engine
-pub mod engine;
 /// Stale-while-revalidate activity cache backing the group member snapshots
 #[cfg(feature = "tools-groups")]
 pub mod group_activity_cache;
@@ -114,9 +109,6 @@ pub mod training_history_compute;
 /// Request construction for the text-simulation CLI tool loop
 #[cfg(feature = "client-chat")]
 pub mod cli_loop;
-/// Translation between pierre-llm tool shapes and embacle tool_simulation
-#[cfg(feature = "client-chat")]
-mod embacle_bridge;
 /// Tool execution strategies for multi-turn LLM chat (API, headless, CLI modes).
 ///
 /// Three strategies share the same MCP executor infrastructure:
@@ -140,7 +132,6 @@ mod tool_loop_telemetry;
 pub mod tool_results;
 pub mod tool_selection;
 
-pub use capabilities::ToolCapabilities;
 pub use context::{AuthMethod, ToolExecutionContext};
 pub use decorators::AuditedTool;
 pub use dravr_tronc::mcp::tool::McpTool;

@@ -20,7 +20,7 @@
 # compiles, and a test that passes the right key never sees the message.
 #
 # Attribution comes from scripts/ci/tool_schema_properties.py, shared with
-# check-contremaitre-sync.sh Check 9, which asks the opposite question: Check 9
+# check-contremaitre-sync.sh Check 7, which asks the opposite question: Check 7
 # is "declared in the yaml overlay, not in the schema"; this is "refused for
 # something never offered". The two do not overlap — measured against
 # registre#420's four cases, this one would have caught detect_patterns alone,

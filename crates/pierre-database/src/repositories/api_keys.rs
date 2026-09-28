@@ -142,8 +142,8 @@ pub(crate) const GET_ANY_API_KEY_BY_ID_SQL: &str = concat!(
 /// Deactivate every active key whose expiry lies before `$1`.
 pub(crate) const CLEANUP_EXPIRED_API_KEYS_SQL: &str = "UPDATE api_keys SET is_active = false WHERE expires_at IS NOT NULL AND expires_at < $1 AND is_active = true";
 
-/// The operator listing: every key, optionally only one user's (by email)
-/// and only the active ones, newest first, with an optional row window. The
+/// The operator listing: every key, optionally only one user's (by email,
+/// case aside) and only the active ones, newest first, with an optional row window. The
 /// email, limit and offset bind in that order as `$1..`, each only when
 /// given; `offset` needs `limit`.
 ///
@@ -162,7 +162,7 @@ pub(crate) fn filtered_api_keys_sql(
     if user_email.is_some() {
         sql.push_str(" JOIN users u ON ak.user_id = u.id");
         param_count += 1;
-        conditions.push(format!("u.email = ${param_count}"));
+        conditions.push(format!("lower(u.email) = lower(${param_count})"));
     }
     if active_only {
         conditions.push("ak.is_active = true".to_owned());
@@ -384,7 +384,7 @@ macro_rules! impl_api_key_repository {
                 let sql = filtered_api_keys_sql(user_email, active_only, limit, offset)?;
                 let mut query = sqlx::query(&sql);
                 if let Some(email) = user_email {
-                    query = query.bind(email);
+                    query = query.bind(normalize_email(email));
                 }
                 if let Some(limit) = limit {
                     query = query.bind(limit);

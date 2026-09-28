@@ -329,20 +329,20 @@ pub enum ModelPolicy {
     OverrideWithEnv,
 }
 
-/// What a messaging transport can carry, read from the canot channel
-/// descriptor and renderer at the ingress boundary.
+/// What a messaging transport can carry, read from canot's declared channel
+/// capabilities at the ingress boundary.
 ///
 /// Held as data rather than looked up here because the canot channel adapters
 /// are feature-gated per channel: the composition root in `pierre-server`
 /// compiles them in and reads them, this crate consumes the answers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MessagingTransportCaps {
-    /// `ChannelDescriptor::max_message_length` — the transport's own ceiling.
+    /// canot `ChannelCapabilities::max_message_length` — the transport's own ceiling.
     pub max_message_length: usize,
-    /// `ResponseRenderer::supports_media` — the channel publishes a media URL
+    /// canot `ChannelCapabilities::supports_media` — the channel publishes a media URL
     /// natively instead of degrading it to text.
     pub renders_media_natively: bool,
-    /// `ResponseRenderer::supports_cards` — the channel lays out a card with
+    /// canot `ChannelCapabilities::supports_cards` — the channel lays out a card with
     /// native controls instead of degrading it to text.
     pub renders_cards_natively: bool,
 }

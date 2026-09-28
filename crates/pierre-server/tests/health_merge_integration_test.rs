@@ -96,9 +96,6 @@ fn request(tool: &str, params: Value, user_id: Uuid, tenant: &TenantId) -> Unive
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: Some(tenant.to_string()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     }
 }
 

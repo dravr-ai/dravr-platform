@@ -31,16 +31,9 @@ pub mod recommendations_output;
 // crate keeps tests external, so content coverage of the JSON the model reads
 // needs the builder public. Its production caller is the tool handler below.
 pub use inner::{analyze_detailed_training_load, UserPhysiologicalParams};
-// Its own line: the pre-push moved-symbol check reads `pub use` line by line,
-// so folding this into the list above wraps it past 100 columns and the
-// symbols there stop being visible to the scan.
 // Its own line: the pre-push moved-symbol check and rustfmt's 100-column wrap
 // both read `pub use` line by line.
 pub use inner::calculate_fitness_metrics;
-pub use inner::intelligence_from_model_reply;
-// Its own line: rustfmt wraps a longer `pub use` past 100 columns, and the
-// moved-symbol guard scans lines.
-pub use inner::sampled_or_wrapped;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -49,11 +42,11 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use tracing::info;
 
-use crate::capabilities::{PROVIDER_ANALYTICS, PROVIDER_READ};
+use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, capabilities_to_tronc, object_schema, object_schema_with_format, ok_typed,
-    task_capable, tool_definition, tool_result_to_response, Formatted,
+    answers_with, object_schema, object_schema_with_format, ok_typed, task_capable,
+    tool_definition, tool_result_to_response, Formatted,
 };
 use crate::implementations::analytics::output::{
     ActivityIntelligenceResult, ActivityMetricsResult, CompareActivitiesResult, FitnessScoreResult,
@@ -69,17 +62,17 @@ use crate::protocol::UniversalExecutor;
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_config::environment::default_provider;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
-use pierre_fitness_compute::weather::{analyze_weather_impact, build_provider};
+use pierre_fitness_compute::weather::analyze_weather_impact;
 use pierre_fitness_compute::weather_cache_adapter::WeatherCacheRepoAdapter;
 use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_providers::core::FitnessProvider;
 use pierre_tools_core::ToolResult;
-use pierre_weather::WeatherQuery;
+use pierre_weather::{provider_from_env, WeatherQuery};
 
 /// Annotations shared by all analytics tools: read-only, idempotent, open-world (external provider)
 fn analytics_annotations() -> ToolAnnotations {
@@ -155,8 +148,8 @@ impl McpTool<dyn ToolRuntime> for AnalyzeTrainingLoadTool {
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_READ)
+    fn capabilities(&self) -> ToolCapabilities {
+        PROVIDER_READ
     }
 
     async fn execute(
@@ -224,8 +217,8 @@ impl McpTool<dyn ToolRuntime> for DetectPatternsTool {
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_READ)
+    fn capabilities(&self) -> ToolCapabilities {
+        PROVIDER_READ
     }
 
     async fn execute(
@@ -305,8 +298,8 @@ impl McpTool<dyn ToolRuntime> for CalculateFitnessScoreTool {
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_READ)
+    fn capabilities(&self) -> ToolCapabilities {
+        PROVIDER_READ
     }
 
     async fn execute(
@@ -386,8 +379,8 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_READ)
+    fn capabilities(&self) -> ToolCapabilities {
+        PROVIDER_READ
     }
 
     async fn execute(
@@ -474,7 +467,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
 
         let cache_repo = context.resources.repos().weather_cache.clone();
         let cache_store = Arc::new(WeatherCacheRepoAdapter::new(cache_repo));
-        let provider = match build_provider(cache_store) {
+        let provider = match provider_from_env(cache_store) {
             Ok(provider) => provider,
             Err(e) => {
                 return Ok(ToolResult::error(json!({
@@ -603,8 +596,8 @@ impl McpTool<dyn ToolRuntime> for AnalyzeActivityTool {
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_ANALYTICS)
+    fn capabilities(&self) -> ToolCapabilities {
+        PROVIDER_READ
     }
 
     async fn execute(
@@ -710,8 +703,8 @@ impl McpTool<dyn ToolRuntime> for GetActivityIntelligenceTool {
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_ANALYTICS)
+    fn capabilities(&self) -> ToolCapabilities {
+        PROVIDER_READ
     }
 
     async fn execute(
@@ -798,8 +791,8 @@ impl McpTool<dyn ToolRuntime> for CalculateMetricsTool {
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_ANALYTICS)
+    fn capabilities(&self) -> ToolCapabilities {
+        PROVIDER_READ
     }
 
     async fn execute(
@@ -875,8 +868,8 @@ impl McpTool<dyn ToolRuntime> for AnalyzePerformanceTrendsTool {
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_ANALYTICS)
+    fn capabilities(&self) -> ToolCapabilities {
+        PROVIDER_READ
     }
 
     async fn execute(
@@ -964,8 +957,8 @@ impl McpTool<dyn ToolRuntime> for CompareActivitiesTool {
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_ANALYTICS)
+    fn capabilities(&self) -> ToolCapabilities {
+        PROVIDER_READ
     }
 
     async fn execute(
@@ -1030,8 +1023,8 @@ impl McpTool<dyn ToolRuntime> for GenerateRecommendationsTool {
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_READ)
+    fn capabilities(&self) -> ToolCapabilities {
+        PROVIDER_READ
     }
 
     async fn execute(
@@ -1096,8 +1089,8 @@ impl McpTool<dyn ToolRuntime> for PredictPerformanceTool {
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_READ)
+    fn capabilities(&self) -> ToolCapabilities {
+        PROVIDER_READ
     }
 
     async fn execute(

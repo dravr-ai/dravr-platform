@@ -59,11 +59,9 @@ use super::training_plan_vision::{
     validate_flavour, validate_phase, validate_season_window, FlavourPayload,
 };
 use super::training_plans_output::PlanSafetyReport;
-use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
-    tool_result_to_response,
+    answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
 use crate::implementations::training_plans_output::{
     GetTrainingPlanResult, SaveTrainingPlanResult, SavedWeek,
@@ -71,7 +69,7 @@ use crate::implementations::training_plans_output::{
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
 
 use crate::implementations::guided_flow::{active_guided_flow, flow_withholds_writes};
@@ -642,16 +640,14 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
+    fn capabilities(&self) -> ToolCapabilities {
         // READS_DATA: the reply is the athlete's plan, and with `include_state`
         // their readiness, recovery and sleep-derived state — fitness data, so
         // a delegated grant needs `fitness:read` to reach it, the read twin of
         // `save_training_plan`'s WRITES_DATA.
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_TENANT
-                | ToolCapabilities::READS_DATA,
-        )
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_TENANT
+            | ToolCapabilities::READS_DATA
     }
 
     async fn execute(
@@ -814,12 +810,10 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_TENANT
-                | ToolCapabilities::WRITES_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_TENANT
+            | ToolCapabilities::WRITES_DATA
     }
 
     async fn execute(

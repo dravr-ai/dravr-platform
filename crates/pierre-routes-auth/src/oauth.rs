@@ -24,26 +24,27 @@ use tracing::{error, field, field::Empty, info, warn, Span};
 use crate::AuthRoutesContext;
 use pierre_auth::oauth2_client::{OAuthClientState, PkceParams};
 use pierre_auth::tenant::TenantContext;
-use pierre_core::errors::{AppError, ErrorCode};
+use pierre_core::errors::AppError;
 use pierre_core::models::{ConnectionType, DelegationStatus, TenantId};
 use pierre_mcp_transport::oauth_flow_manager::OAuthTemplateRenderer;
 use pierre_providers::backend_resolver;
 use pierre_providers::ProviderDescriptor;
 use pierre_services::delegated_connections::{member_delegation, MemberDelegation};
 use pierre_services::oauth_flow::{
-    categorize_oauth_error, extract_tenant_id, get_user_for_oauth, parse_user_id, AuthUrlOptions,
-    BridgeCallbackToken, OAuthService, BRIDGE_CALLBACK_TOKEN_HEADER,
+    categorize_oauth_error, extract_tenant_id, get_user_for_oauth, AuthUrlOptions, OAuthService,
 };
 use pierre_services::oauth_redirects;
 use pierre_services::provider_notice::{asks_for_notice, require_notice_accepted};
+#[cfg(feature = "health-sync")]
+use pierre_services::provider_refresh::token_tenant;
 use pierre_services::provider_refresh::RefreshService;
 #[cfg(feature = "health-sync")]
 use pierre_services::provider_refresh::SyncNotifier;
 use pierre_services::provider_revocation::DisconnectReason;
+#[cfg(feature = "health-sync")]
+use pierre_services::sync_failure_notice::health_sync_failure_is_told;
 
-use pierre_auth::dto::auth::{
-    OAuthStatus, ProviderDelegation, ProviderStatus, ProvidersStatusResponse,
-};
+use pierre_auth::dto::auth::{ProviderDelegation, ProviderStatus, ProvidersStatusResponse};
 use pierre_auth::strava_pool;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use uuid::Uuid;
@@ -264,72 +265,6 @@ fn callback_failure_response(
     (status, [(header::CONTENT_TYPE, "text/html")], html).into_response()
 }
 
-/// Handle OAuth status check
-#[tracing::instrument(
-    skip(resources, headers),
-    fields(
-        route = "oauth_status",
-        user_id = Empty,
-    )
-)]
-pub async fn handle_oauth_status(
-    State(resources): State<AuthRoutesContext>,
-    headers: HeaderMap,
-) -> Result<Response, AppError> {
-    // Authenticate using middleware (supports both cookies and Authorization header)
-    let auth_result = resources
-        .auth_middleware
-        .authenticate_request_with_headers(&headers)
-        .await?;
-
-    let user_id = auth_result.user_id;
-
-    // Check OAuth provider connection status for the user (cross-tenant view).
-    // A repository failure propagates as a 5xx: an all-disconnected payload is
-    // reserved for the user who genuinely holds no tokens, so the client can
-    // tell "you are not connected" apart from "we could not find out".
-    let tokens = resources
-        .repos
-        .oauth_tokens
-        .get_tokens(user_id, None)
-        .await?;
-
-    // Convert tokens to status objects
-    let mut provider_statuses = vec![];
-    let mut providers_seen = HashSet::new();
-
-    // A row the fetch path can never use is not a connection. Every Garmin
-    // fetch is routed to `sciotte_garmin`, so echoing a bare `garmin` row as
-    // connected here contradicted `/api/providers` and the coach alike
-    // (carnet#352). `serving_backends` is the single rule both surfaces read.
-    for token in tokens {
-        if !backend_resolver::serving_backends(&token.provider)
-            .iter()
-            .any(|b| b == &token.provider)
-        {
-            continue;
-        }
-        if providers_seen.insert(token.provider.clone()) {
-            provider_statuses.push(OAuthStatus {
-                provider: token.provider,
-                connected: true,
-                last_sync: Some(token.created_at.to_rfc3339()),
-            });
-        }
-    }
-
-    // Strava is always listed, connected or not
-    if !providers_seen.contains("strava") {
-        provider_statuses.push(OAuthStatus {
-            provider: "strava".to_owned(),
-            connected: false,
-            last_sync: None,
-        });
-    }
-
-    Ok((StatusCode::OK, Json(provider_statuses)).into_response())
-}
-
 /// Get all providers with connection status
 ///
 /// Returns all available providers from the registry with their connection status.
@@ -349,7 +284,7 @@ pub async fn handle_providers_status(
         auth_result.user_id,
         auth_result.active_tenant_id,
     )
-    .await;
+    .await?;
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
@@ -357,8 +292,7 @@ pub async fn handle_providers_status(
 ///
 /// The Strava and Garmin cards are named for their MIRROR backends (`sciotte`,
 /// `sciotte_garmin`) because the scrape is the supported way in, and the raw
-/// `strava` / `garmin` cards are withheld — `garmin` is skipped outright below,
-/// and both clients filter `strava` out. But a connection made through OAuth is
+/// `strava` / `garmin` cards are withheld below. But a connection made through OAuth is
 /// stored under the user-facing name. One athlete and one provider therefore
 /// have two possible row names, so a card lights up when EITHER is present.
 ///
@@ -389,6 +323,7 @@ fn provider_delegation(delegation: MemberDelegation) -> ProviderDelegation {
         coach_display_name: delegation.coach_name,
         status: delegation.link.status,
         coach_needs_reauth: delegation.coach_needs_reconnect,
+        read_refused: delegation.read_refused,
     }
 }
 
@@ -412,15 +347,20 @@ async fn notice_outstanding(
 ///
 /// Shared by the JWT-gated `/api/providers` handler and the channel-initiated
 /// hosted connect page, which authenticates via a provider link-token rather
-/// than a session cookie. Infallible: a repo failure degrades to an empty
-/// connection set / "no seats left" rather than erroring the page.
-/// `tenant_id` is the session's active tenant, whose feature flags decide
-/// whether an exposure notice is asked for.
+/// than a session cookie. A failed read of the user's connections is an
+/// error, never an all-disconnected catalogue: "you are not connected" and
+/// "we could not find out" must stay distinguishable. The seat summary still
+/// degrades to "no seats left", which only steers a new Strava connection to
+/// the mirror. `tenant_id` is the session's active tenant, whose feature
+/// flags decide whether an exposure notice is asked for.
+///
+/// # Errors
+/// Returns the repository's error when the user's connections cannot be read.
 pub async fn compute_providers_status(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Option<Uuid>,
-) -> ProvidersStatusResponse {
+) -> Result<ProvidersStatusResponse, AppError> {
     use pierre_providers::registry::global_registry;
 
     // Get all supported providers from the registry
@@ -432,8 +372,7 @@ pub async fn compute_providers_status(
         .repos
         .provider_connections
         .get_for_user(user_id, None)
-        .await
-        .unwrap_or_default();
+        .await?;
 
     // A connection whose lifecycle status is NeedsReauth/Revoked still has a row
     // (so it reads as "connected") but its session no longer works — a dead
@@ -500,13 +439,19 @@ pub async fn compute_providers_status(
     let mut provider_statuses = Vec::new();
 
     for provider_name in supported_providers {
-        // A provider whose mirror is its only serving backend (Garmin, COROS)
-        // has an OAuth API Pierre cannot call — Garmin's is uncredentialed,
-        // COROS' not yet approved (carnet#509) — so its raw card is never
-        // advertised: it would 500 on connect. The scrape card is the path.
-        if backend_resolver::mirror_backend_for(provider_name)
-            .is_some_and(|mirror| backend_resolver::serving_backends(provider_name) == [mirror])
-        {
+        // A provider with a scrape mirror is shown by ONE card, named for the
+        // mirror (`sciotte`, `sciotte_garmin`, ...), which already coalesces
+        // both backends (`card_is_connected`) and whose disconnect clears the
+        // pair. Its raw card is therefore never served: for Garmin and COROS it
+        // names an OAuth API Pierre cannot call (uncredentialed; carnet#509),
+        // and for Strava it duplicates the one Strava card. The clients render
+        // this list as served (carnet#574) — none of them filters it again.
+        // A build without the mirror keeps Strava's raw card, which then is
+        // the only way in.
+        if backend_resolver::mirror_backend_for(provider_name).is_some_and(|mirror| {
+            registry.get_descriptor(mirror).is_some()
+                || backend_resolver::serving_backends(provider_name) == [mirror]
+        }) {
             continue;
         }
         // Get provider descriptor from registry
@@ -521,6 +466,12 @@ pub async fn compute_providers_status(
             // refresh) is flagged so the UI prompts a reconnect instead of showing
             // a healthy "Connected". Only meaningful while `connected` is true.
             let needs_reauth = connected && card_is_connected(provider_name, &reauth_providers);
+            // Which backend's row is behind a connected card, in the order
+            // `resolve_backend` routes by — the Strava card may be served by
+            // the native OAuth grant or by the mirror session.
+            let connected_backend = backend_resolver::serving_backends(provider_name)
+                .into_iter()
+                .find(|backend| connected_providers.contains(backend.as_str()));
 
             // Always show all providers regardless of connection status.
             // Non-OAuth providers (like synthetic) appear with connected=false
@@ -563,6 +514,7 @@ pub async fn compute_providers_status(
                 display_name: descriptor.display_name().to_owned(),
                 requires_oauth,
                 connected,
+                connected_backend,
                 needs_reauth,
                 capabilities,
                 recommended_backend,
@@ -587,10 +539,7 @@ pub async fn compute_providers_status(
         "sciotte_garmin",
         "sciotte_trainingpeaks",
         "sciotte_coros",
-        "strava",
-        "garmin",
         "whoop",
-        "coros",
         "terra",
     ]
     .iter()
@@ -604,9 +553,9 @@ pub async fn compute_providers_status(
             .unwrap_or(usize::MAX)
     });
 
-    ProvidersStatusResponse {
+    Ok(ProvidersStatusResponse {
         providers: provider_statuses,
-    }
+    })
 }
 
 /// The acceptance a client carries on an OAuth start request.
@@ -622,37 +571,13 @@ pub struct OAuthStartQuery {
     pub tos_consent: bool,
 }
 
-/// The per-flow token of the SDK bridge listener that starts this flow, when
-/// a bridge starts it: sent in [`BRIDGE_CALLBACK_TOKEN_HEADER`], never in the
-/// URL, and presented on the flow's success notification, the only POST that
-/// listener accepts provider tokens from. Checked before the flow starts, so
-/// a malformed token is refused rather than stored.
-///
-/// # Errors
-/// Returns an invalid-input error when the header is present but malformed.
-fn presented_callback_token(headers: &HeaderMap) -> Result<Option<BridgeCallbackToken>, AppError> {
-    headers
-        .get(BRIDGE_CALLBACK_TOKEN_HEADER)
-        .map(|value| {
-            value.to_str().map_or_else(
-                |_| {
-                    Err(AppError::invalid_input(format!(
-                        "{BRIDGE_CALLBACK_TOKEN_HEADER} must be visible ASCII"
-                    )))
-                },
-                BridgeCallbackToken::parse,
-            )
-        })
-        .transpose()
-}
-
 /// Refuse to begin `provider`'s OAuth flow until the account has accepted the
 /// notice in force for it, recording the acceptance this start carries.
 ///
 /// The OAuth-start face of [`require_notice_accepted`], shared by every route
-/// that mints an authorization URL — the web launch and initiate routes, the
-/// mobile init and the hosted connect picker's init — so none can hand out a
-/// URL the precondition has not passed. The refusal names the provider by its
+/// that mints an authorization URL — the launch route, the mobile init and
+/// the hosted connect picker's init — so none can hand out a URL the
+/// precondition has not passed. The refusal names the provider by its
 /// registered display name.
 ///
 /// # Errors
@@ -677,84 +602,6 @@ pub async fn require_oauth_start_notice(
         tos_consent,
     )
     .await
-}
-
-/// Handle OAuth authorization initiation
-///
-/// Requires authentication and verifies that the authenticated user matches
-/// the `user_id` in the path to prevent unauthorized OAuth flow initiation.
-#[tracing::instrument(
-    skip(resources, headers),
-    fields(
-        route = "oauth_auth_initiate",
-        provider = %provider,
-        user_id = %user_id_str,
-        tenant_id = Empty,
-    )
-)]
-pub async fn handle_oauth_auth_initiate(
-    State(resources): State<AuthRoutesContext>,
-    Path((provider, user_id_str)): Path<(String, String)>,
-    Query(start): Query<OAuthStartQuery>,
-    headers: HeaderMap,
-) -> Result<Response, AppError> {
-    // Authenticate the request before proceeding
-    let auth_result = resources
-        .auth_middleware
-        .authenticate_request_with_headers(&headers)
-        .await?;
-
-    let user_id = parse_user_id(&user_id_str)?;
-    let bridge_callback_token = presented_callback_token(&headers)?;
-
-    // Verify authenticated user matches the requested user_id
-    if auth_result.user_id != user_id {
-        warn!(
-            "OAuth auth initiate: authenticated user {} does not match path user_id {}",
-            auth_result.user_id, user_id
-        );
-        return Err(AppError::new(
-            ErrorCode::PermissionDenied,
-            "Cannot initiate OAuth flow for a different user",
-        ));
-    }
-
-    info!(
-        "OAuth authorization initiation for provider: {} user: {}",
-        provider, user_id_str
-    );
-
-    // Verify user exists
-    get_user_for_oauth(resources.repos.users.as_ref(), user_id).await?;
-    let tenant_id = extract_tenant_id(auth_result.active_tenant_id.map(TenantId::from_uuid))?;
-    require_oauth_start_notice(&resources, user_id, tenant_id, &provider, start.tos_consent)
-        .await?;
-
-    let oauth_service = OAuthService::new(resources.data.clone(), resources.config.clone());
-
-    let auth_response = oauth_service
-        .get_auth_url(
-            user_id,
-            tenant_id,
-            &provider,
-            AuthUrlOptions {
-                bridge_callback_token: bridge_callback_token.as_ref(),
-                ..AuthUrlOptions::default()
-            },
-        )
-        .await
-        .map_err(|e| oauth_url_failure(e, &provider, user_id))?;
-
-    info!(
-        "Generated OAuth URL for {} user {} (state issued)",
-        provider, user_id
-    );
-
-    Ok((
-        StatusCode::FOUND,
-        [(header::LOCATION, auth_response.authorization_url)],
-    )
-        .into_response())
 }
 
 /// Handle mobile OAuth initiation
@@ -791,7 +638,6 @@ pub async fn handle_mobile_oauth_init(
 
     // Get optional redirect_uri from query parameters (mobile app's deep link)
     let redirect_url = query.get("redirect_uri");
-    let bridge_callback_token = presented_callback_token(&headers)?;
 
     // Validate redirect URL against allowlist to prevent open-redirect attacks
     if let Some(url) = redirect_url {
@@ -889,7 +735,6 @@ pub async fn handle_mobile_oauth_init(
         pkce_code_verifier: pkce.as_ref().map(|p| p.code_verifier.clone()),
         // The shared-pool app the URL names, so the exchange uses its client.
         oauth_app_client_id: authorization.oauth_app_client_id,
-        bridge_callback_token: bridge_callback_token.map(|token| token.as_str().to_owned()),
         created_at: now,
         expires_at: now + chrono::Duration::minutes(10),
         used: false,
@@ -952,6 +797,12 @@ pub async fn handle_mobile_oauth_init(
 /// which does the same for channel-initiated links; the two differ only in how
 /// the caller proves identity (session cookie here, connect link-token there).
 ///
+/// The flow belongs to whoever the credential names — a session cookie, a
+/// session bearer, or an API key as the whole `Authorization` value — and to
+/// no one else: the route takes no user id, so no caller can start a flow for
+/// another account. The web app opens it as a popup; the SDK bridge fetches it
+/// with its bearer and opens the provider page the redirect names.
+///
 /// A provider whose notice is outstanding for the account (WHOOP's owner
 /// authorization) is refused until `?tos_consent=true` accepts it.
 ///
@@ -980,7 +831,6 @@ pub async fn handle_oauth_authorize_redirect(
         .await?;
     let user_id = auth_result.user_id;
     let tenant_id = extract_tenant_id(auth_result.active_tenant_id.map(TenantId::from_uuid))?;
-    let bridge_callback_token = presented_callback_token(&headers)?;
 
     let span = Span::current();
     span.record("user_id", field::display(&user_id));
@@ -992,16 +842,9 @@ pub async fn handle_oauth_authorize_redirect(
 
     let oauth_service = OAuthService::new(resources.data.clone(), resources.config.clone());
     let authorization = oauth_service
-        .get_auth_url(
-            user_id,
-            tenant_id,
-            &provider,
-            AuthUrlOptions {
-                bridge_callback_token: bridge_callback_token.as_ref(),
-                ..AuthUrlOptions::default()
-            },
-        )
-        .await?;
+        .get_auth_url(user_id, tenant_id, &provider, AuthUrlOptions::default())
+        .await
+        .map_err(|e| oauth_url_failure(e, &provider, user_id))?;
 
     info!(
         provider = %provider,
@@ -1155,7 +998,8 @@ pub async fn handle_sync_provider(
 /// through OAuth, a pasted API key (intervals.icu) or a scrape login (Garmin,
 /// COROS). `provider` is the name the sync knows it under; a provider the
 /// sync does not manage (Strava's activities, read on demand) has nothing to
-/// backfill.
+/// backfill. A backfill that fails tells the athlete once, through the
+/// sync-failure notices; one that lands re-arms them.
 #[cfg(feature = "health-sync")]
 pub fn spawn_health_backfill(resources: &AuthRoutesContext, user_id: &str, provider: &str) {
     const BACKFILL_DAYS: u32 = 30;
@@ -1172,6 +1016,8 @@ pub fn spawn_health_backfill(resources: &AuthRoutesContext, user_id: &str, provi
     }
     let user_id = user_id.to_owned();
     let provider = provider.to_owned();
+    let auth_repos = resources.repos.auth_repos();
+    let notices = resources.sync_failure_notices.clone();
     tokio::spawn(async move {
         info!(
             user_id = %user_id,
@@ -1179,16 +1025,36 @@ pub fn spawn_health_backfill(resources: &AuthRoutesContext, user_id: &str, provi
             days = BACKFILL_DAYS,
             "Triggering initial health data backfill after OAuth connection"
         );
-        if let Err(e) = orchestrator
+        let outcome = orchestrator
             .backfill(&user_id, &provider, BACKFILL_DAYS)
-            .await
-        {
+            .await;
+        if let Err(e) = &outcome {
             tracing::error!(
                 error = %e,
                 user_id = %user_id,
                 provider = %provider,
                 "Initial health data backfill failed"
             );
+        }
+        // A failure the athlete is not told about (a dead credential, the
+        // shared quota) neither notifies nor re-arms.
+        if outcome
+            .as_ref()
+            .is_err_and(|e| !health_sync_failure_is_told(e))
+        {
+            return;
+        }
+        let Ok(user_uuid) = Uuid::parse_str(&user_id) else {
+            return;
+        };
+        let backend = backend_resolver::sync_backend(&provider);
+        let Some(tenant) = token_tenant(&auth_repos, user_uuid, &backend).await else {
+            return;
+        };
+        if outcome.is_ok() {
+            notices.sync_landed(user_uuid, tenant, &backend).await;
+        } else {
+            notices.sync_failed(user_uuid, tenant, &backend).await;
         }
     });
 }

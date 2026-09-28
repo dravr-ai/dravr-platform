@@ -362,52 +362,10 @@ pub async fn handle_list_claim_verdicts(
     let rows: Vec<VerdictRow> = verdicts.into_iter().map(Into::into).collect();
     let total = rows.len();
     info!(
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         total,
         "admin listed claim verdicts"
     );
-
-    Ok((
-        StatusCode::OK,
-        Json(VerdictListResponse {
-            verdicts: rows,
-            total,
-        }),
-    ))
-}
-
-/// Handle `GET /api/admin/claim-verdicts/conversations/{conversation_id}`.
-///
-/// Returns every verdict tied to a specific conversation in chronological
-/// order. Used by the admin drawer to show the full verification history
-/// behind a single flagged message.
-///
-/// # Errors
-///
-/// `AppError` on auth failure, an invalid tenant, or a repository error.
-pub async fn handle_list_verdicts_by_conversation(
-    State(context): State<Arc<AdminApiContext>>,
-    Extension(admin_token): Extension<ValidatedAdminToken>,
-    Path(conversation_id): Path<String>,
-    Query(params): Query<TenantScopedQuery>,
-) -> AppResult<impl IntoResponse> {
-    admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
-    admin_token.require_tenant_access(&params.tenant_id)?;
-
-    let tenant = parse_tenant(&params.tenant_id)?;
-
-    let verdicts = context
-        .repos
-        .claim_verdicts
-        .list_verdicts_for_conversation(&conversation_id, tenant)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "failed to list verdicts for conversation");
-            AppError::internal(format!("Failed to list verdicts for conversation: {e}"))
-        })?;
-
-    let rows: Vec<VerdictRow> = verdicts.into_iter().map(Into::into).collect();
-    let total = rows.len();
 
     Ok((
         StatusCode::OK,
@@ -566,7 +524,7 @@ pub async fn handle_set_verdict_disposition(
         })?;
 
     info!(
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         tenant = %body.tenant_id,
         verdict_id = %verdict_id,
         disposition = disposition.as_str(),
@@ -766,11 +724,12 @@ fn evidence_knob(verdict: &ClaimVerdict, registry: &EvidenceRegistry) -> Verdict
         return VerdictKnob {
             layer,
             kind: "evidence_corpus".to_owned(),
-            location: format!("crates/pierre-evals/fixtures/sports_science/{category}/"),
+            location: format!("evidence/sports_science/{category}/"),
             detail: format!(
                 "The evidence registry holds no synced proposition, so retrieval reads the \
-                 compiled-in corpus tabled in crates/pierre-services/src/claim_verification.rs \
-                 (EMBEDDED_PROPOSITIONS). Cited records: {}. The category's minimum strength \
+                 compiled-in corpus of the pinned dravr-contremaitre rev \
+                 (dravr_contremaitre::evidence::SPORTS_SCIENCE). Cited records: {}. The \
+                 category's minimum strength \
                  is `verification_config.categories.{category}.min_strength` \
                  (CategoryConfig in crates/pierre-evals/src/verification_config.rs).",
                 cited_list(&cited)

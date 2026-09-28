@@ -1,5 +1,5 @@
 // ABOUTME: Endurance Phase 2 MCP tools — compute_training_history + get_training_history
-// ABOUTME: Mirrors GET /api/v1/endurance/history; on-demand backfill + read of daily CTL/ATL/TSB rollup
+// ABOUTME: On-demand backfill + read of the daily CTL/ATL/TSB training-history rollup
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -19,13 +19,11 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
-use pierre_tool_runtime::capabilities::ToolCapabilities;
 use pierre_tool_runtime::context::ToolExecutionContext;
 use pierre_tool_runtime::conversions::{
-    answers_with, capabilities_to_tronc, ok_typed, task_capable, tool_definition,
-    tool_result_to_response,
+    answers_with, ok_typed, task_capable, tool_definition, tool_result_to_response,
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::security::RuntimeTool;
@@ -45,7 +43,8 @@ pub struct TrainingHistoryDay {
     /// The persisted daily rollup.
     #[serde(flatten)]
     pub state: DailyTrainingState,
-    /// Form as a percentage of this athlete's own CTL, rounded. Null when
+    /// Form as a percentage of this athlete's own CTL — the day's `tsb` over
+    /// its `form_ctl`, both from the end of the day before — rounded. Null when
     /// there is no chronic base to normalise against — form cannot be judged
     /// at all in that case, and a zero would read as "balanced".
     pub tsb_pct_of_ctl: Option<f64>,
@@ -268,15 +267,12 @@ impl McpTool<dyn ToolRuntime> for ComputeTrainingHistoryTool {
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_TENANT
-                | ToolCapabilities::REQUIRES_PROVIDER
-                | ToolCapabilities::READS_DATA
-                | ToolCapabilities::WRITES_DATA
-                | ToolCapabilities::ANALYTICS,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_TENANT
+            | ToolCapabilities::REQUIRES_PROVIDER
+            | ToolCapabilities::READS_DATA
+            | ToolCapabilities::WRITES_DATA
     }
 
     async fn execute(
@@ -327,13 +323,10 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_TENANT
-                | ToolCapabilities::READS_DATA
-                | ToolCapabilities::ANALYTICS,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_TENANT
+            | ToolCapabilities::READS_DATA
     }
 
     async fn execute(
@@ -359,7 +352,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
             let days: Vec<TrainingHistoryDay> = rows
                 .iter()
                 .map(|row| {
-                    let reading = FormReading::new(row.ctl, row.atl, row.tsb);
+                    let reading = row.form_reading();
                     TrainingHistoryDay {
                         state: row.clone(),
                         tsb_pct_of_ctl: reading.form_pct.map(f64::round),

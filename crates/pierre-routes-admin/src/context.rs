@@ -14,6 +14,7 @@
 use std::sync::Arc;
 
 use pierre_auth::auth::AuthManager;
+use pierre_config::mcp::AppBehaviorConfig;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::{
     cageux_config::CageuxConfigRegistry, persona_contracts::PersonaContractRegistry,
@@ -94,6 +95,10 @@ pub struct AdminApiContext {
     /// Contremaitre GitHub sync configuration; `None` when contremaitre is
     /// disabled in the running binary.
     pub contremaitre_config: Option<ContremaitreConfig>,
+    /// The server's app-behaviour config: the auto-approval handlers resolve
+    /// the effective setting from it, since `AUTO_APPROVE_USERS` in the
+    /// environment outranks the stored row.
+    pub app_behavior: AppBehaviorConfig,
 }
 
 /// Initial wiring required to construct an [`AdminApiContext`].
@@ -135,6 +140,8 @@ pub struct AdminApiContextInit {
     pub training_catalogue_registry: Arc<TrainingCatalogueRegistry>,
     /// Contremaitre GitHub sync configuration (None when disabled)
     pub contremaitre_config: Option<ContremaitreConfig>,
+    /// App-behaviour config (auto-approval precedence)
+    pub app_behavior: AppBehaviorConfig,
 }
 
 impl AdminApiContext {
@@ -169,6 +176,7 @@ impl AdminApiContext {
             persona_contract_registry: init.persona_contract_registry,
             training_catalogue_registry: init.training_catalogue_registry,
             contremaitre_config: init.contremaitre_config,
+            app_behavior: init.app_behavior,
         }
     }
 }

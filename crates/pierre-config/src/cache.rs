@@ -6,7 +6,6 @@
 
 pub use pierre_cache::redis_config::RedisConnectionConfig;
 
-use pierre_core::constants::cache;
 use serde::{Deserialize, Serialize};
 use std::env;
 
@@ -25,9 +24,6 @@ pub struct CacheConfig {
     /// Redis connection configuration
     #[serde(default)]
     pub redis_connection: RedisConnectionConfig,
-    /// Cache TTL configuration
-    #[serde(default)]
-    pub ttl: CacheTtlConfig,
 }
 
 impl CacheConfig {
@@ -45,56 +41,6 @@ impl CacheConfig {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(300),
             redis_connection: RedisConnectionConfig::from_env(),
-            ttl: CacheTtlConfig::from_env(),
-        }
-    }
-}
-
-/// Cache TTL configuration for different resource types
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CacheTtlConfig {
-    /// Athlete profile cache TTL in seconds (default: 24 hours)
-    pub profile_secs: u64,
-    /// Activity list cache TTL in seconds (default: 1 hour)
-    pub activity_list_secs: u64,
-    /// Individual activity cache TTL in seconds (default: 1 hour)
-    pub activity_secs: u64,
-    /// Stats cache TTL in seconds (default: 6 hours)
-    pub stats_secs: u64,
-}
-
-impl Default for CacheTtlConfig {
-    fn default() -> Self {
-        Self {
-            profile_secs: cache::TTL_PROFILE_SECS,
-            activity_list_secs: cache::TTL_ACTIVITY_LIST_SECS,
-            activity_secs: cache::TTL_ACTIVITY_SECS,
-            stats_secs: cache::TTL_STATS_SECS,
-        }
-    }
-}
-
-impl CacheTtlConfig {
-    /// Load cache TTL configuration from environment
-    #[must_use]
-    pub fn from_env() -> Self {
-        Self {
-            profile_secs: env::var("CACHE_TTL_PROFILE_SECS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(cache::TTL_PROFILE_SECS),
-            activity_list_secs: env::var("CACHE_TTL_ACTIVITY_LIST_SECS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(cache::TTL_ACTIVITY_LIST_SECS),
-            activity_secs: env::var("CACHE_TTL_ACTIVITY_SECS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(cache::TTL_ACTIVITY_SECS),
-            stats_secs: env::var("CACHE_TTL_STATS_SECS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(cache::TTL_STATS_SECS),
         }
     }
 }

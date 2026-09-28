@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests for GET /api/providers — a card reflects EITHER backend that serves it
-// ABOUTME: Pins carnet#255 (a Strava OAuth row lights the card) and carnet#352 (a dead Garmin row does not)
+// ABOUTME: Pins carnet#255/#352 (which rows light a card) and carnet#574 (raw mirrored cards are never served)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -85,6 +85,23 @@ async fn provider_cards(resources: &Arc<ServerContext>, user: &User) -> Vec<(Str
             )
         })
         .collect()
+}
+
+/// The raw cards `GET /api/providers` serves, as JSON.
+async fn provider_cards_json(resources: &Arc<ServerContext>, user: &User) -> Vec<Value> {
+    let token = common::generate_test_token(resources, user).await;
+    let app = AuthRoutes::routes(resources.auth_routes_context());
+
+    let resp = AxumTestRequest::get("/api/providers")
+        .header("authorization", &format!("Bearer {token}"))
+        .send(app)
+        .await;
+    assert_eq!(resp.status(), 200, "providers status should answer");
+    let body: Value = serde_json::from_str(&resp.text()).expect("providers status is JSON");
+    body["providers"]
+        .as_array()
+        .expect("providers is an array")
+        .clone()
 }
 
 fn card(cards: &[(String, bool)], name: &str) -> bool {
@@ -201,5 +218,74 @@ async fn connections_do_not_bleed_across_providers() {
     assert!(
         !card(&cards, oauth_providers::WHOOP),
         "a garmin connection must not light the Whoop card: {cards:?}"
+    );
+}
+
+/// The clients render the catalogue as served (carnet#574), so the server is
+/// the one place the raw `strava` and `garmin` cards are withheld: the mirror
+/// card already stands for both backends. Before, every client filtered the
+/// raw rows itself, four times over, and they disagreed on which.
+#[tokio::test]
+async fn raw_cards_a_mirror_covers_are_never_served() {
+    let (resources, user_id, tenant_id, user) = test_setup().await;
+    register_connection(&resources, user_id, tenant_id, oauth_providers::STRAVA).await;
+    register_connection(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
+
+    let cards = provider_cards(&resources, &user).await;
+    let names: Vec<&str> = cards.iter().map(|(name, _)| name.as_str()).collect();
+
+    for raw in [
+        oauth_providers::STRAVA,
+        oauth_providers::GARMIN,
+        oauth_providers::COROS,
+        oauth_providers::TRAININGPEAKS,
+    ] {
+        assert!(
+            !names.contains(&raw),
+            "the raw {raw} card is covered by its mirror card and must not be served: {names:?}"
+        );
+    }
+    assert!(
+        names.contains(&oauth_providers::SCIOTTE),
+        "the one Strava card is served: {names:?}"
+    );
+}
+
+/// A connected card names the backend whose row serves it, so a client that
+/// re-auths the Strava card can tell a reconnect of the same backend from a
+/// switch without reading a raw `strava` row the server no longer serves.
+#[tokio::test]
+async fn connected_card_names_the_backend_behind_it() {
+    let (resources, user_id, tenant_id, user) = test_setup().await;
+
+    let before = provider_cards_json(&resources, &user).await;
+    let strava_card = |cards: &[Value]| {
+        cards
+            .iter()
+            .find(|c| c["provider"] == oauth_providers::SCIOTTE)
+            .cloned()
+            .expect("a Strava card")
+    };
+    assert!(
+        strava_card(&before).get("connected_backend").is_none(),
+        "a card that is not connected names no backend: {before:?}"
+    );
+
+    register_connection(&resources, user_id, tenant_id, oauth_providers::STRAVA).await;
+    let oauth = strava_card(&provider_cards_json(&resources, &user).await);
+    assert_eq!(oauth["connected"], true);
+    assert_eq!(
+        oauth["connected_backend"],
+        oauth_providers::STRAVA,
+        "a native OAuth grant serves the card: {oauth}"
+    );
+
+    let (resources, user_id, tenant_id, user) = test_setup().await;
+    register_connection(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
+    let mirror = strava_card(&provider_cards_json(&resources, &user).await);
+    assert_eq!(
+        mirror["connected_backend"],
+        oauth_providers::SCIOTTE,
+        "the mirror session serves the card: {mirror}"
     );
 }

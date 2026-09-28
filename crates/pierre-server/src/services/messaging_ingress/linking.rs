@@ -22,7 +22,7 @@ use pierre_services::analytics::{analytics, cache_user_email, hash_id};
 use pierre_services::messaging_broadcast::proactive_text;
 use pierre_services::user_status_gate::messaging_key_for_status;
 
-use super::locale::resolve_messaging_locale;
+use pierre_services::locale::resolve_channel_locale;
 
 /// Result of checking an inbound message for a channel linking command
 pub(super) enum LinkingAction {
@@ -144,28 +144,28 @@ pub(super) async fn link_time_reply(
         .await
     {
         Ok(auth_result) => {
-            let locale = resolve_messaging_locale(
-                resources,
+            let locale = resolve_channel_locale(
+                resources.common.repos.messaging.as_ref(),
+                resources.common.repos.users.as_ref(),
                 tenant_id,
-                auth_result.user_id,
                 channel,
                 sender_id,
+                Some(auth_result.user_id),
             )
             .await;
             reg.get(KEY_LINK_SUCCESS, &locale)
         }
         Err(e) => {
             if let Some(key) = messaging_key_for_status(e.code) {
-                let locale = resources
-                    .common
-                    .repos
-                    .messaging
-                    .get_channel_link_locale(tenant_id, channel, sender_id)
-                    .await
-                    .ok()
-                    .flatten()
-                    .filter(|l| !l.trim().is_empty())
-                    .unwrap_or_else(|| DEFAULT_LOCALE.to_owned());
+                let locale = resolve_channel_locale(
+                    resources.common.repos.messaging.as_ref(),
+                    resources.common.repos.users.as_ref(),
+                    tenant_id,
+                    channel,
+                    sender_id,
+                    None,
+                )
+                .await;
                 // Mirror `build_auth_denial_reply`: NoProviderConnected
                 // carries a `{0}` URL placeholder and a `{1}` email when
                 // resolvable from the channel link. Keeps the two render

@@ -11,6 +11,7 @@ use axum::Json;
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::TenantId;
 use pierre_database::backends::{MessagingRepository, TenantRepository, UpsertChannelConfigParams};
+use pierre_messaging::channels::descriptor_for;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::str::FromStr;
@@ -145,17 +146,6 @@ const ALL_CHANNELS: [ChannelType; 5] = [
     ChannelType::Messenger,
 ];
 
-/// User-facing display name for a channel.
-const fn channel_display_name(channel: ChannelType) -> &'static str {
-    match channel {
-        ChannelType::Telegram => "Telegram",
-        ChannelType::WhatsApp => "WhatsApp",
-        ChannelType::Slack => "Slack",
-        ChannelType::Discord => "Discord",
-        ChannelType::Messenger => "Messenger",
-    }
-}
-
 /// GET /api/messaging/channels/available
 ///
 /// Secret-free list of channels the tenant has configured and enabled, for the
@@ -206,10 +196,15 @@ pub async fn list_available_channels(
         if !can_complete_a_link(channel, &config) {
             continue;
         }
+        // A channel whose adapter this build did not compile can take no
+        // turn, so it is not offered; `client-messaging` compiles every one.
+        let Some(descriptor) = descriptor_for(channel) else {
+            continue;
+        };
 
         available.push(AvailableChannel {
             channel: channel_str,
-            display_name: channel_display_name(channel).to_owned(),
+            display_name: descriptor.display_name().to_owned(),
             method: channel.linking_method().to_string(),
             recommended: channel == ChannelType::Telegram,
         });

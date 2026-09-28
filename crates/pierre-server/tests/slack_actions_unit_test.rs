@@ -14,7 +14,9 @@
 
 mod common;
 
-use pierre_mcp_server::routes::messaging::slack_actions::channel_matches;
+use pierre_core::errors::ErrorCode;
+use pierre_mcp_server::routes::messaging::slack_actions::{channel_matches, parse_slack_action};
+use serde_json::json;
 
 #[test]
 fn matches_configured_channel_by_name_with_hash() {
@@ -75,6 +77,59 @@ fn rejects_empty_configured_channel_fails_closed() {
     assert!(!channel_matches("dravr-dev-users", "C0ABC123", ""));
     assert!(!channel_matches("dravr-dev-users", "C0ABC123", "   "));
     assert!(!channel_matches("", "", ""));
+}
+
+/// Form-encode a Slack interactive payload the way Slack's client does:
+/// `application/x-www-form-urlencoded`, so a space travels as `+` and a
+/// literal `+` as `%2B`.
+fn interactive_body(action_id: &str, username: &str) -> Vec<u8> {
+    let payload = json!({
+        "type": "block_actions",
+        "user": { "id": "U0CLICKER", "username": username },
+        "channel": { "id": "D0CARDTEST", "name": "directmessage" },
+        "message": { "ts": "1727440000.000100" },
+        "actions": [{ "action_id": action_id }],
+    })
+    .to_string();
+    format!(
+        "payload={}",
+        urlencoding::encode(&payload).replace("%20", "+")
+    )
+    .into_bytes()
+}
+
+#[test]
+fn an_encoded_literal_plus_in_a_postback_stays_a_plus() {
+    let body = interactive_body("/note 2+2 is four", "jane");
+    assert!(
+        String::from_utf8_lossy(&body).contains("2%2B2+is+four"),
+        "the fixture must carry both encodings"
+    );
+
+    let action = parse_slack_action(&body).unwrap();
+
+    assert_eq!(action.action_id, "/note 2+2 is four");
+}
+
+#[test]
+fn a_plus_encoded_space_decodes_to_a_space_in_every_field() {
+    let body = interactive_body("/agent add coach", "Jane Doe");
+    assert!(String::from_utf8_lossy(&body).contains("Jane+Doe"));
+
+    let action = parse_slack_action(&body).unwrap();
+
+    assert_eq!(action.action_id, "/agent add coach");
+    assert_eq!(action.slack_username, "Jane Doe");
+    assert_eq!(action.slack_user_id, "U0CLICKER");
+    assert_eq!(action.channel_id, "D0CARDTEST");
+    assert_eq!(action.channel_name, "directmessage");
+    assert_eq!(action.message_ts, "1727440000.000100");
+}
+
+#[test]
+fn a_body_without_a_payload_field_is_refused() {
+    let err = parse_slack_action(b"token=abc&team_id=T0").unwrap_err();
+    assert_eq!(err.code, ErrorCode::InvalidInput);
 }
 
 /// Command postbacks (card buttons whose `action_id` is a `/command`) must

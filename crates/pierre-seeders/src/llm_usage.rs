@@ -23,6 +23,7 @@ use chrono::{Datelike, Duration, Timelike, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::seed_models::SeedLlmUsageRecord;
 use pierre_database::RepositoryRegistry;
+use pierre_middleware::mask_email;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use tracing::info;
@@ -200,7 +201,9 @@ async fn resolve_admin_tenant(
 
     info!(
         "Target: user {} ({}) -> tenant {}",
-        admin.email, admin.id, tenant_id
+        mask_email(&admin.email),
+        admin.id,
+        tenant_id
     );
 
     Ok((admin.id, tenant_id))

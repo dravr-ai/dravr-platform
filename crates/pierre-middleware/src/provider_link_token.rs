@@ -12,20 +12,23 @@
 //!
 //! ## Flow
 //!
-//! 1. Channel bot (e.g. Slack adapter) calls `POST /api/channels/provider/{provider}/link-token`
-//!    with service-to-service auth and the target user_id + tenant_id.
-//! 2. Pierre mints an HS256-signed JWT (claims: sub=user_id, tid=tenant_id, tgt=target,
+//! 1. The platform decides a user must (re)connect a provider — the chat
+//!    pipeline's auth recovery, the backfill notifier, or the messaging
+//!    connect command — for a `user_id` + `tenant_id` it already resolved.
+//! 2. Pierre mints, in-process, an HS256-signed JWT (claims: sub=user_id, tid=tenant_id, tgt=target,
 //!    scope=`provider:{provider}:login`, exp=now+TTL, jti=nonce).
-//! 3. Bot posts the hosted-login URL (with `?token=...`) to the user in the channel.
+//! 3. The hosted-login URL (with `?token=...`) is posted to the user in their channel.
 //! 4. User's browser opens the URL. Server validates the token, embeds it in the page.
 //! 5. The page's JS calls `/api/providers/{provider}/*` with `Authorization: Bearer <token>`.
-//! 6. The sciotte handlers accept the link-token as an alternative to normal cookie/JWT auth
-//!    (via [`verify_link_token`]) and extract user_id + tenant_id from the claims.
+//! 6. The sciotte login, 2FA and OTP handlers accept the link-token as an
+//!    alternative to normal cookie/JWT auth (via [`verify_link_token`]) and
+//!    extract user_id + tenant_id from the claims. No other route accepts one.
 //!
 //! ## Security
 //!
 //! - **Scope-clamped**: the `scope` claim restricts the token to a single provider's
-//!   login endpoints; any other endpoint must reject it.
+//!   login endpoints; any other endpoint must reject it. A provider-specific
+//!   token logs in only to the platform its `tgt` names.
 //! - **Bounded lifetime, tiered by scope**: provider-specific tokens get a
 //!   24-hour TTL (`PROVIDER_LINK_TOKEN_TTL_MINUTES`) so a reconnect nudge the
 //!   user reads hours later still resolves — they are nonce-burned on first
@@ -37,11 +40,11 @@
 //! - **One-time page load**: each token's `jti` is burned on the first
 //!   `GET /providers/sciotte/login?token=...` request (see [`NonceStore`]);
 //!   subsequent page loads receive an error. The token remains valid for the
-//!   three POST endpoints within its TTL so the multi-step Sciotte flow
+//!   login, 2FA and OTP POST endpoints within its TTL so the multi-step Sciotte flow
 //!   (credentials -> 2FA -> OTP) can complete.
-//! - **Per-user rate limit**: the mint endpoint is bounded by [`MintRateLimiter`]
-//!   (5 mints per hour per user_id) to prevent phishing-style link spam.
-//! - **Replica-safe**: both [`NonceStore`] and [`MintRateLimiter`] are backed by
+//! - **Minted in-process only**: no HTTP route mints a token, so there is no
+//!   caller to rate-limit; every mint follows a platform decision about the user.
+//! - **Replica-safe**: [`NonceStore`] is backed by
 //!   the server's [`Cache`] layer (in-memory or Redis), so state is shared across
 //!   Cloud Run replicas when Redis is configured.
 
@@ -53,7 +56,6 @@ use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, 
 use pierre_cache::{CacheKey, CacheProvider, CacheResource};
 use pierre_core::models::TenantId;
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use pierre_core::errors::{AppError, AppResult};
@@ -289,9 +291,6 @@ const MAX_LINK_TOKEN_LIFETIME_SECS: u64 = (PROVIDER_LINK_TOKEN_TTL_MINUTES as u6
 /// Cache key provider prefix for nonce entries
 const NONCE_PROVIDER_KEY: &str = "_nonce";
 
-/// Cache key provider prefix for rate-limit entries
-const RATE_LIMIT_PROVIDER_KEY: &str = "_rate_limit";
-
 /// Cache-backed one-time-use store for link-token `jti` values.
 ///
 /// Records a `jti` the first time [`NonceStore::burn`] is called for it, and
@@ -343,88 +342,6 @@ impl<C: CacheProvider> NonceStore<C> {
             Uuid::nil(),
             NONCE_PROVIDER_KEY.to_owned(),
             CacheResource::Custom(format!("jti:{jti}")),
-        )
-    }
-}
-
-/// Default rate limit for the mint endpoint: 5 requests per user per window.
-pub const MINT_RATE_LIMIT_PER_WINDOW: usize = 5;
-
-/// Default rate-limit window for the mint endpoint (1 hour).
-pub const MINT_RATE_LIMIT_WINDOW_SECS: u64 = 60 * 60;
-
-/// Cache-backed sliding-window rate limiter for the channel link-token mint endpoint.
-///
-/// Keeps a vector of recent hit timestamps per `user_id` serialized in the cache;
-/// rejects calls that would exceed [`MINT_RATE_LIMIT_PER_WINDOW`] within
-/// [`MINT_RATE_LIMIT_WINDOW_SECS`].
-///
-/// Backed by any [`CacheProvider`] implementation so rate-limit counts are
-/// shared across all Cloud Run replicas when Redis is configured.
-pub struct MintRateLimiter<C: CacheProvider> {
-    limit: usize,
-    window: StdDuration,
-    cache: Arc<C>,
-    // Serialises the get→check→set below so parallel mints on the same replica
-    // cannot each read the pre-write window and all slip past the cap. The
-    // limiter is held as a shared `Arc<MintRateLimiter>` in app state, so this
-    // lock is process-wide. Cross-replica atomicity would need a cache-level
-    // atomic primitive (Redis INCR/Lua); `CacheProvider` exposes only get/set,
-    // so this closes the intra-instance race — the realistic vector for a single
-    // caller firing concurrent requests.
-    write_lock: Mutex<()>,
-}
-
-impl<C: CacheProvider> MintRateLimiter<C> {
-    /// Build a rate limiter with the given limit + window, backed by cache.
-    #[must_use]
-    pub fn new(limit: usize, window: StdDuration, cache: Arc<C>) -> Self {
-        Self {
-            limit,
-            window,
-            cache,
-            write_lock: Mutex::new(()),
-        }
-    }
-
-    /// Register a mint attempt for `user_id`. Returns `Ok(())` if under the limit,
-    /// or an error if the caller should be throttled.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`AppError::invalid_input`] with a "rate limit" message when the
-    /// caller has exhausted their window.
-    pub async fn record_attempt(&self, user_id: Uuid) -> AppResult<()> {
-        let key = Self::cache_key(user_id);
-        let now = Utc::now().timestamp();
-        #[allow(clippy::cast_possible_wrap)]
-        let window_secs = self.window.as_secs() as i64;
-
-        // Serialise the read-modify-write so concurrent mints can't all observe
-        // the same pre-write window and collectively exceed the cap.
-        let _guard = self.write_lock.lock().await;
-
-        let mut hits: Vec<i64> = self.cache.get(&key).await?.unwrap_or_default();
-        hits.retain(|t| (now - t) < window_secs);
-
-        if hits.len() >= self.limit {
-            return Err(AppError::invalid_input(format!(
-                "Too many link-token mint requests — try again in {} minutes",
-                self.window.as_secs() / 60
-            )));
-        }
-
-        hits.push(now);
-        self.cache.set(&key, &hits, self.window).await?;
-        Ok(())
-    }
-
-    fn cache_key(user_id: Uuid) -> CacheKey {
-        CacheKey::new(
-            TenantId::nil(),
-            user_id,
-            RATE_LIMIT_PROVIDER_KEY.to_owned(),
-            CacheResource::Custom("mint_attempts".to_owned()),
         )
     }
 }

@@ -16,9 +16,17 @@
 //!
 //! The roster comes from the coach's stored session ([`coach_roster`]), and
 //! only once every precondition holds: a `TrainingPeaks` connection of the
-//! coach's own, live, signed in with a coach account, whose owner accepted the
-//! current `TrainingPeaks` notice. Each refusal carries its reason in
+//! coach's own, live, signed in with a coach account whose email is the
+//! coach's verified Dravr email, whose owner accepted the current
+//! `TrainingPeaks` notice. Each refusal carries its reason in
 //! `details.reason`, which is what a client branches on.
+//!
+//! A link binds a roster athlete to a member by email: the coach proposes
+//! only an athlete whose `TrainingPeaks` email the roster lists and which is
+//! the member's verified Dravr email, and the member's confirm checks it
+//! again, so the member consents to reading their own workouts and no one
+//! else's. Every read through a confirmed link checks it once more
+//! ([`link_binding`]), and a link that no longer binds reads nothing.
 //!
 //! Each step reaches the other side through the notification feed, the linked
 //! chat channels and push: the member is asked, the coach hears the answer,
@@ -41,7 +49,7 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::CoachingGroup;
 use pierre_core::models::{
     ConnectionType, DelegatedConnection, DelegationEndReason, DelegationStatus,
-    ProviderAccountRole, TenantId, User, UserOAuthToken,
+    ProviderAccountRole, RosterAthlete, TenantId, User, UserOAuthToken,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_groups::delegation::DelegationStore;
@@ -56,7 +64,8 @@ use uuid::Uuid;
 
 use crate::provider_notice::notice_in_force;
 use crate::trainingpeaks_accounts::{
-    account_role, record_trainingpeaks_role, trainingpeaks_profile,
+    account_role, coach_binding, email_binding, link_binding, record_trainingpeaks_profile,
+    trainingpeaks_profile, EmailBinding,
 };
 
 /// Why a linking step was refused. The wire form travels in the error's
@@ -67,6 +76,12 @@ enum Refusal {
     NotConnected,
     /// The coach's `TrainingPeaks` account trains rather than coaches.
     NotCoachAccount,
+    /// `TrainingPeaks` shares no email for the coach's account.
+    CoachEmailMissing,
+    /// The coach's `TrainingPeaks` email is not their verified Dravr email.
+    CoachEmailMismatch,
+    /// The caller's own Dravr email is not verified, so it binds nothing.
+    DravrEmailUnverified,
     /// The coach's `TrainingPeaks` session is dead or flagged.
     ReconnectNeeded,
     /// The coach has not accepted the current `TrainingPeaks` notice.
@@ -77,6 +92,13 @@ enum Refusal {
     InvalidAthlete,
     /// The coach's roster does not list the athlete.
     AthleteNotOnRoster,
+    /// `TrainingPeaks` shares no email for the athlete.
+    AthleteEmailMissing,
+    /// The athlete's `TrainingPeaks` email is not the member's verified
+    /// Dravr email.
+    AthleteEmailMismatch,
+    /// The member's Dravr email is not verified, so it binds nothing.
+    MemberEmailUnverified,
     /// The coach named themselves as the member.
     MemberIsCoach,
     /// The member already has a live link in this group.
@@ -92,11 +114,17 @@ impl Refusal {
         match self {
             Self::NotConnected => "trainingpeaks_not_connected",
             Self::NotCoachAccount => "trainingpeaks_not_coach_account",
+            Self::CoachEmailMissing => "trainingpeaks_email_missing",
+            Self::CoachEmailMismatch => "trainingpeaks_email_mismatch",
+            Self::DravrEmailUnverified => "dravr_email_unverified",
             Self::ReconnectNeeded => "trainingpeaks_reconnect_needed",
             Self::TermsOutdated => "trainingpeaks_terms_outdated",
             Self::UnsupportedProvider => "unsupported_provider",
             Self::InvalidAthlete => "invalid_athlete",
             Self::AthleteNotOnRoster => "athlete_not_on_roster",
+            Self::AthleteEmailMissing => "athlete_email_missing",
+            Self::AthleteEmailMismatch => "athlete_email_mismatch",
+            Self::MemberEmailUnverified => "member_email_unverified",
             Self::MemberIsCoach => "member_is_coach",
             Self::AlreadyProposed => "already_proposed",
             Self::AthleteAlreadyLinked => "athlete_already_linked",
@@ -108,6 +136,14 @@ impl Refusal {
         match self {
             Self::NotConnected => "Connect your TrainingPeaks coach account first",
             Self::NotCoachAccount => "This TrainingPeaks account is not a coach account",
+            Self::CoachEmailMissing => {
+                "TrainingPeaks shares no email for this account, so it cannot be matched to \
+                 your Dravr account"
+            }
+            Self::CoachEmailMismatch => {
+                "This TrainingPeaks account's email is not your verified Dravr email"
+            }
+            Self::DravrEmailUnverified => "Verify your Dravr email first",
             Self::ReconnectNeeded => "Reconnect TrainingPeaks to read your roster",
             Self::TermsOutdated => {
                 "Reconnect TrainingPeaks and accept the updated notice to read your roster"
@@ -115,6 +151,14 @@ impl Refusal {
             Self::UnsupportedProvider => "Only TrainingPeaks athletes can be linked",
             Self::InvalidAthlete => "That is not a TrainingPeaks athlete id",
             Self::AthleteNotOnRoster => "That athlete is not on your TrainingPeaks roster",
+            Self::AthleteEmailMissing => {
+                "TrainingPeaks shares no email for this athlete, so the link cannot be matched \
+                 to the member"
+            }
+            Self::AthleteEmailMismatch => {
+                "This athlete's TrainingPeaks email is not the member's verified Dravr email"
+            }
+            Self::MemberEmailUnverified => "This member has not verified their Dravr email yet",
             Self::MemberIsCoach => "A coach cannot be linked as their own athlete",
             Self::AlreadyProposed => "This member already has a TrainingPeaks link in this group",
             Self::AthleteAlreadyLinked => "This TrainingPeaks athlete is already linked",
@@ -135,6 +179,38 @@ impl Refusal {
         let mut error = AppError::new(self.code(), self.message());
         error.details = Some(Box::new(json!({ "reason": self.as_str() })));
         error
+    }
+
+    /// The refusal of a coach account that is not the coach's own.
+    const fn coach_account(binding: EmailBinding) -> Option<Self> {
+        match binding {
+            EmailBinding::Bound => None,
+            EmailBinding::ProviderEmailMissing => Some(Self::CoachEmailMissing),
+            EmailBinding::DravrEmailUnverified => Some(Self::DravrEmailUnverified),
+            EmailBinding::Mismatch => Some(Self::CoachEmailMismatch),
+        }
+    }
+
+    /// The refusal of a roster athlete that is not the member, told to the
+    /// coach who proposes, and why a confirmed link naming one reads nothing.
+    const fn proposal(binding: EmailBinding) -> Option<Self> {
+        match binding {
+            EmailBinding::Bound => None,
+            EmailBinding::ProviderEmailMissing => Some(Self::AthleteEmailMissing),
+            EmailBinding::DravrEmailUnverified => Some(Self::MemberEmailUnverified),
+            EmailBinding::Mismatch => Some(Self::AthleteEmailMismatch),
+        }
+    }
+
+    /// The refusal of a roster athlete that is not the member, told to the
+    /// member who confirms.
+    const fn confirmation(binding: EmailBinding) -> Option<Self> {
+        match binding {
+            EmailBinding::Bound => None,
+            EmailBinding::ProviderEmailMissing => Some(Self::AthleteEmailMissing),
+            EmailBinding::DravrEmailUnverified => Some(Self::DravrEmailUnverified),
+            EmailBinding::Mismatch => Some(Self::AthleteEmailMismatch),
+        }
     }
 }
 
@@ -178,14 +254,18 @@ pub fn person_name(user: &User) -> String {
 /// coach's own stored session in `coach_tenant`.
 ///
 /// Refused, with its reason, until the coach has a live connection of their
-/// own, signed in with a coach account, and has accepted the current
-/// `TrainingPeaks` notice. The roster is cached for ten minutes per coach and
+/// own, signed in with a coach account whose email is the coach's verified
+/// Dravr email, and has accepted the current `TrainingPeaks` notice. The
+/// roster is cached for ten minutes per coach and
 /// tenant, and served from the cache only once the connection is recorded as
 /// a coach account's: a connection whose role was never read is read live,
 /// which records it. `refresh` reads it live too. A live read records the
 /// account's role when it differs from the one recorded, as every
-/// `TrainingPeaks` profile read does; the cache is dropped whenever the
-/// coach's session is stored anew or cleared ([`forget_coach_roster`]).
+/// `TrainingPeaks` profile read does, and checks on every read that the coach
+/// account is still the coach's own, taking back `manages_roster` when it is
+/// not. Only a roster read through a bound account is cached; the cache is
+/// dropped whenever the coach's session is stored anew or cleared
+/// ([`forget_coach_roster`]).
 ///
 /// A live read also ends every live link, proposed or confirmed, the coach
 /// holds for an athlete the roster no longer lists, telling both sides as
@@ -219,22 +299,8 @@ pub async fn coach_roster(
         }
     }
 
-    let profile = match trainingpeaks_profile(&session).await {
-        Ok(profile) => profile,
-        Err(e) if e.provider_auth_required_provider().is_some() => {
-            return Err(Refusal::ReconnectNeeded.error());
-        }
-        Err(e) => return Err(e),
-    };
-    let role = account_role(&profile);
-    if recorded_role != Some(role) {
-        record_trainingpeaks_role(repos, coach_user_id, coach_tenant, role).await?;
-    }
-    if role != ProviderAccountRole::Coach {
-        return Err(Refusal::NotCoachAccount.error());
-    }
-
-    let athletes = profile.coached_athletes;
+    let athletes =
+        read_bound_roster(repos, coach_user_id, coach_tenant, &session, recorded_role).await?;
     end_off_coach_roster(repos, notifications, coach_user_id, coach_tenant, &athletes).await?;
     if let Err(e) = cache
         .set(
@@ -251,6 +317,48 @@ pub async fn coach_roster(
         );
     }
     Ok(athletes)
+}
+
+/// The roster the coach's `session` reads live, once the account it signed in
+/// to is a coach account whose email is the coach's verified Dravr email.
+///
+/// The read records the account's role when it differs from
+/// `recorded_role`, which grants `manages_roster` to a bound coach account;
+/// an unchanged role re-grants nothing, and a coach account that is not the
+/// coach's own loses the grant either way.
+async fn read_bound_roster(
+    repos: &RepositoryRegistry,
+    coach_user_id: Uuid,
+    coach_tenant: TenantId,
+    session: &AuthSession,
+    recorded_role: Option<ProviderAccountRole>,
+) -> AppResult<Vec<CoachedAthlete>> {
+    let profile = match trainingpeaks_profile(session).await {
+        Ok(profile) => profile,
+        Err(e) if e.provider_auth_required_provider().is_some() => {
+            return Err(Refusal::ReconnectNeeded.error());
+        }
+        Err(e) => return Err(e),
+    };
+    let role = account_role(&profile);
+    let binding = match (recorded_role == Some(role), role) {
+        (true, ProviderAccountRole::Coach) => {
+            Some(coach_binding(repos, coach_user_id, coach_tenant, &profile).await?)
+        }
+        (true, ProviderAccountRole::Athlete) => None,
+        (false, _) => {
+            record_trainingpeaks_profile(repos, coach_user_id, coach_tenant, &profile)
+                .await?
+                .binding
+        }
+    };
+    if role != ProviderAccountRole::Coach {
+        return Err(Refusal::NotCoachAccount.error());
+    }
+    if let Some(refusal) = binding.and_then(Refusal::coach_account) {
+        return Err(refusal.error());
+    }
+    Ok(profile.coached_athletes)
 }
 
 /// The key the coach's roster is cached under in `coach_tenant`.
@@ -409,6 +517,18 @@ pub struct MemberDelegation {
     /// Whether the coach's own session needs the coach to reconnect before
     /// the member's workouts can be read again.
     pub coach_needs_reconnect: bool,
+    /// Why a confirmed link reads nothing ([`unbound_link_reason`]); `None`
+    /// for a proposal and for a link that reads.
+    pub read_refused: Option<&'static str>,
+}
+
+/// Why a confirmed link whose athlete binds as `binding` reads nothing.
+///
+/// `athlete_email_missing`, `athlete_email_mismatch` or
+/// `member_email_unverified`, as the clients name it; `None` once it binds.
+#[must_use]
+pub fn unbound_link_reason(binding: EmailBinding) -> Option<&'static str> {
+    Refusal::proposal(binding).map(Refusal::as_str)
 }
 
 /// The link `member_user_id`'s `provider` card shows: their confirmed link,
@@ -440,12 +560,13 @@ pub async fn member_delegation(
 }
 
 /// `link` as a status surface reports it, or `None` when its group or its
-/// coach is gone.
+/// coach is gone. A confirmed link carries why it reads nothing, when it
+/// does not ([`link_binding`]).
 ///
 /// # Errors
 ///
-/// Returns the repository error when the group, the coach or the coach's
-/// session cannot be read.
+/// Returns the repository error when the group, the coach, the coach's
+/// session or the member's verification cannot be read.
 pub async fn describe_link(
     repos: &RepositoryRegistry,
     link: DelegatedConnection,
@@ -470,10 +591,16 @@ pub async fn describe_link(
         .await?,
         CoachSession::Live { .. }
     );
+    let read_refused = if link.status == DelegationStatus::Confirmed {
+        unbound_link_reason(link_binding(repos, &link).await?)
+    } else {
+        None
+    };
     Ok(Some(MemberDelegation {
         group_name: group.name,
         coach_name: person_name(&coach),
         coach_needs_reconnect,
+        read_refused,
         link,
     }))
 }
@@ -576,7 +703,9 @@ fn sole_match(names: &[(Uuid, String)], folded: &str) -> Option<Uuid> {
 /// # Errors
 ///
 /// Returns an invalid-input error for an unsupported provider, a malformed
-/// athlete id, an athlete off the roster or the coach naming themselves; a
+/// athlete id, an athlete off the roster, an athlete whose roster email is
+/// missing or is not the member's verified email, a member whose email is
+/// unverified, or the coach naming themselves; a
 /// not-found error when the member is not a live member of the group; an
 /// already-exists error (`already_proposed`, `athlete_already_linked`) when a
 /// live link holds the member or the athlete; the roster's own refusals; or a
@@ -619,6 +748,10 @@ pub async fn propose(
     let Some(entry) = roster.iter().find(|a| a.id == athlete.as_str()) else {
         return Err(Refusal::AthleteNotOnRoster.error());
     };
+    let binding = email_binding(repos, member, entry.email.as_deref()).await?;
+    if let Some(refusal) = Refusal::proposal(binding) {
+        return Err(refusal.error());
+    }
 
     let link = DelegatedConnection::propose(
         SCIOTTE_TRAININGPEAKS.to_owned(),
@@ -626,8 +759,11 @@ pub async fn propose(
         coach_user_id,
         coach_tenant,
         member,
-        athlete.as_str().to_owned(),
-        entry.display_name.clone(),
+        RosterAthlete {
+            id: athlete.as_str().to_owned(),
+            name: entry.display_name.clone(),
+            email: entry.email.clone(),
+        },
     );
     let Some(stored) = repos.delegated_connections.propose(&link).await? else {
         let member_held = repos
@@ -665,8 +801,11 @@ pub async fn propose(
 ///
 /// Returns an already-exists error when the member connects `TrainingPeaks`
 /// with a login of their own here (`own_connection`) or already has a
-/// confirmed link (`already_linked`); a not-found error when `link` is no
-/// longer a proposal; or a repository error.
+/// confirmed link (`already_linked`); an invalid-input error when the athlete
+/// the link names is not the member by email: the link carries no roster
+/// email, it is not the member's, or the member's email is unverified; a
+/// not-found error when `link` is no longer a proposal; or a repository
+/// error.
 pub async fn confirm(
     repos: &RepositoryRegistry,
     notifications: Option<&Arc<NotificationService>>,
@@ -677,6 +816,10 @@ pub async fn confirm(
     let member = link.member_user_id;
     if holds_own_connection(repos, member, member_tenant, &link.provider).await? {
         return Err(Refusal::OwnConnection.error());
+    }
+    let binding = email_binding(repos, member, link.provider_athlete_email.as_deref()).await?;
+    if let Some(refusal) = Refusal::confirmation(binding) {
+        return Err(refusal.error());
     }
     let confirmed = repos
         .delegated_connections

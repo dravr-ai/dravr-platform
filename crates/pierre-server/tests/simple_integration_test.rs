@@ -144,7 +144,7 @@ use anyhow::Result;
 use chrono::{Duration, Utc};
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::SportType;
-use pierre_intelligence::ActivityAnalyzer;
+use pierre_intelligence::analyzer::ActivityAnalyzer;
 use uuid::Uuid;
 
 #[tokio::test]

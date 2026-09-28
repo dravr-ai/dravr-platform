@@ -74,7 +74,7 @@ describe('PasswordResetModal', () => {
       <PasswordResetModal user={mockUser} isOpen={true} onClose={vi.fn()} />
     )
 
-    expect(screen.getByText(/generate a temporary password/)).toBeInTheDocument()
+    expect(screen.getByText(/one-time reset token/)).toBeInTheDocument()
   })
 
   it('should show Reset Password and Cancel buttons', () => {
@@ -110,13 +110,15 @@ describe('PasswordResetModal', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  it('should show temporary password after successful reset', async () => {
+  it('should show the issued reset token after a successful reset', async () => {
     const user = userEvent.setup()
     vi.mocked(adminApi.resetUserPassword).mockResolvedValue({
-      success: true,
-      temporary_password: 'TempPass123!',
-      expires_at: '2026-02-21T00:00:00Z',
-      user_email: 'target@example.com',
+      user_id: 'user-1',
+      email: 'target@example.com',
+      reset_token: 'sel123.verifier456',
+      expires_in_seconds: 3600,
+      reset_by: 'admin-1',
+      note: 'Deliver this token to the user.',
     })
 
     renderWithProviders(
@@ -129,7 +131,9 @@ describe('PasswordResetModal', () => {
       expect(screen.getByText('Password Reset Successful')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('TempPass123!')).toBeInTheDocument()
+    expect(screen.getByText('sel123.verifier456')).toBeInTheDocument()
+    expect(screen.getByText('Reset Token')).toBeInTheDocument()
+    expect(screen.getByText(/Expires:/)).not.toHaveTextContent('Invalid Date')
     expect(screen.getByText('Done')).toBeInTheDocument()
   })
 

@@ -32,6 +32,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::UserOAuthToken;
 use pierre_database::seed_models::{SeedProviderConnection, SeedSyntheticActivity};
 use pierre_database::RepositoryRegistry;
+use pierre_middleware::mask_email;
 use rand::prelude::IndexedRandom;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -469,7 +470,9 @@ pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
 fn log_run_header(args: &SeedArgs) {
     info!(
         "Pierre Synthetic Activity Seeder: email={}, count={}, days={}",
-        args.email, args.count, args.days
+        mask_email(&args.email),
+        args.count,
+        args.days
     );
 }
 

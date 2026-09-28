@@ -240,6 +240,7 @@ fn lap_window(
         altitude: slice_channel(stream.altitude.as_deref(), start, end),
         temperature: slice_channel(stream.temperature.as_deref(), start, end),
         gps_coordinates: slice_channel(stream.gps_coordinates.as_deref(), start, end),
+        distance: slice_channel(stream.distance.as_deref(), start, end),
     })
 }
 

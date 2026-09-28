@@ -189,7 +189,6 @@ use uuid::Uuid;
 fn create_test_server_config_without_oauth() -> Arc<ServerConfig> {
     Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -295,7 +294,6 @@ fn create_test_server_config_without_oauth() -> Arc<ServerConfig> {
 fn create_test_server_config() -> Arc<ServerConfig> {
     Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -1111,9 +1109,6 @@ async fn test_connection_status_with_oauth_manager() {
         parameters: json!({}),
         protocol: "test".to_owned(),
         tenant_id: Some(tenant.id.to_string()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     // Execute tool
@@ -1207,9 +1202,6 @@ async fn test_analyze_activity_token_refresh() {
         }),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     // Execute - should trigger refresh due to token expiring soon
@@ -1324,9 +1316,6 @@ async fn test_concurrent_token_operations() {
                 parameters: json!({}),
                 protocol: "test".to_owned(),
                 tenant_id: Some(request_tenant_id),
-                progress_token: None,
-                cancellation_token: None,
-                progress_reporter: None,
             };
             executor_clone.execute_tool(request).await
         });
@@ -1409,9 +1398,6 @@ async fn test_oauth_provider_init_failure() {
         parameters: json!({"provider": "strava"}),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     // Execute — a token-less provider short-circuits as the typed

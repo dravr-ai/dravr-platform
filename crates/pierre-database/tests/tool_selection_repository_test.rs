@@ -176,23 +176,10 @@ async fn the_plan_hierarchy_bounds_what_a_plan_may_use() {
         3,
         "an enterprise plan may use every tool"
     );
-
-    let fitness = names(
-        repo.get_tools_by_category(ToolCategory::Fitness)
-            .await
-            .unwrap(),
-    );
-    assert_eq!(fitness.len(), 3);
-    let analysis = names(
-        repo.get_tools_by_category(ToolCategory::Analysis)
-            .await
-            .unwrap(),
-    );
-    assert!(analysis.is_empty());
 }
 
 #[tokio::test]
-async fn an_override_round_trips_and_counts_toward_the_tenant() {
+async fn an_override_round_trips_and_reverts_to_the_default() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
     let repo = &repos.tool_selection;
@@ -204,7 +191,6 @@ async fn an_override_round_trips_and_counts_toward_the_tenant() {
     for e in [&on_by_default, &off_by_default, &out_of_plan] {
         repo.upsert_tool_catalog_entry(e).await.unwrap();
     }
-    let baseline = repo.count_enabled_tools(tenant_id).await.unwrap();
 
     assert!(repo
         .get_override(tenant_id, &off_by_default.tool_name)
@@ -245,20 +231,15 @@ async fn an_override_round_trips_and_counts_toward_the_tenant() {
         .unwrap();
     let overrides = repo.get_overrides(tenant_id).await.unwrap();
     assert_eq!(overrides.len(), 2);
-    assert_eq!(
-        repo.count_enabled_tools(tenant_id).await.unwrap(),
-        baseline,
-        "one tool switched on and one switched off leave the count where it was"
-    );
 
     assert!(repo
         .delete_override(tenant_id, &on_by_default.tool_name)
         .await
         .unwrap());
     assert_eq!(
-        repo.count_enabled_tools(tenant_id).await.unwrap(),
-        baseline + 1,
-        "reverting the switched-off tool to its default counts it again"
+        repo.get_overrides(tenant_id).await.unwrap().len(),
+        1,
+        "reverting one tool to its default drops only its override"
     );
     assert!(!repo
         .delete_override(tenant_id, &on_by_default.tool_name)

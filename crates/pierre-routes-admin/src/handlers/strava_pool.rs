@@ -107,7 +107,7 @@ pub async fn handle_upsert_strava_pool_app(
     info!(
         client_id = client_id,
         seat_cap = seat_cap,
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         "Strava pool app upserted by super-admin"
     );
 
@@ -233,7 +233,7 @@ pub async fn handle_list_strava_seats(
     info!(
         holders = holders.len(),
         seats_held = seats_held,
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         "Strava seat holders listed by super-admin"
     );
 
@@ -288,7 +288,7 @@ pub async fn handle_set_strava_pool_app_enabled(
     info!(
         client_id = %client_id,
         enabled = enabled,
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         "Strava pool app enabled-state changed by super-admin"
     );
 
@@ -331,7 +331,7 @@ pub async fn handle_delete_strava_pool_app(
 
     info!(
         client_id = %client_id,
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         "Strava pool app deleted by super-admin"
     );
 

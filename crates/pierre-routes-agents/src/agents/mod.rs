@@ -10,7 +10,6 @@
 //! JWT authentication to identify the user and tenant.
 
 mod admin;
-mod handle;
 /// Athlete-profile view + the pillar-context prompt block, shared by the
 /// agent-proposal REST route and the messaging auto-send.
 pub mod proposal_profile;
@@ -36,9 +35,9 @@ use pierre_runtime_context::{AgentsCtx, MiddlewareCtx};
 use pierre_tool_runtime::runtime::ToolRuntime;
 
 pub use types::{
-    AgentProposalResponse, AgentResponse, AgentsMetadata, CreateAgentBody, HideAgentResponse,
-    ListAgentsQuery, ListAgentsResponse, ProposedAgent, RecordUsageResponse, SearchAgentsQuery,
-    SportProfileSummary, SportShare, ToggleFavoriteResponse, UpdateAgentBody,
+    AgentProposalResponse, AgentResponse, AgentsMetadata, ListAgentsQuery, ListAgentsResponse,
+    ProposedAgent, RecordUsageResponse, SearchAgentsQuery, SportProfileSummary, SportShare,
+    UpdateAgentBody,
 };
 /// Shared agent-proposal builder — used by the REST route and the messaging
 /// auto-send so both surfaces propose identically.
@@ -51,7 +50,6 @@ where
 {
     Router::new()
         .route("/api/agents", get(user::handle_list::<C>))
-        .route("/api/agents", post(user::handle_create::<C>))
         // Served to no client on either surface. The mobile agent library
         // filters and toggles hidden client-side over the already-fetched
         // list, and the same capability is reachable over MCP. Delete-or-wire
@@ -63,36 +61,13 @@ where
         .route("/api/agents/proposal", get(user::handle_proposal::<C>))
         .route("/api/agents/hidden", get(user::handle_list_hidden::<C>))
         .route("/api/agents/import", post(user::handle_import::<C>))
-        .route(
-            "/api/agents/import/preview",
-            post(user::handle_import_preview::<C>),
-        )
-        .route(
-            "/api/agents/import/url",
-            post(user::handle_import_from_url::<C>),
-        )
-        .route(
-            "/api/agents/by-handle/{handle}",
-            get(handle::handle_get_by_handle::<C>),
-        )
         .route("/api/agents/{id}", get(user::handle_get::<C>))
         .route("/api/agents/{id}", put(user::handle_update::<C>))
         .route("/api/agents/{id}", delete(user::handle_delete::<C>))
-        .route("/api/agents/{id}/export", get(user::handle_export::<C>))
-        .route(
-            "/api/agents/{id}/favorite",
-            post(user::handle_toggle_favorite::<C>),
-        )
         .route(
             "/api/agents/{id}/usage",
             post(user::handle_record_usage::<C>),
         )
-        .route("/api/agents/{id}/hide", post(user::handle_hide_agent::<C>))
-        .route(
-            "/api/agents/{id}/hide",
-            delete(user::handle_show_agent::<C>),
-        )
-        .route("/api/agents/{id}/fork", post(user::handle_fork::<C>))
         // Version history routes
         .route(
             "/api/agents/{id}/versions",
@@ -103,8 +78,8 @@ where
             post(versions::handle_revert_version::<C>),
         )
         .route(
-            "/api/agents/{id}/versions/{v1}/diff/{v2}",
-            get(versions::handle_diff_versions::<C>),
+            "/api/agents/{id}/versions/{version}/diff",
+            get(versions::handle_diff_version::<C>),
         )
 }
 

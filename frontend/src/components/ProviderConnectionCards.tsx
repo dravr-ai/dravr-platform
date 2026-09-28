@@ -294,18 +294,10 @@ export default function ProviderConnectionCards({
     );
   }
 
-  // `strava` (official OAuth) is reached exclusively through the Sciotte
-  // modal's "Use my own Strava OAuth app" button, so don't render a second
-  // duplicate card here. Connecting by that path writes a `strava`
-  // `provider_connections` row, and the Sciotte card still reads as connected
-  // because the server coalesces a card's two backends before answering
-  // (carnet#255) — this used to be merged here, and in the mobile client, and
-  // neither copy covered Garmin.
-  const providers = (providersData?.providers ?? [])
-    // Hide the raw `strava` OAuth (the `sciotte` card is the Strava data path) and
-    // `garmin` ("Garmin Connect") — Garmin's OAuth API is uncredentialed/unsupported,
-    // so it must not be offered. The `sciotte_garmin` ("Garmin") scrape card stays.
-    .filter((p) => p.provider !== 'strava' && p.provider !== 'garmin');
+  // Rendered as served: the server withholds the raw `strava` / `garmin` rows
+  // a mirror card covers and coalesces a card's two backends before answering
+  // (carnet#255, carnet#574), so no client filters or merges them again.
+  const providers = providersData?.providers ?? [];
 
   return (
     <div className="w-full">

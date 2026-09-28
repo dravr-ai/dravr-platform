@@ -39,13 +39,14 @@ use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::permissions::UserRole;
 use pierre_mcp_server::config::routes::{admin_config_router, AdminConfigState};
+use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::api_keys::ApiKeyRoutes;
 use pierre_mcp_server::routes::chat::ChatRoutes;
 use pierre_mcp_server::routes::mcp::McpRoutes;
 use pierre_routes_admin::auth::service::AdminAuthService;
+use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
 use pierre_routes_identity::oauth2::{OAuth2Context, OAuth2Routes};
-use pierre_routes_web_admin::WebAdminRoutes;
 use serde_json::{json, Value};
 use serial_test::serial;
 use uuid::Uuid;
@@ -305,6 +306,31 @@ async fn a_delegated_grant_cannot_drive_chat() {
     assert_eq!(created["title"], "Opened by an application");
 }
 
+/// The console's admin mount, as the composition root builds it.
+fn console_admin(resources: &Arc<ServerContext>) -> axum::Router {
+    let context = AdminApiContext::new(AdminApiContextInit {
+        database: resources.agent.database.clone(),
+        repos: resources.common.repos.clone(),
+        jwt_secret: resources.auth.admin_jwt_secret.to_string(),
+        auth_manager: resources.auth.auth_manager.clone(),
+        jwks_manager: resources.auth.jwks_manager.clone(),
+        admin_api_key_monthly_limit: STARTER_MONTHLY_LIMIT,
+        admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
+        harness_config_registry: resources.fitness.harness_config_registry.clone(),
+        guardian_config_registry: resources.fitness.guardian_config_registry.clone(),
+        prompt_registry: resources.mcp.prompt_registry.clone(),
+        tool_description_registry: resources.mcp.tool_description_registry.clone(),
+        evidence_registry: resources.mcp.evidence_registry.clone(),
+        messaging_strings_registry: resources.mcp.messaging_strings_registry.clone(),
+        cageux_config_registry: resources.fitness.cageux_config_registry.clone(),
+        persona_contract_registry: resources.fitness.persona_contract_registry.clone(),
+        training_catalogue_registry: resources.mcp.training_catalogue_registry.clone(),
+        contremaitre_config: None,
+        app_behavior: resources.common.config.app_behavior.clone(),
+    });
+    AdminRoutes::cookie_admin_routes::<ServerContext>(context, resources)
+}
+
 #[tokio::test]
 #[serial]
 async fn a_delegated_grant_from_an_operator_cannot_reach_admin_routes() {
@@ -319,7 +345,7 @@ async fn a_delegated_grant_from_an_operator_cannot_reach_admin_routes() {
 
     let response = AxumTestRequest::get("/api/admin/tokens")
         .header("authorization", &token)
-        .send(WebAdminRoutes::routes(resources.web_admin_context()))
+        .send(console_admin(&resources))
         .await;
     assert_refused(response, "GET /api/admin/tokens");
 
@@ -331,7 +357,7 @@ async fn a_delegated_grant_from_an_operator_cannot_reach_admin_routes() {
 
     let response = AxumTestRequest::get("/api/admin/tokens")
         .header("authorization", &operator.session)
-        .send(WebAdminRoutes::routes(resources.web_admin_context()))
+        .send(console_admin(&resources))
         .await;
     assert_eq!(
         response.status(),
@@ -473,6 +499,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
         auth_manager: resources.auth.auth_manager.clone(),
         jwks_manager: resources.auth.jwks_manager.clone(),
         config: Arc::new(resources.common.config.oauth2_server.clone()),
+        refresh_token_expiry_days: 30,
         rate_limiter: Arc::new(OAuth2RateLimiter::new(
             None,
             OAuth2RateLimiter::local_window_store(),

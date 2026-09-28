@@ -164,15 +164,6 @@ impl LlmHealthState {
         }
     }
 
-    /// Record a successful probe result stamped `checked_at = now` (a synthetic
-    /// probe round-trip just completed). Returns the previous status so callers
-    /// can detect transitions and log accordingly (e.g. emit `error!` on
-    /// `Healthy -> Unhealthy` so the tronc Slack layer pages).
-    pub async fn record_healthy(&self, provider: impl Into<String>) -> LlmHealthStatus {
-        self.set_healthy(provider.into(), None, chrono::Utc::now())
-            .await
-    }
-
     /// Record a successful probe round-trip together with the tier that
     /// answered it (see [`LlmHealthSnapshot::served_by`]). Returns the
     /// previous status so callers can detect transitions.
@@ -205,8 +196,9 @@ impl LlmHealthState {
         self.set_healthy(provider.into(), None, checked_at).await
     }
 
-    /// Shared healthy-snapshot write for [`Self::record_healthy`] and
-    /// [`Self::record_healthy_observed`]; the only difference is `checked_at`.
+    /// Shared healthy-snapshot write for [`Self::record_healthy_served`] and
+    /// [`Self::record_healthy_observed`]; they differ in `served_by` and
+    /// `checked_at`.
     async fn set_healthy(
         &self,
         provider: String,

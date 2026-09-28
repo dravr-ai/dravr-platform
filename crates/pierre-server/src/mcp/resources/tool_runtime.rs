@@ -18,7 +18,6 @@ use pierre_database::RepositoryRegistry;
 use pierre_enforme::SyncOrchestrator;
 use pierre_intelligence::ActivityIntelligence;
 use pierre_llm::LlmProvider;
-use pierre_mcp_transport::sampling_peer::SamplingPeer;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::NotificationService;
 use pierre_providers::registry::ProviderRegistry;
@@ -93,20 +92,8 @@ impl ToolRuntime for ServerContext {
         Self::agents_manager(self)
     }
 
-    fn recommendation_system_prompt(&self) -> String {
-        Self::recommendation_system_prompt(self)
-    }
-
-    fn recommendation_analysis_prompt(&self) -> String {
-        Self::recommendation_analysis_prompt(self)
-    }
-
-    fn activity_analysis_prompt(&self) -> String {
-        Self::activity_analysis_prompt(self)
-    }
-
-    fn activity_analysis_system_prompt(&self) -> String {
-        Self::activity_analysis_system_prompt(self)
+    fn guardian_planner_prompt(&self) -> String {
+        Self::guardian_planner_prompt(self)
     }
 
     fn llm_provider(&self) -> Option<&Arc<dyn LlmProvider>> {
@@ -128,10 +115,6 @@ impl ToolRuntime for ServerContext {
 
     fn data(&self) -> DataContext {
         Self::data(self)
-    }
-
-    fn sampling_peer(&self) -> Option<&Arc<SamplingPeer>> {
-        self.sse.sampling_peer.as_ref()
     }
 
     #[cfg(feature = "client-notifications")]

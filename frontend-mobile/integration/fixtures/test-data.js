@@ -97,7 +97,6 @@ const timeouts = {
 const endpoints = {
   health: '/health',
   oauthToken: '/oauth/token',
-  dashboardOverview: '/api/dashboard/overview',
   chatConversations: '/api/chat/conversations',
   coaches: '/api/agents',
   connections: '/api/connections',

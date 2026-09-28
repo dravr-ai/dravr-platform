@@ -702,16 +702,11 @@ async fn test_login_with_whitespace_in_email() {
         .send(routes)
         .await;
 
-    // This test documents current behavior - the system should either:
-    // 1. Trim whitespace and succeed (user-friendly)
-    // 2. Fail with invalid credentials (strict matching)
-    // Either is acceptable as long as it's consistent
-    let status = response.status();
-    assert!(
-        status == 200 || status == 400,
-        "Should either succeed (trimmed) or fail (strict), got {}",
-        status
-    );
+    // An email is compared in its normalized form, so surrounding
+    // whitespace does not stop the account's own address from signing in.
+    assert_eq!(response.status(), 200, "the trimmed address signs in");
+    let body: serde_json::Value = response.json();
+    assert_eq!(body["user"]["email"], "whitespace@example.com", "{body}");
 }
 
 #[tokio::test]
@@ -721,7 +716,7 @@ async fn test_login_case_insensitive_email() {
     let email = "CaseMixed@Example.COM";
     let password = "securePassword123";
 
-    setup
+    let user = setup
         .create_user_with_status(email, password, UserStatus::Active)
         .await
         .expect("Failed to create user");
@@ -740,14 +735,12 @@ async fn test_login_case_insensitive_email() {
         .send(routes)
         .await;
 
-    // Email should typically be case-insensitive (RFC 5321)
-    // This test documents the current behavior
-    let status = response.status();
-    assert!(
-        status == 200 || status == 400,
-        "Email matching behavior should be consistent, got {}",
-        status
-    );
+    // Emails are case-insensitive: the account registered as
+    // `CaseMixed@Example.COM` is stored lowercase and signs in in any casing.
+    assert_eq!(response.status(), 200, "another casing signs in");
+    let body: serde_json::Value = response.json();
+    assert_eq!(body["user"]["user_id"], user.id.to_string(), "{body}");
+    assert_eq!(body["user"]["email"], "casemixed@example.com", "{body}");
 }
 
 #[tokio::test]

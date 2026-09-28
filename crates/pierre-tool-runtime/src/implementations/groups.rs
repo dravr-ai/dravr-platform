@@ -33,7 +33,7 @@ use serde_json::{json, Value};
 use tracing::info;
 
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::GroupMember;
 use pierre_core::models::Activity;
@@ -46,11 +46,9 @@ use uuid::Uuid;
 
 use crate::activity_fetch::fetch_provider_activities;
 use crate::athlete_display_name::fetch_user_display_name;
-use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, capabilities_to_tronc, object_schema, ok_typed, task_capable, tool_definition,
-    tool_result_to_response,
+    answers_with, object_schema, ok_typed, task_capable, tool_definition, tool_result_to_response,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -381,8 +379,8 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
     }
 
     async fn execute(

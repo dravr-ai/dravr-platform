@@ -15,8 +15,6 @@
 //! live in the sibling [`crate::group_analytics`] module and are merged
 //! into the same `/api/groups` mount by the composition root.
 
-use tracing::{field, Span};
-
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -32,16 +30,15 @@ use uuid::Uuid;
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::groups::{
-    CoachingGroup, CreateGroupRequest, GroupAggregateStats, GroupHealthFlag, GroupInvite,
-    GroupInviteKind, GroupMember, GroupRole, GroupSummary, GroupWeeklyReport, JoinGroupRequest,
-    UpdateGroupRequest,
+    CoachingGroup, GroupAggregateStats, GroupHealthFlag, GroupInvite, GroupInviteKind, GroupMember,
+    GroupRole, GroupWeeklyReport, UpdateGroupRequest,
 };
 use pierre_core::models::TenantId;
 use pierre_groups::creation_policy::{
-    check_create_group_permission, is_tenant_group_admin, policy_permits_group_creation,
-    DEFAULT_GROUP_CREATION_POLICY, GROUP_CREATION_POLICY_KEY,
+    is_tenant_group_admin, policy_permits_group_creation, DEFAULT_GROUP_CREATION_POLICY,
+    GROUP_CREATION_POLICY_KEY,
 };
-use pierre_groups::strategies::tier::{tier_enables_digest, tier_strategy_for};
+use pierre_groups::strategies::tier::tier_enables_digest;
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
 use pierre_services::locale::resolve_user_locale;
@@ -52,28 +49,6 @@ use crate::group_update_access::authorize_group_update;
 // ============================================================================
 // Response Types
 // ============================================================================
-
-/// Response for listing groups (uses the model's lightweight summary)
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ListGroupsResponse {
-    /// Groups the user belongs to
-    pub groups: Vec<GroupSummary>,
-    /// Total count
-    pub total: usize,
-    /// Response metadata
-    pub metadata: GroupMetadata,
-}
-
-/// Response for listing the groups a user is the human coach of
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CoachedGroupsResponse {
-    /// Groups the user agents
-    pub groups: Vec<GroupResponse>,
-    /// Total count
-    pub total: usize,
-    /// Response metadata
-    pub metadata: GroupMetadata,
-}
 
 /// Response for a group member
 #[derive(Debug, Serialize, Deserialize)]
@@ -284,8 +259,6 @@ impl GroupRoutes {
     pub fn routes<C: GroupsCtx + MiddlewareCtx>(resources: Arc<C>) -> Router {
         Router::new()
             // Group CRUD
-            .route("/api/groups", post(Self::handle_create_group::<C>))
-            .route("/api/groups", get(Self::handle_list_my_groups::<C>))
             .route("/api/groups/{group_id}", get(Self::handle_get_group::<C>))
             .route(
                 "/api/groups/{group_id}",
@@ -314,10 +287,6 @@ impl GroupRoutes {
             )
             // Human coach attachment
             .route(
-                "/api/groups/coached",
-                get(Self::handle_list_coached_groups::<C>),
-            )
-            .route(
                 "/api/groups/{group_id}/coach",
                 delete(Self::handle_remove_coach::<C>),
             )
@@ -340,10 +309,6 @@ impl GroupRoutes {
                 get(Self::handle_get_permissions::<C>),
             )
             // Join / Leave
-            .route(
-                "/api/groups/join",
-                post(Self::handle_join_by_invite_code::<C>),
-            )
             .route(
                 "/api/groups/{group_id}/leave",
                 post(Self::handle_leave_group::<C>),
@@ -479,71 +444,6 @@ impl GroupRoutes {
     // Group CRUD handlers
     // ========================================================================
 
-    /// POST /api/groups — Create a new coaching group
-    #[tracing::instrument(
-        skip(resources, auth, body),
-        fields(
-            route = "groups_create",
-            user_id = field::Empty,
-            tenant_id = field::Empty,
-            group_id = field::Empty,
-        )
-    )]
-    async fn handle_create_group<C: GroupsCtx + MiddlewareCtx>(
-        State(resources): State<Arc<C>>,
-        auth: AuthenticatedUser,
-        Json(body): Json<CreateGroupRequest>,
-    ) -> Result<Response, AppError> {
-        let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
-
-        // Record IDs on the span so the NotifyLayer can attribute the
-        // group.created event without re-passing tenant/user fields.
-        let span = Span::current();
-        span.record("user_id", field::display(&auth.user_id));
-        span.record("tenant_id", field::display(&tenant_id));
-
-        // Check group creation permission — the decision `/group create`
-        // and GET /api/groups/permissions share: tenant admins/owners always
-        // allowed, everyone else per the tenant's group_creation_policy.
-        check_create_group_permission(
-            resources.repos().tenants.as_ref(),
-            auth.user_id,
-            tenant_id,
-            Self::group_creation_policy(&resources, tenant_id),
-        )
-        .await?;
-
-        if body.name.trim().is_empty() {
-            return Err(AppError::invalid_input("Group name must not be empty"));
-        }
-
-        // Resolve the tenant's plan tier (the handler owns tenant-plan
-        // access). The per-group member cap is passed into
-        // GroupService::create_group, which owns the actual creation, the
-        // member-count clamp, and the Starter rejection (cap 0 →
-        // PermissionDenied). Group creation + owner auto-membership live in
-        // one place — the service — so this handler stays a thin HTTP layer.
-        let plan = resources.repos().tenants.get_by_id(tenant_id).await?.plan;
-        let tier_cap =
-            i32::try_from(tier_strategy_for(&plan).max_members_per_group()).unwrap_or(i32::MAX);
-
-        let created = resources
-            .group_service()
-            .create_group(&body, auth.user_id, tenant_id, tier_cap)
-            .await?;
-
-        // The `group.created` notify event is emitted by GroupService, which
-        // every creation surface (REST, the slash commands, messaging
-        // auto-bind) funnels through — emitting here too would double-count
-        // the REST path and still miss the others. Record the id on the span
-        // so future child spans inherit it.
-        Span::current().record("group_id", field::display(&created.id));
-
-        let response = Self::group_response(&resources, created, auth.user_id).await?;
-        Ok((StatusCode::CREATED, Json(response)).into_response())
-    }
-
     /// The tenant's configured group-creation policy, when it has set one.
     async fn group_creation_policy<C: GroupsCtx + MiddlewareCtx>(
         resources: &Arc<C>,
@@ -583,24 +483,6 @@ impl GroupRoutes {
             can_create,
             policy,
             weekly_digest,
-        };
-
-        Ok((StatusCode::OK, Json(response)).into_response())
-    }
-
-    /// GET /api/groups — List groups the current user belongs to
-    async fn handle_list_my_groups<C: GroupsCtx + MiddlewareCtx>(
-        State(resources): State<Arc<C>>,
-        auth: AuthenticatedUser,
-    ) -> Result<Response, AppError> {
-        let auth = auth.into_inner();
-
-        let groups = resources.group_service().list_groups(auth.user_id).await?;
-
-        let response = ListGroupsResponse {
-            total: groups.len(),
-            groups,
-            metadata: Self::build_metadata(),
         };
 
         Ok((StatusCode::OK, Json(response)).into_response())
@@ -959,114 +841,6 @@ impl GroupRoutes {
     // Join / Leave handlers
     // ========================================================================
 
-    /// POST /api/groups/join — Join a group using an invite code
-    #[tracing::instrument(
-        skip(resources, auth, body),
-        fields(
-            route = "groups_join",
-            user_id = field::Empty,
-            tenant_id = field::Empty,
-            group_id = field::Empty,
-        )
-    )]
-    async fn handle_join_by_invite_code<C: GroupsCtx + MiddlewareCtx>(
-        State(resources): State<Arc<C>>,
-        auth: AuthenticatedUser,
-        Json(body): Json<JoinGroupRequest>,
-    ) -> Result<Response, AppError> {
-        let auth = auth.into_inner();
-        Span::current().record("user_id", field::display(&auth.user_id));
-        // Caller's tenant is not used — the invite's tenant (group's tenant) is used instead
-
-        if body.invite_code.trim().is_empty() {
-            return Err(AppError::invalid_input("Invite code must not be empty"));
-        }
-
-        // Resolve the invite's tenant (= group's tenant) for the cross-tenant
-        // join: membership is created under the group's tenant, not the
-        // caller's home tenant. The handler reads the invite once for this
-        // tenant resolution + notification span fields; GroupService::join_group
-        // is the single implementation of the membership business logic
-        // (invite validity, capacity, already-a-member guard, invite-use
-        // increment, member insert).
-        let invite = resources
-            .repos()
-            .groups
-            .get_invite_by_code(&body.invite_code)
-            .await?
-            .ok_or_else(|| AppError::not_found("Invalid or expired invite code"))?;
-
-        let group_tenant_id = TenantId::parse_str(&invite.tenant_id)
-            .map_err(|e| AppError::internal(format!("Invalid invite tenant: {e}")))?;
-
-        // Agent invites attach the redeemer as the group's human coach; member
-        // invites add an athlete. Dispatch on the invite kind.
-        match invite.kind {
-            GroupInviteKind::Member => {
-                let created = resources
-                    .group_service()
-                    .join_group(&body.invite_code, auth.user_id, group_tenant_id)
-                    .await?;
-
-                // `group.joined` is emitted by GroupService::join_group, under
-                // the group's tenant rather than the caller's home tenant.
-                // Record both here so the rest of this request's log lines
-                // carry the group context too.
-                let span = Span::current();
-                span.record("tenant_id", field::display(&group_tenant_id));
-                span.record("group_id", field::display(&invite.group_id));
-
-                let response: MemberResponse = created.into();
-                Ok((StatusCode::CREATED, Json(response)).into_response())
-            }
-            GroupInviteKind::Coach => {
-                // Coach eligibility: the redeemer must hold `manages_roster`,
-                // the permission to coach a group, or be a platform admin —
-                // the same gate `/group join` applies to a coach code in chat.
-                let user = resources
-                    .repos()
-                    .users
-                    .get_global(auth.user_id)
-                    .await?
-                    .ok_or_else(|| AppError::not_found("User not found"))?;
-                if !user.manages_roster && !user.is_admin {
-                    return Err(AppError::new(
-                        ErrorCode::PermissionDenied,
-                        "Only roster-managing coaches can join a group as its coach",
-                    ));
-                }
-
-                // Cross-tenant rule (v1): a human coach must belong to the
-                // group's tenant. Athlete membership is cross-tenant by design,
-                // but agent attachment is tenant-scoped to match the
-                // tenant-scoped roster/agent model.
-                let caller_tenant = Self::get_tenant_id(&auth)?;
-                if caller_tenant != group_tenant_id {
-                    return Err(AppError::new(
-                        ErrorCode::PermissionDenied,
-                        "A coach must belong to the group's tenant to join it",
-                    ));
-                }
-
-                let group = resources
-                    .group_service()
-                    .redeem_coach_invite(&body.invite_code, auth.user_id, group_tenant_id)
-                    .await?;
-
-                // `group.joined` is emitted by
-                // GroupService::redeem_coach_invite, which fires it only when
-                // the attach actually happens — re-redeeming the same invite
-                // returns early there and no longer double-counts.
-                let span = Span::current();
-                span.record("tenant_id", field::display(&group_tenant_id));
-                span.record("group_id", field::display(&invite.group_id));
-
-                let response = Self::group_response(&resources, group, auth.user_id).await?;
-                Ok((StatusCode::CREATED, Json(response)).into_response())
-            }
-        }
-    }
-
     /// POST `/api/groups/:group_id/leave` — Leave a group
     async fn handle_leave_group<C: GroupsCtx + MiddlewareCtx>(
         State(resources): State<Arc<C>>,
@@ -1100,34 +874,6 @@ impl GroupRoutes {
     // ========================================================================
     // Human coach handlers
     // ========================================================================
-
-    /// GET /api/groups/coached — List groups the caller is the human coach of
-    async fn handle_list_coached_groups<C: GroupsCtx + MiddlewareCtx>(
-        State(resources): State<Arc<C>>,
-        auth: AuthenticatedUser,
-    ) -> Result<Response, AppError> {
-        let auth = auth.into_inner();
-
-        let groups = resources
-            .group_service()
-            .list_coached_groups(auth.user_id)
-            .await?;
-
-        let repos = resources.repos();
-        let locale = resolve_user_locale(repos.users.as_ref(), auth.user_id).await;
-        let mut group_responses = Vec::with_capacity(groups.len());
-        for group in groups {
-            group_responses.push(GroupResponse::for_reader(repos, group, &locale).await?);
-        }
-
-        let response = CoachedGroupsResponse {
-            total: group_responses.len(),
-            groups: group_responses,
-            metadata: Self::build_metadata(),
-        };
-
-        Ok((StatusCode::OK, Json(response)).into_response())
-    }
 
     /// DELETE `/api/groups/:group_id/coach` — Detach the human coach (admin/owner only)
     async fn handle_remove_coach<C: GroupsCtx + MiddlewareCtx>(

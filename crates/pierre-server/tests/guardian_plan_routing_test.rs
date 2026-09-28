@@ -37,7 +37,6 @@ use pierre_llm::{
     ChatMessage, ChatProvider, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider,
     StreamChunk, Tool,
 };
-use pierre_tool_runtime::guardian::planner_system_prompt;
 use pierre_tool_runtime::protocol::UniversalToolExecutor;
 use pierre_tool_runtime::tool_execution::run_tool_loop;
 use pierre_tool_runtime::tool_loop_io::ToolLoopParams;
@@ -157,6 +156,17 @@ async fn harness(caps: LlmCapabilities, responses: &[&str], turn: &str) -> Harne
     }
 }
 
+/// The planner grammar exactly as the loop folds it in: the catalogue's
+/// `guardian_planner` prompt resolved through the executor's registry.
+fn planner_prompt(h: &Harness) -> String {
+    let prompt = h.executor.resources.guardian_planner_prompt();
+    assert!(
+        prompt.contains("\"$ref\"") && prompt.contains("EARLIER step"),
+        "the registry must resolve the catalogue's planner grammar, got: {prompt}"
+    );
+    prompt.trim().to_owned()
+}
+
 fn loop_params<'a>(h: &'a Harness, tools: &'a Tool) -> ToolLoopParams<'a> {
     ToolLoopParams {
         provider: &h.provider,
@@ -204,10 +214,11 @@ async fn sdk_tool_calling_provider_routes_through_the_planned_loop() {
 
     // Exactly two completions: plan + synthesis; and the FIRST carried the
     // planner prompt folded into the system message.
+    let planner = planner_prompt(&h);
     let first_messages = h.scripted.first_messages.lock().unwrap();
     assert_eq!(first_messages.len(), 2);
     assert!(
-        first_messages[0].starts_with(&planner_system_prompt()),
+        first_messages[0].starts_with(&planner),
         "planner call must lead with the planner prompt"
     );
     assert!(
@@ -215,7 +226,7 @@ async fn sdk_tool_calling_provider_routes_through_the_planned_loop() {
         "planner prompt must be FOLDED into the persona system message, not replace it"
     );
     assert!(
-        !first_messages[1].starts_with(&planner_system_prompt()),
+        !first_messages[1].starts_with(&planner),
         "synthesis call must not re-send the planner prompt"
     );
 }
@@ -246,6 +257,7 @@ async fn unparseable_plan_degrades_to_the_capability_routed_react_loop() {
     assert_eq!(result.content, "REACT_OK");
     assert!(result.guardian_denied.is_none());
 
+    let planner = planner_prompt(&h);
     let first_messages = h.scripted.first_messages.lock().unwrap();
     assert_eq!(
         first_messages.len(),
@@ -253,11 +265,11 @@ async fn unparseable_plan_degrades_to_the_capability_routed_react_loop() {
         "planner call + one ReAct completion"
     );
     assert!(
-        first_messages[0].starts_with(&planner_system_prompt()),
+        first_messages[0].starts_with(&planner),
         "first call was the planner"
     );
     assert!(
-        !first_messages[1].starts_with(&planner_system_prompt()),
+        !first_messages[1].starts_with(&planner),
         "degraded ReAct call must use the original messages, without the planner prompt"
     );
 }

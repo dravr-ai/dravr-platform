@@ -2,13 +2,13 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Admin console view of the standing pre-approval allow-list — add, list, remove
-// ABOUTME: Same endpoints pierre-cli user allow / disallow / list-allowed drives, cookie-authenticated
+// ABOUTME: Same handlers pierre-cli user allow / disallow / list-allowed drives, session-authenticated
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { PreApprovedEmail } from '../services/api/admin';
-import { Button, Card, Badge, Input } from './ui';
+import { Button, Card, Badge, Checkbox, Input } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { formatDate } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
@@ -24,6 +24,7 @@ export default function PreApprovedEmails() {
   const queryClient = useQueryClient();
   const [email, setEmail] = useState('');
   const [note, setNote] = useState('');
+  const [sendInvite, setSendInvite] = useState(false);
   const [result, setResult] = useState<{ message: string; ok: boolean } | null>(null);
 
   const {
@@ -44,11 +45,15 @@ export default function PreApprovedEmails() {
   };
 
   const allowMutation = useMutation({
-    mutationFn: () => adminApi.allowEmail(email.trim(), note.trim() || undefined),
+    mutationFn: () => adminApi.allowEmail(email.trim(), note.trim() || undefined, sendInvite),
     onSuccess: (data) => {
-      setResult({ message: data.message, ok: true });
+      setResult({
+        message: data.invited ? `${data.message} — sign-up link sent` : data.message,
+        ok: true,
+      });
       setEmail('');
       setNote('');
+      setSendInvite(false);
       invalidate();
     },
     onError: (err: unknown) => {
@@ -105,6 +110,14 @@ export default function PreApprovedEmails() {
             {allowMutation.isPending ? 'Allowing…' : 'Allow'}
           </Button>
         </form>
+        <div className="mt-3">
+          <Checkbox
+            label="Email them the sign-up link"
+            description="Only an address with no account yet is mailed; a pending account is approved instead."
+            checked={sendInvite}
+            onChange={(e) => setSendInvite(e.target.checked)}
+          />
+        </div>
         {result && (
           <p
             role="status"

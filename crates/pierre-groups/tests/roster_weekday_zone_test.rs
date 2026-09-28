@@ -55,6 +55,7 @@ fn snapshot_in(timezone: Option<&str>) -> MemberFitnessSnapshot {
         ctl: None,
         atl: None,
         tsb: None,
+        form_ctl: None,
         weekly_volume_km: 300.0,
         previous_week_volume_km: None,
         weekly_activity_count: 6,

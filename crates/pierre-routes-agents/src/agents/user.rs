@@ -17,23 +17,22 @@ use axum::{
     Json,
 };
 use chrono::{Duration as ChronoDuration, Utc};
-use pierre_agent_parser::{parse_agent_content, to_markdown};
+use pierre_agent_parser::parse_agent_content;
 use pierre_cache::{CacheKey, CacheResource};
 use pierre_config::agent_recommendations::AgentRecommendationConfig;
 use pierre_core::errors::AppError;
 use pierre_core::models::agents::{
-    AgentCategory, AgentListItem, AgentPrerequisites, CreateAgentRequest, ListAgentsFilter,
-    UpdateAgentRequest,
+    AgentCategory, AgentListItem, AgentPrerequisites, ListAgentsFilter, UpdateAgentRequest,
 };
 use pierre_core::models::{CoachingPersona, SportProfile, TenantId};
 use pierre_database::database::agents::compute_request_hash;
 use pierre_llm::{ChatMessage, ChatRequest};
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{AgentsCtx, MiddlewareCtx};
-use pierre_services::agent_generation::{agent_quota, resolve_chat_provider};
+use pierre_services::agent_generation::resolve_chat_provider;
 use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
 use pierre_services::locale::resolve_user_locale;
-use pierre_services::{agent_import, agents as agents_service, recipes as recipes_service};
+use pierre_services::{agent_import, agents as agents_service};
 use pierre_tool_runtime::activity_fetch::fetch_recent_activities_all_providers;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use tracing::{field, warn, Span};
@@ -41,11 +40,9 @@ use uuid::Uuid;
 
 use super::proposal_profile::{build_profile_view, pillar_context_prompt, ProfileView};
 use super::types::{
-    validate_max_tool_iterations, AgentProposalResponse, AgentResponse, CreateAgentBody,
-    ForkAgentResponse, HideAgentResponse, ImportAgentResponse, ImportFromUrlBody,
-    ImportPreviewResponse, ListAgentsQuery, ListAgentsResponse, MissingPrerequisite,
-    ParsedAgentFields, ProposedAgent, RecordUsageResponse, SearchAgentsQuery, SportProfileSummary,
-    ToggleFavoriteResponse, UpdateAgentBody,
+    validate_max_tool_iterations, AgentProposalResponse, AgentResponse, ImportAgentResponse,
+    ListAgentsQuery, ListAgentsResponse, MissingPrerequisite, ProposedAgent, RecordUsageResponse,
+    SearchAgentsQuery, SportProfileSummary, UpdateAgentBody,
 };
 
 /// Whether the user may see coach-facing builder personas (agents tagged
@@ -580,43 +577,6 @@ fn check_prerequisites(
     (result.met, missing)
 }
 
-/// Handle POST /api/agents - Create a new agent
-pub(super) async fn handle_create<C: AgentsCtx + MiddlewareCtx>(
-    State(ctx): State<Arc<C>>,
-    auth: AuthenticatedUser,
-    Json(body): Json<CreateAgentBody>,
-) -> Result<Response, AppError> {
-    let auth = auth.into_inner();
-    let tenant_id = super::get_user_tenant(&auth)?;
-    validate_max_tool_iterations(body.max_tool_iterations)?;
-
-    let manager = super::get_agents_manager(&ctx);
-
-    // The same per-user cap `/agent create confirm` enforces, read through
-    // the shared service so the two creation surfaces cannot drift.
-    let quota = agent_quota(
-        ctx.admin_config().as_deref(),
-        manager,
-        auth.user_id,
-        tenant_id,
-    )
-    .await?;
-    if quota.is_full() {
-        return Err(AppError::quota_exceeded(
-            "max_coaches_per_user",
-            quota.current,
-            quota.max,
-            "",
-        ));
-    }
-
-    let request: CreateAgentRequest = body.into();
-    let agent = manager.create(auth.user_id, tenant_id, &request).await?;
-
-    let response: AgentResponse = agent.into();
-    Ok((StatusCode::CREATED, Json(response)).into_response())
-}
-
 /// Handle GET /api/agents/search - Search agents
 pub(super) async fn handle_search<C: AgentsCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
@@ -667,48 +627,6 @@ pub(super) async fn handle_get<C: AgentsCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle GET /api/agents/:id/export - Export agent as markdown
-pub(super) async fn handle_export<C: AgentsCtx + MiddlewareCtx>(
-    State(ctx): State<Arc<C>>,
-    auth: AuthenticatedUser,
-    Path(id): Path<String>,
-) -> Result<Response, AppError> {
-    let auth = auth.into_inner();
-    let tenant_id = super::get_user_tenant(&auth)?;
-
-    let manager = super::get_agents_manager(&ctx);
-    let agent = manager
-        .get_by_id(&id, auth.user_id, tenant_id)
-        .await?
-        .ok_or_else(|| AppError::not_found(format!("Coach {id}")))?;
-
-    // Convert Agent to CoachDefinition for export.
-    //
-    // The markdown <-> definition conversion machinery lives in the `recipes`
-    // service module and is deliberately reused here for the agents domain:
-    // agents and recipes share the same on-disk markdown-with-frontmatter
-    // representation, so the `agent_to_definition` / `generate_agent_filename`
-    // helpers are domain-agnostic despite the module name.
-    let definition = recipes_service::agent_to_definition(&agent);
-    let markdown = to_markdown(&definition);
-
-    // Generate filename from agent name/title (shared recipe markdown machinery).
-    let filename = recipes_service::generate_agent_filename(&agent.title);
-
-    Ok((
-        StatusCode::OK,
-        [
-            ("content-type", "text/markdown; charset=utf-8"),
-            (
-                "content-disposition",
-                &format!("attachment; filename=\"{filename}\""),
-            ),
-        ],
-        markdown,
-    )
-        .into_response())
-}
-
 /// Handle POST /api/agents/import - Import agent from markdown
 ///
 /// Parses markdown content, checks for duplicate content hashes, and
@@ -745,155 +663,6 @@ pub(super) async fn handle_import<C: AgentsCtx + MiddlewareCtx>(
         )));
     }
 
-    let agent = manager.create(auth.user_id, tenant_id, &request).await?;
-
-    let response = ImportAgentResponse {
-        agent: agent.into(),
-        parsed_name,
-        token_count,
-        warnings,
-    };
-    Ok((StatusCode::CREATED, Json(response)).into_response())
-}
-
-/// Handle POST /api/agents/import/preview - Preview a markdown import without saving
-///
-/// Parses the markdown content and returns validation results, warnings,
-/// and duplicate detection information without creating an agent.
-pub(super) async fn handle_import_preview<C: AgentsCtx + MiddlewareCtx>(
-    State(ctx): State<Arc<C>>,
-    auth: AuthenticatedUser,
-    body: String,
-) -> Result<Response, AppError> {
-    let auth = auth.into_inner();
-    let tenant_id = super::get_user_tenant(&auth)?;
-
-    match parse_agent_content(&body, None) {
-        Ok(definition) => {
-            let warnings = agent_import::generate_import_warnings(&definition);
-            let token_count = definition.token_count;
-            let request = agent_import::definition_to_create_request(&definition);
-            let content_hash = compute_request_hash(&request);
-
-            // Check for duplicate using the same hash that create() stores
-            let manager = super::get_agents_manager(&ctx);
-            let duplicate = manager
-                .find_by_content_hash(&content_hash, auth.user_id, tenant_id)
-                .await?;
-
-            let parsed = ParsedAgentFields {
-                name: definition.frontmatter.name,
-                title: definition.frontmatter.title,
-                category: definition.frontmatter.category.as_str().to_owned(),
-                tags: definition.frontmatter.tags,
-                purpose: definition.sections.purpose,
-                has_instructions: !definition.sections.instructions.is_empty(),
-                has_example_inputs: definition.sections.example_inputs.is_some(),
-                has_example_outputs: definition.sections.example_outputs.is_some(),
-                has_success_criteria: definition.sections.success_criteria.is_some(),
-            };
-
-            let response = ImportPreviewResponse {
-                valid: true,
-                parsed: Some(parsed),
-                errors: Vec::new(),
-                warnings,
-                content_hash: Some(content_hash),
-                duplicate_exists: duplicate.is_some(),
-                duplicate_agent_id: duplicate.map(|c| c.id.to_string()),
-                token_count: Some(token_count),
-            };
-
-            Ok((StatusCode::OK, Json(response)).into_response())
-        }
-        Err(e) => {
-            let response = ImportPreviewResponse {
-                valid: false,
-                parsed: None,
-                errors: vec![e.message],
-                warnings: Vec::new(),
-                content_hash: None,
-                duplicate_exists: false,
-                duplicate_agent_id: None,
-                token_count: None,
-            };
-
-            Ok((StatusCode::OK, Json(response)).into_response())
-        }
-    }
-}
-
-/// Handle POST /api/agents/import/url - Import agent from a URL
-///
-/// Fetches markdown content from the given HTTPS URL with SSRF protection,
-/// then either saves as a new agent or returns a preview depending on the
-/// `save` parameter.
-pub(super) async fn handle_import_from_url<C: AgentsCtx + MiddlewareCtx>(
-    State(ctx): State<Arc<C>>,
-    auth: AuthenticatedUser,
-    Json(body): Json<ImportFromUrlBody>,
-) -> Result<Response, AppError> {
-    let auth = auth.into_inner();
-    let tenant_id = super::get_user_tenant(&auth)?;
-
-    // Fetch markdown from the URL (includes SSRF validation)
-    let markdown = agent_import::fetch_markdown_from_url(&body.url).await?;
-
-    // Parse the fetched markdown
-    let definition = parse_agent_content(&markdown, Some(&body.url))
-        .map_err(|e| AppError::invalid_input(format!("Invalid markdown format: {e}")))?;
-
-    let warnings = agent_import::generate_import_warnings(&definition);
-    let token_count = definition.token_count;
-    let request = agent_import::definition_to_create_request(&definition);
-    let content_hash = compute_request_hash(&request);
-
-    let manager = super::get_agents_manager(&ctx);
-
-    if !body.save {
-        // Preview mode: return parsed fields without saving
-        let duplicate = manager
-            .find_by_content_hash(&content_hash, auth.user_id, tenant_id)
-            .await?;
-
-        let parsed = ParsedAgentFields {
-            name: definition.frontmatter.name,
-            title: definition.frontmatter.title,
-            category: definition.frontmatter.category.as_str().to_owned(),
-            tags: definition.frontmatter.tags,
-            purpose: definition.sections.purpose,
-            has_instructions: !definition.sections.instructions.is_empty(),
-            has_example_inputs: definition.sections.example_inputs.is_some(),
-            has_example_outputs: definition.sections.example_outputs.is_some(),
-            has_success_criteria: definition.sections.success_criteria.is_some(),
-        };
-
-        let response = ImportPreviewResponse {
-            valid: true,
-            parsed: Some(parsed),
-            errors: Vec::new(),
-            warnings,
-            content_hash: Some(content_hash),
-            duplicate_exists: duplicate.is_some(),
-            duplicate_agent_id: duplicate.map(|c| c.id.to_string()),
-            token_count: Some(token_count),
-        };
-
-        return Ok((StatusCode::OK, Json(response)).into_response());
-    }
-
-    // Save mode: check for duplicates, then create
-    if let Some(existing) = manager
-        .find_by_content_hash(&content_hash, auth.user_id, tenant_id)
-        .await?
-    {
-        return Err(AppError::already_exists(format!(
-            "Coach with identical content (id: {})",
-            existing.id
-        )));
-    }
-
-    let parsed_name = definition.frontmatter.name.clone();
     let agent = manager.create(auth.user_id, tenant_id, &request).await?;
 
     let response = ImportAgentResponse {
@@ -951,25 +720,6 @@ pub(super) async fn handle_delete<C: AgentsCtx + MiddlewareCtx>(
     Ok((StatusCode::NO_CONTENT, ()).into_response())
 }
 
-/// Handle POST /api/agents/:id/favorite - Toggle favorite status
-pub(super) async fn handle_toggle_favorite<C: AgentsCtx + MiddlewareCtx>(
-    State(ctx): State<Arc<C>>,
-    auth: AuthenticatedUser,
-    Path(id): Path<String>,
-) -> Result<Response, AppError> {
-    let auth = auth.into_inner();
-    let tenant_id = super::get_user_tenant(&auth)?;
-
-    let manager = super::get_agents_manager(&ctx);
-    let is_favorite = manager
-        .toggle_favorite(&id, auth.user_id, tenant_id)
-        .await?
-        .ok_or_else(|| AppError::not_found(format!("Coach {id}")))?;
-
-    let response = ToggleFavoriteResponse { is_favorite };
-    Ok((StatusCode::OK, Json(response)).into_response())
-}
-
 /// Handle POST /api/agents/:id/usage - Record agent usage
 #[tracing::instrument(
     skip(ctx, auth),
@@ -1005,66 +755,6 @@ pub(super) async fn handle_record_usage<C: AgentsCtx + MiddlewareCtx>(
 
     let response = RecordUsageResponse { success };
     Ok((StatusCode::OK, Json(response)).into_response())
-}
-
-/// Handle POST /api/agents/:id/hide - Hide an agent from user's view
-pub(super) async fn handle_hide_agent<C: AgentsCtx + MiddlewareCtx>(
-    State(ctx): State<Arc<C>>,
-    auth: AuthenticatedUser,
-    Path(id): Path<String>,
-) -> Result<Response, AppError> {
-    let auth = auth.into_inner();
-    let tenant_id = super::get_user_tenant(&auth)?;
-
-    let manager = super::get_agents_manager(&ctx);
-    let success = manager.hide_agent(&id, auth.user_id, tenant_id).await?;
-
-    let response = HideAgentResponse {
-        success,
-        is_hidden: success,
-    };
-    Ok((StatusCode::OK, Json(response)).into_response())
-}
-
-/// Handle DELETE /api/agents/:id/hide - Show (unhide) an agent
-pub(super) async fn handle_show_agent<C: AgentsCtx + MiddlewareCtx>(
-    State(ctx): State<Arc<C>>,
-    auth: AuthenticatedUser,
-    Path(id): Path<String>,
-) -> Result<Response, AppError> {
-    let auth = auth.into_inner();
-    // A caller with no active tenant is refused like every other agent route.
-    // The hidden-set row is keyed per user, so the tenant is a gate here, not
-    // a query key — see `AgentsRepository::show_agent`.
-    super::get_user_tenant(&auth)?;
-
-    let manager = super::get_agents_manager(&ctx);
-    let success = manager.show_agent(&id, auth.user_id).await?;
-
-    let response = HideAgentResponse {
-        success,
-        is_hidden: false,
-    };
-    Ok((StatusCode::OK, Json(response)).into_response())
-}
-
-/// Handle POST /api/agents/:id/fork - Fork a system agent to create a user copy
-pub(super) async fn handle_fork<C: AgentsCtx + MiddlewareCtx>(
-    State(ctx): State<Arc<C>>,
-    auth: AuthenticatedUser,
-    Path(id): Path<String>,
-) -> Result<Response, AppError> {
-    let auth = auth.into_inner();
-    let tenant_id = super::get_user_tenant(&auth)?;
-
-    let manager = super::get_agents_manager(&ctx);
-    let forked_agent = manager.fork_agent(&id, auth.user_id, tenant_id).await?;
-
-    let response = ForkAgentResponse {
-        agent: forked_agent.into(),
-        source_agent_id: id,
-    };
-    Ok((StatusCode::CREATED, Json(response)).into_response())
 }
 
 /// Handle GET /api/agents/hidden - List hidden agents for user

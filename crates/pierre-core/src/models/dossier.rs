@@ -1,5 +1,5 @@
 // ABOUTME: Endurance athlete Dossier aggregate composed at read time from physiology, goals, zones, nutrition, equipment
-// ABOUTME: Backs GET /api/v1/endurance/dossier — never persisted as a single row, always assembled per-request
+// ABOUTME: Backs the export_dossier tool — never persisted as a single row, always assembled per-request
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

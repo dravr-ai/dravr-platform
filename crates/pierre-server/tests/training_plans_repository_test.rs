@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use pierre_core::errors::ErrorCode;
+use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::WorkoutStep;
 use pierre_database::backends::factory::Database;
@@ -16,9 +16,10 @@ use pierre_database::database::test_utils::create_test_db;
 use pierre_database::repositories::training_plans::PlanOwner;
 use pierre_database::repositories::{
     PlanOutlineInput, PlanWeekInput, SavePlanBundleParams, SaveTrainingPlanParams,
+    TrainingPlanRepository,
 };
 use pierre_memory::training_plans::{
-    GoalRace, PlanPhase, PlanStatus, PlannedDay, RacePriority, WeekStatus,
+    GoalRace, PlanPhase, PlanStatus, PlannedDay, RacePriority, TrainingPlan, WeekStatus,
 };
 use std::collections::BTreeMap;
 use uuid::Uuid;
@@ -141,6 +142,33 @@ fn plan_params<'a>(
     }
 }
 
+/// Save an outline through the one write path: a bundle with no weeks.
+async fn save_outline(
+    plans: &dyn TrainingPlanRepository,
+    params: &SaveTrainingPlanParams<'_>,
+) -> AppResult<TrainingPlan> {
+    let saved = plans
+        .save_plan_bundle(&SavePlanBundleParams {
+            tenant_id: params.tenant_id,
+            user_id: params.user_id,
+            owner: params.owner,
+            goal_fact_id: params.goal_fact_id,
+            outline: Some(PlanOutlineInput {
+                goal_race: params.goal_race,
+                races: params.races,
+                strategy: params.strategy,
+                flavour: params.flavour,
+                season_start: params.season_start,
+                season_end: params.season_end,
+                phases: params.phases,
+                source_conversation_id: params.source_conversation_id,
+            }),
+            weeks: &[],
+        })
+        .await?;
+    Ok(saved.plan)
+}
+
 #[tokio::test]
 async fn save_and_get_roundtrip_preserves_content() -> Result<()> {
     let db = open_test_db().await?;
@@ -150,10 +178,11 @@ async fn save_and_get_roundtrip_preserves_content() -> Result<()> {
 
     let race = big_red();
     let blks = phases();
-    let plan = repos
-        .training_plans
-        .save_training_plan(&plan_params(&tenant, &user, &race, &blks))
-        .await?;
+    let plan = save_outline(
+        repos.training_plans.as_ref(),
+        &plan_params(&tenant, &user, &race, &blks),
+    )
+    .await?;
 
     let days = week_days("2026-07-13");
     let saved = repos
@@ -216,10 +245,11 @@ async fn a_structured_day_round_trips_and_a_prose_row_reads_as_no_steps() -> Res
     let user = Uuid::new_v4().to_string();
     let race = big_red();
     let blks = phases();
-    let plan = repos
-        .training_plans
-        .save_training_plan(&plan_params(&tenant, &user, &race, &blks))
-        .await?;
+    let plan = save_outline(
+        repos.training_plans.as_ref(),
+        &plan_params(&tenant, &user, &race, &blks),
+    )
+    .await?;
 
     let mut days = week_days("2026-07-13");
     days[1].steps = vec![
@@ -293,20 +323,22 @@ async fn outline_resave_supersedes_previous() -> Result<()> {
 
     let race = big_red();
     let blks = phases();
-    let first = repos
-        .training_plans
-        .save_training_plan(&plan_params(&tenant, &user, &race, &blks))
-        .await?;
+    let first = save_outline(
+        repos.training_plans.as_ref(),
+        &plan_params(&tenant, &user, &race, &blks),
+    )
+    .await?;
 
     // Goal moved: new outline replaces the old one atomically.
     let moved = GoalRace {
         date: "2026-08-15".to_owned(),
         ..big_red()
     };
-    let second = repos
-        .training_plans
-        .save_training_plan(&plan_params(&tenant, &user, &moved, &blks))
-        .await?;
+    let second = save_outline(
+        repos.training_plans.as_ref(),
+        &plan_params(&tenant, &user, &moved, &blks),
+    )
+    .await?;
 
     assert_eq!(second.supersedes_id.as_deref(), Some(first.id.as_str()));
     let active = repos
@@ -328,10 +360,11 @@ async fn week_resave_supersedes_that_week_only() -> Result<()> {
 
     let race = big_red();
     let blks = phases();
-    let plan = repos
-        .training_plans
-        .save_training_plan(&plan_params(&tenant, &user, &race, &blks))
-        .await?;
+    let plan = save_outline(
+        repos.training_plans.as_ref(),
+        &plan_params(&tenant, &user, &race, &blks),
+    )
+    .await?;
 
     let days1 = week_days("2026-07-13");
     let days2 = week_days("2026-07-20");
@@ -425,10 +458,11 @@ async fn tenant_and_user_isolation_enforced() -> Result<()> {
 
     let race = big_red();
     let blks = phases();
-    let plan = repos
-        .training_plans
-        .save_training_plan(&plan_params(&tenant_a, &user, &race, &blks))
-        .await?;
+    let plan = save_outline(
+        repos.training_plans.as_ref(),
+        &plan_params(&tenant_a, &user, &race, &blks),
+    )
+    .await?;
 
     // Another tenant must see nothing, even for the same user id.
     assert!(repos
@@ -485,7 +519,7 @@ async fn coach_scoped_plan_prefers_specific_over_agnostic() -> Result<()> {
     let blks = phases();
     let mut agnostic = plan_params(&tenant, &user, &race, &blks);
     agnostic.owner = PlanOwner::agnostic();
-    repos.training_plans.save_training_plan(&agnostic).await?;
+    save_outline(repos.training_plans.as_ref(), &agnostic).await?;
 
     // An agent without their own plan falls back to the agnostic one.
     let seen = repos
@@ -496,10 +530,11 @@ async fn coach_scoped_plan_prefers_specific_over_agnostic() -> Result<()> {
     assert_eq!(seen.agent_slug, None);
 
     // Once the agent saves their own, it wins.
-    let specific = repos
-        .training_plans
-        .save_training_plan(&plan_params(&tenant, &user, &race, &blks))
-        .await?;
+    let specific = save_outline(
+        repos.training_plans.as_ref(),
+        &plan_params(&tenant, &user, &race, &blks),
+    )
+    .await?;
     let seen = repos
         .training_plans
         .get_active_plan(&tenant, &user, PlanOwner::agent("endurance-coach"))
@@ -514,7 +549,7 @@ async fn coach_scoped_plan_prefers_specific_over_agnostic() -> Result<()> {
 async fn a_coach_bound_plan_is_invisible_to_a_coachless_lookup() -> Result<()> {
     // The fallback runs one way only: `agent_slug IN (?3, '')` with no agent
     // binds `?3` to `''`, so it matches agent-agnostic plans alone. Every plan
-    // `save_training_plan` writes from a conversation carries that
+    // `save_plan_bundle` writes from a conversation carries that
     // conversation's agent, so a caller that asks without one sees nothing and
     // concludes the athlete has no plan — which is what told the athletes most
     // likely to hold one, at the end of a calibration interview, to go build it.
@@ -525,10 +560,11 @@ async fn a_coach_bound_plan_is_invisible_to_a_coachless_lookup() -> Result<()> {
 
     let race = big_red();
     let blks = phases();
-    let coach_bound = repos
-        .training_plans
-        .save_training_plan(&plan_params(&tenant, &user, &race, &blks))
-        .await?;
+    let coach_bound = save_outline(
+        repos.training_plans.as_ref(),
+        &plan_params(&tenant, &user, &race, &blks),
+    )
+    .await?;
     assert_eq!(coach_bound.agent_slug.as_deref(), Some("endurance-coach"));
 
     assert!(
@@ -689,10 +725,11 @@ async fn a_phase_index_round_trips_through_a_supersede() -> Result<()> {
         .await?;
     assert_eq!(first.weeks[0].phase_index, Some(1));
 
-    let second = repos
-        .training_plans
-        .save_training_plan(&plan_params(&tenant, &user, &race, &blks))
-        .await?;
+    let second = save_outline(
+        repos.training_plans.as_ref(),
+        &plan_params(&tenant, &user, &race, &blks),
+    )
+    .await?;
     assert_eq!(
         second.supersedes_id.as_deref(),
         Some(first.plan.id.as_str())
@@ -719,10 +756,11 @@ async fn bundle_weeks_only_attaches_to_active_plan() -> Result<()> {
     let race = big_red();
     let blks = phases();
 
-    let plan = repos
-        .training_plans
-        .save_training_plan(&plan_params(&tenant, &user, &race, &blks))
-        .await?;
+    let plan = save_outline(
+        repos.training_plans.as_ref(),
+        &plan_params(&tenant, &user, &race, &blks),
+    )
+    .await?;
 
     let days = week_days("2026-07-13");
     let saved = repos

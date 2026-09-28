@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::collections::HashMap;
 use std::fmt::Display;
 
 use async_trait::async_trait;
@@ -112,8 +111,6 @@ pub trait StoreListingsRepository: Send + Sync {
         &self,
         handle: &AgentHandle,
     ) -> AppResult<Option<AgentWithListing>>;
-    /// Get category counts for published agents
-    async fn get_category_counts(&self) -> AppResult<HashMap<AgentCategory, i64>>;
     /// Increment install count for an agent's store listing
     async fn increment_install_count(&self, agent_id: &str) -> AppResult<()>;
     /// Decrement install count for an agent's store listing
@@ -138,8 +135,6 @@ pub trait StoreListingsRepository: Send + Sync {
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> AppResult<Vec<Agent>>;
-    /// Create or ensure a store listing exists for an agent
-    async fn ensure_listing(&self, agent_id: &str, tenant_id: TenantId) -> AppResult<StoreListing>;
     /// Give an agent its catalogue `@handle` if it owns none yet, and return it.
     ///
     /// The same assignment Store approval performs, exposed for an agent
@@ -248,11 +243,6 @@ pub(crate) const INSERT_PENDING_LISTING_SQL: &str = "INSERT INTO store_listings 
      install_count, created_at, updated_at \
      ) VALUES ($1, $2, $3, $4, $5, 0, $5, $5)";
 
-/// Create a draft listing; `$5` is the call time, bound to both timestamps.
-pub(crate) const INSERT_DRAFT_LISTING_SQL: &str = "INSERT INTO store_listings ( \
-     id, agent_id, tenant_id, publish_status, install_count, created_at, updated_at \
-     ) VALUES ($1, $2, $3, $4, 0, $5, $5)";
-
 /// One agent's listing, every column.
 pub(crate) const GET_LISTING_SQL: &str = "SELECT id, agent_id, tenant_id, publish_status, \
      published_at, review_submitted_at, review_decision_at, review_decision_by, \
@@ -321,11 +311,6 @@ pub(crate) const AGENT_WITH_LISTING_SQL: &str = concat!(
     agent_with_listing_select!(),
     "WHERE c.id = $1 AND sl.tenant_id = $2"
 );
-
-/// How many published agents each category holds.
-pub(crate) const CATEGORY_COUNTS_SQL: &str = "SELECT c.category, COUNT(*) as count \
-     FROM agents c JOIN store_listings sl ON c.id = sl.agent_id \
-     WHERE sl.publish_status = 'published' GROUP BY c.category";
 
 /// One more install of a published agent.
 pub(crate) const INCREMENT_INSTALLS_SQL: &str = "UPDATE store_listings \

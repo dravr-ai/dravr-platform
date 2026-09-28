@@ -25,6 +25,7 @@
 //! from tests that share a process with other tests running in parallel.
 
 use std::collections::HashMap;
+use std::time::Duration as StdDuration;
 
 use pierre_config::admin_definitions::{
     register_heart_rate_zones, register_usage_quotas, ParameterDefinition,
@@ -40,6 +41,7 @@ use pierre_mcp_server::config::admin::repository::SetOverrideParams;
 use pierre_mcp_server::config::admin::{
     AdminConfigManager, AdminConfigRepository, AdminConfigService,
 };
+use tokio::time::sleep;
 use uuid::Uuid;
 
 const CATEGORY: &str = "usage_quotas";
@@ -489,4 +491,78 @@ async fn a_per_user_override_changes_the_enforced_daily_message_limit() {
         untouched.limit, 50,
         "lifting one user's cap must leave every other user on the tier default"
     );
+}
+
+/// An override reads back the author and the instant it was written with,
+/// and an overwrite moves `updated_at` but not `created_at`. The statements
+/// and the row decoder are one body for both backends; this runs on
+/// whichever `DATABASE_URL` names.
+#[tokio::test]
+async fn an_override_reads_back_its_author_and_the_instant_it_was_written() {
+    let db = create_test_db().await.unwrap();
+    let repo = repository(&db);
+    let admin = seed_user(&db, "author").await;
+
+    let before = chrono::Utc::now() - chrono::TimeDelta::seconds(1);
+    write(repo.as_ref(), &admin, ConfigScope::Global, 40).await;
+    let first = repo
+        .get_override(CATEGORY, KEY, ConfigScope::Global)
+        .await
+        .unwrap()
+        .expect("the override reads back");
+    assert_eq!(first.created_by, admin);
+    assert_eq!(first.user_id, None);
+    assert_eq!(first.config_value, serde_json::json!(40));
+    assert!(first.created_at >= before && first.created_at <= chrono::Utc::now());
+    assert_eq!(first.created_at, first.updated_at);
+
+    sleep(StdDuration::from_millis(1100)).await;
+    write(repo.as_ref(), &admin, ConfigScope::Global, 41).await;
+    let second = repo
+        .get_override(CATEGORY, KEY, ConfigScope::Global)
+        .await
+        .unwrap()
+        .expect("the overwritten override reads back");
+    assert_eq!(second.config_value, serde_json::json!(41));
+    assert_eq!(second.created_at, first.created_at);
+    assert!(second.updated_at > first.updated_at);
+}
+
+/// A stored timestamp that is not a timestamp fails the read rather than
+/// reading as the reader's clock. `SQLite` holds the column as TEXT, so a bad
+/// value can reach it and the read must refuse it (it used to substitute
+/// `Utc::now()`); Postgres's `TIMESTAMPTZ` refuses the value at the write.
+#[tokio::test]
+async fn a_stored_timestamp_that_is_not_one_fails_instead_of_reading_as_now() {
+    const CORRUPT: &str = "UPDATE admin_config_overrides SET created_at = 'not a time' \
+                           WHERE category = $1 AND config_key = $2";
+    let db = create_test_db().await.unwrap();
+    let repo = repository(&db);
+    let admin = seed_user(&db, "clock").await;
+    write(repo.as_ref(), &admin, ConfigScope::Global, 40).await;
+    match &db {
+        Database::SQLite(sqlite) => {
+            sqlx::query(CORRUPT)
+                .bind(CATEGORY)
+                .bind(KEY)
+                .execute(sqlite.pool())
+                .await
+                .unwrap();
+            assert!(
+                repo.get_override(CATEGORY, KEY, ConfigScope::Global)
+                    .await
+                    .is_err(),
+                "an unreadable created_at must fail the read"
+            );
+        }
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(pg) => {
+            assert!(sqlx::query(CORRUPT)
+                .bind(CATEGORY)
+                .bind(KEY)
+                .execute(pg.pool())
+                .await
+                .is_err());
+        }
+    }
 }

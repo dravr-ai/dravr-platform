@@ -15,18 +15,14 @@
 //! intervals, route terrain, LT1/LT2 thresholds), geocoding and OSM route
 //! discovery, and weather context.
 
-/// Jack Daniels' oxygen-cost curve, inverted: `VO2max` to velocity at `VO2max`.
-pub mod daniels;
-pub use daniels::velocity_at_vo2max;
-
-/// Endurance Phase 1 latest-snapshot computation (`GET /api/v1/endurance/latest`).
+/// Endurance Phase 1 latest-snapshot computation (`export_latest_snapshot`).
 pub mod latest_snapshot;
 pub use latest_snapshot::{
     build_latest_snapshot, ActivitySection11Metrics, LatestSnapshot, LatestSnapshotActivityRow,
     DEFAULT_WINDOW_DAYS, MAX_WINDOW_DAYS,
 };
 
-/// Endurance Phase 2 daily training-history compute (`GET /api/v1/endurance/history`).
+/// Endurance Phase 2 daily training-history compute (`get_training_history`).
 pub mod training_history_compute;
 pub use training_history_compute::{
     compute_training_history, warmup_days, AthleteInputs, ACWR_ACUTE_DAYS, ACWR_CHRONIC_DAYS,
@@ -35,11 +31,11 @@ pub use training_history_compute::{
     MAX_BACKFILL_DAYS as TH_MAX_BACKFILL_DAYS, RAMP_RATE_LOOKBACK_DAYS,
 };
 
-/// Endurance Phase 3 intervals.json builder (`GET /api/v1/endurance/intervals/{activity_id}`).
+/// Endurance Phase 3 intervals.json builder (`export_intervals`).
 pub mod intervals;
 pub use intervals::{build_intervals, IntervalRow, IntervalsExport};
 
-/// Endurance Phase 3 GPX terrain analysis (`GET /api/v1/endurance/routes/{activity_id}`).
+/// Endurance Phase 3 GPX terrain analysis (`export_routes`).
 pub mod routes;
 pub use routes::{
     build_route_summary, build_route_summary_from_streams, haversine_meters_between, Climb,

@@ -40,8 +40,10 @@ use pierre_providers::backend_resolver::user_facing_name;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
 use pierre_services::delegated_connections::{
-    confirm, end, person_name, propose, roster_for_group, Proposal, RosterEntry,
+    confirm, end, person_name, propose, roster_for_group, unbound_link_reason, Proposal,
+    RosterEntry,
 };
+use pierre_services::trainingpeaks_accounts::link_binding;
 use pierre_tool_runtime::activity_fetch::fetch_provider_head;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde::{Deserialize, Serialize};
@@ -85,6 +87,10 @@ pub struct DelegatedConnectionResponse {
     pub proposed_at: String,
     /// When the member confirmed it (RFC 3339)
     pub confirmed_at: Option<String>,
+    /// Why a confirmed link reads nothing until the coach links the member
+    /// again: `athlete_email_missing`, `athlete_email_mismatch` or
+    /// `member_email_unverified`. `None` while it reads, and for a proposal.
+    pub read_refused: Option<String>,
 }
 
 /// Which side of the group's links the caller sees.
@@ -232,7 +238,9 @@ impl DelegatedConnectionRoutes {
         Uuid::parse_str(raw).map_err(|_| AppError::not_found("TrainingPeaks link"))
     }
 
-    /// Each link as the clients show it, naming its coach and its member.
+    /// Each link as the clients show it, naming its coach and its member, and
+    /// why a confirmed one reads nothing when its athlete is not its member
+    /// by email.
     async fn responses(
         repos: &RepositoryRegistry,
         links: &[DelegatedConnection],
@@ -244,15 +252,22 @@ impl DelegatedConnectionRoutes {
         ids.sort_unstable();
         ids.dedup();
         let users = repos.users.get_global_many(&ids).await?;
-        links
-            .iter()
-            .map(|link| Self::response(link, &users))
-            .collect()
+        let mut responses = Vec::with_capacity(links.len());
+        for link in links {
+            let read_refused = if link.status == DelegationStatus::Confirmed {
+                unbound_link_reason(link_binding(repos, link).await?)
+            } else {
+                None
+            };
+            responses.push(Self::response(link, &users, read_refused)?);
+        }
+        Ok(responses)
     }
 
     fn response(
         link: &DelegatedConnection,
         users: &HashMap<Uuid, User>,
+        read_refused: Option<&str>,
     ) -> Result<DelegatedConnectionResponse, AppError> {
         let (Some(coach), Some(member)) = (
             users.get(&link.coach_user_id),
@@ -276,6 +291,7 @@ impl DelegatedConnectionRoutes {
             status: link.status,
             proposed_at: link.proposed_at.to_rfc3339(),
             confirmed_at: link.confirmed_at.map(|at| at.to_rfc3339()),
+            read_refused: read_refused.map(str::to_owned),
         })
     }
 

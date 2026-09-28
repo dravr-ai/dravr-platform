@@ -47,9 +47,6 @@ fn create_request(tool_name: &str, parameters: serde_json::Value) -> UniversalRe
         user_id: Uuid::new_v4().to_string(),
         protocol: "test".to_owned(),
         tenant_id: None,
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     }
 }
 

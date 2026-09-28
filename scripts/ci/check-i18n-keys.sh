@@ -4,7 +4,8 @@
 # ABOUTME: Fails when a client calls t('a.b') with a key the shared en catalogue does not carry
 # ABOUTME: Locale-to-locale parity cannot see this — a key removed from all five resolves in none
 
-# `locale-corpus.test.ts` compares the five locales to each other, so a key
+# Locale parity (Tier 1b Check 1, and contremaitre's own catalogue test)
+# compares the five locales to each other, so a key
 # deleted from all five stays "in parity" while every caller of it renders the
 # raw key string to the athlete. That is how `app.weeklyReport` shipped as the
 # literal heading of the mobile group insights panel in every language: the
@@ -13,7 +14,7 @@
 #
 # This gate closes the other direction: every literal key a client asks for
 # must exist in the English catalogue (the key set is identical across
-# locales, which the corpus test already pins).
+# locales, which Tier 1b Check 1 already checks).
 #
 # Scope and deliberate exclusions:
 #   - `fallbackKey: 'a.b'` literals count as call sites: describeApiError

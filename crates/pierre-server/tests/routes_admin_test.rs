@@ -151,6 +151,7 @@
 mod common;
 
 use anyhow::Result;
+use pierre_config::mcp::AppBehaviorConfig;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
@@ -224,6 +225,7 @@ impl AdminTestSetup {
                 pierre_contremaitre::TrainingCatalogueRegistry::new(),
             ),
             contremaitre_config: None,
+            app_behavior: AppBehaviorConfig::default(),
         });
 
         // Create test user
@@ -248,6 +250,7 @@ impl AdminTestSetup {
                     expires_in_days: Some(365),
                     is_super_admin: false,
                     tenant_id: None,
+                    operator_user_id: None,
                 },
                 jwt_secret,
                 &*jwks_manager,
@@ -641,6 +644,7 @@ async fn test_provision_api_key_without_provision_permission() -> Result<()> {
                 expires_in_days: Some(30),
                 is_super_admin: false,
                 tenant_id: None,
+                operator_user_id: None,
             },
             &setup.context.admin_jwt_secret,
             &*setup.context.jwks_manager,
@@ -918,9 +922,17 @@ async fn test_list_admin_tokens() -> Result<()> {
     let setup = AdminTestSetup::new().await?;
     let routes = setup.routes();
 
-    // The count below is over the tokens this setup mints, and the super-admin
-    // one is minted on first read — so read it before listing.
-    setup.super_admin_token().await?;
+    // The super-admin token is minted on first read — so read it before listing.
+    let super_admin_id = setup.super_admin_token().await?.token_id.clone();
+
+    let listed_ids = |body: &Value| -> Vec<String> {
+        body["data"]["tokens"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t["id"].as_str().map(ToOwned::to_owned))
+            .collect()
+    };
 
     let response = AxumTestRequest::get("/admin/tokens")
         .header(
@@ -934,7 +946,22 @@ async fn test_list_admin_tokens() -> Result<()> {
 
     let body: Value = serde_json::from_slice(&response.bytes())?;
     assert_eq!(body["success"], true);
-    assert!(body["data"]["tokens"].as_array().unwrap().len() >= 2); // At least our test tokens
+    // The setup's admin token manages tokens but is not super-admin, so it is
+    // shown its own kind and not the super-admin token.
+    let ids = listed_ids(&body);
+    assert!(ids.contains(&setup.admin_token.token_id));
+    assert!(!ids.contains(&super_admin_id));
+
+    let response = AxumTestRequest::get("/admin/tokens")
+        .header(
+            "authorization",
+            &setup.auth_header(&setup.super_admin_token().await?.jwt_token),
+        )
+        .send(routes.clone())
+        .await;
+    let body: Value = serde_json::from_slice(&response.bytes())?;
+    let ids = listed_ids(&body);
+    assert!(ids.contains(&setup.admin_token.token_id) && ids.contains(&super_admin_id));
 
     Ok(())
 }
@@ -970,6 +997,35 @@ async fn test_create_admin_token() -> Result<()> {
     assert!(!body["data"]["is_super_admin"].as_bool().unwrap());
     assert!(!body["data"]["jwt_token"].as_str().unwrap().is_empty());
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_create_admin_token_refuses_the_device_login_prefix() -> Result<()> {
+    let setup = AdminTestSetup::new().await?;
+
+    // A token named like a device login, as if another operator approved it.
+    let response = AxumTestRequest::post("/admin/tokens")
+        .header(
+            "authorization",
+            &setup.auth_header(&setup.admin_token.jwt_token),
+        )
+        .header("content-type", "application/json")
+        .json(&json!({
+            "service_name": "device-cli:someone-else@example.com",
+            "is_super_admin": false,
+        }))
+        .send(setup.routes())
+        .await;
+
+    assert_eq!(response.status(), 400);
+    let listed = setup.context.repos.admin.list_tokens(true).await?;
+    assert!(
+        listed
+            .iter()
+            .all(|token| !token.service_name.starts_with("device-cli:")),
+        "the refused name was not minted"
+    );
     Ok(())
 }
 
@@ -1080,8 +1136,11 @@ async fn test_get_admin_token_details_not_found() -> Result<()> {
     assert_eq!(response.status(), 404);
 
     let body: Value = serde_json::from_slice(&response.bytes())?;
-    assert_eq!(body["success"], false);
-    assert!(body["message"].as_str().unwrap().contains("not found"));
+    assert_eq!(
+        body["message"].as_str(),
+        Some("The requested resource was not found")
+    );
+    assert_eq!(body["code"], "ResourceNotFound");
 
     Ok(())
 }
@@ -1099,6 +1158,7 @@ async fn test_revoke_admin_token() -> Result<()> {
         expires_in_days: Some(30),
         is_super_admin: false,
         tenant_id: None,
+        operator_user_id: None,
     };
 
     let token_to_revoke = setup
@@ -1148,6 +1208,7 @@ async fn test_rotate_admin_token() -> Result<()> {
         expires_in_days: Some(30),
         is_super_admin: false,
         tenant_id: None,
+        operator_user_id: None,
     };
 
     let token_to_rotate = setup
@@ -1185,7 +1246,8 @@ async fn test_rotate_admin_token() -> Result<()> {
         .unwrap()
         .contains("rotated successfully"));
     assert_eq!(body["data"]["old_token_id"], token_to_rotate.token_id);
-    assert!(body["data"]["new_token"]["jwt_token"].is_string());
+    assert!(body["data"]["jwt_token"].is_string());
+    assert_ne!(body["data"]["token_id"], token_to_rotate.token_id);
 
     Ok(())
 }
@@ -1196,8 +1258,8 @@ async fn test_rotate_admin_token() -> Result<()> {
 /// the convenience constructor only grants it to super-admins, but the create
 /// endpoint accepts an arbitrary permission array, so a least-privilege
 /// "token management, not super-admin" service token is mintable and is exactly
-/// the caller this refuses. The create path refuses the same escalation; the
-/// cookie surface refuses every rotation via `require_super_admin`.
+/// the caller this refuses. The create path refuses the same escalation, and
+/// the console reaches this same handler.
 #[tokio::test]
 async fn rotate_refuses_super_admin_escalation_and_keeps_the_target_active() -> Result<()> {
     let setup = AdminTestSetup::new().await?;
@@ -1216,6 +1278,7 @@ async fn rotate_refuses_super_admin_escalation_and_keeps_the_target_active() -> 
                 expires_in_days: Some(30),
                 is_super_admin: false,
                 tenant_id: None,
+                operator_user_id: None,
             },
             TEST_JWT_SECRET,
             &setup.context.jwks_manager,
@@ -1316,7 +1379,8 @@ async fn rotate_allows_super_admin_to_rotate_a_super_admin_token() -> Result<()>
     let body: Value = serde_json::from_slice(&response.bytes())?;
     assert_eq!(body["success"], true);
     assert_eq!(body["data"]["old_token_id"], target.token_id);
-    assert!(body["data"]["new_token"]["jwt_token"].is_string());
+    assert!(body["data"]["jwt_token"].is_string());
+    assert_eq!(body["data"]["is_super_admin"], true);
 
     Ok(())
 }

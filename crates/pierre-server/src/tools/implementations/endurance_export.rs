@@ -1,5 +1,5 @@
 // ABOUTME: Endurance Phase 1 MCP tools — export_latest_snapshot + export_dossier
-// ABOUTME: Mirrors GET /api/v1/endurance/{latest,dossier} so agents can pull the same payloads via MCP
+// ABOUTME: Serves the Endurance latest.json and dossier.json payloads to agents via MCP
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -18,16 +18,14 @@ use serde::Serialize;
 use serde_json::Value;
 
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_config::environment::default_provider;
 use pierre_core::models::Dossier;
 use pierre_fitness_compute::latest_snapshot::LatestSnapshot;
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
-use pierre_tool_runtime::capabilities::ToolCapabilities;
 use pierre_tool_runtime::context::ToolExecutionContext;
 use pierre_tool_runtime::conversions::{
-    answers_with, capabilities_to_tronc, ok_typed, task_capable, tool_definition,
-    tool_result_to_response,
+    answers_with, ok_typed, task_capable, tool_definition, tool_result_to_response,
 };
 use pierre_tool_runtime::protocol::provider_helpers::fetch_activities_from_provider;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -162,20 +160,17 @@ impl McpTool<dyn ToolRuntime> for ExportLatestSnapshotTool {
              sliding window. Default window is 7 days; pass `window` (1..=365) to \
              change it. Use this when a coach needs a structured per-activity \
              training-state snapshot grounded in the Endurance deterministic-output \
-             contract. The response shape mirrors `GET /api/v1/endurance/latest`.",
+             contract.",
             schema,
             Some(read_only_annotations()),
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_TENANT
-                | ToolCapabilities::REQUIRES_PROVIDER
-                | ToolCapabilities::READS_DATA
-                | ToolCapabilities::ANALYTICS,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_TENANT
+            | ToolCapabilities::REQUIRES_PROVIDER
+            | ToolCapabilities::READS_DATA
     }
 
     async fn execute(
@@ -236,19 +231,16 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
              user — physiological profile (VO2max, FTP, threshold pace, fitness \
              level), HR + power zones, goals, nutrition, and equipment slots — \
              composed at read time from the underlying tables. Empty slots come \
-             back as `null` rather than 404, so agents can rely on the shape. \
-             Mirrors `GET /api/v1/endurance/dossier`.",
+             back as `null` rather than 404, so agents can rely on the shape.",
             schema,
             Some(read_only_annotations()),
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_TENANT
-                | ToolCapabilities::READS_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_TENANT
+            | ToolCapabilities::READS_DATA
     }
 
     async fn execute(

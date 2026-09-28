@@ -68,12 +68,6 @@ pub mod text_guardrails;
 pub mod tool_descriptions;
 /// Hot-reloadable training catalogue — flavours, skeletons, workouts, selection table
 pub mod training_catalogue;
-/// Generated include table for the compiled-in training catalogue mirror.
-///
-/// Its items are `pub(crate)`; the module is `pub` because the crate's
-/// `redundant_pub_crate` lint rejects a `pub(crate)` item inside any module
-/// that is not itself exported, and the generator owns the file.
-pub mod training_catalogue_embedded;
 /// Training-catalogue half of the sync engine
 pub mod training_sync;
 

@@ -124,23 +124,28 @@ pub async fn cookie_admin_middleware<C: MiddlewareCtx>(
 
 /// Build the `ValidatedAdminToken` granted to a cookie-authenticated admin.
 ///
-/// Permissions mirror the user's actual role so the granular
+/// Permissions follow the user's actual role so the granular
 /// `require_permission`/`is_super_admin` checks inside cookie-mounted handlers
-/// stay meaningful: a plain `Admin` gets only `default_admin` (key management),
+/// stay meaningful: a plain `Admin` gets [`AdminPermissions::console_admin`]
+/// (key management plus `ManageUsers` and `ManageAdminTokens`, which the
+/// console's user and token tabs need),
 /// while `SuperAdmin` gets the full set and `is_super_admin = true`. Granting
 /// `super_admin` to every admin role would flatten RBAC and silently always-pass
-/// the downstream gates (store moderation, admin-token management, impersonation).
+/// the downstream gates (store moderation, admin-token management, tiers,
+/// impersonation).
 ///
-/// This mirrors the programmatic admin-token regime, where a non-super admin
-/// token also carries `default_admin` permissions — cookie and token auth now
-/// grant identical authority for the same role.
+/// A plain admin token minted for the CLI carries `default_admin` without
+/// either, so a console session and a token of the same role grant
+/// different authority. That is deliberate: the console is served by the same
+/// handlers as the token API, and managing users and tokens is what the
+/// console is for.
 #[must_use]
 pub fn cookie_admin_token(user: &User, active_tenant_id: Option<Uuid>) -> ValidatedAdminToken {
     let is_super_admin = user.role.is_super_admin();
     let permissions = if is_super_admin {
         AdminPermissions::super_admin()
     } else {
-        AdminPermissions::default_admin()
+        AdminPermissions::console_admin()
     };
     ValidatedAdminToken {
         token_id: format!("cookie:{}", user.id),
@@ -149,5 +154,7 @@ pub fn cookie_admin_token(user: &User, active_tenant_id: Option<Uuid>) -> Valida
         is_super_admin,
         tenant_id: active_tenant_id.map(|t| t.to_string()),
         user_info: None,
+        // The signed-in admin is the operator every write is attributed to.
+        operator_user_id: Some(user.id),
     }
 }

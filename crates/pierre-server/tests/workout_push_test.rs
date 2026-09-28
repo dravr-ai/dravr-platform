@@ -379,9 +379,6 @@ impl Fixture {
                 user_id: self.user_id.to_string(),
                 protocol: "test".to_owned(),
                 tenant_id: Some(self.tenant_str()),
-                progress_token: None,
-                cancellation_token: None,
-                progress_reporter: None,
             })
             .await?)
     }

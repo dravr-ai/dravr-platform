@@ -43,12 +43,12 @@ async fn test_oauth_strava_with_sse_notifications() -> Result<()> {
 
     // Simulate OAuth authorization request (user clicks "Connect to Strava")
     let client = Client::new();
-    let auth_url = format!("http://127.0.0.1:8081/api/oauth/auth/strava/{user_id}");
+    let auth_url = "http://127.0.0.1:8081/api/oauth/authorize/strava";
 
     // Test OAuth authorization URL generation
     println!("🔗 Testing OAuth authorization URL generation");
     let auth_response = client
-        .get(&auth_url)
+        .get(auth_url)
         .header("Authorization", format!("Bearer {jwt_token}"))
         .header("strava-client-id", "test_client_id")
         .header("strava-client-secret", "test_client_secret")

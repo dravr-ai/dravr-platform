@@ -463,29 +463,6 @@ macro_rules! impl_messaging_repository {
 
             // ── Delivery Receipts ──
 
-            async fn insert_delivery_receipt(
-                &self,
-                id: &str,
-                tenant_id: TenantId,
-                message_id: &str,
-                channel_message_id: Option<&str>,
-                status: &str,
-            ) -> AppResult<()> {
-                sqlx::query(INSERT_DELIVERY_RECEIPT_SQL)
-                    .bind(id)
-                    .bind(tenant_id.to_string())
-                    .bind(message_id)
-                    .bind(channel_message_id)
-                    .bind(status)
-                    .bind(Utc::now())
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to insert delivery receipt: {e}"))
-                    })?;
-                Ok(())
-            }
-
             // ── Outbound Queue ──
 
             async fn enqueue_outbound(
@@ -511,23 +488,6 @@ macro_rules! impl_messaging_repository {
                         AppError::database(format!("Failed to enqueue outbound message: {e}"))
                     })?;
                 Ok(())
-            }
-
-            async fn get_pending_outbound(
-                &self,
-                tenant_id: TenantId,
-                limit: i64,
-            ) -> AppResult<Vec<Value>> {
-                let rows = sqlx::query(PENDING_OUTBOUND_SQL)
-                    .bind(tenant_id.to_string())
-                    .bind(Utc::now())
-                    .bind(limit)
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to get pending outbound: {e}"))
-                    })?;
-                rows.iter().map(outbound_json).collect()
             }
 
             async fn get_all_pending_outbound(&self, limit: i64) -> AppResult<Vec<Value>> {

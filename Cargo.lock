@@ -228,45 +228,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
-name = "asn1-rs"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56624a96882bb8c26d61312ae18cb45868e5a9992ea73c58e45c3101e56a1e60"
-dependencies = [
- "asn1-rs-derive",
- "asn1-rs-impl",
- "displaydoc",
- "nom",
- "num-traits",
- "rusticata-macros",
- "thiserror 2.0.18",
- "time",
-]
-
-[[package]]
-name = "asn1-rs-derive"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3109e49b1e4909e9db6515a30c633684d68cdeaa252f215214cb4fa1a5bfee2c"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
- "synstructure",
-]
-
-[[package]]
-name = "asn1-rs-impl"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b18050c2cd6fe86c3a76584ef5e0baf286d038cda203eb6223df2cc413565f7"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "async-compression"
 version = "0.4.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1272,20 +1233,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "der-parser"
-version = "10.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07da5016415d5a3c4dd39b11ed26f915f52fc4e0dc197d87908bc916e51bc1a6"
-dependencies = [
- "asn1-rs",
- "displaydoc",
- "nom",
- "num-bigint",
- "num-traits",
- "rusticata-macros",
-]
-
-[[package]]
 name = "deranged"
 version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1429,8 +1376,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-cageux"
-version = "0.22.1"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.22.1#c73b61a69298e3ed26a4f659ed99427d394d112a"
+version = "0.25.0"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.25.0#025023f623162622a30cc2c8c940d316112ee29f"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1449,8 +1396,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-canot"
-version = "0.4.30"
-source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.4.30#64688d017791f0051ace18b071ef543c06dc88bb"
+version = "0.6.0"
+source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.6.0#134bca021a82a8882c5adc8d11f6b38fd61f8f84"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1494,7 +1441,7 @@ dependencies = [
 [[package]]
 name = "dravr-contremaitre"
 version = "0.1.0"
-source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=947faf170734a94333e2b1ba449a411a15e11521#947faf170734a94333e2b1ba449a411a15e11521"
+source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=5ef33983cfb570ab04aa7cc016785d1a140d2464#5ef33983cfb570ab04aa7cc016785d1a140d2464"
 
 [[package]]
 name = "dravr-enforme"
@@ -1587,8 +1534,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-stripe"
-version = "0.3.0"
-source = "git+https://github.com/dravr-ai/dravr-stripe.git?tag=v0.3.0#d7800f7b4967d7bd999316dc13ee8745a3041b4e"
+version = "0.4.0"
+source = "git+https://github.com/dravr-ai/dravr-stripe.git?tag=v0.4.0#568626ddd6c1a16ce4db5c2d07023203b91978d9"
 dependencies = [
  "chrono",
  "dravr-tronc",
@@ -1605,9 +1552,9 @@ dependencies = [
 
 [[package]]
 name = "dravr-tronc"
-version = "2.1.0"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "464226fd3bce4490bd822cfa5892fb912effa44b7f00b8d6d3ea41a9005802a8"
+checksum = "f60c1d0c23fd0a581b44ba26474fb94dd83ff1efd6ae2fb799e2e0557dfc8405"
 dependencies = [
  "async-trait",
  "axum",
@@ -1718,9 +1665,9 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.30.0"
+version = "0.32.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "967feaf11124d3b1fa828c3b8e51ffea53d4b0504348e884a1e56bb3b17098eb"
+checksum = "053e43d2d30b57e6644f58093c6018c728e02d74c082428c869c6c30ef157a0e"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
@@ -1740,9 +1687,9 @@ dependencies = [
 
 [[package]]
 name = "embacle-tool-host"
-version = "0.30.0"
+version = "0.32.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "875916f9b6b4d5d71fb75414d7e74b95f8aaf6753a36ffa2461c92f153edca38"
+checksum = "56bf80fc91f44546c3cd40224ac36d039ccd64689bdd76a9396889c438de5a9f"
 dependencies = [
  "async-trait",
  "axum",
@@ -3290,15 +3237,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "oid-registry"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12f40cff3dde1b6087cc5d5f5d4d65712f34016a03ed60e9c08dcc392736b5b7"
-dependencies = [
- "asn1-rs",
-]
-
-[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3637,6 +3575,7 @@ dependencies = [
  "bcrypt",
  "bitflags 2.11.1",
  "chrono",
+ "dravr-tronc",
  "ed25519-dalek",
  "hex",
  "http",
@@ -3659,7 +3598,6 @@ dependencies = [
  "url",
  "urlencoding",
  "uuid",
- "x509-parser",
  "zeroize",
 ]
 
@@ -3685,7 +3623,6 @@ version = "0.3.0"
 dependencies = [
  "async-trait",
  "chrono",
- "chrono-tz",
  "dravr-contremaitre",
  "dravr-tronc",
  "embacle",
@@ -3736,6 +3673,7 @@ dependencies = [
  "pierre-database",
  "pierre-evals",
  "pierre-llm",
+ "pierre-middleware",
  "pierre-seeders",
  "pierre-services",
  "pierre-tool-runtime",
@@ -3800,6 +3738,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "chrono",
+ "dravr-contremaitre",
  "dravr-tronc",
  "hex",
  "pierre-core",
@@ -3900,11 +3839,9 @@ dependencies = [
 name = "pierre-email"
 version = "0.3.0"
 dependencies = [
+ "dravr-tronc",
  "html-escape",
  "pierre-core",
- "reqwest 0.12.28",
- "serde",
- "tokio",
  "tracing",
 ]
 
@@ -3964,7 +3901,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "thiserror 2.0.18",
  "tokio",
  "tracing",
  "urlencoding",
@@ -3995,20 +3931,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tracing",
  "uuid",
-]
-
-[[package]]
-name = "pierre-health"
-version = "0.3.0"
-dependencies = [
- "pierre-config",
- "pierre-core",
- "pierre-database",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -4168,8 +4090,6 @@ dependencies = [
  "pierre-cache",
  "pierre-core",
  "pierre-database",
- "rand 0.9.4",
- "rand_chacha 0.9.0",
  "reqwest 0.12.28",
  "ring",
  "serde",
@@ -4197,12 +4117,9 @@ dependencies = [
  "pierre-tool-runtime",
  "serde",
  "serde_json",
- "sha2",
- "subtle",
  "tokio",
  "tokio-stream",
  "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -4213,6 +4130,7 @@ dependencies = [
  "bcrypt",
  "chrono",
  "pierre-auth",
+ "pierre-config",
  "pierre-contremaitre",
  "pierre-core",
  "pierre-database",
@@ -4423,6 +4341,7 @@ dependencies = [
  "pierre-agent-parser",
  "pierre-core",
  "pierre-database",
+ "pierre-middleware",
  "rand 0.9.4",
  "serde_json",
  "tracing",
@@ -4437,7 +4356,9 @@ dependencies = [
  "base64 0.22.1",
  "bcrypt",
  "chrono",
+ "chrono-tz",
  "dashmap",
+ "dravr-contremaitre",
  "dravr-equilibre",
  "dravr-riviere",
  "dravr-tronc",
@@ -4462,6 +4383,7 @@ dependencies = [
  "pierre-mcp-transport",
  "pierre-memory",
  "pierre-messaging",
+ "pierre-middleware",
  "pierre-notifications",
  "pierre-providers",
  "pierre-runtime-context",
@@ -4512,7 +4434,6 @@ dependencies = [
  "base64 0.22.1",
  "bitflags 2.11.1",
  "chrono",
- "chrono-tz",
  "dravr-tronc",
  "embacle",
  "futures-util",
@@ -4629,7 +4550,6 @@ dependencies = [
  "pierre-fitness-compute",
  "pierre-formatters",
  "pierre-groups",
- "pierre-health",
  "pierre-intelligence",
  "pierre-llm",
  "pierre-logging",
@@ -5381,15 +5301,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cfcb3a22ef46e85b45de6ee7e79d063319ebb6594faafcf1c225ea92ab6e9b92"
 dependencies = [
  "semver",
-]
-
-[[package]]
-name = "rusticata-macros"
-version = "4.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "faf0c4a6ece9950b9abdb62b1cfcf2a68b3b67a10ba445b3bb85be2a293d0632"
-dependencies = [
- "nom",
 ]
 
 [[package]]
@@ -7648,23 +7559,6 @@ name = "writeable"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
-
-[[package]]
-name = "x509-parser"
-version = "0.18.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d43b0f71ce057da06bc0851b23ee24f3f86190b07203dd8f567d0b706a185202"
-dependencies = [
- "asn1-rs",
- "data-encoding",
- "der-parser",
- "lazy_static",
- "nom",
- "oid-registry",
- "rusticata-macros",
- "thiserror 2.0.18",
- "time",
-]
 
 [[package]]
 name = "xattr"

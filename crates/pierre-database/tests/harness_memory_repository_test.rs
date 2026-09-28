@@ -868,7 +868,7 @@ async fn followups_move_from_pending_to_delivered_or_cancelled_once() {
 }
 
 #[tokio::test]
-async fn a_session_is_reused_until_archived_then_reopened() {
+async fn an_active_session_is_reused_and_touched() {
     let db = create_test_db().await.unwrap();
     let memory = db.repositories().memory;
     let seed = seed(&db).await;
@@ -902,29 +902,4 @@ async fn a_session_is_reused_until_archived_then_reopened() {
     let last_turn = touched.last_turn_at.expect("a touch records the turn");
     assert!(last_turn >= opened.opened_at - Duration::seconds(1));
     assert!(touched.updated_at >= last_turn - Duration::seconds(1));
-
-    assert!(memory
-        .archive_agent_session(&opened.id, seed.tenant)
-        .await
-        .unwrap());
-    assert!(
-        !memory
-            .archive_agent_session(&opened.id, seed.tenant)
-            .await
-            .unwrap(),
-        "an archived session is not archived twice"
-    );
-
-    let reopened = memory
-        .get_or_open_agent_session(seed.tenant, &seed.user_id, &seed.agent_id)
-        .await
-        .unwrap();
-    assert_ne!(reopened.id, opened.id, "an archived session is replaced");
-    assert_eq!(reopened.status, SessionStatus::Active);
-    assert_eq!(reopened.last_turn_at, None);
-
-    assert!(!memory
-        .archive_agent_session(&reopened.id, TenantId::generate())
-        .await
-        .unwrap());
 }

@@ -15,6 +15,13 @@
 //! `notify` events operators page on. Every callback runs on the calling task,
 //! so `user_id` / `tenant_id` reach the events from the enclosing span.
 //!
+//! The two guards measure different things, so they veto different tiers.
+//! The GitHub budget is the budget of the Copilot token, so it passes over a
+//! tier that spends that token — wherever it sits — and never another one:
+//! a chain led by Claude Code keeps asking Claude Code however low Copilot's
+//! budget is. The breaker measures the primary, so it passes over the primary
+//! only.
+//!
 //! Only the outermost chain is guarded: the breaker measures the primary, so
 //! the tail chain the headless tool loop re-runs against must not count a
 //! Cohere failure as a primary failure.
@@ -34,26 +41,50 @@ pub struct ChainObserver {
     /// `Some` on the outermost chain; `None` on the tail a headless re-run
     /// walks, so its hops are reported but never counted against the primary.
     guard: Option<&'static ChainGuard>,
+    /// By position, whether that tier spends the Copilot GitHub token — the
+    /// only tiers a low budget may pass over.
+    copilot_tiers: Vec<bool>,
 }
 
 impl ChainObserver {
     /// The observer for the chain the chat pipeline calls: consults and
-    /// records on [`CHAIN_GUARD`].
+    /// records on [`CHAIN_GUARD`]. `copilot_tiers` says, by position, which
+    /// tiers spend the Copilot GitHub token.
     #[must_use]
-    pub fn guarded() -> Self {
+    pub fn guarded(copilot_tiers: Vec<bool>) -> Self {
         Self {
             guard: Some(&CHAIN_GUARD),
+            copilot_tiers,
         }
     }
 
     /// The observer for a tail chain: reports every hop, touches no guard.
     #[must_use]
     pub const fn unguarded() -> Self {
-        Self { guard: None }
+        Self {
+            guard: None,
+            copilot_tiers: Vec::new(),
+        }
+    }
+
+    /// Whether the guard passes `tier` over: it spends the Copilot token
+    /// while that budget is low or unreadable, or it is the primary while
+    /// the breaker is open.
+    fn vetoes(&self, tier: Tier<'_>) -> bool {
+        let Some(guard) = self.guard else {
+            return false;
+        };
+        let spends_copilot_token = self
+            .copilot_tiers
+            .get(tier.position)
+            .copied()
+            .unwrap_or(false);
+        (spends_copilot_token && guard.is_github_budget_low())
+            || (tier.position == PRIMARY && guard.is_circuit_open())
     }
 
     /// The guard, when this observer is the one that records on it and
-    /// `tier` is the tier it measures.
+    /// `tier` is the primary, the one tier the breaker measures.
     fn guard_for(&self, tier: Tier<'_>) -> Option<&'static ChainGuard> {
         self.guard.filter(|_| tier.position == PRIMARY)
     }
@@ -134,9 +165,10 @@ fn note_empty_completion(from: Tier<'_>, to: Tier<'_>) {
 
 impl FallbackObserver for ChainObserver {
     fn before_attempt(&self, tier: Tier<'_>) -> Attempt {
-        match self.guard_for(tier) {
-            Some(guard) if guard.should_skip_primary() => Attempt::Skip("preemptive_guard"),
-            _ => Attempt::Try,
+        if self.vetoes(tier) {
+            Attempt::Skip("preemptive_guard")
+        } else {
+            Attempt::Try
         }
     }
 

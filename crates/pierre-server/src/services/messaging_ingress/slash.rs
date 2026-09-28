@@ -26,10 +26,10 @@ use pierre_services::channel_error_reply::ChannelErrorReply;
 use super::addressing::reply_recipient;
 use super::card_or_rich_text;
 use super::connect::build_connect_card_direct;
-use super::locale::resolve_messaging_locale;
 use super::surface::messaging_render_profile;
 use super::ResolvedSession;
 use pierre_contremaitre::messaging_strings::KEY_NO_PROVIDER_CONNECTED;
+use pierre_services::locale::resolve_channel_locale;
 
 /// True when `text` is the `/connect` command (first whitespace-delimited token,
 /// case-insensitive). The hosted page is a provider picker, so no argument is
@@ -194,8 +194,15 @@ pub(super) async fn try_handle_slash_command(
     } else {
         webhook_tenant_id
     };
-    let locale =
-        resolve_messaging_locale(resources, user_tenant, user_uuid, channel, sender_id).await;
+    let locale = resolve_channel_locale(
+        resources.common.repos.messaging.as_ref(),
+        resources.common.repos.users.as_ref(),
+        user_tenant,
+        channel,
+        sender_id,
+        Some(user_uuid),
+    )
+    .await;
 
     // Address the reply to the room/conversation it came from. When that's a
     // shared room, `persist_single_message` redelivers it privately to the

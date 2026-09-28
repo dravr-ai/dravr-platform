@@ -373,8 +373,4 @@ pub trait HarnessMemoryRepository: Send + Sync {
     /// Mark the most recent activity on a session to feed "continue where
     /// you left off" UI.
     async fn touch_agent_session(&self, session_id: &str, tenant_id: TenantId) -> AppResult<()>;
-
-    /// Archive a session (agent unassigned or retired).
-    async fn archive_agent_session(&self, session_id: &str, tenant_id: TenantId)
-        -> AppResult<bool>;
 }

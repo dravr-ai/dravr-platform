@@ -259,24 +259,13 @@ export function OnboardingConnectScreen() {
     void launchOAuth(provider.provider, provider.display_name, tosConsent);
   };
 
-  // The API surfaces `sciotte` (Strava-branded), `sciotte_garmin`
-  // (Garmin-branded), `sciotte_trainingpeaks` (TrainingPeaks-branded),
-  // `sciotte_coros` (COROS-branded), `whoop` and `intervals_icu`. Filter
-  // out the bare `strava` row — official OAuth is reached exclusively through
-  // the Sciotte modal's t('app.useOwnStravaApp') button, so a separate
-  // strava card would just duplicate the entry. Mirror its `connected` state
-  // onto the Sciotte card so the badge appears in the right place.
-  const visibleProviders = (() => {
-    const stravaConnected = providers.find((p) => p.provider === 'strava' && p.connected);
-    return providers
-      .filter((p) => p.provider !== 'strava')
-      .filter((p) => p.requires_oauth || p.provider.startsWith('sciotte') || p.provider === 'intervals_icu')
-      .map((p) =>
-        p.provider === 'sciotte' && stravaConnected && !p.connected
-          ? { ...p, connected: true }
-          : p,
-      );
-  })();
+  // The server withholds the raw `strava` / `garmin` rows a mirror card
+  // covers and coalesces a card's two backends (carnet#255, carnet#574).
+  // Onboarding offers only what an athlete connects themselves: the OAuth,
+  // scrape and API-key cards, not the synthetic dev providers.
+  const visibleProviders = providers.filter(
+    (p) => p.requires_oauth || p.provider.startsWith('sciotte') || p.provider === 'intervals_icu',
+  );
 
   // The one line under a provider's name — same descriptions the old
   // letter-tile row showed, now paired with `ProviderGlyph`'s brand mark

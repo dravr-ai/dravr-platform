@@ -209,7 +209,9 @@ fn a_training_history_day_never_ships_a_bare_form_number() {
     let schema = output_schema_for::<TrainingHistoryResult>();
     let rendered = serde_json::to_string(&schema).expect("serializes");
 
-    for required in ["tsb_pct_of_ctl", "form_band", "interpretation"] {
+    // `form_ctl` is the CTL the percentage divides by — yesterday's, which is
+    // not the day's own `ctl` — so a client can check the share it is handed.
+    for required in ["tsb_pct_of_ctl", "form_band", "form_ctl", "interpretation"] {
         assert!(
             rendered.contains(required),
             "a form-bearing payload must declare {required}"

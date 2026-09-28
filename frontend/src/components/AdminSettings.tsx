@@ -6,24 +6,12 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
+import type { AutoApprovalSetting } from '../services/api/admin';
 import { useAuth } from '../hooks/useAuth';
 import { useGroupPermissions } from '../hooks/useGroups';
 import { Card, Select } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import FeatureFlagsPanel from './FeatureFlagsPanel';
-
-/** Auto-approval payload from `GET /api/admin/settings/auto-approval`. */
-interface AutoApprovalSetting {
-  enabled: boolean;
-  description: string;
-  /**
-   * True when the server's AUTO_APPROVE_USERS environment variable decides
-   * `enabled`. The database row the toggle writes is inert while it is set,
-   * so the toggle is rendered read-only. Absent on servers that do not report
-   * the override, which are treated as not overridden.
-   */
-  overridden_by_env?: boolean;
-}
 
 export default function AdminSettings() {
   const queryClient = useQueryClient();

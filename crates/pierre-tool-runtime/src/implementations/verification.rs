@@ -27,15 +27,12 @@ use serde_json::Value;
 
 use pierre_services::claim_verification;
 
-use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
-use crate::conversions::{
-    answers_with, capabilities_to_tronc, object_schema, tool_definition, tool_result_to_response,
-};
+use crate::conversions::{answers_with, object_schema, tool_definition, tool_result_to_response};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::json_value::to_value_as_written;
 use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
@@ -141,12 +138,10 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_TENANT
-                | ToolCapabilities::WRITES_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_TENANT
+            | ToolCapabilities::WRITES_DATA
     }
 
     async fn execute(

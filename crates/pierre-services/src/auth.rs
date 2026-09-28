@@ -6,10 +6,7 @@
 
 use std::sync::Arc;
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine as _;
 use chrono::Utc;
-use rand::RngCore as _;
 use tokio::task;
 use tracing::{debug, error, info, warn};
 
@@ -20,20 +17,49 @@ use pierre_auth::dto::auth::{
 };
 use pierre_auth::firebase::{FirebaseAuth, FirebaseClaims};
 use pierre_auth::password::verify_password;
+use pierre_auth::refresh_rotation::{
+    consume_or_revoke_family, generate_refresh_token, refresh_token_lifetime,
+};
 use pierre_config::environment::ServerConfig;
 use pierre_core::constants::{error_messages, limits, tiers};
 use pierre_core::error_helpers::{user_state_error, validation_error};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    default_locale, CoachingPersona, PreApprovedEmail, SessionRefreshToken, Tenant, TenantId, User,
-    UserStatus, UserTier, FEDERATED_ONLY_PASSWORD_HASH,
+    default_locale, normalize_email, CoachingPersona, PreApprovedEmail, SessionRefreshToken,
+    Tenant, TenantId, User, UserStatus, UserTier, FEDERATED_ONLY_PASSWORD_HASH,
 };
 use pierre_core::permissions::UserRole;
+use pierre_middleware::mask_email;
 use pierre_runtime_context::DataContext;
 
 // ---------------------------------------------------------------------------
 // AuthService — domain logic for user authentication and registration
 // ---------------------------------------------------------------------------
+
+/// The refusal a login answers when the credentials it was given do not open
+/// the account. It names neither the account nor why: a client reads only the
+/// generic "credentials are invalid" an [`ErrorCode::AuthInvalid`] carries.
+///
+/// [`ErrorCode::AuthInvalid`]: pierre_core::errors::ErrorCode::AuthInvalid
+fn invalid_credentials() -> AppError {
+    AppError::auth_invalid(format!(
+        "Authentication failed: {}",
+        error_messages::INVALID_CREDENTIALS
+    ))
+}
+
+/// Whether a Firebase ID token proves `email`: its `email_verified` claim is
+/// true, so the sign-in provider (Google) verified the address it carries, and
+/// that address is `email`, both in their normalized form ([`normalize_email`]),
+/// so case and surrounding whitespace do not matter. A false or absent claim
+/// proves nothing.
+fn firebase_proves_email(claims: &FirebaseClaims, email: &str) -> bool {
+    claims.email_verified == Some(true)
+        && claims
+            .email
+            .as_deref()
+            .is_some_and(|claimed| normalize_email(claimed) == normalize_email(email))
+}
 
 /// What a refresh-token exchange yields: the same response a login gives,
 /// plus the successor token the device must hold from now on.
@@ -78,9 +104,10 @@ impl AuthService {
 
     /// Handle user registration
     ///
-    /// Validates email/password, checks uniqueness, hashes credentials,
-    /// creates the user with appropriate approval status, provisions a
-    /// personal tenant, and raises the `user.signed_up` notify event.
+    /// Normalizes the email ([`normalize_email`]), validates email/password,
+    /// checks uniqueness in any casing, hashes credentials, creates the user
+    /// with appropriate approval status, provisions a personal tenant, and
+    /// raises the `user.signed_up` notify event.
     ///
     /// # Errors
     /// Returns error if user validation fails or database operation fails
@@ -88,8 +115,13 @@ impl AuthService {
     pub async fn register(&self, request: RegisterRequest) -> AppResult<RegisterResponse> {
         info!("User registration attempt");
 
+        // One form for the address from here on: the uniqueness check, the
+        // stored row, the pre-approval match and the domain allow-list all
+        // read it, so `Jane@X.com` and `jane@x.com` are one person to each.
+        let email = normalize_email(&request.email);
+
         // Validate email format
-        if !Self::is_valid_email(&request.email) {
+        if !Self::is_valid_email(&email) {
             return Err(validation_error(error_messages::INVALID_EMAIL_FORMAT));
         }
 
@@ -98,8 +130,8 @@ impl AuthService {
             return Err(validation_error(error_messages::PASSWORD_TOO_WEAK));
         }
 
-        // Check if user already exists
-        if let Ok(Some(_)) = self.data.repos().users.get_by_email(&request.email).await {
+        // Check if user already exists, in any casing
+        if let Ok(Some(_)) = self.data.repos().users.get_by_email(&email).await {
             return Err(user_state_error(error_messages::USER_ALREADY_EXISTS));
         }
 
@@ -108,12 +140,11 @@ impl AuthService {
             .map_err(|e| AppError::internal(format!("Password hashing failed: {e}")))?;
 
         // Create user — determine_approval_status sets Pending or Active below
-        let mut user = User::new(request.email.clone(), password_hash, request.display_name); // Safe: String ownership needed for user model
+        let mut user = User::new(email.clone(), password_hash, request.display_name);
 
         // Check if user should be auto-approved (global setting, domain
         // allow-list, or a per-email pre-approval carrying its operator)
-        let (status, approved_at, approved_by) =
-            self.determine_approval_status(&request.email).await;
+        let (status, approved_at, approved_by) = self.determine_approval_status(&email).await;
         user.user_status = status;
         user.approved_at = approved_at;
         user.approved_by = approved_by;
@@ -129,7 +160,7 @@ impl AuthService {
         let display_name = user
             .display_name
             .as_deref()
-            .unwrap_or_else(|| request.email.split('@').next().unwrap_or("user"));
+            .unwrap_or_else(|| email.split('@').next().unwrap_or("user"));
 
         let tenant_id = self
             .create_personal_tenant(user_id, display_name, tiers::STARTER)
@@ -203,10 +234,7 @@ impl AuthService {
                 reason = "invalid_password",
                 "login rejected"
             );
-            return Err(AppError::auth_invalid(format!(
-                "Authentication failed: {}",
-                error_messages::INVALID_CREDENTIALS
-            )));
+            return Err(invalid_credentials());
         }
 
         // Block suspended users; pending users authenticate so the frontend
@@ -267,7 +295,8 @@ impl AuthService {
     /// Handle Firebase login - authenticate with Firebase ID token
     ///
     /// This method validates the Firebase ID token, finds or creates a user,
-    /// and returns a JWT token for our authentication system.
+    /// marks the user's email verified when the token proves it, and returns a
+    /// JWT token for our authentication system.
     ///
     /// # Errors
     /// Returns error if Firebase validation fails, or user creation fails
@@ -281,18 +310,23 @@ impl AuthService {
         // Validate the Firebase ID token
         let claims = firebase_auth.validate_token(&request.id_token).await?;
 
-        // Get the email from the claims (required)
+        // Get the email from the claims (required), in its stored form: the
+        // account it names is found, or created, whatever casing the provider
+        // reports it in.
         let email = claims
             .email
-            .as_ref()
+            .as_deref()
+            .map(normalize_email)
             .ok_or_else(|| AppError::auth_invalid("Firebase token missing email claim"))?;
 
         // Find or create user from Firebase claims
-        let mut user = self.find_or_create_firebase_user(&claims, email).await?;
+        let mut user = self.find_or_create_firebase_user(&claims, &email).await?;
 
         // Block suspended users; pending users authenticate so the frontend
         // can show the "pending approval" page (user_status is in the response).
         Self::reject_if_suspended(&user)?;
+
+        self.record_firebase_email_proof(&user, &claims).await?;
 
         // Retroactively approve pending users whose domain now qualifies
         self.auto_approve_if_eligible(&mut user).await?;
@@ -318,7 +352,42 @@ impl AuthService {
         Ok(response)
     }
 
-    /// Find existing user or create new one from Firebase claims
+    /// Mark `user`'s email verified when the Firebase ID token proves it
+    /// ([`firebase_proves_email`]), as the confirmation link does. A sign-in
+    /// never vouches for an address the account does not hold, and a token
+    /// that proves nothing leaves an earlier mark as it is.
+    async fn record_firebase_email_proof(
+        &self,
+        user: &User,
+        claims: &FirebaseClaims,
+    ) -> AppResult<()> {
+        if !firebase_proves_email(claims, &user.email) {
+            return Ok(());
+        }
+        self.data
+            .repos()
+            .email_verification
+            .mark_verified(user.id)
+            .await?;
+        info!(user_id = %user.id, provider = %claims.provider, "Email verified by the Firebase sign-in provider");
+        Ok(())
+    }
+
+    /// Find existing user or create new one from Firebase claims.
+    ///
+    /// The account already holding the token's Firebase UID is that user's.
+    /// Otherwise an account with the token's email is attached to the Firebase
+    /// user only when the token proves the address ([`firebase_proves_email`]):
+    /// an unverified address proves nothing about who holds it, and attaching
+    /// on it would hand the account to anyone who can mint a token naming it.
+    /// That sign-in is refused with the generic [`invalid_credentials`], so the
+    /// answer does not say an account exists, and creates no account. An email
+    /// no account holds starts a new account, verified or not.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`invalid_credentials`] for an unproven email naming an
+    /// existing account, and the repository error when a read or write fails.
     async fn find_or_create_firebase_user(
         &self,
         claims: &FirebaseClaims,
@@ -337,21 +406,40 @@ impl AuthService {
         }
 
         // Check if user exists by email (might need linking)
-        if let Some(mut user) = self.data.repos().users.get_by_email(email).await? {
-            tracing::info!(user_id = %user.id, "Linking existing email user to Firebase UID");
-            user.firebase_uid = Some(claims.sub.clone());
-            user.auth_provider.clone_from(&claims.provider);
-            // `update`, not `create`: the row exists. `create` used to double as an
-            // upsert on SQLite — whose UPDATE branch wrote neither firebase_uid nor
-            // auth_provider, so the link never took and every sign-in re-ran this
-            // branch — and was a bare INSERT on PostgreSQL, where it hit the unique
-            // email index instead.
-            self.data.repos().users.update(&user).await?;
-            return Ok(user);
+        if let Some(user) = self.data.repos().users.get_by_email(email).await? {
+            return self.attach_firebase_user(user, claims).await;
         }
 
         // Create new user from Firebase claims
         self.create_firebase_user(claims, email).await
+    }
+
+    /// Attach the Firebase user `claims` names to the existing account `user`
+    /// its email found, once the token proves that email; refuse it otherwise
+    /// ([`Self::find_or_create_firebase_user`]).
+    async fn attach_firebase_user(
+        &self,
+        mut user: User,
+        claims: &FirebaseClaims,
+    ) -> AppResult<User> {
+        if !firebase_proves_email(claims, &user.email) {
+            warn!(
+                email = %mask_email(&user.email),
+                provider = %claims.provider,
+                "Firebase sign-in refused: an unverified email names an existing account"
+            );
+            return Err(invalid_credentials());
+        }
+        tracing::info!(user_id = %user.id, "Linking existing email user to Firebase UID");
+        user.firebase_uid = Some(claims.sub.clone());
+        user.auth_provider.clone_from(&claims.provider);
+        // `update`, not `create`: the row exists. `create` used to double as an
+        // upsert on SQLite — whose UPDATE branch wrote neither firebase_uid nor
+        // auth_provider, so the link never took and every sign-in re-ran this
+        // branch — and was a bare INSERT on PostgreSQL, where it hit the unique
+        // email index instead.
+        self.data.repos().users.update(&user).await?;
+        Ok(user)
     }
 
     /// Create a personal tenant for a user (required for MCP operations)
@@ -811,21 +899,16 @@ impl AuthService {
     pub async fn refresh_session(&self, presented: &str) -> AppResult<RefreshedSession> {
         let now = Utc::now();
         let repos = self.data.repos();
-        let Some(record) = repos
-            .session_refresh_tokens
-            .consume_token(presented, now)
-            .await?
+        let Some(record) = consume_or_revoke_family(
+            repos.session_refresh_tokens.consume_token(presented, now),
+            || {
+                repos
+                    .session_refresh_tokens
+                    .revoke_token_family(presented, now)
+            },
+        )
+        .await?
         else {
-            let revoked = repos
-                .session_refresh_tokens
-                .revoke_token_family(presented, now)
-                .await?;
-            if revoked > 0 {
-                warn!(
-                    revoked,
-                    "Refresh token replayed after rotation; its family is revoked"
-                );
-            }
             return Err(AppError::auth_invalid("Invalid or expired refresh token"));
         };
 
@@ -840,11 +923,13 @@ impl AuthService {
         // so the app keeps polling for the approval.
         Self::reject_if_suspended(&user)?;
 
-        // The tenant the login resolved. A session opened before the user had
-        // one resolves it now, the way a login would.
+        // The tenant the login resolved, while the user still belongs to it.
+        // A member removed since then, or a session opened before the user had
+        // a tenant, resolves one now the way a login would — the family keeps
+        // sliding, so a tenant it recorded is never trusted past its membership.
         let tenant_id = match record.tenant_id {
-            Some(tenant_id) => Some(tenant_id),
-            None => self.ensure_user_has_tenant(&user).await?,
+            Some(tenant_id) if self.is_tenant_member(user.id, &tenant_id).await? => Some(tenant_id),
+            _ => self.ensure_user_has_tenant(&user).await?,
         };
 
         let jwt_token = self
@@ -884,18 +969,32 @@ impl AuthService {
 
     /// How long a freshly issued refresh token stays exchangeable.
     fn refresh_token_lifetime(&self) -> chrono::Duration {
-        chrono::Duration::days(self.config.auth.refresh_token_expiry_days)
+        refresh_token_lifetime(self.config.auth.refresh_token_expiry_days)
     }
 
-    /// Mint a token, store its record, and hand the plaintext back.
+    /// Whether `user_id` still holds a membership row in the tenant a JWT or
+    /// refresh token recorded. A value that is not a tenant id is no
+    /// membership.
     ///
-    /// 32 bytes of OS randomness, base64url without padding: the same
-    /// strength as the `OAuth2` server's refresh tokens, in a form that travels
-    /// in a form field or a header unchanged.
+    /// # Errors
+    /// Returns a database error when the lookup fails.
+    async fn is_tenant_member(&self, user_id: uuid::Uuid, tenant_id: &str) -> AppResult<bool> {
+        let Ok(tenant_id) = TenantId::parse_str(tenant_id) else {
+            return Ok(false);
+        };
+        Ok(self
+            .data
+            .repos()
+            .tenants
+            .get_user_role(user_id, tenant_id)
+            .await?
+            .is_some())
+    }
+
+    /// Mint a token, store its record, and hand the plaintext back — the same
+    /// value shape the `OAuth2` server's refresh tokens take.
     async fn store_refresh_token(&self, record: &SessionRefreshToken) -> AppResult<String> {
-        let mut bytes = [0u8; 32];
-        rand::rng().fill_bytes(&mut bytes);
-        let token = URL_SAFE_NO_PAD.encode(bytes);
+        let token = generate_refresh_token()?;
         self.data
             .repos()
             .session_refresh_tokens

@@ -157,19 +157,20 @@ pub struct PaceZone {
     pub max_pace: String,
 }
 
-/// The five pace zones, named for what they are for.
+/// The Daniels VDOT pace zones, named for what they are for.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct PaceZones {
-    /// Easy running.
+    /// Easy running: 59-74 % of velocity at `VO2max` by default.
     pub zone_1_easy: PaceZone,
-    /// Moderate.
-    pub zone_2_moderate: PaceZone,
-    /// Threshold.
+    /// Marathon pace, cut from threshold pace.
+    pub zone_2_marathon: PaceZone,
+    /// Threshold pace, around the athlete's lactate threshold.
     pub zone_3_threshold: PaceZone,
-    /// Intervals.
-    pub zone_4_interval: PaceZone,
-    /// Repetitions.
-    pub zone_5_repetition: PaceZone,
+    /// `VO2max` intervals, up to velocity at `VO2max`.
+    pub zone_4_vo2max: PaceZone,
+    /// Neuromuscular (repetition) work: the slowest pace of the zone, which
+    /// runs on to any faster pace, as `m:ss` per kilometre.
+    pub zone_5_neuromuscular_max_pace: String,
 }
 
 /// One power zone, in watts.

@@ -1,5 +1,5 @@
 // ABOUTME: Webhook endpoints for provider push events (WHOOP, Strava) — validate, resolve the owner, sync
-// ABOUTME: A Strava activity event fetches the owner's recent activities; a WHOOP event runs the owner's health sync
+// ABOUTME: A Strava event fetches the owner's recent activities and scans new runs for records; WHOOP runs the health sync
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -22,13 +22,16 @@ use serde::Deserialize;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use pierre_core::models::{OAuthNotification, TenantId};
+use pierre_core::models::{Activity, OAuthNotification, TenantId};
 use pierre_providers::core::ActivityQueryParams;
+use pierre_services::personal_bests::is_measured_sport;
+use pierre_services::sync_failure_notice::health_sync_failure_is_told;
 use pierre_tool_runtime::activity_fetch::fetch_provider_head;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
 use crate::mcp::resources::ServerContext;
 use crate::routes::strava_webhook_gate::{subscription_refusal, STRAVA_OWNER_FETCH_GATE};
+use crate::services::personal_best_seed::strava_provider;
 
 /// How far before the announced event a Strava webhook-triggered fetch reads.
 ///
@@ -327,6 +330,27 @@ async fn stamp_last_sync(
     }
 }
 
+/// Report a webhook sync's outcome to the sync-failure notices: a landed sync
+/// re-arms the notice, a failed one tells the athlete once.
+async fn report_sync(
+    resources: &ServerContext,
+    user_id: Uuid,
+    tenant_id: &str,
+    provider: &str,
+    landed: bool,
+) {
+    let Ok(tenant) = TenantId::parse_str(tenant_id) else {
+        warn!(user_id = %user_id, provider = %provider, "webhook owner carries an unparseable tenant id");
+        return;
+    };
+    let notices = resources.sync_failure_notices();
+    if landed {
+        notices.sync_landed(user_id, tenant, provider).await;
+    } else {
+        notices.sync_failed(user_id, tenant, provider).await;
+    }
+}
+
 /// Tell the owner's live SSE stream what a webhook sync landed.
 async fn notify_owner(resources: &ServerContext, user_id: Uuid, provider: &str, message: String) {
     let notification = OAuthNotification {
@@ -355,7 +379,8 @@ async fn notify_owner(resources: &ServerContext, user_id: Uuid, provider: &str, 
 /// [`STRAVA_WEBHOOK_LOOKBACK_DAYS`] before the event, and writes the rows
 /// through to the activity cache with the freshness mark. A successful fetch
 /// stamps `last_sync`; the athlete is notified only when the window held at
-/// least one activity.
+/// least one activity. The runs the window brought in that were never
+/// measured are then scanned for personal records ([`scan_new_runs`]).
 ///
 /// Fetches go through [`STRAVA_OWNER_FETCH_GATE`]: an event arriving within
 /// the debounce window of the owner's last fetch waits for one trailing fetch
@@ -383,28 +408,7 @@ async fn sync_strava_owner(resources: &Arc<ServerContext>, event: &StravaWebhook
 
     match fetch_provider_head(&runtime, "strava", user_id, &tenant_id, &params).await {
         Ok(activities) => {
-            let fetched = activities.len();
-            info!(
-                user_id = %user_id,
-                strava_owner_id = %owner_id,
-                object_id = %event.object_id,
-                aspect_type = %event.aspect_type,
-                fetched,
-                "Strava webhook-triggered activity fetch completed"
-            );
-            stamp_last_sync(resources, user_id, &tenant_id, "strava").await;
-            if fetched > 0 {
-                notify_owner(
-                    resources,
-                    user_id,
-                    "strava",
-                    format!(
-                        "Strava activity {}d: {fetched} recent activities fetched",
-                        event.aspect_type
-                    ),
-                )
-                .await;
-            }
+            land_strava_fetch(resources, event, user_id, &tenant_id, &activities).await;
         }
         Err(e) => {
             warn!(
@@ -414,7 +418,81 @@ async fn sync_strava_owner(resources: &Arc<ServerContext>, event: &StravaWebhook
                 auth_required = e.provider_auth_required_provider().is_some(),
                 "Strava webhook-triggered activity fetch failed"
             );
+            // A dead credential is the disconnect notice's to tell about.
+            if e.provider_auth_required_provider().is_none() {
+                report_sync(resources, user_id, &tenant_id, "strava", false).await;
+            }
         }
+    }
+}
+
+/// Record what a webhook-triggered Strava fetch landed: stamp `last_sync`,
+/// re-arm the sync-failure notice, tell the athlete's SSE stream when the
+/// window held activities, then scan the new runs for personal records.
+async fn land_strava_fetch(
+    resources: &Arc<ServerContext>,
+    event: &StravaWebhookEvent,
+    user_id: Uuid,
+    tenant_id: &str,
+    activities: &[Activity],
+) {
+    let fetched = activities.len();
+    info!(
+        user_id = %user_id,
+        strava_owner_id = %event.owner_id,
+        object_id = %event.object_id,
+        aspect_type = %event.aspect_type,
+        fetched,
+        "Strava webhook-triggered activity fetch completed"
+    );
+    stamp_last_sync(resources, user_id, tenant_id, "strava").await;
+    report_sync(resources, user_id, tenant_id, "strava", true).await;
+    if fetched > 0 {
+        notify_owner(
+            resources,
+            user_id,
+            "strava",
+            format!(
+                "Strava activity {}d: {fetched} recent activities fetched",
+                event.aspect_type
+            ),
+        )
+        .await;
+    }
+    scan_new_runs(resources, user_id, tenant_id, activities).await;
+}
+
+/// Measure the runs a Strava fetch brought in that no earlier sync or history
+/// walk measured, and — once the walk of the athlete's history is complete —
+/// tell them about each all-time best one sets (`PersonalBests::scan_new_runs`:
+/// one streams request per new run, once, from the shared Strava budget).
+/// Best-effort: the fetch it follows has already landed, so a failure here is
+/// logged and the unmeasured runs wait for the next sync.
+async fn scan_new_runs(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant_id: &str,
+    activities: &[Activity],
+) {
+    if !activities
+        .iter()
+        .any(|activity| is_measured_sport(activity.sport_type()))
+    {
+        return;
+    }
+    let Ok(tenant) = TenantId::parse_str(tenant_id) else {
+        warn!(user_id = %user_id, "webhook owner carries an unparseable tenant id; runs not scanned");
+        return;
+    };
+    let Some(provider) = strava_provider(resources, user_id, tenant_id).await else {
+        return;
+    };
+    if let Err(e) = resources
+        .personal_bests()
+        .scan_new_runs(provider.as_ref(), user_id, tenant, activities)
+        .await
+    {
+        warn!(user_id = %user_id, error = %e, "could not scan the fetched runs for best efforts");
     }
 }
 
@@ -423,7 +501,8 @@ async fn sync_strava_owner(resources: &Arc<ServerContext>, event: &StravaWebhook
 /// The orchestrator syncs every data type the WHOOP provider supplies from
 /// the user's cursors, so one call picks up whatever the event announced.
 /// New records are landed by [`land_whoop_records`]; a sync that found none
-/// or failed is logged and leaves `last_sync` and the SSE stream alone.
+/// or failed leaves `last_sync` and the SSE stream alone. Either outcome is
+/// reported to the sync-failure notices.
 async fn sync_whoop_owner(
     resources: &Arc<ServerContext>,
     orchestrator: &SyncOrchestrator,
@@ -452,6 +531,7 @@ async fn sync_whoop_owner(
                 errors = result.records_errored,
                 "WHOOP webhook-triggered sync found no new records"
             );
+            report_sync(resources, user_id, &tenant_id, "whoop", true).await;
         }
         Err(e) => {
             warn!(
@@ -460,6 +540,9 @@ async fn sync_whoop_owner(
                 error = %e,
                 "WHOOP webhook-triggered sync failed"
             );
+            if health_sync_failure_is_told(&e) {
+                report_sync(resources, user_id, &tenant_id, "whoop", false).await;
+            }
         }
     }
 }
@@ -480,6 +563,7 @@ async fn land_whoop_records(
         "WHOOP webhook-triggered sync completed"
     );
     stamp_last_sync(resources, user_id, tenant_id, "whoop").await;
+    report_sync(resources, user_id, tenant_id, "whoop", true).await;
     notify_owner(
         resources,
         user_id,

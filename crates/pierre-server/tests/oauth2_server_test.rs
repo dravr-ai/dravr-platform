@@ -467,6 +467,7 @@ fn test_oauth2_refresh_token_creation() {
         expires_at: Utc::now() + Duration::days(30),
         created_at: Utc::now(),
         revoked: false,
+        family_id: "test-family".to_owned(),
     };
 
     assert_eq!(refresh_token.token, "refresh_token_abc");
@@ -484,6 +485,7 @@ fn test_oauth2_refresh_token_revoked() {
         expires_at: Utc::now() + Duration::days(30),
         created_at: Utc::now(),
         revoked: true,
+        family_id: "test-family".to_owned(),
     };
 
     assert!(refresh_token.revoked);

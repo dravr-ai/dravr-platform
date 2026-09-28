@@ -6,7 +6,6 @@
 
 import type { AxiosInstance, AxiosResponse, AxiosRequestConfig } from 'axios';
 import type {
-  ProviderStatus,
   ExtendedProviderStatus,
   ProvidersStatusResponse,
   ApiMetadata,
@@ -78,19 +77,7 @@ async function postWithSciotteBackpressureRetry<TResponse, TBody>(
 }
 
 // Re-export for consumers
-export type { ProviderStatus, ExtendedProviderStatus, ProvidersStatusResponse };
-
-// Extended provider status with additional OAuth details
-export interface OAuthProvider extends ProviderStatus {
-  connected_at?: string;
-  expires_at?: string;
-  scopes?: string[];
-}
-
-export interface OAuthStatusResponse {
-  providers: ProviderStatus[];
-  metadata?: ApiMetadata;
-}
+export type { ExtendedProviderStatus, ProvidersStatusResponse };
 
 export interface MobileOAuthInitResponse {
   authorization_url: string;
@@ -114,16 +101,6 @@ export interface OAuthStartOptions {
  */
 export function createOAuthApi(axios: AxiosInstance) {
   return {
-    /**
-     * Get the connection status of all OAuth providers.
-     * Note: Backend returns array directly, we wrap it for consistency with type.
-     */
-    async getStatus(): Promise<OAuthStatusResponse> {
-      const response = await axios.get<ProviderStatus[]>(ENDPOINTS.OAUTH.STATUS);
-      // Backend returns array directly, wrap for consistency
-      return { providers: response.data };
-    },
-
     /**
      * URL a browser can be navigated to in order to start the OAuth flow.
      *

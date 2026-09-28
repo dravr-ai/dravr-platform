@@ -114,12 +114,6 @@ pub(crate) const GET_TOKENS_IN_TENANT_SQL: &str = token_select_sql!(
 pub(crate) const GET_TOKENS_SQL: &str =
     token_select_sql!("user_id = $1", " ORDER BY created_at DESC");
 
-/// Every token a tenant holds for one provider, newest first.
-pub(crate) const GET_TENANT_PROVIDER_TOKENS_SQL: &str = token_select_sql!(
-    "tenant_id = $1 AND provider = $2",
-    " ORDER BY created_at DESC"
-);
-
 /// The owner of a provider-side account id (a webhook's `owner_id`).
 pub(crate) const FIND_USER_BY_PROVIDER_USER_ID_SQL: &str = r"
             SELECT user_id, tenant_id
@@ -302,12 +296,6 @@ pub(crate) const DELETE_STRAVA_POOL_APP_SQL: &str =
 pub(crate) const DELETE_TOKEN_SQL: &str = r"
             DELETE FROM user_oauth_tokens
             WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
-            ";
-
-/// Drop every token a user holds within a tenant.
-pub(crate) const DELETE_TOKENS_SQL: &str = r"
-            DELETE FROM user_oauth_tokens
-            WHERE user_id = $1 AND tenant_id = $2
             ";
 
 /// Replace the credentials after a refresh: the path every expired token
@@ -698,23 +686,6 @@ macro_rules! impl_oauth_token_repository {
                 rows.iter().map(|row| self.token_from_row(row)).collect()
             }
 
-            async fn get_tenant_provider_tokens(
-                &self,
-                tenant_id: TenantId,
-                provider: &str,
-            ) -> AppResult<Vec<UserOAuthToken>> {
-                let rows = sqlx::query(GET_TENANT_PROVIDER_TOKENS_SQL)
-                    .bind(tenant_id.to_string())
-                    .bind(provider)
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to query tenant provider tokens: {e}"))
-                    })?;
-
-                rows.iter().map(|row| self.token_from_row(row)).collect()
-            }
-
             async fn find_user_by_provider_user_id(
                 &self,
                 provider: &str,
@@ -954,19 +925,6 @@ macro_rules! impl_oauth_token_repository {
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to delete user OAuth token: {e}"))
-                    })?;
-
-                Ok(())
-            }
-
-            async fn delete_tokens(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<()> {
-                sqlx::query(DELETE_TOKENS_SQL)
-                    .bind($ids::bind(user_id))
-                    .bind(tenant_id.to_string())
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to delete user OAuth tokens: {e}"))
                     })?;
 
                 Ok(())

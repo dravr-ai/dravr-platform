@@ -1,13 +1,13 @@
 // ABOUTME: Direct RecipeRepository tests on whichever backend the test factory opens (SQLite or PostgreSQL)
-// ABOUTME: Round-trips every column through create, get_by_id, list, update, update_nutrition_cache, search, count, delete
+// ABOUTME: Round-trips every column through create, get_by_id, list, update, search, count, delete
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! The recipe tools reach the repository only through `save_recipe`,
 //! `list_recipes`, `get_recipe`, `delete_recipe` and `search_recipes`; this
-//! file calls the trait itself so `update`, `update_nutrition_cache`,
-//! `count` and the value of every stored column are pinned on both drivers.
+//! file calls the trait itself so `update`, `count` and the value of every
+//! stored column are pinned on both drivers.
 
 #![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 
@@ -242,53 +242,6 @@ async fn update_replaces_columns_and_ingredients_atomically() {
     assert_eq!(stored.ingredients[0].fdc_id, Some(170_187));
     assert_eq!(stored.ingredients[0].unit, IngredientUnit::Tablespoons);
     assert!(stored.updated_at >= stored.created_at);
-}
-
-#[tokio::test]
-async fn update_nutrition_cache_stores_the_validated_values() {
-    let db = create_test_db().await;
-    let (user_id, tenant_id) = seed_user(&db).await;
-    let repo = db.repositories().recipes;
-
-    let recipe = sample_recipe(user_id, "Uncached", MealTiming::General);
-    let recipe_id = repo.create(user_id, tenant_id, &recipe).await.unwrap();
-    assert!(repo
-        .get_by_id(&recipe_id, user_id, tenant_id)
-        .await
-        .unwrap()
-        .unwrap()
-        .nutrition
-        .is_none());
-
-    let nutrition = sample_nutrition();
-    assert!(repo
-        .update_nutrition_cache(&recipe_id, user_id, tenant_id, &nutrition)
-        .await
-        .unwrap());
-    assert!(
-        !repo
-            .update_nutrition_cache(&Uuid::new_v4().to_string(), user_id, tenant_id, &nutrition)
-            .await
-            .unwrap(),
-        "an unknown recipe updates no row"
-    );
-
-    let cached = repo
-        .get_by_id(&recipe_id, user_id, tenant_id)
-        .await
-        .unwrap()
-        .unwrap()
-        .nutrition
-        .expect("the cache just written");
-    assert!((cached.calories - 412.5).abs() < f64::EPSILON);
-    assert!((cached.carbs_g - 62.0).abs() < f64::EPSILON);
-    assert!((cached.fat_g - 11.8).abs() < f64::EPSILON);
-    assert_eq!(cached.fiber_g, Some(8.1));
-    assert_eq!(cached.sodium_mg, None);
-    assert_eq!(
-        cached.validated_at.timestamp_millis(),
-        nutrition.validated_at.timestamp_millis()
-    );
 }
 
 #[tokio::test]

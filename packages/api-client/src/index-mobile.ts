@@ -72,8 +72,6 @@ export type {
 export { createOAuthApi } from './domains/oauth';
 export type {
   OAuthApi,
-  OAuthProvider,
-  OAuthStatusResponse,
   MobileOAuthInitResponse,
 } from './domains/oauth';
 

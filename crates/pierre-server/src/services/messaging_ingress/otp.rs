@@ -8,7 +8,7 @@ use chrono::{Duration, Utc};
 use pierre_core::models::messaging::{
     ChannelType, MessageContent, OutgoingMessage, MAX_OTP_ATTEMPTS, OTP_TTL_MINUTES,
 };
-use pierre_core::models::{TenantId, User};
+use pierre_core::models::{normalize_email, TenantId, User};
 use pierre_database::backends::{
     CreateChannelLinkParams, CreateLinkStateParams, MessagingRepository, TenantRepository,
     UserRepository,
@@ -430,7 +430,7 @@ async fn handle_email_step(
         );
     }
 
-    let email = text.trim().to_lowercase();
+    let email = normalize_email(text);
 
     match validate_email_user(resources, channel_type, sender_id, &email).await {
         Ok(_) => {}

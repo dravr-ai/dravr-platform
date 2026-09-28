@@ -15,6 +15,7 @@ use pierre_core::models::messaging::ChannelType;
 use pierre_mcp_server::services::messaging_ingress::surface::{
     messaging_surface_request, transport_caps,
 };
+use pierre_messaging::channels::capabilities_for;
 use pierre_messaging::channels::discord::DiscordDescriptor;
 use pierre_messaging::channels::messenger::MessengerDescriptor;
 use pierre_messaging::channels::slack::SlackDescriptor;
@@ -83,7 +84,7 @@ fn whatsapp_has_media_and_native_cards() {
     assert!(profile.render.blocks.scene_raster);
     // WhatsApp was the one channel that degraded a Card to text. Its renderer
     // now carries reply buttons and list menus, and this profile reads that
-    // straight off the renderer rather than from a name match, so the
+    // straight off canot's descriptor rather than from a name match, so the
     // capability follows the dependency bump with no edit here.
     assert!(
         profile.render.blocks.action_buttons,
@@ -143,9 +144,59 @@ fn every_messaging_ceiling_comes_from_the_canot_descriptor() {
             "{channel_type:?} must resolve the descriptor's own ceiling"
         );
         assert_eq!(
-            transport_caps(channel_type).max_message_length,
+            transport_caps(channel_type)
+                .expect("client-messaging compiles every channel")
+                .max_message_length,
             descriptor_limit
         );
+    }
+}
+
+/// Every channel type, with an exhaustive match so a variant canot adds fails
+/// to compile here instead of silently escaping the parity check below.
+fn every_channel_type() -> [ChannelType; 5] {
+    let all = [
+        ChannelType::WhatsApp,
+        ChannelType::Messenger,
+        ChannelType::Discord,
+        ChannelType::Slack,
+        ChannelType::Telegram,
+    ];
+    for channel_type in all {
+        match channel_type {
+            ChannelType::WhatsApp
+            | ChannelType::Messenger
+            | ChannelType::Discord
+            | ChannelType::Slack
+            | ChannelType::Telegram => {}
+        }
+    }
+    all
+}
+
+#[test]
+fn every_transport_capability_is_canots_declared_capability() {
+    // canot's `capabilities_for` is the one ChannelType -> descriptor match;
+    // its own `list_channels` tool reads it. The platform must answer from the
+    // same place, field for field, so the two can never drift apart.
+    for channel_type in every_channel_type() {
+        let declared =
+            capabilities_for(channel_type).expect("client-messaging compiles every channel");
+        let caps = transport_caps(channel_type).expect("client-messaging compiles every channel");
+        assert_eq!(
+            caps.max_message_length, declared.max_message_length,
+            "{channel_type:?} ceiling"
+        );
+        assert_eq!(
+            caps.renders_media_natively, declared.supports_media,
+            "{channel_type:?} media"
+        );
+        assert_eq!(
+            caps.renders_cards_natively, declared.supports_cards,
+            "{channel_type:?} cards"
+        );
+        let request = messaging_surface_request(channel_type, "en".to_owned(), None);
+        assert_eq!(request.transport, Some(caps), "{channel_type:?} request");
     }
 }
 

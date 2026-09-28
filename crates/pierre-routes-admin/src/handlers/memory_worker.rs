@@ -87,7 +87,7 @@ pub async fn handle_get_memory_metrics(
         })?;
 
     info!(
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         tenant = %params.tenant_id,
         total = metrics.total_facts,
         last_24h = metrics.facts_last_24h,

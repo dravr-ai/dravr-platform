@@ -11,8 +11,8 @@
 //! Holds one [`EvidenceCorpus`] per claim category, populated at startup
 //! from `dravr-contremaitre` and updated via webhook push events.
 //!
-//! The registry starts empty — the compiled-in fallback in
-//! `services::claim_verification::EMBEDDED_PROPOSITIONS` is used whenever
+//! The registry starts empty — the compiled-in fallback, the pinned
+//! `dravr_contremaitre::evidence::SPORTS_SCIENCE` table, is used whenever
 //! the registry has no records for a given category. This matches the
 //! fallback philosophy used by [`super::PromptRegistry`]: the server
 //! always boots and functions correctly even when GitHub is unreachable.

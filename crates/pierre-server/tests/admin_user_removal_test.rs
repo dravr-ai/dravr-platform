@@ -52,6 +52,7 @@ use pierre_core::models::{
     ConnectionType, Subscription, SubscriptionStatus, Tenant, TenantId, TenantOAuthCredentials,
     User, UserOAuthToken, UserReferenceKind, UserStatus, UserTier,
 };
+use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
 #[cfg(feature = "postgresql")]
 use pierre_database::repositories::POSTGRES_USER_PURGE;
@@ -218,6 +219,7 @@ fn admin_context_with(
         persona_contract_registry: Arc::new(PersonaContractRegistry::new()),
         training_catalogue_registry: Arc::new(TrainingCatalogueRegistry::new()),
         contremaitre_config: None,
+        app_behavior: resources.common.config.app_behavior.clone(),
     });
     context.provider_disconnector = Some(disconnector);
     Arc::new(context)
@@ -231,6 +233,7 @@ fn token_with(permissions: AdminPermissions, is_super_admin: bool) -> ValidatedA
         is_super_admin,
         tenant_id: None,
         user_info: None,
+        operator_user_id: None,
     }
 }
 
@@ -1637,17 +1640,6 @@ async fn delete_clears_a_users_messaging_history() {
         .unwrap());
     repos
         .messaging
-        .insert_delivery_receipt(
-            &Uuid::new_v4().to_string(),
-            tenant_id,
-            &message_id,
-            None,
-            "sent",
-        )
-        .await
-        .unwrap();
-    repos
-        .messaging
         .enqueue_outbound(
             &Uuid::new_v4().to_string(),
             &message_id,
@@ -1663,11 +1655,7 @@ async fn delete_clears_a_users_messaging_history() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = body_json(response).await;
     let rows_removed = body["data"]["rows_removed"].as_object().unwrap();
-    for table in [
-        "messaging_messages",
-        "messaging_delivery_receipts",
-        "messaging_outbound_queue",
-    ] {
+    for table in ["messaging_messages", "messaging_outbound_queue"] {
         assert_eq!(rows_removed[table], 1, "{table} is cleared: {body}");
     }
     assert!(repos.users.get_global(user_id).await.unwrap().is_none());
@@ -2426,4 +2414,72 @@ async fn disconnecting_a_provider_this_build_cannot_revoke_changes_nothing() {
         1,
         "the connection row stands"
     );
+}
+
+/// Promote a seeded user to an operator role.
+async fn promote(repos: &RepositoryRegistry, user_id: Uuid, role: UserRole) {
+    let mut user = repos.users.get_global(user_id).await.unwrap().unwrap();
+    user.role = role;
+    user.is_admin = true;
+    repos.users.update(&user).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_manage_users_token_cannot_remove_or_disconnect_an_operator() {
+    let resources = resources().await;
+    let repos = &resources.common.repos;
+    let mut stub = RevokeStub::start().await;
+    let (super_admin_id, tenant_id, _) = seed_user(repos, "top-operator").await;
+    connect_strava(repos, super_admin_id, tenant_id, None).await;
+    promote(repos, super_admin_id, UserRole::SuperAdmin).await;
+    let (admin_id, _, _) = seed_user(repos, "plain-operator").await;
+    promote(repos, admin_id, UserRole::Admin).await;
+
+    for target in [super_admin_id, admin_id] {
+        let refused = handle_delete_user(
+            State(admin_context(&resources, &stub.url)),
+            Extension(manage_users_token()),
+            Path(target.to_string()),
+            delete_request(),
+        )
+        .await
+        .expect_err("a ManageUsers token must not delete an operator");
+        assert_eq!(refused.code, ErrorCode::PermissionDenied);
+        assert_eq!(refused.http_status(), 403);
+        assert!(
+            repos.users.get_global(target).await.unwrap().is_some(),
+            "the refused delete touched nothing"
+        );
+    }
+
+    let refused = handle_disconnect_user_provider(
+        State(admin_context(&resources, &stub.url)),
+        Extension(manage_users_token()),
+        Path((super_admin_id.to_string(), "strava".to_owned())),
+    )
+    .await
+    .expect_err("a ManageUsers token must not disconnect an operator's provider");
+    assert_eq!(refused.code, ErrorCode::PermissionDenied);
+    assert!(stub.received().is_empty(), "nothing may reach Strava");
+    assert!(
+        repos
+            .oauth_tokens
+            .get_token(super_admin_id, tenant_id, "strava")
+            .await
+            .unwrap()
+            .is_some(),
+        "the operator's grant is untouched"
+    );
+
+    // A super-admin token still can.
+    let removed = handle_delete_user(
+        State(admin_context(&resources, &stub.url)),
+        Extension(super_admin_token()),
+        Path(admin_id.to_string()),
+        delete_request(),
+    )
+    .await
+    .expect("a super-admin token removes an admin account");
+    assert_eq!(removed.status(), StatusCode::OK);
+    assert!(repos.users.get_global(admin_id).await.unwrap().is_none());
 }

@@ -539,9 +539,6 @@ impl LiveScenarioDriver {
                 user_id: real.user_id.to_string(),
                 protocol: "live-eval".to_owned(),
                 tenant_id: Some(real.tenant_id.to_string()),
-                progress_token: None,
-                cancellation_token: None,
-                progress_reporter: None,
             })
             .await;
         Some(match response {

@@ -79,6 +79,11 @@ pub mod commitment_refresher;
 /// Assembles and starts the Strava seat reclaimer (carnet#505).
 pub mod seat_reclaim_worker;
 
+/// The periodic walk of each Strava athlete's history that seeds their
+/// all-time best efforts before any is announced (carnet#582).
+#[cfg(feature = "health-sync")]
+pub mod personal_best_seed;
+
 /// Delivers a swept commitment verdict back to the athlete, applying the
 /// per-channel proactive-messaging policy.
 #[cfg(feature = "client-messaging")]

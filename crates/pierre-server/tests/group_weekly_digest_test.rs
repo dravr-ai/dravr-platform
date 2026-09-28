@@ -48,9 +48,12 @@ mod group_weekly_digest_tests {
         MemberFitnessSnapshot {
             user_id: Uuid::new_v4(),
             display_name: name.to_owned(),
+            // A member whose CTL did not move overnight: form is a share of
+            // yesterday's CTL, which equals the CTL the card prints.
             ctl: form.map(|(ctl, _)| ctl),
-            atl: None,
+            atl: form.map(|(ctl, tsb)| ctl - tsb),
             tsb: form.map(|(_, tsb)| tsb),
+            form_ctl: form.map(|(ctl, _)| ctl),
             weekly_volume_km: km,
             previous_week_volume_km: prev_km,
             weekly_activity_count: 3,

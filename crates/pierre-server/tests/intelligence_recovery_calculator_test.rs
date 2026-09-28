@@ -250,6 +250,7 @@ fn test_recovery_score_tsb_only() {
         ctl: 50.0,
         atl: 45.0,
         tsb: 5.0,
+        form_ctl: 50.0,
         tss_history: vec![],
     };
     let sleep_quality = SleepQualityScore {
@@ -283,6 +284,7 @@ fn test_recovery_score_all_components() {
         ctl: 50.0,
         atl: 40.0,
         tsb: 10.0,
+        form_ctl: 50.0,
         tss_history: vec![],
     };
     let sleep_quality = SleepQualityScore {
@@ -329,6 +331,7 @@ fn test_recovery_score_conflicting_signals() {
         ctl: 50.0,
         atl: 40.0,
         tsb: 10.0, // Fresh
+        form_ctl: 50.0,
         tss_history: vec![],
     };
     let sleep_quality = SleepQualityScore {
@@ -364,6 +367,7 @@ fn test_recovery_score_all_poor() {
         ctl: 60.0,
         atl: 80.0,
         tsb: -20.0, // Highly fatigued
+        form_ctl: 60.0,
         tss_history: vec![],
     };
     let sleep_quality = SleepQualityScore {
@@ -477,6 +481,7 @@ fn load_at(ctl: f64, tsb: f64) -> TrainingLoad {
         ctl,
         atl: ctl - tsb,
         tsb,
+        form_ctl: ctl,
         tss_history: Vec::new(),
     }
 }
@@ -578,6 +583,7 @@ fn test_rest_day_not_needed() {
         ctl: 50.0,
         atl: 40.0,
         tsb: 10.0,
+        form_ctl: 50.0,
         tss_history: vec![],
     };
     let recovery_score = RecoveryScore {
@@ -634,6 +640,7 @@ fn test_rest_day_strongly_recommended() {
         ctl: 60.0,
         atl: 80.0,
         tsb: -20.0,
+        form_ctl: 60.0,
         tss_history: vec![],
     };
     let recovery_score = RecoveryScore {
@@ -694,6 +701,7 @@ fn test_rest_day_moderate_confidence() {
         ctl: 55.0,
         atl: 60.0,
         tsb: -5.0,
+        form_ctl: 55.0,
         tss_history: vec![],
     };
     let recovery_score = RecoveryScore {
@@ -749,6 +757,7 @@ fn test_rest_day_reasoning_generated() {
         ctl: 60.0,
         atl: 75.0,
         tsb: -15.0,
+        form_ctl: 60.0,
         tss_history: vec![],
     };
     let recovery_score = RecoveryScore {
@@ -805,6 +814,7 @@ fn test_recovery_score_zero_sleep() {
         ctl: 50.0,
         atl: 45.0,
         tsb: 5.0,
+        form_ctl: 50.0,
         tss_history: vec![],
     };
     let sleep_quality = SleepQualityScore {
@@ -853,6 +863,7 @@ fn test_recovery_insights_generation() {
         ctl: 50.0,
         atl: 40.0,
         tsb: 10.0,
+        form_ctl: 50.0,
         tss_history: vec![],
     };
     let sleep_quality = SleepQualityScore {
@@ -891,6 +902,7 @@ fn test_tsb_only_recovery_score_fresh() {
         ctl: 50.0,
         atl: 40.0,
         tsb: 10.0, // Fresh TSB
+        form_ctl: 50.0,
         tss_history: vec![],
     };
 
@@ -926,6 +938,7 @@ fn test_tsb_only_recovery_score_fatigued() {
         ctl: 60.0,
         atl: 80.0,
         tsb: -20.0, // Highly fatigued TSB
+        form_ctl: 60.0,
         tss_history: vec![],
     };
 
@@ -951,6 +964,7 @@ fn test_tsb_only_recovery_score_neutral() {
         ctl: 50.0,
         atl: 50.0,
         tsb: 0.0, // Neutral TSB
+        form_ctl: 50.0,
         tss_history: vec![],
     };
 
@@ -973,6 +987,7 @@ fn test_tsb_only_rest_day_recommendation_rest_needed() {
         ctl: 60.0,
         atl: 80.0,
         tsb: -20.0,
+        form_ctl: 60.0,
         tss_history: vec![],
     };
 
@@ -1007,6 +1022,7 @@ fn test_tsb_only_rest_day_recommendation_no_rest_needed() {
         ctl: 50.0,
         atl: 40.0,
         tsb: 15.0, // Very fresh
+        form_ctl: 50.0,
         tss_history: vec![],
     };
 
@@ -1027,6 +1043,7 @@ fn test_tsb_only_insights_generated() {
         ctl: 50.0,
         atl: 55.0,
         tsb: -5.0,
+        form_ctl: 50.0,
         tss_history: vec![],
     };
 
@@ -1056,6 +1073,7 @@ fn test_tsb_only_training_readiness_conservative() {
         ctl: 50.0,
         atl: 45.0,
         tsb: 5.0,
+        form_ctl: 50.0,
         tss_history: vec![],
     };
     let result =
@@ -1073,6 +1091,7 @@ fn test_tsb_only_training_readiness_conservative() {
         ctl: 50.0,
         atl: 35.0,
         tsb: 15.0,
+        form_ctl: 50.0,
         tss_history: vec![],
     };
     let result =
@@ -1092,6 +1111,7 @@ fn test_data_completeness_values() {
         ctl: 50.0,
         atl: 45.0,
         tsb: 5.0,
+        form_ctl: 50.0,
         tss_history: vec![],
     };
     let sleep_quality = SleepQualityScore {

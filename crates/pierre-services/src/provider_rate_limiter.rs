@@ -1,156 +1,289 @@
-// ABOUTME: App-wide rate limiter for external fitness provider APIs
-// ABOUTME: Prevents exceeding Strava/Garmin/WHOOP/Terra rate limits across all tenants
-//
+// ABOUTME: App-wide rate limiter for external fitness provider APIs, counted in the database so every instance shares it
+// ABOUTME: Strava's 15-minute and daily windows are usage_counters buckets taken by an atomic increment-if-under
+
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+//! App-wide provider request budgets.
+//!
+//! A provider limits the requests an application makes, whichever tenant or
+//! athlete they are for: Strava counts every call against one 15-minute
+//! window, reset at :00, :15, :30 and :45, and one daily window, reset at
+//! midnight UTC, per app. A request has to fit every budget its provider has.
+//!
+//! The backend runs as several instances (Cloud Run scales it from zero to
+//! three), so a count held in one process lets each instance spend the whole
+//! budget. The counts live in the database instead, in `usage_counters` — the
+//! table every quota counts in — one bucket per window under the platform
+//! scope ([`PLATFORM_SCOPE`], a provider's budget belongs to no tenant or
+//! user). The buckets are fixed and aligned to the epoch, as Strava's own
+//! windows are, and each bucket's period label starts with its start time,
+//! so the usage-counter pruning ages them out with the rest.
+//!
+//! A request is taken with one conditional increment per window, which lands
+//! only while the bucket holds fewer than its allowance: instances racing for
+//! the last slot get it once between them, and no window ever passes its
+//! budget. When a later window refuses, the slots already taken for the
+//! request are given back.
+//!
+//! Work nobody is waiting on — the walk of an athlete's history — asks with
+//! [`ProviderRateLimiter::acquire_background`], which stops at
+//! [`BACKGROUND_SHARE_PERCENT`] of each window, so the rest stays for the
+//! requests an athlete is waiting on.
 
+use std::sync::Arc;
+use std::time::Duration;
+
+use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use pierre_core::constants::rate_limits;
-use tracing::{info, warn};
-
-/// Tracks API call counts per provider within sliding windows.
-/// Shared across all tenants to enforce app-wide provider rate limits.
-///
-/// Uses [`DashMap`] for lock-free concurrent access from multiple tokio tasks.
-pub struct ProviderRateLimiter {
-    /// Map of `provider_name` -> (`call_count`, `window_start`).
-    windows: Arc<DashMap<String, (u32, Instant)>>,
-    /// Map of `provider_name` -> (`max_calls`, `window_duration`).
-    limits: Arc<DashMap<String, (u32, Duration)>>,
-}
+use pierre_core::errors::AppResult;
+use pierre_database::repositories::UsageCounterRepository;
+use tracing::{debug, info, warn};
 
 /// One day as a `Duration`.
-const ONE_DAY: Duration = Duration::from_hours(24);
+pub const ONE_DAY: Duration = Duration::from_hours(24);
+
+/// Strava's short window.
+pub const FIFTEEN_MINUTES: Duration = Duration::from_mins(15);
+
+/// The share of every window, in percent, that work nobody is waiting on may
+/// spend: the walk of an athlete's whole Strava history for their personal
+/// bests.
+///
+/// A quarter. Against Strava's standard read limits of 100 requests per 15
+/// minutes and 1,000 per day, the walk gets 25 requests a window and 250 a
+/// day, one streams request per past run, so a 1,000-run history is seeded in
+/// about four days, while the requests an athlete is waiting on keep three
+/// quarters of every window.
+pub const BACKGROUND_SHARE_PERCENT: u32 = 25;
+
+/// The `tenant_id` and `user_id` a provider's budget buckets are counted
+/// under: the budget is the application's, owed to no tenant or user.
+pub const PLATFORM_SCOPE: &str = "platform";
+
+/// The `counter_key` of `provider`'s budget buckets.
+#[must_use]
+pub fn budget_counter_key(provider: &str) -> String {
+    format!("provider_requests:{provider}")
+}
+
+/// The period label of the `window` bucket that holds `now`.
+///
+/// The bucket's start, to the millisecond, then the window's length in
+/// milliseconds, so two windows starting at the same instant keep separate
+/// buckets and the label sorts by date for the pruning.
+#[must_use]
+pub fn budget_period(now: DateTime<Utc>, window: Duration) -> String {
+    let (start_ms, _) = bucket_bounds(now, window);
+    let start = DateTime::from_timestamp_millis(start_ms).unwrap_or(now);
+    format!(
+        "{}/{}",
+        start.format("%Y-%m-%dT%H:%M:%S%.3fZ"),
+        window_ms(window)
+    )
+}
+
+/// A window's length in milliseconds, never below one.
+fn window_ms(window: Duration) -> i64 {
+    i64::try_from(window.as_millis()).unwrap_or(i64::MAX).max(1)
+}
+
+/// The start and the end, in unix milliseconds, of the epoch-aligned
+/// `window` bucket that holds `now`.
+fn bucket_bounds(now: DateTime<Utc>, window: Duration) -> (i64, i64) {
+    let length = window_ms(window);
+    let now_ms = now.timestamp_millis();
+    let start = now_ms - now_ms.rem_euclid(length);
+    (start, start.saturating_add(length))
+}
+
+/// One budget: at most `max_calls` requests in each `window`.
+#[derive(Debug, Clone, Copy)]
+struct Budget {
+    max_calls: u32,
+    window: Duration,
+}
+
+impl Budget {
+    /// The requests a caller asking for `share_percent` of the window may
+    /// have counted in it.
+    fn allowance(self, share_percent: u32) -> i64 {
+        i64::from(self.max_calls) * i64::from(share_percent) / 100
+    }
+}
+
+/// Holds each provider's budgets and takes requests from them in the
+/// database, so every instance counts into the same windows.
+pub struct ProviderRateLimiter {
+    /// Where the windows are counted: `usage_counters`, shared by every
+    /// instance of the backend.
+    counters: Arc<dyn UsageCounterRepository>,
+    /// Map of `provider_name` -> every budget a request to it must fit.
+    /// Configuration only, the same on every instance; read and cloned out
+    /// before any database call.
+    budgets: DashMap<String, Vec<Budget>>,
+}
 
 /// Result of a rate limit check.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RateLimitStatus {
-    /// The call is within the provider's rate limit.
+    /// The request was taken from every window of the provider's budget.
     Allowed,
-    /// The rate limit has been exceeded; retry after the given duration.
+    /// A window is spent; retry after the given duration.
     Exceeded {
-        /// Duration until the current rate-limit window resets.
+        /// Duration until the spent window resets.
         retry_after: Duration,
     },
 }
 
 impl ProviderRateLimiter {
-    /// Create a rate limiter pre-loaded with known provider rate limits.
+    /// A rate limiter counting in `counters`, pre-loaded with known provider
+    /// rate limits.
     #[must_use]
-    pub fn new() -> Self {
-        let limits = DashMap::new();
-
-        // Strava: 15k requests per day (use daily window for app-wide safety margin)
-        limits.insert(
+    pub fn new(counters: Arc<dyn UsageCounterRepository>) -> Self {
+        let daily = |max_calls| {
+            vec![Budget {
+                max_calls,
+                window: ONE_DAY,
+            }]
+        };
+        let budgets = DashMap::new();
+        // Strava: the standard read limits, per app.
+        budgets.insert(
             "strava".to_owned(),
-            (rate_limits::STRAVA_DEFAULT_DAILY_RATE_LIMIT, ONE_DAY),
+            vec![
+                Budget {
+                    max_calls: rate_limits::STRAVA_RATE_LIMIT_15MIN,
+                    window: FIFTEEN_MINUTES,
+                },
+                Budget {
+                    max_calls: rate_limits::STRAVA_RATE_LIMIT_DAILY,
+                    window: ONE_DAY,
+                },
+            ],
         );
-        // Garmin: 1k requests per day
-        limits.insert(
+        budgets.insert(
             "garmin".to_owned(),
-            (rate_limits::GARMIN_DEFAULT_DAILY_RATE_LIMIT, ONE_DAY),
+            daily(rate_limits::GARMIN_DEFAULT_DAILY_RATE_LIMIT),
         );
-        // WHOOP: 1k requests per day
-        limits.insert(
+        budgets.insert(
             "whoop".to_owned(),
-            (rate_limits::WHOOP_DEFAULT_DAILY_RATE_LIMIT, ONE_DAY),
+            daily(rate_limits::WHOOP_DEFAULT_DAILY_RATE_LIMIT),
         );
-        // Terra: 1k requests per day
-        limits.insert(
+        budgets.insert(
             "terra".to_owned(),
-            (rate_limits::TERRA_DEFAULT_DAILY_RATE_LIMIT, ONE_DAY),
+            daily(rate_limits::TERRA_DEFAULT_DAILY_RATE_LIMIT),
         );
 
         info!(
-            provider_count = limits.len(),
+            provider_count = budgets.len(),
             "Provider rate limiter initialized"
         );
 
-        Self {
-            windows: Arc::new(DashMap::new()),
-            limits: Arc::new(limits),
-        }
+        Self { counters, budgets }
     }
 
-    /// Check whether a call to the given provider is within the rate limit.
+    /// Take one request an athlete is waiting on from `provider`'s budget:
+    /// the whole of every window is open to it.
     ///
-    /// Returns `Allowed` if no limit is configured or the window has not been
-    /// exhausted. Returns `Exceeded` with a `retry_after` duration when the
-    /// provider's quota has been reached for the current window.
-    #[must_use]
-    pub fn check_rate_limit(&self, provider: &str) -> RateLimitStatus {
-        let Some(limit_entry) = self.limits.get(provider) else {
-            // No rate limit configured for this provider
-            return RateLimitStatus::Allowed;
-        };
-        let (max_calls, window_duration) = *limit_entry;
-
-        let now = Instant::now();
-
-        // Check and possibly reset the window
-        let mut entry = self.windows.entry(provider.to_owned()).or_insert((0, now));
-        let (count, window_start) = entry.value_mut();
-
-        // If the window has elapsed, reset it
-        let elapsed = now.duration_since(*window_start);
-        if elapsed >= window_duration {
-            *count = 0;
-            *window_start = now;
-            return RateLimitStatus::Allowed;
-        }
-
-        if *count >= max_calls {
-            let retry_after = window_duration.saturating_sub(elapsed);
+    /// # Errors
+    /// Returns a database error when a window cannot be counted.
+    pub async fn acquire(&self, provider: &str) -> AppResult<RateLimitStatus> {
+        let status = self.acquire_share(provider, 100).await?;
+        if let RateLimitStatus::Exceeded { retry_after } = &status {
             warn!(
                 provider = provider,
-                count = *count,
-                max_calls = max_calls,
                 retry_after_secs = retry_after.as_secs(),
                 "Provider rate limit exceeded"
             );
-            RateLimitStatus::Exceeded { retry_after }
-        } else {
-            RateLimitStatus::Allowed
         }
+        Ok(status)
     }
 
-    /// Record a successful API call to the given provider.
+    /// Take one request nobody is waiting on from `provider`'s budget: taken
+    /// only while every window holds fewer requests than
+    /// [`BACKGROUND_SHARE_PERCENT`] of its budget.
     ///
-    /// Increments the call counter for the current window.
-    pub fn record_call(&self, provider: &str) {
-        let now = Instant::now();
-        let mut entry = self.windows.entry(provider.to_owned()).or_insert((0, now));
-        let (count, window_start) = entry.value_mut();
-
-        // Reset window if expired
-        if let Some(limit_entry) = self.limits.get(provider) {
-            let (_, window_duration) = *limit_entry;
-            if now.duration_since(*window_start) >= window_duration {
-                *count = 0;
-                *window_start = now;
-            }
+    /// # Errors
+    /// Returns a database error when a window cannot be counted.
+    pub async fn acquire_background(&self, provider: &str) -> AppResult<RateLimitStatus> {
+        let status = self
+            .acquire_share(provider, BACKGROUND_SHARE_PERCENT)
+            .await?;
+        if let RateLimitStatus::Exceeded { retry_after } = &status {
+            debug!(
+                provider = provider,
+                retry_after_secs = retry_after.as_secs(),
+                "Background share of the provider's rate limit spent"
+            );
         }
-
-        *count += 1;
+        Ok(status)
     }
 
-    /// Register a custom rate limit for a provider not in the default set.
-    pub fn register_provider(&self, provider: &str, max_calls: u32, window: Duration) {
-        self.limits.insert(provider.to_owned(), (max_calls, window));
+    /// Take one request from every window of `provider` that holds fewer
+    /// than `share_percent` of its budget; when one does not, give back the
+    /// windows already taken and say how long until that one resets.
+    async fn acquire_share(
+        &self,
+        provider: &str,
+        share_percent: u32,
+    ) -> AppResult<RateLimitStatus> {
+        let budgets: Vec<Budget> = match self.budgets.get(provider) {
+            Some(budgets) => budgets.clone(),
+            // No rate limit configured for this provider
+            None => return Ok(RateLimitStatus::Allowed),
+        };
+        let key = budget_counter_key(provider);
+        let now = Utc::now();
+        let mut taken: Vec<String> = Vec::with_capacity(budgets.len());
+        for budget in budgets {
+            let period = budget_period(now, budget.window);
+            let landed = self
+                .counters
+                .increment_counter_below(
+                    PLATFORM_SCOPE,
+                    PLATFORM_SCOPE,
+                    &key,
+                    &period,
+                    budget.allowance(share_percent),
+                )
+                .await?;
+            if landed {
+                taken.push(period);
+                continue;
+            }
+            for period in &taken {
+                self.counters
+                    .increment_counter(PLATFORM_SCOPE, PLATFORM_SCOPE, &key, period, -1)
+                    .await?;
+            }
+            let (_, end_ms) = bucket_bounds(now, budget.window);
+            let retry_ms = u64::try_from(end_ms - now.timestamp_millis()).unwrap_or(0);
+            return Ok(RateLimitStatus::Exceeded {
+                retry_after: Duration::from_millis(retry_ms),
+            });
+        }
+        Ok(RateLimitStatus::Allowed)
+    }
+
+    /// Replace `provider`'s budgets with `budgets`, each `(max_calls,
+    /// window)`.
+    pub fn set_budgets(&self, provider: &str, budgets: &[(u32, Duration)]) {
+        self.budgets.insert(
+            provider.to_owned(),
+            budgets
+                .iter()
+                .map(|(max_calls, window)| Budget {
+                    max_calls: *max_calls,
+                    window: *window,
+                })
+                .collect(),
+        );
         info!(
             provider = provider,
-            max_calls = max_calls,
-            window_secs = window.as_secs(),
-            "Custom provider rate limit registered"
+            budgets = ?budgets,
+            "Provider rate limit budgets set"
         );
-    }
-}
-
-impl Default for ProviderRateLimiter {
-    fn default() -> Self {
-        Self::new()
     }
 }

@@ -26,7 +26,6 @@ pub mod tool_handlers;
 /// helpers remain here.
 pub mod tool_selection;
 
-// Transport primitives moved to the `pierre-mcp-transport` leaf crate.
-// Callers now use the canonical path `pierre_mcp_transport::{progress,
-// sampling_peer, tenant_isolation, oauth_flow_manager}` directly per the
-// facade-shim deletion plan (gist item #12).
+// Transport primitives live in the `pierre-mcp-transport` leaf crate.
+// Callers use the canonical path `pierre_mcp_transport::{tenant_isolation,
+// oauth_flow_manager}` directly.

@@ -29,7 +29,7 @@ import { StravaLogo, GarminLogo, TrainingPeaksLogo, CorosLogo, GoogleLogo, Apple
 import type { SciotteTarget } from '@pierre/shared-types';
 import { OAuthAppSetupModal } from './OAuthAppSetupModal';
 import { ProviderNotice } from './ProviderNotice';
-import { PROVIDER_NOTICES, type ProviderNoticeKeys } from '@pierre/shared-constants';
+import { SCIOTTE_LOGIN_PRESETS } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { PROVIDER_BRAND } from '../constants/brands';
 import { describeApiError } from '@pierre/ui-logic';
@@ -162,61 +162,30 @@ const METHOD_CONFIGS: Record<LoginMethod, MethodConfig> = {
   },
 };
 
-/** How the credential login presents each target. */
-interface TargetPreset {
-  /** The provider's name in the header and progress copy. A proper noun. */
-  brandKey: string;
-  brandColor: { primary: string; gradient: [string, string] };
-  renderLogo: (size: number) => React.ReactNode;
-  /** Title and placeholder of the provider's own credential form. */
-  titleKey: string;
-  placeholderKey: string;
-  /** What the provider signs in with — TrainingPeaks takes a username. */
-  identifier: 'email' | 'username';
-  /** No Google/Apple choice to make: straight to the provider's form. */
-  directCredentials: boolean;
-  /** The exposure notice shown while the account has not accepted it. */
-  notice?: ProviderNoticeKeys;
-}
-
-const TARGET_PRESETS: Record<SciotteTarget, TargetPreset> = {
+/**
+ * The brand plate of each target. Everything else the login needs to know
+ * about a target — its name, form copy, identifier and notice — is the shared
+ * `SCIOTTE_LOGIN_PRESETS` the web modal reads too.
+ */
+const TARGET_BRAND: Record<
+  SciotteTarget,
+  { brandColor: { primary: string; gradient: [string, string] }; renderLogo: (size: number) => React.ReactNode }
+> = {
   strava: {
-    brandKey: 'app.brandStrava',
     brandColor: BRAND_COLORS.strava,
     renderLogo: (size) => <StravaLogo size={size} color={PLATE_INK} />,
-    titleKey: 'app.emailAndPassword',
-    placeholderKey: 'app.emailAddress',
-    identifier: 'email',
-    directCredentials: false,
   },
   garmin: {
-    brandKey: 'app.brandGarminConnect',
     brandColor: BRAND_COLORS.garmin,
     renderLogo: (size) => <GarminLogo size={size} color={PLATE_INK} />,
-    titleKey: 'app.garminAccount',
-    placeholderKey: 'app.garminEmail',
-    identifier: 'email',
-    directCredentials: true,
   },
   trainingpeaks: {
-    brandKey: 'app.brandTrainingPeaks',
     brandColor: BRAND_COLORS.trainingpeaks,
     renderLogo: (size) => <TrainingPeaksLogo size={size} color={PLATE_INK} />,
-    titleKey: 'app.trainingpeaksAccount',
-    placeholderKey: 'app.trainingpeaksUsername',
-    identifier: 'username',
-    directCredentials: true,
-    notice: PROVIDER_NOTICES.sciotte_trainingpeaks,
   },
   coros: {
-    brandKey: 'app.brandCoros',
     brandColor: BRAND_COLORS.coros,
     renderLogo: (size) => <CorosLogo size={size} color={PLATE_INK} />,
-    titleKey: 'app.corosAccount',
-    placeholderKey: 'app.corosEmail',
-    identifier: 'email',
-    directCredentials: true,
-    notice: PROVIDER_NOTICES.sciotte_coros,
   },
 };
 
@@ -250,10 +219,11 @@ export function SciotteLoginModal({
   // expose a public OAuth app for end users (only sciotte's headless login).
   const [showStravaBYO, setShowStravaBYO] = useState(false);
 
-  const preset = TARGET_PRESETS[target];
-  const brandColor = preset.brandColor;
+  const preset = SCIOTTE_LOGIN_PRESETS[target];
+  const brand = TARGET_BRAND[target];
+  const brandColor = brand.brandColor;
   // Brand names, not copy: identical in every locale.
-  const platformName = t(preset.brandKey);
+  const platformName = t(preset.labelKey);
   // The notice is shown only while the account has not accepted it, and only
   // for a target that has one.
   const notice = consentRequired ? preset.notice : undefined;
@@ -261,7 +231,7 @@ export function SciotteLoginModal({
 
   useEffect(() => {
     if (visible) {
-      setPhase(TARGET_PRESETS[target].directCredentials ? 'credentials' : 'choose');
+      setPhase(SCIOTTE_LOGIN_PRESETS[target].directCredentials ? 'credentials' : 'choose');
       setMethod('email');
       setConsentAccepted(false);
       setStatus('');
@@ -446,7 +416,7 @@ export function SciotteLoginModal({
         ...METHOD_CONFIGS.email,
         titleKey: preset.titleKey,
         emailPlaceholderKey: preset.placeholderKey,
-        bgColor: preset.brandColor.primary,
+        bgColor: brand.brandColor.primary,
       }
     : METHOD_CONFIGS[method];
   const usesUsername = preset.identifier === 'username';
@@ -858,7 +828,7 @@ export function SciotteLoginModal({
                   end={{ x: 1, y: 1 }}
                   style={{ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}
                 >
-                  {preset.renderLogo(22)}
+                  {brand.renderLogo(22)}
                 </LinearGradient>
                 <View className="flex-1">
                   <Text className="text-lg font-bold text-text-primary">

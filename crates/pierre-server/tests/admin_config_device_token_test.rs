@@ -92,14 +92,21 @@ async fn user_with_role(resources: &Arc<ServerContext>, role: UserRole) -> User 
     user
 }
 
-/// Mint an admin token the way the device grant does (`super_admin` = true)
-/// or the way `token generate` does, and return its `Bearer` header.
-async fn admin_token(resources: &Arc<ServerContext>, service: &str, super_admin: bool) -> String {
-    let request = if super_admin {
+/// Mint an admin token the way the device grant does (`super_admin` = true,
+/// acting as `operator`) or the way `token generate` does (no operator), and
+/// return its `Bearer` header.
+async fn admin_token(
+    resources: &Arc<ServerContext>,
+    service: &str,
+    super_admin: bool,
+    operator: Option<Uuid>,
+) -> String {
+    let mut request = if super_admin {
         CreateAdminTokenRequest::super_admin(service.to_owned())
     } else {
         CreateAdminTokenRequest::new(service.to_owned())
     };
+    request.operator_user_id = operator;
     let minted = resources
         .common
         .repos
@@ -157,8 +164,9 @@ async fn a_device_login_token_reads_and_writes_as_the_approving_super_admin() {
     let athlete = user_with_role(&resources, UserRole::User).await;
     let device_token = admin_token(
         &resources,
-        &format!("{DEVICE_CLI_SERVICE_PREFIX}{}", operator.email),
+        &format!("{DEVICE_CLI_SERVICE_PREFIX}{}", operator.id),
         true,
+        Some(operator.id),
     )
     .await;
 
@@ -186,7 +194,7 @@ async fn a_device_login_token_reads_and_writes_as_the_approving_super_admin() {
 async fn a_service_token_names_no_operator_and_is_refused() {
     let resources = create_test_server_resources().await.unwrap();
     let athlete = user_with_role(&resources, UserRole::User).await;
-    let service_token = admin_token(&resources, "ops-bot", true).await;
+    let service_token = admin_token(&resources, "ops-bot", true, None).await;
 
     // Auth failures ship sanitized, so the reason is not on the wire; the
     // effect is: a super-admin service token writes nothing.
@@ -199,14 +207,38 @@ async fn a_service_token_names_no_operator_and_is_refused() {
 }
 
 #[tokio::test]
+async fn a_token_named_for_an_operator_does_not_act_as_them() {
+    let resources = create_test_server_resources().await.unwrap();
+    let operator = user_with_role(&resources, UserRole::SuperAdmin).await;
+    let athlete = user_with_role(&resources, UserRole::User).await;
+    // The name a device login used to carry, on a token no device grant
+    // minted: it names the operator but stores no operator.
+    let look_alike = admin_token(
+        &resources,
+        &format!("{DEVICE_CLI_SERVICE_PREFIX}{}", operator.email),
+        true,
+        None,
+    )
+    .await;
+
+    let refused = put_for(&look_alike, athlete.id, router(&resources)).await;
+    assert_eq!(refused.status_code(), StatusCode::UNAUTHORIZED);
+    assert!(
+        override_authors(&resources, athlete.id).await.is_empty(),
+        "a device-shaped name must not write rows audited as the operator it names"
+    );
+}
+
+#[tokio::test]
 async fn a_device_prefixed_token_that_is_not_super_admin_is_refused() {
     let resources = create_test_server_resources().await.unwrap();
     let operator = user_with_role(&resources, UserRole::SuperAdmin).await;
     let athlete = user_with_role(&resources, UserRole::User).await;
     let weak_token = admin_token(
         &resources,
-        &format!("{DEVICE_CLI_SERVICE_PREFIX}{}", operator.email),
+        &format!("{DEVICE_CLI_SERVICE_PREFIX}{}", operator.id),
         false,
+        Some(operator.id),
     )
     .await;
 

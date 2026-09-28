@@ -1,13 +1,13 @@
 // ABOUTME: Dashboard route handlers for monitoring and analytics
-// ABOUTME: Provides REST endpoints for viewing system status, usage analytics, and request logs
+// ABOUTME: Provides REST endpoints for usage analytics and the tool-usage breakdown
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Dashboard routes for monitoring and analytics
 //!
-//! This module provides endpoints for viewing usage statistics, rate limit status,
-//! request logs, and other monitoring data. All handlers require valid JWT authentication.
+//! This module provides endpoints for viewing usage analytics and the per-tool
+//! usage breakdown. All handlers require valid JWT authentication.
 //!
 //! The route group is generic over [`pierre_runtime_context::DashboardCtx`] (for
 //! repository registry access) and [`pierre_runtime_context::MiddlewareCtx`] (for
@@ -44,19 +44,6 @@ const fn default_days() -> u32 {
     30
 }
 
-/// Query parameters for request logs
-#[derive(Deserialize)]
-struct RequestLogsQuery {
-    #[serde(default)]
-    api_key: Option<String>,
-    #[serde(default)]
-    time_range: Option<String>,
-    #[serde(default)]
-    status: Option<String>,
-    #[serde(default)]
-    tool: Option<String>,
-}
-
 /// Query parameters for tool usage
 #[derive(Deserialize)]
 struct ToolUsageQuery {
@@ -80,65 +67,16 @@ impl DashboardRoutes {
     /// `pierre-server`'s `ServerContext`.
     ///
     /// Routes are prefixed with /api to match frontend API conventions:
-    /// - /api/dashboard/overview - Dashboard overview (status, user, admin)
     /// - /api/dashboard/analytics - Usage analytics with configurable time range
-    /// - /api/dashboard/rate-limits - Rate limit status
-    /// - /api/dashboard/request-logs - Request logs with filtering
-    /// - /api/dashboard/request-stats - Detailed request statistics
     /// - /api/dashboard/tool-usage - Tool usage breakdown
     pub fn routes<C>() -> Router<Arc<C>>
     where
         C: DashboardCtx + MiddlewareCtx,
     {
         Router::new()
-            // Primary dashboard endpoints matching frontend API calls
-            .route(
-                "/api/dashboard/overview",
-                get(handle_dashboard_overview::<C>),
-            )
             .route("/api/dashboard/analytics", get(handle_usage_analytics::<C>))
-            .route("/api/dashboard/rate-limits", get(handle_rate_limits::<C>))
-            .route("/api/dashboard/request-logs", get(handle_request_logs::<C>))
-            .route(
-                "/api/dashboard/request-stats",
-                get(handle_detailed_stats::<C>),
-            )
             .route("/api/dashboard/tool-usage", get(handle_tool_usage::<C>))
-            // Alternative routes without /api prefix
-            .route("/dashboard/status", get(handle_dashboard_overview::<C>))
-            .route("/dashboard/user", get(handle_dashboard_overview::<C>))
-            .route("/dashboard/admin", get(handle_dashboard_overview::<C>))
-            .route("/dashboard/detailed", get(handle_detailed_stats::<C>))
-            .route("/dashboard/usage", get(handle_usage_analytics::<C>))
-            .route("/dashboard/rate-limits", get(handle_rate_limits::<C>))
-            .route("/dashboard/logs", get(handle_request_logs::<C>))
     }
-}
-
-/// Handle dashboard overview request
-async fn handle_dashboard_overview<C: DashboardCtx + MiddlewareCtx>(
-    State(resources): State<Arc<C>>,
-    auth: AuthenticatedUser,
-) -> Result<Response, AppError> {
-    let auth = auth.into_inner();
-
-    let service = DashboardService::new(resources);
-    let response = service.get_dashboard_overview(auth).await?;
-
-    Ok((StatusCode::OK, Json(response)).into_response())
-}
-
-/// Handle detailed stats request
-async fn handle_detailed_stats<C: DashboardCtx + MiddlewareCtx>(
-    State(resources): State<Arc<C>>,
-    auth: AuthenticatedUser,
-) -> Result<Response, AppError> {
-    let auth = auth.into_inner();
-
-    let service = DashboardService::new(resources);
-    let response = service.get_request_stats(auth, None, None).await?;
-
-    Ok((StatusCode::OK, Json(response)).into_response())
 }
 
 /// Handle usage analytics request
@@ -151,41 +89,6 @@ async fn handle_usage_analytics<C: DashboardCtx + MiddlewareCtx>(
 
     let service = DashboardService::new(resources);
     let response = service.get_usage_analytics(auth, params.days).await?;
-
-    Ok((StatusCode::OK, Json(response)).into_response())
-}
-
-/// Handle rate limits overview request
-async fn handle_rate_limits<C: DashboardCtx + MiddlewareCtx>(
-    State(resources): State<Arc<C>>,
-    auth: AuthenticatedUser,
-) -> Result<Response, AppError> {
-    let auth = auth.into_inner();
-
-    let service = DashboardService::new(resources);
-    let response = service.get_rate_limit_overview(auth).await?;
-
-    Ok((StatusCode::OK, Json(response)).into_response())
-}
-
-/// Handle request logs request
-async fn handle_request_logs<C: DashboardCtx + MiddlewareCtx>(
-    State(resources): State<Arc<C>>,
-    auth: AuthenticatedUser,
-    Query(params): Query<RequestLogsQuery>,
-) -> Result<Response, AppError> {
-    let auth = auth.into_inner();
-
-    let service = DashboardService::new(resources);
-    let response = service
-        .get_request_logs(
-            auth,
-            params.api_key.as_deref(),
-            params.time_range.as_deref(),
-            params.status.as_deref(),
-            params.tool.as_deref(),
-        )
-        .await?;
 
     Ok((StatusCode::OK, Json(response)).into_response())
 }

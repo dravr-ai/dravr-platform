@@ -768,8 +768,14 @@ async fn build_personalized_inputs(
     }
     let uuid = Uuid::parse_str(user_id).ok()?;
     let cageux = ctx.cageux_config_registry.current();
-    let metrics =
-        build_athlete_metrics(ctx.repos.as_ref(), &cageux.algorithms, tenant_id, uuid).await;
+    let metrics = build_athlete_metrics(
+        ctx.repos.as_ref(),
+        &cageux.algorithms,
+        &ctx.config.training_zones,
+        tenant_id,
+        uuid,
+    )
+    .await;
     if !metrics.is_usable() {
         return None;
     }

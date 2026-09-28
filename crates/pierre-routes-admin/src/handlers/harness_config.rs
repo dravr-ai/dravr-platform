@@ -59,7 +59,7 @@ pub(crate) async fn handle_get_harness_config(
     admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
 
     info!(
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         "admin fetched harness config"
     );
 
@@ -110,7 +110,7 @@ pub(crate) async fn handle_put_harness_config(
     validate_document(&document)?;
 
     info!(
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         window_tokens = document.compaction.window_tokens,
         guardrail_blocked_topics = document.guardrails.blocked_topics.len(),
         "admin updated harness config"

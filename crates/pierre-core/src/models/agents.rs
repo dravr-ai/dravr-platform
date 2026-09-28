@@ -585,6 +585,26 @@ impl Agent {
         self.tags.iter().any(|tag| tag == Self::COACH_TOOL_TAG)
     }
 
+    /// The editable content a version-history snapshot records.
+    ///
+    /// One shape for both sides of the history: the repository stores it as
+    /// `agent_versions.content_snapshot`, and the diff route builds it from the
+    /// live agent to compare a stored version against the current content.
+    #[must_use]
+    pub fn content_snapshot(&self) -> serde_json::Value {
+        serde_json::json!({
+            "title": self.title,
+            "description": self.description,
+            "system_prompt": self.system_prompt,
+            "category": self.category.as_str(),
+            "tags": self.tags,
+            "sample_prompts": self.sample_prompts,
+            "token_count": self.token_count,
+            "visibility": self.visibility.as_str(),
+            "prerequisites": self.prerequisites,
+        })
+    }
+
     /// Calculate section-aware token count when structured fields are available.
     ///
     /// Counted sections: `purpose`, `instructions`, `example_inputs`, `example_outputs`, `success_criteria`.

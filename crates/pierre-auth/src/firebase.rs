@@ -10,13 +10,16 @@
 //! - Firebase ID token validation using Google's public keys
 //! - Token claims extraction (email, provider, etc.)
 //!
-//! Key fetching and caching is [`GoogleCertCache`] pointed at the Firebase
-//! `securetoken@system` certificate endpoint.
+//! Key fetching and caching is dravr-tronc's [`GoogleKeySet`] pointed at the
+//! Firebase `securetoken@system` JWK set; the Firebase claim checks are this
+//! module's own.
 //!
 //! ## Security Model
 //!
-//! - Public keys fetched from Google's official endpoint
-//! - Keys cached based on Cache-Control header (typically 1 hour)
+//! - Public keys fetched from Google's official JWK set endpoint
+//! - Keys reused for an hour; an unknown `kid` refetches, but never within
+//!   [`dravr_tronc::iam::MIN_REFETCH_INTERVAL`] of the last fetch, so made-up
+//!   key ids cannot turn each request into a fetch from Google
 //! - Tokens validated for issuer, audience, and expiry
 //! - Provider ID extracted from `firebase.sign_in_provider` claim
 //!
@@ -31,7 +34,6 @@
 //!     project_id: Some("my-project".to_string()),
 //!     api_key: None,
 //!     enabled: true,
-//!     key_cache_ttl_secs: 3600,
 //! };
 //! let firebase = FirebaseAuth::new(config);
 //!
@@ -45,6 +47,7 @@
 
 use std::collections::HashMap;
 
+use dravr_tronc::iam::{GoogleKeySet, IamError};
 use jsonwebtoken::errors::ErrorKind;
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
@@ -52,12 +55,12 @@ use serde_json::Value;
 use tracing::{debug, info, warn};
 
 use crate::config::oauth::FirebaseConfig;
-use crate::google_certs::GoogleCertCache;
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::http_client::api_inner_client;
 
-/// Google's Firebase public key endpoint
-const FIREBASE_CERTS_URL: &str =
-    "https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com";
+/// Google's JWK set for the keys that sign Firebase Authentication ID tokens
+pub const FIREBASE_JWKS_URL: &str =
+    "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com";
 
 /// Firebase issuer URL template (includes project ID)
 const FIREBASE_ISSUER_TEMPLATE: &str = "https://securetoken.google.com/";
@@ -103,22 +106,30 @@ pub struct FirebaseSpecificClaims {
 /// Firebase Authentication handler
 ///
 /// Provides token validation with automatic key caching through the
-/// Firebase certificate cache.
+/// Firebase JWK set.
 pub struct FirebaseAuth {
     /// Firebase configuration
     config: FirebaseConfig,
-    /// Public keys behind the Firebase `securetoken@system` certificate endpoint
-    certs: GoogleCertCache,
+    /// Public keys behind the Firebase `securetoken@system` JWK set
+    keys: GoogleKeySet,
 }
 
 impl FirebaseAuth {
-    /// Create a new Firebase authentication handler
+    /// Create a Firebase authentication handler reading Google's published
+    /// Firebase signing keys at [`FIREBASE_JWKS_URL`].
     #[must_use]
     pub fn new(config: FirebaseConfig) -> Self {
-        Self {
+        Self::with_key_set(
             config,
-            certs: GoogleCertCache::new(FIREBASE_CERTS_URL),
-        }
+            GoogleKeySet::new(FIREBASE_JWKS_URL, api_inner_client().clone()),
+        )
+    }
+
+    /// Create a Firebase authentication handler reading its signing keys from
+    /// `keys` — the key set a test serves from a local listener.
+    #[must_use]
+    pub const fn with_key_set(config: FirebaseConfig, keys: GoogleKeySet) -> Self {
+        Self { config, keys }
     }
 
     /// Check if Firebase authentication is enabled and configured
@@ -178,13 +189,23 @@ impl FirebaseAuth {
         })?;
 
         // Get the public key for this key ID
-        let pem_key = self.certs.public_key(&kid).await?;
-
-        // Create the decoding key from the PEM
-        let decoding_key = DecodingKey::from_rsa_pem(pem_key.as_bytes()).map_err(|e| {
-            warn!(error = %e, kid = %kid, "Failed to create decoding key from PEM");
-            AppError::internal(format!("Invalid public key: {e}"))
+        let key = self.keys.key(&kid).await.map_err(|e| match e {
+            IamError::Rejected(why) => {
+                debug!(kid = %kid, reason = %why, "Firebase token names no published signing key");
+                AppError::auth_invalid("Unknown token signing key")
+            }
+            other => {
+                warn!(error = %other, "Firebase signing keys are unavailable");
+                AppError::internal("Firebase signing keys are unavailable")
+            }
         })?;
+
+        // Create the decoding key from the published modulus and exponent
+        let decoding_key = DecodingKey::from_rsa_components(key.modulus(), key.exponent())
+            .map_err(|e| {
+                warn!(error = %e, kid = %kid, "Firebase signing key did not yield a decoding key");
+                AppError::internal(format!("Invalid public key: {e}"))
+            })?;
 
         // Set up validation
         let mut validation = Validation::new(Algorithm::RS256);

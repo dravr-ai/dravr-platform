@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use pierre_chat_pipeline::stages::persona_conformance::{enforce_conformance, ContractViolation};
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
+use pierre_contremaitre::PromptRegistry;
 use pierre_core::errors::AppError;
 use pierre_core::models::CoachingPersona;
 use pierre_llm::{
@@ -31,6 +32,7 @@ async fn no_violations_returns_reply_unchanged() {
     let original = "Run 5k easy today.".to_owned();
     let out = enforce_conformance(
         None,
+        &PromptRegistry::new(),
         &registry,
         CoachingPersona::Coach,
         original.clone(),
@@ -50,6 +52,7 @@ async fn non_strict_contract_is_shadow_mode_only() {
     let violations = vec![a_violation()];
     let out = enforce_conformance(
         None,
+        &PromptRegistry::new(),
         &registry,
         CoachingPersona::Coach,
         original.clone(),
@@ -185,6 +188,7 @@ async fn the_repair_runs_on_the_same_model_as_the_turn() {
 
     let out = enforce_conformance(
         Some(&provider),
+        &PromptRegistry::new(),
         &strict_registry(),
         CoachingPersona::Casual,
         "Run 5k easy today, and remember to hydrate well afterwards.".to_owned(),
@@ -270,6 +274,7 @@ async fn the_editor_is_told_to_keep_an_opening_introduction() {
 
     let out = enforce_conformance(
         Some(&provider),
+        &PromptRegistry::new(),
         &strict_registry(),
         CoachingPersona::Casual,
         "Salut, je suis l'Agent Semi-Marathon, là pour préparer ton 21,1 km avec toi. \
@@ -290,6 +295,68 @@ async fn the_editor_is_told_to_keep_an_opening_introduction() {
         instructions[0].contains("introduces itself, keep that sentence"),
         "the editor must be told to keep the opening introduction: {}",
         instructions[0]
+    );
+}
+
+/// The editor's instructions are the catalogue's `persona_style_editor`
+/// prompt with the persona and the broken rules filled in, and an edit to the
+/// catalogue reaches the next repair without a build.
+#[tokio::test]
+async fn the_editor_reads_its_instructions_from_the_catalogue() {
+    let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let provider = Arc::new(ChatProvider::Custom(Arc::new(InstructionCapturingEditor {
+        seen: Arc::clone(&seen),
+        models: vec!["instruction-capturing-editor".to_owned()],
+    })));
+    let prompts = PromptRegistry::new();
+    let reply = "Run 5k easy today, and remember to hydrate well afterwards.";
+
+    let _ = enforce_conformance(
+        Some(&provider),
+        &prompts,
+        &strict_registry(),
+        CoachingPersona::Casual,
+        reply.to_owned(),
+        &[a_violation()],
+        "claude-sonnet-5",
+    )
+    .await;
+    prompts.update_system_prompt(
+        "persona_style_editor",
+        "EDITED persona={{PERSONA}}\n{{RULES}}\n".to_owned(),
+        "sha-edited".to_owned(),
+    );
+    let _ = enforce_conformance(
+        Some(&provider),
+        &prompts,
+        &strict_registry(),
+        CoachingPersona::Casual,
+        reply.to_owned(),
+        &[a_violation()],
+        "claude-sonnet-5",
+    )
+    .await;
+
+    let instructions = seen.lock().expect("capture lock").clone();
+    assert_eq!(instructions.len(), 2, "two repair requests");
+    assert!(
+        instructions[0].starts_with("You are a style editor for the 'casual' coaching persona."),
+        "the compiled-in catalogue text names the persona: {}",
+        instructions[0]
+    );
+    assert!(
+        instructions[0].contains("- reply exceeds the persona word budget"),
+        "the broken rule is filled in: {}",
+        instructions[0]
+    );
+    assert!(
+        !instructions[0].contains("{{"),
+        "no placeholder may reach the model: {}",
+        instructions[0]
+    );
+    assert_eq!(
+        instructions[1],
+        "EDITED persona=casual\n- reply exceeds the persona word budget"
     );
 }
 
@@ -327,6 +394,7 @@ async fn strict_contract_rewrites_the_reply_through_the_editor() {
 
     let out = enforce_conformance(
         Some(&provider),
+        &PromptRegistry::new(),
         &registry,
         CoachingPersona::Casual,
         original.clone(),
@@ -351,6 +419,7 @@ async fn strict_contract_without_a_provider_keeps_the_original() {
 
     let out = enforce_conformance(
         None,
+        &PromptRegistry::new(),
         &registry,
         CoachingPersona::Casual,
         original.clone(),

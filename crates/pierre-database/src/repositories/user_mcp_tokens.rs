@@ -39,8 +39,6 @@ pub trait UserMcpTokenRepository: Send + Sync {
     async fn revoke_token(&self, token_id: &str, user_id: Uuid) -> AppResult<()>;
     /// Get a user MCP token by ID
     async fn get_token(&self, token_id: &str, user_id: Uuid) -> AppResult<Option<UserMcpToken>>;
-    /// Cleanup expired user MCP tokens (mark as revoked)
-    async fn cleanup_expired_tokens(&self) -> AppResult<u64>;
 }
 
 /// How many leading characters of the raw token are stored in the clear
@@ -118,15 +116,6 @@ pub(crate) const GET_MCP_TOKEN_SQL: &str = r"
                    expires_at, last_used_at, usage_count, is_revoked, created_at
             FROM user_mcp_tokens
             WHERE id = $1 AND user_id = $2
-            ";
-
-/// Revoke every live token whose window has closed.
-pub(crate) const SWEEP_EXPIRED_MCP_TOKENS_SQL: &str = r"
-            UPDATE user_mcp_tokens
-            SET is_revoked = TRUE
-            WHERE expires_at IS NOT NULL
-            AND expires_at < $1
-            AND is_revoked = FALSE
             ";
 
 /// The error for a column of this table that would not decode.
@@ -350,20 +339,6 @@ macro_rules! impl_user_mcp_token_repository {
                     })?;
 
                 row.as_ref().map(mcp_token_from_row).transpose()
-            }
-
-            async fn cleanup_expired_tokens(&self) -> AppResult<u64> {
-                let result = sqlx::query(SWEEP_EXPIRED_MCP_TOKENS_SQL)
-                    .bind(Utc::now())
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!(
-                            "Failed to cleanup expired user MCP tokens: {e}"
-                        ))
-                    })?;
-
-                Ok(result.rows_affected())
             }
         }
     };

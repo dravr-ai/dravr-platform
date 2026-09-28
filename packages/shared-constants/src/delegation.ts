@@ -14,11 +14,17 @@ import type { DelegationRefusalReason } from '@pierre/shared-types';
 export const DELEGATION_REFUSAL_KEY: Record<DelegationRefusalReason, string> = {
   trainingpeaks_not_connected: 'delegation.connectFirst',
   trainingpeaks_not_coach_account: 'delegation.notCoachAccount',
+  trainingpeaks_email_missing: 'delegation.coachEmailMissing',
+  trainingpeaks_email_mismatch: 'delegation.coachEmailMismatch',
+  dravr_email_unverified: 'delegation.emailUnverified',
   trainingpeaks_reconnect_needed: 'delegation.reconnectFirst',
   trainingpeaks_terms_outdated: 'delegation.termsOutdated',
   unsupported_provider: 'delegation.actionFailed',
   invalid_athlete: 'delegation.actionFailed',
   athlete_not_on_roster: 'delegation.notOnRoster',
+  athlete_email_missing: 'delegation.athleteEmailMissing',
+  athlete_email_mismatch: 'delegation.athleteEmailMismatch',
+  member_email_unverified: 'delegation.memberEmailUnverified',
   member_is_coach: 'delegation.actionFailed',
   already_proposed: 'delegation.alreadyProposed',
   athlete_already_linked: 'delegation.athleteAlreadyLinked',
@@ -31,10 +37,14 @@ export const DELEGATION_ACTION_FAILED_KEY = 'delegation.actionFailed';
 
 /**
  * The roster refusals the coach resolves on their own TrainingPeaks
- * connection, so the section offers a way to the connections screen.
+ * connection — connecting it, reconnecting it, or connecting the account
+ * registered with their Dravr email — so the section offers a way to the
+ * connections screen.
  */
 export const DELEGATION_CONNECTION_REFUSALS: ReadonlySet<DelegationRefusalReason> = new Set([
   'trainingpeaks_not_connected',
+  'trainingpeaks_email_missing',
+  'trainingpeaks_email_mismatch',
   'trainingpeaks_reconnect_needed',
   'trainingpeaks_terms_outdated',
 ]);

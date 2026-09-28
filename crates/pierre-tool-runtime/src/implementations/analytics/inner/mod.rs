@@ -25,7 +25,7 @@ mod training_load;
 /// Performance trend analysis handler
 mod trends;
 
-pub use activity::{handle_get_activity_intelligence, intelligence_from_model_reply};
+pub use activity::handle_get_activity_intelligence;
 pub use compare::handle_compare_activities;
 pub use fitness_score::calculate_fitness_metrics;
 pub use fitness_score::handle_calculate_fitness_score;
@@ -33,7 +33,6 @@ pub use metrics::handle_calculate_metrics;
 pub use patterns::handle_detect_patterns;
 pub use performance::handle_predict_performance;
 pub use recommendations::handle_generate_recommendations;
-pub use recommendations::sampled_or_wrapped;
 pub use training_load::{
     analyze_detailed_training_load, handle_analyze_training_load, UserPhysiologicalParams,
 };

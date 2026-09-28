@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Coaches domain API - list, read, update and delete the caller's coaches
+// ABOUTME: Coaches domain API - list, read, update and delete the caller's coaches, and their version history
 // ABOUTME: Creation, install and catalogue browsing live in /coach and /discover
 
 import type { AxiosInstance } from 'axios';
@@ -10,11 +10,22 @@ import type {
   UpdateAgentRequest,
   ListAgentsResponse,
   AgentProposalResponse,
+  ListAgentVersionsResponse,
+  AgentVersionDiffResponse,
+  RevertAgentVersionResponse,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
 // Re-export types for consumers
-export type { Agent, UpdateAgentRequest, ListAgentsResponse, AgentProposalResponse };
+export type {
+  Agent,
+  UpdateAgentRequest,
+  ListAgentsResponse,
+  AgentProposalResponse,
+  ListAgentVersionsResponse,
+  AgentVersionDiffResponse,
+  RevertAgentVersionResponse,
+};
 
 export interface ListAgentsOptions {
   category?: string;
@@ -82,6 +93,36 @@ export function createCoachesApi(axios: AxiosInstance) {
      */
     async delete(agentId: string): Promise<void> {
       await axios.delete(ENDPOINTS.COACHES.COACH(agentId));
+    },
+
+    /**
+     * A coach's version history, newest first. Every edit snapshots the
+     * content it replaces, so the current content is not among the versions.
+     */
+    async listVersions(agentId: string): Promise<ListAgentVersionsResponse> {
+      const response = await axios.get<ListAgentVersionsResponse>(ENDPOINTS.COACHES.VERSIONS(agentId));
+      return response.data;
+    },
+
+    /**
+     * The fields that differ between a stored version and the current content.
+     */
+    async diffVersion(agentId: string, version: number): Promise<AgentVersionDiffResponse> {
+      const response = await axios.get<AgentVersionDiffResponse>(
+        ENDPOINTS.COACHES.VERSION_DIFF(agentId, version)
+      );
+      return response.data;
+    },
+
+    /**
+     * Restore a stored version's content. The content it replaces is kept as a
+     * new version, so a revert can itself be reverted.
+     */
+    async revertToVersion(agentId: string, version: number): Promise<RevertAgentVersionResponse> {
+      const response = await axios.post<RevertAgentVersionResponse>(
+        ENDPOINTS.COACHES.VERSION_REVERT(agentId, version)
+      );
+      return response.data;
     },
 
     /**

@@ -225,49 +225,31 @@ mod notification_event_locale_tests {
         let tenant = tenant_of(&resources, user.id).await;
         let service = Arc::new(notification_service(&resources));
 
-        notification_triggers::trigger_activity_synced(
-            &service, user.id, tenant, "act-1", "Course", "10,2 km", "52:14",
-        );
         notification_triggers::trigger_training_load_alert(&service, user.id, tenant, 85.0);
         notification_triggers::trigger_low_recovery_score(&service, user.id, tenant, 32.0);
         notification_triggers::trigger_overtraining_warning(&service, user.id, tenant);
         notification_triggers::trigger_personal_record(
-            &service, user.id, tenant, "act-2", "5 km", "22:14",
+            &service,
+            user.id,
+            tenant,
+            "act-2",
+            "half_marathon",
+            "1:32:14",
         );
-        notification_triggers::trigger_milestone_reached(&service, user.id, tenant, "1 000", "km");
         notification_triggers::trigger_fitness_improvement(
             &service, user.id, tenant, "FTP", "265 W",
         );
         notification_triggers::trigger_plan_updated(&service, user.id, tenant, "Coach Alice");
-        notification_triggers::trigger_agent_feedback(
-            &service,
-            user.id,
-            tenant,
-            "act-3",
-            "Coach Alice",
-            "sortie longue",
-        );
-        notification_triggers::trigger_sync_failure(
-            &service,
-            user.id,
-            tenant,
-            "Strava",
-            "jeton expiré",
-        );
+        notification_triggers::trigger_sync_failure(&service, user.id, tenant, "Strava");
         sleep(Duration::from_millis(600)).await;
 
         let (rows, _, _) = service
             .list_notifications(user.id, tenant, 50, 0, None, false)
             .await
             .unwrap();
-        assert_eq!(rows.len(), 10, "every trigger persists exactly one row");
+        assert_eq!(rows.len(), 7, "every trigger persists exactly one row");
 
         let expected = [
-            (
-                "activity_synced",
-                "Nouvelle activité synchronisée",
-                "Course — 10,2 km en 52:14",
-            ),
             (
                 "training_load_alert",
                 "Charge d'entraînement élevée",
@@ -286,12 +268,7 @@ mod notification_event_locale_tests {
             (
                 "personal_record",
                 "Nouveau record personnel !",
-                "Nouveau record sur 5 km : 22:14",
-            ),
-            (
-                "milestone_reached",
-                "Palier atteint !",
-                "Tu as cumulé 1 000 km cette année",
+                "Nouveau record sur semi-marathon : 1:32:14",
             ),
             (
                 "fitness_improvement",
@@ -303,15 +280,12 @@ mod notification_event_locale_tests {
                 "Plan d'entraînement mis à jour",
                 "Coach Alice a mis à jour ton plan d'entraînement",
             ),
-            (
-                "coach_feedback",
-                "Retour de ton agent",
-                "Coach Alice a laissé une note sur ton sortie longue",
-            ),
+            // The body names the provider and what to do, never the
+            // provider's own error.
             (
                 "sync_failure",
                 "Échec de synchronisation Strava",
-                "jeton expiré",
+                "Dravr n'a pas pu récupérer tes dernières données Strava. Nouvel essai automatique ; reconnecte-toi si ça persiste.",
             ),
         ];
 
@@ -334,16 +308,13 @@ mod notification_event_locale_tests {
     #[tokio::test]
     async fn every_event_round_trips_through_its_wire_form() {
         for event in [
-            NotificationEvent::ActivitySynced,
             NotificationEvent::TrainingLoadAlert,
             NotificationEvent::LowRecoveryScore,
             NotificationEvent::OvertrainingWarning,
             NotificationEvent::PersonalRecord,
-            NotificationEvent::MilestoneReached,
             NotificationEvent::FitnessImprovement,
             NotificationEvent::AgentMessage,
             NotificationEvent::PlanUpdated,
-            NotificationEvent::AgentFeedback,
             NotificationEvent::SyncFailure,
             NotificationEvent::SeatReleaseWarning,
             NotificationEvent::DelegationProposed,

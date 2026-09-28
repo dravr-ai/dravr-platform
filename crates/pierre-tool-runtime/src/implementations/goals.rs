@@ -25,11 +25,10 @@ use serde_json::{from_value, json, Value};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
-use crate::capabilities::{ToolCapabilities, PROVIDER_READ};
+use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, capabilities_to_tronc, object_schema, ok_typed, task_capable, tool_definition,
-    tool_result_to_response,
+    answers_with, object_schema, ok_typed, task_capable, tool_definition, tool_result_to_response,
 };
 use crate::implementations::goals_output::{
     build_feasibility_payload, build_goal_creation_payload, build_progress_payload,
@@ -41,7 +40,7 @@ use crate::protocol::provider_helpers::resolve_provider_for_tool;
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_config::constants::defaults::DEFAULT_GOAL_TIMEFRAME_DAYS;
 use pierre_config::constants::goal_management::MIN_ACTIVITIES_FOR_TRAINING_HISTORY;
 use pierre_config::constants::limits::{
@@ -819,8 +818,8 @@ impl McpTool<dyn ToolRuntime> for SetGoalTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA)
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA
     }
 
     async fn execute(
@@ -898,8 +897,8 @@ impl McpTool<dyn ToolRuntime> for SuggestGoalsTool {
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_READ)
+    fn capabilities(&self) -> ToolCapabilities {
+        PROVIDER_READ
     }
 
     async fn execute(
@@ -984,8 +983,8 @@ impl McpTool<dyn ToolRuntime> for TrackProgressTool {
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_READ)
+    fn capabilities(&self) -> ToolCapabilities {
+        PROVIDER_READ
     }
 
     async fn execute(
@@ -1121,8 +1120,8 @@ impl McpTool<dyn ToolRuntime> for AnalyzeGoalFeasibilityTool {
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_READ)
+    fn capabilities(&self) -> ToolCapabilities {
+        PROVIDER_READ
     }
 
     async fn execute(

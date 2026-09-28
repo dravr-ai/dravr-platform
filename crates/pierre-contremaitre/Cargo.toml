@@ -23,6 +23,7 @@ pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
 async-trait = "0.1"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
+dravr-contremaitre = { workspace = true }
 dravr-tronc = { workspace = true, features = ["notifications"] }
 hex = "0.4"
 regex = "1.12"

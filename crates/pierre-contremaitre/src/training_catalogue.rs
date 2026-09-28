@@ -1,5 +1,5 @@
 // ABOUTME: Hot-reloadable training catalogue registry — flavours, season skeletons, workout templates, selection table
-// ABOUTME: Seeded from the compiled-in training_catalogue/ mirror; contremaitre overlays one entry per (kind, slug)
+// ABOUTME: Seeded from the pinned dravr-contremaitre training tables; the sync overlays one entry per (kind, slug)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,9 +12,9 @@
 //! stem (`polarized-classic`, `marathon-linear`, `vo2max_4x8`) and the one
 //! selection table sits under [`SELECTION_SLUG`].
 //!
-//! The registry is seeded at construction from the generated
-//! [`super::training_catalogue_embedded`] tables — the byte-for-byte mirror
-//! of the tree at the platform root — with [`PromptSource::CompiledIn`], so
+//! The registry is seeded at construction from the pinned
+//! `dravr_contremaitre::training` tables — contremaitre's `training/` tree,
+//! compiled into that crate — with [`PromptSource::CompiledIn`], so
 //! the agent has a full bank before the first contremaitre sync lands and
 //! whenever the store is unreachable. A sync overlays entries with
 //! [`PromptSource::Contremaitre`]; removing an overlaid entry reverts it to
@@ -32,6 +32,7 @@ use std::fmt;
 use std::sync::{PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use chrono::{DateTime, Utc};
+use dravr_contremaitre::training;
 use pierre_core::models::periodization::{
     Flavour, PhaseKind, SelectionTable, SkeletonTemplate, UnresolvedReference, WorkoutFilter,
     WorkoutPurpose, WorkoutTemplate,
@@ -42,9 +43,6 @@ use tracing::error;
 use super::errors::ContremaitreError;
 use super::manifest::compute_sha256;
 use super::registry::PromptSource;
-use super::training_catalogue_embedded::{
-    EMBEDDED_FLAVOURS, EMBEDDED_SELECTION, EMBEDDED_SKELETONS, EMBEDDED_WORKOUTS,
-};
 
 /// The slug the single selection table is registered under — there is one
 /// `training/selection.yaml`, so its key is the shape's own name.
@@ -141,7 +139,7 @@ pub struct CatalogueStats {
     pub workouts: usize,
     /// Rows in the selection table, zero when there is none.
     pub selection_rows: usize,
-    /// Entries loaded from the compiled-in mirror.
+    /// Entries seeded from the pinned dravr-contremaitre tables.
     pub compiled_in_count: usize,
     /// Entries overlaid from contremaitre.
     pub contremaitre_count: usize,
@@ -187,9 +185,9 @@ impl TrainingCatalogueRegistry {
         let now = Utc::now();
         let mut compiled_in = HashMap::new();
         let tables: [(CatalogueKind, &[(&str, &str)]); 3] = [
-            (CatalogueKind::Flavour, EMBEDDED_FLAVOURS),
-            (CatalogueKind::Skeleton, EMBEDDED_SKELETONS),
-            (CatalogueKind::Workout, EMBEDDED_WORKOUTS),
+            (CatalogueKind::Flavour, training::FLAVOURS),
+            (CatalogueKind::Skeleton, training::SKELETONS),
+            (CatalogueKind::Workout, training::WORKOUTS),
         ];
         for (kind, table) in tables {
             for (slug, text) in table {
@@ -200,7 +198,7 @@ impl TrainingCatalogueRegistry {
             &mut compiled_in,
             CatalogueKind::Selection,
             SELECTION_SLUG,
-            EMBEDDED_SELECTION,
+            training::SELECTION,
             now,
         );
         Self {

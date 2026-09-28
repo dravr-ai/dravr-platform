@@ -325,6 +325,7 @@ pub async fn rotate(
         expires_in_days: expires_days.or(Some(365)),
         is_super_admin: old_token.is_super_admin,
         tenant_id: old_token.tenant_id.clone(),
+        operator_user_id: None,
     };
 
     if old_token.is_super_admin {

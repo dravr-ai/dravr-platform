@@ -190,18 +190,23 @@ async fn athlete_route(State(s): State<Scraper>, headers: HeaderMap) -> (StatusC
     if s.record("/api/athlete", &headers, None) != COACH_SESSION {
         return dead();
     }
+    // Each roster athlete carries the email of the member they are, which is
+    // what a link binds by.
     let mut roster = vec![
-        json!({ "id": M1_ATHLETE, "display_name": "Alex Athlete" }),
-        json!({ "id": M3_ATHLETE, "display_name": "Robin Rower" }),
+        json!({ "id": M1_ATHLETE, "display_name": "Alex Athlete", "email": "m1@delegated-read.test" }),
+        json!({ "id": M3_ATHLETE, "display_name": "Robin Rower", "email": "m3@delegated-read.test" }),
     ];
     if !s.drop_second.load(Ordering::SeqCst) {
-        roster.push(json!({ "id": M2_ATHLETE, "display_name": "Sam Swimmer" }));
+        roster.push(
+            json!({ "id": M2_ATHLETE, "display_name": "Sam Swimmer", "email": "m2@delegated-read.test" }),
+        );
     }
     (
         StatusCode::OK,
         Json(json!({
             "id": "900101",
             "role": "coach",
+            "email": "coach@delegated-read.test",
             "coached_athletes": roster,
             "display_name": COACH_NAME,
         })),
@@ -220,7 +225,7 @@ async fn activities_route(
     let list = |rows: Vec<Value>| {
         (
             StatusCode::OK,
-            Json(json!({ "activities": rows, "head_complete": true })),
+            Json(json!({ "count": rows.len(), "activities": rows, "head_complete": true })),
         )
     };
     match athlete.map(String::as_str) {
@@ -326,6 +331,14 @@ async fn person(res: &Arc<ServerContext>, email: &str, name: &str) -> Person {
         .repos
         .users
         .update_display_name(id, name)
+        .await
+        .unwrap();
+    // A verified email: what binds a coach account, and a roster athlete, to
+    // this person.
+    res.common
+        .repos
+        .email_verification
+        .mark_verified(id)
         .await
         .unwrap();
     let auth = format!("Bearer {}", generate_test_token(res, &user).await);

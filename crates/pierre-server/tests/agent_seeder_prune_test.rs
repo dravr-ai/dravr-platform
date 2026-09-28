@@ -19,7 +19,9 @@ use pierre_core::models::{
     AgentCategory, AgentVisibility, CoachingGroup, CreateAgentRequest, CreateSystemAgentRequest,
     SportType, TenantId,
 };
-use pierre_database::repositories::training_plans::{PlanOwner, SaveTrainingPlanParams};
+use pierre_database::repositories::training_plans::{
+    PlanOutlineInput, PlanOwner, SavePlanBundleParams,
+};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{GoalRace, RacePriority};
 use pierre_seeders::agents::{self, SeedArgs};
@@ -199,19 +201,22 @@ async fn plan_owned_by(repos: &RepositoryRegistry, user: Uuid, tenant: TenantId,
     let race = goal_race();
     repos
         .training_plans
-        .save_training_plan(&SaveTrainingPlanParams {
+        .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant.to_string(),
             user_id: &user.to_string(),
             owner: PlanOwner::agent(slug),
             goal_fact_id: None,
-            goal_race: &race,
-            races: Some(&[]),
-            strategy: "Build, then taper.",
-            flavour: None,
-            season_start: None,
-            season_end: None,
-            phases: &[],
-            source_conversation_id: None,
+            outline: Some(PlanOutlineInput {
+                goal_race: &race,
+                races: Some(&[]),
+                strategy: "Build, then taper.",
+                flavour: None,
+                season_start: None,
+                season_end: None,
+                phases: &[],
+                source_conversation_id: None,
+            }),
+            weeks: &[],
         })
         .await
         .unwrap();

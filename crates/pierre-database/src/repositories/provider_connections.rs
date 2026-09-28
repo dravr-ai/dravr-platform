@@ -87,10 +87,6 @@ pub(crate) const GET_FOR_USER_IN_TENANT_SQL: &str =
 /// A user's connections across every tenant, newest first.
 pub(crate) const GET_FOR_USER_SQL: &str = connection_select_sql!("", " ORDER BY connected_at DESC");
 
-/// Whether the provider is connected in any tenant.
-pub(crate) const IS_CONNECTED_SQL: &str =
-    "SELECT COUNT(*) FROM provider_connections WHERE user_id = $1 AND provider = $2";
-
 /// Touch-on-read; absence of the row is not an error.
 pub(crate) const TOUCH_LAST_USED_SQL: &str = r"
             UPDATE provider_connections
@@ -125,11 +121,17 @@ pub(crate) const RESOLVE_MOST_RECENT_SQL: &str = connection_select_sql!(
 /// reconnect stamps `connected_at` and a re-arm `status_changed_at`, and the
 /// failure is a verdict on the credential the attempt read, not on theirs. A
 /// row that never changed status has no `status_changed_at`.
+///
+/// The flip clears `notified_at`: a notice claimed while the connection was
+/// active told the athlete a sync failed, not that they must reconnect, so the
+/// disconnect notice is still owed. [`MARK_NEEDS_REAUTH_IF_TOKEN_CURRENT_SQL`]
+/// clears it for the same reason.
 pub(crate) const MARK_NEEDS_REAUTH_SQL: &str = r"
             UPDATE provider_connections
                SET status = 'needs_reauth',
                    status_changed_at = $1,
-                   last_error = $2
+                   last_error = $2,
+                   notified_at = NULL
              WHERE user_id = $3 AND tenant_id = $4 AND provider = $5
                AND status != 'needs_reauth'
                AND connected_at <= $6
@@ -171,7 +173,8 @@ pub(crate) const MARK_NEEDS_REAUTH_IF_TOKEN_CURRENT_SQL: &str = r"
             UPDATE provider_connections
                SET status = 'needs_reauth',
                    status_changed_at = $1,
-                   last_error = $2
+                   last_error = $2,
+                   notified_at = NULL
              WHERE user_id = $3 AND tenant_id = $4 AND provider = $5
                AND status != 'needs_reauth'
                AND EXISTS (
@@ -217,6 +220,32 @@ pub(crate) const CLAIM_REAUTH_NOTIFICATION_SQL: &str = r"
              WHERE user_id = $2 AND tenant_id = $3 AND provider = $4
                AND status = 'needs_reauth'
                AND notified_at IS NULL
+            ";
+
+/// Claim the one-time sync-failure notice for an `active` connection: only
+/// the first failing sync after the connection last synced affects a row.
+///
+/// The same `notified_at` marker the disconnect notice claims. An active
+/// connection's marker is otherwise always clear — every return to `active`
+/// clears it — so a set marker on an active row means exactly "told about a
+/// failed sync since the last one that landed". A connection that is not
+/// active is the disconnect notice's to tell about, never this one's.
+pub(crate) const CLAIM_SYNC_FAILURE_NOTIFICATION_SQL: &str = r"
+            UPDATE provider_connections
+               SET notified_at = $1
+             WHERE user_id = $2 AND tenant_id = $3 AND provider = $4
+               AND status = 'active'
+               AND notified_at IS NULL
+            ";
+
+/// Re-arm the sync-failure notice after a sync that landed, so the next
+/// failure notifies again. Touches only an active row that holds a claim.
+pub(crate) const REARM_SYNC_FAILURE_NOTIFICATION_SQL: &str = r"
+            UPDATE provider_connections
+               SET notified_at = NULL
+             WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
+               AND status = 'active'
+               AND notified_at IS NOT NULL
             ";
 
 fn column_error(col: &str, e: impl Display) -> AppError {
@@ -396,16 +425,6 @@ macro_rules! impl_provider_connection_repository {
                 rows.iter().map(connection_from_row).collect()
             }
 
-            async fn is_connected(&self, user_id: Uuid, provider: &str) -> AppResult<bool> {
-                let count: i64 = sqlx::query_scalar(IS_CONNECTED_SQL)
-                    .bind(user_id.to_string())
-                    .bind(provider)
-                    .fetch_one(self.pool())
-                    .await?;
-
-                Ok(count > 0)
-            }
-
             async fn touch_last_used(
                 &self,
                 user_id: Uuid,
@@ -547,6 +566,39 @@ macro_rules! impl_provider_connection_repository {
                     .await?;
 
                 Ok(result.rows_affected() > 0)
+            }
+
+            async fn claim_sync_failure_notification(
+                &self,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                provider: &str,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(CLAIM_SYNC_FAILURE_NOTIFICATION_SQL)
+                    .bind(Utc::now())
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .execute(self.pool())
+                    .await?;
+
+                Ok(result.rows_affected() > 0)
+            }
+
+            async fn rearm_sync_failure_notification(
+                &self,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                provider: &str,
+            ) -> AppResult<()> {
+                sqlx::query(REARM_SYNC_FAILURE_NOTIFICATION_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .execute(self.pool())
+                    .await?;
+
+                Ok(())
             }
         }
     };

@@ -1,5 +1,5 @@
 // ABOUTME: UserPhysiologicalProfileRepository + DossierRepository traits plus the one shared implementation both backends emit
-// ABOUTME: Backs GET /api/v1/endurance/latest and /dossier; the two zone-set JSON columns are opaque blobs bound as serde_json::Value
+// ABOUTME: Backs the Endurance latest-snapshot and dossier exports; the two zone-set JSON columns are opaque blobs bound as serde_json::Value
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

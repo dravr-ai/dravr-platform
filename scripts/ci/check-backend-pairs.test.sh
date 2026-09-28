@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ABOUTME: Pins both directions of check-backend-pairs.sh — it must fail a newly duplicated pair
-# ABOUTME: and must not fail a converged one, whether the pair shares a basename or is paired by trait
+# ABOUTME: and must not fail a converged one, paired by basename, by trait, at depth or across crates
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
@@ -189,6 +189,56 @@ EOF
         > "$r/crates/pierre-database/src/backends/postgres/user.rs"
 }
 
+# A SQLite impl one level down (database/repositories/agents_impl.rs) pairs
+# with its Postgres twin by trait; written twice and touched, it must fail.
+case_nested_sqlite_impl_pair_fails() {
+    local r="$1"
+    mkdir -p "$r/crates/pierre-database/src/database/repositories"
+    cat > "$r/crates/pierre-database/src/database/repositories/coach_impl.rs" <<'EOF'
+impl CoachRepository for Database {
+    sqlx::query("SELECT id FROM coaches WHERE id = ?1");
+}
+EOF
+    cat > "$r/crates/pierre-database/src/backends/postgres/coach.rs" <<'EOF'
+impl CoachRepository for PostgresDatabase {
+    sqlx::query("SELECT id FROM coaches WHERE id = $1");
+}
+EOF
+    echo 'pub trait CoachRepository {}' > "$r/crates/pierre-database/src/repositories/coach.rs"
+}
+
+# A repository trait implemented over a SQLite pool and a Postgres pool in
+# another crate (pierre-server's admin config) is a pair too.
+case_pair_outside_the_database_crate_fails() {
+    local r="$1"
+    mkdir -p "$r/crates/pierre-server/src/config"
+    cat > "$r/crates/pierre-server/src/config/manager.rs" <<'EOF'
+use sqlx::SqlitePool;
+impl ConfigRepository for ConfigManager {
+    sqlx::query("SELECT key FROM admin_config WHERE key = ?1");
+}
+EOF
+    cat > "$r/crates/pierre-server/src/config/pg_manager.rs" <<'EOF'
+use sqlx::PgPool;
+impl ConfigRepository for PgConfigManager {
+    sqlx::query("SELECT key FROM admin_config WHERE key = $1");
+}
+EOF
+}
+
+# Picking the backend at query time and running SQL in each arm is the same
+# duplication with no file boundary; it fails wherever it is written.
+case_query_time_backend_split_fails() {
+    local r="$1"
+    mkdir -p "$r/crates/pierre-services/src"
+    cat > "$r/crates/pierre-services/src/walk.rs" <<'EOF'
+match database {
+    Database::SQLite(db) => sqlx::query("SELECT id FROM chat_messages WHERE id = ?1"),
+    Database::PostgreSQL(db) => sqlx::query("SELECT id FROM chat_messages WHERE id = $1"),
+}
+EOF
+}
+
 run_case new_duplicate_pair_fails 1
 run_case editing_converged_pair_passes 0
 run_case lock_clause_literal_is_not_sql 0
@@ -197,6 +247,9 @@ run_case converged_pair_regaining_sql_fails 1
 run_case differently_named_converged_pair_passes 0
 run_case differently_named_duplicate_pair_fails 1
 run_case differently_named_half_converted_pair_fails 1
+run_case nested_sqlite_impl_pair_fails 1
+run_case pair_outside_the_database_crate_fails 1
+run_case query_time_backend_split_fails 1
 
 # A base the diff cannot resolve — the all-zeros sha CI passes on a branch's
 # first push, or a ref a fresh worktree lacks — must not read as "nothing

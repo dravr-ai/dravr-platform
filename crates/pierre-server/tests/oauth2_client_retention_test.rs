@@ -115,6 +115,7 @@ async fn authorize(database: &Database, client_id: &str) -> DateTime<Utc> {
         expires_at: issued_at + Duration::days(30),
         created_at: issued_at,
         revoked: false,
+        family_id: "test-family".to_owned(),
     };
     database
         .repositories()
@@ -529,6 +530,7 @@ async fn the_register_endpoint_answers_past_the_ceiling_with_429_and_an_rfc7591_
         auth_manager: common::create_test_auth_manager(),
         jwks_manager: common::get_shared_test_jwks(),
         config: Arc::new(config),
+        refresh_token_expiry_days: 30,
         rate_limiter: Arc::new(OAuth2RateLimiter::new(
             None,
             OAuth2RateLimiter::local_window_store(),

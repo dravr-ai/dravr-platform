@@ -69,9 +69,11 @@ async function setupUserManagementMocks(
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
+      // The admin handler's `{ success, message, data }` envelope.
       body: JSON.stringify({
-        count: pendingCount,
-        users: pendingUsers,
+        success: true,
+        message: `Retrieved ${pendingCount} pending users`,
+        data: { count: pendingCount, users: pendingUsers },
       }),
     });
   });
@@ -82,8 +84,13 @@ async function setupUserManagementMocks(
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        users: allUsers,
-        total_count: allUsers.length,
+        success: true,
+        message: 'Retrieved users',
+        data: {
+          users: allUsers,
+          total: allUsers.length,
+          has_more: false,
+        },
       }),
     });
   });
@@ -161,7 +168,14 @@ test.describe('User Management - Approve User', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ success: true, message: 'User approved successfully' }),
+        body: JSON.stringify({
+          success: true,
+          message: 'User approved successfully',
+          data: {
+            user: { id: 'user-1', email: 'pending@example.com', user_status: 'active' },
+            reason: 'No reason provided',
+          },
+        }),
       });
     });
 
@@ -195,7 +209,14 @@ test.describe('User Management - Approve User', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ success: true }),
+        body: JSON.stringify({
+          success: true,
+          message: 'User approved successfully',
+          data: {
+            user: { id: 'user-1', email: 'pending@example.com', user_status: 'active' },
+            reason: 'Verified legitimate user',
+          },
+        }),
       });
     });
 
@@ -229,7 +250,14 @@ test.describe('User Management - Suspend User', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ success: true, message: 'User suspended successfully' }),
+        body: JSON.stringify({
+          success: true,
+          message: 'User suspended successfully',
+          data: {
+            user: { id: 'user-1', email: 'active@example.com', user_status: 'suspended' },
+            reason: 'No reason provided',
+          },
+        }),
       });
     });
 
@@ -413,9 +441,15 @@ test.describe('User Management - Password Reset', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           success: true,
-          temporary_password: 'TempPass123!',
-          expires_at: '2024-01-22T10:00:00Z',
-          user_email: 'user@example.com',
+          message: 'Password reset token issued',
+          data: {
+            user_id: 'user-1',
+            email: 'user@example.com',
+            reset_token: 'sel123.verifier123',
+            expires_in_seconds: 3600,
+            reset_by: 'admin-1',
+            note: 'Deliver this token to the user.',
+          },
         }),
       });
     });
@@ -433,13 +467,13 @@ test.describe('User Management - Password Reset', () => {
       if (await resetButton.isVisible()) {
         await resetButton.click();
 
-        // Should show modal with temporary password
+        // Should show modal with the issued reset token
         await page.waitForTimeout(300);
       }
     }
   });
 
-  test('displays temporary password in modal', async ({ page }) => {
+  test('displays the issued reset token in modal', async ({ page }) => {
     await setupUserManagementMocks(page, {
       pendingCount: 0,
       pendingUsers: [],
@@ -475,9 +509,15 @@ test.describe('User Management - Password Reset', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           success: true,
-          temporary_password: 'SecureTemp456!',
-          expires_at: '2024-01-22T10:00:00Z',
-          user_email: 'user@example.com',
+          message: 'Password reset token issued',
+          data: {
+            user_id: 'user-1',
+            email: 'user@example.com',
+            reset_token: 'sel456.verifier456',
+            expires_in_seconds: 3600,
+            reset_by: 'admin-1',
+            note: 'Deliver this token to the user.',
+          },
         }),
       });
     });
@@ -494,11 +534,9 @@ test.describe('User Management - Password Reset', () => {
         await resetButton.click();
         await page.waitForTimeout(500);
 
-        // Modal should show temporary password
-        const passwordDisplay = page.locator('input[readonly], code, .font-mono');
-        if (await passwordDisplay.isVisible()) {
-          await expect(passwordDisplay).toContainText('SecureTemp456!');
-        }
+        // Modal shows the token the server issued, read from the data envelope
+        const tokenDisplay = page.locator('code.font-mono');
+        await expect(tokenDisplay).toContainText('sel456.verifier456');
       }
     }
   });

@@ -366,15 +366,6 @@ pub fn handle_analyze_performance_trends(
     Box::pin(async move {
         use parse_user_id_for_protocol;
 
-        // Check cancellation at start
-        if let Some(token) = &request.cancellation_token {
-            if token.is_cancelled().await {
-                return Err(ProtocolError::OperationCancelled(
-                    "analyze_performance_trends cancelled by user".to_owned(),
-                ));
-            }
-        }
-
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
         let provider_name = match resolve_provider_for_request(
             &request.parameters,
@@ -401,64 +392,15 @@ pub fn handle_analyze_performance_trends(
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);
 
-        // Report progress - starting authentication
-        if let Some(reporter) = &request.progress_reporter {
-            reporter.report(
-                25.0,
-                Some(100.0),
-                Some("Checking authentication...".to_owned()),
-            );
-        }
-
-        // Check cancellation before auth
-        if let Some(token) = &request.cancellation_token {
-            if token.is_cancelled().await {
-                return Err(ProtocolError::OperationCancelled(
-                    "analyze_performance_trends cancelled before authentication".to_owned(),
-                ));
-            }
-        }
-
         match executor
             .auth_service
             .create_authenticated_provider(&provider_name, user_uuid, request.tenant_id.as_deref())
             .await
         {
             Ok(provider) => {
-                // Report progress after auth
-                if let Some(reporter) = &request.progress_reporter {
-                    reporter.report(
-                        50.0,
-                        Some(100.0),
-                        Some(
-                            "Authenticated - fetching activities for trend analysis...".to_owned(),
-                        ),
-                    );
-                }
-
-                // Check cancellation before analysis
-                if let Some(token) = &request.cancellation_token {
-                    if token.is_cancelled().await {
-                        return Err(ProtocolError::OperationCancelled(
-                            "analyze_performance_trends cancelled before analysis".to_owned(),
-                        ));
-                    }
-                }
-
                 let result =
                     fetch_and_analyze_trends(provider, metric, timeframe, user_uuid, output_format)
                         .await?;
-
-                // Report completion on success
-                if result.success {
-                    if let Some(reporter) = &request.progress_reporter {
-                        reporter.report(
-                            100.0,
-                            Some(100.0),
-                            Some("Performance trend analysis completed".to_owned()),
-                        );
-                    }
-                }
 
                 Ok(result)
             }

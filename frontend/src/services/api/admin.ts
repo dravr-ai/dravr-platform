@@ -5,7 +5,16 @@
 // ABOUTME: Handles all administrative functionality for super_admin and admin roles
 
 import { axios } from './client';
-import type { Agent, ClaimVerdict, DispositionReason, VerdictDisposition } from '@pierre/shared-types';
+import type {
+  AdminTokensResponse,
+  Agent,
+  ClaimVerdict,
+  CreateAdminTokenResponse,
+  DispositionReason,
+  RotateAdminTokenResponse,
+  User,
+  VerdictDisposition,
+} from '@pierre/shared-types';
 
 /// One standing pre-approval: an address an operator allowed before the person
 /// registered, with the account state that allow is waiting on.
@@ -35,6 +44,29 @@ export interface AllowEmailResult {
   outcome: AllowEmailOutcome;
   email: string;
   approved_user_id: string | null;
+  /// True when the sign-up link was mailed: asked for, and the address has no account yet.
+  invited: boolean;
+}
+
+/// The effective auto-approval setting. `enabled` is what registration
+/// applies: when `overridden_by_env` is true the server's AUTO_APPROVE_USERS
+/// environment variable decided it and the stored toggle has no effect.
+export interface AutoApprovalSetting {
+  enabled: boolean;
+  auto_approve_domains: string[];
+  overridden_by_env: boolean;
+  description: string;
+}
+
+/// A one-time password reset token, returned once. The user redeems it at
+/// `POST /api/auth/complete-reset` with their new password before it expires.
+export interface PasswordResetResult {
+  user_id: string;
+  email: string;
+  reset_token: string;
+  expires_in_seconds: number;
+  reset_by: string;
+  note: string;
 }
 
 /// One stored feature-flag row at either tenant or user scope.
@@ -102,9 +134,14 @@ export interface StorePackageReview {
   evidence_checked: boolean;
 }
 
+/** Largest page the user listing serves (`USER_PAGE_MAX` on the server). */
+const USER_PAGE_LIMIT = 100;
+
 export const adminApi = {
   // ==================== ADMIN TOKEN MANAGEMENT ====================
-  async getAdminTokens(params?: { include_inactive?: boolean }) {
+  // The admin-token handlers `pierre-cli` reaches too; every answer is the
+  // `{ success, message, data }` envelope and these return its `data`.
+  async getAdminTokens(params?: { include_inactive?: boolean }): Promise<AdminTokensResponse> {
     const queryParams = new URLSearchParams();
     if (params?.include_inactive !== undefined) {
       queryParams.append('include_inactive', params.include_inactive.toString());
@@ -112,7 +149,7 @@ export const adminApi = {
     const queryString = queryParams.toString();
     const url = queryString ? `/api/admin/tokens?${queryString}` : '/api/admin/tokens';
     const response = await axios.get(url);
-    return response.data;
+    return response.data.data;
   },
 
   async createAdminToken(data: {
@@ -121,25 +158,31 @@ export const adminApi = {
     permissions?: string[];
     is_super_admin?: boolean;
     expires_in_days?: number;
-  }) {
+  }): Promise<CreateAdminTokenResponse> {
     const response = await axios.post('/api/admin/tokens', data);
-    return response.data;
+    return response.data.data;
   },
 
-  async revokeAdminToken(tokenId: string) {
+  async revokeAdminToken(tokenId: string): Promise<{ success: boolean; message: string }> {
     const response = await axios.post(`/api/admin/tokens/${tokenId}/revoke`);
     return response.data;
   },
 
-  async rotateAdminToken(tokenId: string, data?: { expires_in_days?: number }) {
+  async rotateAdminToken(
+    tokenId: string,
+    data?: { expires_in_days?: number },
+  ): Promise<RotateAdminTokenResponse> {
     const response = await axios.post(`/api/admin/tokens/${tokenId}/rotate`, data || {});
-    return response.data;
+    return response.data.data;
   },
 
   // ==================== USER MANAGEMENT ====================
+  // Served by the admin-token handlers `pierre-cli` also reaches, mounted
+  // under /api/admin behind the session: every answer is the
+  // `{ success, message, data }` envelope.
   async getPendingUsers() {
     const response = await axios.get('/api/admin/pending-users');
-    return response.data.users || [];
+    return response.data.data?.users || [];
   },
 
   async approveUser(userId: string, reason?: string) {
@@ -162,13 +205,18 @@ export const adminApi = {
     return response.data.data?.emails || [];
   },
 
-  async allowEmail(email: string, note?: string): Promise<AllowEmailResult> {
-    const response = await axios.post('/api/admin/pre-approved-emails', { email, note: note || null });
+  async allowEmail(email: string, note?: string, sendInvite = false): Promise<AllowEmailResult> {
+    const response = await axios.post('/api/admin/pre-approved-emails', {
+      email,
+      note: note || null,
+      send_invite: sendInvite,
+    });
     return {
       message: response.data.message,
       outcome: response.data.data?.outcome,
       email: response.data.data?.email,
       approved_user_id: response.data.data?.approved_user_id ?? null,
+      invited: response.data.data?.invited ?? false,
     };
   },
 
@@ -180,30 +228,32 @@ export const adminApi = {
     };
   },
 
+  /**
+   * Every user in `status` (all statuses by default), following the
+   * listing's cursor until the server says there is no more.
+   */
   async getAllUsers(params?: {
-    status?: 'pending' | 'active' | 'suspended';
-    limit?: number;
-    offset?: number;
-  }) {
-    const queryParams = new URLSearchParams();
-    if (params?.status) queryParams.append('status', params.status);
-    if (params?.limit) queryParams.append('limit', params.limit.toString());
-    if (params?.offset) queryParams.append('offset', params.offset.toString());
-
-    const queryString = queryParams.toString();
-    const url = queryString ? `/api/admin/users?${queryString}` : '/api/admin/users';
-    const response = await axios.get(url);
-    return response.data.users || [];
+    status?: 'pending' | 'active' | 'suspended' | 'all';
+  }): Promise<User[]> {
+    const users: User[] = [];
+    let cursor: string | undefined;
+    do {
+      const queryParams = new URLSearchParams({
+        status: params?.status ?? 'all',
+        limit: String(USER_PAGE_LIMIT),
+      });
+      if (cursor) queryParams.append('cursor', cursor);
+      const response = await axios.get(`/api/admin/users?${queryParams.toString()}`);
+      const page = response.data.data;
+      users.push(...(page?.users ?? []));
+      cursor = page?.has_more ? page.next_cursor ?? undefined : undefined;
+    } while (cursor);
+    return users;
   },
 
-  async resetUserPassword(userId: string): Promise<{
-    success: boolean;
-    temporary_password: string;
-    expires_at: string;
-    user_email: string;
-  }> {
+  async resetUserPassword(userId: string): Promise<PasswordResetResult> {
     const response = await axios.post(`/api/admin/users/${userId}/reset-password`);
-    return response.data;
+    return response.data.data;
   },
 
   async getUserRateLimit(userId: string): Promise<{
@@ -387,12 +437,12 @@ export const adminApi = {
   },
 
   // ==================== ADMIN SETTINGS ====================
-  async getAutoApprovalSetting(): Promise<{ enabled: boolean; description: string }> {
+  async getAutoApprovalSetting(): Promise<AutoApprovalSetting> {
     const response = await axios.get('/api/admin/settings/auto-approval');
     return response.data.data;
   },
 
-  async updateAutoApprovalSetting(enabled: boolean): Promise<{ enabled: boolean; description: string }> {
+  async updateAutoApprovalSetting(enabled: boolean): Promise<AutoApprovalSetting> {
     const response = await axios.put('/api/admin/settings/auto-approval', { enabled });
     return response.data.data;
   },

@@ -34,6 +34,7 @@ function link(overrides: Partial<DelegatedConnection> = {}): DelegatedConnection
     status: 'proposed',
     proposed_at: '2026-09-24T08:00:00Z',
     confirmed_at: null,
+    read_refused: null,
     ...overrides,
   };
 }

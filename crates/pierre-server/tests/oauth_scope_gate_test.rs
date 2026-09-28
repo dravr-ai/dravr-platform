@@ -38,9 +38,6 @@ fn request(tool: &str, args: Value, user_id: Uuid, tenant: TenantId) -> Universa
         user_id: user_id.to_string(),
         protocol: "mcp".to_owned(),
         tenant_id: Some(tenant.to_string()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     }
 }
 

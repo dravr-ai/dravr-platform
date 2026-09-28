@@ -518,7 +518,8 @@ impl ConfigurationRoutes {
         // Calculate personalized zones (FTP estimation uses the configured
         // VO2max→FTP power coefficient from the live cageux config snapshot)
         let hr_zones = calculator.calculate_hr_zones();
-        let pace_zones = calculator.calculate_pace_zones();
+        let pace_zones =
+            calculator.calculate_pace_zones(&self.resources.common.config.training_zones);
         let cageux_config = self.resources.fitness.cageux_config_registry.current();
         let algorithm_params = &cageux_config.algorithms.params;
         let ftp = calculator.estimate_ftp(algorithm_params);

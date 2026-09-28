@@ -32,11 +32,9 @@ use tracing::info;
 use super::data_helpers::read_only_annotations;
 use super::plan_scope::{resolve_plan_scope, PlanScopeRequest};
 use super::training_plans::load_conversation;
-use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, capabilities_to_tronc, object_schema, ok_typed, tool_definition,
-    tool_result_to_response,
+    answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
 use crate::implementations::plan_flavour_output::{
     FlavourInputsEcho, InputSource, LabelledExclusion, LabelledFlavour, LabelledVerdict,
@@ -44,7 +42,7 @@ use crate::implementations::plan_flavour_output::{
 };
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
@@ -715,17 +713,15 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
         ))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
+    fn capabilities(&self) -> ToolCapabilities {
         // Reads the stored profile — training age, thresholds, primary sport —
         // and echoes what it found, so the call discloses identity data and
         // must carry profile:read. Declared from the first commit rather than
         // patched in later, which is what carnet#363 was about.
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_TENANT
-                | ToolCapabilities::READS_DATA
-                | ToolCapabilities::PROFILE,
-        )
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_TENANT
+            | ToolCapabilities::READS_DATA
+            | ToolCapabilities::PROFILE
     }
 
     async fn execute(

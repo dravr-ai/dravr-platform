@@ -150,6 +150,7 @@
 
 use std::mem;
 
+use chrono::Utc;
 use pierre_core::models::Activity;
 use pierre_intelligence::training_load::{TrainingLoad, TrainingLoadCalculator};
 
@@ -183,8 +184,8 @@ pub struct CitationFixture {
     pub ctl: f64,
     /// Acute Training Load (7-day EMA of TSS).
     pub atl: f64,
-    /// Training Stress Balance (`ctl - atl`). Can be negative for
-    /// high-acute-load blocks.
+    /// Training Stress Balance — form today: CTL minus ATL at the end of
+    /// yesterday. Can be negative for high-acute-load blocks.
     pub tsb: f64,
 }
 
@@ -232,7 +233,7 @@ impl CitationFixture {
             .filter_map(Activity::distance_meters)
             .sum();
 
-        let training_load = TrainingLoadCalculator::new()
+        let training_load = TrainingLoadCalculator::new(Utc::now().date_naive())
             .calculate_training_load(
                 activities,
                 Some(ftp_watts),
@@ -245,6 +246,7 @@ impl CitationFixture {
                 ctl: 0.0,
                 atl: 0.0,
                 tsb: 0.0,
+                form_ctl: 0.0,
                 tss_history: Vec::new(),
             });
 
@@ -306,7 +308,7 @@ pub enum TrainingLoadMetric {
     Ctl,
     /// Acute Training Load (7-day EMA of TSS).
     Atl,
-    /// Training Stress Balance (CTL - ATL).
+    /// Training Stress Balance — yesterday's CTL minus ATL.
     Tsb,
 }
 

@@ -140,7 +140,7 @@ fn test_tss_normalized_power_algorithm_no_stream_data() {
     let ftp = 250.0;
     let duration_hours = 1.0;
 
-    let algorithm = TssAlgorithm::NormalizedPower { window_seconds: 30 };
+    let algorithm = TssAlgorithm::NormalizedPower;
     let result = algorithm.calculate(&activity, ftp, duration_hours);
 
     // Should fail because we don't have power stream data
@@ -183,7 +183,7 @@ fn test_tss_algorithm_name_and_description() {
     assert_eq!(avg_power.name(), "avg_power");
     assert!(avg_power.description().contains("fast"));
 
-    let np = TssAlgorithm::NormalizedPower { window_seconds: 30 };
+    let np = TssAlgorithm::NormalizedPower;
     assert_eq!(np.name(), "normalized_power");
     assert!(np.description().contains("accurate"));
 
@@ -202,12 +202,7 @@ fn test_tss_from_str_parsing() {
 
     let np = TssAlgorithm::from_str("normalized_power");
     assert!(np.is_ok());
-    match np.unwrap() {
-        TssAlgorithm::NormalizedPower { window_seconds } => {
-            assert_eq!(window_seconds, 30, "Default window should be 30 seconds");
-        }
-        _ => panic!("Expected NormalizedPower variant"),
-    }
+    assert!(matches!(np.unwrap(), TssAlgorithm::NormalizedPower));
 
     let hybrid = TssAlgorithm::from_str("hybrid");
     assert!(hybrid.is_ok());

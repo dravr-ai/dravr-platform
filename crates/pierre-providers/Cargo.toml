@@ -47,8 +47,6 @@ async-stream = "0.3"
 bitflags = { version = "2.11", features = ["serde"] }
 futures-util = "0.3"
 num-traits = "0.2"
-rand = "0.9"
-rand_chacha = "0.9"
 ring = "0.17"
 subtle = "2.6"
 hex = "0.4"

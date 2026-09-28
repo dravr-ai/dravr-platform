@@ -153,12 +153,13 @@ export {
   PROVIDER_NOTICES,
   PROVIDER_SCOPES,
   PROVIDER_SCOPE_LABEL_KEY,
+  SCIOTTE_LOGIN_PRESETS,
   noticeRequired,
   providerScopeLabelKey,
   sciotteTargetForBackend,
   syncAuthorizationOwed,
 } from './providers';
-export type { ProviderNoticeKeys, ProviderScope } from './providers';
+export type { ProviderNoticeKeys, ProviderScope, SciotteLoginPreset } from './providers';
 
 // React Query keys (for consistent cache key management)
 export { QUERY_KEYS } from './query-keys';

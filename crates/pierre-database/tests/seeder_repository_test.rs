@@ -13,12 +13,9 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use std::collections::HashMap;
-
 use chrono::{DateTime, Duration, Timelike, Utc};
 use pierre_core::models::mobility::{
-    ActivityMuscleMapping, DifficultyLevel, StretchingCategory, StretchingExercise, YogaCategory,
-    YogaPose, YogaPoseType,
+    DifficultyLevel, StretchingCategory, StretchingExercise, YogaCategory, YogaPose, YogaPoseType,
 };
 use pierre_core::models::{ApiKey, ApiKeyTier, User};
 use pierre_database::backends::factory::Database;
@@ -384,24 +381,6 @@ fn yoga_pose(id: &str, name: &str, at: DateTime<Utc>) -> YogaPose {
     }
 }
 
-fn activity_mapping(
-    id: &str,
-    activity_type: &str,
-    stretch: &str,
-    at: DateTime<Utc>,
-) -> ActivityMuscleMapping {
-    ActivityMuscleMapping {
-        id: id.to_owned(),
-        activity_type: activity_type.to_owned(),
-        primary_muscles: HashMap::from([("quadriceps".to_owned(), 90)]),
-        secondary_muscles: HashMap::new(),
-        recommended_stretch_categories: vec![stretch.to_owned()],
-        recommended_yoga_categories: vec![],
-        created_at: at,
-        updated_at: at,
-    }
-}
-
 /// Re-seeding a reference row refreshes its content and `updated_at` and
 /// keeps its `created_at`. `SQLite` used INSERT OR REPLACE, which deletes
 /// the row and inserts the new one — `created_at` moved on every seed run —
@@ -463,39 +442,4 @@ async fn reseeding_reference_rows_keeps_created_at() {
     assert_eq!(pose.english_name, "Easy Pose (Sukhasana)");
     assert_eq!(pose.updated_at, second);
     assert_eq!(pose.created_at, first, "the re-seed keeps created_at");
-
-    let activity_type = format!("activity-{suffix}");
-    let mapping_id = format!("mapping-{suffix}");
-    repos
-        .seeder
-        .seed_upsert_activity_mapping(&activity_mapping(
-            &mapping_id,
-            &activity_type,
-            "static",
-            first,
-        ))
-        .await
-        .unwrap();
-    repos
-        .seeder
-        .seed_upsert_activity_mapping(&activity_mapping(
-            &mapping_id,
-            &activity_type,
-            "dynamic",
-            second,
-        ))
-        .await
-        .unwrap();
-    let mapping = repos
-        .mobility
-        .get_activity_muscle_mapping(&activity_type)
-        .await
-        .unwrap()
-        .expect("seeded mapping reads back");
-    assert_eq!(
-        mapping.recommended_stretch_categories,
-        vec!["dynamic".to_owned()]
-    );
-    assert_eq!(mapping.updated_at, second);
-    assert_eq!(mapping.created_at, first, "the re-seed keeps created_at");
 }

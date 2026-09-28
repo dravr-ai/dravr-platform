@@ -19,15 +19,14 @@
 //!   initiation, callback redirect to web/mobile, and explicit sync triggers.
 //! - Sciotte (Strava-mirror) credential-login endpoints
 //!   (`/api/providers/sciotte/*`) and the channel-initiated hosted-login UI
-//!   (`/providers/sciotte/{login,success,error}` plus the service-to-service
-//!   `POST /api/channels/provider/sciotte/link-token` mint).
+//!   (`/providers/sciotte/{login,success,error}`), whose link-tokens are
+//!   minted in-process.
 //!
 //! Everything is wired through [`AuthRoutesContext`] — a concrete state
 //! struct collecting the Arc handles every auth handler needs (auth manager,
 //! JWKS, CSRF, repos, config, email + Firebase services, provider registry,
 //! tenant OAuth client, sync notifier, optional sync orchestrator, Cache,
-//! plus the `provider-sciotte`-gated link-token rate limiter and nonce
-//! store). The composition root in `pierre-server` builds the context once
+//! plus the `provider-sciotte`-gated link-token nonce store). The composition root in `pierre-server` builds the context once
 //! from its `ServerContext` and passes it as Axum state.
 //!
 //! The context-struct pattern (rather than a 13-method `AuthRoutesCtx`
@@ -56,11 +55,13 @@ use pierre_config::environment::ServerConfig;
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
 #[cfg(feature = "provider-sciotte")]
-use pierre_middleware::provider_link_token::{MintRateLimiter, NonceStore};
+use pierre_middleware::provider_link_token::NonceStore;
 use pierre_middleware::McpAuthMiddleware;
 use pierre_providers::ProviderRegistry;
 use pierre_runtime_context::DataContext;
 use pierre_services::provider_refresh::SyncNotifier;
+#[cfg(feature = "health-sync")]
+use pierre_services::sync_failure_notice::SyncFailureNotices;
 
 #[cfg(feature = "provider-sciotte")]
 mod connect_hosted;
@@ -117,9 +118,9 @@ pub use pierre_auth::dto::auth::{
     AnalyticsConsentRequest, ChangePasswordRequest, CompleteResetRequest, ConnectionStatus,
     FirebaseLoginRequest, ForgotPasswordRequest, ForgotPasswordResponse, LoginRequest,
     LoginResponse, LogoutRequest, OAuth2ErrorResponse, OAuth2TokenRequest, OAuth2TokenResponse,
-    OAuthAuthorizationResponse, OAuthStatus, ProviderStatus, ProvidersStatusResponse,
-    RegisterRequest, RegisterResponse, SessionResponse, UpdateProfileRequest,
-    UpdateProfileResponse, UserInfo, UserStatsResponse,
+    OAuthAuthorizationResponse, ProviderStatus, ProvidersStatusResponse, RegisterRequest,
+    RegisterResponse, SessionResponse, UpdateProfileRequest, UpdateProfileResponse, UserInfo,
+    UserStatsResponse,
 };
 
 pub use pierre_mcp_transport::OAuthCallbackResponse;
@@ -168,14 +169,15 @@ pub struct AuthRoutesContext {
     /// feature is disabled or orchestrator init failed.
     #[cfg(feature = "health-sync")]
     pub sync_orchestrator: Option<Arc<pierre_enforme::SyncOrchestrator>>,
+    /// The one notice a failing provider sync owes the athlete — told when
+    /// the backfill after a connect fails, re-armed when it lands.
+    #[cfg(feature = "health-sync")]
+    pub sync_failure_notices: SyncFailureNotices,
     /// Shared cache handle — used by the Sciotte prefetch path.
     pub cache: Arc<Cache>,
     /// Admin-token JWT signing secret — also used to verify the Sciotte
     /// hosted-login link-token.
     pub admin_jwt_secret: Arc<str>,
-    /// Per-user rate limiter for hosted-login link-token mint requests.
-    #[cfg(feature = "provider-sciotte")]
-    pub mint_rate_limiter: Arc<MintRateLimiter<Cache>>,
     /// Single-use nonce store for hosted-login link-token jti claims.
     #[cfg(feature = "provider-sciotte")]
     pub nonce_store: Arc<NonceStore<Cache>>,
@@ -238,12 +240,7 @@ impl AuthRoutes {
                 "/api/oauth/callback/{provider}",
                 get(oauth::handle_oauth_callback),
             )
-            .route("/api/oauth/status", get(oauth::handle_oauth_status))
             .route("/api/providers", get(oauth::handle_providers_status))
-            .route(
-                "/api/oauth/auth/{provider}/{user_id}",
-                get(oauth::handle_oauth_auth_initiate),
-            )
             // OAuth launch — 302s the browser to the provider (requires auth).
             // A popup opened onto this never sits blank, unlike fetching the URL
             // and assigning it client-side.
@@ -303,21 +300,9 @@ impl AuthRoutes {
                 "/api/providers/sciotte/submit-otp",
                 post(sciotte::handle_sciotte_submit_otp),
             )
-            .route(
-                "/api/providers/sciotte/connect",
-                post(sciotte::handle_sciotte_connect),
-            )
-            .route(
-                "/api/providers/sciotte/disconnect",
-                delete(sciotte::handle_sciotte_disconnect),
-            )
-            // Channel-initiated hosted Sciotte login: mint + serve pages.
-            // The POST endpoint is service-to-service (admin auth) and mints a
-            // short-lived link-token. The GET endpoints render the hosted UI.
-            .route(
-                "/api/channels/provider/sciotte/link-token",
-                post(sciotte_hosted::handle_mint_sciotte_link_token),
-            )
+            // Channel-initiated hosted Sciotte login pages. Their link-tokens
+            // are minted in-process by the messaging pipeline and the backfill
+            // notifier; no HTTP route mints one.
             .route(
                 "/providers/sciotte/login",
                 get(sciotte_hosted::handle_sciotte_hosted_login_page),

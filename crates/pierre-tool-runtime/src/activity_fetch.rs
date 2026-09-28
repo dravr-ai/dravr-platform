@@ -17,6 +17,7 @@ use std::env;
 use std::sync::Arc;
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
+use pierre_core::civil_time::resolve_zone;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::refresh::DataFreshness;
 use pierre_core::models::{Activity, TenantId};
@@ -1111,9 +1112,7 @@ pub fn activity_date_span(
     activities: &[Activity],
     user_timezone: Option<&str>,
 ) -> Option<(String, String)> {
-    let zone = user_timezone
-        .and_then(|tz| tz.parse::<chrono_tz::Tz>().ok())
-        .unwrap_or(chrono_tz::UTC);
+    let zone = resolve_zone(user_timezone);
     let oldest = activities.iter().map(Activity::start_date).min()?;
     let newest = activities.iter().map(Activity::start_date).max()?;
     Some((

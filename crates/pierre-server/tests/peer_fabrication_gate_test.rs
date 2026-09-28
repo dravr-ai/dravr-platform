@@ -40,6 +40,7 @@ fn member(name: &str) -> MemberFitnessSnapshot {
         ctl: None,
         atl: None,
         tsb: None,
+        form_ctl: None,
         weekly_volume_km: 0.0,
         previous_week_volume_km: None,
         weekly_activity_count: 0,

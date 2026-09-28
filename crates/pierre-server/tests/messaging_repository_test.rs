@@ -614,43 +614,12 @@ async fn test_get_session_messages_pagination() {
 // Delivery Receipt Tests
 // ═══════════════════════════════════════════════════════════════════════════════
 
-#[tokio::test]
-async fn test_insert_delivery_receipt() {
-    let db = create_test_db().await;
-    let (user_uuid, tenant_id) = seed_user(&db).await;
-    let user_id = user_uuid.to_string();
-    let receipt_id = Uuid::new_v4().to_string();
-
-    // Create session + message first (FK constraint)
-    create_test_message(
-        &db,
-        "msg-rcpt",
-        "session-rcpt",
-        tenant_id,
-        &user_id,
-        "CM_RCPT1",
-    )
-    .await;
-
-    db.repositories()
-        .messaging
-        .insert_delivery_receipt(
-            &receipt_id,
-            tenant_id,
-            "msg-rcpt",
-            Some("ext-msg-1"),
-            "sent",
-        )
-        .await
-        .unwrap();
-}
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // Outbound Queue Tests
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[tokio::test]
-async fn test_enqueue_and_get_pending_outbound() {
+async fn test_enqueue_and_get_all_pending_outbound() {
     let db = create_test_db().await;
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
@@ -676,13 +645,16 @@ async fn test_enqueue_and_get_pending_outbound() {
     let pending = db
         .repositories()
         .messaging
-        .get_pending_outbound(tenant_id, 10)
+        .get_all_pending_outbound(100)
         .await
-        .unwrap();
+        .unwrap()
+        .into_iter()
+        .filter(|entry| entry["tenant_id"].as_str() == Some(tenant_id.to_string().as_str()))
+        .collect::<Vec<_>>();
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0]["channel_type"], "whatsapp");
     assert_eq!(pending[0]["status"], "pending");
-    // Phase 4: user_id round-trips through enqueue + get_pending_outbound
+    // Phase 4: user_id round-trips through enqueue + get_all_pending_outbound
     // so the dead-letter PostHog distinct_id has a real user to attach to.
     assert_eq!(pending[0]["user_id"].as_str(), Some(user_id.as_str()));
 }
@@ -718,50 +690,15 @@ async fn test_update_outbound_status() {
         .unwrap();
 
     // Should no longer appear in pending
-    let pending = db
+    let still_pending = db
         .repositories()
         .messaging
-        .get_pending_outbound(tenant_id, 10)
+        .get_all_pending_outbound(100)
         .await
-        .unwrap();
-    assert!(
-        pending.is_empty(),
-        "Sent items should not appear as pending"
-    );
-}
-
-#[tokio::test]
-async fn test_outbound_queue_tenant_isolation() {
-    let db = create_test_db().await;
-    let (user_uuid, tenant_a) = seed_user(&db).await;
-    let user_id = user_uuid.to_string();
-    let tenant_b = seed_tenant(&db).await;
-    let queue_id = Uuid::new_v4().to_string();
-
-    // Create session + message in tenant A (FK constraint)
-    create_test_message(&db, "msg-q3", "session-q3", tenant_a, &user_id, "CM_Q3").await;
-
-    db.repositories()
-        .messaging
-        .enqueue_outbound(
-            &queue_id,
-            "msg-q3",
-            tenant_a,
-            None,
-            "slack",
-            r#"{"text":"Hi"}"#,
-        )
-        .await
-        .unwrap();
-
-    // Tenant B should see empty queue
-    let pending = db
-        .repositories()
-        .messaging
-        .get_pending_outbound(tenant_b, 10)
-        .await
-        .unwrap();
-    assert!(pending.is_empty());
+        .unwrap()
+        .into_iter()
+        .any(|entry| entry["tenant_id"].as_str() == Some(tenant_id.to_string().as_str()));
+    assert!(!still_pending, "Sent items should not appear as pending");
 }
 
 #[tokio::test]

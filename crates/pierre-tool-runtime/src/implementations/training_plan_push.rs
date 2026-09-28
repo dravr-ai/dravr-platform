@@ -26,17 +26,15 @@ use super::calendar::{calendar_provider, destructive_annotations};
 use super::training_plan_telemetry::{emit_calendar_sync_completed, emit_calendar_sync_failed};
 use super::training_plans::{load_conversation, resolve_agent_slug};
 use super::training_plans_output::{CalendarBlock, CalendarEntry, CalendarPreview};
-use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, capabilities_to_tronc, object_schema, ok_typed, task_capable, tool_definition,
-    tool_result_to_response,
+    answers_with, object_schema, ok_typed, task_capable, tool_definition, tool_result_to_response,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use crate::task_cancellation::current_task_cancel_flag;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
 
@@ -222,13 +220,11 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(
-            ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::REQUIRES_TENANT
-                | ToolCapabilities::REQUIRES_PROVIDER
-                | ToolCapabilities::WRITES_DATA,
-        )
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_TENANT
+            | ToolCapabilities::REQUIRES_PROVIDER
+            | ToolCapabilities::WRITES_DATA
     }
 
     async fn execute(

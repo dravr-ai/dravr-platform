@@ -180,9 +180,6 @@ async fn execute_confirmed(ctx: &PlatformCommandContext, action: &PendingGuardia
         user_id: action.user_id.clone(),
         protocol: "chat".to_owned(),
         tenant_id: Some(action.tenant_id.clone()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
 
     let outcome = executor.execute_tool(request).await;

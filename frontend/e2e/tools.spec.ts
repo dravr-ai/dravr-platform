@@ -51,7 +51,7 @@ async function setupEngagementMocks(
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ users: [] }),
+        body: JSON.stringify({ success: true, message: 'Retrieved users', data: { users: [], total: 0, has_more: false } }),
       });
       return;
     }
@@ -61,13 +61,19 @@ async function setupEngagementMocks(
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        users: [
-          { id: '1', email: 'active1@test.com', last_active: new Date(now - 3600000).toISOString() },
-          { id: '2', email: 'active2@test.com', last_active: new Date(now - 7200000).toISOString() },
-          { id: '3', email: 'weekly@test.com', last_active: new Date(now - 3 * 86400000).toISOString() },
-          { id: '4', email: 'monthly@test.com', last_active: new Date(now - 15 * 86400000).toISOString() },
-          { id: '5', email: 'dormant@test.com', last_active: new Date(now - 60 * 86400000).toISOString() },
-        ],
+        success: true,
+        message: 'Retrieved users',
+        data: {
+          users: [
+            { id: '1', email: 'active1@test.com', last_active: new Date(now - 3600000).toISOString() },
+            { id: '2', email: 'active2@test.com', last_active: new Date(now - 7200000).toISOString() },
+            { id: '3', email: 'weekly@test.com', last_active: new Date(now - 3 * 86400000).toISOString() },
+            { id: '4', email: 'monthly@test.com', last_active: new Date(now - 15 * 86400000).toISOString() },
+            { id: '5', email: 'dormant@test.com', last_active: new Date(now - 60 * 86400000).toISOString() },
+          ],
+          total: 5,
+          has_more: false,
+        },
       }),
     });
   });
@@ -290,7 +296,7 @@ test.describe('Engagement Tab - Loading State', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ users: [] }),
+        body: JSON.stringify({ success: true, message: 'Retrieved users', data: { users: [], total: 0, has_more: false } }),
       });
     });
 

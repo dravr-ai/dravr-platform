@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The provider capability-scope vocabulary — one word per wire slug, in the athlete's language
-// ABOUTME: Also maps each scrape-mirror card to its login target, and each provider to the notice it asks for first
+// ABOUTME: Also holds each scrape-mirror target's login facts, and each provider's notice to accept first
 
 import type { SciotteTarget } from '@pierre/shared-types';
 
@@ -46,26 +46,6 @@ export function providerScopeLabelKey(scope: string): string | null {
   return PROVIDER_SCOPE_LABEL_KEY[scope as ProviderScope] ?? null;
 }
 
-/**
- * Each scrape-mirror backend's login target — the server's
- * `backend_resolver::hosted_login_target`, which the hosted pages read, so
- * the web and mobile cards open the same login the channel link does.
- */
-const SCIOTTE_TARGET_BY_BACKEND: Record<string, SciotteTarget> = {
-  sciotte: 'strava',
-  sciotte_garmin: 'garmin',
-  sciotte_trainingpeaks: 'trainingpeaks',
-  sciotte_coros: 'coros',
-};
-
-/**
- * The credential-login target for a provider card, or `null` for a provider
- * that connects some other way (OAuth, an API key).
- */
-export function sciotteTargetForBackend(provider: string): SciotteTarget | null {
-  return SCIOTTE_TARGET_BY_BACKEND[provider] ?? null;
-}
-
 /** The catalogue keys of the notice a provider asks for before connecting. */
 export interface ProviderNoticeKeys {
   titleKey: string;
@@ -98,6 +78,77 @@ export const PROVIDER_NOTICES: Record<string, ProviderNoticeKeys> = {
     consentKey: 'providers.whoopNotice.consent',
   },
 };
+
+/** How the credential login presents one scrape-mirror target. */
+export interface SciotteLoginPreset {
+  /** The provider card (and glyph) id the target is connected through. */
+  backend: string;
+  /** The provider's name, as the login's header and progress copy say it. */
+  labelKey: string;
+  /** Title and placeholder of the provider's own credential form. */
+  titleKey: string;
+  placeholderKey: string;
+  /** What the provider signs in with — TrainingPeaks takes a username. */
+  identifier: 'email' | 'username';
+  /** No Google/Apple choice to make: straight to the provider's form. */
+  directCredentials: boolean;
+  /** The exposure notice shown while the account has not accepted it. */
+  notice?: ProviderNoticeKeys;
+}
+
+/**
+ * The login facts of every scrape-mirror target, read by both clients' login
+ * modals. Each backend is the server's `backend_resolver::hosted_login_target`
+ * pairing, which the hosted pages read, so the web and mobile cards open the
+ * same login the channel link does.
+ */
+export const SCIOTTE_LOGIN_PRESETS: Record<SciotteTarget, SciotteLoginPreset> = {
+  strava: {
+    backend: 'sciotte',
+    labelKey: 'shell.sciotteTargetStrava',
+    titleKey: 'shell.sciotteStravaAccount',
+    placeholderKey: 'shell.stravaEmail',
+    identifier: 'email',
+    directCredentials: false,
+  },
+  garmin: {
+    backend: 'sciotte_garmin',
+    labelKey: 'shell.sciotteProviderGarmin',
+    titleKey: 'shell.sciotteGarminAccount',
+    placeholderKey: 'shell.garminEmail',
+    identifier: 'email',
+    directCredentials: true,
+  },
+  trainingpeaks: {
+    backend: 'sciotte_trainingpeaks',
+    labelKey: 'shell.sciotteProviderTrainingPeaks',
+    titleKey: 'shell.sciotteTrainingPeaksAccount',
+    placeholderKey: 'shell.trainingpeaksUsername',
+    identifier: 'username',
+    directCredentials: true,
+    notice: PROVIDER_NOTICES.sciotte_trainingpeaks,
+  },
+  coros: {
+    backend: 'sciotte_coros',
+    labelKey: 'shell.sciotteProviderCoros',
+    titleKey: 'shell.sciotteCorosAccount',
+    placeholderKey: 'shell.corosEmail',
+    identifier: 'email',
+    directCredentials: true,
+    notice: PROVIDER_NOTICES.sciotte_coros,
+  },
+};
+
+/**
+ * The credential-login target for a provider card, or `null` for a provider
+ * that connects some other way (OAuth, an API key).
+ */
+export function sciotteTargetForBackend(provider: string): SciotteTarget | null {
+  const entry = (Object.entries(SCIOTTE_LOGIN_PRESETS) as [SciotteTarget, SciotteLoginPreset][]).find(
+    ([, preset]) => preset.backend === provider,
+  );
+  return entry ? entry[0] : null;
+}
 
 /**
  * Whether connecting `provider` must first show its notice: the card says the

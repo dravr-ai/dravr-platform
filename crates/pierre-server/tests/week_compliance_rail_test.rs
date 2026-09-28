@@ -128,9 +128,6 @@ fn request(tool: &str, params: Value, user_id: Uuid, tenant_id: &str) -> Univers
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
         tenant_id: Some(tenant_id.to_owned()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     }
 }
 

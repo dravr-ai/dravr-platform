@@ -131,7 +131,6 @@
     "blockSend": "Send",
     "brandApple": "Apple",
     "brandGarmin": "Garmin",
-    "brandGarminConnect": "Garmin Connect",
     "brandGoogle": "Google",
     "brandStrava": "Strava",
     "cancelTryDifferentProvider": "Cancel and try a different provider",
@@ -350,8 +349,6 @@
     "forgotPasswordLink": "Forgot password?",
     "freshForm": "Fresh form",
     "fromChannel": "From {{channel}}",
-    "garminAccount": "Garmin Account",
-    "garminEmail": "Garmin email",
     "googleEmail": "Google email",
     "group": "Group",
     "groupArchivedPermanently": "The group has been permanently archived.",
@@ -743,13 +740,9 @@
     "youllReceiveApproval": "You'll receive an approval email",
     "yourActivitiesCount": "Your Activities ({{count}})",
     "brandTrainingPeaks": "TrainingPeaks",
-    "trainingpeaksAccount": "TrainingPeaks Account",
-    "trainingpeaksUsername": "TrainingPeaks username",
     "provTrainingPeaksBlurb": "Completed workouts and their training load from TrainingPeaks",
     "provTrainingPeaksShort": "Completed workouts & training load",
     "brandCoros": "COROS",
-    "corosAccount": "COROS Account",
-    "corosEmail": "COROS email",
     "provCorosBlurb": "Activities and recovery metrics from COROS watches",
     "provCorosShort": "Activities & laps"
   },
@@ -1405,6 +1398,10 @@
     "alreadyLinked": "Your TrainingPeaks is already linked through another group.",
     "alreadyProposed": "This member already has a TrainingPeaks link in this group.",
     "athleteAlreadyLinked": "This athlete is already linked.",
+    "athleteEmailMismatch": "This athlete's TrainingPeaks email is not the member's Dravr email, so they cannot be linked.",
+    "athleteEmailMissing": "TrainingPeaks shares no email for this athlete, so Dravr cannot match them to a member.",
+    "coachEmailMismatch": "The TrainingPeaks account you connected uses a different email than your Dravr account. Connect the TrainingPeaks account registered with your Dravr email.",
+    "coachEmailMissing": "TrainingPeaks shares no email for the account you connected, so Dravr cannot tell it is yours.",
     "coachHint": "Link each athlete on your TrainingPeaks roster to the member they are in this group. They confirm before Dravr reads their workouts through your TrainingPeaks account.",
     "coachReconnectNeeded": "{{coach}} needs to reconnect TrainingPeaks; your workouts are paused until then.",
     "confirm": "Confirm",
@@ -1413,8 +1410,10 @@
     "connectFirst": "Connect TrainingPeaks with the account your athletes are on to link them.",
     "decline": "Decline",
     "declinedToast": "Link declined",
+    "emailUnverified": "Verify your Dravr email first: open the link in the confirmation email we sent you.",
     "leaveEndsLink": "Your TrainingPeaks link through this group ends too.",
     "linkedTo": "Linked to {{member}}",
+    "memberEmailUnverified": "This member has not verified their Dravr email yet, so they cannot be linked.",
     "memberLabel": "Member",
     "memberPlaceholder": "Choose a member",
     "memberSectionTitle": "TrainingPeaks through your human coach",
@@ -1520,6 +1519,29 @@
     "tryAgain": "Try Again",
     "updateAgentFailed": "Failed to update agent. Please try again.",
     "useCount": "Uses",
+    "versionCompare": "Compare with now",
+    "versionDiffLoadFailed": "Couldn't compare this version",
+    "versionEmptyValue": "(empty)",
+    "versionHideCompare": "Hide comparison",
+    "versionHistoryEmpty": "No earlier versions yet. Each save adds one here.",
+    "versionHistoryHint": "Each save keeps the content it replaced. Compare a version with your agent as it is now, or bring it back.",
+    "versionHistoryLoadFailed": "Couldn't load the version history",
+    "versionHistoryTitle": "Version history",
+    "versionLabel": "Version {{version}}",
+    "versionNoChanges": "Same content as your agent now.",
+    "versionNow": "Now",
+    "versionReplaced": "Replaced {{date}}",
+    "versionReplacedBy": "Replaced {{date}} by {{author}}",
+    "versionRevert": "Revert to this version",
+    "versionRevertConfirm": "Revert",
+    "versionRevertConfirmMessage": "Your agent gets this version's content back. What it has now is kept as a new version, so you can undo this.",
+    "versionRevertConfirmTitle": "Revert to version {{version}}?",
+    "versionRevertFailed": "Couldn't revert to this version",
+    "versionThen": "In this version",
+    "versionVisibilityLabel": "Visibility",
+    "visibilityGlobal": "Everyone",
+    "visibilityPrivate": "Only you",
+    "visibilityTenant": "Your organization",
     "whenToUseSection": "When to Use"
   },
   "errors": {
@@ -2054,14 +2076,6 @@
       "title": "Your weekly notification digest"
     },
     "event": {
-      "activity_synced": {
-        "body": "{0} — {1} in {2}",
-        "title": "New activity synced"
-      },
-      "agent_feedback": {
-        "body": "{0} left a note on your {1}",
-        "title": "Agent feedback"
-      },
       "agent_message": {
         "body": "{0} sent you a message",
         "title": "Message from your agent"
@@ -2094,10 +2108,6 @@
         "body": "Your recovery score is {0}/100 — easy day recommended",
         "title": "Recovery score is low"
       },
-      "milestone_reached": {
-        "body": "You've logged {0} {1} this year",
-        "title": "Milestone reached!"
-      },
       "overtraining_warning": {
         "body": "Your training stress trend suggests fatigue accumulation",
         "title": "Overtraining risk detected"
@@ -2115,7 +2125,7 @@
         "title": "Your {0} connection will be released soon"
       },
       "sync_failure": {
-        "body": "{0}",
+        "body": "Dravr couldn't fetch your latest {0} data. It retries on its own; reconnect if it keeps failing.",
         "collapsed_body": "{0} activity syncs failed recently",
         "collapsed_title": "{0} sync failures",
         "title": "{0} sync failed"
@@ -2151,7 +2161,13 @@
     },
     "hoursAgo": "{{count}}h ago",
     "justNow": "Just now",
-    "minutesAgo": "{{count}}m ago"
+    "minutesAgo": "{{count}}m ago",
+    "pr_distance": {
+      "5k": "5 km",
+      "10k": "10 km",
+      "half_marathon": "half marathon",
+      "marathon": "marathon"
+    }
   },
   "onboarding": {
     "aboutYouHint": "Three quick questions so your agent starts out knowing you. Skip any of them — we'll pick the rest up as we go.",

@@ -20,21 +20,10 @@ pub trait DataSourceRepository: Send + Sync {
         tenant_id: &TenantId,
         source: &DataSource,
     ) -> AppResult<String>;
-    /// Get a data source by ID
-    async fn get_data_source(&self, id: &str) -> AppResult<Option<DataSource>>;
     /// List data sources for a user
     async fn list_data_sources(
         &self,
         user_id: Uuid,
         tenant_id: &TenantId,
     ) -> AppResult<Vec<DataSource>>;
-    /// List data sources for a user filtered by provider
-    async fn list_data_sources_by_provider(
-        &self,
-        user_id: Uuid,
-        tenant_id: &TenantId,
-        provider: &str,
-    ) -> AppResult<Vec<DataSource>>;
-    /// Delete a data source
-    async fn delete_data_source(&self, id: &str) -> AppResult<()>;
 }

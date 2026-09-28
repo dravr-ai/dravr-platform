@@ -4,9 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use pierre_core::constants::api_provider_limits::{
-    garmin, strava, STRAVA_RATE_LIMIT_15MIN, STRAVA_RATE_LIMIT_DAILY,
-};
+use pierre_core::constants::api_provider_limits::{garmin, strava};
+use pierre_core::constants::rate_limits::{STRAVA_RATE_LIMIT_15MIN, STRAVA_RATE_LIMIT_DAILY};
 use serde::{Deserialize, Serialize};
 use std::env;
 

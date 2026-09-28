@@ -6,7 +6,7 @@
 
 //! # Endurance latest snapshot
 //!
-//! Per-window summary backing `GET /api/v1/endurance/latest`.
+//! Per-window summary backing the `export_latest_snapshot` tool.
 //!
 //! For each activity inside the window we derive the four Endurance
 //! per-activity metrics — intensity factor, efficiency factor,

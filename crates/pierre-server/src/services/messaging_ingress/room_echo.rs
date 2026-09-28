@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use pierre_contremaitre::messaging_strings::{DEFAULT_LOCALE, KEY_SLASH_ANSWERED_PRIVATELY};
+use pierre_contremaitre::messaging_strings::KEY_SLASH_ANSWERED_PRIVATELY;
 use pierre_core::errors::messaging::MessagingError;
 use pierre_core::models::messaging::{ChannelType, MessageContent, OutgoingMessage};
 use pierre_core::models::TenantId;
@@ -21,7 +21,7 @@ use uuid::Uuid;
 use crate::mcp::resources::ServerContext;
 
 use super::dispatch::load_channel_config;
-use super::locale::resolve_messaging_locale;
+use pierre_services::locale::resolve_channel_locale;
 
 /// Best-effort removal of a user's slash-command echo from a shared room.
 ///
@@ -183,10 +183,15 @@ pub async fn answered_privately_notice(
     sender_id: &str,
     room_id: &str,
 ) -> OutgoingMessage {
-    let locale = match Uuid::parse_str(user_id) {
-        Ok(uuid) => resolve_messaging_locale(resources, tenant_id, uuid, channel, sender_id).await,
-        Err(_) => DEFAULT_LOCALE.to_owned(),
-    };
+    let locale = resolve_channel_locale(
+        resources.common.repos.messaging.as_ref(),
+        resources.common.repos.users.as_ref(),
+        tenant_id,
+        channel,
+        sender_id,
+        Uuid::parse_str(user_id).ok(),
+    )
+    .await;
     let body = resources
         .mcp
         .messaging_strings_registry

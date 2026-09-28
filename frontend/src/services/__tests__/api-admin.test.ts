@@ -122,52 +122,59 @@ describe('API Service - Admin Functionality', () => {
   });
 
   describe('Admin Token Management', () => {
-    it('should fetch admin tokens with parameters', async () => {
-      const mockTokens = {
-        admin_tokens: [
+    it('should fetch admin tokens with parameters from the data envelope', async () => {
+      const listing = {
+        count: 1,
+        tokens: [
           {
             id: 'token-1',
             service_name: 'Test Service',
+            permissions: ['list_keys'],
+            is_super_admin: false,
             is_active: true,
             created_at: '2025-01-01T00:00:00Z',
-            token_prefix: 'at_abc123'
-          }
+            usage_count: 0,
+            token_prefix: 'at_abc123',
+          },
         ],
-        total_count: 1
       };
 
-      mockAxiosInstance.get.mockResolvedValueOnce({ data: mockTokens });
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: { success: true, message: 'Retrieved 1 admin tokens', data: listing },
+      });
 
       const result = await adminApi.getAdminTokens({ include_inactive: true });
 
       expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/admin/tokens?include_inactive=true');
-      expect(result).toEqual(mockTokens);
+      expect(result).toEqual(listing);
     });
 
     it('should create admin token successfully', async () => {
       const tokenRequest = {
         service_name: 'New Service',
         service_description: 'Test service',
-        permissions: ['read_users'],
+        permissions: ['list_keys'],
         is_super_admin: false,
         expires_in_days: 90
       };
 
-      const mockResponse = {
-        admin_token: {
-          id: 'token-2',
-          service_name: 'New Service',
-          token_prefix: 'at_def456'
-        },
-        jwt_token: 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...'
+      const created = {
+        token_id: 'token-2',
+        service_name: 'New Service',
+        jwt_token: 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...',
+        token_prefix: 'at_def456',
+        is_super_admin: false,
+        expires_at: '2025-04-01T00:00:00Z',
       };
 
-      mockAxiosInstance.post.mockResolvedValueOnce({ data: mockResponse });
+      mockAxiosInstance.post.mockResolvedValueOnce({
+        data: { success: true, message: 'Admin token created successfully', data: created },
+      });
 
       const result = await adminApi.createAdminToken(tokenRequest);
 
       expect(mockAxiosInstance.post).toHaveBeenCalledWith('/api/admin/tokens', tokenRequest);
-      expect(result).toEqual(mockResponse);
+      expect(result).toEqual(created);
     });
 
     it('should revoke admin token', async () => {
@@ -181,19 +188,27 @@ describe('API Service - Admin Functionality', () => {
       expect(result).toEqual(mockResponse);
     });
 
-    it('should rotate admin token', async () => {
+    it('should rotate admin token and return the replacement', async () => {
       const rotateRequest = { expires_in_days: 180 };
-      const mockResponse = {
-        admin_token: { id: 'token-1', token_prefix: 'at_new123' },
-        jwt_token: 'new.jwt.token'
+      const rotated = {
+        old_token_id: 'token-1',
+        token_id: 'token-9',
+        service_name: 'Test Service',
+        jwt_token: 'new.jwt.token',
+        token_prefix: 'at_new123',
+        is_super_admin: false,
+        expires_at: null,
       };
 
-      mockAxiosInstance.post.mockResolvedValueOnce({ data: mockResponse });
+      mockAxiosInstance.post.mockResolvedValueOnce({
+        data: { success: true, message: 'Admin token rotated successfully', data: rotated },
+      });
 
       const result = await adminApi.rotateAdminToken('token-1', rotateRequest);
 
       expect(mockAxiosInstance.post).toHaveBeenCalledWith('/api/admin/tokens/token-1/rotate', rotateRequest);
-      expect(result).toEqual(mockResponse);
+      expect(result.jwt_token).toBe('new.jwt.token');
+      expect(result.old_token_id).toBe('token-1');
     });
   });
 
@@ -204,8 +219,10 @@ describe('API Service - Admin Functionality', () => {
         { id: 'user-2', email: 'user2@example.com', display_name: 'User Two', created_at: '2025-01-02T00:00:00Z' }
       ];
 
-      // Backend returns { count, users } structure
-      mockAxiosInstance.get.mockResolvedValueOnce({ data: { count: 2, users: mockPendingUsers } });
+      // The admin handler answers { success, message, data: { count, users } }
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: { success: true, message: 'Retrieved 2 pending users', data: { count: 2, users: mockPendingUsers } },
+      });
 
       const result = await adminApi.getPendingUsers();
 
@@ -240,24 +257,50 @@ describe('API Service - Admin Functionality', () => {
       expect(result).toEqual(mockResponse);
     });
 
-    it('should fetch all users with status filter', async () => {
-      const mockUsersList = [
-        { id: 'user-1', email: 'user1@example.com', status: 'active' },
-        { id: 'user-2', email: 'user2@example.com', status: 'active' }
+    it('should page every status through the listing cursor', async () => {
+      const first = [
+        { id: 'user-1', email: 'user1@example.com', user_status: 'active' },
+        { id: 'user-2', email: 'user2@example.com', user_status: 'pending' },
       ];
+      const second = [{ id: 'user-3', email: 'user3@example.com', user_status: 'suspended' }];
 
-      // Backend returns { users: [...], total_count: n } structure
-      mockAxiosInstance.get.mockResolvedValueOnce({ data: { users: mockUsersList, total_count: 2 } });
+      mockAxiosInstance.get
+        .mockResolvedValueOnce({
+          data: { success: true, data: { users: first, total: 2, has_more: true, next_cursor: 'c1' } },
+        })
+        .mockResolvedValueOnce({
+          data: { success: true, data: { users: second, total: 1, has_more: false } },
+        });
 
-      const result = await adminApi.getAllUsers({
-        status: 'active',
-        limit: 50,
-        offset: 0
+      const result = await adminApi.getAllUsers();
+
+      expect(mockAxiosInstance.get).toHaveBeenNthCalledWith(1, '/api/admin/users?status=all&limit=100');
+      expect(mockAxiosInstance.get).toHaveBeenNthCalledWith(
+        2,
+        '/api/admin/users?status=all&limit=100&cursor=c1'
+      );
+      expect(result).toEqual([...first, ...second]);
+    });
+  });
+
+  describe('Password reset', () => {
+    it('should return the issued token from the data envelope', async () => {
+      const issued = {
+        user_id: 'user-1',
+        email: 'target@example.com',
+        reset_token: 'sel.verifier',
+        expires_in_seconds: 3600,
+        reset_by: 'admin-1',
+        note: 'Deliver this token to the user.',
+      };
+      mockAxiosInstance.post.mockResolvedValueOnce({
+        data: { success: true, message: 'Password reset token issued', data: issued },
       });
 
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/admin/users?status=active&limit=50');
-      // getAllUsers extracts the users array
-      expect(result).toEqual(mockUsersList);
+      const result = await adminApi.resetUserPassword('user-1');
+
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/api/admin/users/user-1/reset-password');
+      expect(result).toEqual(issued);
     });
   });
 
@@ -298,6 +341,7 @@ describe('API Service - Admin Functionality', () => {
       expect(mockAxiosInstance.post).toHaveBeenCalledWith('/api/admin/pre-approved-emails', {
         email: 'alpha@example.com',
         note: 'alpha cohort',
+        send_invite: false,
       });
       expect(result.outcome).toBe('recorded');
       expect(result.message).toBe('alpha@example.com pre-approved');
@@ -318,9 +362,29 @@ describe('API Service - Admin Functionality', () => {
       expect(mockAxiosInstance.post).toHaveBeenCalledWith('/api/admin/pre-approved-emails', {
         email: 'queued@example.com',
         note: null,
+        send_invite: false,
       });
       expect(result.outcome).toBe('pending_approved');
       expect(result.approved_user_id).toBe('user-9');
+    });
+
+    it('should ask for the sign-up link and report that it was mailed', async () => {
+      mockAxiosInstance.post.mockResolvedValueOnce({
+        data: {
+          success: true,
+          message: 'new@example.com pre-approved',
+          data: { email: 'new@example.com', outcome: 'recorded', approved_user_id: null, invited: true },
+        },
+      });
+
+      const result = await adminApi.allowEmail('new@example.com', undefined, true);
+
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/api/admin/pre-approved-emails', {
+        email: 'new@example.com',
+        note: null,
+        send_invite: true,
+      });
+      expect(result.invited).toBe(true);
     });
 
     it('should url-encode the address when removing a pre-approval', async () => {

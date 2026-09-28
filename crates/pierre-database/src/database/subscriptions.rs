@@ -5,16 +5,15 @@
 // Copyright (c) 2026 dravr.ai
 
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{Subscription, SubscriptionStatus, TenantId, UserId};
+use pierre_core::models::{Subscription, UserId};
 use uuid::Uuid;
 
 use super::Database;
 use crate::repositories::subscriptions::{
     impl_subscriptions_repository, subscription_from_row, SubscriptionsRepository,
     COUNT_BILLING_EVENT_SQL, GET_SUBSCRIPTION_BY_PROVIDER_CUSTOMER_ID_SQL,
-    GET_SUBSCRIPTION_BY_PROVIDER_SUBSCRIPTION_ID_SQL, GET_SUBSCRIPTION_BY_TENANT_SQL,
-    GET_SUBSCRIPTION_BY_USER_SQL, LIST_SUBSCRIPTIONS_BY_STATUS_SQL, MARK_BILLING_EVENT_SQL,
-    UPSERT_SUBSCRIPTION_SQL,
+    GET_SUBSCRIPTION_BY_PROVIDER_SUBSCRIPTION_ID_SQL, GET_SUBSCRIPTION_BY_USER_SQL,
+    MARK_BILLING_EVENT_SQL, UPSERT_SUBSCRIPTION_SQL,
 };
 use crate::uuid_column::UuidColumn;
 

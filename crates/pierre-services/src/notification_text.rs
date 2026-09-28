@@ -27,7 +27,9 @@ use pierre_contremaitre::messaging_strings::{
     KEY_GROUP_DIGEST_HIGHLIGHTS_HEADER, KEY_GROUP_DIGEST_MEMBERS_HEADER,
     KEY_GROUP_DIGEST_MEMBER_LINE, KEY_GROUP_DIGEST_MEMBER_LINE_PREV, KEY_GROUP_DIGEST_ROOM_SCOPE,
     KEY_GROUP_DIGEST_SUMMARY, KEY_GROUP_DIGEST_TREND_DECLINING, KEY_GROUP_DIGEST_TREND_IMPROVING,
-    KEY_GROUP_DIGEST_TREND_STABLE, KEY_NOTIFICATION_CHANNEL_BODY,
+    KEY_GROUP_DIGEST_TREND_STABLE, KEY_NOTIFICATION_CHANNEL_BODY, KEY_NOTIFICATION_PR_DISTANCE_10K,
+    KEY_NOTIFICATION_PR_DISTANCE_5K, KEY_NOTIFICATION_PR_DISTANCE_HALF_MARATHON,
+    KEY_NOTIFICATION_PR_DISTANCE_MARATHON,
 };
 use pierre_notifications::events::{action_label_key, NotificationEvent};
 use serde_json::{Map, Value};
@@ -42,6 +44,15 @@ pub const CONCERN_OVERTRAINING_RISK: &str = "overtraining_risk";
 pub const CONCERN_INACTIVE: &str = "inactive";
 /// Group-digest concern code: volume below the group average.
 pub const CONCERN_VOLUME_DROP: &str = "volume_drop";
+
+/// Personal-record distance code: 5 km.
+pub const PR_DISTANCE_5K: &str = "5k";
+/// Personal-record distance code: 10 km.
+pub const PR_DISTANCE_10K: &str = "10k";
+/// Personal-record distance code: half marathon.
+pub const PR_DISTANCE_HALF_MARATHON: &str = "half_marathon";
+/// Personal-record distance code: marathon.
+pub const PR_DISTANCE_MARATHON: &str = "marathon";
 
 /// Group-digest parameter carried only by the copy posted into the group's
 /// chat: how many members share their training, which is the set every
@@ -76,10 +87,11 @@ impl<'a> NotificationTextRenderer<'a> {
     /// The notification body for `event`, filled from `params`.
     #[must_use]
     pub fn body(&self, event: NotificationEvent, params: &Map<String, Value>) -> String {
-        if event == NotificationEvent::GroupWeeklyDigest {
-            return self.group_digest_body(params);
+        match event {
+            NotificationEvent::GroupWeeklyDigest => self.group_digest_body(params),
+            NotificationEvent::PersonalRecord => self.personal_record_body(params),
+            _ => self.render(event.body_key(), event.body_params(), params),
         }
-        self.render(event.body_key(), event.body_params(), params)
     }
 
     /// The text a chat reads for `event`: its title and body inside the same
@@ -123,6 +135,24 @@ impl<'a> NotificationTextRenderer<'a> {
             .collect();
         let args: Vec<&str> = values.iter().map(String::as_str).collect();
         self.strings.render(key, self.locale, &args)
+    }
+
+    /// The personal-record body: the distance named in this locale from its
+    /// stored code, then the time. A code this build does not know leaves
+    /// the name slot empty rather than showing the code.
+    fn personal_record_body(&self, params: &Map<String, Value>) -> String {
+        let key = match params.get("distance").and_then(Value::as_str) {
+            Some(PR_DISTANCE_5K) => Some(KEY_NOTIFICATION_PR_DISTANCE_5K),
+            Some(PR_DISTANCE_10K) => Some(KEY_NOTIFICATION_PR_DISTANCE_10K),
+            Some(PR_DISTANCE_HALF_MARATHON) => Some(KEY_NOTIFICATION_PR_DISTANCE_HALF_MARATHON),
+            Some(PR_DISTANCE_MARATHON) => Some(KEY_NOTIFICATION_PR_DISTANCE_MARATHON),
+            _ => None,
+        };
+        let distance = key.map(|key| self.line(key, &[])).unwrap_or_default();
+        self.line(
+            NotificationEvent::PersonalRecord.body_key(),
+            &[&distance, &param_text(params.get("time_display"))],
+        )
     }
 
     /// The group weekly digest, one line per fact: the summary, the trend,

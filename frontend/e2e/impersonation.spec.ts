@@ -42,38 +42,6 @@ async function loginAsSuperAdminAndNavigateToUsers(page: Page) {
     });
   });
 
-  // Mock dashboard overview
-  await page.route('**/api/dashboard/overview', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        total_api_keys: 5,
-        active_api_keys: 3,
-        total_requests_today: 150,
-        total_requests_this_month: 2500,
-      }),
-    });
-  });
-
-  // Mock rate limits
-  await page.route('**/api/dashboard/rate-limits', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([]),
-    });
-  });
-
-  // Mock A2A dashboard
-  await page.route('**/a2a/dashboard/overview', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ total_clients: 2, active_sessions: 1, requests_today: 50, error_rate: 0.01 }),
-    });
-  });
-
   // Mock analytics
   await page.route('**/api/dashboard/analytics**', async (route) => {
     await route.fulfill({
@@ -128,38 +96,6 @@ async function loginAsRegularAdmin(page: Page) {
     });
   });
 
-  // Mock dashboard overview
-  await page.route('**/api/dashboard/overview', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        total_api_keys: 5,
-        active_api_keys: 3,
-        total_requests_today: 150,
-        total_requests_this_month: 2500,
-      }),
-    });
-  });
-
-  // Mock rate limits
-  await page.route('**/api/dashboard/rate-limits', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([]),
-    });
-  });
-
-  // Mock A2A dashboard
-  await page.route('**/a2a/dashboard/overview', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ total_clients: 2, active_sessions: 1, requests_today: 50, error_rate: 0.01 }),
-    });
-  });
-
   // Mock analytics
   await page.route('**/api/dashboard/analytics**', async (route) => {
     await route.fulfill({
@@ -187,7 +123,7 @@ test.describe('Impersonation - Super Admin Access', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ count: 0, users: [] }),
+        body: JSON.stringify({ success: true, message: 'Retrieved 0 pending users', data: { count: 0, users: [] } }),
       });
     });
 
@@ -197,29 +133,34 @@ test.describe('Impersonation - Super Admin Access', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          users: [
-            {
-              id: 'user-1',
-              email: 'testuser@example.com',
-              display_name: 'Test User',
-              role: 'user',
-              user_status: 'active',
-              tier: 'starter',
-              created_at: '2024-01-15T10:00:00Z',
-              last_active: '2024-01-20T15:30:00Z',
-            },
-            {
-              id: 'admin-2',
-              email: 'otheradmin@example.com',
-              display_name: 'Other Admin',
-              role: 'admin',
-              user_status: 'active',
-              tier: 'professional',
-              created_at: '2024-01-10T10:00:00Z',
-              last_active: '2024-01-20T15:30:00Z',
-            },
-          ],
-          total_count: 2,
+          success: true,
+          message: 'Retrieved users',
+          data: {
+            users: [
+              {
+                id: 'user-1',
+                email: 'testuser@example.com',
+                display_name: 'Test User',
+                role: 'user',
+                user_status: 'active',
+                tier: 'starter',
+                created_at: '2024-01-15T10:00:00Z',
+                last_active: '2024-01-20T15:30:00Z',
+              },
+              {
+                id: 'admin-2',
+                email: 'otheradmin@example.com',
+                display_name: 'Other Admin',
+                role: 'admin',
+                user_status: 'active',
+                tier: 'professional',
+                created_at: '2024-01-10T10:00:00Z',
+                last_active: '2024-01-20T15:30:00Z',
+              },
+            ],
+            total: 2,
+            has_more: false,
+          },
         }),
       });
     });
@@ -314,19 +255,24 @@ test.describe('Impersonation - Super Admin Access', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          users: [
-            {
-              id: 'super-admin-2',
-              email: 'othersuper@example.com',
-              display_name: 'Other Super Admin',
-              role: 'super_admin',
-              user_status: 'active',
-              tier: 'enterprise',
-              created_at: '2024-01-10T10:00:00Z',
-              last_active: '2024-01-20T15:30:00Z',
-            },
-          ],
-          total_count: 1,
+          success: true,
+          message: 'Retrieved users',
+          data: {
+            users: [
+              {
+                id: 'super-admin-2',
+                email: 'othersuper@example.com',
+                display_name: 'Other Super Admin',
+                role: 'super_admin',
+                user_status: 'active',
+                tier: 'enterprise',
+                created_at: '2024-01-10T10:00:00Z',
+                last_active: '2024-01-20T15:30:00Z',
+              },
+            ],
+            total: 1,
+            has_more: false,
+          },
         }),
       });
     });
@@ -352,19 +298,24 @@ test.describe('Impersonation - Super Admin Access', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          users: [
-            {
-              id: 'pending-user-1',
-              email: 'pending@example.com',
-              display_name: 'Pending User',
-              role: 'user',
-              user_status: 'pending',
-              tier: 'trial',
-              created_at: '2024-01-15T10:00:00Z',
-              last_active: null,
-            },
-          ],
-          total_count: 1,
+          success: true,
+          message: 'Retrieved users',
+          data: {
+            users: [
+              {
+                id: 'pending-user-1',
+                email: 'pending@example.com',
+                display_name: 'Pending User',
+                role: 'user',
+                user_status: 'pending',
+                tier: 'trial',
+                created_at: '2024-01-15T10:00:00Z',
+                last_active: null,
+              },
+            ],
+            total: 1,
+            has_more: false,
+          },
         }),
       });
     });
@@ -391,7 +342,7 @@ test.describe('Impersonation - Start and End Flow', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ count: 0, users: [] }),
+        body: JSON.stringify({ success: true, message: 'Retrieved 0 pending users', data: { count: 0, users: [] } }),
       });
     });
 
@@ -400,19 +351,24 @@ test.describe('Impersonation - Start and End Flow', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          users: [
-            {
-              id: 'user-1',
-              email: 'testuser@example.com',
-              display_name: 'Test User',
-              role: 'user',
-              user_status: 'active',
-              tier: 'starter',
-              created_at: '2024-01-15T10:00:00Z',
-              last_active: '2024-01-20T15:30:00Z',
-            },
-          ],
-          total_count: 1,
+          success: true,
+          message: 'Retrieved users',
+          data: {
+            users: [
+              {
+                id: 'user-1',
+                email: 'testuser@example.com',
+                display_name: 'Test User',
+                role: 'user',
+                user_status: 'active',
+                tier: 'starter',
+                created_at: '2024-01-15T10:00:00Z',
+                last_active: '2024-01-20T15:30:00Z',
+              },
+            ],
+            total: 1,
+            has_more: false,
+          },
         }),
       });
     });
@@ -616,7 +572,7 @@ test.describe('Impersonation - Regular Admin Cannot Impersonate', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ count: 0, users: [] }),
+        body: JSON.stringify({ success: true, message: 'Retrieved 0 pending users', data: { count: 0, users: [] } }),
       });
     });
 
@@ -625,19 +581,24 @@ test.describe('Impersonation - Regular Admin Cannot Impersonate', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          users: [
-            {
-              id: 'user-1',
-              email: 'testuser@example.com',
-              display_name: 'Test User',
-              role: 'user',
-              user_status: 'active',
-              tier: 'starter',
-              created_at: '2024-01-15T10:00:00Z',
-              last_active: '2024-01-20T15:30:00Z',
-            },
-          ],
-          total_count: 1,
+          success: true,
+          message: 'Retrieved users',
+          data: {
+            users: [
+              {
+                id: 'user-1',
+                email: 'testuser@example.com',
+                display_name: 'Test User',
+                role: 'user',
+                user_status: 'active',
+                tier: 'starter',
+                created_at: '2024-01-15T10:00:00Z',
+                last_active: '2024-01-20T15:30:00Z',
+              },
+            ],
+            total: 1,
+            has_more: false,
+          },
         }),
       });
     });
@@ -715,7 +676,7 @@ test.describe('Impersonation - Error Handling', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ count: 0, users: [] }),
+        body: JSON.stringify({ success: true, message: 'Retrieved 0 pending users', data: { count: 0, users: [] } }),
       });
     });
 
@@ -724,19 +685,24 @@ test.describe('Impersonation - Error Handling', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          users: [
-            {
-              id: 'user-1',
-              email: 'testuser@example.com',
-              display_name: 'Test User',
-              role: 'user',
-              user_status: 'active',
-              tier: 'starter',
-              created_at: '2024-01-15T10:00:00Z',
-              last_active: '2024-01-20T15:30:00Z',
-            },
-          ],
-          total_count: 1,
+          success: true,
+          message: 'Retrieved users',
+          data: {
+            users: [
+              {
+                id: 'user-1',
+                email: 'testuser@example.com',
+                display_name: 'Test User',
+                role: 'user',
+                user_status: 'active',
+                tier: 'starter',
+                created_at: '2024-01-15T10:00:00Z',
+                last_active: '2024-01-20T15:30:00Z',
+              },
+            ],
+            total: 1,
+            has_more: false,
+          },
         }),
       });
     });

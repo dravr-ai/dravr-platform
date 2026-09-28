@@ -78,8 +78,17 @@ fn a_fully_configured_cloud_tasks_runner_knows_its_target_name_and_deadline() {
         cloud.run_url("row-1"),
         format!("{TARGET}/internal/turns/row-1/run")
     );
-    assert_eq!(cloud.verifier().audience(), TARGET);
-    assert_eq!(cloud.verifier().service_account(), SA);
+    // The token audience is the same trimmed origin, the one caller the
+    // verifier allows is the configured service account, and its keys come
+    // from Google's published OIDC key set.
+    let config = cloud.config();
+    assert_eq!(config.target_url, TARGET);
+    assert_eq!(config.service_account, SA);
+    assert_eq!(config.queue, QUEUE);
+    assert_eq!(
+        config.jwks_url,
+        "https://www.googleapis.com/oauth2/v3/certs"
+    );
 
     // Claim wait plus watchdog plus a minute. The claim wait counts because
     // it is spent INSIDE the delivery, before the turn starts, so a deadline

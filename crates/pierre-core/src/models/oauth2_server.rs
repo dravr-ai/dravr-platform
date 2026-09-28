@@ -118,6 +118,10 @@ pub struct OAuth2RefreshToken {
     pub created_at: DateTime<Utc>,
     /// Whether this refresh token has been revoked
     pub revoked: bool,
+    /// The rotation chain this token belongs to. Every token a refresh
+    /// exchange issues joins its predecessor's family, so presenting one that
+    /// was already rotated out revokes the whole chain.
+    pub family_id: String,
 }
 
 /// OAuth 2.0 State for CSRF Protection

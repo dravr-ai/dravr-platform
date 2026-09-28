@@ -173,8 +173,10 @@ pub fn render_error_page(message: &str) -> String {
     with_hosted_page_css(ERROR_TEMPLATE).replace("{{MESSAGE}}", &escape_html_attribute(message))
 }
 
-/// Convert a channel slug to a user-facing label ("slack" -> "Slack")
-fn humanize_channel(slug: &str) -> String {
+/// Convert a channel slug to a user-facing label ("slack" -> "Slack"), for
+/// every hosted page that names the chat the athlete came from.
+#[must_use]
+pub fn humanize_channel(slug: &str) -> String {
     match slug {
         "" => "your chat app".to_owned(),
         "whatsapp" => "WhatsApp".to_owned(),

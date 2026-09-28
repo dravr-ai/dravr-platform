@@ -29,6 +29,7 @@ fn snapshot_with_recent(recent: Vec<RosterActivity>) -> MemberFitnessSnapshot {
         ctl: None,
         atl: None,
         tsb: None,
+        form_ctl: None,
         weekly_volume_km: 0.0,
         previous_week_volume_km: None,
         weekly_activity_count: 0,

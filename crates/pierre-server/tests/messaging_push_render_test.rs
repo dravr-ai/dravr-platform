@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests for the backfill-completion push RENDER seam (sport label + copy locale)
-// ABOUTME: Pins display-name sport rendering (not CamelCase) + localized list/nudge copy in the push body
+// ABOUTME: Pins localized sport names, the athlete's calendar day and localized list/nudge copy in the push body
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -59,9 +59,10 @@ fn activity_with_sport(
 }
 
 /// Push render seam (regression class 71bf74254): the warmed-list completion push
-/// renders each activity's sport via the canonical DISPLAY label
-/// (`SportType::display_name`) — never the CamelCase enum/Debug token — and uses
-/// the LOCALIZED list header, not the English `get_activities` "Your Activities:"
+/// names each activity's sport in the athlete's language through the same
+/// `localized_sport_name` the activity list uses — never the CamelCase
+/// enum/Debug token, and not the English `display_name` either — and uses the
+/// LOCALIZED list header, not the English `get_activities` "Your Activities:"
 /// prose, so a French chat never sees English copy leak in.
 ///
 /// This exercises the `render_list_body` fallback (warmed cache, no re-entry
@@ -135,15 +136,20 @@ async fn push_warmed_list_renders_sport_display_and_localized_header() {
         panic!("expected a text notice");
     };
 
-    // (1) Sport rendered as the canonical display label, NOT the CamelCase token
-    //     (`format_activity_line` uses `sport_type().display_name()`).
+    // (1) Sport named in the athlete's (default French) language, as the
+    //     activity list the agent reads names it — not the English display
+    //     label, not the CamelCase token.
     assert!(
-        body.contains("trail run"),
-        "TrailRunning should render as its display label \"trail run\": {body}"
+        body.contains("· trail ·"),
+        "TrailRunning should render as the French \"trail\": {body}"
     );
     assert!(
-        body.contains("cross-country ski"),
-        "CrossCountrySkiing should render as \"cross-country ski\": {body}"
+        body.contains("ski de fond"),
+        "CrossCountrySkiing should render as the French \"ski de fond\": {body}"
+    );
+    assert!(
+        !body.contains("cross-country ski") && !body.contains("trail run"),
+        "must not fall back to the English display label on a French chat: {body}"
     );
     assert!(
         !body.contains("TrailRunning"),
@@ -300,4 +306,82 @@ fn sport_locale_passes_other_provider_label_through() {
             "Other(provider) must keep its provider-supplied label in locale {locale}"
         );
     }
+}
+
+/// The notice dates each activity on the athlete's calendar, as the activity
+/// list the agent reads back does. A ride started at 02:30 UTC is the previous
+/// evening in Toronto; the notice used to print the UTC date, so the model read
+/// one day in the notice and another in the list beside it.
+#[tokio::test]
+async fn push_warmed_list_dates_activities_on_the_athletes_calendar() {
+    let db = create_test_db().await;
+    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    repos
+        .users
+        .set_timezone(user_uuid, "America/Toronto")
+        .await
+        .expect("set timezone");
+    let user_id = user_uuid.to_string();
+    let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
+    seed_session(
+        &db,
+        &user_id,
+        tenant_id,
+        "telegram",
+        "tg_user_777",
+        Some("tg_chat_888"),
+        &conversation_id,
+    )
+    .await;
+
+    // 02:30 UTC five days ago: the previous calendar day in Toronto.
+    let utc_day = (Utc::now() - Duration::days(5)).date_naive();
+    let start = utc_day.and_hms_opt(2, 30, 0).unwrap().and_utc();
+    let ride = ActivityBuilder::new(
+        "late-ride".to_owned(),
+        "Sortie du soir".to_owned(),
+        SportType::Ride,
+        start,
+        3_600,
+        "strava".to_owned(),
+    )
+    .distance_meters(20_000.0)
+    .build();
+    seed_activity_cache(&db, user_uuid, tenant_id, &[ride]).await;
+
+    let channel = Arc::new(CapturingChannel::default());
+    let resolver = Arc::new(FakeResolver::new(
+        channel.clone() as Arc<dyn MessagingChannel>
+    ));
+    let notifier = ServerBackfillNotifier::with_resolver(repos, strings(), resolver);
+    notifier
+        .push_backfill_complete(
+            user_uuid,
+            tenant_id,
+            &conversation_id,
+            "strava",
+            (Utc::now() - Duration::days(30)).timestamp(),
+            1,
+        )
+        .await;
+
+    let sent = channel.sent.lock().unwrap();
+    let MessageContent::Text { body } = &sent[0].content else {
+        panic!("expected a text notice");
+    };
+    let local_day = (utc_day - Duration::days(1)).format("%Y-%m-%d").to_string();
+    let utc_label = utc_day.format("%Y-%m-%d").to_string();
+    assert!(
+        body.contains(&local_day),
+        "the ride is dated on the athlete's Toronto calendar ({local_day}): {body}"
+    );
+    assert!(
+        !body.contains(&utc_label),
+        "the UTC date ({utc_label}) must not appear: {body}"
+    );
+    assert!(
+        body.contains("vélo"),
+        "the sport is named in French: {body}"
+    );
 }

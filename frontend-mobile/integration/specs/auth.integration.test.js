@@ -172,7 +172,7 @@ describe('Authentication Integration Tests', () => {
       expect(loginResult.success).toBe(true);
 
       const result = await authenticatedRequest(
-        endpoints.dashboardOverview,
+        endpoints.chatConversations,
         loginResult.accessToken
       );
 
@@ -182,7 +182,7 @@ describe('Authentication Integration Tests', () => {
 
     it('should reject protected endpoint with invalid token', async () => {
       const result = await authenticatedRequest(
-        endpoints.dashboardOverview,
+        endpoints.chatConversations,
         'invalid-token'
       );
 
@@ -191,7 +191,7 @@ describe('Authentication Integration Tests', () => {
     });
 
     it('should reject protected endpoint without token', async () => {
-      const result = await authenticatedRequest(endpoints.dashboardOverview, '');
+      const result = await authenticatedRequest(endpoints.chatConversations, '');
 
       expect(result.success).toBe(false);
       expect(result.status).toBe(401);

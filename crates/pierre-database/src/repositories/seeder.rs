@@ -116,12 +116,6 @@ pub trait SeederRepository: Send + Sync {
     /// Find a user by email address (returns full User if found)
     async fn seed_find_user_by_email(&self, email: &str) -> AppResult<Option<User>>;
 
-    /// Get IDs of all non-admin users ordered by creation date
-    async fn seed_get_non_admin_user_ids(&self) -> AppResult<Vec<Uuid>>;
-
-    /// Count non-admin users
-    async fn seed_count_non_admin_users(&self) -> AppResult<i64>;
-
     // ---- Mobility seeder (stretching, yoga, activity mappings) ----
 
     /// Upsert a stretching exercise (insert or replace on conflict)
@@ -476,14 +470,6 @@ pub(crate) const ADMIN_USER_EMAIL_SQL: &str =
 /// A user's tenant column, which is TEXT on both backends.
 pub(crate) const USER_TENANT_SQL: &str = "SELECT tenant_id FROM users WHERE id = $1";
 
-/// Every non-admin user id, oldest first.
-pub(crate) const NON_ADMIN_USER_IDS_SQL: &str =
-    "SELECT id FROM users WHERE is_admin = FALSE ORDER BY created_at";
-
-/// How many non-admin users exist.
-pub(crate) const COUNT_NON_ADMIN_USERS_SQL: &str =
-    "SELECT COUNT(*) as cnt FROM users WHERE is_admin = FALSE";
-
 /// Drop a tenant's LLM usage; `llm_usage.tenant_id` is text on both.
 pub(crate) const DELETE_LLM_USAGE_BY_TENANT_SQL: &str =
     "DELETE FROM llm_usage WHERE tenant_id = $1";
@@ -516,8 +502,9 @@ pub(crate) const UPSERT_PROVIDER_CONNECTION_SQL: &str = "INSERT INTO provider_co
                connected_at = EXCLUDED.connected_at, \
                metadata = EXCLUDED.metadata";
 
-/// A user's id by email.
-pub(crate) const USER_ID_BY_EMAIL_SQL: &str = "SELECT id FROM users WHERE email = $1";
+/// A user's id by email, case aside, as `UserRepository::get_by_email`
+/// compares it.
+pub(crate) const USER_ID_BY_EMAIL_SQL: &str = "SELECT id FROM users WHERE lower(email) = lower($1)";
 
 /// Insert or refresh a demo user. `$11` serves both `created_at` and
 /// `last_active`; on conflict the credentials, role and locale are asserted

@@ -12,13 +12,15 @@
 //!
 //! Frameworks:
 //!
-//! - `ctl` / `atl` / `tsb` / `daily_load` — Coggan TSS-based EMA. The CTL/ATL
-//!   window lengths come from the configured algorithm parameters (default
-//!   42-day chronic, 7-day acute), and per-activity TSS honors the configured
-//!   TSS algorithm. This is a deliberate per-calendar-day EMA series: the
-//!   single-snapshot `TrainingLoadCalculator` cannot emit one value per day,
-//!   so the day-by-day rollup is computed here. Per-day algorithm *selection*
-//!   beyond EMA (SMA/WMA/Kalman) is not modeled by this dense series.
+//! - `ctl` / `atl` / `tsb` / `form_ctl` / `daily_load` — the configured
+//!   training-load smoothing (EMA/SMA/WMA/Kalman, default EMA 42-day chronic /
+//!   7-day acute) read off cageux's per-day series,
+//!   [`TrainingLoadAlgorithm::daily_series`], over each civil day's summed
+//!   TSS; per-activity TSS honors the configured TSS algorithm. It is the same
+//!   series `TrainingLoadCalculator` reads its as-of day from, so a history row
+//!   and the current training load cannot disagree. `ctl` and `atl` are the
+//!   day's end-of-day values; `tsb` and `form_ctl` come from the end of the day
+//!   before (the Coggan/TrainingPeaks form convention cageux applies).
 //! - `acwr` — Gabbett 7d / 28d ratio. `None` until 28+ days of data.
 //! - `monotony` — Foster (mean weekly daily-load / std dev). `None` until
 //!   7+ days of non-zero load.
@@ -29,8 +31,12 @@
 //! deterministic-output rule: never substitute zero for "insufficient
 //! history".
 
+use std::collections::BTreeMap;
+
 use chrono::{Duration, NaiveDate};
+use dravr_cageux::algorithms::training_load::{DailyTrainingLoad, TrainingLoadAlgorithm};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
+use dravr_cageux::error::IntelligenceResult;
 use dravr_cageux::metrics::MetricsCalculator;
 use dravr_cageux::models::activity::Activity;
 use pierre_core::civil_time::{local_date, resolve_zone};
@@ -95,7 +101,12 @@ pub struct AthleteInputs {
 /// The output has one row per calendar day in `[from, to]` even when
 /// `daily_load == 0` (rest day). Days with insufficient history for a
 /// derived metric leave that metric as `None`.
-#[must_use]
+///
+/// # Errors
+///
+/// Returns the `IntelligenceError` cageux raises when the configured
+/// training-load algorithm refuses its parameters (a CTL/ATL window outside
+/// 1 to 365 days, non-positive Kalman noise).
 pub fn compute_training_history(
     activities: &[Activity],
     inputs: AthleteInputs,
@@ -103,22 +114,19 @@ pub fn compute_training_history(
     to: NaiveDate,
     algorithm_config: &AlgorithmConfig,
     user_timezone: Option<&str>,
-) -> Vec<DailyTrainingState> {
+) -> IntelligenceResult<Vec<DailyTrainingState>> {
     if to < from {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let span_days = (to - from).num_days();
     if span_days > MAX_BACKFILL_DAYS {
         // Defensive: caller should clamp, but never grow unboundedly.
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
-    // CTL/ATL window lengths come from the configured algorithm parameters.
-    let ctl_window_days = algorithm_config.params.training_load_ctl_days;
-    let atl_window_days = algorithm_config.params.training_load_atl_days;
-
-    // Anchor the warm-up window so CTL/ATL EMAs converge before `from`.
-    let warmup = from - Duration::days(warmup_days(ctl_window_days));
+    // Anchor the warm-up window on the configured chronic window so CTL/ATL
+    // converge before `from`.
+    let warmup = from - Duration::days(warmup_days(algorithm_config.params.training_load_ctl_days));
     // Bucket on the athlete's civil day, not the server's. A 21:00
     // America/Toronto session lands on the next UTC date, which shifted the
     // whole per-day series one day against the athlete's own calendar and made
@@ -155,20 +163,7 @@ pub fn compute_training_history(
         cursor += Duration::days(1);
     }
 
-    let ctl_alpha = ema_alpha(ctl_window_days);
-    let atl_alpha = ema_alpha(atl_window_days);
-    let mut ctl_series: Vec<(NaiveDate, f64)> = Vec::with_capacity(daily_load.len());
-    let mut atl_series: Vec<(NaiveDate, f64)> = Vec::with_capacity(daily_load.len());
-    let mut ctl_prev = 0.0_f64;
-    let mut atl_prev = 0.0_f64;
-    for (date, load) in &daily_load {
-        let ctl = ema_step(ctl_prev, *load, ctl_alpha);
-        let atl = ema_step(atl_prev, *load, atl_alpha);
-        ctl_series.push((*date, ctl));
-        atl_series.push((*date, atl));
-        ctl_prev = ctl;
-        atl_prev = atl;
-    }
+    let load = load_series(algorithm_config, &daily_load, from, to)?;
 
     // Track the index of the first day with non-zero load so derived
     // metrics (ACWR, monotony, strain, ramp_rate) only fire once we have
@@ -177,30 +172,60 @@ pub fn compute_training_history(
 
     let span_usize = usize::try_from(span_days).unwrap_or(0).saturating_add(1);
     let mut out: Vec<DailyTrainingState> = Vec::with_capacity(span_usize);
-    for (idx, (date, load)) in daily_load.iter().enumerate() {
+    for (idx, (date, day_load)) in daily_load.iter().enumerate() {
         if *date < from {
             continue;
         }
-        let ctl = ctl_series[idx].1;
-        let atl = atl_series[idx].1;
+        // `load` starts RAMP_RATE_LOOKBACK_DAYS before `from`.
+        let series_idx = usize::try_from((*date - from).num_days() + RAMP_RATE_LOOKBACK_DAYS)
+            .unwrap_or(usize::MAX);
+        let Some(today) = load.get(series_idx) else {
+            continue;
+        };
         let days_of_history =
             first_load_idx.map_or(0, |first| idx.saturating_sub(first).saturating_add(1));
         let acwr = compute_acwr(&daily_load, idx, days_of_history);
         let (monotony, strain) = compute_monotony_strain(&daily_load, idx, days_of_history);
-        let ramp_rate = compute_ramp_rate(&ctl_series, idx, days_of_history);
+        let ramp_rate = compute_ramp_rate(&load, series_idx, days_of_history);
         out.push(DailyTrainingState {
             date: *date,
-            ctl,
-            atl,
-            tsb: ctl - atl,
+            ctl: today.ctl,
+            atl: today.atl,
+            tsb: today.tsb,
+            form_ctl: today.form_ctl,
             acwr,
             monotony,
             strain,
             ramp_rate,
-            daily_load: *load,
+            daily_load: *day_load,
         });
     }
-    out
+    Ok(out)
+}
+
+/// CTL/ATL/TSB for every day from `RAMP_RATE_LOOKBACK_DAYS` before `from`
+/// through `to`, smoothed by the configured training-load algorithm.
+///
+/// Days before `from` in `daily_load` warm the smoothing up. The lookback days
+/// are asked for separately from `[from, to]` so the ramp rate of `from`
+/// itself has a prior value without widening one call past cageux's 365-day
+/// series cap, which `[from, to]` alone can already reach.
+fn load_series(
+    algorithm_config: &AlgorithmConfig,
+    daily_load: &[(NaiveDate, f64)],
+    from: NaiveDate,
+    to: NaiveDate,
+) -> IntelligenceResult<Vec<DailyTrainingLoad>> {
+    let algorithm: TrainingLoadAlgorithm = algorithm_config.training_load_algorithm();
+    let daily_tss: BTreeMap<NaiveDate, f64> = daily_load
+        .iter()
+        .filter(|(_, load)| *load > 0.0)
+        .copied()
+        .collect();
+    let lookback_from = from - Duration::days(RAMP_RATE_LOOKBACK_DAYS);
+    let mut series = algorithm.daily_series(&daily_tss, lookback_from, from - Duration::days(1))?;
+    series.extend(algorithm.daily_series(&daily_tss, from, to)?);
+    Ok(series)
 }
 
 fn tss_for(activity: &Activity, inputs: AthleteInputs, algorithm_config: &AlgorithmConfig) -> f64 {
@@ -215,16 +240,6 @@ fn tss_for(activity: &Activity, inputs: AthleteInputs, algorithm_config: &Algori
         .with_algorithm_config(algorithm_config.clone());
     calc.calculate_metrics(activity)
         .map_or(0.0, |m| m.training_stress_score.unwrap_or(0.0))
-}
-
-#[allow(clippy::cast_precision_loss)]
-fn ema_alpha(window_days: i64) -> f64 {
-    // Coggan's exponentially-weighted average uses 2 / (N + 1).
-    2.0 / (window_days as f64 + 1.0)
-}
-
-fn ema_step(previous: f64, todays_load: f64, alpha: f64) -> f64 {
-    todays_load.mul_add(alpha, previous * (1.0 - alpha))
 }
 
 #[allow(clippy::cast_precision_loss)]
@@ -289,15 +304,15 @@ fn compute_monotony_strain(
 }
 
 fn compute_ramp_rate(
-    ctl_series: &[(NaiveDate, f64)],
-    idx: usize,
+    load: &[DailyTrainingLoad],
+    series_idx: usize,
     days_of_history: usize,
 ) -> Option<f64> {
     let lookback = usize::try_from(RAMP_RATE_LOOKBACK_DAYS).unwrap_or(7);
-    if days_of_history < lookback || idx < lookback {
+    if days_of_history < lookback {
         return None;
     }
-    let today = ctl_series[idx].1;
-    let prior = ctl_series[idx - lookback].1;
+    let today = load.get(series_idx)?.ctl;
+    let prior = load.get(series_idx.checked_sub(lookback)?)?.ctl;
     Some(today - prior)
 }

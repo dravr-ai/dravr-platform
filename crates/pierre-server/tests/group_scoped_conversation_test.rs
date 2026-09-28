@@ -13,19 +13,16 @@ mod helpers;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
-use serde_json::{json, Value};
+use serde_json::json;
 
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
-use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_core::models::agents::CreateAgentRequest;
+use pierre_core::models::CreateGroupRequest;
 use pierre_mcp_server::routes::chat::{ChatRoutes, ConversationResponse};
-use pierre_routes_agents::build_agents_router;
-use pierre_routes_groups::GroupRoutes;
 
-/// One router carrying the three surfaces this flow crosses: agents (a group
-/// needs an agent persona), groups (create + membership), and chat (the
-/// conversation that carries `group_id`). Production mounts all three on the
-/// same app; a test that mounts only chat cannot create the group it scopes to.
+/// The chat router, over a group its owner created through `GroupService` —
+/// the code `/group create` runs — with an agent persona stored for it.
 struct Fixture {
     router: axum::Router,
     /// Owner of the group, in the shared tenant.
@@ -86,37 +83,36 @@ async fn setup() -> Fixture {
             .unwrap()
     );
 
-    let router = build_agents_router::<ServerContext>()
-        .with_state(Arc::clone(&res))
-        .merge(GroupRoutes::routes(Arc::clone(&res)))
-        .merge(ChatRoutes::routes(Arc::clone(&res)));
+    let router = ChatRoutes::routes(Arc::clone(&res));
 
-    let coach_resp = AxumTestRequest::post("/api/agents")
-        .header("authorization", &owner_auth)
-        .json(&json!({
-            "title": "Squad Coach",
-            "system_prompt": "Coach the squad.",
-            "category": "training",
-            "tags": ["run"]
-        }))
-        .send(router.clone())
-        .await;
-    assert_eq!(coach_resp.status_code(), StatusCode::CREATED);
-    let agent_id = coach_resp.json::<Value>()["id"]
-        .as_str()
+    let agent_request: CreateAgentRequest = serde_json::from_value(json!({
+        "title": "Squad Coach",
+        "system_prompt": "Coach the squad.",
+        "category": "training",
+        "tags": ["run"]
+    }))
+    .unwrap();
+    let agent_id = repos
+        .agents
+        .create(owner_id, shared_tid, &agent_request)
+        .await
         .unwrap()
-        .to_owned();
+        .id
+        .to_string();
 
-    let group_resp = AxumTestRequest::post("/api/groups")
-        .header("authorization", &owner_auth)
-        .json(&json!({ "name": "Marathon Squad", "agent_id": &agent_id }))
-        .send(router.clone())
-        .await;
-    assert_eq!(group_resp.status_code(), StatusCode::CREATED);
-    let group_id = group_resp.json::<Value>()["id"]
-        .as_str()
+    let group_request = CreateGroupRequest {
+        name: "Marathon Squad".to_owned(),
+        description: None,
+        agent_id,
+        max_members: None,
+    };
+    let group_id = res
+        .group_service()
+        .create_group(&group_request, owner_id, shared_tid, 20)
+        .await
         .unwrap()
-        .to_owned();
+        .id
+        .to_string();
 
     Fixture {
         router,

@@ -210,6 +210,8 @@ macro_rules! delegated_connection_columns {
             $p,
             "provider_athlete_name, ",
             $p,
+            "provider_athlete_email, ",
+            $p,
             "status, ",
             $p,
             "proposed_at, ",
@@ -245,9 +247,9 @@ macro_rules! end_links_sql {
 pub(crate) const PROPOSE_SQL: &str = concat!(
     "INSERT INTO delegated_connections
         (id, provider, group_id, coach_user_id, coach_tenant_id, member_user_id,
-         member_tenant_id, provider_athlete_id, provider_athlete_name, status, proposed_at,
-         confirmed_at, revoked_at, revoked_by, revoke_reason)
-     VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, 'proposed', $9, NULL, NULL, NULL, NULL)
+         member_tenant_id, provider_athlete_id, provider_athlete_name, provider_athlete_email,
+         status, proposed_at, confirmed_at, revoked_at, revoked_by, revoke_reason)
+     VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, $9, 'proposed', $10, NULL, NULL, NULL, NULL)
      ON CONFLICT DO NOTHING
      RETURNING ",
     delegated_connection_columns!("")
@@ -439,6 +441,7 @@ macro_rules! impl_delegated_connection_repository {
                 member_tenant_id: $ids::read_opt(r, "member_tenant_id")?.map(TenantId::from_uuid),
                 provider_athlete_id: column(r, "provider_athlete_id")?,
                 provider_athlete_name: column(r, "provider_athlete_name")?,
+                provider_athlete_email: column(r, "provider_athlete_email")?,
                 status: DelegationStatus::from_str_opt(&status)
                     .ok_or_else(|| unknown_value("status", &status))?,
                 proposed_at: column(r, "proposed_at")?,
@@ -470,6 +473,7 @@ macro_rules! impl_delegated_connection_repository {
                     .bind($ids::bind(link.member_user_id))
                     .bind(&link.provider_athlete_id)
                     .bind(&link.provider_athlete_name)
+                    .bind(link.provider_athlete_email.as_deref().map(normalize_email))
                     .bind(link.proposed_at)
                     .fetch_optional(self.pool())
                     .await

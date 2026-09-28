@@ -28,7 +28,7 @@ use axum::{
 use dravr_tronc::mcp::auth::{AuthError, AuthHook};
 use dravr_tronc::mcp::host::ToolDispatcher;
 use dravr_tronc::mcp::protocol::JsonRpcRequest;
-use dravr_tronc::mcp::transport::http::mcp_router;
+use dravr_tronc::mcp::transport::http::{bearer_token, mcp_router, origin_allowed};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -48,31 +48,6 @@ pub struct McpRoutesState {
     /// The same allowlist `POST /mcp` gates on, taken from the built server so
     /// the two routes cannot drift apart.
     allowed_origins: Arc<[String]>,
-}
-
-/// Whether the given `Origin` is permitted.
-///
-/// Mirrors the engine's own predicate, which is private to
-/// `dravr_tronc::mcp::transport::http`: an absent origin (non-browser client)
-/// is allowed, an empty allowlist or one containing `"*"` allows any origin,
-/// otherwise the origin must be listed exactly. The allowlist itself is shared
-/// rather than re-read, so only this three-line rule is restated.
-fn is_origin_allowed(origin: Option<&str>, allowed: &[String]) -> bool {
-    origin
-        .is_none_or(|origin| allowed.is_empty() || allowed.iter().any(|a| a == "*" || a == origin))
-}
-
-/// Extract the bearer token from an `Authorization` header.
-///
-/// Mirrors the tronc HTTP transport's own extraction (which is private to the
-/// engine) so `GET /mcp/tools` accepts exactly the credential forms `POST /mcp`
-/// accepts — the token is then handed to the same [`PierreAuthHook`].
-fn bearer_token(headers: &HeaderMap) -> Option<String> {
-    headers
-        .get(header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
-        .map(ToOwned::to_owned)
 }
 
 /// MCP routes implementation
@@ -115,9 +90,8 @@ impl McpRoutes {
         // `POST /mcp` takes. This route is the REST twin of `tools/list` and
         // returns the same catalog, so it needs the same gate; without it the
         // allowlist covered only one of the two MCP routes.
-        let origin = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok());
-        if !is_origin_allowed(origin, &state.allowed_origins) {
-            debug!(?origin, "Rejected MCP tools discovery: origin not allowed");
+        if !origin_allowed(&headers, &state.allowed_origins) {
+            debug!(origin = ?headers.get(header::ORIGIN), "Rejected MCP tools discovery: origin not allowed");
             return (StatusCode::FORBIDDEN, "Origin not allowed").into_response();
         }
 

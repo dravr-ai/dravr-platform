@@ -23,9 +23,8 @@ use pierre_core::tokens::join_prompt_text;
 use tracing::{info, warn};
 
 use crate::cli_loop::cli_loop_request;
-use crate::embacle_bridge::{from_embacle_calls, to_embacle_declarations};
 use crate::function_dispatch::{execute_function_calls, ExecutedFunctionCalls};
-use crate::guardian::{HeadlessBlock, PlanDenial, StepOutput, TurnKey, Workflow};
+use crate::guardian::{HeadlessBlock, PlanDenial, StepOutput, TurnKey, Workflow, WorkflowExecutor};
 use crate::headless_stream;
 use crate::llm_call_record::{
     accumulate_optional, emit_call_record, emit_call_record_with_text, CallRecordInputs,
@@ -455,8 +454,8 @@ pub async fn run_cli_tool_loop(
     // means it never opens an MCP session, so the server's `initialize`
     // instructions — the caller's persona — never reach its system prompt.
     if params.mcp_servers.is_empty() {
-        let embacle_decls = to_embacle_declarations(&params.tools.function_declarations);
-        let tool_catalog = tool_simulation::generate_tool_catalog(&embacle_decls);
+        let tool_catalog =
+            tool_simulation::generate_tool_catalog(&params.tools.function_declarations);
         tool_simulation::inject_tool_catalog(llm_messages, &tool_catalog);
     }
 
@@ -545,8 +544,9 @@ pub async fn run_cli_tool_loop(
         // Done before `emit_call_record_with_text` so the per-call usage row
         // carries the parsed tool names — the structured `function_calls`
         // field is absent on this provider's `complete()` return type.
-        let embacle_calls = tool_simulation::parse_tool_call_blocks(&response.content);
-        let tools_in_response: Vec<String> = embacle_calls.iter().map(|c| c.name.clone()).collect();
+        let parsed_tool_calls = tool_simulation::parse_tool_call_blocks(&response.content);
+        let tools_in_response: Vec<String> =
+            parsed_tool_calls.iter().map(|c| c.name.clone()).collect();
         // The assembled prompt feeds the character-based token estimator when
         // the provider returns `usage: None` (e.g. Copilot ACP, which
         // doesn't expose token counts). Without this fallback the per-call
@@ -567,7 +567,7 @@ pub async fn run_cli_tool_loop(
             Some(&response.content),
         );
 
-        if embacle_calls.is_empty() {
+        if parsed_tool_calls.is_empty() {
             // No tool calls — this is the final text response. Strip both the
             // model's tool calls and any echoed tool-result scaffolding (weak
             // CLI models parrot the injected `<tool_result>` turn back), so
@@ -575,9 +575,6 @@ pub async fn run_cli_tool_loop(
             let content = tool_simulation::strip_simulation_artifacts(&response.content);
             return Ok(tally.answered(content, response.usage, response.finish_reason));
         }
-
-        // Convert to pierre-llm types for MCP execution
-        let parsed_tool_calls = from_embacle_calls(embacle_calls);
 
         info!(
             "CLI iteration {}: Parsed {} tool call(s) from text",
@@ -672,31 +669,12 @@ pub async fn run_cli_tool_loop(
 pub use tool_simulation::inject_tool_catalog as inject_tool_catalog_into_system_prompt;
 pub use tool_simulation::strip_simulation_artifacts;
 
-/// Generate a text-based tool catalog from pierre-llm function declarations.
-///
-/// Thin wrapper around [`embacle::tool_simulation::generate_tool_catalog`] that
-/// handles type conversion.
-#[must_use]
-pub fn generate_tool_catalog(declarations: &[FunctionDeclaration]) -> String {
-    let embacle_decls = to_embacle_declarations(declarations);
-    tool_simulation::generate_tool_catalog(&embacle_decls)
-}
-
-/// Parse `<tool_call>` blocks from CLI text output into pierre-llm function calls.
-///
-/// Thin wrapper around [`embacle::tool_simulation::parse_tool_call_blocks`] that
-/// handles type conversion.
-#[must_use]
-pub fn parse_tool_call_blocks(content: &str) -> Vec<FunctionCall> {
-    from_embacle_calls(tool_simulation::parse_tool_call_blocks(content))
-}
-
 /// Parse `<tool_call>` blocks tolerantly into pierre-llm function calls.
 ///
 /// Accepts both the canonical `{"name": X, "arguments": {...}}` shape and the
 /// flat `{"name": X, ...args}` shape some native-tool models (e.g. Cohere) emit
 /// when they return a call as text instead of a structured `function_calls`
-/// payload. The canonical [`parse_tool_call_blocks`] drops the flat args (it
+/// payload. The canonical [`tool_simulation::parse_tool_call_blocks`] drops the flat args (it
 /// only reads a nested `arguments` field), which would run the tool with no
 /// parameters. Used as the API-loop fallback so such a call still executes
 /// correctly instead of leaking the raw block to the user.
@@ -1056,10 +1034,9 @@ pub async fn run_planned_tool_loop(
     params: &ToolLoopParams<'_>,
     llm_messages: &mut Vec<ChatMessage>,
 ) -> Result<ToolLoopResult, AppError> {
-    use crate::guardian::{planner_system_prompt, WorkflowExecutor};
-
-    // 1. Plan call — ask for the whole plan up front (no tool-calling needed).
-    let plan_messages = with_planner_prompt(llm_messages, &planner_system_prompt());
+    // 1. Plan call — the whole plan up front, in the catalogue's `guardian_planner` grammar.
+    let planner = params.executor.resources.guardian_planner_prompt();
+    let plan_messages = with_planner_prompt(llm_messages, planner.trim());
     let plan_request = ChatRequest::new(plan_messages).with_model(params.model);
     let plan_response = params.provider.complete(&plan_request).await?;
     let plan_warnings = plan_response.warnings;

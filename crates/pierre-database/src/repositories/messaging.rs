@@ -284,16 +284,6 @@ pub trait MessagingRepository: Send + Sync {
 
     // ── Delivery Receipts ──
 
-    /// Record a delivery status update for an outbound message
-    async fn insert_delivery_receipt(
-        &self,
-        id: &str,
-        tenant_id: TenantId,
-        message_id: &str,
-        channel_message_id: Option<&str>,
-        status: &str,
-    ) -> AppResult<()>;
-
     // ── Outbound Queue ──
 
     /// Enqueue an outbound message for delivery
@@ -306,9 +296,6 @@ pub trait MessagingRepository: Send + Sync {
         channel_type: &str,
         payload: &str,
     ) -> AppResult<()>;
-
-    /// Get pending or retryable outbound messages
-    async fn get_pending_outbound(&self, tenant_id: TenantId, limit: i64) -> AppResult<Vec<Value>>;
 
     /// Get pending/retryable outbound entries across all tenants for background processing.
     ///
@@ -680,13 +667,6 @@ pub(crate) const SESSION_MESSAGES_SQL: &str = r"
             LIMIT $3 OFFSET $4
             ";
 
-/// Record one delivery status update for an outbound message.
-pub(crate) const INSERT_DELIVERY_RECEIPT_SQL: &str = r"
-            INSERT INTO messaging_delivery_receipts
-                (id, tenant_id, message_id, channel_message_id, status, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            ";
-
 /// Queue an outbound message as `pending` with no attempts; `$7` stamps
 /// both `created_at` and `updated_at`.
 pub(crate) const ENQUEUE_OUTBOUND_SQL: &str = r"
@@ -703,19 +683,6 @@ macro_rules! outbound_columns {
          attempt_count, next_retry_at, created_at, updated_at"
     };
 }
-
-/// A tenant's entries that are due: never attempted, or retrying with a
-/// retry instant at or before `$2`. Never-attempted rows (`NULL` retry
-/// instant) sort first on both engines; `NULLS FIRST` states it.
-pub(crate) const PENDING_OUTBOUND_SQL: &str = concat!(
-    "SELECT ",
-    outbound_columns!(),
-    " FROM messaging_outbound_queue \
-     WHERE tenant_id = $1 \
-       AND (status = 'pending' OR (status LIKE 'retrying:%' AND next_retry_at <= $2)) \
-     ORDER BY next_retry_at ASC NULLS FIRST, created_at ASC \
-     LIMIT $3"
-);
 
 /// Every tenant's due entries, for the background retry worker.
 pub(crate) const ALL_PENDING_OUTBOUND_SQL: &str = concat!(

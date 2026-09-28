@@ -1,5 +1,5 @@
-// ABOUTME: Translates tool declarations and tool calls between the platform's shapes and embacle's
-// ABOUTME: Lives apart from the dispatch enum so deciding and translating stay separate jobs
+// ABOUTME: Attaches tool declarations to a request and lifts a response's tool calls into ChatResponseWithTools
+// ABOUTME: Lives apart from the dispatch enum so deciding and speaking to a provider stay separate jobs
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,47 +12,34 @@
 //! any new trait method; what it needs is for the declarations to travel out
 //! and the calls to travel back.
 //!
-//! Both directions are field-for-field renames between equivalent types. They
-//! live here rather than in `provider.rs` because that file's job is choosing
-//! which provider to ask, and this file's job is speaking to whichever one was
-//! chosen — a dispatch enum that also owns conversions ends up deciding what
-//! providers are capable of, which is the defect this pair exists to undo.
+//! The declarations are embacle's own `ToolDefinition`s and the calls are
+//! embacle's `FunctionCall`s, so nothing is renamed on the way out or back.
+//! These live here rather than in `provider.rs` because that file's job is
+//! choosing which provider to ask, and this file's job is speaking to
+//! whichever one was chosen — a dispatch enum that also owns the request and
+//! response shapes ends up deciding what providers are capable of.
 
 use embacle::types::{ToolCallRequest, ToolDefinition};
 
 use super::{ChatRequest, ChatResponse, ChatResponseWithTools, FunctionCall, Tool};
 
-/// Translate the platform's tool declarations into embacle's request shape.
+/// Flatten the tool surface into the declarations a request carries.
 ///
-/// `Tool` groups many `FunctionDeclaration`s; embacle takes a flat
-/// `Vec<ToolDefinition>`. The two carry the same three fields, so this is a
-/// rename, not a lossy projection.
+/// `Tool` groups many declarations; embacle's request takes one flat list.
 fn tool_defs_from(tools: Option<Vec<Tool>>) -> Option<Vec<ToolDefinition>> {
     let defs: Vec<ToolDefinition> = tools?
         .into_iter()
         .flat_map(|t| t.function_declarations)
-        .map(|f| ToolDefinition {
-            name: f.name,
-            description: f.description,
-            parameters: f.parameters,
-        })
         .collect();
     (!defs.is_empty()).then_some(defs)
 }
 
-/// Translate embacle's tool calls back into the platform's shape.
+/// The calls a provider reported, as the tool loop dispatches them.
 ///
-/// `ToolCallRequest.id` is dropped: the tool loop correlates by position and
-/// name, and carrying an id nothing reads would be a field to keep in sync for
-/// no consumer.
+/// `ToolCallRequest.id` is dropped by embacle's own conversion: the tool loop
+/// correlates by position and name.
 fn function_calls_from(calls: Option<Vec<ToolCallRequest>>) -> Option<Vec<FunctionCall>> {
-    let mapped: Vec<FunctionCall> = calls?
-        .into_iter()
-        .map(|c| FunctionCall {
-            name: c.function_name,
-            args: c.arguments,
-        })
-        .collect();
+    let mapped: Vec<FunctionCall> = calls?.into_iter().map(FunctionCall::from).collect();
     (!mapped.is_empty()).then_some(mapped)
 }
 

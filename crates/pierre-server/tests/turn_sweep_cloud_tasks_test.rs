@@ -56,10 +56,10 @@ mod swept {
     impl Swept {
         async fn boot() -> Self {
             let signer = TestSigner::generate();
-            let certs = signer.serve_certs().await;
+            let jwks = signer.serve_jwks().await;
             let queue = QueueStub::accepting();
             let runner =
-                cloud_tasks_turn_runner(&queue.serve().await, &certs, Duration::from_secs(1));
+                cloud_tasks_turn_runner(&queue.serve().await, &jwks.url, Duration::from_secs(1));
             let provider = Arc::new(ParkedProvider::answering("unused: the sweep only enqueues"));
             let resources =
                 create_test_server_resources_with_chat_provider_and_runner(provider, runner)

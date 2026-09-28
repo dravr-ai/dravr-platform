@@ -51,10 +51,6 @@ pub mod configuration;
 #[cfg(feature = "client-settings")]
 pub mod fitness;
 
-/// Health data persistence routes (sleep, recovery, snapshots, data sources)
-#[cfg(feature = "client-settings")]
-pub mod health_data;
-
 /// Chat conversation routes for AI assistants
 #[cfg(feature = "client-chat")]
 pub mod chat;
@@ -113,9 +109,6 @@ pub mod messaging;
 
 /// GitHub webhook handler for the contremaitre source repository (push events).
 pub mod contremaitre_webhook;
-
-/// Endurance Phase 1 read-side endpoints (`GET /api/v1/endurance/{latest,dossier}`).
-pub mod endurance;
 
 /// Athlete Home read-side endpoints (`GET /api/me/activities/recent`, one
 /// activity's route, `GET /api/me/training-plan`).

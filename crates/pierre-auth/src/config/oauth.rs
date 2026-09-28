@@ -307,7 +307,7 @@ impl OAuth2ServerConfig {
 }
 
 /// Firebase Authentication configuration for social logins
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FirebaseConfig {
     /// Firebase project ID (required for token validation)
     pub project_id: Option<String>,
@@ -315,19 +315,6 @@ pub struct FirebaseConfig {
     pub api_key: Option<String>,
     /// Whether Firebase authentication is enabled
     pub enabled: bool,
-    /// Cache TTL for Firebase public keys in seconds (default: 3600 = 1 hour)
-    pub key_cache_ttl_secs: u64,
-}
-
-impl Default for FirebaseConfig {
-    fn default() -> Self {
-        Self {
-            project_id: None,
-            api_key: None,
-            enabled: false,
-            key_cache_ttl_secs: 3600, // 1 hour - Firebase keys are rotated daily
-        }
-    }
 }
 
 impl FirebaseConfig {
@@ -344,7 +331,6 @@ impl FirebaseConfig {
     /// - `FIREBASE_PROJECT_ID` - Firebase project ID (required for token validation)
     /// - `FIREBASE_API_KEY` - Firebase API key (optional, for client-side SDK)
     /// - `FIREBASE_ENABLED` - Enable Firebase authentication (default: false)
-    /// - `FIREBASE_KEY_CACHE_TTL_SECS` - Public key cache TTL (default: 3600)
     #[must_use]
     pub fn from_env() -> Self {
         let project_id = env::var("FIREBASE_PROJECT_ID").ok();
@@ -367,10 +353,6 @@ impl FirebaseConfig {
             project_id,
             api_key,
             enabled,
-            key_cache_ttl_secs: env::var("FIREBASE_KEY_CACHE_TTL_SECS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(3600), // 1 hour default
         }
     }
 }

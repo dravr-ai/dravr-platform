@@ -41,7 +41,7 @@ pub use config::{
     GuardianConfigSource, GuardianFieldSource, GuardianFieldSources,
     GUARDIAN_CONFIG_SCHEMA_VERSION, GUARDIAN_CONFIG_SETTING_KEY,
 };
-pub use planner::{planner_system_prompt, PlanDenial, StepOutput, WorkflowExecutor};
+pub use planner::{PlanDenial, StepOutput, WorkflowExecutor};
 pub use policy::{
     validate_env, ExternalSendAllowlist, GuardianEnvOverrides, GuardianMode, GuardianPolicy,
     PlanMode, TaintedDestructive,

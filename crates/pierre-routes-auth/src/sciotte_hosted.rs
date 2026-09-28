@@ -10,74 +10,29 @@
 //! chat channel (Slack, Discord, Telegram, ...) hands them a login URL:
 //!
 //! - `GET /providers/sciotte/login?token=...` — renders the login page. The token
-//!   query parameter is a provider link-token minted by
-//!   `POST /api/channels/provider/sciotte/link-token`. The page embeds the token
+//!   query parameter is a provider link-token the messaging pipeline or the
+//!   backfill notifier minted in-process. The page embeds the token
 //!   so its client-side JS can call the existing `/api/providers/sciotte/*` API
 //!   with `Authorization: Bearer <token>`.
 //! - `GET /providers/sciotte/success` — confirmation page, auto-closes and can
 //!   deep-link back to the originating channel.
 //! - `GET /providers/sciotte/error?message=...` — renders a user-facing error page.
-//!
-//! The mint endpoint (`POST /api/channels/provider/sciotte/link-token`) is
-//! service-to-service — it requires admin credentials and is called by the
-//! channel bot (e.g. dravr-canot) to hand out hosted-login URLs.
 
 use axum::extract::{Query, State};
-use axum::http::HeaderMap;
 use axum::response::{Html, IntoResponse, Response};
-use axum::Json;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::sciotte_hosted_templates;
 use crate::AuthRoutesContext;
-use pierre_core::errors::{AppError, ErrorCode};
-use pierre_core::models::TenantId;
-use pierre_core::uuid_utils::parse_uuid_with_message;
-use pierre_middleware::admin_guard::require_admin;
-use pierre_middleware::provider_link_token::{
-    mint_link_token, verify_link_token, MintProviderLinkTokenArgs, ProviderLinkTokenClaims,
-    PROVIDER_LINK_TOKEN_TTL_MINUTES,
-};
+use pierre_middleware::provider_link_token::{verify_link_token, ProviderLinkTokenClaims};
 use pierre_providers::backend_resolver;
 use pierre_providers::sciotte_provider::SciotteTarget;
 use pierre_services::provider_notice::asks_for_notice;
 
 /// Default target platform when the caller does not specify one
 const DEFAULT_TARGET: &str = "strava";
-
-/// Request body for minting a Sciotte hosted-login link-token
-#[derive(Debug, Deserialize)]
-pub struct MintLinkTokenRequest {
-    /// Pierre user the link-token will authorize
-    pub user_id: String,
-    /// Active tenant for the session
-    pub tenant_id: String,
-    /// Target platform ("strava" or "garmin")
-    #[serde(default = "default_target")]
-    pub target: String,
-    /// Originating channel slug (e.g. "slack", "discord")
-    pub channel: String,
-    /// Optional channel thread/DM id for the bot to post confirmation back to
-    #[serde(default)]
-    pub channel_thread: Option<String>,
-}
-
-fn default_target() -> String {
-    DEFAULT_TARGET.to_owned()
-}
-
-/// Response from minting a Sciotte hosted-login link-token
-#[derive(Debug, Serialize)]
-pub struct MintLinkTokenResponse {
-    /// The full hosted-login URL to hand to the end user
-    pub url: String,
-    /// The raw signed token (for callers that want to build their own URL)
-    pub token: String,
-    /// TTL in minutes — matches the link-token's exp claim
-    pub expires_in_minutes: i64,
-}
 
 /// Query parameters for the hosted login page
 #[derive(Debug, Deserialize)]
@@ -104,93 +59,6 @@ pub struct HostedSuccessQuery {
     pub target: Option<String>,
 }
 
-/// POST `/api/channels/provider/sciotte/link-token`
-///
-/// Mint a short-lived signed link-token that authorizes the bearer to complete
-/// a Sciotte login on behalf of a Pierre user. Returns the full hosted-login URL.
-/// Requires admin authentication (service-to-service).
-pub async fn handle_mint_sciotte_link_token(
-    State(resources): State<AuthRoutesContext>,
-    headers: HeaderMap,
-    Json(request): Json<MintLinkTokenRequest>,
-) -> Result<Response, AppError> {
-    let auth = resources
-        .auth_middleware
-        .authenticate_request_with_headers(&headers)
-        .await?;
-
-    // SECURITY: Service-to-service endpoint — require admin role.
-    require_admin(auth.user_id, &resources.repos.users).await?;
-
-    let user_id = parse_uuid_with_message(&request.user_id, "Invalid user_id UUID")?;
-    let tenant_id = parse_uuid_with_message(&request.tenant_id, "Invalid tenant_id UUID")?;
-
-    // The pair the bot names is signed into the token as-is, and the login
-    // handler stores `claims.tid` verbatim on the provider session — so a
-    // mistyped pair would bind that session under a foreign tenant. Only a
-    // recorded `tenant_users` membership mints.
-    resources
-        .repos
-        .tenants
-        .get_user_role(user_id, TenantId::from_uuid(tenant_id))
-        .await?
-        .ok_or_else(|| {
-            AppError::new(
-                ErrorCode::ResourceNotFound,
-                "User is not a member of that tenant",
-            )
-        })?;
-
-    // Rate-limit per target user_id to prevent phishing-style link spam.
-    resources.mint_rate_limiter.record_attempt(user_id).await?;
-
-    if request.channel.is_empty() {
-        return Err(AppError::invalid_input("channel is required"));
-    }
-    let Some(target) = backend_resolver::mirror_backend_for(&request.target)
-        .and_then(backend_resolver::hosted_login_target)
-    else {
-        return Err(AppError::invalid_input(format!(
-            "Unsupported target '{}' — expected one of: {}",
-            request.target,
-            backend_resolver::hosted_login_targets().join(", ")
-        )));
-    };
-
-    let token = mint_link_token(
-        &MintProviderLinkTokenArgs {
-            user_id,
-            tenant_id,
-            provider: "sciotte",
-            target,
-            channel: &request.channel,
-            channel_thread: request.channel_thread.as_deref(),
-        },
-        &resources.admin_jwt_secret,
-    )?;
-
-    let url = format!(
-        "{}/providers/sciotte/login?token={}",
-        resources.config.base_url,
-        urlencoding::encode(&token)
-    );
-
-    info!(
-        user_id = %user_id,
-        tenant_id = %tenant_id,
-        channel = %request.channel,
-        target = %target,
-        "Minted Sciotte hosted-login link-token"
-    );
-
-    Ok(Json(MintLinkTokenResponse {
-        url,
-        token,
-        expires_in_minutes: PROVIDER_LINK_TOKEN_TTL_MINUTES,
-    })
-    .into_response())
-}
-
 /// Validate the link-token and burn its nonce, returning the verified claims.
 ///
 /// The rejection is the rendered error page, boxed so the `Err` side stays small.
@@ -206,8 +74,9 @@ async fn validate_and_burn_link_token(
     })?;
 
     // SECURITY: Burn the jti on the first page load so the URL can't be replayed.
-    // The token remains valid for the POST endpoints within its 20-min TTL so the
-    // multi-step Sciotte flow (credentials -> 2FA -> OTP) can complete.
+    // The token remains valid for the login, 2FA and OTP POSTs within its TTL
+    // (`PROVIDER_LINK_TOKEN_TTL_MINUTES`) so the multi-step Sciotte flow
+    // (credentials -> 2FA -> OTP) can complete.
     resources
         .nonce_store
         .burn(&claims.jti)

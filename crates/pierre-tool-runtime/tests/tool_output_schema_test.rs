@@ -58,10 +58,10 @@ use pierre_tool_runtime::implementations::analytics::output::{
 };
 use pierre_tool_runtime::implementations::analytics::recommendations_output::RecommendationsResult;
 use pierre_tool_runtime::implementations::analytics::{
-    intelligence_from_model_reply, sampled_or_wrapped, AnalyzeActivityTool,
-    AnalyzePerformanceTrendsTool, AnalyzeTrainingLoadTool, AnalyzeWeatherImpactTool,
-    CalculateFitnessScoreTool, CalculateMetricsTool, CompareActivitiesTool, DetectPatternsTool,
-    GenerateRecommendationsTool, GetActivityIntelligenceTool, PredictPerformanceTool,
+    AnalyzeActivityTool, AnalyzePerformanceTrendsTool, AnalyzeTrainingLoadTool,
+    AnalyzeWeatherImpactTool, CalculateFitnessScoreTool, CalculateMetricsTool,
+    CompareActivitiesTool, DetectPatternsTool, GenerateRecommendationsTool,
+    GetActivityIntelligenceTool, PredictPerformanceTool,
 };
 use pierre_tool_runtime::implementations::athlete_stats::{
     GetAthleteResult, GetAthleteTool, GetStatsResult, GetStatsTool,
@@ -173,12 +173,17 @@ use pierre_tool_runtime::implementations::training_plans_output::{
 };
 use pierre_tool_runtime::implementations::verification::{VerifyClaimResult, VerifyClaimTool};
 use pierre_tool_runtime::implementations::weather_forecast::{
-    GetWeatherForecastTool, WeatherForecastResult,
+    forecast, GetWeatherForecastTool, WeatherForecastResult,
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_weather::{
+    DummyWeatherProvider, GeocodeError, Geocoded, Geocoder, Place, PlaceQuery, WeatherError,
+    WeatherProvider, WeatherQuery, WeatherSample,
+};
 use serde_json::json;
 use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;
+use std::sync::Mutex;
 
 /// The schema a conforming client would validate `verify_claim` against.
 fn declared_schema() -> serde_json::Value {
@@ -2152,7 +2157,9 @@ fn the_training_load_bands_form_rather_than_shipping_a_bare_tsb() {
     let schema = output_schema_for::<TrainingLoadResult>();
     let rendered = serde_json::to_string(&schema).expect("serializes");
 
-    for key in ["form_band", "form_assessment", "tsb_pct_of_ctl"] {
+    // `form_ctl` rides with the percentage: form is a share of yesterday's
+    // CTL, not of the day's own `ctl`, and the client has to be able to see it.
+    for key in ["form_band", "form_assessment", "tsb_pct_of_ctl", "form_ctl"] {
         assert!(
             rendered.contains(key),
             "the banded reading must reach the client: {key} missing"
@@ -2173,65 +2180,6 @@ fn the_training_load_bands_form_rather_than_shipping_a_bare_tsb() {
         rendered.contains("interpretation"),
         "the shared form reading travels with the load: {rendered}"
     );
-}
-
-/// A model's reply is used when it fits the declared shape, and wrapped as
-/// prose when it does not.
-///
-/// This is the behaviour that makes the schema true for the sampled path.
-/// Before it, whatever the client's LLM emitted was parsed as a bare `Value`
-/// and became the tool's answer — a contract no `outputSchema` could state,
-/// and an unread passthrough of third-party output into coaching context.
-#[test]
-fn a_sampled_recommendation_that_does_not_fit_is_wrapped_not_passed_through() {
-    // Prose: no JSON at all.
-    let prose = sampled_or_wrapped("Take three easy days.", "recovery");
-    assert_eq!(prose.recommendation_type, "recovery");
-    assert_eq!(
-        prose.recommendations,
-        vec!["Take three easy days.".to_owned()]
-    );
-    assert_eq!(prose.source.as_deref(), Some("mcp_sampling"));
-
-    // JSON of the wrong shape is wrapped too — parsing is the check, not
-    // whether the reply happened to be JSON.
-    let wrong = sampled_or_wrapped(r#"{"advice": ["rest"]}"#, "recovery");
-    assert_eq!(
-        wrong.recommendations,
-        vec![r#"{"advice": ["rest"]}"#.to_owned()],
-        "a JSON object that is not this shape must be carried as text, not \
-         reinterpreted"
-    );
-
-    // A conforming reply is used as written.
-    let fitting = sampled_or_wrapped(
-        r#"{"recommendation_type":"recovery","priority":"high",
-            "reasoning":"Your form is deeply negative.",
-            "recommendations":["Rest two days"]}"#,
-        "recovery",
-    );
-    assert_eq!(fitting.priority, "high");
-    assert_eq!(fitting.reasoning, "Your form is deeply negative.");
-    assert_eq!(fitting.recommendations, vec!["Rest two days".to_owned()]);
-
-    // And every sampled answer says a model wrote it, whichever path ran.
-    assert_eq!(
-        fitting.source.as_deref(),
-        Some("mcp_sampling"),
-        "a model that names itself something else must not hide that a model \
-         wrote this"
-    );
-
-    // Every one of them validates against what the tool declares.
-    let schema = output_schema_for::<RecommendationsResult>();
-    let validator = jsonschema::validator_for(&schema).expect("compiles");
-    for answer in [&prose, &wrong, &fitting] {
-        let value = serde_json::to_value(answer).expect("serializes");
-        assert!(
-            validator.is_valid(&value),
-            "a sampled answer must validate:\n{value:#}"
-        );
-    }
 }
 
 /// The week plan reports two numbers rather than one key of two JSON types.
@@ -3361,48 +3309,324 @@ fn each_single_tool_schema_is_attached_to_the_tool_it_names() {
     }
 }
 
+/// A gazetteer of fixed places — the stand-in for Open-Meteo's geocoder, so a
+/// place-name forecast runs without the network. A name it does not hold is
+/// `NotFound`, as the real one answers.
+struct StubGeocoder;
+
+#[async_trait::async_trait]
+impl Geocoder for StubGeocoder {
+    async fn resolve(&self, query: &PlaceQuery) -> Result<Geocoded, GeocodeError> {
+        match (query.name.as_str(), query.country_code.as_deref()) {
+            ("Chamonix", _) => Ok(Geocoded {
+                place: Place {
+                    name: "Chamonix-Mont-Blanc".to_owned(),
+                    admin1: Some("Auvergne-Rhône-Alpes".to_owned()),
+                    country: Some("France".to_owned()),
+                    country_code: Some("FR".to_owned()),
+                    latitude: 45.9237,
+                    longitude: 6.8694,
+                },
+                matches: 1,
+            }),
+            ("Paris", Some("US")) => Ok(Geocoded {
+                place: Place {
+                    name: "Paris".to_owned(),
+                    admin1: Some("Texas".to_owned()),
+                    country: Some("United States".to_owned()),
+                    country_code: Some("US".to_owned()),
+                    latitude: 33.6609,
+                    longitude: -95.5555,
+                },
+                matches: 1,
+            }),
+            ("Paris", _) => Ok(Geocoded {
+                place: Place {
+                    name: "Paris".to_owned(),
+                    admin1: Some("Île-de-France".to_owned()),
+                    country: Some("France".to_owned()),
+                    country_code: Some("FR".to_owned()),
+                    latitude: 48.8534,
+                    longitude: 2.3488,
+                },
+                matches: 10,
+            }),
+            _ => Err(GeocodeError::NotFound {
+                place: query.name.clone(),
+            }),
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "stub"
+    }
+}
+
+/// A forecast provider that records the query it was asked, so a test can
+/// see which coordinates a place name reached the forecast as.
+struct RecordingProvider {
+    asked: Mutex<Vec<WeatherQuery>>,
+}
+
+impl RecordingProvider {
+    fn new() -> Self {
+        Self {
+            asked: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl WeatherProvider for RecordingProvider {
+    async fn weather_at(&self, query: WeatherQuery) -> Result<WeatherSample, WeatherError> {
+        self.asked.lock().unwrap().push(query);
+        Ok(WeatherSample {
+            temperature_celsius: 4.0,
+            humidity_percentage: Some(80.0),
+            wind_speed_kmh: Some(12.0),
+            conditions: "light snow".to_owned(),
+        })
+    }
+
+    fn name(&self) -> &'static str {
+        "recording"
+    }
+}
+
 #[test]
-fn a_coordinate_forecast_omits_the_place_a_named_one_carries() {
-    // The place name is what the caller asked for resolved back to them.
-    // A coordinate lookup resolved nothing, so there is nothing to echo, and
-    // the key is absent rather than an empty string.
+fn the_forecast_takes_meteos_input_schema() {
+    // One get_weather_forecast across the platform and dravr-meteo: an RFC
+    // 3339 timestamp, required, and a location given either as latitude and
+    // longitude or as a place name narrowed by an optional country code.
+    // Which of the two is checked at run time — a top-level oneOf would drop
+    // the tool from several LLM function-calling APIs.
+    let tool =
+        <GetWeatherForecastTool as McpTool<dyn ToolRuntime>>::definition(&GetWeatherForecastTool);
+    let schema = serde_json::to_value(&tool.input_schema).expect("serializes");
+    let mut properties: Vec<&str> = schema["properties"]
+        .as_object()
+        .expect("properties")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    properties.sort_unstable();
+    assert_eq!(
+        properties,
+        [
+            "country_code",
+            "latitude",
+            "longitude",
+            "place",
+            "timestamp"
+        ]
+    );
+    assert_eq!(schema["required"], json!(["timestamp"]));
+    assert!(schema.get("oneOf").is_none() && schema.get("anyOf").is_none());
+    assert_eq!(schema["properties"]["latitude"]["minimum"], -90.0);
+    assert_eq!(schema["properties"]["longitude"]["maximum"], 180.0);
+    assert_eq!(schema["properties"]["timestamp"]["format"], "date-time");
+    assert_eq!(schema["properties"]["place"]["minLength"], 1);
+    assert_eq!(schema["properties"]["place"]["maxLength"], 200);
+    assert_eq!(
+        schema["properties"]["country_code"]["pattern"],
+        "^[A-Za-z]{2}$"
+    );
+    assert_eq!(
+        schema["properties"]["latitude"]["description"],
+        "Decimal degrees, north-positive. Give with longitude, or give place instead"
+    );
+    assert!(
+        tool.description
+            .contains("place name (optionally narrowed by country_code)"),
+        "{}",
+        tool.description
+    );
+}
+
+#[tokio::test]
+async fn a_forecast_answers_with_meteos_shape_and_validates() {
     let validator =
         jsonschema::validator_for(&output_schema_for::<WeatherForecastResult>()).expect("compiles");
+    let args = json!({
+        "latitude": 45.5,
+        "longitude": -73.57,
+        "timestamp": "2026-09-28T07:30:00Z",
+    });
 
-    let named = serde_json::to_value(WeatherForecastResult {
-        latitude: 45.5,
-        longitude: -73.57,
-        timestamp: "2026-09-08T11:00:00+00:00".to_owned(),
-        temperature_celsius: 18.5,
-        conditions: "partly cloudy".to_owned(),
-        humidity_percentage: Some(62.0),
-        wind_speed_kmh: Some(14.0),
-        place: Some("Montréal".to_owned()),
-    })
-    .expect("serializes");
-    // A provider model that reported neither humidity nor wind for that hour
-    // is ordinary, and both are Option because of it.
-    let bare = serde_json::to_value(WeatherForecastResult {
-        latitude: 45.5,
-        longitude: -73.57,
-        timestamp: "2026-09-08T11:00:00+00:00".to_owned(),
-        temperature_celsius: 18.5,
-        conditions: "clear".to_owned(),
+    let full = forecast(&DummyWeatherProvider::temperate(), &StubGeocoder, &args)
+        .await
+        .expect("renders");
+    assert!(!full.is_error, "{:#}", full.content);
+    assert_eq!(full.content["provider"], "dummy");
+    assert_eq!(full.content["latitude"], 45.5);
+    assert_eq!(full.content["longitude"], -73.57);
+    assert_eq!(full.content["timestamp"], "2026-09-28T07:30:00+00:00");
+    assert_eq!(full.content["sample"]["temperature_celsius"], 15.0);
+    assert_eq!(full.content["sample"]["humidity_percentage"], 55.0);
+    assert_eq!(full.content["sample"]["conditions"], "clear sky");
+    // Coordinates were given: no place resolved, nothing to note.
+    assert!(full.content.get("place").is_none());
+    assert!(full.content.get("note").is_none());
+    assert!(validator.is_valid(&full.content), "{:#}", full.content);
+
+    // A model that reported neither humidity nor wind for that hour is
+    // ordinary; the keys are absent, as dravr-meteo writes them.
+    let bare = DummyWeatherProvider::new(WeatherSample {
+        temperature_celsius: 3.0,
         humidity_percentage: None,
         wind_speed_kmh: None,
-        place: None,
-    })
-    .expect("serializes");
+        conditions: "snow".to_owned(),
+    });
+    let bare = forecast(&bare, &StubGeocoder, &args)
+        .await
+        .expect("renders");
+    assert!(bare.content["sample"].get("humidity_percentage").is_none());
+    assert!(bare.content["sample"].get("wind_speed_kmh").is_none());
+    assert!(validator.is_valid(&bare.content), "{:#}", bare.content);
+}
 
-    assert!(
-        validator.is_valid(&named),
-        "named-place forecast:\n{named:#}"
+#[tokio::test]
+async fn a_forecast_by_place_reads_the_geocoded_coordinates() {
+    let validator =
+        jsonschema::validator_for(&output_schema_for::<WeatherForecastResult>()).expect("compiles");
+    let provider = RecordingProvider::new();
+    let args = json!({ "place": "Chamonix", "timestamp": "2026-09-28T07:30:00Z" });
+
+    let result = forecast(&provider, &StubGeocoder, &args)
+        .await
+        .expect("renders");
+    assert!(!result.is_error, "{:#}", result.content);
+
+    let asked = provider.asked.lock().unwrap().clone();
+    assert_eq!(asked.len(), 1, "one forecast lookup");
+    assert_eq!(
+        (asked[0].latitude.to_bits(), asked[0].longitude.to_bits()),
+        (45.9237_f64.to_bits(), 6.8694_f64.to_bits()),
+        "the forecast is read at the geocoded coordinates"
     );
-    assert!(validator.is_valid(&bare), "coordinate forecast:\n{bare:#}");
-    assert!(named.get("place").is_some(), "a named place is echoed back");
+
+    let content = &result.content;
+    assert_eq!(content["provider"], "recording");
+    assert_eq!(content["latitude"], 45.9237);
+    assert_eq!(content["longitude"], 6.8694);
+    assert_eq!(
+        content["place"],
+        json!({
+            "query": "Chamonix",
+            "name": "Chamonix-Mont-Blanc",
+            "admin1": "Auvergne-Rhône-Alpes",
+            "country": "France",
+            "country_code": "FR",
+            "latitude": 45.9237,
+            "longitude": 6.8694,
+            "matches": 1,
+        })
+    );
+    assert_eq!(content["sample"]["conditions"], "light snow");
+    assert!(content.get("note").is_none(), "one match is not ambiguous");
+    assert!(validator.is_valid(content), "{content:#}");
+}
+
+#[tokio::test]
+async fn an_ambiguous_place_takes_the_top_match_and_says_so() {
+    let provider = RecordingProvider::new();
+    let ambiguous = forecast(
+        &provider,
+        &StubGeocoder,
+        &json!({ "place": "Paris", "timestamp": "2026-09-28T07:30:00Z" }),
+    )
+    .await
+    .expect("renders");
+    assert_eq!(ambiguous.content["place"]["matches"], 10);
+    assert_eq!(
+        ambiguous.content["note"],
+        "\"Paris\" matched 10 places; used the top-ranked one, Paris, Île-de-France, France. \
+         Pass country_code, or latitude and longitude, for a different one"
+    );
+
+    // country_code narrows the lookup, whatever case it was typed in.
+    let narrowed = forecast(
+        &provider,
+        &StubGeocoder,
+        &json!({ "place": "Paris", "country_code": "us", "timestamp": "2026-09-28T07:30:00Z" }),
+    )
+    .await
+    .expect("renders");
+    assert_eq!(narrowed.content["place"]["admin1"], "Texas");
+    assert_eq!(narrowed.content["latitude"], 33.6609);
+}
+
+#[tokio::test]
+async fn coordinates_win_over_a_place_and_the_answer_says_so() {
+    let provider = RecordingProvider::new();
+    let result = forecast(
+        &provider,
+        &StubGeocoder,
+        &json!({
+            "latitude": 45.5,
+            "longitude": -73.57,
+            "place": "Chamonix",
+            "timestamp": "2026-09-28T07:30:00Z",
+        }),
+    )
+    .await
+    .expect("renders");
+    assert!(!result.is_error, "{:#}", result.content);
+    assert_eq!(result.content["latitude"], 45.5);
+    assert!(result.content.get("place").is_none());
+    assert_eq!(
+        result.content["note"],
+        "place was ignored: latitude and longitude were given, and coordinates win"
+    );
+}
+
+#[tokio::test]
+async fn a_forecast_refuses_what_meteo_refuses() {
+    let provider = RecordingProvider::new();
+    for (args, expected) in [
+        (
+            json!({ "timestamp": "2026-09-28T07:00:00Z" }),
+            "give either latitude and longitude, or place (a place name such as \"Chamonix\")",
+        ),
+        (
+            json!({ "place": "Atlantis", "timestamp": "2026-09-28T07:00:00Z" }),
+            "no place named \"Atlantis\" was found",
+        ),
+        (
+            json!({ "latitude": 45.5, "place": "Chamonix", "timestamp": "2026-09-28T07:00:00Z" }),
+            "missing required parameter: longitude (a number)",
+        ),
+        (
+            json!({ "place": "   ", "timestamp": "2026-09-28T07:00:00Z" }),
+            "place must be a place name of 1 to 200 characters",
+        ),
+        (
+            json!({ "place": "Paris", "country_code": "FRA", "timestamp": "2026-09-28T07:00:00Z" }),
+            "country_code must be an ISO 3166-1 alpha-2 code such as \"FR\", got \"FRA\"",
+        ),
+        (
+            json!({ "latitude": 91.0, "longitude": 0.0, "timestamp": "2026-09-28T07:00:00Z" }),
+            "latitude must be between -90 and 90, got 91",
+        ),
+        (
+            json!({ "latitude": 45.5, "longitude": -73.57 }),
+            "missing required parameter: timestamp (RFC 3339)",
+        ),
+        (
+            json!({ "place": "Chamonix", "timestamp": "2026-09-28" }),
+            "timestamp must be RFC 3339",
+        ),
+    ] {
+        let result = forecast(&provider, &StubGeocoder, &args)
+            .await
+            .expect("renders");
+        assert!(result.is_error, "{args} must be refused");
+        let message = result.content["error"].as_str().expect("error text");
+        assert!(message.starts_with(expected), "{args}: {message}");
+    }
     assert!(
-        bare.get("place").is_none(),
-        "a coordinate lookup omits place rather than sending an empty string"
+        provider.asked.lock().unwrap().is_empty(),
+        "a refused call never reaches the forecast"
     );
 }
 
@@ -4408,60 +4632,6 @@ fn get_activity_intelligence_declares_the_shape_it_now_enforces() {
         validator.is_valid(&substituted),
         "a substituted activity must validate too:\n{substituted:#}"
     );
-}
-
-/// A model reply that fits the declared shape is used; one that does not is
-/// wrapped rather than passed through.
-///
-/// This is the behaviour that makes the schema true. Before it, whatever the
-/// client's LLM emitted was parsed as a bare `Value` and became the tool's
-/// answer — a contract no schema could state, and an unvalidated passthrough
-/// of third-party output into an athlete's coaching context.
-#[test]
-fn a_model_reply_that_does_not_fit_is_wrapped_not_passed_through() {
-    let validator =
-        jsonschema::validator_for(&output_schema_for::<ActivityIntelligence>()).expect("compiles");
-
-    // Conforming: used as written.
-    let conforming = intelligence_from_model_reply(
-        r#"{"summary":"Solid tempo effort.","insights":["Pace held to the last km"],
-            "recommendations":["Add a second tempo next week"],"source":"whatever"}"#,
-    );
-    assert_eq!(conforming.summary, "Solid tempo effort.");
-    assert_eq!(conforming.insights.len(), 1);
-
-    // Prose, not JSON: wrapped, and the text survives rather than being lost.
-    let prose = intelligence_from_model_reply("You ran well today, nice negative split.");
-    assert_eq!(prose.summary, "You ran well today, nice negative split.");
-    assert_eq!(
-        prose.insights,
-        vec!["You ran well today, nice negative split."]
-    );
-    assert!(prose.recommendations.is_empty());
-
-    // JSON of the WRONG shape: also wrapped. This is the case that used to
-    // sail through as the tool's answer.
-    let wrong_shape = intelligence_from_model_reply(r#"{"verdict":"great","score":9}"#);
-    assert!(
-        wrong_shape.summary.contains("verdict"),
-        "an unexpected object is carried as text, not silently emitted as the answer"
-    );
-
-    for (label, sample) in [
-        ("conforming", &conforming),
-        ("prose", &prose),
-        ("wrong_shape", &wrong_shape),
-    ] {
-        let value = serde_json::to_value(sample).expect("serializes");
-        assert!(
-            validator.is_valid(&value),
-            "the {label} reply must satisfy the declared shape:\n{value:#}"
-        );
-        assert_eq!(
-            value["source"], "mcp_sampling",
-            "{label}: a model does not get to claim its analysis was written here"
-        );
-    }
 }
 
 // ============================================================================

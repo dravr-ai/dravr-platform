@@ -117,7 +117,8 @@ upstream = "dravr-enforme"
 [dravr-riviere]
 repo     = "dravr-riviere"
 source   = "git-tag"
-# Pinned v0.2.4 is a hand-cut tag whose newest GitHub release is v0.2.3.
+# Some tags are hand-cut with no GitHub release (v0.2.4 was), so a tag is
+# evidence enough.
 release_evidence = "tag"
 upstream = "dravr-enforme"
 

@@ -169,9 +169,6 @@ async fn read_one_track(
         user_id: input.user_id.clone(),
         protocol: "chat".to_owned(),
         tenant_id: Some(input.tool_tenant_id.to_string()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
     };
     let response = match executor.execute_tool(request).await {
         Ok(response) => response,

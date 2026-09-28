@@ -56,6 +56,7 @@ function link(overrides: Partial<DelegatedConnection> = {}): DelegatedConnection
     status: 'proposed',
     proposed_at: '2026-09-24T08:00:00Z',
     confirmed_at: null,
+    read_refused: null,
     ...overrides,
   };
 }
@@ -152,6 +153,75 @@ describe('DelegatedConnectionsSection', () => {
 
     fireEvent.press(await findByTestId('delegation-open-connections'));
     expect(onOpenConnections).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends a coach whose TrainingPeaks account is not theirs by email to their connections', async () => {
+    mockRoster.mockRejectedValue(refusal('trainingpeaks_email_mismatch'));
+    const onOpenConnections = jest.fn();
+    const { findByTestId } = renderSection({ onOpenConnections });
+
+    expect(await findByTestId('delegation-roster-refused')).toHaveTextContent(
+      /uses a different email than your Dravr account/,
+    );
+    fireEvent.press(await findByTestId('delegation-open-connections'));
+    expect(onOpenConnections).toHaveBeenCalledTimes(1);
+  });
+
+  it('words a propose refused because the athlete is not the member by email', async () => {
+    mockPropose.mockRejectedValue(refusal('athlete_email_mismatch'));
+    const { findByTestId, getByTestId } = renderSection();
+
+    fireEvent.press(await findByTestId('delegation-propose-900001'));
+    await act(async () => {
+      fireEvent.press(getByTestId('delegation-member-option-user-alex'));
+    });
+
+    await waitFor(() =>
+      expect(Alert.alert).toHaveBeenCalledWith(
+        'Error',
+        "This athlete's TrainingPeaks email is not the member's Dravr email, so they cannot be linked.",
+      ),
+    );
+  });
+
+  it('tells the coach why a confirmed link reads nothing, and keeps the unlink', async () => {
+    mockRoster.mockResolvedValue({
+      provider: 'trainingpeaks',
+      athletes: [
+        {
+          provider_athlete_id: '900001',
+          display_name: 'Alex Athlete',
+          connection: link({
+            status: 'confirmed',
+            confirmed_at: '2026-09-24T09:00:00Z',
+            read_refused: 'athlete_email_missing',
+          }),
+          suggested_member_user_id: null,
+        },
+      ],
+    });
+    const { findByTestId, getByTestId } = renderSection();
+
+    const row = await findByTestId('delegation-roster-row-900001');
+    expect(row).toHaveTextContent(
+      /TrainingPeaks shares no email for this athlete, so Dravr cannot match them to a member\./,
+    );
+    expect(row).not.toHaveTextContent(/Linked to/);
+    expect(getByTestId('delegation-unlink-dc-1')).toBeTruthy();
+  });
+
+  it('tells the member why their confirmed link reads nothing', async () => {
+    const { findByTestId } = renderSection({
+      mode: 'member',
+      connections: [
+        link({ status: 'confirmed', confirmed_at: '2026-09-24T09:00:00Z', read_refused: 'athlete_email_mismatch' }),
+      ],
+    });
+
+    expect(await findByTestId('delegation-read-refused')).toHaveTextContent(
+      "This athlete's TrainingPeaks email is not the member's Dravr email, so they cannot be linked.",
+    );
+    expect(await findByTestId('delegation-linked')).not.toHaveTextContent(/read through Casey Coach/);
   });
 
   it('unlinks a confirmed member link behind a confirm', async () => {

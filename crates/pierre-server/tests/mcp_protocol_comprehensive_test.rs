@@ -170,56 +170,6 @@ async fn test_mcp_tools_list_request() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_mcp_authenticate_request() -> Result<()> {
-    common::init_server_config();
-    let database = common::create_test_database().await?;
-    let auth_manager = common::create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
-
-    let cache = common::create_test_cache().await.unwrap();
-    let resources = Arc::new(
-        ServerContext::new(
-            (*database).clone(),
-            (*auth_manager).clone(),
-            TEST_JWT_SECRET,
-            config,
-            cache,
-            ServerContextOptions {
-                rsa_key_size_bits: Some(2048),
-                jwks_manager: Some(common::get_shared_test_jwks()),
-                llm_provider: None,
-                chat_provider: None,
-                extra_tools: Vec::new(),
-                billing_provider: None,
-                turn_runner: None,
-            },
-        )
-        .await,
-    );
-    let _server = ProviderToolRouter::new(resources);
-
-    // Create test user
-    let user = User::new(
-        "mcp_auth@example.com".to_owned(),
-        "password123".to_owned(),
-        Some("MCP Auth Test".to_owned()),
-    );
-    database.repositories().users.create(&user).await?;
-
-    // Test authenticate request format
-    let auth_params = json!({
-        "email": "mcp_auth@example.com",
-        "password": "password123"
-    });
-    let request = create_mcp_request("authenticate", Some(&auth_params), Some(json!("auth-1")));
-
-    assert_eq!(request["method"], "authenticate");
-    assert_eq!(request["params"]["email"], "mcp_auth@example.com");
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn test_mcp_tools_call_without_auth() -> Result<()> {
     common::init_server_config();
     let database = common::create_test_database().await?;

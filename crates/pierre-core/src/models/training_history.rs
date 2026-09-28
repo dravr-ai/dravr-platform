@@ -5,15 +5,21 @@
 // Copyright (c) 2026 dravr.ai
 
 use chrono::NaiveDate;
+use dravr_cageux::algorithms::training_load::DailyTrainingLoad;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+use super::FormReading;
 
 /// One day of derived training-state metrics for a single user.
 ///
 /// All metrics are computed from the user's activity stream by the
 /// `training_history_compute` service. Frameworks:
 ///
-/// - `ctl` / `atl` / `tsb` / `daily_load` — Coggan TSS-based EMA
+/// - `ctl` / `atl` / `tsb` / `form_ctl` / `daily_load` — Coggan TSS-based EMA,
+///   read off cageux's per-day series: `ctl` and `atl` at the end of the day,
+///   `tsb` and `form_ctl` from the end of the day before (the
+///   Coggan/TrainingPeaks form convention)
 /// - `acwr` — acute:chronic load balance (7d / 28d), a descriptive magnitude
 /// - `monotony` — Foster (mean weekly load / std dev weekly load)
 /// - `strain` — Foster (weekly load × monotony)
@@ -31,12 +37,19 @@ pub struct DailyTrainingState {
     /// to the day they trained. Bucketing on the UTC day shifted the whole
     /// series against their calendar (registre#200).
     pub date: NaiveDate,
-    /// Chronic Training Load (42-day EMA of TSS) — proxy for fitness.
+    /// Chronic Training Load (42-day EMA of TSS) at the end of the day,
+    /// counting the day's own TSS — proxy for fitness.
     pub ctl: f64,
-    /// Acute Training Load (7-day EMA of TSS) — proxy for fatigue.
+    /// Acute Training Load (7-day EMA of TSS) at the end of the day,
+    /// counting the day's own TSS — proxy for fatigue.
     pub atl: f64,
-    /// Training Stress Balance (`CTL - ATL`) — proxy for form / freshness.
+    /// Training Stress Balance on the day — proxy for form / freshness: CTL
+    /// minus ATL at the end of the day before, so the day's own session never
+    /// moves it.
     pub tsb: f64,
+    /// CTL at the end of the day before — the fitness `tsb` is a share of.
+    /// Form as a percentage divides by this, never by `ctl`.
+    pub form_ctl: f64,
     /// Acute:Chronic Workload Ratio. `None` until 28+ days of history.
     ///
     /// Surfaced downstream as a descriptive magnitude of recent-vs-monthly load
@@ -68,12 +81,26 @@ impl DailyTrainingState {
             ctl: 0.0,
             atl: 0.0,
             tsb: 0.0,
+            form_ctl: 0.0,
             acwr: None,
             monotony: None,
             strain: None,
             ramp_rate: None,
             daily_load: 0.0,
         }
+    }
+
+    /// The day's form reading, banded by cageux from the `tsb`/`form_ctl`
+    /// pair this row carries from the end of the day before.
+    #[must_use]
+    pub fn form_reading(&self) -> FormReading {
+        FormReading::from_daily_load(&DailyTrainingLoad {
+            date: self.date,
+            ctl: self.ctl,
+            atl: self.atl,
+            tsb: self.tsb,
+            form_ctl: self.form_ctl,
+        })
     }
 }
 

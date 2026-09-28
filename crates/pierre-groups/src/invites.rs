@@ -67,8 +67,8 @@ impl GroupService {
     /// agent (`coach_user_id`).
     ///
     /// Eligibility (the caller is a roster-managing agent and belongs to the
-    /// group's tenant) is enforced by the route layer, which owns user-repo
-    /// access. This method owns the group-side business logic: invite
+    /// group's tenant) is enforced by the `/group join` command, which owns
+    /// user-repo access. This method owns the group-side business logic: invite
     /// validity, the single-agent guard, the attachment write, and the
     /// invite-use increment.
     ///

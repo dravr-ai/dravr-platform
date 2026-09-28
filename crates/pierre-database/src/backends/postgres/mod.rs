@@ -22,15 +22,8 @@ pub mod activity_route_tracks;
 pub mod admin;
 /// Agent package artefacts — flavour, skeleton, workouts stored per agent (Postgres)
 pub mod agent_artefacts;
-mod agent_translations;
 /// Coaches repository implementation
 pub mod agents;
-mod agents_assignments;
-/// Single-agent reads by id, one per scope.
-mod agents_by_id;
-mod agents_copies;
-/// `PostgreSQL` row → agent mappers and the agent content/request hashes.
-mod agents_rows;
 /// Usage tracking repository implementation: API-key and JWT usage, request logs, top tools
 pub mod analytics;
 /// API key repository implementation
@@ -82,6 +75,8 @@ mod oauth_client_state;
 pub mod oauth_notifications;
 /// One-time password reset tokens issued by admins and the self-service flow
 pub mod password_reset_tokens;
+/// Personal bests at the standard running distances and the runs scanned for them (`PostgreSQL`)
+pub mod personal_bests;
 /// Postgres `PlaybookRepository` impl — procedural coaching memory.
 pub mod playbooks;
 /// Pre-approved email allow-list consulted at registration (Postgres)
@@ -151,8 +146,11 @@ pub mod workout_templates;
 
 use super::{shared, DatabaseProvider};
 use crate::database::system_settings::{SystemSetting, SETTING_AUTO_APPROVAL_ENABLED};
+use crate::repositories::system_settings::{
+    impl_system_settings, system_setting_from_row, GET_SYSTEM_SETTING_SQL, SET_SYSTEM_SETTING_SQL,
+};
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use pierre_core::config::database::PostgresPoolConfig;
 use pierre_core::errors::{AppError, AppResult};
 use sha2::{Digest, Sha256};
@@ -443,91 +441,5 @@ impl DatabaseProvider for PostgresDatabase {
     }
 }
 
-// System settings operations for PostgreSQL
-impl PostgresDatabase {
-    /// Get a system setting by key.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database query fails.
-    pub async fn get_system_setting(&self, key: &str) -> AppResult<Option<SystemSetting>> {
-        use sqlx::Row;
-
-        let row = sqlx::query(
-            r"
-            SELECT key, value, description, updated_at
-            FROM system_settings
-            WHERE key = $1
-            ",
-        )
-        .bind(key)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get system setting: {e}")))?;
-
-        row.map_or(Ok(None), |row| {
-            let updated_at: DateTime<Utc> = row.get("updated_at");
-            Ok(Some(SystemSetting {
-                key: row.get("key"),
-                value: row.get("value"),
-                description: row.get("description"),
-                updated_at,
-            }))
-        })
-    }
-
-    /// Set a system setting value (upsert).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database operation fails.
-    pub async fn set_system_setting(&self, key: &str, value: &str) -> AppResult<()> {
-        sqlx::query(
-            r"
-            INSERT INTO system_settings (key, value, created_at, updated_at)
-            VALUES ($1, $2, NOW(), NOW())
-            ON CONFLICT (key) DO UPDATE SET
-                value = $2,
-                updated_at = NOW()
-            ",
-        )
-        .bind(key)
-        .bind(value)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to set system setting: {e}")))?;
-
-        Ok(())
-    }
-
-    /// Check if auto-approval is enabled in database
-    ///
-    /// Returns `Some(true/false)` if explicitly set in database,
-    /// or `None` if no database setting exists (caller should use config default).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database query fails
-    pub async fn is_auto_approval_enabled(&self) -> AppResult<Option<bool>> {
-        match self
-            .get_system_setting(SETTING_AUTO_APPROVAL_ENABLED)
-            .await?
-        {
-            Some(setting) => Ok(Some(setting.value.eq_ignore_ascii_case("true"))),
-            None => Ok(None),
-        }
-    }
-
-    /// Set auto-approval enabled state
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database operation fails
-    pub async fn set_auto_approval_enabled(&self, enabled: bool) -> AppResult<()> {
-        self.set_system_setting(
-            SETTING_AUTO_APPROVAL_ENABLED,
-            if enabled { "true" } else { "false" },
-        )
-        .await
-    }
-}
+// System settings operations, from the one shared body
+impl_system_settings!(PostgresDatabase);

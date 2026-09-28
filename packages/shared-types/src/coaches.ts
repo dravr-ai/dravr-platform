@@ -179,6 +179,71 @@ export interface UpdateAgentRequest {
   max_tool_iterations?: number | null;
 }
 
+// ========== VERSION HISTORY TYPES ==========
+
+/**
+ * The editable content an agent had at one point in its history. Every edit
+ * snapshots the content it replaces, so a version is the agent *before* the
+ * change its `change_summary` names.
+ */
+export interface AgentContentSnapshot {
+  title: string;
+  description: string | null;
+  system_prompt: string;
+  category: string;
+  tags: string[];
+  sample_prompts: string[];
+  token_count: number;
+  visibility: string;
+  [field: string]: unknown;
+}
+
+/** One stored version of an agent. */
+export interface AgentVersion {
+  /** 1-based, increasing with every edit */
+  version: number;
+  content_snapshot: AgentContentSnapshot;
+  /** What the edit made from this content did, when the editor said */
+  change_summary: string | null;
+  /** RFC 3339 timestamp */
+  created_at: string;
+  /** Display name (or email) of the user who made the edit, when known */
+  created_by_name: string | null;
+}
+
+/** Response for GET /api/agents/{id}/versions, newest first. */
+export interface ListAgentVersionsResponse {
+  versions: AgentVersion[];
+  /** The highest stored version number (0 when the agent was never edited) */
+  current_version: number;
+  total: number;
+}
+
+/** One field that differs between a stored version and the current content. */
+export interface AgentFieldChange {
+  field: string;
+  /** The value in the stored version; absent when the field was added */
+  old_value: unknown;
+  /** The current value; absent when the field was removed */
+  new_value: unknown;
+}
+
+/** Response for GET /api/agents/{id}/versions/{version}/diff. */
+export interface AgentVersionDiffResponse {
+  /** The stored version compared with the current content */
+  version: number;
+  changes: AgentFieldChange[];
+}
+
+/** Response for POST /api/agents/{id}/versions/{version}/revert. */
+export interface RevertAgentVersionResponse {
+  /** The agent with the version's content restored */
+  agent: Agent;
+  reverted_to_version: number;
+  /** The version that now holds the content the revert replaced */
+  new_version: number;
+}
+
 /** Standard metadata for agent API responses */
 export interface AgentMetadata {
   timestamp: string;

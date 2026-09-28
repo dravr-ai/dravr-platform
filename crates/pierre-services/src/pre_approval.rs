@@ -23,7 +23,7 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::UserStatus;
+use pierre_core::models::{normalize_email, UserStatus};
 use pierre_database::RepositoryRegistry;
 use serde::Serialize;
 use tracing::{info, warn};
@@ -32,19 +32,20 @@ use uuid::Uuid;
 use crate::admin_ops::{create_default_mcp_token_for_user, transition_user_status};
 use crate::auth::AuthService;
 
-/// Trim and lower-case an address, rejecting one that is not an email.
+/// The address in its stored form ([`normalize_email`]), rejecting one that is
+/// not an email.
 ///
-/// The table is keyed lower-case, so normalizing at the edge is what makes
+/// The table is keyed on that form, so normalizing at the edge is what makes
 /// `Allow` then `Disallow` of the same address with different capitalization
-/// refer to one row.
+/// refer to one row, and what the result reports back to the operator.
 ///
 /// # Errors
 ///
 /// Returns [`AppError::invalid_input`] when the value is not a valid email
 /// address — rejected before it reaches the table, where a typo would sit as a
 /// permanent allow nobody can match against.
-pub fn normalize_email(email: &str) -> AppResult<String> {
-    let normalized = email.trim().to_lowercase();
+fn valid_email(email: &str) -> AppResult<String> {
+    let normalized = normalize_email(email);
     if !AuthService::is_valid_email(&normalized) {
         return Err(AppError::invalid_input(format!(
             "'{normalized}' is not a valid email address"
@@ -199,7 +200,7 @@ pub async fn allow(
     allowed_by: Option<Uuid>,
     note: Option<&str>,
 ) -> AppResult<AllowResult> {
-    let email = normalize_email(email)?;
+    let email = valid_email(email)?;
 
     if let Some(user) = repos.users.get_by_email(&email).await? {
         let (outcome, approved_user) = match user.user_status {
@@ -254,7 +255,7 @@ pub async fn allow(
 /// Returns [`AppError::invalid_input`] for a malformed address, or the
 /// repository's error when the delete fails.
 pub async fn disallow(repos: &RepositoryRegistry, email: &str) -> AppResult<DisallowResult> {
-    let email = normalize_email(email)?;
+    let email = valid_email(email)?;
     let removed = repos.pre_approved_emails.remove(&email).await?;
     if removed {
         info!("Pre-approved email removed");

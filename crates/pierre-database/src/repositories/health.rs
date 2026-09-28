@@ -87,19 +87,6 @@ pub trait SleepRepository: Send + Sync {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> AppResult<Vec<StoredSleepSession>>;
-    /// Get the most recent sleep session for a user
-    async fn get_latest_sleep_session(
-        &self,
-        user_id: Uuid,
-        tenant_id: &TenantId,
-    ) -> AppResult<Option<StoredSleepSession>>;
-    /// Delete sleep sessions for a user and provider
-    async fn delete_sleep_sessions(
-        &self,
-        user_id: Uuid,
-        tenant_id: &TenantId,
-        provider: &str,
-    ) -> AppResult<u64>;
     /// Delete a single sleep session by id with the requested deletion mode.
     ///
     /// `soft = true` sets `deleted_at = now()` and the row stays for the
@@ -141,12 +128,6 @@ pub trait RecoveryRepository: Send + Sync {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> AppResult<Vec<StoredRecoveryMetrics>>;
-    /// Get the most recent recovery metrics for a user
-    async fn get_latest_recovery(
-        &self,
-        user_id: Uuid,
-        tenant_id: &TenantId,
-    ) -> AppResult<Option<StoredRecoveryMetrics>>;
     /// Delete a single recovery metric by id with the requested deletion mode.
     ///
     /// `soft = true` sets `deleted_at = now()` and reads filter the row out;
@@ -190,12 +171,6 @@ pub trait HealthSnapshotRepository: Send + Sync {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> AppResult<Vec<StoredHealthMetrics>>;
-    /// Get the most recent health snapshot for a user
-    async fn get_latest_health_snapshot(
-        &self,
-        user_id: Uuid,
-        tenant_id: &TenantId,
-    ) -> AppResult<Option<StoredHealthMetrics>>;
     /// Delete a single health snapshot by id with the requested deletion mode.
     ///
     /// `soft = true` sets `deleted_at = now()` and reads filter the row out;

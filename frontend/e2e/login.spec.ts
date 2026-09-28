@@ -211,20 +211,6 @@ test.describe('Login Page', () => {
       }
     });
 
-    // Mock dashboard overview for when Dashboard loads
-    await page.route('**/api/dashboard/overview**', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          total_api_keys: 5,
-          active_api_keys: 3,
-          total_requests_today: 100,
-          total_requests_this_month: 2500,
-        }),
-      });
-    });
-
     await page.goto('/');
     await page.waitForSelector('form');
 

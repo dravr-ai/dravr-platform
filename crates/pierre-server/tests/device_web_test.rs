@@ -9,10 +9,13 @@
 
 mod common;
 
+use pierre_config::mcp::AppBehaviorConfig;
 use std::sync::Arc;
 
+use axum::body::to_bytes;
 use axum::extract::{Query, State};
-use axum::Form;
+use axum::http::StatusCode;
+use axum::{Form, Json};
 use chrono::Utc;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
@@ -21,14 +24,21 @@ use pierre_core::models::{DeviceAuthorization, User};
 use pierre_core::permissions::UserRole;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_routes_admin::auth::service::AdminAuthService;
+use pierre_routes_admin::handlers::device_auth::handle_device_token;
 use pierre_routes_admin::handlers::device_web::{
     handle_device_approve_web, handle_device_page, DeviceApproveForm, DevicePageQuery,
 };
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
+use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+use uuid::Uuid;
 
 const TEST_PASSWORD: &str = "Sup3rSecret!";
 const USER_CODE: &str = "WDJB-MJHT";
+/// The `device_code` the CLI holds for the pending row; only its hash is stored.
+const DEVICE_CODE: &str = "device-code-for-the-web-approval-test";
+const DEVICE_GRANT: &str = "urn:ietf:params:oauth:grant-type:device_code";
 
 async fn build_context() -> Arc<AdminApiContext> {
     let database = common::create_test_database().await.unwrap();
@@ -56,12 +66,13 @@ async fn build_context() -> Arc<AdminApiContext> {
         persona_contract_registry: Arc::new(PersonaContractRegistry::new()),
         training_catalogue_registry: Arc::new(pierre_contremaitre::TrainingCatalogueRegistry::new()),
         contremaitre_config: None,
+        app_behavior: AppBehaviorConfig::default(),
     });
 
     Arc::new(context)
 }
 
-async fn make_user(context: &AdminApiContext, email: &str, role: UserRole) {
+async fn make_user(context: &AdminApiContext, email: &str, role: UserRole) -> Uuid {
     let mut user = User::new(
         email.to_owned(),
         bcrypt::hash(TEST_PASSWORD, bcrypt::DEFAULT_COST).unwrap(),
@@ -69,12 +80,13 @@ async fn make_user(context: &AdminApiContext, email: &str, role: UserRole) {
     );
     user.role = role;
     context.repos.users.create(&user).await.unwrap();
+    user.id
 }
 
 async fn create_pending(context: &AdminApiContext) {
     let now = Utc::now().timestamp();
     let record = DeviceAuthorization {
-        device_code_hash: "hash-for-web-test".to_owned(),
+        device_code_hash: hex::encode(Sha256::digest(DEVICE_CODE.as_bytes())),
         user_code: USER_CODE.to_owned(),
         status: "pending".to_owned(),
         approved_by: None,
@@ -136,7 +148,7 @@ async fn page_renders_signin_and_approve_form() {
 #[tokio::test]
 async fn super_admin_credentials_approve() {
     let context = build_context().await;
-    make_user(&context, "admin@dravr.ai", UserRole::SuperAdmin).await;
+    let operator = make_user(&context, "admin@dravr.ai", UserRole::SuperAdmin).await;
     create_pending(&context).await;
 
     let html = handle_device_approve_web(
@@ -155,7 +167,39 @@ async fn super_admin_credentials_approve() {
         .unwrap()
         .expect("row exists");
     assert_eq!(record.status, "approved");
-    assert_eq!(record.approved_by.as_deref(), Some("admin@dravr.ai"));
+    // The approval records who approved by user id, never by email.
+    assert_eq!(
+        record.approved_by.as_deref(),
+        Some(operator.to_string().as_str())
+    );
+
+    // The CLI's next poll mints a token that acts as that operator.
+    let resp = handle_device_token(
+        State(context.clone()),
+        Json(json!({ "grant_type": DEVICE_GRANT, "device_code": DEVICE_CODE })),
+    )
+    .await
+    .expect("approved poll");
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value =
+        serde_json::from_slice(&to_bytes(resp.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(
+        body["subject"], "admin@dravr.ai",
+        "the CLI is told who approved"
+    );
+
+    let minted: Vec<_> = context
+        .repos
+        .admin
+        .list_tokens(false)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|token| token.operator_user_id == Some(operator))
+        .collect();
+    assert_eq!(minted.len(), 1, "one token acts as the approving operator");
+    assert_eq!(minted[0].service_name, format!("device-cli:{operator}"));
+    assert!(minted[0].is_super_admin);
 }
 
 #[tokio::test]

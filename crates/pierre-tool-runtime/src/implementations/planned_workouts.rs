@@ -57,15 +57,14 @@ use uuid::Uuid;
 use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, capabilities_to_tronc, object_schema, ok_typed, task_capable, tool_definition,
-    tool_result_to_response,
+    answers_with, object_schema, ok_typed, task_capable, tool_definition, tool_result_to_response,
 };
 use crate::implementations::activity_summary::MAX_DESCRIPTION_CHARS;
 use crate::implementations::data_helpers::read_only_annotations;
 use crate::protocol::{auth_required_provider, UniversalExecutor};
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 
 /// The tool's name, as its errors and its result name it. The definition
 /// spells it as a literal, which is how the tool-list scans enumerate tools.
@@ -160,8 +159,8 @@ impl McpTool<dyn ToolRuntime> for GetPlannedWorkoutsTool {
         )))
     }
 
-    fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(PROVIDER_READ)
+    fn capabilities(&self) -> ToolCapabilities {
+        PROVIDER_READ
     }
 
     async fn execute(

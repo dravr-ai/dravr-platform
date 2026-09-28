@@ -14,6 +14,7 @@ use pierre_database::database::CreateUserMcpTokenRequest;
 use pierre_database::repositories::analytics::next_utc_month_start;
 use pierre_database::repositories::{UserRateLimitOverride, UserTierOverride, UserToolOverride};
 use pierre_database::RepositoryRegistry;
+use pierre_middleware::mask_email;
 use pierre_runtime_context::DataContext;
 use serde::Serialize;
 use tracing::{debug, error, info, warn};
@@ -22,36 +23,6 @@ use uuid::Uuid;
 // =========================================================================
 // Result types returned by service functions
 // =========================================================================
-
-/// Outcome of a user approval operation
-pub struct ApproveUserResult {
-    /// Updated user ID
-    pub user_id: String,
-    /// Updated user email
-    pub email: String,
-    /// New user status
-    pub user_status: String,
-}
-
-/// Outcome of a user suspension operation
-pub struct SuspendUserResult {
-    /// Updated user ID
-    pub user_id: String,
-    /// Updated user email
-    pub email: String,
-    /// New user status
-    pub user_status: String,
-}
-
-/// Outcome of a password reset token issuance
-pub struct PasswordResetResult {
-    /// The raw token to deliver to the user (shown only once)
-    pub reset_token: String,
-    /// Token lifetime in seconds
-    pub expires_in_seconds: u64,
-    /// Email address of the target user
-    pub user_email: String,
-}
 
 /// A user's monthly request budget as the admin views report it
 pub struct UserRateLimits {
@@ -222,40 +193,6 @@ pub struct RecentActivityResult {
 // Tenant scope resolution
 // =========================================================================
 
-/// Resolve the admin user's tenant scope for listing queries.
-///
-/// Super-admins see all tenants (returns `None`). Regular admins are scoped
-/// to their `active_tenant_id` from JWT claims (returns `Some(tenant_id)`).
-///
-/// # Errors
-///
-/// Returns an error if the admin user cannot be loaded, or if a non-super-admin
-/// has no active tenant in their session.
-pub async fn get_admin_tenant_scope(
-    data: &DataContext,
-    admin_user_id: Uuid,
-    active_tenant_id: Option<Uuid>,
-) -> Result<Option<TenantId>, AppError> {
-    // SECURITY: Global lookup — resolving admin's own tenant scope
-    let user = data
-        .repos()
-        .users
-        .get_global(admin_user_id)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to fetch admin user: {e}")))?
-        .ok_or_else(|| AppError::not_found("Admin user not found"))?;
-
-    // Super-admins see all tenants
-    if user.role.is_super_admin() {
-        return Ok(None);
-    }
-
-    // Use active_tenant_id from JWT claims (admin's selected tenant)
-    let tid =
-        active_tenant_id.ok_or_else(|| AppError::auth_invalid("No active tenant in session"))?;
-    Ok(Some(TenantId::from_uuid(tid)))
-}
-
 /// Verify an admin user belongs to the target tenant.
 ///
 /// Super-admin users can access any tenant. Regular admins are restricted
@@ -350,7 +287,7 @@ pub async fn set_user_tier(
 
     info!(
         target_user_id = %user_id,
-        target_user_email = %updated.email,
+        target_user_email = %mask_email(&updated.email),
         new_tier = %updated.tier,
         "Admin tier change applied"
     );
@@ -617,23 +554,23 @@ pub async fn create_default_mcp_token_for_user(
     }
 }
 
-/// Assign a user to the admin's tenant for multi-tenant isolation.
+/// Assign an approved user to the tenant the approving admin is working in.
 ///
-/// Uses `active_tenant_id` from the admin's JWT claims to determine the target tenant.
-/// If the admin has no active tenant in their session, the assignment is skipped.
+/// `tenant` is the approver's scope: the active tenant of a console session, or
+/// the tenant an admin token is bound to. With no scope (a platform-wide token)
+/// the user's tenant is left as it is.
 ///
 /// # Errors
 ///
 /// Returns `Internal` if the underlying `users.update_tenant_id` repository call fails.
 pub async fn assign_user_to_admin_tenant(
-    data: &DataContext,
-    active_tenant_id: Option<Uuid>,
+    repos: &RepositoryRegistry,
+    tenant: Option<TenantId>,
     target_user_id: Uuid,
 ) -> Result<(), AppError> {
-    if let Some(tid) = active_tenant_id {
-        let tenant_id = TenantId::from_uuid(tid);
+    if let Some(tenant_id) = tenant {
         // Update user's tenant_id in users table (kept in sync with tenant_users junction)
-        data.repos()
+        repos
             .users
             .update_tenant_id(target_user_id, tenant_id)
             .await
@@ -686,13 +623,12 @@ pub async fn require_super_admin(user_id: Uuid, data: &DataContext) -> Result<()
 /// Shared user-status state transition: global lookup, already-in-target-state
 /// guard, and status update.
 ///
-/// Used by both the session admin surface ([`approve_user`] / [`suspend_user`])
-/// and the admin-token route handlers, which layer their own
-/// tenant-provisioning steps on top.
+/// Used by [`approve_user`], the admin suspend handler, the pre-approval path
+/// and `pierre-cli`'s local user commands.
 ///
 /// `approved_by` is the audit identity recorded against the transition: the
-/// session path passes the acting admin's UUID, the admin-token path passes
-/// `None` (the token is not tied to a user row).
+/// operator behind the request when there is one, `None` for a service token
+/// that is not tied to a user row.
 ///
 /// # Errors
 ///
@@ -737,80 +673,33 @@ pub async fn transition_user_status(
         })
 }
 
-/// Approve a pending user: validate status, transition to Active, assign tenant,
+/// Approve a pending user: transition to Active, assign the approver's tenant,
 /// and auto-create a default MCP token.
+///
+/// The one approval path behind `POST /admin/approve-user/{id}` and its console
+/// mount. `approved_by` is the operator recorded against the approval (the
+/// signed-in admin of a console session, the approving super-admin of a
+/// device-login token, `None` for a service token); `tenant` is the approver's
+/// tenant scope, see [`assign_user_to_admin_tenant`].
 ///
 /// # Errors
 ///
 /// Returns `InvalidInput` if the user is already active, `NotFound` if the user
 /// does not exist, or `Internal` if any underlying repository call fails.
 pub async fn approve_user(
-    data: &DataContext,
-    admin_user_id: Uuid,
-    active_tenant_id: Option<Uuid>,
+    repos: &RepositoryRegistry,
+    approved_by: Option<Uuid>,
+    tenant: Option<TenantId>,
     target_user_id: Uuid,
-    reason: Option<&str>,
-) -> Result<ApproveUserResult, AppError> {
-    // Use the admin user's UUID as the approver for proper audit trail
-    let updated_user = transition_user_status(
-        data.repos(),
-        target_user_id,
-        UserStatus::Active,
-        Some(admin_user_id),
-    )
-    .await?;
+) -> Result<User, AppError> {
+    let updated_user =
+        transition_user_status(repos, target_user_id, UserStatus::Active, approved_by).await?;
 
-    // Assign approved user to admin's tenant for multi-tenant isolation
-    assign_user_to_admin_tenant(data, active_tenant_id, target_user_id).await?;
+    assign_user_to_admin_tenant(repos, tenant, target_user_id).await?;
 
-    // Auto-create a default MCP token for the newly approved user
-    create_default_mcp_token_for_user(data.repos().user_mcp_tokens.as_ref(), target_user_id).await;
+    create_default_mcp_token_for_user(repos.user_mcp_tokens.as_ref(), target_user_id).await;
 
-    let reason_text = reason.unwrap_or("No reason provided");
-    info!(
-        "User {} approved successfully. Reason: {}",
-        target_user_id, reason_text
-    );
-
-    Ok(ApproveUserResult {
-        user_id: updated_user.id.to_string(),
-        email: updated_user.email,
-        user_status: updated_user.user_status.to_string(),
-    })
-}
-
-/// Suspend an active user: validate status and transition to Suspended.
-///
-/// # Errors
-///
-/// Returns `InvalidInput` if the user is already suspended, `NotFound` if the user
-/// does not exist, or `Internal` if the status update fails.
-pub async fn suspend_user(
-    data: &DataContext,
-    admin_user_id: Uuid,
-    target_user_id: Uuid,
-    reason: Option<&str>,
-) -> Result<SuspendUserResult, AppError> {
-    // Use the admin user's UUID for audit trail (Note: approved_by is used for both approve/suspend)
-    let updated_user = transition_user_status(
-        data.repos(),
-        target_user_id,
-        UserStatus::Suspended,
-        Some(admin_user_id),
-    )
-    .await?;
-
-    let reason_text = reason.unwrap_or("No reason provided");
-    info!(
-        "User {} suspended successfully. Reason: {}",
-        target_user_id, reason_text
-    );
-
-    Ok(SuspendUserResult {
-        user_id: updated_user.id.to_string(),
-        email: updated_user.email,
-        user_status: updated_user.user_status.to_string(),
-    })
+    Ok(updated_user)
 }
 
 // =========================================================================
@@ -885,7 +774,7 @@ pub async fn promote_user_to_admin(
     info!(
         admin_user_id = %admin_user_id,
         target_user_id = %target_user_id,
-        target_email = %updated.email,
+        target_email = %mask_email(&updated.email),
         "User promoted to admin"
     );
 
@@ -941,7 +830,7 @@ pub async fn demote_user_from_admin(
     info!(
         admin_user_id = %admin_user_id,
         target_user_id = %target_user_id,
-        target_email = %updated.email,
+        target_email = %mask_email(&updated.email),
         "User demoted from admin"
     );
 
@@ -999,10 +888,10 @@ pub const PASSWORD_RESET_TTL_SECONDS: u64 = 3600;
 ///
 /// The raw token is returned to be delivered to the user; only the SHA-256 hash
 /// is persisted. `reset_by` is the audit identity recorded against the token —
-/// callers pass their own (an admin UUID for the session surface, a service
-/// name for the admin-token surface). Shared by both password-reset surfaces so
-/// the token-generation + storage logic lives once; each caller performs its
-/// own (divergent) user lookup beforehand.
+/// the operator's UUID when the request names one, a service name otherwise.
+/// Shared by the admin reset handler and `pierre-cli`, each of which resolves
+/// the target user beforehand (the handler through
+/// [`find_user_in_admin_scope`]).
 ///
 /// # Errors
 ///
@@ -1033,45 +922,27 @@ pub async fn issue_password_reset_token(
     Ok(generated.token)
 }
 
-/// Generate a cryptographically random password reset token and store its hash.
+/// Find the user an admin is resetting a password for, within the admin's scope.
 ///
-/// The raw token is returned to be delivered to the user. Only the SHA-256 hash
-/// is stored in the database. The token expires after 1 hour.
+/// `scope` is `None` for a platform-wide caller (a super-admin, or an admin
+/// token bound to no tenant) and the admin's tenant otherwise, in which case a
+/// user outside that tenant answers `NotFound` exactly like a missing one.
 ///
 /// # Errors
 ///
-/// Returns `NotFound` if the target user does not exist in the admin's tenant
-/// scope, or `Internal` if the user lookup or token persistence fails.
-pub async fn generate_password_reset_token(
-    data: &DataContext,
-    admin_user_id: Uuid,
-    active_tenant_id: Option<Uuid>,
+/// Returns `NotFound` if the user does not exist in scope, or `Internal` if the
+/// lookup fails.
+pub async fn find_user_in_admin_scope(
+    repos: &RepositoryRegistry,
+    scope: Option<TenantId>,
     target_user_id: Uuid,
-) -> Result<PasswordResetResult, AppError> {
-    // Tenant-scoped lookup: admin can only reset passwords for users in their tenant
-    let admin_tenant = get_admin_tenant_scope(data, admin_user_id, active_tenant_id).await?;
-    let user = if let Some(tid) = admin_tenant {
-        data.repos().users.get(target_user_id, tid).await
-    } else {
-        data.repos().users.get_global(target_user_id).await
+) -> Result<User, AppError> {
+    match scope {
+        Some(tenant_id) => repos.users.get(target_user_id, tenant_id).await,
+        None => repos.users.get_global(target_user_id).await,
     }
     .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
-    .ok_or_else(|| AppError::not_found("User not found"))?;
-
-    let admin_id_str = admin_user_id.to_string();
-    let raw_token = issue_password_reset_token(data.repos(), target_user_id, &admin_id_str).await?;
-
-    info!(
-        admin_id = %admin_user_id,
-        target_user_id = %target_user_id,
-        "Password reset token issued via web admin"
-    );
-
-    Ok(PasswordResetResult {
-        reset_token: raw_token,
-        expires_in_seconds: PASSWORD_RESET_TTL_SECONDS,
-        user_email: user.email,
-    })
+    .ok_or_else(|| AppError::not_found("User not found"))
 }
 
 // =========================================================================

@@ -54,22 +54,12 @@ async fn execute_activity_comparison(
     comparison_type: &str,
     compare_activity_id: Option<&str>,
     user_uuid: uuid::Uuid,
-    request: &UniversalRequest,
     output_format: OutputFormat,
 ) -> Result<UniversalResponse, ProtocolError> {
     use DEFAULT_ACTIVITY_LIMIT;
 
     match provider.get_activity(activity_id).await {
         Ok(target_activity) => {
-            // Report progress after getting target activity
-            if let Some(reporter) = &request.progress_reporter {
-                reporter.report(
-                    66.0,
-                    Some(100.0),
-                    Some("Target activity retrieved - comparing...".to_owned()),
-                );
-            }
-
             let raw_activities = provider
                 .get_activities(Some(DEFAULT_ACTIVITY_LIMIT), None)
                 .await
@@ -86,15 +76,6 @@ async fn execute_activity_comparison(
                 comparison_type,
                 compare_activity_id,
             );
-
-            // Report completion
-            if let Some(reporter) = &request.progress_reporter {
-                reporter.report(
-                    100.0,
-                    Some(100.0),
-                    Some("Comparison completed successfully".to_owned()),
-                );
-            }
 
             apply_format_typed(
                 UniversalResponse {
@@ -636,15 +617,6 @@ pub fn handle_compare_activities(
     Box::pin(async move {
         use parse_user_id_for_protocol;
 
-        // Check cancellation at start
-        if let Some(token) = &request.cancellation_token {
-            if token.is_cancelled().await {
-                return Err(ProtocolError::OperationCancelled(
-                    "compare_activities cancelled by user".to_owned(),
-                ));
-            }
-        }
-
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
         let provider_name = match resolve_provider_for_request(
             &request.parameters,
@@ -683,22 +655,12 @@ pub fn handle_compare_activities(
             .await
         {
             Ok(provider) => {
-                // Report progress after auth
-                if let Some(reporter) = &request.progress_reporter {
-                    reporter.report(
-                        33.0,
-                        Some(100.0),
-                        Some("Authenticated - fetching activities for comparison...".to_owned()),
-                    );
-                }
-
                 let result = execute_activity_comparison(
                     provider,
                     activity_id,
                     comparison_type,
                     compare_activity_id,
                     user_uuid,
-                    &request,
                     output_format,
                 )
                 .await?;

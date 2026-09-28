@@ -19,27 +19,40 @@ const PERMISSION_DESCRIPTIONS: Record<AdminPermission, { label: string; descript
     label: 'Provision API Keys',
     description: 'Create new API keys for users and applications',
   },
+  list_keys: {
+    label: 'List API Keys',
+    description: 'View and list existing API keys',
+  },
   revoke_keys: {
     label: 'Revoke API Keys',
     description: 'Revoke existing API keys',
     danger: true,
   },
-  list_keys: {
-    label: 'List API Keys',
-    description: 'View and list existing API keys',
+  update_key_limits: {
+    label: 'Update Key Limits',
+    description: 'Change the rate limits of existing API keys',
+  },
+  manage_users: {
+    label: 'Manage Users',
+    description: 'Approve, suspend and pre-approve users, and reset their passwords',
+    danger: true,
   },
   manage_admin_tokens: {
     label: 'Manage Admin Tokens',
-    description: 'Create, update, and manage admin tokens',
+    description: 'Create, rotate and revoke admin tokens that are not super-admin',
     danger: true,
   },
   view_audit_logs: {
     label: 'View Audit Logs',
     description: 'Access audit logs and activity history',
   },
-  super_admin: {
-    label: 'System Administration',
-    description: 'Full system administration access',
+  view_configuration: {
+    label: 'View Configuration',
+    description: 'Read server configuration and the tool catalogue',
+  },
+  manage_configuration: {
+    label: 'Manage Configuration',
+    description: 'Change server configuration, prompts and guardrails',
     danger: true,
   },
 };

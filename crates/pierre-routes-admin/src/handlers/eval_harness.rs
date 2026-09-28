@@ -52,7 +52,7 @@ pub(crate) async fn handle_list_fixtures(
         })?;
 
     info!(
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         fixture_count = response.fixture_count,
         case_total = response.case_total,
         "admin fetched eval fixture browser"
@@ -99,7 +99,7 @@ pub(crate) async fn handle_verdict_stats(
         })?;
 
     info!(
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         tenant_id = %tenant,
         window_days = stats.window_days,
         days_with_data = stats.daily.len(),
@@ -142,7 +142,7 @@ pub(crate) async fn handle_get_fixture(
         })??;
 
     info!(
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         fixture = %name,
         "admin read eval fixture"
     );
@@ -169,7 +169,7 @@ pub(crate) async fn handle_put_fixture(
         })??;
 
     info!(
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         fixture = %name,
         case_count = summary.case_count,
         "admin wrote eval fixture"
@@ -195,7 +195,7 @@ pub(crate) async fn handle_delete_fixture(
         })??;
 
     info!(
-        service = %admin_token.service_name,
+        token_id = %admin_token.token_id,
         fixture = %name,
         "admin deleted eval fixture"
     );

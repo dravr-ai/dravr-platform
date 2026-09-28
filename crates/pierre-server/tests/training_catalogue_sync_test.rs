@@ -13,10 +13,9 @@
 #![allow(missing_docs)]
 
 use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
+use dravr_contremaitre::training;
 use pierre_contremaitre::errors::ContremaitreError;
 use pierre_contremaitre::evidence_registry::EvidenceRegistry;
 use pierre_contremaitre::manifest::{
@@ -70,21 +69,31 @@ impl PromptStore for MemoryStore {
     }
 }
 
-fn catalogue_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../training_catalogue")
-}
-
-/// The on-disk text of the catalogue file a manifest path names.
-fn on_disk(path: &str) -> String {
+/// The compiled-in text of the catalogue file a manifest path names, read
+/// from the pinned dravr-contremaitre tables the registry seeds from.
+fn pinned(path: &str) -> String {
     let relative = path.strip_prefix("training/").unwrap();
-    fs::read_to_string(catalogue_dir().join(relative))
-        .unwrap_or_else(|e| panic!("read training_catalogue/{relative}: {e}"))
+    if relative == "selection.yaml" {
+        return training::SELECTION.to_owned();
+    }
+    let (dir, file) = relative.split_once('/').unwrap();
+    let (stem, _) = file.rsplit_once('.').unwrap();
+    let table = match dir {
+        "flavours" => training::FLAVOURS,
+        "skeletons" => training::SKELETONS,
+        "workouts" => training::WORKOUTS,
+        other => panic!("{path}: no catalogue shape {other}"),
+    };
+    table.iter().find(|(slug, _)| *slug == stem).map_or_else(
+        || panic!("{path}: not in the pinned training tables"),
+        |(_, text)| (*text).to_owned(),
+    )
 }
 
 /// Replace exactly one occurrence of `from` in the file, so the served body
 /// differs from the compiled-in one by one known value.
 fn altered(path: &str, from: &str, to: &str) -> String {
-    let text = on_disk(path);
+    let text = pinned(path);
     assert_eq!(
         text.matches(from).count(),
         1,
@@ -109,7 +118,7 @@ fn altered_store() -> MemoryStore {
             POLARIZED_PATH.to_owned(),
             altered(POLARIZED_PATH, "max_weeks: 12", "max_weeks: 10"),
         ),
-        (HVLIT_PATH.to_owned(), on_disk(HVLIT_PATH)),
+        (HVLIT_PATH.to_owned(), pinned(HVLIT_PATH)),
         (
             MARATHON_PATH.to_owned(),
             altered(MARATHON_PATH, "\nmin_weeks: 12\n", "\nmin_weeks: 13\n"),

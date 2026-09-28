@@ -24,6 +24,7 @@ use super::{
     compute_smart_interval, record_sync_latency, SyncNotifier, SYNC_FAILURES, SYNC_SUCCESSES,
 };
 use crate::provider_rate_limiter::{ProviderRateLimiter, RateLimitStatus};
+use crate::sync_failure_notice::{health_sync_failure_is_told, SyncFailureNotices};
 
 /// Start the scheduled sync loop with post-sync SSE notifications.
 ///
@@ -32,6 +33,8 @@ use crate::provider_rate_limiter::{ProviderRateLimiter, RateLimitStatus};
 /// - Calls `SyncOrchestrator::sync_user` for the actual sync
 /// - Updates `user_oauth_tokens.last_sync` after successful syncs
 /// - Sends SSE notifications to connected clients
+/// - Tells the athlete once when a provider's sync fails, and re-arms that
+///   notice when one lands ([`SyncFailureNotices`])
 /// - Tracks sync metrics (success/failure counts, latency)
 /// - Checks per-provider rate limits before each sync
 ///
@@ -41,6 +44,7 @@ pub fn start_scheduled_sync(
     repos: &AuthRepos,
     sse_manager: Arc<dyn SyncNotifier>,
     rate_limiter: Option<Arc<ProviderRateLimiter>>,
+    notices: SyncFailureNotices,
 ) -> AbortHandle {
     use pierre_enforme::orchestrator::scheduler::with_jitter;
     use tokio::time::sleep;
@@ -58,8 +62,14 @@ pub fn start_scheduled_sync(
             let sleep_duration = with_jitter(poll_interval);
             sleep(sleep_duration).await;
 
-            run_scheduled_sync_cycle(&orchestrator, &repos, &sse_manager, rate_limiter.as_ref())
-                .await;
+            run_scheduled_sync_cycle(
+                &orchestrator,
+                &repos,
+                &sse_manager,
+                rate_limiter.as_ref(),
+                &notices,
+            )
+            .await;
         }
     });
 
@@ -74,12 +84,9 @@ async fn run_scheduled_sync_cycle(
     repos: &AuthRepos,
     sse_manager: &Arc<dyn SyncNotifier>,
     rate_limiter: Option<&Arc<ProviderRateLimiter>>,
+    notices: &SyncFailureNotices,
 ) {
     for provider_name in orchestrator.provider_names() {
-        if is_provider_rate_limited(rate_limiter, provider_name) {
-            continue;
-        }
-
         let users = match orchestrator
             .deps()
             .connections
@@ -103,6 +110,7 @@ async fn run_scheduled_sync_cycle(
             repos,
             sse_manager,
             rate_limiter,
+            notices,
             &users,
             provider_name,
         )
@@ -116,6 +124,7 @@ async fn sync_provider_users(
     repos: &AuthRepos,
     sse_manager: &Arc<dyn SyncNotifier>,
     rate_limiter: Option<&Arc<ProviderRateLimiter>>,
+    notices: &SyncFailureNotices,
     users: &[ConnectedUser],
     provider_name: &str,
 ) {
@@ -124,11 +133,11 @@ async fn sync_provider_users(
             continue;
         }
 
-        // Check rate limit before each individual user sync
+        // Take each user's sync from the provider's shared budget first
         if let Some(limiter) = rate_limiter {
-            match limiter.check_rate_limit(provider_name) {
-                RateLimitStatus::Allowed => limiter.record_call(provider_name),
-                RateLimitStatus::Exceeded { retry_after } => {
+            match limiter.acquire(provider_name).await {
+                Ok(RateLimitStatus::Allowed) => {}
+                Ok(RateLimitStatus::Exceeded { retry_after }) => {
                     warn!(
                         provider = provider_name,
                         user_id = user.user_id,
@@ -137,33 +146,26 @@ async fn sync_provider_users(
                     );
                     break;
                 }
+                Err(e) => {
+                    warn!(
+                        provider = provider_name,
+                        error = %e,
+                        "Provider rate limit could not be counted, stopping provider cycle"
+                    );
+                    break;
+                }
             }
         }
 
-        sync_single_user(orchestrator, repos, sse_manager, user, provider_name).await;
-    }
-}
-
-/// Check whether a provider is rate-limited for the current window.
-///
-/// Returns `true` if the rate limit is exceeded and the provider should be skipped.
-fn is_provider_rate_limited(
-    rate_limiter: Option<&Arc<ProviderRateLimiter>>,
-    provider_name: &str,
-) -> bool {
-    let Some(limiter) = rate_limiter else {
-        return false;
-    };
-    match limiter.check_rate_limit(provider_name) {
-        RateLimitStatus::Allowed => false,
-        RateLimitStatus::Exceeded { retry_after } => {
-            warn!(
-                provider = provider_name,
-                retry_after_secs = retry_after.as_secs(),
-                "Provider rate limit exceeded, skipping scheduled sync cycle for provider"
-            );
-            true
-        }
+        sync_single_user(
+            orchestrator,
+            repos,
+            sse_manager,
+            notices,
+            user,
+            provider_name,
+        )
+        .await;
     }
 }
 
@@ -172,6 +174,7 @@ async fn sync_single_user(
     orchestrator: &Arc<pierre_enforme::SyncOrchestrator>,
     repos: &AuthRepos,
     sse_manager: &Arc<dyn SyncNotifier>,
+    notices: &SyncFailureNotices,
     user: &ConnectedUser,
     provider_name: &str,
 ) {
@@ -193,7 +196,7 @@ async fn sync_single_user(
             );
 
             if let Ok(user_uuid) = user.user_id.parse::<Uuid>() {
-                update_last_sync_timestamp(repos, user_uuid, provider_name).await;
+                record_landed_sync(repos, notices, user_uuid, provider_name).await;
                 send_sync_notification(
                     sse_manager,
                     user_uuid,
@@ -212,7 +215,44 @@ async fn sync_single_user(
                 error = %e,
                 "Scheduled sync failed"
             );
+            if health_sync_failure_is_told(&e) {
+                report_failed_sync(repos, notices, user, provider_name).await;
+            }
         }
+    }
+}
+
+/// Stamp `last_sync` on the token row a landed sync read and re-arm its
+/// sync-failure notice.
+async fn record_landed_sync(
+    repos: &AuthRepos,
+    notices: &SyncFailureNotices,
+    user_uuid: Uuid,
+    provider_name: &str,
+) {
+    let backend = sync_backend(provider_name);
+    if let Some(tenant) = token_tenant(repos, user_uuid, &backend).await {
+        let _ = repos
+            .oauth_tokens
+            .update_provider_last_sync(user_uuid, tenant, &backend, Utc::now())
+            .await;
+        notices.sync_landed(user_uuid, tenant, &backend).await;
+    }
+}
+
+/// Tell the athlete, once, that the scheduled sync of `provider_name` failed.
+async fn report_failed_sync(
+    repos: &AuthRepos,
+    notices: &SyncFailureNotices,
+    user: &ConnectedUser,
+    provider_name: &str,
+) {
+    let Ok(user_uuid) = user.user_id.parse::<Uuid>() else {
+        return;
+    };
+    let backend = sync_backend(provider_name);
+    if let Some(tenant) = token_tenant(repos, user_uuid, &backend).await {
+        notices.sync_failed(user_uuid, tenant, &backend).await;
     }
 }
 
@@ -234,20 +274,14 @@ fn log_smart_schedule_interval(user: &ConnectedUser, provider_name: &str) {
     );
 }
 
-/// Update the `last_sync` timestamp on the token row the sync of
-/// `provider_name` read (its [`sync_backend`]).
-async fn update_last_sync_timestamp(repos: &AuthRepos, user_uuid: Uuid, provider_name: &str) {
-    let backend = sync_backend(provider_name);
-    if let Ok(tokens) = repos.oauth_tokens.get_tokens(user_uuid, None).await {
-        if let Some(token) = tokens.iter().find(|t| t.provider == backend) {
-            if let Ok(tid) = TenantId::parse_str(&token.tenant_id) {
-                let _ = repos
-                    .oauth_tokens
-                    .update_provider_last_sync(user_uuid, tid, &backend, Utc::now())
-                    .await;
-            }
-        }
-    }
+/// The tenant of the athlete's `backend` token row — the row a sync of it
+/// reads, whose `last_sync` it stamps and whose connection it reports on.
+pub async fn token_tenant(repos: &AuthRepos, user_uuid: Uuid, backend: &str) -> Option<TenantId> {
+    let tokens = repos.oauth_tokens.get_tokens(user_uuid, None).await.ok()?;
+    tokens
+        .iter()
+        .find(|t| t.provider == backend)
+        .and_then(|t| TenantId::parse_str(&t.tenant_id).ok())
 }
 
 /// Least time between two scheduled syncs of a scrape-backed provider for one
@@ -280,14 +314,7 @@ pub async fn scrape_sync_not_due(
     let Ok(user_uuid) = user.user_id.parse::<Uuid>() else {
         return false;
     };
-    let Ok(tokens) = repos.oauth_tokens.get_tokens(user_uuid, None).await else {
-        return false;
-    };
-    let Some(tenant) = tokens
-        .iter()
-        .find(|t| t.provider == backend)
-        .and_then(|t| TenantId::parse_str(&t.tenant_id).ok())
-    else {
+    let Some(tenant) = token_tenant(repos, user_uuid, &backend).await else {
         return false;
     };
     let Ok(Some(last_sync)) = repos

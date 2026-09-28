@@ -17,7 +17,7 @@
 //! the full container take `&Arc<ServerContext>` directly; only services
 //! at narrow seams take focused contexts.
 
-use crate::context::{AuthContext, ConfigContext, ExtensionContext, SecurityContext};
+use crate::context::{AuthContext, ConfigContext, SecurityContext};
 use crate::mcp::resources::ServerContext;
 use pierre_runtime_context::DataContext;
 
@@ -70,16 +70,6 @@ impl ServerContext {
             self.common.redaction_config.clone(),
             self.auth.oauth2_rate_limiter.clone(),
             self.auth.csrf_manager.clone(),
-        )
-    }
-
-    /// Extract extension context (sampling peer, progress notifications, cancellation).
-    #[must_use]
-    pub fn extension(&self) -> ExtensionContext {
-        ExtensionContext::new(
-            self.sse.sampling_peer.clone(),
-            self.sse.progress_notification_sender.clone(),
-            self.sse.cancellation_registry.clone(),
         )
     }
 }
