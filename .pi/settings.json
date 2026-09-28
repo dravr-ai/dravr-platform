@@ -4,8 +4,7 @@
   "enableSkillCommands": true,
   "skills": [
     "../.claude/skills",
-    "~/.claude/skills",
-    "~/.claude/plugins/marketplaces/obsidian-skills/skills"
+    "~/.claude/skills"
   ],
   "packages": [
     "npm:pi-mcp-adapter",
