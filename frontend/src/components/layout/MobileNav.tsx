@@ -219,11 +219,10 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
         aria-modal="true"
         aria-label={t('shell.mobileNavSecondary')}
         className={clsx(
-          'absolute left-0 top-0 bottom-0 w-[78vw] max-w-[320px] bg-surface border-r ghost-border flex flex-col',
+          'absolute left-0 top-0 bottom-0 w-[78vw] max-w-[320px] bg-surface border-r ghost-border flex flex-col pad-safe-top',
           'transition-transform duration-200 ease-out',
           open ? 'translate-x-0' : '-translate-x-full',
         )}
-        style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
       >
         <header className="flex items-center justify-between px-5 py-4 border-b ghost-border">
           <div className="flex items-center gap-3 min-w-0">

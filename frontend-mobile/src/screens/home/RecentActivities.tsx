@@ -10,7 +10,7 @@ import type { HomeActivity } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { EmptyState, Section } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
-import { useActivityRoute, type StaleRefetchPhase } from '../../hooks/useHome';
+import { useActivityRoute } from '../../hooks/useHome';
 import { LazyRouteView } from '../chat/SceneView';
 import { ActivitySketch } from './RouteSketch';
 import { activityDraft, activityFigures, instantShortDate, sportLabel, syncedAtLabel } from './homeFormat';
@@ -122,22 +122,13 @@ function ActivityButton({
 }
 
 /**
- * Where the list stands against the provider: checking while a stale answer
- * is still owed a follow-up, otherwise when it last synced — the web page's
- * rule.
+ * Where the list stands against the provider: checking while the server says
+ * a refresh is running, otherwise when it last synced — the web page's rule.
  */
-function SyncLine({
-  stale,
-  staleRefetch,
-  asOf,
-}: {
-  stale: boolean;
-  staleRefetch: StaleRefetchPhase;
-  asOf: string | null;
-}) {
+function SyncLine({ refreshing, asOf }: { refreshing: boolean; asOf: string | null }) {
   const { t, language } = useTranslation();
   const colors = useThemeColors();
-  if (stale && staleRefetch !== 'done') {
+  if (refreshing) {
     return (
       <View className="flex-row items-center px-4 pb-2" testID="home-activities-refreshing">
         <ActivityIndicator size="small" color={colors.text.secondary} />
@@ -160,8 +151,11 @@ interface RecentActivitiesProps {
   /** False until the first answer; stays false while a read is pending, paused offline, or failed. */
   hasData: boolean;
   isError: boolean;
-  stale: boolean;
-  staleRefetch: StaleRefetchPhase;
+  /**
+   * Whether a provider refresh is running, as a read made on this visit said
+   * (`stale: true`) and no follow-up has since settled; see `useRecentActivities`.
+   */
+  refreshing: boolean;
   asOf: string | null;
   onRetry: () => void;
   /**
@@ -170,11 +164,10 @@ interface RecentActivitiesProps {
    */
   providerConnected: boolean | null;
   /**
-   * Whether a connected provider has to be reconnected before it syncs
-   * again, from the same status. The shell's reconnect banner names it and
-   * leads to Connections; the section only stops promising a sync.
+   * Whether a connected provider still syncs — one not flagged
+   * `needs_reauth` — from the same status. `null` until it answers.
    */
-  needsReconnect: boolean;
+  syncing: boolean | null;
   /** Leave for Connections, where a provider is connected. */
   onConnect: () => void;
   openDraft: OpenDraft;
@@ -185,21 +178,24 @@ interface RecentActivitiesProps {
  * sketch of their route. An empty list says why in one sentence — no
  * provider to read from, with the way to connect one, or nothing synced yet.
  *
- * A connection to reconnect is named once, by the shell's banner above every
- * tab. The rows the cache holds stay as they are; with no rows, the section
- * says a reconnect is needed instead of the empty sentence, which would
- * promise a sync the flagged connection cannot make.
+ * A connection to reconnect is named once, by the shell's banner above the
+ * page, and never again here. The rows the cache holds stay as they are.
+ * With no rows and every connected provider flagged, the section is left
+ * out: the empty sentence would promise a sync no connection can make, and
+ * the only true thing left to say — reconnect — is the banner's. It stays
+ * only while the server says a refresh is running, which for a flagged
+ * scrape session is its retry, or while a read has failed, and then shows
+ * just that.
  */
 export function RecentActivities({
   activities,
   hasData,
   isError,
-  stale,
-  staleRefetch,
+  refreshing,
   asOf,
   onRetry,
   providerConnected,
-  needsReconnect,
+  syncing,
   onConnect,
   openDraft,
 }: RecentActivitiesProps) {
@@ -228,11 +224,15 @@ export function RecentActivities({
         </View>
       );
     } else if (providerConnected) {
-      body = needsReconnect ? (
-        <EmptyState testID="home-activities-reconnect-needed">{t('providers.reconnectNeeded')}</EmptyState>
-      ) : (
-        <EmptyState testID="home-activities-empty">{t('home.activities.empty')}</EmptyState>
-      );
+      if (syncing === false) {
+        // A failed read still shows its retry below.
+        if (!refreshing && !isError) {
+          return null;
+        }
+        body = null;
+      } else {
+        body = <EmptyState testID="home-activities-empty">{t('home.activities.empty')}</EmptyState>;
+      }
     } else {
       body = (
         <EmptyState
@@ -271,7 +271,7 @@ export function RecentActivities({
 
   return (
     <Section title={t('home.activities.heading')} testID="home-section-activities">
-      {hasData ? <SyncLine stale={stale} staleRefetch={staleRefetch} asOf={asOf} /> : null}
+      {hasData ? <SyncLine refreshing={refreshing} asOf={asOf} /> : null}
       {body}
       {isError && hasData ? (
         <EmptyState

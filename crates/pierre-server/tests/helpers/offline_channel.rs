@@ -27,11 +27,11 @@ use http::HeaderMap;
 use pierre_core::models::messaging::{
     ChannelConfig, ChannelType, DeliveryReceipt, DeliveryStatus, IncomingMessage, OutgoingMessage,
 };
-use pierre_mcp_server::routes::messaging::adapter_factory::ChannelAdapterFactory;
 use pierre_messaging::channel::MessagingChannel;
 use pierre_messaging::error::MessagingResult;
 use pierre_messaging::factory::create_adapter_from_config;
 use pierre_messaging::turn::ConversationTurnId;
+use pierre_services::channel_adapters::ChannelAdapterFactory;
 use serde_json::Value;
 
 /// A real channel adapter with its outbound sends captured instead of sent.
@@ -121,7 +121,7 @@ impl MessagingChannel for OfflineSendChannel {
 /// A [`ChannelAdapterFactory`] that builds the production adapter and wraps it
 /// so its sends stay in the process.
 ///
-/// [`ChannelAdapterFactory`]: pierre_mcp_server::routes::messaging::adapter_factory::ChannelAdapterFactory
+/// [`ChannelAdapterFactory`]: pierre_services::channel_adapters::ChannelAdapterFactory
 /// Holds the shared [`SendLog`] every adapter it builds writes into, so a test
 /// can still assert the turn attempted delivery — the coverage the live
 /// transport used to carry implicitly, and which taking the network out would

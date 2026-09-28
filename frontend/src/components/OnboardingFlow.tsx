@@ -36,11 +36,13 @@ export default function OnboardingFlow({
     return <>{fallback}</>;
   }
 
+  // The positioned parent the progress bar is laid over: it starts wherever
+  // the flow does, so a strip App mounts above it stacks instead of overlapping.
   return (
-    <>
+    <div className="relative" data-testid="onboarding-flow">
       <OnboardingProgress steps={onboardingProgress(state.ctx)} />
       {renderStep(step.id, state, userDisplayName)}
-    </>
+    </div>
   );
 }
 

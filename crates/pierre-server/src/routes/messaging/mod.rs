@@ -10,9 +10,6 @@
 //! and channel configuration management. All config endpoints require JWT
 //! authentication. Webhook endpoints use channel-specific signature verification.
 
-/// How a verified webhook gets its channel adapter. Public so a route-driven
-/// test can supply a factory whose sends do not leave the process.
-pub mod adapter_factory;
 mod config;
 pub(crate) mod linking;
 /// The OAuth code-for-identity exchange and its endpoint pairing.
@@ -48,9 +45,9 @@ use std::sync::Arc;
 use std::env;
 
 use crate::mcp::resources::ServerContext;
-use adapter_factory::{ChannelAdapterFactory, ConfigChannelAdapters};
 use axum::Extension;
 use pierre_core::errors::AppError;
+use pierre_services::channel_adapters::{ChannelAdapterFactory, ConfigChannelAdapters};
 
 /// Messaging gateway routes handler
 pub struct MessagingRoutes;
@@ -66,7 +63,8 @@ impl MessagingRoutes {
     /// Production goes through [`Self::routes`], which always supplies
     /// [`ConfigChannelAdapters`]. This constructor exists so a test driving the
     /// real webhook route can exercise our ingress without its outbound sends
-    /// leaving the process — see [`adapter_factory`] for why that matters.
+    /// leaving the process — see [`pierre_services::channel_adapters`] for why
+    /// that matters.
     pub fn routes_with_adapters(
         resources: Arc<ServerContext>,
         adapters: Arc<dyn ChannelAdapterFactory>,

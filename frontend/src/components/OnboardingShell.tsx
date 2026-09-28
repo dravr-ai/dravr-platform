@@ -14,13 +14,13 @@ export default function OnboardingShell({
   heading?: string;
   children: ReactNode;
 }) {
-  // `pt-20` reserves a top safe-area for the fixed OnboardingProgress bar;
+  // `pt-24` reserves room for the OnboardingProgress bar laid over the flow;
   // `flex-col` + `my-auto` centers short cards but lets tall cards (e.g. the
   // provider list) top-align and scroll below the bar rather than under it.
   return (
     <div
       data-testid="onboarding-shell"
-      className="min-h-dvh flex flex-col items-center px-4 sm:px-6 lg:px-8 py-12 pt-24 bg-surface"
+      className="min-h-dvh flex flex-col items-center px-4 sm:px-6 lg:px-8 py-12 pt-24 bg-surface pad-safe-top"
     >
       <div className="max-w-2xl w-full my-auto">
         <div className="px-2 py-6 sm:px-6">

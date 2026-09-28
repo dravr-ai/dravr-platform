@@ -61,6 +61,18 @@ describe('ConnectProviderBanner — reconnect', () => {
     expect(onNavigate).toHaveBeenCalledExactlyOnceWith('settings/connections');
   });
 
+  it('pads the strip past the notch through the shared safe-area class, never an inline inset', async () => {
+    providers(providerStatus({ provider: 'garmin', display_name: 'Garmin', needs_reauth: true }));
+    renderBanner('reconnect');
+
+    // On an installed iOS PWA the strip is the first thing in <main>, under
+    // the status bar. `pad-safe-top` adds the inset above the strip's own
+    // padding and gives it up when another strip is above.
+    const banner = await screen.findByTestId('provider-reconnect-banner');
+    expect(banner).toHaveClass('pad-safe-top');
+    expect(banner.getAttribute('style')).toBeNull();
+  });
+
   it('names every provider once, in server order, when a mirror lists one twice', async () => {
     providers(
       providerStatus({ provider: 'garmin', display_name: 'Garmin', needs_reauth: true }),

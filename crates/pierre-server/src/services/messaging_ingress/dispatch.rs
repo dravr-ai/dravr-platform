@@ -1091,11 +1091,15 @@ async fn enqueue_failed_outbound(
         dispatch.adapter.as_ref(),
         outgoing,
         &outbound_retry::FailedOutbound {
-            message_tenant_id: dispatch.session_tenant_id,
+            transcript: Some(outbound_retry::TranscriptRecord {
+                tenant_id: dispatch.session_tenant_id,
+                session_id: &dispatch.session.session_id,
+            }),
             queue_tenant_id: dispatch.channel_tenant_id,
-            session_id: &dispatch.session.session_id,
             user_id: Some(dispatch.session.user_id.as_str()),
             channel: &dispatch.channel,
+            expires_at: None,
+            reauth: None,
         },
     )
     .await

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Reconnecting from a reply opens the in-app auth session; an ordinary link still opens the browser
-// ABOUTME: Safari taking the reconnect over is a hand-off the callback has no way back from; WHOOP states its notice first
+// ABOUTME: Safari taking the reconnect over is a hand-off the callback has no way back from; WHOOP states its notice first; a flag shows the banner
 
 import React from 'react';
 import * as Linking from 'expo-linking';
@@ -59,7 +59,7 @@ jest.mock('expo-web-browser', () => ({
 
 jest.mock('expo-linking', () => ({
   openURL: jest.fn(() => Promise.resolve(true)),
-  parse: jest.fn(() => ({ queryParams: {} })),
+  parse: jest.fn((url: string) => ({ queryParams: url.includes('success=true') ? { success: 'true' } : {} })),
   createURL: jest.fn((path: string) => `dravr://${path}`),
 }));
 
@@ -238,6 +238,89 @@ describe('ChatScreen provider reconnect', () => {
       expect(mockInitMobileOAuth).toHaveBeenCalledWith('whoop', RETURN_URL, { tosConsent: true }),
     );
     expect(WebBrowser.openAuthSessionAsync).toHaveBeenCalledWith(AUTHORIZATION_URL, RETURN_URL);
+  });
+
+  // carnet#647: the thread is pushed over the tab shell and hides its
+  // banner, so the thread carries the one the athlete sees.
+  it('shows the reconnect banner in the thread for a connected provider flagged needs_reauth', async () => {
+    mockGetProvidersStatus.mockResolvedValue({
+      providers: [
+        {
+          provider: 'garmin',
+          display_name: 'Garmin',
+          requires_oauth: false,
+          connected: true,
+          needs_reauth: true,
+          capabilities: ['activities'],
+        },
+      ],
+    });
+    const { findByTestId, getAllByTestId } = renderChatScreen();
+
+    expect(await findByTestId('reconnect-banner-providers')).toHaveTextContent(
+      'Reconnect Garmin to see your new activities.',
+    );
+    expect(getAllByTestId('reconnect-banner')).toHaveLength(1);
+  });
+
+  it('shows no reconnect banner in the thread while every connection is healthy', async () => {
+    mockGetProvidersStatus.mockResolvedValue({
+      providers: [
+        {
+          provider: 'garmin',
+          display_name: 'Garmin',
+          requires_oauth: false,
+          connected: true,
+          needs_reauth: false,
+          capabilities: ['activities'],
+        },
+      ],
+    });
+    const { queryByTestId, getByTestId } = renderChatScreen();
+
+    await waitFor(() => expect(mockGetProvidersStatus).toHaveBeenCalled());
+    await mockGetProvidersStatus.mock.results[0].value;
+    expect(getByTestId('chat-screen')).toBeTruthy();
+    expect(queryByTestId('reconnect-banner')).toBeNull();
+  });
+
+  // A reconnect made from a reply reloads the thread's status; the shared
+  // one the banner and the header read takes the same answer.
+  it('drops the banner and the reconnect wording once a reconnect from the reply succeeds', async () => {
+    const flagged = {
+      providers: [
+        {
+          provider: 'garmin',
+          display_name: 'Garmin',
+          requires_oauth: true,
+          connected: true,
+          needs_reauth: true,
+          capabilities: ['activities'],
+        },
+      ],
+    };
+    const healthy = { providers: [{ ...flagged.providers[0], needs_reauth: false }] };
+    mockGetProvidersStatus.mockResolvedValue(flagged);
+    (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValueOnce({
+      type: 'success',
+      url: `${RETURN_URL}?success=true`,
+    });
+    // Keyed on the URL, not queued once: the screen parses other links too,
+    // and a queued answer could be spent on one of them first.
+    (Linking.parse as jest.Mock).mockImplementation((url: string) => ({
+      queryParams: url.includes('success=true') ? { success: 'true' } : {},
+    }));
+    const { findByTestId, getByText, queryByTestId } = renderChatScreen();
+
+    expect(await findByTestId('chat-header-provider-status')).toHaveTextContent('Reconnect needed');
+    expect(await findByTestId('reconnect-banner')).toBeTruthy();
+
+    mockGetProvidersStatus.mockResolvedValue(healthy);
+    fireEvent.press(getByText('Reconnect Garmin'));
+
+    await waitFor(() => expect(WebBrowser.openAuthSessionAsync).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(queryByTestId('reconnect-banner')).toBeNull(), { timeout: 5000 });
+    expect(await findByTestId('chat-header-provider-status')).toHaveTextContent('Garmin connected');
   });
 
   it('still opens an ordinary link with the system browser', async () => {

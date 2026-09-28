@@ -61,7 +61,7 @@ export default function PendingApproval() {
   };
 
   return (
-    <div className="min-h-dvh flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface">
+    <div className="min-h-dvh flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface pad-safe-top">
       <div className="max-w-md w-full">
         <Card className="overflow-hidden">
           <div className="px-8 py-10">

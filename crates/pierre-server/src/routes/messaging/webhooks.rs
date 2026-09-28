@@ -23,11 +23,11 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tracing::{debug, error, field, info, warn, Span};
 
-use super::adapter_factory::ChannelAdapterFactory;
 use crate::mcp::resources::ServerContext;
 use crate::services::messaging_ingress;
 use crate::services::messaging_ingress::reactions;
 use pierre_core::errors::AppError;
+use pierre_services::channel_adapters::ChannelAdapterFactory;
 
 /// Result of tenant-aware webhook verification
 struct WebhookVerification {

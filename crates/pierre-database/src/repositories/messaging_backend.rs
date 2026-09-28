@@ -148,7 +148,7 @@ macro_rules! impl_messaging_repository {
                 .map_err(|e| messaging_column_error("attempt_count", &e))?;
             Ok(serde_json::json!({
                 "id": text_column(row, "id")?,
-                "message_id": text_column(row, "message_id")?,
+                "message_id": text_column_opt(row, "message_id")?,
                 "tenant_id": text_column(row, "tenant_id")?,
                 "user_id": $ids::read_text_opt(row, "user_id")?,
                 "channel_type": text_column(row, "channel_type")?,
@@ -158,6 +158,9 @@ macro_rules! impl_messaging_repository {
                 "next_retry_at": stamp_column_opt(row, "next_retry_at")?,
                 "created_at": stamp_column(row, "created_at")?,
                 "updated_at": stamp_column(row, "updated_at")?,
+                "expires_at": stamp_column_opt(row, "expires_at")?,
+                "reauth_tenant_id": text_column_opt(row, "reauth_tenant_id")?,
+                "reauth_provider": text_column_opt(row, "reauth_provider")?,
             }))
         }
 
@@ -499,23 +502,23 @@ macro_rules! impl_messaging_repository {
 
             // ── Outbound Queue ──
 
-            async fn enqueue_outbound(
-                &self,
-                id: &str,
-                message_id: &str,
-                tenant_id: TenantId,
-                user_id: Option<&str>,
-                channel_type: &str,
-                payload: &str,
-            ) -> AppResult<()> {
+            async fn enqueue_outbound(&self, params: &EnqueueOutboundParams<'_>) -> AppResult<()> {
+                if params.reauth.is_some() && params.user_id.is_none() {
+                    return Err(AppError::invalid_input(
+                        "A reconnect-guarded outbound entry needs the user it is about",
+                    ));
+                }
                 sqlx::query(ENQUEUE_OUTBOUND_SQL)
-                    .bind(id)
-                    .bind(message_id)
-                    .bind(tenant_id.to_string())
-                    .bind($ids::bind_text_opt(user_id)?)
-                    .bind(channel_type)
-                    .bind(payload)
+                    .bind(params.id)
+                    .bind(params.message_id)
+                    .bind(params.tenant_id.to_string())
+                    .bind($ids::bind_text_opt(params.user_id)?)
+                    .bind(params.channel_type)
+                    .bind(params.payload)
                     .bind(Utc::now())
+                    .bind(params.expires_at)
+                    .bind(params.reauth.as_ref().map(|guard| guard.tenant_id.to_string()))
+                    .bind(params.reauth.as_ref().map(|guard| guard.provider))
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

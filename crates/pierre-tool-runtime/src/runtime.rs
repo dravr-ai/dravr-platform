@@ -122,7 +122,9 @@ pub trait BackfillNotifier: Send + Sync {
     /// Called only by [`crate::protocol::reauth_notice::notify_needs_reauth`],
     /// after it won the connection's once-per-transition claim, so an
     /// implementation sends unconditionally. Best-effort: a channel that is
-    /// unconfigured or refuses the send is logged and skipped.
+    /// unconfigured is logged and skipped; one that refuses the send is
+    /// queued for retry on its own, bounded by the link's life and by the
+    /// connection staying `needs_reauth`, and is not counted.
     async fn push_reauth_to_linked_channels(
         &self,
         user_id: Uuid,

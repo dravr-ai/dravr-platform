@@ -140,7 +140,7 @@ export default function OnboardingConnectProvider({
 
   if (justConnected) {
     return (
-      <div className="min-h-dvh flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface-container-low">
+      <div className="min-h-dvh flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface-container-low pad-safe-top">
         <div className="flex flex-col items-center gap-4">
           <div className="pierre-spinner w-10 h-10 border-on-surface border-t-transparent" />
           <p className="text-sm text-on-surface-variant">
@@ -154,7 +154,7 @@ export default function OnboardingConnectProvider({
   if (awaitingOAuthFor) {
     const friendlyName = awaitingOAuthFor.charAt(0).toUpperCase() + awaitingOAuthFor.slice(1);
     return (
-      <div className="min-h-dvh flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface-container-low">
+      <div className="min-h-dvh flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface-container-low pad-safe-top">
         <div className="flex flex-col items-center gap-4 max-w-md text-center">
           <div className="pierre-spinner w-10 h-10 border-on-surface border-t-transparent" />
           <p className="text-sm text-on-surface">
@@ -175,7 +175,7 @@ export default function OnboardingConnectProvider({
     );
   }
 
-  // `pt-20` reserves a top safe-area for the fixed OnboardingProgress bar so
+  // OnboardingShell's `pt-24` reserves room for the OnboardingProgress bar so
   // this taller provider-list card clears it; `my-auto` still centers it when
   // the viewport has room.
   return (

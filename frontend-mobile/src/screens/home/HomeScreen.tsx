@@ -25,9 +25,9 @@ export function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   // The activity list carries no provider flag, so the provider status says
-  // whether there is anything to read from, and which connections have to be
-  // reconnected before they bring anything new — with rows or without: a
-  // list with rows cannot say its provider stopped syncing.
+  // whether there is anything to read from, and whether any connection still
+  // syncs. Which ones have to be reconnected is the shell banner's to say,
+  // from this same status; the section never repeats it.
   const provider = useProviderConnected();
 
   // The queries fetch on mount; a later focus — back from a chat that built a
@@ -107,12 +107,11 @@ export function HomeScreen() {
           activities={recent.activities}
           hasData={recent.hasData}
           isError={recent.isError}
-          stale={recent.stale}
-          staleRefetch={recent.staleRefetch}
+          refreshing={recent.refreshing}
           asOf={recent.asOf}
           onRetry={() => void refetchRecent()}
           providerConnected={provider.connected}
-          needsReconnect={provider.needsReconnect.length > 0}
+          syncing={provider.syncing}
           onConnect={() => router.push(CONNECTIONS_ROUTE)}
           openDraft={openDraft}
         />

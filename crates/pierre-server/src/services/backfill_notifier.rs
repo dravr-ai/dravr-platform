@@ -39,22 +39,25 @@ use std::str::FromStr;
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
-use chrono::{Duration, TimeZone, Utc};
+use chrono::{DateTime, Duration, TimeZone, Utc};
 use chrono_tz::Tz;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_BACKFILL_LIST_HEADER, KEY_BACKFILL_LIST_MORE, KEY_BACKFILL_READY,
     KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
 };
 use pierre_core::civil_time::format_local_day;
-use pierre_core::models::messaging::{ChannelConfig, ChannelType};
+use pierre_core::models::messaging::{ChannelConfig, ChannelType, OutgoingMessage};
 use pierre_core::models::{is_in_app_channel, Activity, ConversationRecord, TenantId};
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_database::backends::MessagingRepository;
 use pierre_database::repositories::shorten_url;
+use pierre_database::repositories::OutboundReauthGuard;
 use pierre_database::RepositoryRegistry;
 use pierre_messaging::channel::MessagingChannel;
 use pierre_messaging::factory::create_adapter_from_config;
-use pierre_middleware::provider_link_token::{mint_link_token, MintProviderLinkTokenArgs};
+use pierre_middleware::provider_link_token::{
+    mint_link_token, MintProviderLinkTokenArgs, PROVIDER_LINK_TOKEN_TTL_MINUTES,
+};
 use pierre_providers::backend_resolver;
 use pierre_providers::registry::global_registry;
 use pierre_services::athlete_clock::athlete_zone;
@@ -72,9 +75,13 @@ use crate::services::backfill_delivery::{ChannelDelivery, InAppDelivery, Resolve
 use crate::services::backfill_reentry::{ChatReentry, ReentryReply, ReentryRequest};
 use crate::services::messaging_ingress::addressing::reply_recipient;
 use crate::services::messaging_ingress::block_render::{render_reply, RenderedReply};
-use crate::services::messaging_ingress::outbound_retry::{enqueue_failed_outbound, FailedOutbound};
+use crate::services::messaging_ingress::outbound_retry::{
+    enqueue_failed_outbound, FailedOutbound, TranscriptRecord,
+};
 use crate::services::messaging_ingress::surface::messaging_render_profile;
-use pierre_services::messaging_broadcast::{proactive_text, resolve_linked_targets};
+use pierre_services::messaging_broadcast::{
+    proactive_text, resolve_linked_targets, LinkedChannelTarget,
+};
 
 /// Max activities rendered inline in the completion notice; the rest collapse
 /// into a "… and N more" footer so a deep backfill can't flood the channel.
@@ -95,6 +102,30 @@ const BACKFILL_FALLBACK_WINDOW_DAYS: i64 = 90;
 /// small lookback tolerates a trailing assistant/tool turn without an unbounded
 /// read.
 const REENTRY_HISTORY_LOOKBACK: i64 = 10;
+
+/// How long a reconnect link must still have to run for a queued notice to be
+/// sent with it. A retry that would hand the athlete a link with less time
+/// than this left is given up instead: a link that dies before they read it
+/// is worse than the app notice they already have.
+const RECONNECT_LINK_MIN_REMAINING_MINUTES: i64 = 60;
+
+/// A one-time hosted-login link, and the last instant a message carrying it
+/// may still be sent.
+struct ReconnectLink {
+    /// The (shortened) link.
+    url: String,
+    /// The link's expiry less [`RECONNECT_LINK_MIN_REMAINING_MINUTES`].
+    send_by: DateTime<Utc>,
+}
+
+/// A rendered reconnect notice, and the instant after which it must not be
+/// sent because the link in it expires; `None` when it carries no link.
+struct ReconnectNotice {
+    /// The localized notice text.
+    body: String,
+    /// See [`ReconnectLink::send_by`].
+    send_by: Option<DateTime<Utc>>,
+}
 
 /// Resolves a `(tenant, channel)` to an outbound adapter + its config.
 ///
@@ -304,8 +335,12 @@ impl ServerBackfillNotifier {
         tenant_id: TenantId,
         provider: &str,
         channel: &str,
-    ) -> Option<String> {
+    ) -> Option<ReconnectLink> {
         let target = backend_resolver::hosted_login_target(provider)?;
+        // Taken before the mint, so it is never later than the token's own
+        // expiry; the short link is created after the token and outlives it.
+        let send_by = Utc::now() + Duration::minutes(PROVIDER_LINK_TOKEN_TTL_MINUTES)
+            - Duration::minutes(RECONNECT_LINK_MIN_REMAINING_MINUTES);
         let token = match mint_link_token(
             &MintProviderLinkTokenArgs {
                 user_id,
@@ -328,16 +363,15 @@ impl ServerBackfillNotifier {
             self.base_url,
             urlencoding::encode(&token)
         );
-        Some(
-            shorten_url(
-                self.repos.short_links.as_ref(),
-                &self.base_url,
-                &full_url,
-                &tenant_id.as_uuid().to_string(),
-                &user_id.to_string(),
-            )
-            .await,
+        let url = shorten_url(
+            self.repos.short_links.as_ref(),
+            &self.base_url,
+            &full_url,
+            &tenant_id.as_uuid().to_string(),
+            &user_id.to_string(),
         )
+        .await;
+        Some(ReconnectLink { url, send_by })
     }
 
     /// The reconnect notice for one linked chat on `channel`, in `locale`.
@@ -356,25 +390,71 @@ impl ServerBackfillNotifier {
         provider: &str,
         channel: &str,
         locale: &str,
-    ) -> String {
+    ) -> ReconnectNotice {
         let display =
             backend_resolver::brand_name(&global_registry(), provider).unwrap_or(provider);
-        let url = if backend_resolver::hosted_login_target(provider).is_some() {
+        let link = if backend_resolver::hosted_login_target(provider).is_some() {
             self.hosted_login_url(user_id, tenant_id, provider, channel)
                 .await
         } else {
             None
         };
-        url.map_or_else(
-            || {
-                self.strings
-                    .render(KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK, locale, &[display])
+        link.map_or_else(
+            || ReconnectNotice {
+                body: self
+                    .strings
+                    .render(KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK, locale, &[display]),
+                send_by: None,
             },
-            |url| {
-                self.strings
-                    .render(KEY_PROVIDER_REAUTH_REQUIRED, locale, &[display, &url])
+            |link| ReconnectNotice {
+                body: self.strings.render(
+                    KEY_PROVIDER_REAUTH_REQUIRED,
+                    locale,
+                    &[display, &link.url],
+                ),
+                send_by: Some(link.send_by),
             },
         )
+    }
+
+    /// Queue a reconnect notice whose send to a linked chat failed, for the
+    /// outbound retry worker.
+    ///
+    /// Only this chat's notice is queued: the app notice and the chats that
+    /// were reached are already done. A linked chat has no messaging session,
+    /// so the entry carries no message row; it is keyed by the link's own
+    /// tenant (whose bot holds the chat), its channel and the rendered payload,
+    /// which already addresses the recipient. The worker re-sends it with
+    /// backoff while `guard`'s connection is still `needs_reauth`, and never
+    /// after `send_by`, when the link in it would be about to expire.
+    async fn queue_linked_reauth(
+        &self,
+        adapter: &dyn MessagingChannel,
+        outgoing: &OutgoingMessage,
+        target: &LinkedChannelTarget,
+        user_id: Uuid,
+        guard: OutboundReauthGuard<'_>,
+        send_by: Option<DateTime<Utc>>,
+    ) {
+        let channel_str = target.channel_type.to_string();
+        let queued_user_id = user_id.to_string();
+        if let Err(e) = enqueue_failed_outbound(
+            self.repos.messaging.as_ref(),
+            adapter,
+            outgoing,
+            &FailedOutbound {
+                transcript: None,
+                queue_tenant_id: target.tenant_id,
+                user_id: Some(&queued_user_id),
+                channel: &channel_str,
+                expires_at: send_by,
+                reauth: Some(guard),
+            },
+        )
+        .await
+        {
+            error!(error = %e, channel = %channel_str, "Reconnect notice: failed to queue the linked channel send for retry");
+        }
     }
 
     /// Resolve the originating channel for a Pierre conversation id, or `None`
@@ -944,7 +1024,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
             );
             return;
         }
-        let Some(url) = self
+        let Some(link) = self
             .hosted_login_url(user_id, tenant_id, provider, &channel_str)
             .await
         else {
@@ -955,9 +1035,9 @@ impl BackfillNotifier for ServerBackfillNotifier {
         // and send via the shared adapter rail.
         let display =
             backend_resolver::brand_name(&global_registry(), provider).unwrap_or(provider);
-        let body = self
-            .strings
-            .render(KEY_PROVIDER_REAUTH_REQUIRED, &locale, &[display, &url]);
+        let body =
+            self.strings
+                .render(KEY_PROVIDER_REAUTH_REQUIRED, &locale, &[display, &link.url]);
 
         let outgoing = proactive_text(channel_type, recipient, body);
         let Some((adapter, channel_config)) = self
@@ -976,17 +1056,26 @@ impl BackfillNotifier for ServerBackfillNotifier {
             // expired and keeps re-asking. The message row lands on the
             // user/session tenant; the queue row lands on the bot/channel-owner
             // tenant so the worker resolves the right channel config on re-send.
+            // The retry is bounded by the link's life and stops once the
+            // connection is reconnected.
             let reauth_user_id = user_id.to_string();
             if let Err(enqueue_err) = enqueue_failed_outbound(
                 self.repos.messaging.as_ref(),
                 adapter.as_ref(),
                 &outgoing,
                 &FailedOutbound {
-                    message_tenant_id: tenant_id,
+                    transcript: Some(TranscriptRecord {
+                        tenant_id,
+                        session_id: &session_id,
+                    }),
                     queue_tenant_id: channel_tenant_id,
-                    session_id: &session_id,
                     user_id: Some(&reauth_user_id),
                     channel: &channel_str,
+                    expires_at: Some(link.send_by),
+                    reauth: Some(OutboundReauthGuard {
+                        tenant_id,
+                        provider,
+                    }),
                 },
             )
             .await
@@ -1016,10 +1105,14 @@ impl BackfillNotifier for ServerBackfillNotifier {
                 Some(user_id),
             )
             .await;
-            let body = self
+            let notice = self
                 .reauth_notice_body(user_id, tenant_id, provider, &channel_str, &locale)
                 .await;
-            let outgoing = proactive_text(target.channel_type, target.recipient_id.clone(), body);
+            let outgoing = proactive_text(
+                target.channel_type,
+                target.recipient_id.clone(),
+                notice.body,
+            );
             // The link's own tenant holds the bot that can post into its chat.
             let Some((adapter, channel_config)) = self
                 .resolver
@@ -1034,7 +1127,19 @@ impl BackfillNotifier for ServerBackfillNotifier {
                     delivered += 1;
                 }
                 Err(e) => {
-                    warn!(error = %e, channel = %channel_str, provider = %provider, "Reconnect notice: linked channel send failed");
+                    warn!(error = %e, channel = %channel_str, provider = %provider, "Reconnect notice: linked channel send failed; queued for retry");
+                    self.queue_linked_reauth(
+                        adapter.as_ref(),
+                        &outgoing,
+                        &target,
+                        user_id,
+                        OutboundReauthGuard {
+                            tenant_id,
+                            provider,
+                        },
+                        notice.send_by,
+                    )
+                    .await;
                 }
             }
         }

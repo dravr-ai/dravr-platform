@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
 
 use pierre_core::models::TenantId;
@@ -52,6 +53,43 @@ pub struct CreateSessionParams<'a> {
     pub channel_conversation_id: Option<&'a str>,
     /// Pierre conversation identifier
     pub pierre_conversation_id: Option<&'a str>,
+}
+
+/// The connection a queued reconnect notice is about.
+///
+/// The retry worker sends the notice only while this connection is still
+/// `needs_reauth`: once the athlete reconnects, the notice is moot and is
+/// cancelled instead of sent.
+#[derive(Debug, Clone, Copy)]
+pub struct OutboundReauthGuard<'a> {
+    /// Tenant of the provider connection (the athlete's tenant, which can
+    /// differ from the queue row's bot tenant).
+    pub tenant_id: TenantId,
+    /// Provider slug of the connection.
+    pub provider: &'a str,
+}
+
+/// Parameters for queueing an outbound message for the retry worker
+pub struct EnqueueOutboundParams<'a> {
+    /// Unique queue entry identifier
+    pub id: &'a str,
+    /// Persisted outbound message row this entry re-sends, or `None` for a
+    /// send to a linked chat that has no messaging session to record it in
+    pub message_id: Option<&'a str>,
+    /// Tenant whose channel config re-sends it (the bot that holds the chat)
+    pub tenant_id: TenantId,
+    /// Platform user UUID (as text) the message is for, when known
+    pub user_id: Option<&'a str>,
+    /// Channel slug
+    pub channel_type: &'a str,
+    /// The channel-native payload to send
+    pub payload: &'a str,
+    /// Instant after which the payload must not be sent (it carries a link
+    /// that has expired by then); `None` when nothing in it expires
+    pub expires_at: Option<DateTime<Utc>>,
+    /// Set on a reconnect notice: the connection whose state decides whether
+    /// the notice still goes out. Requires `user_id`.
+    pub reauth: Option<OutboundReauthGuard<'a>>,
 }
 
 /// Parameters for inserting a messaging message
@@ -318,15 +356,7 @@ pub trait MessagingRepository: Send + Sync {
     // ── Outbound Queue ──
 
     /// Enqueue an outbound message for delivery
-    async fn enqueue_outbound(
-        &self,
-        id: &str,
-        message_id: &str,
-        tenant_id: TenantId,
-        user_id: Option<&str>,
-        channel_type: &str,
-        payload: &str,
-    ) -> AppResult<()>;
+    async fn enqueue_outbound(&self, params: &EnqueueOutboundParams<'_>) -> AppResult<()>;
 
     /// Get pending/retryable outbound entries across all tenants for background processing.
     ///
@@ -736,15 +766,17 @@ pub(crate) const SESSION_MESSAGES_SQL: &str = r"
 pub(crate) const ENQUEUE_OUTBOUND_SQL: &str = r"
             INSERT INTO messaging_outbound_queue
                 (id, message_id, tenant_id, user_id, channel_type, payload, status,
-                 attempt_count, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, 'pending', 0, $7, $7)
+                 attempt_count, created_at, updated_at, expires_at, reauth_tenant_id,
+                 reauth_provider)
+            VALUES ($1, $2, $3, $4, $5, $6, 'pending', 0, $7, $7, $8, $9, $10)
             ";
 
 /// The outbound-queue projection both pending reads return.
 macro_rules! outbound_columns {
     () => {
         "id, message_id, tenant_id, user_id, channel_type, payload, status, \
-         attempt_count, next_retry_at, created_at, updated_at"
+         attempt_count, next_retry_at, created_at, updated_at, expires_at, \
+         reauth_tenant_id, reauth_provider"
     };
 }
 

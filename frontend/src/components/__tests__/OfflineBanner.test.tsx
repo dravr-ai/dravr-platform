@@ -54,8 +54,10 @@ describe('OfflineBanner', () => {
   it('pads for the notch, since viewport-fit=cover puts y=0 under the status bar', () => {
     setOnLine(false);
     render(<OfflineBanner />);
-    expect(screen.getByTestId('offline-banner').getAttribute('style')).toContain(
-      'safe-area-inset-top',
-    );
+    // The one safe-area mechanism (index.css `pad-safe-top`), not an inline
+    // env() of its own that a strip below it could not see.
+    const banner = screen.getByTestId('offline-banner');
+    expect(banner).toHaveClass('pad-safe-top');
+    expect(banner.getAttribute('style')).toBeNull();
   });
 });

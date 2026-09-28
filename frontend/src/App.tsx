@@ -198,7 +198,7 @@ function AppContent() {
 
   if (isLoading) {
     return (
-      <div className="min-h-dvh bg-surface flex items-center justify-center">
+      <div className="min-h-dvh bg-surface flex items-center justify-center pad-safe-top">
         {/* role=status so the wait is announced; the spinner itself is decorative.
             A 128px ring dominated the viewport on a phone — 48px reads as a
             spinner rather than as a broken layout. */}
@@ -262,8 +262,7 @@ function AppContent() {
         <OfflineBanner />
         {registrationMessage && (
           <div
-            className="fixed left-1/2 transform -translate-x-1/2 z-50 max-w-md w-full px-4"
-            style={{ top: 'calc(1rem + env(safe-area-inset-top, 0px))' }}
+            className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 max-w-md w-full px-4 pad-safe-top"
           >
             <div className="bg-activity/20 border border-activity text-on-surface px-4 py-3 rounded-lg backdrop-blur-sm">
               <div className="flex items-center justify-between">
@@ -297,7 +296,7 @@ function AppContent() {
   // Authenticated but suspended
   if (user?.user_status === 'suspended') {
     return (
-      <div className="min-h-dvh bg-surface flex items-center justify-center px-4">
+      <div className="min-h-dvh bg-surface flex items-center justify-center px-4 pad-safe-top">
         <div className="max-w-md w-full bg-surface-container-low/60 backdrop-blur-xl border ghost-border rounded-2xl overflow-hidden">
           <div className="h-1 w-full bg-error" />
           <div className="px-8 py-10 text-center">

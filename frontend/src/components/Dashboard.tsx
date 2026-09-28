@@ -828,7 +828,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
       >
         {/* Top Header Bar - only for admin tabs; user tabs have their own TabHeader */}
         {isAdminUser && (
-          <header className="bg-surface border-b ghost-border sticky top-0 z-30 flex-shrink-0">
+          <header className="bg-surface border-b ghost-border sticky top-0 z-30 flex-shrink-0 pad-safe-top">
             <div className="flex h-[52px] items-center justify-between px-4 md:px-6">
               <div className="min-w-0">
                 <h1 className="font-display text-xl font-semibold text-on-surface truncate">
@@ -842,8 +842,22 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         {/* A connection that needs reconnecting syncs nothing, so it is named
             above every tab rather than inside one card the athlete may never
             open. It sits outside the scrolling content so it never scrolls
-            away. */}
+            away. At the top of <main> it takes the notch's safe-area inset;
+            under the admin header or an App-level strip it gives it up
+            (`pad-safe-top`, index.css). */}
         <ConnectProviderBanner kind="reconnect" onNavigate={applyRoute} />
+
+        {/* The notch's safe-area inset for the page itself. Every tab — Home,
+            Chat, Discover, Notifications, Settings and each admin pane —
+            renders inside the one content area below, each opening with a
+            header of its own shape, so the inset is taken here, once, rather
+            than by every header. It sits outside the scrolling content, so a
+            page never scrolls up under the status bar's reserved band. When
+            the admin header, the reconnect strip or an App-level strip is
+            already above it, that strip is topmost and this band collapses
+            to nothing (`pad-safe-top`, index.css); in a browser tab the inset
+            is 0 and so is its height. */}
+        <div aria-hidden="true" data-testid="shell-safe-top" className="pad-safe-top flex-shrink-0" />
 
         {/* Content Area. The gutter is a property of the surface, declared in
             constants/surfaceLayout.ts — never of the viewer's role. It used to

@@ -35,9 +35,9 @@ mod group_transcript_tests {
     };
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::routes::chat::ChatRoutes;
-    use pierre_mcp_server::routes::messaging::adapter_factory::ChannelAdapterFactory;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use pierre_messaging::channels::telegram::transport::TelegramTransport;
+    use pierre_services::channel_adapters::ChannelAdapterFactory;
     use serde_json::{json, Value};
     use serial_test::serial;
     use std::env;

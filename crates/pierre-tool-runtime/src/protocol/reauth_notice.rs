@@ -22,7 +22,11 @@
 //!   routed to the connections screen;
 //! - every messaging channel the athlete linked, through the runtime's
 //!   [`crate::runtime::BackfillNotifier`]: the reconnect sentence with a
-//!   one-time sign-in link minted for that channel.
+//!   one-time sign-in link minted for that channel. A channel whose send fails
+//!   is queued for the messaging outbound retry worker on its own — the app
+//!   half and the channels already reached are not sent again — and retried
+//!   with backoff while the connection is still `needs_reauth` and its link has
+//!   time left to run.
 //!
 //! The app half is dispatched without the platform's chat fan-out, because
 //! the chat half carries the link and a link token has no place in a stored
@@ -64,9 +68,10 @@ pub struct ReauthNotice {
     /// `needs_reauth` transition. `false` when another caller already sent it,
     /// or the connection is not `needs_reauth`.
     pub claimed: bool,
-    /// Messaging channels the notice reached. Zero when it was not claimed,
-    /// the pipeline suppressed it, the athlete linked no channel, or
-    /// messaging is not wired.
+    /// Messaging channels the notice reached on its first send. Zero when it
+    /// was not claimed, the pipeline suppressed it, the athlete linked no
+    /// channel, or messaging is not wired. A channel whose send failed is not
+    /// counted: it was queued for retry.
     pub chat_channels: usize,
 }
 

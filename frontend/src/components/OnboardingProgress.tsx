@@ -1,5 +1,5 @@
 // ABOUTME: Onboarding progress indicator — labeled step dots (done / current / upcoming) for the onboarding journey
-// ABOUTME: Fixed to the top of the viewport and pointer-events-none, so it never disturbs the centered step cards below
+// ABOUTME: Laid over the top of the onboarding step and pointer-events-none, so it never disturbs the centered step cards below
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,9 +10,14 @@ import { useTranslation } from '@pierre/i18n';
 /**
  * The labeled step-dots progress indicator shown above every onboarding step.
  *
- * Rendered `fixed` at the top-center of the viewport and `pointer-events-none`
- * so it floats above the vertically-centered step cards without pushing them
- * off-screen or intercepting clicks. The step sequence is stable across steps
+ * Rendered `absolute` at the top-center of the onboarding flow (OnboardingFlow
+ * is its positioned parent) and `pointer-events-none`, so it floats above the
+ * vertically-centered step cards without pushing them off-screen or
+ * intercepting clicks. Absolute rather than fixed so it sits in the page's
+ * stack: an App-level strip mounted above the flow (the offline strip) pushes
+ * it down instead of being covered by it, and the step's reserved top room
+ * moves down with it. It takes the notch inset as an out-of-flow layer
+ * (`pad-safe-top`, index.css), so the step under it keeps its own inset too. The step sequence is stable across steps
  * (the full canonical pipeline), so the indicator never reflows mid-flow.
  */
 export default function OnboardingProgress({ steps }: { steps: OnboardingProgressItem[] }) {
@@ -23,7 +28,7 @@ export default function OnboardingProgress({ steps }: { steps: OnboardingProgres
   return (
     <nav
       aria-label={t('onboarding.progressAria')}
-      className="pointer-events-none fixed inset-x-0 top-0 z-20 flex justify-center px-4 pt-6"
+      className="pointer-events-none absolute inset-x-0 top-0 z-20 flex justify-center px-4 pt-6 pad-safe-top"
     >
       {current ? (
         <span className="sr-only">

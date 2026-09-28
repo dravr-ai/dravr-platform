@@ -2,10 +2,35 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Mobile-viewport E2E for the athlete Home — lands there, Home leads the bottom bar, the page fits the phone
-// ABOUTME: Tapping an activity opens chat with the draft at this width too, and the reconnect banner fits within the phone's width
+// ABOUTME: Tapping an activity opens chat with the draft at this width too; whatever is topmost (page, banner, admin header) clears the notch
 
 import { test, expect, type Page } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard } from './test-helpers';
+import { setupDashboardMocks, loginToDashboard, setupAndLoginAsAdmin } from './test-helpers';
+
+/**
+ * What `viewport-fit=cover` plus a black-translucent status bar hands an
+ * installed PWA on a notched iPhone: y=0 is under a 47px status bar.
+ */
+const NOTCH_INSET_PX = 47;
+
+async function emulateNotch(page: Page) {
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets: { top: NOTCH_INSET_PX } });
+}
+
+/**
+ * The notch inset the first element matching `selector` takes: `pad-safe-top`
+ * (index.css) is a transparent top border, added to the element's own padding.
+ */
+function insetOf(page: Page, selector: string) {
+  return page.locator(selector).first().evaluate((el) => getComputedStyle(el).borderTopWidth);
+}
+
+/** Where the page itself begins: the top of the content area every tab renders into. */
+async function pageTop(page: Page) {
+  const box = await page.locator('[data-page-shell]').boundingBox();
+  return box?.y ?? -1;
+}
 
 const TODAY = '2026-09-24';
 
@@ -195,6 +220,38 @@ test.describe('Athlete Home — mobile viewport', () => {
     await expect(page).toHaveURL(/#chat\/conv-home-mobile$/);
     await expect(page.getByPlaceholder('Message Dravr...').first()).toHaveValue(/^Analyze my activity from .+ \(Run\)$/);
   });
+
+  test('on an installed iOS PWA with no strip above, every page starts below the notch', async ({ page }) => {
+    // A browser tab has no top inset: the band takes no room at all.
+    expect(await insetOf(page, '[data-testid="shell-safe-top"]')).toBe('0px');
+    expect(await pageTop(page)).toBe(0);
+
+    await emulateNotch(page);
+    await expect.poll(() => insetOf(page, '[data-testid="shell-safe-top"]')).toBe(`${NOTCH_INSET_PX}px`);
+
+    // Home: its page header starts under the status bar, not behind it.
+    expect(await pageTop(page)).toBeGreaterThanOrEqual(NOTCH_INSET_PX);
+    const homeTitle = await page.getByTestId('home-page').getByRole('heading', { name: 'Home' }).boundingBox();
+    expect(homeTitle?.y ?? 0).toBeGreaterThanOrEqual(NOTCH_INSET_PX);
+
+    // Chat renders into the same content area, so it clears the notch too.
+    await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Chat' }).click();
+    await expect(page).toHaveURL(/#chat/);
+    await expect(page.getByTestId('home-page')).toHaveCount(0);
+    expect(await pageTop(page)).toBeGreaterThanOrEqual(NOTCH_INSET_PX);
+    const chatTop = await page
+      .locator('[data-page-shell] > *')
+      .first()
+      .evaluate((el) => el.getBoundingClientRect().top);
+    expect(chatTop).toBeGreaterThanOrEqual(NOTCH_INSET_PX);
+
+    // And Settings, whose header is its own again.
+    await page.evaluate(() => {
+      window.location.hash = 'settings';
+    });
+    await expect(page).toHaveURL(/#settings/);
+    expect(await pageTop(page)).toBeGreaterThanOrEqual(NOTCH_INSET_PX);
+  });
 });
 
 test.describe('Athlete Home — mobile viewport, a connection to reconnect', () => {
@@ -224,5 +281,103 @@ test.describe('Athlete Home — mobile viewport, a connection to reconnect', () 
 
     await prompt.getByRole('button', { name: 'Reconnect' }).click();
     await expect(page).toHaveURL(/#settings\/connections$/);
+  });
+
+  test('on an installed iOS PWA the strip pads past the notch, and gives the inset up to a strip above it', async ({ page, context }) => {
+    const prompt = page.getByTestId('provider-reconnect-banner');
+    await expect(prompt).toBeVisible();
+    const inset = (testId: string) => insetOf(page, `[data-testid="${testId}"]`);
+
+    // A browser tab has no top inset: the strip keeps its own layout.
+    expect(await inset('provider-reconnect-banner')).toBe('0px');
+
+    await emulateNotch(page);
+
+    await expect.poll(() => inset('provider-reconnect-banner')).toBe(`${NOTCH_INSET_PX}px`);
+    const strip = await prompt.boundingBox();
+    const message = await prompt.getByText('Reconnect needed').boundingBox();
+    expect(strip?.y).toBe(0);
+    expect(message?.y ?? 0).toBeGreaterThanOrEqual(NOTCH_INSET_PX);
+    // The page under the strip starts where the strip ends: the inset is
+    // taken once, by the topmost strip, not again by what follows it.
+    expect(await insetOf(page, '[data-testid="shell-safe-top"]')).toBe('0px');
+    expect(await pageTop(page)).toBeCloseTo((strip?.y ?? 0) + (strip?.height ?? 0), 0);
+
+    // An overlay is a viewport layer: the reconnect strip does not cover it,
+    // so the info panel takes the inset itself even with the strip above.
+    // The thread's info panel reads the conversation from the list, so the
+    // list answers with it (a later route takes precedence over mockHome's).
+    await page.route(/\/api\/chat\/conversations(\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ conversations: [CONVERSATION], total: 1, limit: 50, offset: 0 }),
+      });
+    });
+    await page.evaluate(() => {
+      window.location.hash = 'chat/conv-home-mobile';
+    });
+    await page.getByTestId('conversation-header-title').click();
+    const panel = page.getByTestId('conversation-info-panel');
+    await expect(panel).toBeVisible();
+    await expect.poll(() => insetOf(page, '[data-testid="conversation-info-panel"]')).toBe(`${NOTCH_INSET_PX}px`);
+    const panelHeading = await panel.getByRole('heading').first().boundingBox();
+    expect(panelHeading?.y ?? 0).toBeGreaterThanOrEqual(NOTCH_INSET_PX);
+    await page.keyboard.press('Escape');
+    await expect(panel).toHaveCount(0);
+
+    // The offline strip mounts above the whole shell. It is now the topmost,
+    // so it takes the inset and the reconnect strip under it gives it up.
+    await context.setOffline(true);
+    await expect(page.getByTestId('offline-banner')).toBeVisible();
+    await expect.poll(() => inset('offline-banner')).toBe(`${NOTCH_INSET_PX}px`);
+    await expect.poll(() => inset('provider-reconnect-banner')).toBe('0px');
+    await context.setOffline(false);
+  });
+});
+
+test.describe('Operator shell — mobile viewport', () => {
+  test('on an installed iOS PWA the admin header is topmost, so it takes the inset and the band under it does not', async ({ page }) => {
+    await setupAndLoginAsAdmin(page);
+    const header = page.locator('main > header');
+    await expect(header).toBeVisible();
+
+    await emulateNotch(page);
+    await expect.poll(() => insetOf(page, 'main > header')).toBe(`${NOTCH_INSET_PX}px`);
+    const title = await header.getByRole('heading', { level: 1 }).boundingBox();
+    expect(title?.y ?? 0).toBeGreaterThanOrEqual(NOTCH_INSET_PX);
+    expect(await insetOf(page, '[data-testid="shell-safe-top"]')).toBe('0px');
+    const box = await header.boundingBox();
+    expect(await pageTop(page)).toBeCloseTo((box?.y ?? 0) + (box?.height ?? 0), 0);
+  });
+});
+
+test.describe('Signed-out screens — mobile viewport', () => {
+  test('on an installed iOS PWA the sign-in page starts below the notch, once, even under the offline strip', async ({ page, context }) => {
+    await setupDashboardMocks(page, { role: 'user', email: 'alice@acme.com', displayName: 'Alice Test' });
+    await page.goto('/');
+    const title = page.getByRole('heading', { level: 1 });
+    await expect(title).toBeVisible();
+    const screenRoot = 'div.min-h-dvh.pad-safe-top';
+    expect(await insetOf(page, screenRoot)).toBe('0px');
+
+    await emulateNotch(page);
+    await expect.poll(() => insetOf(page, screenRoot)).toBe(`${NOTCH_INSET_PX}px`);
+    const box = await title.boundingBox();
+    expect(box?.y ?? 0).toBeGreaterThanOrEqual(NOTCH_INSET_PX);
+    // The screen still fits the viewport: the inset sits inside min-h-dvh.
+    const { scrollHeight, innerHeight } = await page.evaluate(() => ({
+      scrollHeight: document.documentElement.scrollHeight,
+      innerHeight: window.innerHeight,
+    }));
+    expect(scrollHeight).toBeLessThanOrEqual(innerHeight + 1);
+
+    // The offline strip mounts above the sign-in screen: it takes the inset
+    // and the screen under it does not take it a second time.
+    await context.setOffline(true);
+    await expect(page.getByTestId('offline-banner')).toBeVisible();
+    await expect.poll(() => insetOf(page, '[data-testid="offline-banner"]')).toBe(`${NOTCH_INSET_PX}px`);
+    await expect.poll(() => insetOf(page, screenRoot)).toBe('0px');
+    await context.setOffline(false);
   });
 });

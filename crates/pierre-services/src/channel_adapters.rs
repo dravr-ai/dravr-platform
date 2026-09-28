@@ -1,15 +1,18 @@
-// ABOUTME: How a verified webhook gets the channel adapter it dispatches through
+// ABOUTME: How the messaging surfaces get the channel adapter they send through
 // ABOUTME: Production resolves it from the tenant's stored config; a test supplies its own
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Channel-adapter construction for the webhook ingress.
+//! Channel-adapter construction for the webhook ingress, the turn-resume
+//! sweeper and the outbound retry worker.
 //!
-//! The ingress needs an adapter twice per request: once to verify the inbound
-//! signature and parse the payload, and once to send whatever the turn decides
-//! to say. Production builds it from the tenant's stored channel config, which
-//! yields a live transport that posts to the channel's real API.
+//! Each of them needs an adapter built from a stored channel config: the
+//! ingress to verify an inbound signature and send the turn's reply, the
+//! sweeper to finish a turn a drained instance left, and the retry worker to
+//! re-send a queued outbound message. Production builds it from the tenant's
+//! stored channel config, which yields a live transport that posts to the
+//! channel's real API.
 //!
 //! That is correct in production and is exactly what makes a route-driven test
 //! unreliable. `group_transcript_test` seeds a fixture bot token and drives the
@@ -22,12 +25,10 @@
 //! presented as backend-specific because only the SQLite shard happened to be
 //! running when it hit.
 //!
-//! So the factory is injected at construction: [`MessagingRoutes::routes`]
-//! always installs [`ConfigChannelAdapters`], and a test builds the same router
-//! with its own factory. There is no flag, no mode, and no fallback path —
-//! production has exactly one factory and never consults anything else.
-//!
-//! [`MessagingRoutes::routes`]: super::MessagingRoutes::routes
+//! So the factory is injected at construction: production always installs
+//! [`ConfigChannelAdapters`], and a test builds the same router, sweeper or
+//! retry pass with its own factory. There is no flag, no mode, and no fallback
+//! path — production has exactly one factory and never consults anything else.
 
 use std::sync::Arc;
 
@@ -37,16 +38,17 @@ use pierre_messaging::factory::create_adapter_from_config;
 use serde_json::Value;
 use tracing::debug;
 
-/// Builds the channel adapter a webhook is verified and dispatched through.
+/// Builds the channel adapter a message is verified or sent through.
 ///
-/// Called once per candidate channel config while resolving which tenant a
-/// webhook belongs to, so it must be cheap and must not fail the request when a
-/// single config is unusable — an unbuildable adapter is simply not a match.
+/// The webhook ingress calls it once per candidate channel config while
+/// resolving which tenant a webhook belongs to, so it must be cheap and must
+/// not fail the request when a single config is unusable — an unbuildable
+/// adapter is simply not a match.
 pub trait ChannelAdapterFactory: Send + Sync {
     /// Build an adapter for `channel_type` from one stored channel config.
     ///
     /// Returns `None` when this config cannot produce an adapter (missing or
-    /// malformed credentials), which the caller treats as "not this tenant"
+    /// malformed credentials), which the ingress treats as "not this tenant"
     /// rather than as an error.
     fn build(&self, channel_type: ChannelType, config: &Value)
         -> Option<Arc<dyn MessagingChannel>>;

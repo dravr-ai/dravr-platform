@@ -34,9 +34,9 @@ mod delivered {
     use pierre_core::models::TenantId;
     use pierre_database::backends::MessagingRepository;
     use pierre_mcp_server::mcp::resources::ServerContext;
-    use pierre_mcp_server::routes::messaging::adapter_factory::ChannelAdapterFactory;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use pierre_mcp_server::services::turn_runner::TurnRunner;
+    use pierre_services::channel_adapters::ChannelAdapterFactory;
     use serde_json::Value;
     use tokio::task::JoinHandle;
     use tokio::time::{sleep, Instant};

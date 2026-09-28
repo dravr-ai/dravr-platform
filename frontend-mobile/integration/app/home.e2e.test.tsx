@@ -3,8 +3,9 @@
 
 import React from 'react';
 import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
+import type { AxiosAdapter } from 'axios';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { HOME_STALE_REFETCH_DELAYS_MS } from '@pierre/shared-constants';
+import { HOME_STALE_REFETCH_DELAYS_MS, QUERY_KEYS } from '@pierre/shared-constants';
 
 import { installHttpStub, type HttpStub, type StubRoutes } from './helpers/httpStub';
 import {
@@ -14,6 +15,7 @@ import {
   PLAN_RESPONSE,
   PROVIDERS_CONNECTED,
   PROVIDERS_NONE,
+  PROVIDERS_ONLY_FLAGGED,
   PROVIDERS_RECONNECT,
   TRAIL_ROUTE_RESPONSE,
   recentResponse,
@@ -40,6 +42,7 @@ jest.mock('../../src/hooks/useServerStatus', () => ({
 }));
 
 import { HomeScreen } from '../../src/screens/home/HomeScreen';
+import { apiClient } from '../../src/services/api';
 import { ConversationsScreen } from '../../src/screens/conversations/ConversationsScreen';
 import TabsLayout from '../../app/(app)/(tabs)/_layout';
 import { HOME_ROUTE } from '../../src/navigation/routes';
@@ -298,12 +301,13 @@ describe('the Home tab over the wire', () => {
 
     expect(await screen.findByTestId('home-activity-strava-9001')).toBeTruthy();
     await waitFor(() => expect(stub.requests.some((request) => request.url === '/api/providers')).toBe(true));
-    expect(screen.queryByTestId('home-activities-reconnect-needed')).toBeNull();
+    expect(screen.queryByText('Reconnect needed')).toBeNull();
     expect(screen.queryByText(/Reconnect Strava/)).toBeNull();
     expect(screen.queryByTestId('home-activities-no-provider')).toBeNull();
   });
 
-  it('says a reconnect is needed in place of the empty sentence when the cache holds no rows', async () => {
+  // A healthy connection still syncs, so the empty sentence is true.
+  it('keeps the empty sentence when one connected provider still syncs beside the flagged ones', async () => {
     stub = installHttpStub(
       homeServer({
         [RECENT_URL]: { data: recentResponse({ activities: [] }) },
@@ -312,9 +316,103 @@ describe('the Home tab over the wire', () => {
     );
     const screen = renderHome();
 
-    expect(await screen.findByTestId('home-activities-reconnect-needed')).toHaveTextContent('Reconnect needed');
+    expect(await screen.findByTestId('home-activities-empty')).toBeTruthy();
+    expect(screen.queryByText('Reconnect needed')).toBeNull();
+  });
+
+  // carnet#649: with every connection flagged the empty sentence would
+  // promise a sync nobody can make, and "reconnect" is the banner's to say.
+  it('leaves the section out for an empty cache when every connected provider is flagged', async () => {
+    stub = installHttpStub(
+      homeServer({
+        [RECENT_URL]: { data: recentResponse({ activities: [], stale: false }) },
+        [PROVIDERS_URL]: { data: PROVIDERS_ONLY_FLAGGED },
+      }),
+    );
+    const screen = renderHome();
+
+    await screen.findByTestId('home-today');
+    await waitFor(() => expect(stub.requests.some((request) => request.url === '/api/providers')).toBe(true));
+    await waitFor(() => expect(screen.queryByTestId('home-activities-loading')).toBeNull());
+    expect(screen.queryByTestId('home-section-activities')).toBeNull();
+    expect(screen.queryByText('Reconnect needed')).toBeNull();
     expect(screen.queryByTestId('home-activities-empty')).toBeNull();
-    expect(screen.queryByTestId('home-activities-connect')).toBeNull();
+    expect(screen.queryByTestId('home-activities-refreshing')).toBeNull();
+  });
+
+  // The server says stale only when it started a refresh — for a flagged
+  // scrape session, its throttled retry — so then, and only then, the
+  // section says it is checking, and nothing else.
+  it('says it is checking, and nothing more, while the server retries a flagged session', async () => {
+    stub = installHttpStub(
+      homeServer({
+        [RECENT_URL]: { data: recentResponse({ activities: [], stale: true }) },
+        [PROVIDERS_URL]: { data: PROVIDERS_ONLY_FLAGGED },
+      }),
+    );
+    const screen = renderHome();
+
+    const section = await screen.findByTestId('home-section-activities');
+    expect(await within(section).findByTestId('home-activities-refreshing')).toHaveTextContent(
+      'Checking your provider for new activities…',
+    );
+    await waitFor(() => expect(stub.requests.some((request) => request.url === '/api/providers')).toBe(true));
+    expect(within(section).queryByText('Reconnect needed')).toBeNull();
+    expect(within(section).queryByTestId('home-activities-empty')).toBeNull();
+  });
+
+  it('never says it is checking on a list the server answered fresh, flagged connection or not', async () => {
+    stub = installHttpStub(
+      homeServer({
+        [RECENT_URL]: { data: recentResponse({ stale: false }) },
+        [PROVIDERS_URL]: { data: PROVIDERS_RECONNECT },
+      }),
+    );
+    const screen = renderHome();
+
+    expect(await screen.findByTestId('home-activities-synced-at')).toBeTruthy();
+    expect(screen.queryByTestId('home-activities-refreshing')).toBeNull();
+  });
+
+  // A stale answer held from an earlier visit reports a refresh that may
+  // have ended hours ago: the page waits for this visit's own read.
+  it('does not say it is checking off a held stale answer until the server says so again', async () => {
+    let answer: (() => void) | null = null;
+    stub = installHttpStub(
+      homeServer({
+        [RECENT_URL]: () => ({ data: recentResponse({ stale: false }) }),
+      }),
+    );
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: Infinity, refetchOnWindowFocus: false } },
+    });
+    client.setQueryData(QUERY_KEYS.home.recentActivities(), recentResponse({ stale: true }));
+    const gate = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    // Hold this visit's list read until the held answer has been drawn.
+    const adapter = apiClient.defaults.adapter as AxiosAdapter;
+    apiClient.defaults.adapter = async (config) => {
+      if (config.url === RECENT_PATH) await gate;
+      return adapter(config);
+    };
+    const screen = render(
+      <QueryClientProvider client={client}>
+        <HomeScreen />
+      </QueryClientProvider>,
+    );
+
+    // The held rows draw at once, without a claim that a refresh is running.
+    expect(await screen.findByTestId('home-activity-strava-9001')).toBeTruthy();
+    expect(screen.queryByTestId('home-activities-refreshing')).toBeNull();
+
+    // This visit's read answers fresh: the sync time, still no spinner.
+    await act(async () => {
+      answer?.();
+    });
+    expect(await screen.findByTestId('home-activities-synced-at')).toBeTruthy();
+    expect(screen.queryByTestId('home-activities-refreshing')).toBeNull();
+    apiClient.defaults.adapter = adapter;
   });
 
   // The follow-up schedule: an ask after each delay while the answer is still

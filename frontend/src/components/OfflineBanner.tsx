@@ -17,8 +17,10 @@ import { useOnlineStatus } from '../hooks/useOnlineStatus';
  *
  * `sticky top-0` matches ImpersonationBanner, and the two stack in the order
  * they are mounted rather than fighting for the same fixed slot. The top
- * safe-area padding matters on an installed iOS PWA: `viewport-fit=cover` plus
- * a translucent status bar means y=0 is under the notch.
+ * safe-area inset matters on an installed iOS PWA: `viewport-fit=cover` plus
+ * a translucent status bar means y=0 is under the notch. `pad-safe-top`
+ * (index.css) adds it on top of the strip's own padding, and lets any strip
+ * mounted below this one give the inset up.
  */
 export default function OfflineBanner() {
   const { t } = useTranslation();
@@ -32,8 +34,7 @@ export default function OfflineBanner() {
     <div
       role="status"
       aria-live="polite"
-      className="bg-error text-on-primary px-4 py-2 sticky top-0 z-50"
-      style={{ paddingTop: 'calc(0.5rem + env(safe-area-inset-top, 0px))' }}
+      className="bg-error text-on-primary px-4 py-2 sticky top-0 z-50 pad-safe-top"
       data-testid="offline-banner"
     >
       <div className="max-w-7xl mx-auto flex items-center gap-3">

@@ -27,7 +27,9 @@ use uuid::Uuid;
 
 use crate::services::backfill_notifier::AdapterResolver;
 use crate::services::messaging_ingress::block_render::{channel_ceiling, fan_out, RenderedReply};
-use crate::services::messaging_ingress::outbound_retry::{enqueue_failed_outbound, FailedOutbound};
+use crate::services::messaging_ingress::outbound_retry::{
+    enqueue_failed_outbound, FailedOutbound, TranscriptRecord,
+};
 
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::{
@@ -135,11 +137,15 @@ impl ChannelDelivery<'_> {
 
         let push_user_id = user_id.to_string();
         let failed = FailedOutbound {
-            message_tenant_id: tenant_id,
+            transcript: Some(TranscriptRecord {
+                tenant_id,
+                session_id: &session_id,
+            }),
             queue_tenant_id: channel_tenant_id,
-            session_id: &session_id,
             user_id: Some(&push_user_id),
             channel: &channel_str,
+            expires_at: None,
+            reauth: None,
         };
         if self
             .send_parts(parts, adapter.as_ref(), &channel_config, &failed)

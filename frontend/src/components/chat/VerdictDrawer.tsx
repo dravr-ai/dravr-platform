@@ -210,7 +210,7 @@ export default function VerdictDrawer({
       onClick={onClose}
     >
       <div
-        className="h-full w-full max-w-md overflow-y-auto bg-surface-container-lowest text-on-surface shadow-floating"
+        className="h-full w-full max-w-md overflow-y-auto bg-surface-container-lowest text-on-surface shadow-floating pad-safe-top"
         onClick={(e) => e.stopPropagation()}
         data-testid="verdict-drawer"
       >

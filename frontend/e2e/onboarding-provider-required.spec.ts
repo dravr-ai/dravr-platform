@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: E2E spec for the first-run onboarding gate — verifies a user with zero providers cannot reach the dashboard
-// ABOUTME: Mocks GET /api/me/onboarding-status with needs_provider_connection=true and asserts the connect-provider screen
+// ABOUTME: Mocks GET /api/me/onboarding-status with needs_provider_connection=true; asserts the connect-provider screen and its stacking under the offline strip
 
 import { test, expect, type Page } from '@playwright/test';
 import { setupDashboardMocks, loginToDashboard } from './test-helpers';
@@ -78,5 +78,57 @@ test.describe('Onboarding gate: connect a provider before chatting', () => {
     await expect(page.getByRole('heading', { name: /welcome, returning user/i })).toHaveCount(0);
     // Dashboard chrome IS rendered.
     await expect(page.locator('main')).toBeVisible();
+  });
+
+  test('offline, the progress bar stacks under the offline strip and the step clears both, with and without a notch', async ({ page, context }) => {
+    await setupDashboardMocks(page, { role: 'user', email: 'fresh@test.com', displayName: 'Fresh User' });
+    await stubOnboardingNeeded(page);
+    await loginExpectingOnboarding(page, 'fresh@test.com');
+    const heading = page.getByRole('heading', { name: /welcome, fresh user/i });
+    await expect(heading).toBeVisible();
+
+    const progress = page.getByRole('navigation', { name: 'Onboarding progress' });
+    await expect(progress).toBeVisible();
+
+    await context.setOffline(true);
+    const strip = page.getByTestId('offline-banner');
+    await expect(strip).toBeVisible();
+
+    /** Strip, then progress bar, then the step's heading — each below the last. */
+    async function expectStacked(notch: number) {
+      const stripBox = await strip.boundingBox();
+      const barBox = await progress.boundingBox();
+      const headingBox = await heading.boundingBox();
+      expect(stripBox).not.toBeNull();
+      expect(barBox).not.toBeNull();
+      expect(headingBox).not.toBeNull();
+      // The strip is topmost: it alone clears the notch.
+      expect(stripBox?.y).toBe(0);
+      expect(await strip.evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe(`${notch}px`);
+      // The bar starts where the strip ends, never under it.
+      expect(barBox?.y ?? -1).toBeGreaterThanOrEqual((stripBox?.y ?? 0) + (stripBox?.height ?? 0) - 0.5);
+      // The step reserves room for both: its heading clears the bar.
+      expect(headingBox?.y ?? -1).toBeGreaterThanOrEqual((barBox?.y ?? 0) + (barBox?.height ?? 0));
+    }
+
+    await expectStacked(0);
+
+    // An installed iOS PWA on a notched iPhone: a 47px status bar over y=0.
+    const cdp = await context.newCDPSession(page);
+    await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets: { top: 47 } });
+    await expect.poll(() => strip.evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('47px');
+    await expectStacked(47);
+    // Under the strip, the bar does not pad for the notch a second time.
+    expect(await progress.evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('0px');
+
+    // Back online the strip goes, and the bar and the step take the inset
+    // themselves: both clear the notch, the heading still clears the bar.
+    await context.setOffline(false);
+    await expect(strip).toHaveCount(0);
+    await expect.poll(() => progress.evaluate((el) => el.getBoundingClientRect().top)).toBe(0);
+    expect(await progress.evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('47px');
+    const barBox = await progress.boundingBox();
+    const headingBox = await heading.boundingBox();
+    expect(headingBox?.y ?? -1).toBeGreaterThanOrEqual((barBox?.y ?? 0) + (barBox?.height ?? 0));
   });
 });

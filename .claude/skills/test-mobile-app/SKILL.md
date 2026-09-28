@@ -176,17 +176,18 @@ Two toolsets are available; they see the same simulator.
 
 | Toolset | Use it for |
 |---|---|
-| `mcp__ios-simulator__*` | the accessibility tree (`ui_describe_all`, `ui_find_element`, `ui_describe_point`), precise `ui_tap` / `ui_type` / `ui_swipe`, `screenshot`, `record_video` / `stop_recording` |
-| `mcp__mobile-mcp__*` | device selection, app launch, deep links, crash reports — **verify it works before relying on it** |
+| `mcp__ios-simulator__*` | `screenshot`, `ui_view`, `open_url`, `record_video` / `stop_recording`. **Its taps and typing do not work on Xcode 27**: `ui_tap` / `ui_type` / `ui_swipe` go through `idb`, whose `idb_companion` 1.1.8 (2022, unmaintained) loads `SimulatorKit.framework` from `Contents/Developer/Library/PrivateFrameworks/`, and Xcode 27 moved it to `Contents/SharedFrameworks/` — every HID call fails with "SimulatorKit is required for HID interactions" (carnet#651) |
+| `mcp__mobile-mcp__*` | the iOS interaction driver: `mobile_list_elements_on_screen` (refs + labels), `mobile_click_on_screen_at_coordinates` by ref, typing, swipes, app launch, deep links, crash reports. On iOS it needs its on-device agent once per simulator: `mobilecli agent install --device <udid>` (the binary is `mobilecli-darwin-arm64` under the npx cache, `find ~/.npm/_npx -name 'mobilecli-darwin-*' -type f`); without it every call answers `Agent is not installed on the device` |
 | `maestro mcp` (Maestro CLI ≥ 2.10, stdio) | the cross-platform driver: `list_devices`, `take_screenshot`, `inspect_screen` (compact JSON tree), `run` (inline Maestro YAML or flow files). Every working step is already a flow line. Not yet in `.mcp.json`; drive it over stdio or add `{"command": "maestro", "args": ["mcp", "--working-dir", "frontend-mobile"]}` |
 
-`mobile-mcp` is frequently unavailable: it fails with `mobilecli is not available or not working
-properly` and every call is a no-op, and on Android it lists no device at all when its spawned
-`mobilecli` has no `ANDROID_HOME` (2026-09-05: the variable was in the `~/.claude.json` project
-entry and still absent from the child's environment). Probe it once with
-`mobile_list_available_devices`; if that errors or returns `[]`, do the whole sweep through
-`mcp__ios-simulator__*` plus `xcrun simctl` on iOS, or `maestro mcp` plus `adb` on Android —
-sufficient for everything below. Do not spend time diagnosing it.
+Probe `mobile-mcp` once with `mobile_list_elements_on_screen` on the booted udid. `Agent is
+not installed on the device` means the one-time `mobilecli agent install` above; after it, taps
+and typing work on the iOS 27 simulator (verified 2026-09-28). It can still fail with `mobilecli
+is not available or not working properly`, and on Android it lists no device at all when its
+spawned `mobilecli` has no `ANDROID_HOME` (2026-09-05: the variable was in the `~/.claude.json`
+project entry and still absent from the child's environment). When it does, drive the sweep
+through Maestro (`maestro test` / `maestro mcp`) plus `xcrun simctl` on iOS, or `maestro mcp` plus
+`adb` on Android — never `mcp__ios-simulator__*` taps on Xcode 27. Do not spend time diagnosing it.
 
 Bring-up. Every step here has failed in practice — none is a formality:
 
@@ -198,7 +199,7 @@ Bring-up. Every step here has failed in practice — none is a formality:
    xcrun simctl boot <udid>
    open -b com.apple.iphonesimulator || open -b com.apple.dt.Devices   # Xcode 27: Device Hub, no Simulator.app
    ```
-   Confirm with `mcp__ios-simulator__get_booted_sim_id`.
+   Confirm with `mcp__ios-simulator__get_booted_sim_id` or `xcrun simctl list devices booted`.
 
 2. **Expo Go must be installed on that simulator.** A fresh or re-created device does not have
    it, and `simctl openurl exp://…` then fails with `LSApplicationWorkspaceErrorDomain code=115`

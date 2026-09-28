@@ -5,7 +5,7 @@
 // ABOUTME: Red if a stored no-GPS activity or one with a polyline costs a route call, a never-read route is called trackless, or a dead connection hides its rows
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type {
@@ -321,6 +321,29 @@ describe('RecentActivities', () => {
     expect(screen.queryByText(/Reconnect Garmin/)).toBeNull();
     expect(screen.queryByRole('button', { name: 'Reconnect' })).toBeNull();
     expect(screen.queryByTestId('home-connect-provider')).toBeNull();
+  });
+
+  it('says it is checking a connection to reconnect only when the server answered that a refresh is in flight', async () => {
+    providers(toReconnect('garmin', 'Garmin'));
+    api.getRecentActivities.mockResolvedValue(recentResponse({ stale: false }));
+    const first = renderSection();
+
+    // `stale: false`: the server started nothing, so the card reports when it
+    // last synced — not a search that is not happening.
+    expect(await screen.findByText(/^Last synced: /)).toBeInTheDocument();
+    await first.settled();
+    expect(screen.queryByText('Checking your provider for new activities…')).toBeNull();
+    expect(screen.queryByText(/Reconnect Garmin/)).toBeNull();
+    cleanup();
+
+    // `stale: true`: the server did start a refresh (a flagged scrape session
+    // is retried on its own schedule), so saying it is checking is true.
+    api.getRecentActivities.mockResolvedValue(recentResponse({ stale: true }));
+    renderSection();
+    expect(await screen.findByText('Checking your provider for new activities…')).toBeInTheDocument();
+    expect(screen.queryByText(/^Last synced: /)).toBeNull();
+    expect(screen.queryByText(/Reconnect Garmin/)).toBeNull();
+    expect(screen.getAllByTestId('home-activity-row')).toHaveLength(4);
   });
 
   it('says there are no activities yet when the cache is empty and a connection needs reconnecting', async () => {

@@ -18,6 +18,7 @@ import {
   PLAN_RESPONSE,
   PROVIDERS_CONNECTED,
   PROVIDERS_NONE,
+  PROVIDERS_ONLY_FLAGGED,
   PROVIDERS_RECONNECT,
   TRAIL_ROUTE_RESPONSE,
   recentResponse,
@@ -409,7 +410,7 @@ describe('recent activities', () => {
     await screen.findByTestId('home-activity-strava-9001');
     await waitFor(() => expect(mockGetProvidersStatus).toHaveBeenCalledTimes(1));
     await mockGetProvidersStatus.mock.results[0].value;
-    expect(screen.queryByTestId('home-activities-reconnect-needed')).toBeNull();
+    expect(screen.queryByText('Reconnect needed')).toBeNull();
     expect(screen.queryByTestId('home-activities-no-provider')).toBeNull();
   });
 
@@ -424,20 +425,47 @@ describe('recent activities', () => {
     await mockGetProvidersStatus.mock.results[0].value;
     expect(screen.getByTestId('home-activity-strava-8998')).toBeTruthy();
     expect(screen.getByTestId('home-activities-synced-at')).toBeTruthy();
-    expect(screen.queryByTestId('home-activities-reconnect-needed')).toBeNull();
+    expect(screen.queryByText('Reconnect needed')).toBeNull();
     expect(screen.queryByText(/Reconnect Strava/)).toBeNull();
   });
 
-  it('says a reconnect is needed in place of the empty sentence when there are no rows', async () => {
+  // carnet#649: the banner above Home already says to reconnect, and the
+  // empty sentence would promise a sync no connection can make.
+  it('leaves the section out when there are no rows and every connected provider is flagged', async () => {
+    mockGetRecentActivities.mockResolvedValue(recentResponse({ activities: [], stale: false }));
+    mockGetProvidersStatus.mockResolvedValue(PROVIDERS_ONLY_FLAGGED);
+    const screen = renderHome();
+
+    await waitFor(() => expect(mockGetProvidersStatus).toHaveBeenCalledTimes(1));
+    await mockGetProvidersStatus.mock.results[0].value;
+    await waitFor(() => expect(screen.queryByTestId('home-activities-loading')).toBeNull());
+    expect(screen.queryByTestId('home-section-activities')).toBeNull();
+    expect(screen.queryByText('Reconnect needed')).toBeNull();
+    // Connected, only not usable: never the prompt to connect either.
+    expect(screen.queryByTestId('home-activities-no-provider')).toBeNull();
+  });
+
+  it('keeps the empty sentence when a connected provider still syncs beside a flagged one', async () => {
     mockGetRecentActivities.mockResolvedValue(recentResponse({ activities: [] }));
     mockGetProvidersStatus.mockResolvedValue(PROVIDERS_RECONNECT);
     const screen = renderHome();
 
-    expect(await screen.findByTestId('home-activities-reconnect-needed')).toHaveTextContent('Reconnect needed');
-    // The sentence promises a sync the flagged connection cannot make.
+    expect(await screen.findByTestId('home-activities-empty')).toBeTruthy();
+    expect(screen.queryByText('Reconnect needed')).toBeNull();
+  });
+
+  it('shows only the checking line while the server retries a flagged session with no rows', async () => {
+    mockGetRecentActivities.mockResolvedValue(recentResponse({ activities: [], stale: true }));
+    mockGetProvidersStatus.mockResolvedValue(PROVIDERS_ONLY_FLAGGED);
+    const screen = renderHome();
+
+    expect(await screen.findByTestId('home-activities-refreshing')).toHaveTextContent(
+      'Checking your provider for new activities…',
+    );
+    await waitFor(() => expect(mockGetProvidersStatus).toHaveBeenCalledTimes(1));
+    await mockGetProvidersStatus.mock.results[0].value;
     expect(screen.queryByTestId('home-activities-empty')).toBeNull();
-    // Connected, only not usable: never the prompt to connect.
-    expect(screen.queryByTestId('home-activities-no-provider')).toBeNull();
+    expect(screen.queryByText('Reconnect needed')).toBeNull();
   });
 
   it('says nothing about reconnecting while the list has not answered', async () => {
@@ -448,7 +476,7 @@ describe('recent activities', () => {
     await screen.findByTestId('home-activities-loading');
     await waitFor(() => expect(mockGetProvidersStatus).toHaveBeenCalledTimes(1));
     await mockGetProvidersStatus.mock.results[0].value;
-    expect(screen.queryByTestId('home-activities-reconnect-needed')).toBeNull();
+    expect(screen.queryByText('Reconnect needed')).toBeNull();
   });
 
   it('shows a failed list read as a failure with a retry', async () => {
@@ -527,11 +555,14 @@ describe('coming back to Home', () => {
     expect(mockGetActivityRoute).toHaveBeenCalledTimes(3);
   });
 
-  it('drops the reconnect line once the athlete comes back from reconnecting', async () => {
+  it('brings the section back once the athlete comes back from reconnecting', async () => {
     mockGetRecentActivities.mockResolvedValue(recentResponse({ activities: [] }));
-    mockGetProvidersStatus.mockResolvedValue(PROVIDERS_RECONNECT);
+    mockGetProvidersStatus.mockResolvedValue(PROVIDERS_ONLY_FLAGGED);
     const screen = renderHome();
-    await screen.findByTestId('home-activities-reconnect-needed');
+    await waitFor(() => expect(mockGetProvidersStatus).toHaveBeenCalledTimes(1));
+    await mockGetProvidersStatus.mock.results[0].value;
+    await waitFor(() => expect(screen.queryByTestId('home-activities-loading')).toBeNull());
+    expect(screen.queryByTestId('home-section-activities')).toBeNull();
 
     // The athlete reconnected while away: from here on every read says so,
     // however many reads the screen made before this point.
@@ -543,8 +574,8 @@ describe('coming back to Home', () => {
 
     await waitFor(() => expect(mockGetProvidersStatus.mock.calls.length).toBeGreaterThan(readsBeforeReturn));
     expect(await screen.findByTestId('home-activities-empty', {}, { timeout: 5000 })).toBeTruthy();
-    expect(screen.queryByTestId('home-activities-reconnect-needed')).toBeNull();
   });
+
 });
 
 describe('pull to refresh', () => {

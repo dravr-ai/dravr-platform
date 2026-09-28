@@ -57,8 +57,8 @@ use pierre_database::backends::factory::Database;
 #[cfg(feature = "postgresql")]
 use pierre_database::repositories::POSTGRES_USER_PURGE;
 use pierre_database::repositories::{
-    CreateSessionParams, InsertMessageParams, UserPurge, DELETION_BLOCKERS_SQL,
-    POSTGRES_ONLY_USER_OWNED_TABLES, SQLITE_USER_PURGE,
+    CreateSessionParams, EnqueueOutboundParams, InsertMessageParams, UserPurge,
+    DELETION_BLOCKERS_SQL, POSTGRES_ONLY_USER_OWNED_TABLES, SQLITE_USER_PURGE,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::a2a::client::ClientRegistrationRequest;
@@ -1640,14 +1640,16 @@ async fn delete_clears_a_users_messaging_history() {
         .unwrap());
     repos
         .messaging
-        .enqueue_outbound(
-            &Uuid::new_v4().to_string(),
-            &message_id,
+        .enqueue_outbound(&EnqueueOutboundParams {
+            id: &Uuid::new_v4().to_string(),
+            message_id: Some(message_id.as_str()),
             tenant_id,
-            None,
-            "telegram",
-            "{}",
-        )
+            user_id: None,
+            channel_type: "telegram",
+            payload: "{}",
+            expires_at: None,
+            reauth: None,
+        })
         .await
         .unwrap();
 

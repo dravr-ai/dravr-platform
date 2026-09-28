@@ -22,33 +22,42 @@ appId: host.exp.Exponent
     id: "email-input"
 - inputText: "mobiletest@pierre.dev"
 
-# Dismiss keyboard by tapping the logo/header area above the form.
-# `hideKeyboard` command fails in Expo Go v55. Tapping a non-interactive
-# area at 50%,20% blurs the text field and dismisses the keyboard.
-# This is needed on Android where the keyboard covers the password field.
-- tapOn:
-    point: "50%,20%"
-
-- tapOn:
-    id: "password-input"
+# Move to the password field with the keyboard's own return key: the email
+# field is `returnKeyType="next"` and focuses the password field on submit.
+# No tap is involved, so it works wherever the keyboard sits. The two tricks
+# this replaces both failed somewhere: a tap at 50%,20% to blur the field does
+# not dismiss the keyboard on iOS 27 (the password was typed into the email
+# field, 2026-09-28), and tapping the password field by id lands on the
+# keyboard on a short Android emulator, where the keyboard covers the field.
+- pressKey: Enter
 - inputText: "MobileTest1234"
 
-# Dismiss keyboard before tapping login button to ensure it's fully visible.
-- tapOn:
-    point: "50%,20%"
+# The password field is `returnKeyType="go"` and signs in on submit.
+- pressKey: Enter
 
-# Tap the Sign In button (testID="login-button" on Button component).
-# The submit control sits below the fold on a short screen — CI's emulator is
-# shorter than a Pixel 6 and could not find login-button at all (2026-09-06,
-# 8 of 10 critical flows). Scroll to it the way a user would rather than
-# assuming it is on screen.
-- scrollUntilVisible:
-    element:
-      id: "login-button"
-    direction: DOWN
-    timeout: 20000
-- tapOn:
-    id: "login-button"
+# If the return key did not submit — a platform keyboard that swallows it —
+# sign in with the button. It sits below the fold on a short screen — CI's
+# emulator is shorter than a Pixel 6 and could not find login-button at all
+# (2026-09-06, 8 of 10 critical flows) — so it is scrolled to the way a user
+# would. The button is disabled while a sign-in is in flight, so a slow login
+# the first wait gave up on is never submitted twice.
+- extendedWaitUntil:
+    notVisible:
+      id: "login-screen"
+    timeout: 15000
+    optional: true
+- runFlow:
+    when:
+      visible:
+        id: "login-screen"
+    commands:
+      - scrollUntilVisible:
+          element:
+            id: "login-button"
+          direction: DOWN
+          timeout: 20000
+      - tapOn:
+          id: "login-button"
 
 # Wait for login screen to disappear (login API + auth state change).
 # 45s timeout accounts for slow CI servers (login API can take 20s+).

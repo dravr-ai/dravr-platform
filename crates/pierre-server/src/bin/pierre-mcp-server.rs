@@ -903,7 +903,7 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
     // sweeper for turns a drained instance left on file (registre#126).
     #[cfg(feature = "client-messaging")]
     {
-        use pierre_mcp_server::services::messaging_ingress::start_background_workers;
+        use pierre_mcp_server::services::messaging_ingress::workers::start_background_workers;
         start_background_workers(Arc::clone(&resources));
     }
 

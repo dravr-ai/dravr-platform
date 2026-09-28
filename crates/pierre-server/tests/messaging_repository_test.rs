@@ -23,7 +23,8 @@ use db_fixtures::{create_test_db, seed_tenant, seed_user};
 
 use pierre_core::models::TenantId;
 use pierre_database::backends::{
-    factory::Database, CreateSessionParams, InsertMessageParams, UpsertChannelConfigParams,
+    factory::Database, CreateSessionParams, EnqueueOutboundParams, InsertMessageParams,
+    UpsertChannelConfigParams,
 };
 use uuid::Uuid;
 
@@ -631,14 +632,16 @@ async fn test_enqueue_and_get_all_pending_outbound() {
     let user_id = uuid::Uuid::new_v4().to_string();
     db.repositories()
         .messaging
-        .enqueue_outbound(
-            &queue_id,
-            "msg-q1",
+        .enqueue_outbound(&EnqueueOutboundParams {
+            id: &queue_id,
+            message_id: Some("msg-q1"),
             tenant_id,
-            Some(user_id.as_str()),
-            "whatsapp",
-            r#"{"Body":"Hi"}"#,
-        )
+            user_id: Some(user_id.as_str()),
+            channel_type: "whatsapp",
+            payload: r#"{"Body":"Hi"}"#,
+            expires_at: None,
+            reauth: None,
+        })
         .await
         .unwrap();
 
@@ -671,14 +674,16 @@ async fn test_update_outbound_status() {
 
     db.repositories()
         .messaging
-        .enqueue_outbound(
-            &queue_id,
-            "msg-q2",
+        .enqueue_outbound(&EnqueueOutboundParams {
+            id: &queue_id,
+            message_id: Some("msg-q2"),
             tenant_id,
-            None,
-            "telegram",
-            r#"{"text":"Hi"}"#,
-        )
+            user_id: None,
+            channel_type: "telegram",
+            payload: r#"{"text":"Hi"}"#,
+            expires_at: None,
+            reauth: None,
+        })
         .await
         .unwrap();
 
@@ -714,14 +719,16 @@ async fn test_retry_worker_dead_letters_invalid_tenant() {
     // Enqueue an outbound message
     db.repositories()
         .messaging
-        .enqueue_outbound(
-            &queue_id,
-            "msg-dlq",
+        .enqueue_outbound(&EnqueueOutboundParams {
+            id: &queue_id,
+            message_id: Some("msg-dlq"),
             tenant_id,
-            None,
-            "whatsapp",
-            r#"{"Body":"Hi"}"#,
-        )
+            user_id: None,
+            channel_type: "whatsapp",
+            payload: r#"{"Body":"Hi"}"#,
+            expires_at: None,
+            reauth: None,
+        })
         .await
         .unwrap();
 

@@ -99,7 +99,7 @@ export default function ConversationInfoPanel({
       onClick={onClose}
     >
       <div
-        className="h-full w-full max-w-md overflow-y-auto bg-surface-container-lowest text-on-surface"
+        className="h-full w-full max-w-md overflow-y-auto bg-surface-container-lowest text-on-surface pad-safe-top"
         onClick={(e) => e.stopPropagation()}
         data-testid="conversation-info-panel"
       >

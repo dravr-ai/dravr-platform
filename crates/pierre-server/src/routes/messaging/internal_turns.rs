@@ -36,12 +36,12 @@ use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
-use super::adapter_factory::ChannelAdapterFactory;
 use crate::mcp::resources::ServerContext;
 use crate::services::messaging_ingress::resume::{
     run_lease, run_recorded_turn, CLAIM_RETRY, MAX_TURN_ATTEMPTS,
 };
 use crate::services::messaging_ingress::TurnClose;
+use pierre_services::channel_adapters::ChannelAdapterFactory;
 
 /// The body a task carries: the session tenant the row lives under, so the
 /// claim runs under the per-tenant filter every statement on the table has.

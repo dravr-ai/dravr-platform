@@ -16,8 +16,8 @@ use super::messaging_link_states as link_states;
 use super::messaging_reactions as reactions;
 use super::Database;
 use crate::repositories::messaging::{
-    CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams, InsertMessageParams,
-    MessagingRepository, ReactionFeedbackTarget, UpsertChannelConfigParams,
+    CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams, EnqueueOutboundParams,
+    InsertMessageParams, MessagingRepository, ReactionFeedbackTarget, UpsertChannelConfigParams,
     ACTIVE_OTP_LINK_STATE_SQL, AGENT_PROPOSAL_SENT_SQL, ALL_PENDING_OUTBOUND_SQL,
     CHANNEL_IDENTITY_CLAIMED_SQL, CHANNEL_LINK_LOCALE_SQL, CHANNEL_LINK_TENANT_SQL,
     CLAIM_BACKFILL_PUSH_SQL, CONFIGS_BY_CHANNEL_TYPE_SQL, CREATE_CHANNEL_LINK_SQL,

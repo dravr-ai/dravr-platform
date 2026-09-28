@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The shell's reconnect banner — names every connected provider flagged needs_reauth, on every tab, with the way to Connections
+// ABOUTME: The reconnect banner — names every connected provider flagged needs_reauth, above every tab and in an open thread, with the way to Connections
 // ABOUTME: Reads the one provider-status query Home and Connections share; the warning tint under its bound ink, no shadow
 
 import React, { useEffect, useRef } from 'react';
@@ -20,7 +20,8 @@ const CONNECTIONS_PATH = '/connections';
 interface ReconnectBannerProps {
   /**
    * Whether the banner is the first thing under the status bar, and so pads
-   * itself below it. False when another shell banner already sits above it.
+   * itself below it. False when another shell banner already sits above it,
+   * or under a native header, which clears the status bar itself.
    */
   insetTop: boolean;
 }
@@ -28,8 +29,11 @@ interface ReconnectBannerProps {
 /**
  * A connection flagged `needs_reauth` syncs nothing until the athlete signs
  * in again, and the only other place that says so is the Home activities
- * section — one athlete went three days without seeing it. The shell shows
- * it above every tab instead, for as long as the flag holds.
+ * section — one athlete went three days without seeing it. It shows above
+ * every tab instead, for as long as the flag holds: mounted once by the tab
+ * shell, and once by the chat thread, which is pushed over the tabs and so
+ * hides the shell's. No screen carries both, and every copy reads the same
+ * query.
  *
  * The names come from {@link useProviderConnected}: connected providers only,
  * each display name once (the `sciotte` mirror and the `strava` OAuth row are

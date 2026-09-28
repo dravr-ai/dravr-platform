@@ -900,7 +900,7 @@ mod messaging_routes_tests {
     #[tokio::test]
     async fn test_send_failure_enqueues_for_retry() {
         use pierre_database::backends::{
-            CreateSessionParams, InsertMessageParams, MessagingRepository,
+            CreateSessionParams, EnqueueOutboundParams, InsertMessageParams, MessagingRepository,
         };
         use uuid::Uuid;
 
@@ -949,14 +949,16 @@ mod messaging_routes_tests {
 
         // Enqueue for retry (simulating what enqueue_failed_outbound does)
         let queue_id = Uuid::new_v4().to_string();
-        db.enqueue_outbound(
-            &queue_id,
-            &msg_id,
+        db.enqueue_outbound(&EnqueueOutboundParams {
+            id: &queue_id,
+            message_id: Some(msg_id.as_str()),
             tenant_id,
-            None,
-            "whatsapp",
-            r#"{"messaging_product":"whatsapp","to":"15551234567","type":"text","text":{"body":"retry test message"}}"#,
-        )
+            user_id: None,
+            channel_type: "whatsapp",
+            payload: r#"{"messaging_product":"whatsapp","to":"15551234567","type":"text","text":{"body":"retry test message"}}"#,
+            expires_at: None,
+            reauth: None,
+        })
         .await
         .unwrap();
 

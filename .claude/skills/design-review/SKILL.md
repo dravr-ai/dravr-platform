@@ -44,7 +44,7 @@ Then drive the real app with the `chrome-devtools` MCP tools: `navigate_page`,
 `take_screenshot`, `resize_page` (test 1440 and 390 wide), `emulate` for dark
 and light. Screenshot **every screen the diff touches** and read the image.
 
-For mobile changes, do the same via the `ios-simulator` or `mirroir` MCP tools.
+For mobile changes, do the same on the simulator: `mobile-mcp` or Maestro to drive it (the `ios-simulator` MCP only screenshots on Xcode 27 — see the test-mobile-app skill), or `mirroir` on a device.
 
 ### 3. Judge what only a human eye catches
 

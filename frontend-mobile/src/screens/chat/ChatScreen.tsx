@@ -39,6 +39,8 @@ import { ConversationInfoSheet } from './ConversationInfoSheet';
 import { MessageList } from './MessageList';
 import { OAuthCredentialsSection } from '../../components/OAuthCredentialsSection';
 import { ProviderNoticeSheet } from '../../components/ProviderNotice';
+import { ReconnectBanner } from '../../components/ReconnectBanner';
+import { useProviderConnected } from '../../hooks/useHome';
 import { noticeRequired } from '@pierre/shared-constants';
 import { useConversations } from './useConversations';
 import { useMarkConversationRead } from './useMarkConversationRead';
@@ -87,12 +89,10 @@ export function ChatScreen() {
     return () => shown.remove();
   }, [scrollToBottom]);
   const providerStatus = useProviderStatus();
-  // The header's fallback line, from the same rule web renders.
-  const headerProviderStatus = useMemo(
-    () =>
-      providerStatusLine(t, providerStatus.connectedProviders, providerStatus.providersLoaded),
-    [providerStatus.connectedProviders, providerStatus.providersLoaded, t],
-  );
+  // The header's fallback line reads the status the reconnect banner under it
+  // reads, so the two can never disagree about a flagged connection.
+  const { providers: statusRows } = useProviderConnected();
+  const headerProviderStatus = useMemo(() => providerStatusLine(t, statusRows, statusRows !== null), [statusRows, t]);
   const usageStatus = useUsageStatus();
   // The flow state behind the info sheet's "Participants" row. The tab bar's
   // "+" holds its own copy for the same thread, so "add someone to this
@@ -535,6 +535,13 @@ export function ChatScreen() {
           onClose={() => setVerdictMessageId(null)}
           onAskAboutClaim={handleAskAboutClaim}
         />
+
+        {/*
+          The thread is pushed over the tabs, so the shell's banner is behind
+          it: the thread mounts its own, under the native header, which
+          already sits below the status bar — so no inset of its own.
+        */}
+        <ReconnectBanner insetTop={false} />
 
         {messagesHook.roomUnavailable ? (
           <Text

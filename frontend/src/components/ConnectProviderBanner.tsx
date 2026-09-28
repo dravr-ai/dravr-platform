@@ -54,6 +54,11 @@ export function ConnectProviderBanner({ kind, onNavigate }: ConnectProviderBanne
  * not the only signal, and the filled action. `role="alert"` because the
  * athlete's activities have stopped arriving: it is announced once when it
  * appears, and stays until the connection is renewed.
+ *
+ * It is the first thing in the shell's <main> for an athlete, so on an
+ * installed iOS PWA it is what sits under the notch: `pad-safe-top` pads it
+ * past the inset, and gives that up when the offline strip or the admin
+ * header is already above it.
  */
 function ReconnectStrip({ names, onNavigate }: { names: string[]; onNavigate: (route: string) => void }) {
   const { t, language } = useTranslation();
@@ -61,7 +66,7 @@ function ReconnectStrip({ names, onNavigate }: { names: string[]; onNavigate: (r
     <div
       role="alert"
       data-testid="provider-reconnect-banner"
-      className="flex-shrink-0 border-b border-warning/40 bg-warning/15 px-4 py-2.5 md:px-6"
+      className="pad-safe-top flex-shrink-0 border-b border-warning/40 bg-warning/15 px-4 py-2.5 md:px-6"
     >
       <div className="flex items-center gap-3">
         <AlertTriangle className="h-5 w-5 flex-shrink-0 text-on-warning-container" aria-hidden="true" />

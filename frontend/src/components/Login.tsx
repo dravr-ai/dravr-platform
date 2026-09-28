@@ -135,7 +135,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
   };
 
   return (
-    <div className="min-h-dvh flex bg-surface text-on-surface">
+    <div className="min-h-dvh flex bg-surface text-on-surface pad-safe-top">
       {/*
         Editorial aside — the brand moment. In light it sits on the sage tint
         (`primary-container`) beside a white form sheet: the two paper tones

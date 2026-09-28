@@ -181,6 +181,11 @@ pub mod messaging_broadcast;
 #[cfg(feature = "client-messaging")]
 pub mod messaging_outbound;
 
+// Outer doc omitted: `channel_adapters.rs`'s inner `//!` header is
+// authoritative (an outer doc here would concatenate with it).
+#[cfg(feature = "client-messaging")]
+pub mod channel_adapters;
+
 /// Seed messaging channel configs from environment variables on startup
 #[cfg(feature = "client-messaging")]
 pub mod messaging_seed;

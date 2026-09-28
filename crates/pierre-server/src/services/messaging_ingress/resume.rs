@@ -66,8 +66,8 @@ use uuid::Uuid;
 
 use super::{dispatch_and_respond, PendingDispatch, ResolvedSession, TurnClose, TurnRecord};
 use crate::mcp::resources::ServerContext;
-use crate::routes::messaging::adapter_factory::ChannelAdapterFactory;
 use crate::services::turn_runner::{CloudTasksRunner, TurnRunner};
+use pierre_services::channel_adapters::ChannelAdapterFactory;
 
 /// How many runs a turn is given before the athlete is told it is not coming.
 ///

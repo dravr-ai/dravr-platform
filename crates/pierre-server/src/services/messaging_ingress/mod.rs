@@ -43,6 +43,8 @@ pub mod outbound_send;
 pub mod reactions;
 /// The durable record every turn runs from, the runner hand-off and the sweeper.
 pub mod resume;
+/// The messaging background workers started once per process.
+pub mod workers;
 pub use dispatch::turn_watchdog;
 pub use dispatch::{classify_channel_config, ChannelConfigLookup};
 pub(crate) use dispatch::{dispatch_and_respond, TurnClose};
@@ -85,7 +87,6 @@ pub use slash::{room_reply_thread_anchor, slash_reply_should_be_private};
 #[cfg(feature = "client-messaging")]
 use slash::{try_handle_slash_command, SlashCommandContext};
 
-use crate::routes::messaging::adapter_factory::ConfigChannelAdapters;
 use pierre_auth::auth::AuthResult;
 use pierre_core::models::groups::GroupRespondMode;
 use pierre_core::models::messaging::{ChannelType, IncomingMessage, MessageContent};
@@ -94,7 +95,6 @@ use pierre_core::safety::{scan as scan_for_injection, SanitizationOutcome};
 use pierre_database::backends::{InsertMessageParams, MessagingRepository};
 use pierre_messaging::channel::MessagingChannel;
 use pierre_services::locale::resolve_channel_locale;
-use pierre_services::messaging_outbound::start_outbound_worker;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -228,7 +228,7 @@ pub(crate) struct PendingDispatch {
     pub(super) turn_id: ConversationTurnId,
     /// Base URL for the in-channel status placeholder, from the adapter
     /// factory the ingress was built with (see
-    /// [`crate::routes::messaging::adapter_factory::ChannelAdapterFactory::status_api_base`]).
+    /// [`pierre_services::channel_adapters::ChannelAdapterFactory::status_api_base`]).
     /// `None` is the channel's real API host.
     pub(super) status_api_base: Option<String>,
     /// The durable record this run holds the lease on (registre#126): which
@@ -1232,18 +1232,4 @@ pub(super) fn content_body_text(content: &MessageContent) -> Option<String> {
         MessageContent::Media { caption, .. } => caption.clone(),
         MessageContent::Location { .. } => None,
     }
-}
-
-/// Start the messaging background workers for the life of the process.
-///
-/// Two of them: the outbound retry queue, and the resume sweeper for the turns
-/// a drained instance left on file — one pass now, because this instance may
-/// exist only because the athlete's next message arrived, then one a minute
-/// for a sibling that outlived the drained instance (registre#126). A resumed
-/// turn's adapter comes from the same stored channel config the webhook
-/// ingress builds from.
-pub fn start_background_workers(resources: Arc<ServerContext>) {
-    start_outbound_worker(Arc::clone(&resources.common.repos.messaging));
-    info!("Messaging outbound retry worker started");
-    resume::start_turn_resume_sweeper(resources, Arc::new(ConfigChannelAdapters));
 }

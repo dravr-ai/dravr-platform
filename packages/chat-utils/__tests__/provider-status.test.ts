@@ -77,4 +77,28 @@ describe('providerStatusLine', () => {
     expect(providerStatusLine(t, null, true)).toBe('chat.noProviderStatus');
     expect(providerStatusLine(t, undefined, true)).toBe('chat.noProviderStatus');
   });
+
+  /**
+   * A flagged connection is still `connected` on the wire, but nothing new
+   * syncs through it: the header said "Strava connected" above the banner
+   * saying Strava had to be reconnected (carnet#647).
+   */
+  it('never names a connection flagged needs_reauth as connected', () => {
+    expect(
+      providerStatusLine(t, [{ connected: true, display_name: 'Strava', needs_reauth: true }], true),
+    ).toBe('providers.reconnectNeeded');
+    expect(
+      providerStatusLine(
+        t,
+        [
+          { connected: true, display_name: 'Strava', needs_reauth: true },
+          { connected: true, display_name: 'WHOOP', needs_reauth: false },
+        ],
+        true,
+      ),
+    ).toBe('chat.providersConnectedOne:WHOOP');
+    expect(
+      providerStatusLine(t, [{ connected: false, display_name: 'COROS', needs_reauth: true }], true),
+    ).toBe('chat.noProviderStatus');
+  });
 });

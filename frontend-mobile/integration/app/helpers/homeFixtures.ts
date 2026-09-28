@@ -241,3 +241,22 @@ export const PROVIDERS_RECONNECT = {
     },
   ],
 };
+
+/**
+ * Every connected provider flagged: a Garmin scrape session and its Strava
+ * mirror whose sessions died, and a disconnected COROS. Nothing connected
+ * still syncs.
+ */
+export const PROVIDERS_ONLY_FLAGGED = {
+  providers: [
+    { ...PROVIDERS_CONNECTED.providers[0], provider: 'sciotte', requires_oauth: false, needs_reauth: true },
+    { ...PROVIDERS_CONNECTED.providers[0], provider: 'garmin', display_name: 'Garmin', needs_reauth: true },
+    {
+      ...PROVIDERS_CONNECTED.providers[0],
+      provider: 'coros',
+      display_name: 'COROS',
+      connected: false,
+      needs_reauth: false,
+    },
+  ],
+};

@@ -37,7 +37,7 @@ export default function OAuthCallback({ provider, success, error, onClose }: OAu
 
 
   return (
-    <div className="min-h-dvh bg-surface flex items-center justify-center px-4">
+    <div className="min-h-dvh bg-surface flex items-center justify-center px-4 pad-safe-top">
       <div className="max-w-md w-full bg-surface-container-lowest border ghost-border rounded-xl overflow-hidden">
         {/* The outcome as a hairline of colour — meaning, not decoration */}
         <div className={`h-0.5 w-full ${success ? 'bg-success' : 'bg-error'}`} />

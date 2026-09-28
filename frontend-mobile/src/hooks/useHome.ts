@@ -180,6 +180,14 @@ export function useRecentActivities() {
     asOf: query.data?.as_of ?? null,
     stale,
     staleRefetch,
+    // What the page may say is under way. The server answers `stale` only
+    // when a refresh it started — or one already running — is reading a
+    // provider, so the answer is the evidence. An answer restored from disk
+    // or left by an earlier visit is not: it can be hours old, and the
+    // refresh it reported long finished. Until a read made since this mount
+    // answers, nothing is said to be checking; the schedule still judges the
+    // held answer, and its follow-up is the read that confirms or ends it.
+    refreshing: stale && staleRefetch !== 'done' && query.isFetchedAfterMount,
     hasData: query.data !== undefined,
     isError: query.isError,
     isRefetching: query.isRefetching,
@@ -241,9 +249,9 @@ export function useTrainingPlan() {
 }
 
 /**
- * Whether any fitness provider is connected, and which connected ones have
- * to be reconnected, from the provider status the Connections pane reads —
- * the activity list carries neither.
+ * Whether any fitness provider is connected, whether one of them still
+ * syncs, and which connected ones have to be reconnected, from the provider
+ * status the Connections pane reads — the activity list carries none of it.
  *
  * `connected` is `null` until the status answers; a status read that fails
  * reads as connected, because the empty sentence ("they show up once your
@@ -278,5 +286,23 @@ export function useProviderConnected() {
     ),
   ];
 
-  return { connected, needsReconnect, refetch: query.refetch };
+  // Whether a connected provider is still syncing — one not flagged. Same
+  // reading as `connected`: `null` until the status answers, and a failed
+  // read counts as syncing, since nothing then says otherwise.
+  let syncing: boolean | null = null;
+  if (query.data !== undefined) {
+    syncing = query.data.providers.some((provider) => provider.connected && !provider.needs_reauth);
+  } else if (query.isError) {
+    syncing = true;
+  }
+
+  return {
+    connected,
+    syncing,
+    needsReconnect,
+    // The rows themselves, for a reader that words them its own way — the
+    // thread header. `null` until the status answers.
+    providers: query.data?.providers ?? null,
+    refetch: query.refetch,
+  };
 }

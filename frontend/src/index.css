@@ -801,3 +801,46 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* The top safe-area inset — the one mechanism every surface uses to clear the
+   notch. An installed iOS PWA launches with `viewport-fit=cover` and a
+   `black-translucent` status bar (index.html), so y=0 is under the notch.
+   The inset is a transparent top BORDER, not padding: it adds to whatever
+   padding the element already has (a strip's `py-2`, a screen's `py-12`)
+   instead of replacing it, and `min-h-dvh` still fits the viewport because
+   the border sits inside the border-box. The element's own background paints
+   under it, so a tinted strip or a surface reaches up behind the status bar.
+   In a desktop or phone browser tab the inset is 0 and the class is inert.
+
+   In-flow chrome stacks: only the topmost in-flow `.pad-safe-top` may take
+   the inset, since one below another is already clear of the notch. So one
+   that follows an in-flow one — as a sibling, or inside a later sibling (the
+   offline strip in App, the reconnect strip and the page band deep in
+   Dashboard) — gives it up. `:where()` keeps those selectors at the base
+   class's weight so the viewport-layer rule below outranks them.
+
+   A viewport layer (`fixed`: an overlay, a drawer, a toast, the onboarding
+   progress bar) is positioned against the viewport, so the notch is over its
+   top whatever sits in the flow: it, and anything inside it, always keeps
+   the inset, and it never makes an in-flow element give its inset up. An
+   `absolute` layer (the onboarding progress bar over its step) never makes
+   an in-flow element give it up either — it takes no room in the flow — but
+   it does give its own up under an in-flow strip, since it moves with the
+   flow and that strip is already between it and the notch.
+
+   Outside @layer on purpose: `border-top-color` has to come after every
+   border-colour utility (`ghost-border`, `border-warning/40`) or a strip's
+   hairline colour would paint the band. */
+.pad-safe-top {
+  border-top: env(safe-area-inset-top, 0px) solid transparent;
+}
+
+:where(.pad-safe-top:not(.fixed):not(.absolute)) ~ .pad-safe-top,
+:where(.pad-safe-top:not(.fixed):not(.absolute)) ~ * .pad-safe-top {
+  border-top-width: 0;
+}
+
+.fixed.pad-safe-top,
+.fixed .pad-safe-top {
+  border-top-width: env(safe-area-inset-top, 0px);
+}

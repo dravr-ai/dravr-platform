@@ -2,6 +2,8 @@
 // ABOUTME: Handles provider loading, connection checks, and OAuth flow initiation
 
 import { useState, useCallback, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { Alert, AppState } from 'react-native';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
@@ -45,6 +47,7 @@ export interface ProviderStatusActions {
 
 export function useProviderStatus(): ProviderStatusState & ProviderStatusActions {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const [connectedProviders, setConnectedProviders] = useState<ExtendedProviderStatus[]>([]);
   const [providersLoaded, setProvidersLoaded] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
@@ -124,6 +127,12 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
 
         if (success) {
           trackMobile({ name: 'feature_engaged', props: { feature: 'provider_connected' } });
+          // The shared status the reconnect banner and the thread header read
+          // is asked again too, so a reconnect made from a reply clears both.
+          // Invalidated rather than written from this read: a slower read of
+          // this hook's, started before the reconnect, could land after it and
+          // put the flag back.
+          void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() });
           await loadProviderStatus();
           setSelectedProvider(provider);
           if (onSuccess) {
@@ -135,6 +144,7 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
           console.error('OAuth error from server:', errorParam);
           Alert.alert(t('app.connectionFailed'), reason);
         } else {
+          void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() });
           await loadProviderStatus();
           Alert.alert(
             t('providers.connectionComplete'),
@@ -162,7 +172,7 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
         Alert.alert(t('common.error'), t('providers.failedConnectRetry'));
       }
     }
-  }, [loadProviderStatus, t]);
+  }, [loadProviderStatus, queryClient, t]);
 
   return {
     connectedProviders,
