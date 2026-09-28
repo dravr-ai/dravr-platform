@@ -647,10 +647,10 @@ impl ServerBackfillNotifier {
     }
 }
 
-/// Render one activity as a compact `• name · YYYY-MM-DD · Sport · 10.0 km`
-/// line. Distance is shown in kilometres (one decimal) only when present; sport
-/// uses the canonical display name. Pure formatting over the cheaply-available
-/// `Activity` accessors — no allocation beyond the returned line.
+/// Render one activity as a compact `• name · day · sport · 10.0 km` line.
+/// Distance is shown in kilometres (one decimal) only when present. Pure
+/// formatting over the cheaply-available `Activity` accessors — no allocation
+/// beyond the returned line.
 fn format_activity_line(activity: &Activity, locale: &str, zone: Tz) -> String {
     // The day on the athlete's calendar and the sport in their language, from
     // the same helpers the activity list the agent reads uses: the notice is

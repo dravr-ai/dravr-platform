@@ -6,7 +6,7 @@
 
 use chrono::{Duration, Utc};
 use pierre_core::models::messaging::{
-    ChannelType, MessageContent, OutgoingMessage, MAX_OTP_ATTEMPTS, OTP_TTL_MINUTES,
+    channel_label, ChannelType, MessageContent, OutgoingMessage, MAX_OTP_ATTEMPTS, OTP_TTL_MINUTES,
 };
 use pierre_core::models::{normalize_email, TenantId, User};
 use pierre_database::backends::{
@@ -375,8 +375,7 @@ async fn generate_and_send_otp(
         )));
     }
 
-    // Send the OTP code via email
-    let channel_display_name = channel_type.to_string();
+    // Send the OTP code via email, naming the channel as the athlete knows it
     let Some(email_svc) = &resources.common.email_service else {
         warn!("Email service not configured, cannot send OTP for channel linking");
         return Err(Box::new(otp_reply(
@@ -390,7 +389,7 @@ async fn generate_and_send_otp(
     };
 
     if let Err(e) = email_svc
-        .send_channel_linking_code(email, &otp_code, &channel_display_name)
+        .send_channel_linking_code(email, &otp_code, channel_label(&channel_type.to_string()))
         .await
     {
         error!(error = %e, "Failed to send OTP email for channel linking");

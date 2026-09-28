@@ -19,6 +19,7 @@
 use std::sync::LazyLock;
 
 use pierre_core::html::{escape_html_attribute, with_hosted_page_css};
+use pierre_core::models::messaging::channel_label;
 use pierre_providers::backend_resolver;
 use pierre_providers::registry::global_registry;
 use pierre_providers::sciotte_provider::SciotteTarget;
@@ -123,7 +124,6 @@ pub fn render_login_page(
     // the registry always names it; the Strava label is the page's historical
     // default target.
     let target_label = backend_resolver::brand_name(&global_registry(), target).unwrap_or("Strava");
-    let channel_label = humanize_channel(channel);
 
     // The identifier the provider's own login asks for — a username for
     // TrainingPeaks, an email otherwise.
@@ -150,7 +150,10 @@ pub fn render_login_page(
     .replace("{{TARGET}}", &escape_html_attribute(target))
     .replace("{{TARGET_LABEL}}", &escape_html_attribute(target_label))
     .replace("{{CHANNEL}}", &escape_html_attribute(channel))
-    .replace("{{CHANNEL_LABEL}}", &escape_html_attribute(&channel_label))
+    .replace(
+        "{{CHANNEL_LABEL}}",
+        &escape_html_attribute(channel_label(channel)),
+    )
 }
 
 /// Render the success page shown after a successful connection. Reused by the
@@ -159,32 +162,18 @@ pub fn render_login_page(
 pub fn render_success_page(channel: &str, target: &str) -> String {
     let target_label =
         backend_resolver::brand_name(&global_registry(), target).unwrap_or("fitness");
-    let channel_label = humanize_channel(channel);
 
     with_hosted_page_css(SUCCESS_TEMPLATE)
         .replace("{{TARGET_LABEL}}", &escape_html_attribute(target_label))
         .replace("{{CHANNEL}}", &escape_html_attribute(channel))
-        .replace("{{CHANNEL_LABEL}}", &escape_html_attribute(&channel_label))
+        .replace(
+            "{{CHANNEL_LABEL}}",
+            &escape_html_attribute(channel_label(channel)),
+        )
 }
 
 /// Render the error page for invalid/expired links or other hosted-login failures.
 #[must_use]
 pub fn render_error_page(message: &str) -> String {
     with_hosted_page_css(ERROR_TEMPLATE).replace("{{MESSAGE}}", &escape_html_attribute(message))
-}
-
-/// Convert a channel slug to a user-facing label ("slack" -> "Slack"), for
-/// every hosted page that names the chat the athlete came from.
-#[must_use]
-pub fn humanize_channel(slug: &str) -> String {
-    match slug {
-        "" => "your chat app".to_owned(),
-        "whatsapp" => "WhatsApp".to_owned(),
-        other => {
-            let mut chars = other.chars();
-            chars.next().map_or_else(String::new, |first| {
-                first.to_uppercase().collect::<String>() + chars.as_str()
-            })
-        }
-    }
 }

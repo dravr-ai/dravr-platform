@@ -1,8 +1,13 @@
 // ABOUTME: Re-exports messaging types from dravr-canot standalone crate
-// ABOUTME: Channel types, message content variants, delivery tracking, and retry queue entries
+// ABOUTME: Channel types, message content variants, delivery tracking, retry queue entries, channel names
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
+
+use std::str::FromStr;
+
+use dravr_canot::channels::descriptor_for;
+use dravr_canot::descriptor::ChannelDescriptor;
 
 // All messaging models are canonical in dravr-canot
 pub use dravr_canot::models::*;
@@ -12,3 +17,22 @@ pub use dravr_canot::models::*;
 /// a chat list row, say — reads the same parser the channels do rather than
 /// hand-rolling a second one.
 pub use dravr_canot::rich_text;
+
+/// What the platform calls the chat an athlete came from when its slug names
+/// no channel this build compiled: an in-app surface (`web_chat`,
+/// `mobile_chat`), or an empty or unknown query parameter.
+const UNNAMED_CHANNEL_LABEL: &str = "your chat app";
+
+/// The name an athlete knows a messaging channel by ("Telegram", "Slack"),
+/// for every page or email that names the chat they came from.
+///
+/// Read from the channel's own canot descriptor, so no platform crate spells a
+/// channel's name itself. A slug that names no channel, or one whose adapter
+/// this build did not compile, reads as "your chat app".
+#[must_use]
+pub fn channel_label(slug: &str) -> &'static str {
+    ChannelType::from_str(slug)
+        .ok()
+        .and_then(descriptor_for)
+        .map_or(UNNAMED_CHANNEL_LABEL, ChannelDescriptor::display_name)
+}

@@ -13,6 +13,7 @@
 //! ([`crate::sciotte_hosted_templates`]).
 
 use pierre_core::html::{escape_html_attribute, with_hosted_page_css};
+use pierre_core::models::messaging::channel_label;
 
 use crate::sciotte_hosted_templates;
 
@@ -28,15 +29,16 @@ const CONNECT_TEMPLATE: &str = include_str!("../templates/connect_hosted.html");
 /// into a `<script>` literal, so it MUST be valid, already-escaped JSON.
 #[must_use]
 pub fn render_connect_page(link_token: &str, channel: &str, providers_json: &str) -> String {
-    let channel_label = sciotte_hosted_templates::humanize_channel(channel);
-
     // The notice starts hidden and empty: when a card whose
     // `consent_required` is set is picked, the page fills the block with that
     // card's own `notice` and shows it.
     sciotte_hosted_templates::fill_consent(&with_hosted_page_css(CONNECT_TEMPLATE), true, "")
         .replace("{{LINK_TOKEN}}", &escape_html_attribute(link_token))
         .replace("{{CHANNEL}}", &escape_html_attribute(channel))
-        .replace("{{CHANNEL_LABEL}}", &escape_html_attribute(&channel_label))
+        .replace(
+            "{{CHANNEL_LABEL}}",
+            &escape_html_attribute(channel_label(channel)),
+        )
         // PROVIDERS_JSON is injected last so an escaped token/channel can never
         // close the script context before it.
         .replace("{{PROVIDERS_JSON}}", providers_json)

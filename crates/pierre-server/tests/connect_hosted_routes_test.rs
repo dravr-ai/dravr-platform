@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests for the hosted connect picker routes (page, oauth-init, success)
-// ABOUTME: Pins connect-token gating (missing/invalid/narrow-scope), picker render, and the Strava-OAuth connected merge
+// ABOUTME: Pins connect-token gating, picker render, the Strava-OAuth connected merge, and the channel each page names
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -16,8 +16,10 @@ use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::feature_flags::FeatureKey;
+use pierre_core::models::messaging::{channel_label, ChannelType};
 use pierre_core::models::{ConnectionType, TenantId};
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_messaging::channels::descriptor_for;
 use pierre_middleware::provider_link_token::{
     mint_connect_link_token, mint_link_token, MintProviderLinkTokenArgs,
 };
@@ -767,6 +769,138 @@ async fn an_unarmed_account_is_asked_for_no_notice() {
         assert!(
             page.contains("id=\"consent-block\" hidden>"),
             "the {target} notice block stays hidden"
+        );
+    }
+}
+
+// ============================================================================
+// The chat each hosted page says the athlete came from
+// ============================================================================
+
+/// Every channel canot declares. The match is exhaustive, so a channel canot
+/// adds stops this file compiling until it is listed here, rather than going
+/// untested.
+fn every_channel() -> [ChannelType; 5] {
+    let channels = [
+        ChannelType::WhatsApp,
+        ChannelType::Messenger,
+        ChannelType::Discord,
+        ChannelType::Slack,
+        ChannelType::Telegram,
+    ];
+    for channel in channels {
+        match channel {
+            ChannelType::WhatsApp
+            | ChannelType::Messenger
+            | ChannelType::Discord
+            | ChannelType::Slack
+            | ChannelType::Telegram => {}
+        }
+    }
+    channels
+}
+
+/// The body of a GET on an unauthenticated hosted page.
+async fn page(resources: &Arc<ServerContext>, url: &str) -> String {
+    let resp = AxumTestRequest::get(url)
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await;
+    assert_eq!(resp.status(), 200, "{url} renders");
+    resp.text()
+}
+
+/// Every hosted page names the chat by the name its canot descriptor declares
+/// — the login and picker pills and both success pages — with no platform
+/// spelling of its own beside it.
+#[tokio::test]
+async fn every_hosted_page_names_the_channel_by_its_canot_display_name() {
+    let (resources, user_id, tenant_id) = test_setup().await;
+
+    for channel in every_channel() {
+        let slug = channel.to_string();
+        let name = descriptor_for(channel)
+            .unwrap_or_else(|| panic!("the server build compiles the {slug} adapter"))
+            .display_name();
+        assert_eq!(channel_label(&slug), name, "{slug} is labelled by canot");
+
+        for success in ["/providers/connect/success", "/providers/sciotte/success"] {
+            let body = page(
+                &resources,
+                &format!("{success}?channel={slug}&target=strava"),
+            )
+            .await;
+            assert!(
+                body.contains(&format!("You can return to {name} to continue")),
+                "{success} names {slug} as {name}: {body}"
+            );
+        }
+
+        let connect = mint_connect_link_token(
+            user_id,
+            tenant_id.as_uuid(),
+            &slug,
+            None,
+            &resources.auth.admin_jwt_secret,
+        )
+        .expect("mint connect token");
+        let picker = page(
+            &resources,
+            &format!("/providers/connect?token={}", urlencoding::encode(&connect)),
+        )
+        .await;
+        assert!(
+            picker.contains(&format!("Linked from {name}</span>")),
+            "the picker names {slug} as {name}: {picker}"
+        );
+
+        let login = mint_link_token(
+            &MintProviderLinkTokenArgs {
+                user_id,
+                tenant_id: tenant_id.as_uuid(),
+                provider: "sciotte",
+                target: "strava",
+                channel: &slug,
+                channel_thread: None,
+            },
+            &resources.auth.admin_jwt_secret,
+        )
+        .expect("mint hosted-login token");
+        let login_page = page(
+            &resources,
+            &format!(
+                "/providers/sciotte/login?token={}",
+                urlencoding::encode(&login)
+            ),
+        )
+        .await;
+        assert!(
+            login_page.contains(&format!("Linked from {name}</span>")),
+            "the hosted login names {slug} as {name}: {login_page}"
+        );
+    }
+}
+
+/// A link minted on an in-app surface, or a success URL with no channel,
+/// names no messaging channel, so the page says "your chat app" instead of
+/// capitalizing the slug into `Web_chat`.
+#[tokio::test]
+async fn a_surface_that_is_not_a_channel_reads_as_your_chat_app() {
+    let (resources, _, _) = test_setup().await;
+
+    for slug in ["web_chat", "mobile_chat", "", "carrier-pigeon"] {
+        assert_eq!(channel_label(slug), "your chat app", "{slug:?}");
+        let body = page(
+            &resources,
+            &format!("/providers/connect/success?channel={slug}&target=strava"),
+        )
+        .await;
+        assert!(
+            body.contains("You can return to your chat app to continue"),
+            "{slug:?} reads as the generic label: {body}"
+        );
+        assert!(
+            !body.contains("Web_chat") && !body.contains("Mobile_chat"),
+            "no slug is capitalized into a name: {body}"
         );
     }
 }
