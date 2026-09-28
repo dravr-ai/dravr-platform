@@ -28,9 +28,11 @@ pub struct ClientRegistrationRequest {
 /// A2A Client credentials response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientCredentials {
-    /// Unique client identifier
+    /// Unique client identifier, also its `OAuth2` `client_id`
     pub client_id: String,
-    /// Client secret for authentication
+    /// Client secret the card's `oauth2ClientCredentials` `tokenUrl`
+    /// (`/oauth2/token`, `client_credentials` grant) authenticates; shown
+    /// once, stored only as an Argon2 hash
     pub client_secret: String,
     /// API key for direct API access
     pub api_key: String,

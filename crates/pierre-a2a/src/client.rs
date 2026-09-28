@@ -23,8 +23,10 @@ use crate::{map_db_error, A2AError};
 use chrono::{DateTime, Datelike, Days, NaiveTime, Utc};
 use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_auth::crypto::A2AKeyManager;
+use pierre_auth::oauth2_server::{ClientRegistrationManager, OAuth2Error};
 use pierre_auth::rate_limiting::a2a_client_window_start;
 pub use pierre_core::models::a2a::{A2AClient, A2ASession, A2AUsage};
+use pierre_core::models::ApiKey;
 // Trait methods are dispatched through repos.a2a / repos.api_keys Arc<dyn Trait>;
 use pierre_database::AuthRepos;
 use std::collections::HashMap;
@@ -85,9 +87,9 @@ impl A2AClientManager {
         // Validate registration request
         Self::validate_registration_request(&request)?;
 
-        // Generate client credentials
+        // The client's id; its secret is minted by its OAuth2 registration
+        // when the client is stored.
         let client_id = format!("a2a_client_{}", Uuid::new_v4());
-        let client_secret = format!("a2a_secret_{}", Uuid::new_v4());
 
         // Generate Ed25519 keypair for the client
         let keypair = A2AKeyManager::generate_keypair()
@@ -121,10 +123,9 @@ impl A2AClientManager {
             updated_at: chrono::Utc::now(),
         };
 
-        // Store client in database and retrieve the actual generated API key
-        let generated_api_key = self
-            .store_client_secure(&client, &client_secret, system_user_id)
-            .await?;
+        // Store the client with its OAuth2 registration and API key
+        let (client_secret, generated_api_key) =
+            self.store_client_secure(&client, system_user_id).await?;
 
         info!(
             client_id = %client_id,
@@ -175,14 +176,60 @@ impl A2AClientManager {
         Ok(())
     }
 
+    /// The `OAuth2` registration manager over the one `oauth2_clients` store,
+    /// where every A2A client's secret lives and `/oauth2/token` verifies it.
+    fn oauth2_clients(&self) -> ClientRegistrationManager {
+        ClientRegistrationManager::new(self.repos.oauth2_server.clone())
+    }
+
     /// Store client in database with proper security.
-    /// Returns the generated API key so callers can pass it to the registrant.
+    ///
+    /// The client's `client_credentials` registration is stored first, under
+    /// the client's own id, so the secret it returns is the one the card's
+    /// `tokenUrl` accepts. When anything after it fails the registration is
+    /// deleted again, so no credential outlives a client that was never
+    /// stored.
+    ///
+    /// Returns the client secret and the generated API key so callers can
+    /// pass both to the registrant.
     async fn store_client_secure(
         &self,
         client: &A2AClient,
-        client_secret: &str,
         system_user_id: Uuid,
-    ) -> Result<String, A2AError> {
+    ) -> Result<(String, String), A2AError> {
+        let oauth2_clients = self.oauth2_clients();
+        let client_secret = oauth2_clients
+            .register_client_credentials_client(&client.id, &client.name)
+            .await
+            .map_err(|e| {
+                A2AError::InternalError(format!(
+                    "Failed to register client credentials: {}",
+                    oauth2_refusal(&e)
+                ))
+            })?;
+
+        match self.store_client_rows(client, system_user_id).await {
+            Ok(generated_key) => Ok((client_secret, generated_key)),
+            Err(e) => {
+                if let Err(cleanup) = oauth2_clients.delete_client(&client.id).await {
+                    error!(
+                        client_id = %client.id,
+                        error = %cleanup,
+                        "Failed to delete the client_credentials registration of an A2A client that was not stored"
+                    );
+                }
+                Err(e)
+            }
+        }
+    }
+
+    /// Create and store the API key an A2A client is issued, owned by its
+    /// system user; returns the stored key and its one-time plaintext.
+    async fn issue_api_key(
+        &self,
+        client: &A2AClient,
+        system_user_id: Uuid,
+    ) -> Result<(ApiKey, String), A2AError> {
         // Create API key using the proper system user
         let api_key_manager = ApiKeyManager::new();
 
@@ -209,13 +256,38 @@ impl A2AClientManager {
             api_key_id = %api_key_obj.id,
             "Generated API key for A2A client"
         );
+        Ok((api_key_obj, generated_key))
+    }
 
-        // Create A2A client entry linked to the API key
-        self.repos
-            .a2a
-            .create_client(client, client_secret, &api_key_obj.id)
-            .await
-            .map_err(|e| A2AError::InternalError(format!("Failed to create A2A client: {e}")))?;
+    /// Store the client's API key and its `a2a_clients` row, returning the
+    /// generated API key.
+    async fn store_client_rows(
+        &self,
+        client: &A2AClient,
+        system_user_id: Uuid,
+    ) -> Result<String, A2AError> {
+        let (api_key_obj, generated_key) = self.issue_api_key(client, system_user_id).await?;
+
+        // Create A2A client entry linked to the API key. A key whose client
+        // row never landed is switched off, so it cannot authenticate as a
+        // client that does not exist.
+        if let Err(e) = self.repos.a2a.create_client(client, &api_key_obj.id).await {
+            if let Err(cleanup) = self
+                .repos
+                .api_keys
+                .deactivate(&api_key_obj.id, system_user_id)
+                .await
+            {
+                error!(
+                    api_key_id = %api_key_obj.id,
+                    error = %cleanup,
+                    "Failed to deactivate the API key of an A2A client that was not stored"
+                );
+            }
+            return Err(A2AError::InternalError(format!(
+                "Failed to create A2A client: {e}"
+            )));
+        }
 
         info!(
             client_id = %client.id,
@@ -290,6 +362,18 @@ impl A2AClientManager {
             .deactivate_client(client_id)
             .await
             .map_err(map_db_error("Failed to deactivate A2A client"))?;
+
+        // Delete its client_credentials registration, so /oauth2/token refuses
+        // it as an unknown client from now on. A client whose registration
+        // cannot be deleted is still issued tokens, so this failure is the
+        // caller's to hear about; the A2A principal refuses those tokens
+        // meanwhile, because the client is inactive.
+        self.oauth2_clients()
+            .delete_client(client_id)
+            .await
+            .map_err(map_db_error(
+                "Failed to delete the client_credentials registration of an A2A client",
+            ))?;
 
         // Invalidate all active sessions for this client
         if let Err(e) = self.repos.a2a.invalidate_client_sessions(client_id).await {
@@ -476,4 +560,12 @@ impl A2AClientManager {
             ))?;
         Ok(A2ARateLimitStatus::from_window(&client, &usage, now))
     }
+}
+
+/// An `OAuth2` refusal as one line: its error code and description.
+fn oauth2_refusal(error: &OAuth2Error) -> String {
+    error.error_description.as_ref().map_or_else(
+        || error.error.clone(),
+        |description| format!("{}: {description}", error.error),
+    )
 }

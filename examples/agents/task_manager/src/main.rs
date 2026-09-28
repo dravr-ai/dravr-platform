@@ -35,6 +35,7 @@ use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::env;
 use std::time::Duration;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -108,22 +109,38 @@ impl TaskManager {
         }
     }
 
-    /// Authenticate with A2A client credentials
+    /// Authenticate with the OAuth2 client-credentials flow the agent card
+    /// advertises: read the `tokenUrl` of its `oauth2ClientCredentials`
+    /// scheme, `POST` the `client_credentials` grant there form-encoded, and
+    /// keep the bearer it returns.
     async fn authenticate(&mut self, client_secret: &str) -> Result<()> {
-        info!("🔐 Authenticating with A2A protocol");
+        info!("🔐 Authenticating via the agent card's client-credentials flow");
 
-        let auth_payload = json!({
-            "client_id": self.client_id,
-            "client_secret": client_secret,
-            "grant_type": "client_credentials",
-            "scopes": ["read", "write", "tasks"]
-        });
+        let card: Value = self
+            .http_client
+            .get(format!("{}/.well-known/agent-card.json", self.server_url))
+            .send()
+            .await
+            .context("Failed to fetch the agent card")?
+            .error_for_status()
+            .context("The agent card request was refused")?
+            .json()
+            .await
+            .context("Failed to parse the agent card")?;
+        let token_url = card["securitySchemes"]["oauth2ClientCredentials"]
+            ["oauth2SecurityScheme"]["flows"]["clientCredentials"]["tokenUrl"]
+            .as_str()
+            .context("The agent card advertises no oauth2ClientCredentials tokenUrl")?
+            .to_owned();
 
         let response = self
             .http_client
-            .post(format!("{}/a2a/auth", self.server_url))
-            .header("Content-Type", "application/json")
-            .json(&auth_payload)
+            .post(&token_url)
+            .form(&[
+                ("grant_type", "client_credentials"),
+                ("client_id", self.client_id.as_str()),
+                ("client_secret", client_secret),
+            ])
             .send()
             .await
             .context("Failed to authenticate")?;
@@ -135,10 +152,8 @@ impl TaskManager {
 
         let auth_response: Value = response.json().await?;
         self.access_token = Some(
-            auth_response
-                .get("session_token")
-                .or_else(|| auth_response.get("access_token"))
-                .and_then(|t| t.as_str())
+            auth_response["access_token"]
+                .as_str()
                 .context("No access token in response")?
                 .to_string(),
         );
@@ -331,13 +346,13 @@ async fn main() -> Result<()> {
     info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
     // Load configuration
-    let server_url = std::env::var("PIERRE_SERVER_URL")
+    let server_url = env::var("PIERRE_SERVER_URL")
         .unwrap_or_else(|_| "http://localhost:8081".to_string());
 
-    let client_id = std::env::var("PIERRE_A2A_CLIENT_ID")
+    let client_id = env::var("PIERRE_A2A_CLIENT_ID")
         .unwrap_or_else(|_| "task_manager_client".to_string());
 
-    let client_secret = std::env::var("PIERRE_A2A_CLIENT_SECRET")
+    let client_secret = env::var("PIERRE_A2A_CLIENT_SECRET")
         .unwrap_or_else(|_| "demo_secret_123".to_string());
 
     // Create task manager

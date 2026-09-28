@@ -213,6 +213,16 @@ pub trait OAuth2ServerRepository: Send + Sync {
         client: &OAuth2Client,
         ceiling: u64,
     ) -> AppResult<bool>;
+    /// Store a client registration the server provisions itself, such as an
+    /// A2A client's `client_credentials` registration: no pending ceiling
+    /// applies. A row stored with no `expires_at` is never touched by
+    /// [`delete_stale_clients`](Self::delete_stale_clients).
+    async fn store_client(&self, client: &OAuth2Client) -> AppResult<()>;
+    /// Delete the client registration `client_id` names, with the codes,
+    /// refresh tokens and states issued through it and the consent grants that
+    /// name it. Returns `true` when a registration was deleted, `false` when
+    /// none matched.
+    async fn delete_client(&self, client_id: &str) -> AppResult<bool>;
     /// Delete the client registrations retention no longer keeps: those whose
     /// `expires_at` is before `expired_before`, and those still pending (see
     /// [`store_client_within_ceiling`](Self::store_client_within_ceiling))

@@ -63,7 +63,7 @@ async fn env() -> Env {
         auth_manager.clone(),
         common::get_shared_test_jwks(),
         30,
-        OAuth2ServerConfig::default().mcp_resource_url,
+        vec![OAuth2ServerConfig::default().mcp_resource_url],
     );
     let registration = ClientRegistrationManager::new(repos.oauth2_server.clone());
     Env {

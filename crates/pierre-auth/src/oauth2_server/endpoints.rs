@@ -71,10 +71,10 @@ pub struct OAuth2AuthorizationServer {
     users: Arc<dyn UserRepository>,
     /// How long each issued refresh token stays exchangeable
     refresh_token_lifetime: Duration,
-    /// Identifier of the MCP resource server this authorization server mints
-    /// audience-bound tokens for (RFC 8707) — the `resource` its
-    /// protected-resource metadata publishes
-    resource: String,
+    /// Identifiers of the MCP resource server this authorization server mints
+    /// audience-bound tokens for (RFC 8707): each origin that serves `/mcp`,
+    /// the one its protected-resource metadata publishes to a client first
+    resources: Vec<String>,
 }
 
 impl OAuth2AuthorizationServer {
@@ -83,9 +83,9 @@ impl OAuth2AuthorizationServer {
     /// `refresh_token_expiry_days` is the one `REFRESH_TOKEN_EXPIRY_DAYS`
     /// setting first-party session refresh tokens read as well.
     ///
-    /// `resource` is the MCP resource server's identifier
-    /// (`OAuth2ServerConfig::mcp_resource_url`): the one resource a `resource`
-    /// parameter may name, and the audience of the tokens bound to it.
+    /// `resources` are the MCP resource server's identifiers
+    /// (`OAuth2ServerConfig::mcp_resources`): the resources a `resource`
+    /// parameter may name, and the audiences of the tokens bound to them.
     #[must_use]
     pub fn new(
         oauth2_server: Arc<dyn OAuth2ServerRepository>,
@@ -94,7 +94,7 @@ impl OAuth2AuthorizationServer {
         auth_manager: Arc<AuthManager>,
         jwks_manager: Arc<JwksManager>,
         refresh_token_expiry_days: i64,
-        resource: String,
+        resources: Vec<String>,
     ) -> Self {
         let client_manager = ClientRegistrationManager::new(oauth2_server.clone()); // Safe: Arc clone for manager construction
 
@@ -106,8 +106,13 @@ impl OAuth2AuthorizationServer {
             tenants,
             users,
             refresh_token_lifetime: refresh_token_lifetime(refresh_token_expiry_days),
-            resource,
+            resources,
         }
+    }
+
+    /// The MCP resource identifiers, as the resource checks take them.
+    fn served(&self) -> Vec<&str> {
+        self.resources.iter().map(String::as_str).collect()
     }
 
     /// Check an authorization request and resolve the scope and resource it
@@ -189,7 +194,7 @@ impl OAuth2AuthorizationServer {
         let resource = request
             .resource
             .as_deref()
-            .map(|requested| bound_audience(&self.resource, requested))
+            .map(|requested| bound_audience(&self.served(), requested))
             .transpose()?;
         Ok(CheckedAuthorization { scope, resource })
     }
@@ -360,7 +365,7 @@ impl OAuth2AuthorizationServer {
         // The audience: the resource the authorization was bound to, or the
         // one this request narrows an unbound authorization to (RFC 8707 §2.2).
         let audience = token_audience(
-            &self.resource,
+            &self.served(),
             request.resource.as_deref(),
             auth_code.resource.as_deref(),
         )?;
@@ -436,7 +441,7 @@ impl OAuth2AuthorizationServer {
         client: &OAuth2Client,
         request: TokenRequest,
     ) -> Result<TokenResponse, OAuth2Error> {
-        let audience = token_audience(&self.resource, request.resource.as_deref(), None)?;
+        let audience = token_audience(&self.served(), request.resource.as_deref(), None)?;
 
         let scope = Self::authorized_scope(client, request.scope.as_deref())?;
         let granted = OAuthScope::parse_granted(&scope);
@@ -502,7 +507,7 @@ impl OAuth2AuthorizationServer {
             })?;
 
         let audience = token_audience(
-            &self.resource,
+            &self.served(),
             request.resource.as_deref(),
             old_refresh_token.resource.as_deref(),
         )?;
@@ -735,7 +740,7 @@ impl OAuth2AuthorizationServer {
     /// anything is consumed (RFC 8707 §2).
     fn check_requested_resource(&self, requested: Option<&str>) -> Result<(), OAuth2Error> {
         requested.map_or(Ok(()), |requested| {
-            bound_audience(&self.resource, requested).map(|_| ())
+            bound_audience(&self.served(), requested).map(|_| ())
         })
     }
 

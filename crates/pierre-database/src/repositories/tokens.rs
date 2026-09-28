@@ -60,6 +60,26 @@ pub(crate) const STORE_OAUTH2_CLIENT_WITHIN_CEILING_SQL: &str = r"
             ) < $12
             ";
 
+/// Register a client provisioned by the server itself rather than through
+/// RFC 7591 — no pending ceiling applies. The list columns hold JSON arrays
+/// as text.
+pub(crate) const STORE_OAUTH2_CLIENT_SQL: &str = r"
+            INSERT INTO oauth2_clients (id, client_id, client_secret_hash, redirect_uris, grant_types, response_types, client_name, client_uri, scope, created_at, expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            ";
+
+/// One client by its public `client_id`; codes, refresh tokens and states go
+/// with it by cascade.
+pub(crate) const DELETE_OAUTH2_CLIENT_SQL: &str = r"
+            DELETE FROM oauth2_clients WHERE client_id = $1
+            ";
+
+/// The consent grants naming client `$1`, which has no foreign key to cascade
+/// them.
+pub(crate) const DELETE_CLIENT_GRANTS_FOR_CLIENT_SQL: &str = r"
+            DELETE FROM oauth_client_grants WHERE client_id = $1
+            ";
+
 /// Registrations whose expiry passed before `$1`, the grace cutoff. A row
 /// without an expiry was not written by dynamic registration and never matches.
 pub(crate) const DELETE_EXPIRED_OAUTH2_CLIENTS_SQL: &str = r"
@@ -555,6 +575,49 @@ macro_rules! impl_oauth2_server_repository {
                     })?;
 
                 Ok(result.rows_affected() > 0)
+            }
+
+            async fn store_client(&self, client: &OAuth2Client) -> AppResult<()> {
+                sqlx::query(STORE_OAUTH2_CLIENT_SQL)
+                    .bind(&client.id)
+                    .bind(&client.client_id)
+                    .bind(&client.client_secret_hash)
+                    .bind(serde_json::to_string(&client.redirect_uris)?)
+                    .bind(serde_json::to_string(&client.grant_types)?)
+                    .bind(serde_json::to_string(&client.response_types)?)
+                    .bind(&client.client_name)
+                    .bind(&client.client_uri)
+                    .bind(&client.scope)
+                    .bind(client.created_at)
+                    .bind(client.expires_at)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to store OAuth2 client: {e}"))
+                    })?;
+                Ok(())
+            }
+
+            async fn delete_client(&self, client_id: &str) -> AppResult<bool> {
+                let delete_error = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to delete OAuth2 client: {e}"))
+                };
+                let mut tx = self.pool().begin().await.map_err(delete_error)?;
+
+                let deleted = sqlx::query(DELETE_OAUTH2_CLIENT_SQL)
+                    .bind(client_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(delete_error)?
+                    .rows_affected();
+                sqlx::query(DELETE_CLIENT_GRANTS_FOR_CLIENT_SQL)
+                    .bind(client_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(delete_error)?;
+
+                tx.commit().await.map_err(delete_error)?;
+                Ok(deleted > 0)
             }
 
             async fn delete_stale_clients(

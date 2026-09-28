@@ -209,7 +209,7 @@ async fn the_rest_entry_point_refuses_a_delegation_the_scoped_one_carries_it() {
     let scoped = middleware
         .authenticate_scoped_request(
             Some(&token),
-            &resources.common.config.oauth2_server.mcp_resource_url,
+            &resources.common.config.oauth2_server.mcp_resources(),
         )
         .await
         .expect("the scoped entry point accepts a delegated grant");

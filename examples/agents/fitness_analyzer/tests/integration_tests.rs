@@ -11,7 +11,7 @@ use fitness_analyzer::config::AgentConfig;
 use serde_json::json;
 use std::collections::HashMap;
 use tokio_test;
-use wiremock::matchers::{header, method, path};
+use wiremock::matchers::{body_string_contains, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// Create a mock activity for testing
@@ -28,6 +28,31 @@ fn create_mock_activity(id: &str, sport: &str, distance: Option<f64>, duration: 
         start_date: "2024-01-15T10:00:00Z".to_string(),
         provider: "strava".to_string(),
     }
+}
+
+/// Mount the agent card on `mock_server`, advertising its own
+/// `/oauth2/token` as the `oauth2ClientCredentials` `tokenUrl`, the way the
+/// server's card does.
+async fn mount_agent_card(mock_server: &MockServer) {
+    Mock::given(method("GET"))
+        .and(path("/.well-known/agent-card.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "name": "Dravr AI",
+            "securitySchemes": {
+                "oauth2ClientCredentials": {
+                    "oauth2SecurityScheme": {
+                        "flows": {
+                            "clientCredentials": {
+                                "tokenUrl": format!("{}/oauth2/token", mock_server.uri()),
+                                "scopes": { "fitness:read": "Read fitness data" }
+                            }
+                        }
+                    }
+                }
+            }
+        })))
+        .mount(mock_server)
+        .await;
 }
 
 /// Create a test config for integration tests
@@ -49,8 +74,10 @@ async fn test_a2a_authentication_flow() -> Result<()> {
     let mock_server = MockServer::start().await;
 
     // Mock authentication endpoint
+    mount_agent_card(&mock_server).await;
     Mock::given(method("POST"))
-        .and(path("/a2a/auth"))
+        .and(path("/oauth2/token"))
+        .and(body_string_contains("grant_type=client_credentials"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "access_token": "test_access_token_123",
             "expires_in": 3600,
@@ -78,8 +105,10 @@ async fn test_a2a_get_activities() -> Result<()> {
     let mock_server = MockServer::start().await;
 
     // Mock authentication
+    mount_agent_card(&mock_server).await;
     Mock::given(method("POST"))
-        .and(path("/a2a/auth"))
+        .and(path("/oauth2/token"))
+        .and(body_string_contains("grant_type=client_credentials"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "access_token": "test_token",
             "expires_in": 3600,
@@ -143,8 +172,10 @@ async fn test_a2a_json_rpc_error_handling() -> Result<()> {
     let mock_server = MockServer::start().await;
 
     // Mock authentication
+    mount_agent_card(&mock_server).await;
     Mock::given(method("POST"))
-        .and(path("/a2a/auth"))
+        .and(path("/oauth2/token"))
+        .and(body_string_contains("grant_type=client_credentials"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "access_token": "test_token",
             "expires_in": 3600,
@@ -189,8 +220,10 @@ async fn test_fitness_analyzer_with_mock_data() {
     let mock_server = MockServer::start().await;
     
     // Mock authentication
+    mount_agent_card(&mock_server).await;
     Mock::given(method("POST"))
-        .and(path("/a2a/auth"))
+        .and(path("/oauth2/token"))
+        .and(body_string_contains("grant_type=client_credentials"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "access_token": "test_token",
             "expires_in": 3600,
@@ -369,8 +402,10 @@ async fn test_recommendation_generation() {
     let mock_server = MockServer::start().await;
     
     // Mock authentication
+    mount_agent_card(&mock_server).await;
     Mock::given(method("POST"))
-        .and(path("/a2a/auth"))
+        .and(path("/oauth2/token"))
+        .and(body_string_contains("grant_type=client_credentials"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "access_token": "test_token",
             "expires_in": 3600,

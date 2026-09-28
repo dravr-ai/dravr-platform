@@ -278,6 +278,11 @@ module "backend" {
       FRONTEND_URL = var.frontend_base_url
       BASE_URL     = var.frontend_base_url
 
+      # The published MCP origin. BASE_URL stays an alias of the same
+      # resource, so a client of either host is told the one it dialed
+      # (carnet#639). Blank falls back to BASE_URL alone.
+      MCP_RESOURCE_URL = var.mcp_resource_url
+
       # A mobile OAuth return to a previous frontend origin is still accepted
       # while a build pointing at it is in the field; base_url itself is
       # always allowed. Empty when frontend_previous_origins is.

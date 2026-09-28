@@ -842,7 +842,6 @@ async fn seed_a2a_clients(
                 user_ids[i % user_ids.len()]
             };
             let public_key = format!("pk_a2a_{:016x}", rng.random::<u64>());
-            let client_secret = format!("{:064x}", rng.random::<u128>());
             let permissions = r#"["read", "write"]"#.to_owned();
             let days_ago: i64 = rng.random_range(10..45);
             let created_at = Utc::now() - Duration::days(days_ago);
@@ -854,7 +853,6 @@ async fn seed_a2a_clients(
                 name: client.name.to_owned(),
                 description: client.description.to_owned(),
                 public_key,
-                client_secret,
                 permissions,
                 capabilities: client.capabilities.to_owned(),
                 created_at,

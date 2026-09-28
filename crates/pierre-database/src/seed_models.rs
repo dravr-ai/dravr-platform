@@ -208,8 +208,6 @@ pub struct SeedA2AClient {
     pub description: String,
     /// Public key
     pub public_key: String,
-    /// Client secret (hashed)
-    pub client_secret: String,
     /// JSON permissions array
     pub permissions: String,
     /// JSON capabilities array

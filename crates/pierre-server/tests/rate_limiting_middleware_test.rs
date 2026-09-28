@@ -98,7 +98,7 @@ async fn stored_a2a_client(database: &Database, key: &ApiKey) -> A2AClient {
     database
         .repositories()
         .a2a
-        .create_client(&client, "layer-test-secret", &key.id)
+        .create_client(&client, &key.id)
         .await
         .unwrap();
     client

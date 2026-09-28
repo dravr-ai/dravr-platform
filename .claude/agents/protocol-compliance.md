@@ -91,9 +91,13 @@ rg "struct AgentCard" src/a2a/agent_card.rs --type rust -A 20
 echo "Checking capability advertisement..."
 rg "capabilities|CapabilityType" src/a2a/ --type rust -n | head -15
 
-# Check A2A authentication
+# Check A2A authentication: the card's oauth2ClientCredentials tokenUrl
+# (/oauth2/token, client_credentials grant) must authenticate the credentials
+# POST /a2a/clients hands out, and the principal must accept its client:{id} tokens
 echo "Validating A2A auth mechanisms..."
-rg "A2AAuth|agent.*token|agent.*credential" src/a2a/auth.rs --type rust -A 5
+rg "oauth2ClientCredentials|OAUTH2_TOKEN_PATH" crates/pierre-a2a/src/agent_card.rs -n
+rg "register_client_credentials_client|delete_client" crates/pierre-a2a/src/client.rs -n
+rg "strip_prefix\(\"client:\"\)|is_active" crates/pierre-a2a/src/protocol/principal.rs -n
 
 # Test agent-to-agent client
 echo "Checking A2A client implementation..."

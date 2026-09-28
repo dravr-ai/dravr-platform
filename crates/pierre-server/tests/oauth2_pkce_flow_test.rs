@@ -59,7 +59,7 @@ async fn setup_test_env() -> (
         auth_manager.clone(),
         jwks_manager,
         REFRESH_TOKEN_EXPIRY_DAYS,
-        OAuth2ServerConfig::default().mcp_resource_url,
+        vec![OAuth2ServerConfig::default().mcp_resource_url],
     );
     let registration_manager = ClientRegistrationManager::new(repos.oauth2_server.clone());
     let registration_request = ClientRegistrationRequest {

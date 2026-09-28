@@ -589,7 +589,6 @@ macro_rules! impl_seeder_repository {
                     .bind(&client.name)
                     .bind(&client.description)
                     .bind(&client.public_key)
-                    .bind(&client.client_secret)
                     .bind($seed::bind_capabilities(&client.capabilities)?)
                     .bind(client.created_at)
                     .bind(client.updated_at)

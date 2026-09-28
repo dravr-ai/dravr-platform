@@ -274,9 +274,11 @@ examples/
        │ 2. Agent Card (interfaces+skills)│
        │<─────────────────────────────────┤
        │                                  │
-       │ 3. POST /a2a/auth               │
+       │ 3. POST card tokenUrl            │
+       │    (/oauth2/token,               │
+       │     client_credentials)          │
        ├─────────────────────────────────>│
-       │ 4. Session Token                │
+       │ 4. Bearer access_token           │
        │<─────────────────────────────────┤
        │                                  │
        │ 5. POST /a2a/jsonrpc SendMessage │

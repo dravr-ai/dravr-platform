@@ -551,15 +551,14 @@ pub(crate) const INSERT_API_KEY_SQL: &str = "INSERT INTO api_keys \
 pub(crate) const A2A_CLIENT_ID_BY_NAME_SQL: &str =
     "SELECT client_id FROM a2a_clients WHERE name = $1";
 
-/// One A2A client. The seed's `public_key` is the api-key hash and its
-/// `client_secret` the secret hash, stored as given; `redirect_uris` takes
-/// the column's empty-list default on both backends and the quotas are the
-/// column defaults spelled out.
+/// One A2A client. The seed's `public_key` is the api-key hash, stored as
+/// given; `redirect_uris` takes the column's empty-list default on both
+/// backends and the quotas are the column defaults spelled out.
 pub(crate) const INSERT_A2A_CLIENT_SQL: &str = "INSERT INTO a2a_clients \
-             (client_id, user_id, name, description, api_key_hash, client_secret_hash, \
+             (client_id, user_id, name, description, api_key_hash, \
               capabilities, rate_limit_per_minute, rate_limit_per_day, \
               is_active, created_at, updated_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, 1000, 10000, TRUE, $8, $9)";
+             VALUES ($1, $2, $3, $4, $5, $6, 1000, 10000, TRUE, $7, $8)";
 
 /// One API-key usage row. `$id_col`/`$id_val` are the usage-id clause of
 /// the backend: `", id"` / `", $6"` where the seed's uuid is the key, `""` /

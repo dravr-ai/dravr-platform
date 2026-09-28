@@ -492,11 +492,15 @@ impl A2ARoutes {
             return Err(AppError::not_found(format!("A2A client {client_id}")));
         }
 
-        // Deactivate client
-        A2ACtx::repos(state.ctx.as_ref())
-            .a2a
+        // Deactivate the client, its credentials, sessions and API keys
+        state
+            .client_manager
             .deactivate_client(&client_id)
-            .await?;
+            .await
+            .map_err(|e| {
+                error!(error = %e, client_id = %client_id, "Failed to deactivate A2A client");
+                management_error(e, "Failed to deactivate A2A client")
+            })?;
 
         Ok((
             StatusCode::OK,

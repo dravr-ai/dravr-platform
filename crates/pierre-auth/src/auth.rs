@@ -16,6 +16,7 @@
 
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
+use std::iter;
 
 use chrono::{DateTime, Duration, Utc};
 use jsonwebtoken::{
@@ -581,21 +582,21 @@ impl AuthManager {
         Self::validate_token_for(token, jwks_manager, &[MCP])
     }
 
-    /// Validate a RS256 JWT token as the protected resource `resource`
-    /// (RFC 8707): the platform audience, or a token audience-bound to
-    /// `resource`. A token bound to any other resource is refused.
+    /// Validate a RS256 JWT token as the protected resource known by each of
+    /// `resources` (RFC 8707): the platform audience, or a token audience-bound
+    /// to one of them. A token bound to any other resource is refused.
     ///
     /// # Errors
     ///
     /// Everything [`Self::validate_token`] refuses, less a token whose audience
-    /// is `resource`.
+    /// is one of `resources`.
     pub fn validate_resource_token(
         &self,
         token: &str,
         jwks_manager: &JwksManager,
-        resource: &str,
+        resources: &[&str],
     ) -> AppResult<Claims> {
-        Self::validate_token_for(token, jwks_manager, &[MCP, resource])
+        Self::validate_token_for(token, jwks_manager, &resource_audiences(resources))
     }
 
     /// Validate a RS256 JWT token whose audience is one of `audiences`.
@@ -712,22 +713,22 @@ impl AuthManager {
         Self::validate_detailed_for(token, jwks_manager, &[MCP])
     }
 
-    /// Validate a RS256 JWT token as the protected resource `resource`
-    /// (RFC 8707), with detailed error information: the platform audience, or
-    /// a token audience-bound to `resource`. A token bound to any other
-    /// resource is refused as invalid.
+    /// Validate a RS256 JWT token as the protected resource known by each of
+    /// `resources` (RFC 8707), with detailed error information: the platform
+    /// audience, or a token audience-bound to one of them. A token bound to any
+    /// other resource is refused as invalid.
     ///
     /// # Errors
     ///
     /// Everything [`Self::validate_token_detailed`] refuses, less a token whose
-    /// audience is `resource`.
+    /// audience is one of `resources`.
     pub fn validate_resource_token_detailed(
         &self,
         token: &str,
         jwks_manager: &JwksManager,
-        resource: &str,
+        resources: &[&str],
     ) -> Result<Claims, JwtValidationError> {
-        Self::validate_detailed_for(token, jwks_manager, &[MCP, resource])
+        Self::validate_detailed_for(token, jwks_manager, &resource_audiences(resources))
     }
 
     /// Validate a RS256 JWT token whose audience is one of `audiences`, with
@@ -1091,4 +1092,10 @@ pub fn generate_jwt_secret() -> AppResult<[u8; 64]> {
     })?;
 
     Ok(secret)
+}
+
+/// The audiences a protected resource known by each of `resources` accepts:
+/// the platform audience, then each identifier.
+fn resource_audiences<'a>(resources: &[&'a str]) -> Vec<&'a str> {
+    iter::once(MCP).chain(resources.iter().copied()).collect()
 }

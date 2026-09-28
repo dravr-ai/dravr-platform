@@ -267,7 +267,6 @@ macro_rules! impl_a2a_repository {
             async fn create_client(
                 &self,
                 client: &A2AClient,
-                client_secret: &str,
                 api_key_id: &str,
             ) -> AppResult<String> {
                 // One transaction: the client row and its API-key association
@@ -280,16 +279,12 @@ macro_rules! impl_a2a_repository {
                     .map_err(|e| AppError::database(format!("Failed to begin transaction: {e}")))?;
                 let mut guard = TransactionGuard::new(tx);
 
-                // Hash the client secret before storage (never store plaintext secrets).
-                let secret_hash = format!("{:x}", Sha256::digest(client_secret.as_bytes()));
-
                 sqlx::query(INSERT_CLIENT_SQL)
                     .bind(&client.id)
                     .bind($ids::bind(client.user_id))
                     .bind(&client.name)
                     .bind(&client.description)
                     .bind(&client.public_key)
-                    .bind(&secret_hash)
                     .bind($lists::bind_json(&client.capabilities))
                     .bind($lists::bind_json(&client.redirect_uris))
                     .bind(client.contact_email.as_deref().map(normalize_email))

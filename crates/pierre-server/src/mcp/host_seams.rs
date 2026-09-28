@@ -39,6 +39,7 @@ use dravr_tronc::mcp::server::{InstructionsSource, McpServer};
 use dravr_tronc::mcp::tasks::{TaskId, TaskManager, TaskOptions, TaskOwner, TaskStatus};
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext, ToolRegistry};
 use pierre_auth::auth::AuthResult;
+use pierre_auth::config::DIALED_HOST_HEADERS;
 use pierre_core::auth_header::is_api_key_format;
 use pierre_core::models::{EffectiveTool, TenantId, ToolEnablementSource};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -232,6 +233,15 @@ fn mcp_operation(request: &JsonRpcRequest) -> &str {
     &request.method
 }
 
+/// The authority the client dialed, from the headers the transport forwards:
+/// the first `X-Forwarded-Host` entry the frontend proxy writes, else `Host`.
+fn dialed_host(request: &JsonRpcRequest) -> Option<&str> {
+    let headers = request.headers.as_ref()?;
+    DIALED_HOST_HEADERS
+        .iter()
+        .find_map(|name| headers.get(*name).and_then(Value::as_str))
+}
+
 #[async_trait]
 impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
     async fn authenticate(
@@ -239,9 +249,13 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
         request: &JsonRpcRequest,
         _state: &Arc<dyn ToolRuntime>,
     ) -> Result<ToolContext, AuthError> {
-        // The MCP resource server's identifier: the origin its 401 challenges
-        // point at and the only resource a bound token may name.
-        let resource_url = &self.resources.common.config.oauth2_server.mcp_resource_url;
+        // The MCP resource server's identifier as the client knows it: the
+        // origin it dialed, when that is one of the server's (RFC 9728 §3.3
+        // has a client refuse metadata naming any other). The 401 challenges
+        // point at it; a bound token may name any of the server's identifiers.
+        let oauth2_server = &self.resources.common.config.oauth2_server;
+        let resource_url = oauth2_server.mcp_resource_for_host(dialed_host(request));
+        let resources = oauth2_server.mcp_resources();
 
         let Some(token) = request.auth_token.as_deref() else {
             return Err(AuthError::Unauthorized {
@@ -266,7 +280,7 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
             .resources
             .auth
             .auth_middleware
-            .authenticate_scoped_request(Some(&auth_header), resource_url)
+            .authenticate_scoped_request(Some(&auth_header), &resources)
             .await
         {
             Ok(result) => result,

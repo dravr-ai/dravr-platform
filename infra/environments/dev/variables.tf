@@ -227,6 +227,12 @@ variable "frontend_base_url" {
   default     = ""
 }
 
+variable "mcp_resource_url" {
+  description = "Origin MCP clients are given for /mcp (e.g. https://mcp.dravr.ai), set as MCP_RESOURCE_URL: the RFC 9728 resource the protected-resource metadata publishes to a client that dialed it and to one no host names. frontend_base_url keeps serving /mcp as an alias, so its existing clients keep working. Empty = frontend_base_url only."
+  type        = string
+  default     = ""
+}
+
 variable "frontend_previous_origins" {
   description = "Origins the frontend was served from before the current frontend_base_url, still accepted for the dual-origin window: joined into MCP_ALLOWED_ORIGINS and set as ALLOWED_MOBILE_REDIRECT_ORIGINS. Empty it once every client and provider callback is on frontend_base_url."
   type        = list(string)

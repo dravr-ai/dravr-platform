@@ -32,7 +32,9 @@ FitnessAnalysisAgent
 ## Technical Implementation
 
 **A2A Protocol Usage (spec 1.0):**
-- HTTP POST to `/a2a/auth` with client_id/client_secret
+- Token URL discovered from the agent card (`/.well-known/agent-card.json`,
+  `securitySchemes.oauth2ClientCredentials`), then an OAuth2 `client_credentials`
+  grant POSTed there form-encoded with client_id/client_secret
 - JWT token management with expiry tracking
 - JSON-RPC 2.0 requests to `/a2a/jsonrpc` with the `SendMessage` method
   (`A2A-Version: 1.0` header; tool intent as a `data` part)
@@ -119,20 +121,32 @@ export PIERRE_A2A_CLIENT_SECRET="your_client_secret"
 The agent demonstrates raw A2A protocol usage:
 
 ### Authentication
-```json
-POST /a2a/auth
-{
-  "client_id": "fitness_analyzer_client",
-  "client_secret": "client_secret_here",
-  "grant_type": "client_credentials",
-  "scope": "read write"
-}
+
+The client and secret come from `POST /a2a/clients`. The agent reads the
+token URL from the agent card rather than hardcoding it:
+
+```http
+GET /.well-known/agent-card.json
+
+→ securitySchemes.oauth2ClientCredentials.oauth2SecurityScheme
+    .flows.clientCredentials.tokenUrl = "http://localhost:8081/oauth2/token"
+```
+
+and requests a token there with the OAuth2 `client_credentials` grant
+(form-encoded, RFC 6749 §4.4):
+
+```http
+POST /oauth2/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&client_id=a2a_client_...&client_secret=...
 
 Response:
 {
   "access_token": "eyJ0eXAiOiJKV1QiLCJhbG...",
   "expires_in": 3600,
-  "token_type": "Bearer"
+  "token_type": "Bearer",
+  "scope": "fitness:read"
 }
 ```
 
@@ -323,10 +337,15 @@ cargo test
 
 **A2A Authentication Fails:**
 ```bash
-# Verify client credentials
-curl -X POST http://localhost:8081/a2a/auth \
-  -H "Content-Type: application/json" \
-  -d '{"client_id": "your_id", "client_secret": "your_secret"}'
+# Find the token URL the agent card advertises
+curl -s http://localhost:8081/.well-known/agent-card.json \
+  | jq -r '.securitySchemes.oauth2ClientCredentials.oauth2SecurityScheme.flows.clientCredentials.tokenUrl'
+
+# Verify client credentials against it
+curl -X POST http://localhost:8081/oauth2/token \
+  -d grant_type=client_credentials \
+  -d client_id=your_id \
+  --data-urlencode client_secret=your_secret
 
 # Check if client is registered
 curl "http://localhost:8081/a2a/clients" \

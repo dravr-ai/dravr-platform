@@ -20,7 +20,6 @@ use pierre_database::backends::factory::Database;
 use pierre_database::database::test_utils::create_test_db;
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::a2a::{client::A2ASession, models::a2a::A2AClient, protocol::TaskStatus};
-use sha2::{Digest, Sha256};
 use tokio::time::sleep;
 use uuid::Uuid;
 
@@ -117,7 +116,7 @@ async fn create_test_client_with_window(
 
     repos
         .a2a
-        .create_client(&client, "test_secret", &api_key.id)
+        .create_client(&client, &api_key.id)
         .await
         .expect("Failed to create A2A client");
     (client, test_user_id, api_key.id)
@@ -206,44 +205,6 @@ async fn test_a2a_client_round_trips_through_every_read() {
             "{read}: created_at"
         );
     }
-
-    let secret_hash = stored_secret_hash(&db, &client.id).await;
-    assert_ne!(
-        secret_hash, client.public_key,
-        "the public key must never be the secret hash"
-    );
-    assert_ne!(
-        secret_hash, "test_secret",
-        "the secret is never stored as given"
-    );
-    assert_eq!(
-        secret_hash,
-        format!("{:x}", Sha256::digest(b"test_secret")),
-        "the secret is stored as its SHA-256 hex digest"
-    );
-}
-
-/// The secret digest stored on `client_id`'s row, read from the backend's
-/// own table rather than through the repository, which never hands it out.
-async fn stored_secret_hash(db: &Database, client_id: &str) -> String {
-    const SQL: &str = "SELECT client_secret_hash FROM a2a_clients WHERE client_id = $1";
-    let (hash,): (String,) = match db {
-        Database::SQLite(sqlite) => {
-            sqlx::query_as(SQL)
-                .bind(client_id)
-                .fetch_one(sqlite.pool())
-                .await
-        }
-        #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => {
-            sqlx::query_as(SQL)
-                .bind(client_id)
-                .fetch_one(pg.pool())
-                .await
-        }
-    }
-    .expect("the client row carries its secret digest");
-    hash
 }
 
 /// The window read is bounded by the client's own rate-limit window, not by

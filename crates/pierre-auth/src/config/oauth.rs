@@ -10,6 +10,7 @@ use pierre_core::errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::env;
+use std::iter;
 use tracing::{debug, info, warn};
 use url::Url;
 
@@ -171,6 +172,15 @@ pub struct OAuth2ServerConfig {
     /// `MCP_RESOURCE_URL`, defaulting to `BASE_URL`, so a deployment that
     /// answers to one hostname needs no setting.
     pub mcp_resource_url: String,
+    /// The other origins that also serve `/mcp`, each an identifier of the
+    /// same MCP resource server: `BASE_URL`, when `MCP_RESOURCE_URL` names
+    /// another host.
+    ///
+    /// A client that dialed one of them is answered with that origin as its
+    /// `resource` (RFC 9728 §3.3 has it refuse any other), may name it as the
+    /// RFC 8707 `resource`, and presents tokens bound to it — so moving the
+    /// published MCP host leaves every client of the previous one working.
+    pub mcp_resource_aliases: Vec<String>,
     /// Default email for OAuth login page (dev/test only - do not use in production)
     pub default_login_email: Option<String>,
     /// Default password for OAuth login page (dev/test only - NEVER use in production!)
@@ -185,6 +195,7 @@ impl Default for OAuth2ServerConfig {
         Self {
             issuer_url: "http://localhost:8081".to_owned(),
             mcp_resource_url: "http://localhost:8081".to_owned(),
+            mcp_resource_aliases: Vec::new(),
             default_login_email: None,
             default_login_password: None,
             client_retention: ClientRetentionConfig::default(),
@@ -303,6 +314,43 @@ pub fn resolve_mcp_resource_url(
         .to_owned()
 }
 
+/// The request headers that carry the authority a client dialed.
+///
+/// Most specific first: the `X-Forwarded-Host` the frontend proxy writes (the
+/// backend's own `Host` is rewritten on the way in), then `Host`. Read in this
+/// order into [`OAuth2ServerConfig::mcp_resource_for_host`].
+pub const DIALED_HOST_HEADERS: [&str; 2] = ["x-forwarded-host", "host"];
+
+/// The other origins that serve the MCP resource `canonical`.
+///
+/// That is `base_url`, when it is set, is itself an origin
+/// (`scheme://host[:port]`, nothing after) and differs from `canonical`. A
+/// `base_url` with a path is no resource identifier a client could have dialed
+/// `/mcp` under, so it names no alias.
+///
+/// Split out of [`OAuth2ServerConfig::from_env`] so it is testable without
+/// mutating the process environment, like [`resolve_mcp_resource_url`].
+#[must_use]
+pub fn resolve_mcp_resource_aliases(canonical: &str, base_url: Option<&str>) -> Vec<String> {
+    base_url
+        .map(|url| url.trim().trim_end_matches('/'))
+        .filter(|url| *url != canonical)
+        .filter(|url| {
+            Url::parse(url).is_ok_and(|parsed| {
+                matches!(parsed.scheme(), "http" | "https")
+                    && parsed.host().is_some()
+                    && parsed.path() == "/"
+                    && parsed.query().is_none()
+                    && parsed.fragment().is_none()
+                    && parsed.username().is_empty()
+                    && parsed.password().is_none()
+            })
+        })
+        .map(str::to_owned)
+        .into_iter()
+        .collect()
+}
+
 /// The first of `explicit` and `base_url` that is set and not blank, else
 /// `http://localhost:{http_port}`.
 fn first_configured_url(explicit: Option<&str>, base_url: Option<&str>, http_port: u16) -> String {
@@ -323,6 +371,15 @@ impl OAuth2ServerConfig {
             .and_then(|s| s.parse().ok())
             .unwrap_or(8081);
         let base_url = env::var("BASE_URL").ok();
+        // The MCP resource server is named separately from the issuer
+        // (RFC 9728 expects the two to differ) so the MCP endpoint can be
+        // published under its own hostname while the authorization server
+        // stays where it is (carnet#484).
+        let mcp_resource_url = resolve_mcp_resource_url(
+            env::var("MCP_RESOURCE_URL").ok().as_deref(),
+            base_url.as_deref(),
+            http_port,
+        );
         Self {
             // The issuer is published verbatim in
             // `/.well-known/oauth-authorization-server` and
@@ -341,14 +398,12 @@ impl OAuth2ServerConfig {
                 base_url.as_deref(),
                 http_port,
             ),
-            // The MCP resource server is named separately from the issuer
-            // (RFC 9728 expects the two to differ) so the MCP endpoint can be
-            // published under its own hostname while the authorization server
-            // stays where it is (carnet#484).
-            mcp_resource_url: resolve_mcp_resource_url(
-                env::var("MCP_RESOURCE_URL").ok().as_deref(),
+            mcp_resource_url: mcp_resource_url.clone(),
+            // A client of BASE_URL's /mcp keeps working once MCP_RESOURCE_URL
+            // publishes another host (carnet#639).
+            mcp_resource_aliases: resolve_mcp_resource_aliases(
+                &mcp_resource_url,
                 base_url.as_deref(),
-                http_port,
             ),
             default_login_email: env::var("OAUTH_DEFAULT_EMAIL").ok(),
             default_login_password: env::var("OAUTH_DEFAULT_PASSWORD").ok(),
@@ -370,7 +425,51 @@ impl OAuth2ServerConfig {
     /// # Errors
     /// Returns an invalid-input error naming the defect.
     pub fn validate_mcp_resource_url(&self, require_https: bool) -> AppResult<()> {
-        let value = &self.mcp_resource_url;
+        Self::validate_resource_origin(&self.mcp_resource_url, require_https)
+    }
+
+    /// Every identifier of the MCP resource server: `mcp_resource_url` first,
+    /// then its aliases.
+    #[must_use]
+    pub fn mcp_resources(&self) -> Vec<&str> {
+        iter::once(self.mcp_resource_url.as_str())
+            .chain(self.mcp_resource_aliases.iter().map(String::as_str))
+            .collect()
+    }
+
+    /// The MCP resource identifier a client that dialed `host` knows the
+    /// server by: the one whose `host[:port]` it is, else `mcp_resource_url`.
+    ///
+    /// `host` is the dialed authority as a proxy forwards it (the first entry
+    /// of an `X-Forwarded-Host` list) or the `Host` header. Only a configured
+    /// identifier is ever returned, so a forged header can at most pick
+    /// another of this server's own names.
+    #[must_use]
+    pub fn mcp_resource_for_host(&self, host: Option<&str>) -> &str {
+        let Some(host) = host
+            .and_then(|host| host.split(',').next())
+            .map(str::trim)
+            .filter(|host| !host.is_empty())
+        else {
+            return &self.mcp_resource_url;
+        };
+        self.mcp_resources()
+            .into_iter()
+            .find(|resource| {
+                Url::parse(resource).is_ok_and(|url| {
+                    url.host_str().is_some_and(|name| {
+                        let authority = url
+                            .port()
+                            .map_or_else(|| name.to_owned(), |port| format!("{name}:{port}"));
+                        authority.eq_ignore_ascii_case(host)
+                    })
+                })
+            })
+            .unwrap_or(&self.mcp_resource_url)
+    }
+
+    /// Refuse a resource identifier that is not an `http`/`https` origin.
+    fn validate_resource_origin(value: &str, require_https: bool) -> AppResult<()> {
         let url = Url::parse(value).map_err(|e| {
             AppError::invalid_input(format!(
                 "MCP_RESOURCE_URL must be an absolute URL ({e}): {value}"

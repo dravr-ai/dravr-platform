@@ -397,7 +397,7 @@ async fn a2a_client(
         .common
         .repos
         .a2a
-        .create_client(&client, "budget-secret", &key.id)
+        .create_client(&client, &key.id)
         .await
         .unwrap();
     let token = resources

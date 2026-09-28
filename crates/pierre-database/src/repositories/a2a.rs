@@ -18,13 +18,12 @@ use uuid::Uuid;
 /// A2A (Agent-to-Agent) client and session management repository
 #[async_trait]
 pub trait A2ARepository: Send + Sync {
-    /// Create a new A2A client
-    async fn create_client(
-        &self,
-        client: &A2AClient,
-        client_secret: &str,
-        api_key_id: &str,
-    ) -> AppResult<String>;
+    /// Create a new A2A client bound to the API key it authenticates with.
+    ///
+    /// No secret is stored here: the client's secret lives in its
+    /// `oauth2_clients` registration, where the `client_credentials` grant
+    /// verifies it.
+    async fn create_client(&self, client: &A2AClient, api_key_id: &str) -> AppResult<String>;
     /// Get A2A client by ID
     async fn get_client(&self, client_id: &str) -> AppResult<Option<A2AClient>>;
     /// Get A2A client by API key ID
@@ -158,14 +157,14 @@ macro_rules! client_columns {
     };
 }
 
-/// Register a client. The secret is stored as its SHA-256 hex digest.
+/// Register a client.
 pub(crate) const INSERT_CLIENT_SQL: &str = r"
             INSERT INTO a2a_clients (
-                client_id, user_id, name, description, api_key_hash, client_secret_hash,
+                client_id, user_id, name, description, api_key_hash,
                 capabilities, redirect_uris, contact_email,
                 rate_limit_per_minute, rate_limit_per_day, is_active,
                 created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             ";
 
 /// Bind a client to the API key it authenticates with.

@@ -108,16 +108,29 @@ test_a2a_authentication() {
     local server_url="${PIERRE_SERVER_URL:-http://localhost:8081}"
     
     log_info "Testing A2A authentication..."
-    
+
+    if ! command -v jq >/dev/null 2>&1; then
+        log_error "jq is required to read the token URL from the agent card"
+        return 1
+    fi
+
+    # The token URL is the one the agent card advertises for its
+    # oauth2ClientCredentials scheme.
+    local token_url
+    token_url=$(curl -s --fail "$server_url/.well-known/agent-card.json" \
+        | jq -r '.securitySchemes.oauth2ClientCredentials.oauth2SecurityScheme.flows.clientCredentials.tokenUrl // empty') || true
+    if [[ -z "$token_url" ]]; then
+        log_error "The agent card at $server_url advertises no oauth2ClientCredentials tokenUrl"
+        return 1
+    fi
+
     local auth_response
     auth_response=$(curl -s -w "%{http_code}" \
-        -X POST "$server_url/a2a/auth" \
-        -H "Content-Type: application/json" \
-        -d "{
-            \"client_id\": \"${PIERRE_A2A_CLIENT_ID}\",
-            \"client_secret\": \"${PIERRE_A2A_CLIENT_SECRET}\"
-        }" 2>/dev/null) || {
-        log_error "Failed to connect to A2A authentication endpoint"
+        -X POST "$token_url" \
+        --data-urlencode "grant_type=client_credentials" \
+        --data-urlencode "client_id=${PIERRE_A2A_CLIENT_ID}" \
+        --data-urlencode "client_secret=${PIERRE_A2A_CLIENT_SECRET}" 2>/dev/null) || {
+        log_error "Failed to connect to the token endpoint at $token_url"
         return 1
     }
     
@@ -129,7 +142,7 @@ test_a2a_authentication() {
         return 0
     else
         log_error "A2A authentication failed (HTTP $http_code)"
-        if [[ "$http_code" == "401" ]]; then
+        if [[ "$http_code" == "400" || "$http_code" == "401" ]]; then
             log_error "Invalid client credentials. Please check PIERRE_A2A_CLIENT_ID and PIERRE_A2A_CLIENT_SECRET"
         fi
         return 1

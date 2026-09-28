@@ -11,7 +11,8 @@ pub mod oauth;
 pub mod rate_limit;
 
 pub use oauth::{
-    resolve_issuer_url, resolve_mcp_resource_url, ClientRetentionConfig, FirebaseConfig,
-    OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, ProviderEnvConfig,
+    resolve_issuer_url, resolve_mcp_resource_aliases, resolve_mcp_resource_url,
+    ClientRetentionConfig, FirebaseConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig,
+    ProviderEnvConfig, DIALED_HOST_HEADERS,
 };
 pub use rate_limit::RateLimitConfig;

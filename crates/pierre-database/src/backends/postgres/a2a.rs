@@ -12,7 +12,6 @@ use pierre_core::models::a2a::{
 use pierre_core::models::normalize_email;
 use pierre_core::models::WindowUsage;
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use sqlx::postgres::PgRow;
 use sqlx::Row;
 use tracing::{debug, warn};

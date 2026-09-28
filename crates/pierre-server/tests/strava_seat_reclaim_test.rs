@@ -869,7 +869,7 @@ mod strava_seat_reclaim_tests {
         let by_connector = middleware
             .authenticate_scoped_request(
                 Some(&format!("Bearer {access_token}")),
-                &resources.common.config.oauth2_server.mcp_resource_url,
+                &resources.common.config.oauth2_server.mcp_resources(),
             )
             .await
             .unwrap();

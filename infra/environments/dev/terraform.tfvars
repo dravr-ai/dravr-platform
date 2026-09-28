@@ -31,14 +31,16 @@ frontend_previous_origins = ["https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.
 
 # First-party hostnames on a global external load balancer in front of the
 # frontend service. app.dravr.ai is the address provider OAuth applications
-# register their callback against; mcp.dravr.ai is reserved for distributing
-# the MCP server through the AI chats and is NOT to be listed anywhere until
-# the backend runs with MCP_RESOURCE_URL=https://mcp.dravr.ai, which is what
-# the protected-resource metadata, the /mcp 401 challenge and RFC 8707 token
-# audiences name (unset, they name BASE_URL, app.dravr.ai). Both hostnames
-# share one load balancer, one IP pair and one bundle of forwarding rules, so
-# the second costs nothing.
+# register their callback against; mcp.dravr.ai is the MCP server's published
+# address for the AI chats. Both hostnames share one load balancer, one IP pair
+# and one bundle of forwarding rules, so the second costs nothing.
 public_domains = ["app.dravr.ai", "mcp.dravr.ai"]
+
+# The MCP resource identifier (MCP_RESOURCE_URL). A client that dials
+# mcp.dravr.ai/mcp is told that origin as its RFC 9728 resource; one that dials
+# app.dravr.ai/mcp is told app.dravr.ai, since BASE_URL stays an alias of the
+# same resource server, and tokens bound to either are served (carnet#639).
+mcp_resource_url = "https://mcp.dravr.ai"
 
 # 2 vCPU. Two SEPARATE reasons historically pinned this: (a) the contremaitre
 # boot-sync ran on the bind path and saturated a single core, so 1 vCPU missed

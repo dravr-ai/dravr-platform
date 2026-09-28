@@ -1471,7 +1471,7 @@ async fn create_parity_a2a_client(
     };
     repos
         .a2a
-        .create_client(&client, "parity-secret", &api_key.id)
+        .create_client(&client, &api_key.id)
         .await
         .unwrap_or_else(|e| panic!("{backend}: a2a client create must succeed: {e}"));
     client

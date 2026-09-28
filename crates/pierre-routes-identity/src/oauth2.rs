@@ -46,6 +46,8 @@ use crate::oauth2_rate_limited::{page_refusal, refusal};
 
 /// Server-rendered login, consent and error pages of the authorization flow
 mod pages;
+/// The RFC 8414 and RFC 9728 discovery documents
+mod well_known;
 
 pub use pages::{ConsentHtmlParams, LoginHtmlParams};
 
@@ -113,73 +115,6 @@ impl OAuth2Routes {
             // JWKS also available at /oauth2/jwks
             .route("/oauth2/jwks", get(Self::handle_jwks))
             .with_state(context)
-    }
-
-    /// Handle OAuth 2.0 discovery (RFC 8414)
-    async fn handle_discovery(State(context): State<OAuth2Context>) -> Json<serde_json::Value> {
-        let issuer_url = context.config.issuer_url.clone();
-
-        // Use spawn_blocking for JSON serialization (CPU-bound operation)
-        let discovery_json = spawn_blocking(move || {
-            serde_json::json!({
-                "issuer": issuer_url,
-                "authorization_endpoint": format!("{issuer_url}/oauth2/authorize"),
-                "token_endpoint": format!("{issuer_url}/oauth2/token"),
-                "registration_endpoint": format!("{issuer_url}/oauth2/register"),
-                "jwks_uri": format!("{issuer_url}/.well-known/jwks.json"),
-                "grant_types_supported": ["authorization_code", "client_credentials", "refresh_token"],
-                "response_types_supported": ["code"],
-                "token_endpoint_auth_methods_supported": ["client_secret_post"],
-                "scopes_supported": OAuth2AuthorizationServer::supported_scopes(),
-                "response_modes_supported": ["query"],
-                "code_challenge_methods_supported": ["S256"]
-            })
-        })
-        .await
-        .unwrap_or_else(|_| {
-            serde_json::json!({
-                "error": "internal_error",
-                "error_description": "Failed to generate discovery document"
-            })
-        });
-
-        Json(discovery_json)
-    }
-
-    /// Handle OAuth 2.0 Protected Resource Metadata discovery (RFC 9728).
-    ///
-    /// The MCP authorization spec requires a protected MCP server to act as an OAuth 2.1 resource
-    /// server publishing this document, so a client can find the authorization server after a 401;
-    /// `/mcp` 401s point here. `resource` is the MCP resource identifier (`MCP_RESOURCE_URL`,
-    /// defaulting to `BASE_URL`) — the origin clients dial, which RFC 9728 §3.3 has them compare
-    /// against this value — and `authorization_servers` names the issuer, which may be another
-    /// host. The same identifier is the one `resource` parameter the authorize and token
-    /// endpoints accept (RFC 8707), and the audience of the tokens they bind to it.
-    async fn handle_protected_resource_metadata(
-        State(context): State<OAuth2Context>,
-    ) -> Json<serde_json::Value> {
-        let issuer_url = context.config.issuer_url.clone();
-        let resource_url = context.config.mcp_resource_url.clone();
-
-        // Use spawn_blocking for JSON serialization (CPU-bound operation)
-        let metadata_json = spawn_blocking(move || {
-            serde_json::json!({
-                "resource": resource_url,
-                "authorization_servers": [issuer_url],
-                "jwks_uri": format!("{issuer_url}/.well-known/jwks.json"),
-                "scopes_supported": OAuth2AuthorizationServer::supported_scopes(),
-                "bearer_methods_supported": ["header"]
-            })
-        })
-        .await
-        .unwrap_or_else(|_| {
-            serde_json::json!({
-                "error": "internal_error",
-                "error_description": "Failed to generate protected resource metadata"
-            })
-        });
-
-        Json(metadata_json)
     }
 
     /// Handle client registration (RFC 7591)
@@ -373,7 +308,12 @@ impl OAuth2Routes {
             context.auth_manager.clone(),
             context.jwks_manager.clone(),
             context.refresh_token_expiry_days,
-            context.config.mcp_resource_url.clone(),
+            context
+                .config
+                .mcp_resources()
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
         )
     }
 
@@ -654,7 +594,7 @@ impl OAuth2Routes {
             &headers,
             &context.auth_manager,
             &context.jwks_manager,
-            &context.config.mcp_resource_url,
+            &context.config.mcp_resources(),
         ) {
             Ok(valid) => valid,
             Err(response) => return *response,
@@ -952,7 +892,7 @@ impl OAuth2Routes {
         headers: &HeaderMap,
         auth_manager: &AuthManager,
         jwks_manager: &JwksManager,
-        resource: &str,
+        resources: &[&str],
     ) -> Result<bool, Box<Response>> {
         let Some(header) = headers.get(header::AUTHORIZATION) else {
             // No token provided - not an error, just return false
@@ -987,7 +927,7 @@ impl OAuth2Routes {
             )
         })?;
 
-        match auth_manager.validate_resource_token(token, jwks_manager, resource) {
+        match auth_manager.validate_resource_token(token, jwks_manager, resources) {
             Ok(_) => Ok(true),
             Err(e) => {
                 debug!("Token validation failed: {}", e);

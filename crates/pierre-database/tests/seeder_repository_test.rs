@@ -84,7 +84,6 @@ fn seed_a2a_client(user_id: Uuid, capabilities: &str) -> SeedA2AClient {
         name: format!("seed-client-{id}"),
         description: "seeded for the repository test".to_owned(),
         public_key: format!("pk_a2a_{}", id.simple()),
-        client_secret: format!("{:064x}", id.as_u128()),
         permissions: r#"["read", "write"]"#.to_owned(),
         capabilities: capabilities.to_owned(),
         created_at: Utc::now(),

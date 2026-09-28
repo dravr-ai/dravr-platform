@@ -228,7 +228,7 @@ async fn fixture() -> Fixture {
         Arc::new(AuthManager::new(24)),
         get_shared_test_jwks(),
         30,
-        OAuth2ServerConfig::default().mcp_resource_url,
+        vec![OAuth2ServerConfig::default().mcp_resource_url],
     );
     let registrations = ClientRegistrationManager::new(repos.oauth2_server.clone());
     Fixture {

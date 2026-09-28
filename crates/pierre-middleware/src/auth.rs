@@ -59,9 +59,9 @@ enum GrantPolicy<'a> {
     DirectOnly,
     /// A delegated grant too, because the caller enforces its scopes.
     ScopesEnforced {
-        /// Identifier of the protected resource the request is addressed to;
+        /// Identifiers of the protected resource the request is addressed to;
         /// a token audience-bound to any other resource is refused.
-        resource: &'a str,
+        resources: &'a [&'a str],
     },
 }
 
@@ -289,9 +289,9 @@ impl McpAuthMiddleware {
     /// OAuth grant, whose narrowed scopes ride out on [`AuthResult::scopes`].
     /// A caller that does not read those scopes must not use this.
     ///
-    /// `resource` is the identifier of the protected resource the request is
-    /// addressed to. An access token audience-bound to it (RFC 8707) is
-    /// accepted; one bound to any other resource is refused as invalid.
+    /// `resources` are the identifiers of the protected resource the request is
+    /// addressed to. An access token audience-bound to one of them (RFC 8707)
+    /// is accepted; one bound to any other resource is refused as invalid.
     ///
     /// # Errors
     ///
@@ -300,9 +300,9 @@ impl McpAuthMiddleware {
     pub async fn authenticate_scoped_request(
         &self,
         auth_header: Option<&str>,
-        resource: &str,
+        resources: &[&str],
     ) -> AppResult<AuthResult> {
-        self.authenticate_header(auth_header, GrantPolicy::ScopesEnforced { resource })
+        self.authenticate_header(auth_header, GrantPolicy::ScopesEnforced { resources })
             .await
     }
 
@@ -639,9 +639,9 @@ impl McpAuthMiddleware {
             GrantPolicy::DirectOnly => self
                 .auth_manager
                 .validate_token_detailed(token, &self.jwks_manager),
-            GrantPolicy::ScopesEnforced { resource } => self
+            GrantPolicy::ScopesEnforced { resources } => self
                 .auth_manager
-                .validate_resource_token_detailed(token, &self.jwks_manager, resource),
+                .validate_resource_token_detailed(token, &self.jwks_manager, resources),
         }
         .map_err(|e| AppError::auth_invalid(format!("JWT validation failed: {e}")))?;
 

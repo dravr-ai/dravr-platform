@@ -366,7 +366,7 @@ async fn authorize_and_token_with_the_resource_mint_a_token_bound_to_it() {
     let auth = &resources.auth;
     let claims = auth
         .auth_manager
-        .validate_resource_token(&access_token, &auth.jwks_manager, MCP_RESOURCE)
+        .validate_resource_token(&access_token, &auth.jwks_manager, &[MCP_RESOURCE])
         .unwrap();
     assert_eq!(
         claims.aud, MCP_RESOURCE,
@@ -410,7 +410,7 @@ async fn authorize_and_token_with_the_resource_mint_a_token_bound_to_it() {
         .validate_resource_token(
             refreshed["access_token"].as_str().unwrap(),
             &auth.jwks_manager,
-            MCP_RESOURCE,
+            &[MCP_RESOURCE],
         )
         .unwrap();
     assert_eq!(refreshed_claims.aud, MCP_RESOURCE);
@@ -535,6 +535,138 @@ async fn a_token_bound_to_another_resource_is_refused_at_mcp() {
     assert_eq!(here.status(), 200);
 }
 
+// ── Both hosts serve /mcp (carnet#639) ───────────────────────────────────────
+
+/// A deployment publishing `MCP_RESOURCE` while `ISSUER`, its `BASE_URL`,
+/// still serves `/mcp` for the clients that were configured against it.
+fn both_hosts() -> OAuth2ServerConfig {
+    OAuth2ServerConfig {
+        mcp_resource_aliases: vec![ISSUER.to_owned()],
+        ..split_hosts()
+    }
+}
+
+/// `tools/list` at `/mcp` as the frontend proxy forwards a client that
+/// dialed `host`.
+async fn tools_list_via(
+    resources: &Arc<ServerContext>,
+    host: &str,
+    bearer: Option<&str>,
+) -> AxumTestResponse {
+    let mut request = AxumTestRequest::post("/mcp")
+        .header("x-forwarded-host", host)
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/list",
+            "params": {}
+        }));
+    if let Some(token) = bearer {
+        request = request.header("authorization", &format!("Bearer {token}"));
+    }
+    request.send(McpRoutes::routes(resources.clone())).await
+}
+
+/// The protected-resource document as a client that dialed `host` reads it.
+async fn metadata_via(resources: &Arc<ServerContext>, host: Option<&str>) -> Value {
+    let mut request = AxumTestRequest::get("/.well-known/oauth-protected-resource");
+    if let Some(host) = host {
+        request = request.header("x-forwarded-host", host);
+    }
+    request.send(oauth2_routes(resources)).await.json()
+}
+
+#[tokio::test]
+async fn each_host_is_told_its_own_resource() {
+    let resources = resources_with(both_hosts()).await;
+
+    let via_app = metadata_via(&resources, Some("app.example.test")).await;
+    assert_eq!(
+        via_app["resource"], ISSUER,
+        "RFC 9728 §3.3: the resource is the origin the client dialed"
+    );
+    assert_eq!(via_app["authorization_servers"], json!([ISSUER]));
+
+    let via_mcp = metadata_via(&resources, Some("mcp.example.test")).await;
+    assert_eq!(via_mcp["resource"], MCP_RESOURCE);
+
+    let unforwarded = metadata_via(&resources, None).await;
+    assert_eq!(unforwarded["resource"], MCP_RESOURCE);
+
+    let forged = metadata_via(&resources, Some("evil.example.test")).await;
+    assert_eq!(
+        forged["resource"], MCP_RESOURCE,
+        "a host the server does not answer to gets the published resource"
+    );
+}
+
+#[tokio::test]
+async fn the_mcp_401_challenge_names_the_dialed_host() {
+    let resources = resources_with(both_hosts()).await;
+
+    let via_app = tools_list_via(&resources, "app.example.test", None).await;
+    assert_eq!(via_app.status(), 401);
+    assert_eq!(
+        via_app.header("www-authenticate"),
+        Some(
+            format!("Bearer resource_metadata=\"{ISSUER}/.well-known/oauth-protected-resource\"")
+                .as_str()
+        ),
+        "a client of app.example.test/mcp is sent to that host's metadata"
+    );
+
+    let via_mcp = tools_list_via(&resources, "mcp.example.test", None).await;
+    assert_eq!(
+        via_mcp.header("www-authenticate"),
+        Some(metadata_challenge(None).as_str())
+    );
+}
+
+#[tokio::test]
+async fn a_token_bound_to_either_host_is_served_at_mcp() {
+    let resources = resources_with(both_hosts()).await;
+    let (user, _session) = athlete(&resources, "both-hosts@example.test").await;
+    let tenant = resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(user.id)
+        .await
+        .unwrap()
+        .first()
+        .map(|tenant| tenant.id.to_string());
+    let mint = |audience: &str| {
+        resources
+            .auth
+            .auth_manager
+            .generate_oauth_access_token(
+                &resources.auth.jwks_manager,
+                &user.id,
+                &["fitness:read".to_owned()],
+                &[],
+                tenant.clone(),
+                Some(audience),
+            )
+            .unwrap()
+    };
+
+    for (host, audience) in [
+        ("app.example.test", ISSUER),
+        ("mcp.example.test", MCP_RESOURCE),
+        ("mcp.example.test", ISSUER),
+    ] {
+        let served = tools_list_via(&resources, host, Some(&mint(audience))).await;
+        assert_eq!(
+            served.status(),
+            200,
+            "a token bound to {audience} is served when {host} is dialed"
+        );
+    }
+    let elsewhere =
+        tools_list_via(&resources, "app.example.test", Some(&mint(OTHER_RESOURCE))).await;
+    assert_eq!(elsewhere.status(), 401, "a third resource is still refused");
+}
+
 /// `POST /oauth2/validate-and-refresh` with `bearer`, presenting
 /// `refresh_token` when given; the JSON verdict.
 async fn validate_and_refresh(
@@ -656,7 +788,7 @@ async fn validate_and_refresh_rotates_a_bound_grant_into_a_token_still_bound() {
         .validate_resource_token(
             refreshed["access_token"].as_str().unwrap(),
             &resources.auth.jwks_manager,
-            MCP_RESOURCE,
+            &[MCP_RESOURCE],
         )
         .unwrap();
     assert_eq!(claims.aud, MCP_RESOURCE, "the grant's binding carries over");

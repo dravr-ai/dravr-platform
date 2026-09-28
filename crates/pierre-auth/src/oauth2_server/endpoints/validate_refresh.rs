@@ -36,7 +36,7 @@ impl OAuth2AuthorizationServer {
         match self.auth_manager.validate_resource_token_detailed(
             access_token,
             &self.jwks_manager,
-            &self.resource,
+            &self.served(),
         ) {
             Ok(claims) => self.handle_valid_token_claims(claims).await,
             Err(validation_error) => {
@@ -103,7 +103,7 @@ impl OAuth2AuthorizationServer {
 
         // Checked before the refresh token is rotated away: a grant bound to a
         // resource this server no longer serves cannot mint a usable token.
-        let audience = token_audience(&self.resource, None, refresh_token_data.resource.as_deref())
+        let audience = token_audience(&self.served(), None, refresh_token_data.resource.as_deref())
             .map_err(|refusal| {
                 AppError::new(
                     ErrorCode::AuthInvalid,

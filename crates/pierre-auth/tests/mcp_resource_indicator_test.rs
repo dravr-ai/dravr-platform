@@ -13,7 +13,9 @@
 //! `resource` was the issuer, so the endpoint could be served under one
 //! hostname only.
 
-use pierre_auth::config::{resolve_mcp_resource_url, OAuth2ServerConfig};
+use pierre_auth::config::{
+    resolve_mcp_resource_aliases, resolve_mcp_resource_url, OAuth2ServerConfig,
+};
 use pierre_auth::oauth2_server::resource::{bound_audience, token_audience};
 
 const BASE: &str = "https://app.example.test";
@@ -107,7 +109,7 @@ fn production_requires_https() {
 
 #[test]
 fn the_published_identifier_binds_itself() {
-    assert_eq!(bound_audience(MCP, MCP).unwrap(), MCP);
+    assert_eq!(bound_audience(&[MCP], MCP).unwrap(), MCP);
 }
 
 #[test]
@@ -122,7 +124,7 @@ fn the_forms_mcp_clients_send_bind_the_published_identifier() {
         "https://mcp.example.test:443/mcp",
     ] {
         assert_eq!(
-            bound_audience(MCP, requested).unwrap(),
+            bound_audience(&[MCP], requested).unwrap(),
             MCP,
             "{requested} names the MCP resource server"
         );
@@ -138,7 +140,7 @@ fn another_resource_is_invalid_target() {
         "https://mcp.example.test.evil.test",
         "https://evil.test/https://mcp.example.test",
     ] {
-        let error = bound_audience(MCP, requested).unwrap_err();
+        let error = bound_audience(&[MCP], requested).unwrap_err();
         assert_eq!(error.error, "invalid_target", "{requested}");
         assert_eq!(
             error.error_uri.as_deref(),
@@ -158,7 +160,7 @@ fn a_malformed_resource_is_invalid_target() {
         "urn:example:mcp",
     ] {
         assert_eq!(
-            bound_audience(MCP, requested).unwrap_err().error,
+            bound_audience(&[MCP], requested).unwrap_err().error,
             "invalid_target",
             "{requested}"
         );
@@ -169,22 +171,22 @@ fn a_malformed_resource_is_invalid_target() {
 fn a_served_resource_with_a_path_binds_only_at_or_below_it() {
     let served = "https://api.example.test/mcp";
     assert_eq!(
-        bound_audience(served, "https://api.example.test/mcp/").unwrap(),
+        bound_audience(&[served], "https://api.example.test/mcp/").unwrap(),
         served
     );
     assert_eq!(
-        bound_audience(served, "https://api.example.test/mcp/v2").unwrap(),
+        bound_audience(&[served], "https://api.example.test/mcp/v2").unwrap(),
         served
     );
-    assert!(bound_audience(served, "https://api.example.test/").is_err());
-    assert!(bound_audience(served, "https://api.example.test/mcpx").is_err());
+    assert!(bound_audience(&[served], "https://api.example.test/").is_err());
+    assert!(bound_audience(&[served], "https://api.example.test/mcpx").is_err());
 }
 
 #[test]
 fn a_token_request_without_resource_gets_the_grants() {
-    assert_eq!(token_audience(MCP, None, None).unwrap(), None);
+    assert_eq!(token_audience(&[MCP], None, None).unwrap(), None);
     assert_eq!(
-        token_audience(MCP, None, Some(MCP)).unwrap().as_deref(),
+        token_audience(&[MCP], None, Some(MCP)).unwrap().as_deref(),
         Some(MCP)
     );
 }
@@ -192,13 +194,13 @@ fn a_token_request_without_resource_gets_the_grants() {
 #[test]
 fn a_token_request_narrows_an_unbound_grant_and_repeats_a_bound_one() {
     assert_eq!(
-        token_audience(MCP, Some("https://mcp.example.test/"), None)
+        token_audience(&[MCP], Some("https://mcp.example.test/"), None)
             .unwrap()
             .as_deref(),
         Some(MCP)
     );
     assert_eq!(
-        token_audience(MCP, Some(MCP), Some(MCP))
+        token_audience(&[MCP], Some(MCP), Some(MCP))
             .unwrap()
             .as_deref(),
         Some(MCP)
@@ -208,13 +210,13 @@ fn a_token_request_narrows_an_unbound_grant_and_repeats_a_bound_one() {
 #[test]
 fn a_token_request_for_another_resource_is_invalid_target() {
     assert_eq!(
-        token_audience(MCP, Some(BASE), Some(MCP))
+        token_audience(&[MCP], Some(BASE), Some(MCP))
             .unwrap_err()
             .error,
         "invalid_target"
     );
     assert_eq!(
-        token_audience(MCP, Some(BASE), None).unwrap_err().error,
+        token_audience(&[MCP], Some(BASE), None).unwrap_err().error,
         "invalid_target"
     );
 }
@@ -224,7 +226,112 @@ fn a_grant_bound_to_a_resource_no_longer_served_is_invalid_grant() {
     // MCP_RESOURCE_URL moved after the grant was made: minting would hand the
     // client a token no resource server accepts, so it re-authorizes instead.
     assert_eq!(
-        token_audience(MCP, None, Some(BASE)).unwrap_err().error,
+        token_audience(&[MCP], None, Some(BASE)).unwrap_err().error,
+        "invalid_grant"
+    );
+}
+
+// ── Two hosts serving /mcp (carnet#639) ─────────────────────────────────────
+
+fn serving_both() -> OAuth2ServerConfig {
+    OAuth2ServerConfig {
+        mcp_resource_url: MCP.to_owned(),
+        mcp_resource_aliases: vec![BASE.to_owned()],
+        ..OAuth2ServerConfig::default()
+    }
+}
+
+#[test]
+fn base_url_is_an_alias_only_when_it_is_another_origin() {
+    assert_eq!(resolve_mcp_resource_aliases(MCP, Some(BASE)), vec![BASE]);
+    assert_eq!(
+        resolve_mcp_resource_aliases(MCP, Some("https://app.example.test/")),
+        vec![BASE],
+        "a trailing slash names the same origin"
+    );
+    assert!(resolve_mcp_resource_aliases(MCP, Some(MCP)).is_empty());
+    assert!(resolve_mcp_resource_aliases(MCP, None).is_empty());
+    assert!(
+        resolve_mcp_resource_aliases(MCP, Some("https://app.example.test/app")).is_empty(),
+        "a BASE_URL with a path is no origin a client dialed /mcp under"
+    );
+}
+
+#[test]
+fn the_dialed_host_picks_its_own_identifier() {
+    let config = serving_both();
+    assert_eq!(config.mcp_resources(), vec![MCP, BASE]);
+    assert_eq!(config.mcp_resource_for_host(Some("app.example.test")), BASE);
+    assert_eq!(config.mcp_resource_for_host(Some("MCP.example.test")), MCP);
+    assert_eq!(
+        config.mcp_resource_for_host(Some("app.example.test, proxy.internal")),
+        BASE,
+        "the first X-Forwarded-Host entry is the one the client dialed"
+    );
+}
+
+#[test]
+fn an_unknown_or_missing_host_gets_the_published_identifier() {
+    let config = serving_both();
+    assert_eq!(config.mcp_resource_for_host(None), MCP);
+    assert_eq!(config.mcp_resource_for_host(Some("")), MCP);
+    assert_eq!(
+        config.mcp_resource_for_host(Some("evil.test")),
+        MCP,
+        "a forged host can only pick one of the server's own names"
+    );
+    assert_eq!(
+        config.mcp_resource_for_host(Some("app.example.test:8443")),
+        MCP,
+        "a port the identifier does not carry is another authority"
+    );
+}
+
+#[test]
+fn a_port_is_part_of_the_authority() {
+    let config = OAuth2ServerConfig {
+        mcp_resource_url: "http://localhost:8081".to_owned(),
+        ..OAuth2ServerConfig::default()
+    };
+    assert_eq!(
+        config.mcp_resource_for_host(Some("localhost:8081")),
+        "http://localhost:8081"
+    );
+}
+
+#[test]
+fn each_host_binds_its_own_identifier() {
+    let served = [MCP, BASE];
+    assert_eq!(
+        bound_audience(&served, "https://mcp.example.test/mcp").unwrap(),
+        MCP
+    );
+    assert_eq!(
+        bound_audience(&served, "https://app.example.test/").unwrap(),
+        BASE
+    );
+    assert_eq!(
+        bound_audience(&served, "https://other.example.test")
+            .unwrap_err()
+            .error,
+        "invalid_target"
+    );
+}
+
+#[test]
+fn a_grant_bound_to_either_host_still_mints() {
+    let served = [MCP, BASE];
+    assert_eq!(
+        token_audience(&served, None, Some(BASE))
+            .unwrap()
+            .as_deref(),
+        Some(BASE),
+        "a grant made on app.example.test keeps working once mcp.example.test is published"
+    );
+    assert_eq!(
+        token_audience(&served, None, Some("https://gone.example.test"))
+            .unwrap_err()
+            .error,
         "invalid_grant"
     );
 }

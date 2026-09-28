@@ -145,6 +145,68 @@ impl ClientRegistrationManager {
         })
     }
 
+    /// Provision a `client_credentials`-only registration for a client the
+    /// server registered through its own surface (an A2A client), under the
+    /// `client_id` that surface already issued, and return its secret.
+    ///
+    /// The secret is generated and Argon2-hashed exactly as a dynamic
+    /// registration's is, so `/oauth2/token` verifies it through
+    /// [`Self::validate_client`] like any other. The registration may use no
+    /// other grant and has no redirect URI, and its scope ceiling is the
+    /// read-only default a client that asks for nothing is given. It carries
+    /// no `expires_at`: it lives as long as the client that owns it, which
+    /// deletes it through [`Self::delete_client`], so neither the pending
+    /// ceiling nor the retention sweep ever counts or deletes it.
+    ///
+    /// # Errors
+    /// Returns an error if the name holds a control character, the system RNG
+    /// or Argon2 fails, or the registration cannot be stored (a `client_id`
+    /// already registered included)
+    pub async fn register_client_credentials_client(
+        &self,
+        client_id: &str,
+        client_name: &str,
+    ) -> Result<String, OAuth2Error> {
+        if client_id.chars().any(char::is_control) || client_name.chars().any(char::is_control) {
+            return Err(OAuth2Error::invalid_client_metadata(
+                "client_id and client_name must not contain control characters",
+            ));
+        }
+        let scope = OAuthScope::render_granted(&OAuthScope::default_grant());
+
+        let client_secret = Self::generate_client_secret()?;
+        let client = OAuth2Client {
+            id: Uuid::new_v4().to_string(),
+            client_id: client_id.to_owned(),
+            client_secret_hash: Self::hash_client_secret(&client_secret)?,
+            redirect_uris: Vec::new(),
+            grant_types: vec!["client_credentials".to_owned()],
+            response_types: Vec::new(),
+            client_name: Some(client_name.to_owned()),
+            client_uri: None,
+            scope: Some(scope),
+            created_at: Utc::now(),
+            expires_at: None,
+        };
+
+        self.oauth2.store_client(&client).await.map_err(|e| {
+            error!(error = %e, client_id = %client_id, "Failed to store client_credentials registration");
+            OAuth2Error::server_error("Failed to store client registration")
+        })?;
+        info!(client_id = %client_id, "client_credentials registration provisioned");
+        Ok(client_secret)
+    }
+
+    /// Delete the registration `client_id` names, so `/oauth2/token` refuses
+    /// it from then on as an unknown client. Returns `true` when one was
+    /// deleted.
+    ///
+    /// # Errors
+    /// Returns the repository's error when the delete fails
+    pub async fn delete_client(&self, client_id: &str) -> AppResult<bool> {
+        self.oauth2.delete_client(client_id).await
+    }
+
     /// Verify client secret using Argon2 password hash
     fn verify_client_secret(
         client_id: &str,

@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-/// A2A authentication response
+/// OAuth2 token response from the card's `tokenUrl`
 #[derive(Debug, Deserialize)]
 struct AuthResponse {
     access_token: String,
@@ -93,26 +93,50 @@ impl A2AClient {
         }
     }
 
-    /// Authenticate with A2A client credentials
+    /// The `tokenUrl` of the agent card's `oauth2ClientCredentials` scheme.
+    ///
+    /// A2A clients discover where to obtain a token from the card rather than
+    /// from a hardcoded path (A2A spec, `securitySchemes`).
+    async fn discover_token_url(&self) -> Result<String> {
+        let card: Value = self
+            .http_client
+            .get(format!("{}/.well-known/agent-card.json", self.server_url))
+            .send()
+            .await
+            .context("Failed to fetch the agent card")?
+            .error_for_status()
+            .context("The agent card request was refused")?
+            .json()
+            .await
+            .context("Failed to parse the agent card")?;
+
+        card["securitySchemes"]["oauth2ClientCredentials"]["oauth2SecurityScheme"]["flows"]
+            ["clientCredentials"]["tokenUrl"]
+            .as_str()
+            .map(ToOwned::to_owned)
+            .context("The agent card advertises no oauth2ClientCredentials tokenUrl")
+    }
+
+    /// Authenticate with the OAuth2 client-credentials flow the agent card
+    /// advertises: `POST` the `client_credentials` grant, form-encoded, to its
+    /// `tokenUrl` and keep the bearer it returns.
     pub async fn authenticate(&mut self) -> Result<()> {
-        info!("🔐 Authenticating via A2A protocol");
+        info!("🔐 Authenticating via the agent card's client-credentials flow");
         debug!("Authenticating client_id: {}", self.client_id);
 
-        let auth_payload = json!({
-            "client_id": self.client_id,
-            "client_secret": self.client_secret,
-            "grant_type": "client_credentials",
-            "scope": "read write"
-        });
+        let token_url = self.discover_token_url().await?;
 
         let response = self
             .http_client
-            .post(format!("{}/a2a/auth", self.server_url))
-            .header("Content-Type", "application/json")
-            .json(&auth_payload)
+            .post(&token_url)
+            .form(&[
+                ("grant_type", "client_credentials"),
+                ("client_id", self.client_id.as_str()),
+                ("client_secret", self.client_secret.as_str()),
+            ])
             .send()
             .await
-            .context("Failed to send authentication request")?;
+            .context("Failed to send token request")?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -123,14 +147,13 @@ impl A2AClient {
         let auth_response: AuthResponse = response
             .json()
             .await
-            .context("Failed to parse authentication response")?;
+            .context("Failed to parse token response")?;
 
         // Store token with expiration time
-        self.access_token = Some(auth_response.access_token.clone());
+        self.access_token = Some(auth_response.access_token);
         self.token_expires_at = Some(Instant::now() + Duration::from_secs(auth_response.expires_in));
 
         info!("✅ A2A authentication successful, token expires in {}s", auth_response.expires_in);
-        debug!("Access token: {}...", &auth_response.access_token[..20]);
 
         Ok(())
     }
