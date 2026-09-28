@@ -1,5 +1,6 @@
 {
   "includeCoAuthoredBy": false,
+  "attribution": { "commit": "", "pr": "" },
   "enabledPlugins": {
     "obsidian@obsidian-skills": true
   },
