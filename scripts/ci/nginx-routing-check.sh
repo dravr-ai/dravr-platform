@@ -32,6 +32,12 @@
 #     nginx's error log names $remote_addr ("client: ...") on every upstream
 #     error, so any directive that rewrites $remote_addr from a header (realip)
 #     would put athletes' addresses in WARN/ERROR lines.
+#   - every access-log line is JSON whose severity Cloud Run can store: INFO
+#     for a clean proxy, ERROR for a response nginx could not get from the
+#     backend, WARNING for one served only after nginx abandoned a first
+#     upstream address. The IPv6 failures above served no 5xx and were stored
+#     with no severity, so nothing alerted for a week; the WARNING line is the
+#     signal that was missing. A query string never reaches the log.
 
 set -euo pipefail
 
@@ -41,6 +47,7 @@ HEADERS_CONF="$REPO_ROOT/docker/images/frontend/security-headers.conf"
 IMAGE="nginx:alpine"
 NET="nginx-routing-check-net"
 STUB="nginx-routing-check-stub"
+DEAD_STUB="nginx-routing-check-dead-stub"
 PROXY="nginx-routing-check-proxy"
 PORT="${NGINX_ROUTING_CHECK_PORT:-8097}"
 WORK="$(mktemp -d)"
@@ -85,7 +92,7 @@ SPA_PATHS=(
 )
 
 cleanup() {
-    docker rm -f "$STUB" "$PROXY" >/dev/null 2>&1 || true
+    docker rm -f "$STUB" "$DEAD_STUB" "$PROXY" >/dev/null 2>&1 || true
     docker network rm "$NET" >/dev/null 2>&1 || true
     rm -rf "$WORK" || true
 }
@@ -106,6 +113,10 @@ echo '<!doctype html><html>SPA-INDEX</html>' > "$WORK/www/index.html"
 # which makes nginx log an upstream error for the log check at the end.
 printf 'server {\n listen 80;\n location = %s { return 444; }\n location / { add_header Content-Type text/plain; return 200 "BACKEND-REACHED $request_method $uri\\n"; }\n}\n' \
     "$UPSTREAM_FAILS_PATH" > "$WORK/stub.conf"
+# A second address for the stub's name that drops every request, joined at the
+# end so nginx has a first address to abandon (the access-log retry check).
+printf 'server {\n listen 80;\n location / { return 444; }\n}\n' > "$WORK/dead-stub.conf"
+QUERY_SECRET="routing-check-code-5f1e"
 
 docker network create "$NET" >/dev/null 2>&1 || true
 
@@ -135,7 +146,7 @@ if [ "$ready" -ne 1 ]; then
     exit 1
 fi
 
-docker run -d --name "$STUB" --network "$NET" \
+docker run -d --name "$STUB" --network "$NET" --network-alias "$STUB" \
     -v "$WORK/stub.conf:/etc/nginx/conf.d/default.conf:ro" "$IMAGE" >/dev/null
 
 stub_ready=0
@@ -243,6 +254,68 @@ elif grep -qF -- "$CLIENT_SUPPLIED_ADDRESS" <<<"$proxy_logs"; then
 else
     echo "  ok   upstream error logged without the client-supplied address"
     echo "       ${upstream_error:0:160}"
+fi
+
+# ---------------------------------------------------------------------------
+# The access log is JSON with a severity Cloud Run stores.
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "-- access log severity --"
+
+curl -s -o /dev/null "http://localhost:$PORT/oauth2/authorize?code=$QUERY_SECRET&state=$QUERY_SECRET" --max-time 10 || true
+
+# Join a dead address under the stub's name, then ask until nginx has dialled
+# it first and moved on. Docker's DNS rotates the two records and the resolver
+# re-asks every 10s, so the dead one leads within a few requests.
+docker run -d --name "$DEAD_STUB" --network "$NET" --network-alias "$STUB" \
+    -v "$WORK/dead-stub.conf:/etc/nginx/conf.d/default.conf:ro" "$IMAGE" >/dev/null
+retry_served=1
+for _ in $(seq 1 40); do
+    body="$(curl -s "http://localhost:$PORT/api/health?retry" --max-time 5 || true)"
+    [[ "$body" == BACKEND-REACHED* ]] || retry_served=0
+    if docker logs "$PROXY" 2>/dev/null | grep -F '"path":"/api/health"' | grep -qF '"severity":"WARNING"'; then
+        break
+    fi
+    sleep 0.5
+done
+
+if ! access_logs="$(docker logs "$PROXY" 2>/dev/null)"; then
+    echo "  FAIL could not read the nginx container's access log"
+    failures=$((failures + 1))
+else
+    access_json="$(grep '^{' <<<"$access_logs" || true)"
+    if [ -z "$access_json" ]; then
+        echo "  FAIL no JSON access-log line on stdout; Cloud Run stores plain text with no severity"
+        printf '%s\n' "$access_logs" | tail -5 | sed 's/^/    /'
+        failures=$((failures + 1))
+    elif ! bad="$(jq -c 'select((.severity|type) != "string" or (.status|type) != "number")' <<<"$access_json" 2>&1)" || [ -n "$bad" ]; then
+        echo "  FAIL an access-log line is not JSON with a severity and a numeric status:"
+        printf '%s\n' "$bad" | head -3 | sed 's/^/    /'
+        failures=$((failures + 1))
+    else
+        expect_line() { # <label> <jq selector>
+            if jq -e "select($2)" <<<"$access_json" >/dev/null 2>&1 && [ -n "$(jq -c "select($2)" <<<"$access_json")" ]; then
+                echo "  ok   $1"
+            else
+                echo "  FAIL $1"
+                failures=$((failures + 1))
+            fi
+        }
+        expect_line "a proxied 200 is INFO" '.path == "/api/health" and .status == 200 and .severity == "INFO"'
+        expect_line "an upstream failure is ERROR" ".path == \"$UPSTREAM_FAILS_PATH\" and .status == 502 and .severity == \"ERROR\""
+        expect_line "a 200 served after abandoning an address is WARNING" '.path == "/api/health" and .status == 200 and .severity == "WARNING" and (.upstream | contains(", "))'
+        if [ "$retry_served" -ne 1 ]; then
+            echo "  FAIL a request failed while one upstream address was dead; nginx did not retry the next"
+            failures=$((failures + 1))
+        fi
+        if grep -qF -- "$QUERY_SECRET" <<<"$access_logs"; then
+            echo "  FAIL a query string reached the access log (OAuth codes travel there)"
+            failures=$((failures + 1))
+        else
+            echo "  ok   the query string stays out of the log"
+        fi
+    fi
 fi
 
 if [ "$failures" -gt 0 ]; then
