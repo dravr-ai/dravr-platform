@@ -1,0 +1,38 @@
+<!-- @dsCard height=320 -->
+<div class="cv">
+  <style>
+    .cv { position: relative; width: 960px; height: 320px; background: var(--surface); overflow: hidden; }
+    .cv svg { position: absolute; left: 0; top: 0; }
+    .cv .b-primary { fill: var(--primary); }
+    .cv .b-deep { fill: var(--tertiary-container); }
+    .cv .b-mint { fill: var(--primary-fixed-dim); }
+    .cv .b-bronze { fill: var(--nutrition); }
+    .cv .r-xl { rx: var(--radius-xl); }
+    .cv .r-lg { rx: var(--radius-lg); }
+    .cv .ripple { fill: none; stroke: var(--primary-container); stroke-width: var(--space-sm); stroke-linecap: round; }
+    .cv .name { position: absolute; left: 40px; bottom: 64px; margin: 0; font-family: var(--font-display); font-weight: 600; font-size: 120px; line-height: 0.95; letter-spacing: -0.01em; color: var(--on-surface); max-width: 440px; }
+    .cv .tag { position: absolute; left: 40px; bottom: 32px; margin: 0; font-family: var(--font-sans); font-size: 14px; line-height: 18px; color: var(--on-surface-variant); max-width: 440px; }
+  </style>
+  <svg width="960" height="320" viewBox="0 0 960 320" aria-hidden="true">
+    <!--
+      blocks: primary slab 372×220 (bleeds top/right), tertiary-container 240×108, primary-fixed-dim 116×108, nutrition 64×64; corners radius-xl, radius-lg on the satellite
+      arrangement: one tall slab with satellites — the forest over its shoreline, bronze as the one warm satellite; all right of x=480, gaps space-md (16)
+      pattern: literal motif — the Boreal Ripple mark's concentric arcs, because the brand's mark is ripples on water; five arcs in primary-container clipped by the slab
+      scales: arc pitch space-lg (24, radii 24–120), stroke space-sm (8), gaps space-md (16), radii radius-xl / radius-lg
+    -->
+    <defs><clipPath id="cv-slab"><rect x="600" y="-12" width="372" height="220" rx="12"/></clipPath></defs>
+    <rect class="b-primary r-xl" x="600" y="-12" width="372" height="220"/>
+    <g clip-path="url(#cv-slab)">
+      <path class="ripple" d="M656 76 A24 24 0 0 1 656 124"/>
+      <path class="ripple" d="M656 52 A48 48 0 0 1 656 148"/>
+      <path class="ripple" d="M656 28 A72 72 0 0 1 656 172"/>
+      <path class="ripple" d="M656 4 A96 96 0 0 1 656 196"/>
+      <path class="ripple" d="M656 -20 A120 120 0 0 1 656 220"/>
+    </g>
+    <rect class="b-bronze r-lg" x="520" y="144" width="64" height="64"/>
+    <rect class="b-deep r-xl" x="600" y="224" width="240" height="108"/>
+    <rect class="b-mint r-xl" x="856" y="224" width="116" height="108"/>
+  </svg>
+  <h1 class="name">Dravr<br>Boreal</h1>
+  <p class="tag">A boreal forest on paper — one green, warm paper, hairlines.</p>
+</div>

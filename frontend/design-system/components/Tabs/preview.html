@@ -1,0 +1,7 @@
+<!-- @dsCard group="Navigation" height=90 -->
+<div id="root"></div>
+<script>
+const h=React.createElement,B=window.Boreal,root=ReactDOM.createRoot(document.getElementById('root'));
+function Demo(){const [a,s]=React.useState('all');return h('div',{style:{padding:'8px 20px'}},h(B.Tabs,{variant:'underline',activeTab:a,onChange:s,tabs:[{id:'all',label:'All'},{id:'unread',label:'Unread',badge:3},{id:'groups',label:'Groups'},{id:'agents',label:'Agents'}]}));}
+root.render(h(Demo));
+</script>

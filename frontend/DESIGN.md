@@ -10,7 +10,9 @@
 > `frontend-mobile/tailwind.config.js` map those variables to classes. This
 > document states the values and the rules; a change to the tokens must be
 > reflected here. The brand's own name lives in
-> `packages/shared-constants/src/brands.ts` as `PRODUCT_WORDMARK`.
+> `packages/shared-constants/src/brands.ts` as `PRODUCT_WORDMARK`. A browsable
+> copy of the system, with live previews of the `ui/` primitives, is generated
+> from these sources by `frontend/design-system/` (`bun run design-system`).
 
 Dravr ships two related design systems that share a brand identity but differ
 in tone:

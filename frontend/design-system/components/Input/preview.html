@@ -1,0 +1,9 @@
+<!-- @dsCard group="Forms" height=230 -->
+<div id="root"></div>
+<script>
+const h=React.createElement,B=window.Boreal,root=ReactDOM.createRoot(document.getElementById('root'));
+root.render(h('div',{style:{padding:20,display:'grid',gap:20,maxWidth:360}},
+ h(B.Input,{label:'Email',placeholder:'you@example.com',helpText:'We send the sign-in link here.'}),
+ h(B.Input,{label:'Goal race',defaultValue:'Berlin Marathon'}),
+ h(B.Input,{label:'FTP (watts)',defaultValue:'-20',error:'Enter a value between 50 and 600.'})));
+</script>

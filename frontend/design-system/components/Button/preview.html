@@ -1,0 +1,9 @@
+<!-- @dsCard group="Actions" height=110 -->
+<div id="root"></div>
+<script>
+const h=React.createElement,B=window.Boreal,root=ReactDOM.createRoot(document.getElementById('root'));
+root.render(h('div',{style:{padding:20,display:'flex',flexWrap:'wrap',gap:12,alignItems:'center'}},
+ h(B.Button,{variant:'primary'},'Save plan'),h(B.Button,{variant:'secondary'},'Confirm'),h(B.Button,{variant:'tertiary'},'View all'),
+ h(B.Button,{variant:'outline'},'Connect'),h(B.Button,{variant:'danger'},'Delete'),h(B.Button,{variant:'primary',size:'sm'},'Small'),
+ h(B.Button,{variant:'primary',size:'lg'},'Sign in'),h(B.Button,{variant:'primary',loading:true},'Saving'),h(B.Button,{variant:'primary',disabled:true},'Disabled')));
+</script>

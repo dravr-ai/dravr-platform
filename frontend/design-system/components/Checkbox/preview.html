@@ -1,0 +1,9 @@
+<!-- @dsCard group="Forms" height=150 -->
+<div id="root"></div>
+<script>
+const h=React.createElement,B=window.Boreal,root=ReactDOM.createRoot(document.getElementById('root'));
+root.render(h('div',{style:{padding:20,display:'grid',gap:14}},
+ h(B.Checkbox,{label:'Weekly summary',description:'Every Monday, one message.',defaultChecked:true}),
+ h(B.Checkbox,{label:'Push notifications'}),
+ h(B.Radio,{label:'Metric units',name:'u',defaultChecked:true}),h(B.Radio,{label:'Imperial units',name:'u'})));
+</script>

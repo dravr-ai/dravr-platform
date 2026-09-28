@@ -1,0 +1,7 @@
+<!-- @dsCard group="Status" height=80 -->
+<div id="root"></div>
+<script>
+const h=React.createElement,B=window.Boreal,root=ReactDOM.createRoot(document.getElementById('root'));
+root.render(h('div',{style:{padding:20,display:'flex',flexWrap:'wrap',gap:24}},
+ h(B.StatusIndicator,{status:'online',label:'Online'}),h(B.StatusIndicator,{status:'offline',label:'Offline'}),h(B.StatusIndicator,{status:'error',label:'Sync failed'})));
+</script>
