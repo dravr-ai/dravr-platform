@@ -1552,9 +1552,9 @@ dependencies = [
 
 [[package]]
 name = "dravr-tronc"
-version = "3.0.0"
+version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f60c1d0c23fd0a581b44ba26474fb94dd83ff1efd6ae2fb799e2e0557dfc8405"
+checksum = "bb1194122b4fd100abf7e3ea260cb8a83515148ba794937d8cbf35daddc94ecf"
 dependencies = [
  "async-trait",
  "axum",
@@ -1563,7 +1563,7 @@ dependencies = [
  "clap",
  "futures",
  "hex",
- "jsonwebtoken 9.3.1",
+ "jsonwebtoken",
  "reqwest 0.12.28",
  "ring",
  "serde",
@@ -2472,7 +2472,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -2812,21 +2812,6 @@ dependencies = [
  "serde_json",
  "unicode-general-category",
  "uuid-simd",
-]
-
-[[package]]
-name = "jsonwebtoken"
-version = "9.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a87cc7a48537badeae96744432de36f4be2b4a34a05a5ef32e9dd8a1c169dde"
-dependencies = [
- "base64 0.22.1",
- "js-sys",
- "pem",
- "ring",
- "serde",
- "serde_json",
- "simple_asn1",
 ]
 
 [[package]]
@@ -3579,7 +3564,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "http",
- "jsonwebtoken 10.3.0",
+ "jsonwebtoken",
  "num-traits",
  "pierre-cache",
  "pierre-core",
@@ -4039,7 +4024,7 @@ dependencies = [
  "chrono",
  "futures-util",
  "http",
- "jsonwebtoken 10.3.0",
+ "jsonwebtoken",
  "opentelemetry",
  "pierre-auth",
  "pierre-cache",
@@ -4529,7 +4514,7 @@ dependencies = [
  "html-escape",
  "http",
  "jsonschema",
- "jsonwebtoken 10.3.0",
+ "jsonwebtoken",
  "num-traits",
  "photograveur",
  "pierre-a2a",
@@ -4826,7 +4811,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -4864,7 +4849,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "tracing",
  "windows-sys 0.60.2",
 ]
