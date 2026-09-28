@@ -16,6 +16,7 @@ use axum::http::{Request, StatusCode};
 use axum::response::Response;
 use axum::Router;
 use futures_util::future::join_all;
+use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_auth::{
     config::{rate_limit::trusted_proxies, OAuth2ServerConfig, RateLimitConfig},
     oauth2_server::{
@@ -726,6 +727,7 @@ async fn oauth2_routes(limiter: OAuth2RateLimiter) -> (Router, String) {
         jwks_manager: common::get_shared_test_jwks(),
         config: Arc::new(OAuth2ServerConfig::default()),
         refresh_token_expiry_days: 30,
+        csrf_manager: Arc::new(CsrfTokenManager::with_secret(b"oauth2-test-csrf-secret")),
         rate_limiter: Arc::new(limiter),
     });
     (routes, client_id)

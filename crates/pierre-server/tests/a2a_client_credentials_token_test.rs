@@ -59,6 +59,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
         jwks_manager: resources.auth.jwks_manager.clone(),
         config: Arc::new(resources.common.config.oauth2_server.clone()),
         refresh_token_expiry_days: resources.common.config.auth.refresh_token_expiry_days,
+        csrf_manager: resources.auth.csrf_manager.clone(),
         rate_limiter: Arc::new(OAuth2RateLimiter::new(
             None,
             OAuth2RateLimiter::local_window_store(),

@@ -93,6 +93,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
             &resources.common.config.rate_limiting,
         )),
         refresh_token_expiry_days: 30,
+        csrf_manager: resources.auth.csrf_manager.clone(),
     };
     OAuth2Routes::routes(context).layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40_484))))
 }
@@ -196,6 +197,14 @@ async fn authorization_code(
         "the consent form carries the requested resource: {page}"
     );
 
+    // The token the rendered form carries is the one the submission proves.
+    let csrf_token = page
+        .split("name=\"csrf_token\" value=\"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .unwrap_or_else(|| panic!("the consent form carries its synchronizer token: {page}"))
+        .to_owned();
+
     let challenge = pkce_challenge();
     let form = [
         ("response_type", "code"),
@@ -205,6 +214,7 @@ async fn authorization_code(
         ("code_challenge", challenge.as_str()),
         ("code_challenge_method", "S256"),
         ("resource", resource.unwrap_or_default()),
+        ("csrf_token", csrf_token.as_str()),
         ("decision", "approve"),
     ];
     let approved = AxumTestRequest::post("/oauth2/consent")

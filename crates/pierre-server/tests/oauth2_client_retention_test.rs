@@ -30,6 +30,7 @@ use pierre_auth::oauth2_server::models::{
     ClientRegistrationRequest, ClientRegistrationResponse, OAuth2Error,
 };
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
+use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::models::{
     OAuth2AuthCode, OAuth2Client, OAuth2ClientSweep, OAuth2RefreshToken, OAuth2State,
@@ -533,6 +534,7 @@ async fn the_register_endpoint_answers_past_the_ceiling_with_429_and_an_rfc7591_
         jwks_manager: common::get_shared_test_jwks(),
         config: Arc::new(config),
         refresh_token_expiry_days: 30,
+        csrf_manager: Arc::new(CsrfTokenManager::with_secret(b"oauth2-test-csrf-secret")),
         rate_limiter: Arc::new(OAuth2RateLimiter::new(
             None,
             OAuth2RateLimiter::local_window_store(),

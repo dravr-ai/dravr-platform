@@ -33,6 +33,11 @@ const CSRF_EXEMPT_PATHS: &[&str] = &[
     // Browser device-approval: credential-gated (email/password in the body), so a
     // cross-site attacker cannot forge it — no ambient session is trusted here.
     "/admin/device/approve-web",
+    // The OAuth login form: credential-gated like the device approval above.
+    "/oauth2/login",
+    // The OAuth consent form: an HTML form cannot send the header, so it
+    // carries its own synchronizer token, which the consent handler checks.
+    "/oauth2/consent",
 ];
 
 /// Validate the CSRF token on a state-changing HTTP request.

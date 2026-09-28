@@ -30,6 +30,7 @@ use pierre_auth::oauth2_server::{
 };
 use pierre_auth::password::verify_password;
 use pierre_auth::rate_limiting::OAuth2Endpoint;
+use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::html::with_hosted_page_css;
 use pierre_core::models::OAuthClientGrant;
@@ -75,6 +76,10 @@ pub struct OAuth2Context {
     pub rate_limiter: Arc<OAuth2RateLimiter>,
     /// Refresh-token lifetime in days, the `REFRESH_TOKEN_EXPIRY_DAYS` sessions read too
     pub refresh_token_expiry_days: i64,
+    /// Mints and checks the consent form's synchronizer token: the form is
+    /// plain HTML, so it cannot carry the `X-CSRF-Token` header the API's
+    /// cookie sessions use
+    pub csrf_manager: Arc<CsrfTokenManager>,
 }
 
 /// OAuth 2.0 routes implementation
@@ -274,7 +279,17 @@ impl OAuth2Routes {
             .await;
         }
 
-        Self::render_consent_page(&request)
+        // The consent form's synchronizer token, bound to this user: a page
+        // on another origin cannot read it, so it cannot post an approval.
+        match context.csrf_manager.generate_token(authenticated_user_id) {
+            Ok(csrf_token) => Self::render_consent_page(&request, &csrf_token),
+            Err(e) => {
+                error!("Failed to mint the consent form token: {e}");
+                Self::render_oauth_error_response(&OAuth2Error::server_error(
+                    "The consent screen could not be prepared",
+                ))
+            }
+        }
     }
 
     /// Resolve the tenant used to key an OAuth client grant.
@@ -393,6 +408,17 @@ impl OAuth2Routes {
                 request.state.as_deref(),
                 &OAuth2Error::access_denied("The user denied the authorization request"),
             );
+        }
+
+        // An approval must come from the consent screen this server rendered
+        // for this user, not a form another site posts with the user's cookie;
+        // a denial needs no proof, and must reach the client (RFC 6749 §4.1.2.1).
+        let form_token = form.get("csrf_token").map_or("", String::as_str);
+        if let Err(e) = context.csrf_manager.validate_token(form_token, user_id) {
+            warn!(user_id = %user_id, "OAuth consent refused: {e}");
+            return Self::render_oauth_error_response(&OAuth2Error::access_denied(
+                "The consent screen expired or did not come from Dravr; start the connection again",
+            ));
         }
 
         // Record the grant; a duplicate active grant is a no-op at the storage layer.

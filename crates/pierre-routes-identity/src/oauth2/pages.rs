@@ -62,6 +62,8 @@ pub struct ConsentHtmlParams<'a> {
     pub code_challenge_method: &'a str,
     /// RFC 8707 resource the authorization is for (empty when none was named)
     pub resource: &'a str,
+    /// Synchronizer token the consent submission is checked against
+    pub csrf_token: &'a str,
 }
 
 impl OAuth2Routes {
@@ -118,7 +120,7 @@ impl OAuth2Routes {
     }
 
     /// Render the consent screen for a not-yet-granted authorization request.
-    pub(super) fn render_consent_page(request: &AuthorizeRequest) -> Response {
+    pub(super) fn render_consent_page(request: &AuthorizeRequest, csrf_token: &str) -> Response {
         let html = Self::generate_consent_html(ConsentHtmlParams {
             client_id: &request.client_id,
             redirect_uri: &request.redirect_uri,
@@ -128,6 +130,7 @@ impl OAuth2Routes {
             code_challenge: request.code_challenge.as_deref().unwrap_or_default(),
             code_challenge_method: request.code_challenge_method.as_deref().unwrap_or_default(),
             resource: request.resource.as_deref().unwrap_or_default(),
+            csrf_token,
         });
         Html(html).into_response()
     }
@@ -214,6 +217,7 @@ impl OAuth2Routes {
                 &escape_html_attribute(params.code_challenge_method),
             )
             .replace("{{RESOURCE}}", &escape_html_attribute(params.resource))
+            .replace("{{CSRF_TOKEN}}", &escape_html_attribute(params.csrf_token))
             .replace("{{SCOPE_ITEMS}}", &scope_items)
     }
 
