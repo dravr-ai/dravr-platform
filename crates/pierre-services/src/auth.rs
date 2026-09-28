@@ -19,6 +19,7 @@ use pierre_auth::dto::auth::{
     FirebaseLoginRequest, LoginRequest, LoginResponse, RegisterRequest, RegisterResponse, UserInfo,
 };
 use pierre_auth::firebase::{FirebaseAuth, FirebaseClaims};
+use pierre_auth::password::verify_password;
 use pierre_config::environment::ServerConfig;
 use pierre_core::constants::{error_messages, limits, tiers};
 use pierre_core::error_helpers::{user_state_error, validation_error};
@@ -181,24 +182,21 @@ impl AuthService {
             .get_by_email_required(&request.email)
             .await
             .map_err(|e| {
-                debug!(email = %request.email, error = %e, "Login failed: user lookup error");
+                // An unknown email is the caller's; anything else is the lookup
+                // failing, which is an outage and not a wrong password.
+                if e.is_server_fault() {
+                    error!(error = %e, "Login could not complete: user lookup failed");
+                    return e;
+                }
+                debug!(email = %request.email, error = %e, "Login refused: user lookup");
                 AppError::auth_invalid("Invalid email or password")
             })?;
 
-        // Verify password using spawn_blocking to avoid blocking async executor
-        let password = request.password.clone();
-        let password_hash = user.password_hash.clone();
-        let is_valid = task::spawn_blocking(move || bcrypt::verify(&password, &password_hash))
-            .await
-            .map_err(|e| AppError::internal(format!("Password verification task failed: {e}")))?
-            .map_err(|_| AppError::auth_invalid("Invalid email or password"))?;
+        let is_valid =
+            verify_password(request.password.clone(), user.password_hash.clone()).await?;
 
         if !is_valid {
-            warn!(
-                email = %request.email,
-                user_id = %user.id,
-                "Failed login: invalid password"
-            );
+            warn!(user_id = %user.id, "Failed login: invalid password");
             info!(
                 target: "notify",
                 event = "user.login_failed",
@@ -251,14 +249,11 @@ impl AuthService {
         let jwt_token = self
             .auth_manager
             .generate_token_with_tenant(&user, &self.jwks_manager, active_tenant_id)
-            .map_err(|e| AppError::auth_invalid(format!("Failed to generate token: {e}")))?;
+            .map_err(|e| AppError::internal(format!("Failed to generate token: {e}")))?;
         let expires_at =
             chrono::Utc::now() + chrono::Duration::hours(limits::DEFAULT_SESSION_HOURS); // Default 24h expiry
 
-        info!(
-            "User logged in successfully: {} ({})",
-            request.email, user.id
-        );
+        info!(user_id = %user.id, "User logged in successfully");
 
         let user_info = self.user_info(&user, tenant_id_for_response).await;
         Ok(LoginResponse {
@@ -690,11 +685,7 @@ impl AuthService {
             return Ok(());
         }
 
-        tracing::info!(
-            user_id = %user.id,
-            email = %user.email,
-            "Retroactive auto-approval for pending user"
-        );
+        tracing::info!(user_id = %user.id, "Retroactive auto-approval for pending user");
 
         let approver = self
             .pre_approval_for(&user.email)
@@ -761,7 +752,7 @@ impl AuthService {
         let jwt_token = self
             .auth_manager
             .generate_token_with_tenant(user, &self.jwks_manager, active_tenant_id)
-            .map_err(|e| AppError::auth_invalid(format!("Failed to generate token: {e}")))?;
+            .map_err(|e| AppError::internal(format!("Failed to generate token: {e}")))?;
 
         let expires_at = Utc::now() + chrono::Duration::hours(limits::DEFAULT_SESSION_HOURS);
 
@@ -859,7 +850,7 @@ impl AuthService {
         let jwt_token = self
             .auth_manager
             .generate_token_with_tenant(&user, &self.jwks_manager, tenant_id.clone())
-            .map_err(|e| AppError::auth_invalid(format!("Failed to generate token: {e}")))?;
+            .map_err(|e| AppError::internal(format!("Failed to generate token: {e}")))?;
         let expires_at = now + chrono::Duration::hours(limits::DEFAULT_SESSION_HOURS);
 
         let successor = SessionRefreshToken {
@@ -961,21 +952,6 @@ impl AuthService {
     #[must_use]
     pub const fn is_valid_password(password: &str) -> bool {
         password.len() >= 8
-    }
-
-    /// Verify a plaintext password against a bcrypt hash.
-    ///
-    /// Runs the CPU-intensive bcrypt comparison on a blocking thread
-    /// to avoid stalling the async executor.
-    ///
-    /// # Errors
-    /// Returns error if the password does not match or the bcrypt operation fails
-    pub async fn verify_password(password: String, hash: String) -> AppResult<bool> {
-        let is_valid = task::spawn_blocking(move || bcrypt::verify(&password, &hash))
-            .await
-            .map_err(|e| AppError::internal(format!("Password verification task failed: {e}")))?
-            .map_err(|_| AppError::auth_invalid("Invalid email or password"))?;
-        Ok(is_valid)
     }
 
     /// Hash a plaintext password with bcrypt.

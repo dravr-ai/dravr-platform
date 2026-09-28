@@ -286,10 +286,37 @@ pub mod middleware {
         response::{IntoResponse, Response},
         Json,
     };
-    use tracing::warn;
+    use tracing::{error, warn};
 
-    use super::{json, AdminAuthService};
+    use super::{json, AdminAuthService, AppError};
     use pierre_core::auth_header::extract_bearer_token_owned;
+
+    /// The response to an admin token that did not authenticate.
+    ///
+    /// Only a refused token is a 401. The token store failing is an outage:
+    /// it pages, and its detail stays out of the response.
+    fn authentication_failure(e: &AppError) -> Response {
+        if e.is_server_fault() {
+            error!(error = %e, "Admin authentication could not complete");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "success": false,
+                    "message": e.sanitized_message()
+                })),
+            )
+                .into_response();
+        }
+        warn!(error = %e, "Admin authentication failed");
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({
+                "success": false,
+                "message": format!("Authentication failed: {e}")
+            })),
+        )
+            .into_response()
+    }
 
     /// Axum middleware for admin authentication
     ///
@@ -340,17 +367,7 @@ pub mod middleware {
         // Each handler will check its own required permissions
         let validated_token = match auth_service.authenticate(&token, None).await {
             Ok(validated_token) => validated_token,
-            Err(e) => {
-                warn!(error = %e, "Admin authentication failed");
-                return (
-                    StatusCode::UNAUTHORIZED,
-                    Json(json!({
-                        "success": false,
-                        "message": format!("Authentication failed: {}", e)
-                    })),
-                )
-                    .into_response();
-            }
+            Err(e) => return authentication_failure(&e),
         };
 
         // Insert validated token as extension

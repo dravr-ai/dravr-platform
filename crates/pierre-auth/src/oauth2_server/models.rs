@@ -12,6 +12,9 @@ use uuid::Uuid;
 /// The error code a throttled OAuth endpoint answers with, alongside HTTP 429.
 const TOO_MANY_REQUESTS: &str = "too_many_requests";
 
+/// The `error` of a failure that is the server's own (RFC 6749 §4.1.2.1).
+const SERVER_ERROR: &str = "server_error";
+
 /// OAuth 2.0 Client Registration Request (RFC 7591)
 #[derive(Debug, Deserialize)]
 pub struct ClientRegistrationRequest {
@@ -157,14 +160,33 @@ impl OAuth2Error {
         }
     }
 
-    /// The HTTP status `POST /oauth2/register` answers this refusal with:
-    /// 429 for a throttled request, 400 for every other (RFC 7591 §3.2.2).
+    /// Create a `server_error` (RFC 6749 §4.1.2.1): the server failed to
+    /// answer a request it could otherwise have decided. The client may retry;
+    /// nothing about its credentials or grant is refused.
     #[must_use]
-    pub fn registration_status(&self) -> StatusCode {
-        if self.error == TOO_MANY_REQUESTS {
-            StatusCode::TOO_MANY_REQUESTS
-        } else {
-            StatusCode::BAD_REQUEST
+    pub fn server_error(description: &str) -> Self {
+        Self {
+            error: SERVER_ERROR.to_owned(),
+            error_description: Some(description.to_owned()),
+            error_uri: Some(
+                "https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1".to_owned(),
+            ),
+        }
+    }
+
+    /// The HTTP status every `OAuth2` endpoint answers this error with.
+    ///
+    /// 500 for the server's own failure and 503 when it cannot decide right
+    /// now, so a client retries instead of discarding a grant that is still
+    /// good; 429 for a throttled request; 400 for every refusal (RFC 6749
+    /// §5.2, RFC 7591 §3.2.2).
+    #[must_use]
+    pub fn http_status(&self) -> StatusCode {
+        match self.error.as_str() {
+            SERVER_ERROR => StatusCode::INTERNAL_SERVER_ERROR,
+            "temporarily_unavailable" => StatusCode::SERVICE_UNAVAILABLE,
+            TOO_MANY_REQUESTS => StatusCode::TOO_MANY_REQUESTS,
+            _ => StatusCode::BAD_REQUEST,
         }
     }
 

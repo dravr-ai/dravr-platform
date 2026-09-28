@@ -143,7 +143,7 @@ fn disconnect_unavailable() -> AppError {
 /// Parse the path id and read the user, 404 when there is none.
 async fn load_user(ctx: &AdminApiContext, user_id: &str) -> AppResult<(Uuid, User)> {
     let user_uuid = Uuid::parse_str(user_id).map_err(|e| {
-        error!(error = %e, "Invalid user ID format");
+        warn!(error = %e, "Invalid user ID format");
         AppError::invalid_input(format!("Invalid user ID format: {e}"))
     })?;
     let user = ctx

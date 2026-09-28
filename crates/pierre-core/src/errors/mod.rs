@@ -331,6 +331,18 @@ impl AppError {
         self.code.http_status()
     }
 
+    /// Whether this error is the server's own failure rather than the caller's.
+    ///
+    /// Every 5xx code: a database, storage, configuration or internal fault, or
+    /// an upstream service that failed. Anything else (a refused credential, a
+    /// missing resource, invalid input, a spent budget) is the caller's and can
+    /// be sent by anyone, so it must never log at ERROR, the level that pages
+    /// the operators.
+    #[must_use]
+    pub const fn is_server_fault(&self) -> bool {
+        self.http_status() >= INTERNAL_SERVER_ERROR
+    }
+
     /// Get sanitized message safe for client exposure
     /// Internal error details are replaced with generic messages
     #[must_use]
@@ -566,8 +578,7 @@ impl AppError {
     /// and becomes [`ErrorCode::AuthInvalid`], prefixed with `context`.
     #[must_use]
     pub fn into_auth_refusal(self, context: &str) -> Self {
-        if self.code == ErrorCode::RateLimitExceeded || self.http_status() >= INTERNAL_SERVER_ERROR
-        {
+        if self.code == ErrorCode::RateLimitExceeded || self.is_server_fault() {
             self
         } else {
             Self::auth_invalid(format!("{context}: {self}"))

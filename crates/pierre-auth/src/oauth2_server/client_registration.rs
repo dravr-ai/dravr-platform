@@ -17,6 +17,7 @@ use chrono::{DateTime, Duration, Utc};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::OAuth2ClientSweep;
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::redaction::redact_url;
 use pierre_database::backends::OAuth2ServerRepository;
 use ring::rand::{SecureRandom, SystemRandom};
 use std::env;
@@ -40,7 +41,7 @@ impl ClientRegistrationManager {
     ///
     /// `max_pending_registrations` caps the registrations no user has
     /// authorized yet; at the cap this one is refused with `too_many_requests`
-    /// (see [`OAuth2Error::registration_status`]) and nothing is stored.
+    /// (see [`OAuth2Error::http_status`]) and nothing is stored.
     ///
     /// # Errors
     /// Returns an error if client registration validation fails, the pending
@@ -107,7 +108,7 @@ impl ClientRegistrationManager {
             .await
             .map_err(|e| {
                 error!(error = %e, client_id = %client_id, "Failed to store OAuth2 client registration in database");
-                OAuth2Error::invalid_request("Failed to store client registration")
+                OAuth2Error::server_error("Failed to store client registration")
             })?;
         if !stored {
             warn!(
@@ -152,7 +153,7 @@ impl ClientRegistrationManager {
     ) -> Result<(), OAuth2Error> {
         let parsed_hash = PasswordHash::new(client_secret_hash).map_err(|e| {
             error!("Failed to parse stored password hash: {}", e);
-            OAuth2Error::invalid_client()
+            OAuth2Error::server_error("Client authentication could not complete")
         })?;
 
         let argon2 = Argon2::default();
@@ -194,7 +195,7 @@ impl ClientRegistrationManager {
 
         let client = self.get_client(client_id).await.map_err(|e| {
             Self::log_lookup_failure(client_id, &e);
-            OAuth2Error::invalid_client()
+            Self::lookup_refusal(&e)
         })?;
 
         debug!("OAuth client {} found, validating secret", client_id);
@@ -227,6 +228,17 @@ impl ClientRegistrationManager {
             .get_client(client_id)
             .await?
             .ok_or_else(|| AppError::not_found("OAuth2 client"))
+    }
+
+    /// The `OAuth2` error a failed [`Self::get_client`] is answered with: an
+    /// unknown client is `invalid_client`, anything else is `server_error`.
+    #[must_use]
+    pub fn lookup_refusal(error: &AppError) -> OAuth2Error {
+        if error.code == ErrorCode::ResourceNotFound {
+            OAuth2Error::invalid_client()
+        } else {
+            OAuth2Error::server_error("The client could not be looked up")
+        }
     }
 
     /// Log a failed [`Self::get_client`] at the level its cause deserves.
@@ -355,13 +367,13 @@ impl ClientRegistrationManager {
 
         // Reject URIs with fragments (security risk - RFC 6749 Section 3.1.2)
         if uri.contains('#') {
-            warn!("Rejected redirect_uri with fragment: {}", uri);
+            warn!("Rejected redirect_uri with fragment: {}", redact_url(uri));
             return false;
         }
 
         // Reject wildcard patterns (subdomain bypass attack prevention)
         if uri.contains('*') {
-            warn!("Rejected redirect_uri with wildcard: {}", uri);
+            warn!("Rejected redirect_uri with wildcard: {}", redact_url(uri));
             return false;
         }
 
@@ -371,7 +383,7 @@ impl ClientRegistrationManager {
     /// Validate HTTP(S) URI scheme and host
     fn validate_http_uri(uri: &str) -> bool {
         let Ok(parsed_uri) = url::Url::parse(uri) else {
-            warn!("Rejected malformed redirect_uri: {}", uri);
+            warn!("Rejected malformed redirect_uri: {}", redact_url(uri));
             return false;
         };
 
@@ -391,7 +403,7 @@ impl ClientRegistrationManager {
 
         warn!(
             "Rejected redirect_uri with non-HTTPS scheme for non-localhost: {}",
-            uri
+            redact_url(uri)
         );
         false
     }
@@ -431,9 +443,7 @@ impl ClientRegistrationManager {
         let mut secret = [0u8; 32];
         rng.fill(&mut secret).map_err(|e| {
             error!(error = ?e, "System RNG failure - cannot generate secure client secret (CRITICAL SECURITY ISSUE)");
-            OAuth2Error::invalid_request(
-                "System RNG failure - cannot generate secure client secret",
-            )
+            OAuth2Error::server_error("System RNG failure - cannot generate secure client secret")
         })?;
 
         // Base64 encode the secret
@@ -454,7 +464,9 @@ impl ClientRegistrationManager {
         let hash = argon2
             .hash_password(secret.as_bytes(), &salt)
             .map_err(|e| {
-                OAuth2Error::invalid_request(&format!("Argon2 password hashing failed: {e}"))
+                // A server fault: logged here, and kept out of the response.
+                error!(error = %e, "Argon2 could not hash a new client secret");
+                OAuth2Error::server_error("Failed to secure the client secret")
             })?;
 
         Ok(hash.to_string())

@@ -17,11 +17,13 @@ use tracing::{debug, error, field, field::Empty, info, warn, Span};
 use pierre_routes_admin::auth::service::AdminAuthService;
 
 use crate::email_verification::issue_verification_email;
+use crate::token_errors::{grant_error_response, oauth2_error};
 use crate::AuthRoutesContext;
+use pierre_auth::password::verify_password;
 use pierre_auth::security::cookies::{clear_auth_cookie, set_auth_cookie, set_csrf_cookie};
 use pierre_config::constants::error_messages;
 use pierre_core::auth_header::extract_bearer_token_owned;
-use pierre_core::errors::{AppError, ErrorCode};
+use pierre_core::errors::AppError;
 use pierre_core::models::{CoachingPersona, ColorScheme, UserStatus, SUPPORTED_LOCALES};
 
 use pierre_auth::dto::auth::{
@@ -80,8 +82,12 @@ pub async fn handle_register(
         .authenticate(&token, None)
         .await
         .map_err(|e| {
-            warn!(error = %e, "Failed to authenticate admin token for user registration");
-            AppError::auth_invalid(format!("Admin authentication failed: {e}"))
+            if e.is_server_fault() {
+                error!(error = %e, "Admin token check could not complete for user registration");
+            } else {
+                warn!(error = %e, "Failed to authenticate admin token for user registration");
+            }
+            e.into_auth_refusal("Admin authentication failed")
         })?;
 
     info!("Admin-authenticated user registration attempt");
@@ -110,7 +116,11 @@ pub async fn handle_register(
             Ok((StatusCode::CREATED, Json(response)).into_response())
         }
         Err(e) => {
-            error!("Registration failed: {}", e);
+            if e.is_server_fault() {
+                error!("Registration failed: {}", e);
+            } else {
+                warn!("Registration refused: {}", e);
+            }
             Err(e)
         }
     }
@@ -214,7 +224,11 @@ pub async fn handle_public_register(
             Ok((StatusCode::CREATED, Json(response)).into_response())
         }
         Err(e) => {
-            error!("Public registration failed: {}", e);
+            if e.is_server_fault() {
+                error!("Public registration failed: {}", e);
+            } else {
+                warn!("Public registration refused: {}", e);
+            }
             Err(e)
         }
     }
@@ -282,7 +296,11 @@ pub async fn handle_firebase_login(
             Ok((StatusCode::OK, headers, Json(response)).into_response())
         }
         Err(e) => {
-            tracing::error!("Firebase login failed: {}", e);
+            if e.is_server_fault() {
+                error!("Firebase login failed: {}", e);
+            } else {
+                warn!("Firebase login refused: {}", e);
+            }
             Err(e)
         }
     }
@@ -377,7 +395,7 @@ pub async fn handle_session(
     let jwt_token = resources
         .auth_manager
         .generate_token_with_tenant(&user, &resources.jwks_manager, active_tenant_id)
-        .map_err(|e| AppError::auth_invalid(format!("Failed to generate token: {e}")))?;
+        .map_err(|e| AppError::internal(format!("Failed to generate token: {e}")))?;
 
     // Generate fresh CSRF token (stateless HMAC — no server storage)
     let csrf_token = resources
@@ -519,7 +537,7 @@ pub async fn handle_change_password(
         .ok_or_else(|| AppError::not_found(format!("User {user_id}")))?;
 
     // Verify current password using the service helper
-    let is_valid = AuthService::verify_password(
+    let is_valid = verify_password(
         request.current_password,
         user.password_hash.clone(), // Safe: ownership needed for blocking task
     )
@@ -929,34 +947,7 @@ pub async fn handle_oauth2_token(
         Ok((response, refresh_token)) => {
             issue_tokens(&resources, response, refresh_token, request.scope)
         }
-        Err(e) => {
-            // Map to OAuth2 error format based on error code
-            let error_code = match e.code {
-                ErrorCode::AuthInvalid | ErrorCode::AuthRequired | ErrorCode::AuthExpired => {
-                    "invalid_grant"
-                }
-                ErrorCode::PermissionDenied
-                | ErrorCode::AccountPending
-                | ErrorCode::AccountSuspended => "access_denied",
-                ErrorCode::InvalidInput | ErrorCode::InvalidFormat => "invalid_request",
-                _ => "server_error",
-            };
-            let error_desc = e.message;
-
-            let error_response = OAuth2ErrorResponse {
-                error: error_code.to_owned(),
-                error_description: Some(error_desc),
-            };
-
-            // OAuth2 spec: invalid_grant returns 400, server_error returns 500
-            let status = if error_code == "server_error" {
-                StatusCode::INTERNAL_SERVER_ERROR
-            } else {
-                StatusCode::BAD_REQUEST
-            };
-
-            Ok((status, Json(error_response)).into_response())
-        }
+        Err(e) => Ok(grant_error_response(e)),
     }
 }
 
@@ -973,16 +964,6 @@ fn requests_offline_access(scope: Option<&str>) -> bool {
             .split_ascii_whitespace()
             .any(|part| part == OFFLINE_ACCESS_SCOPE)
     })
-}
-
-/// An RFC 6749 §5.2 error body for a request the handler refused before any
-/// grant ran.
-fn oauth2_error(error: &str, description: &str) -> Response {
-    let error_response = OAuth2ErrorResponse {
-        error: error.to_owned(),
-        error_description: Some(description.to_owned()),
-    };
-    (StatusCode::BAD_REQUEST, Json(error_response)).into_response()
 }
 
 /// Turn a login-shaped response into the RFC 6749 §5.1 token response, with

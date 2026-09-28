@@ -4353,7 +4353,6 @@ name = "pierre-routes-identity"
 version = "0.3.0"
 dependencies = [
  "axum",
- "bcrypt",
  "chrono",
  "hex",
  "pierre-auth",

@@ -14,6 +14,7 @@ use super::models::{
     OAuth2Error, TokenRequest, TokenResponse,
 };
 use super::pkce::{check_code_challenge, verify_challenge};
+use super::request_text::{refuse_control_characters, refuse_oversized_state};
 use crate::admin::jwks::JwksManager;
 use crate::auth::{AuthManager, Claims, JwtValidationError};
 use base64::{engine::general_purpose, Engine as _};
@@ -37,27 +38,6 @@ struct AuthCodeParams<'a> {
     state: Option<&'a str>,
     code_challenge: Option<&'a str>,
     code_challenge_method: Option<&'a str>,
-}
-
-/// Refuse a request parameter carrying a control character.
-///
-/// Every value a client sends here is printable: RFC 6749 Appendix A defines
-/// `state` and `code` as visible ASCII, RFC 7636 the PKCE values as unreserved
-/// characters. `PostgreSQL` rejects a NUL byte in a text parameter, so one let
-/// through to a query would report the caller's malformed request as a
-/// database failure, and page the operators for it.
-fn refuse_control_characters(values: &[Option<&str>]) -> Result<(), OAuth2Error> {
-    if values
-        .iter()
-        .flatten()
-        .any(|value| value.chars().any(char::is_control))
-    {
-        warn!("OAuth2 request refused: a parameter carries a control character");
-        return Err(OAuth2Error::invalid_request(
-            "Request parameters must not contain control characters",
-        ));
-    }
-    Ok(())
 }
 
 /// OAuth 2.0 Authorization Server
@@ -118,7 +98,7 @@ impl OAuth2AuthorizationServer {
             .await
             .map_err(|e| {
                 ClientRegistrationManager::log_lookup_failure(&request.client_id, &e);
-                AuthorizeRejection::ShownToUser(OAuth2Error::invalid_client())
+                AuthorizeRejection::ShownToUser(ClientRegistrationManager::lookup_refusal(&e))
             })?;
 
         // Exact match against the client's registration (RFC 6749 Section 3.1.2.3).
@@ -139,6 +119,7 @@ impl OAuth2AuthorizationServer {
         request: &AuthorizeRequest,
     ) -> Result<String, OAuth2Error> {
         refuse_control_characters(&[request.state.as_deref(), request.code_challenge.as_deref()])?;
+        refuse_oversized_state(request.state.as_deref())?;
 
         if request.response_type.is_empty() {
             return Err(OAuth2Error::invalid_request(
@@ -201,7 +182,7 @@ impl OAuth2AuthorizationServer {
             // Resolve actual tenant from database - use first tenant user belongs to
             let tenants = self.tenants.list_for_user(user_id).await.map_err(|e| {
                 error!("Failed to get tenants for user {}: {:#}", user_id, e);
-                OAuth2Error::invalid_request("Failed to resolve user tenant")
+                OAuth2Error::server_error("Failed to resolve user tenant")
             })?;
             tenants.first().map(|t| t.id.to_string()).ok_or_else(|| {
                 warn!("User {} has no tenant memberships", user_id);
@@ -221,11 +202,18 @@ impl OAuth2AuthorizationServer {
             })
             .await
             .map_err(|e| {
+                // The one refusal in here is a `state` the client already used,
+                // logged where it was detected; everything else is a fault.
+                if !e.is_server_fault() {
+                    return OAuth2Error::invalid_request(
+                        "state has already been used; start a new authorization request",
+                    );
+                }
                 error!(
                     "Failed to generate authorization code for client_id={}: {:#}",
                     request.client_id, e
                 );
-                OAuth2Error::invalid_request("Failed to generate authorization code")
+                OAuth2Error::server_error("Failed to generate authorization code")
             })?;
 
         Ok(AuthorizeResponse {
@@ -329,13 +317,13 @@ impl OAuth2AuthorizationServer {
                     "Failed to generate access token for client_id={}: {:#}",
                     request.client_id, e
                 );
-                OAuth2Error::invalid_request("Failed to generate access token")
+                OAuth2Error::server_error("Failed to generate access token")
             })?;
 
         // Generate refresh token
         let refresh_token_value = Self::generate_refresh_token().map_err(|e| {
             error!("Failed to generate secure refresh token: {:#}", e);
-            OAuth2Error::invalid_request("Failed to generate secure refresh token")
+            OAuth2Error::server_error("Failed to generate secure refresh token")
         })?;
         let refresh_token_expires_at = Utc::now() + Duration::days(30); // 30 days
 
@@ -358,7 +346,7 @@ impl OAuth2AuthorizationServer {
                     "Failed to store refresh token for client_id={}: {:#}",
                     request.client_id, e
                 );
-                OAuth2Error::invalid_request("Failed to store refresh token")
+                OAuth2Error::server_error("Failed to store refresh token")
             })?;
 
         Ok(TokenResponse {
@@ -389,7 +377,7 @@ impl OAuth2AuthorizationServer {
                     "Failed to generate client credentials access token for client_id={}: {:#}",
                     request.client_id, e
                 );
-                OAuth2Error::invalid_request("Failed to generate access token")
+                OAuth2Error::server_error("Failed to generate access token")
             })?;
 
         Ok(TokenResponse {
@@ -429,7 +417,7 @@ impl OAuth2AuthorizationServer {
                     "Failed to generate access token from refresh for client_id={}: {:#}",
                     request.client_id, e
                 );
-                OAuth2Error::invalid_request("Failed to generate access token")
+                OAuth2Error::server_error("Failed to generate access token")
             })?;
 
         // Generate new refresh token (rotation)
@@ -438,7 +426,7 @@ impl OAuth2AuthorizationServer {
                 "Failed to generate new refresh token during rotation: {:#}",
                 e
             );
-            OAuth2Error::invalid_request("Failed to generate secure refresh token")
+            OAuth2Error::server_error("Failed to generate secure refresh token")
         })?;
         let refresh_token_expires_at = Utc::now() + Duration::days(30); // 30 days
 
@@ -461,7 +449,7 @@ impl OAuth2AuthorizationServer {
                     "Failed to store new refresh token for client_id={}: {:#}",
                     request.client_id, e
                 );
-                OAuth2Error::invalid_request("Failed to store new refresh token")
+                OAuth2Error::server_error("Failed to store new refresh token")
             })?;
 
         info!(
@@ -532,22 +520,35 @@ impl OAuth2AuthorizationServer {
                 used: false,
             };
 
-            if let Err(e) = self.oauth2_server.store_state(&oauth2_state).await {
-                error!(
-                    "Failed to store OAuth2 state for client_id={}: {:#}",
-                    params.client_id, e
-                );
-                return Err(e);
-            }
-
-            debug!(
-                "Stored OAuth2 state for server-side validation: client_id={}, state_length={}",
-                params.client_id,
-                state_value.len()
-            );
+            self.store_state(&oauth2_state).await?;
         }
 
         Ok(code)
+    }
+
+    /// Store the state an authorization binds its code to.
+    ///
+    /// `state` is the client's own value and the table's primary key, so a
+    /// repeat is the client reusing one (a reloaded authorize URL): refused at
+    /// WARN. The insert failing otherwise is the server's, and pages.
+    async fn store_state(&self, state: &super::models::OAuth2State) -> AppResult<()> {
+        if let Err(e) = self.oauth2_server.store_state(state).await {
+            if e.is_server_fault() {
+                error!(
+                    "Failed to store OAuth2 state for client_id={}: {:#}",
+                    state.client_id, e
+                );
+            } else {
+                warn!(client_id = %state.client_id, "OAuth2 authorization refused: state already used");
+            }
+            return Err(e);
+        }
+        debug!(
+            "Stored OAuth2 state for server-side validation: client_id={}, state_length={}",
+            state.client_id,
+            state.state.len()
+        );
+        Ok(())
     }
 
     /// Validate and consume authorization code
@@ -570,7 +571,7 @@ impl OAuth2AuthorizationServer {
                     client_id,
                     e
                 );
-                OAuth2Error::invalid_grant("Failed to consume authorization code")
+                OAuth2Error::server_error("Failed to consume authorization code")
             })?
             .ok_or_else(|| {
                 warn!(
@@ -616,7 +617,7 @@ impl OAuth2AuthorizationServer {
                         "Failed to consume OAuth2 state for client_id={}: {:#}",
                         client_id, e
                     );
-                    OAuth2Error::invalid_grant("Failed to validate state parameter")
+                    OAuth2Error::server_error("Failed to validate state parameter")
                 })?;
 
             // None indicates validation failure (state not found, expired, used, or client_id mismatch)
@@ -853,7 +854,7 @@ impl OAuth2AuthorizationServer {
                     client_id,
                     e
                 );
-                OAuth2Error::invalid_grant("Failed to consume refresh token")
+                OAuth2Error::server_error("Failed to consume refresh token")
             })?
             .ok_or_else(|| {
                 warn!(
@@ -1039,7 +1040,13 @@ impl OAuth2AuthorizationServer {
         {
             Ok(response) => Ok(response),
             Err(e) => {
-                warn!("Token refresh failed: {}", e);
+                // A spent, revoked or expired refresh token is the caller's; the
+                // lookup or the minting failing is an outage and pages.
+                if e.is_server_fault() {
+                    error!("Token refresh failed: {}", e);
+                } else {
+                    warn!("Token refresh failed: {}", e);
+                }
                 Ok(Self::create_invalid_response("invalid_refresh_token"))
             }
         }

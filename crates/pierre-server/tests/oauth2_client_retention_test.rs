@@ -457,7 +457,7 @@ async fn the_ceiling_refuses_the_next_registration_until_one_is_authorized() {
         .unwrap_err();
     assert_eq!(refused.error, "too_many_requests");
     assert_eq!(refused.error_description.as_deref(), Some(CEILING_REFUSAL));
-    assert_eq!(refused.registration_status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(refused.http_status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(
         count_all(&database, COUNT_CLIENTS_SQL).await,
         3,

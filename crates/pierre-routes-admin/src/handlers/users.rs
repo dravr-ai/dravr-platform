@@ -210,7 +210,7 @@ pub async fn handle_get_user(
     }
 
     let user_uuid = Uuid::parse_str(&user_id).map_err(|e| {
-        error!(error = %e, "Invalid user ID format");
+        warn!(error = %e, "Invalid user ID format");
         AppError::invalid_input(format!("Invalid user ID format: {e}"))
     })?;
 
@@ -380,7 +380,7 @@ pub(crate) async fn handle_approve_user(
 
     let ctx = context.as_ref();
     let user_uuid = Uuid::parse_str(&user_id).map_err(|e| {
-        error!(error = %e, "Invalid user ID format");
+        warn!(error = %e, "Invalid user ID format");
         AppError::invalid_input(format!("Invalid user ID format: {e}"))
     })?;
 
@@ -455,7 +455,7 @@ pub(crate) async fn handle_suspend_user(
 
     let ctx = context.as_ref();
     let user_uuid = Uuid::parse_str(&user_id).map_err(|e| {
-        error!(error = %e, "Invalid user ID format");
+        warn!(error = %e, "Invalid user ID format");
         AppError::invalid_input(format!("Invalid user ID format: {e}"))
     })?;
 
@@ -529,7 +529,7 @@ pub(crate) async fn handle_reset_user_password(
 
     let ctx = context.as_ref();
     let user_uuid = Uuid::parse_str(&user_id).map_err(|e| {
-        error!(error = %e, "Invalid user ID format");
+        warn!(error = %e, "Invalid user ID format");
         AppError::invalid_input(format!("Invalid user ID format: {e}"))
     })?;
 

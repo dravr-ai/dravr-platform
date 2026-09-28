@@ -13,7 +13,7 @@ use pierre_core::uuid_utils::parse_uuid;
 use pierre_runtime_context::McpDispatchCtx;
 // Trait methods dispatched through repos.tenants / repos.users / repos.oauth_tokens
 use std::sync::Arc;
-use tracing::warn;
+use tracing::{error, warn};
 use uuid::Uuid;
 
 /// Manages tenant isolation and multi-tenancy for the MCP server
@@ -320,6 +320,20 @@ async fn verified_tenant_role(
                 "User {user_id} does not belong to tenant {tenant_id}"
             ))
         })
+}
+
+/// Log a failed [`extract_tenant_context_internal`] at the level its cause
+/// deserves.
+///
+/// A membership revoked or an account deleted after its token was issued is
+/// the caller's state and warns; the lookup failing is the server's and
+/// pages. The MCP host, the MCP tool dispatcher and A2A all read it here.
+pub fn log_tenant_failure(user_id: Uuid, error: &AppError) {
+    if error.is_server_fault() {
+        error!(user_id = %user_id, error = %error, "Tenant context extraction failed");
+    } else {
+        warn!(user_id = %user_id, error = %error, "Tenant context refused");
+    }
 }
 
 /// Resolve the tenant context a user acts under (internal helper)

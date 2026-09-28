@@ -62,6 +62,9 @@ pub mod oauth2_client;
 /// OAuth 2.0 authorization server (Pierre as provider for MCP clients)
 pub mod oauth2_server;
 
+/// Sign-in password verification against stored bcrypt hashes
+pub mod password;
+
 /// Unified rate limiting system
 pub mod rate_limiting;
 

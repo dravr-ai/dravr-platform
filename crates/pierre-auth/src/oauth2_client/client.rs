@@ -11,7 +11,9 @@ use pierre_core::constants::network_config::OAUTH_CODE_VERIFIER_LENGTH;
 use pierre_core::constants::time::DEFAULT_TOKEN_EXPIRY_SECONDS;
 use pierre_core::errors::{AppError, AppResult};
 use rand::Rng;
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use url::Url;
 
@@ -215,10 +217,7 @@ impl OAuth2Client {
         })?;
 
         if !status.is_success() {
-            return Err(AppError::external_service(
-                "oauth",
-                format!("Token endpoint returned HTTP {status}: {body}"),
-            ));
+            return Err(code_exchange_refusal(status, &body));
         }
 
         let response: TokenResponse = serde_json::from_str(&body).map_err(|e| {
@@ -269,10 +268,7 @@ impl OAuth2Client {
         })?;
 
         if !status.is_success() {
-            return Err(AppError::external_service(
-                "oauth",
-                format!("Token endpoint returned HTTP {status}: {body}"),
-            ));
+            return Err(code_exchange_refusal(status, &body));
         }
 
         let response: TokenResponse = serde_json::from_str(&body).map_err(|e| {
@@ -377,4 +373,27 @@ struct TokenResponse {
 struct AthleteId {
     /// Provider-side athlete identifier.
     id: i64,
+}
+
+/// The error for a token endpoint that refused an authorization code exchange.
+///
+/// A standard `invalid_grant` answer (RFC 6749 Section 5.2) is the provider
+/// refusing the code it was handed, one that is expired, already used or
+/// forged: the caller's to fix by authorizing again, and anyone can send one.
+/// Every other refusal is the provider refusing this server (its client
+/// credentials, its redirect URI) or failing outright, and stays an upstream
+/// fault, including a non-standard body that names no error.
+fn code_exchange_refusal(status: StatusCode, body: &str) -> AppError {
+    let refused_grant = serde_json::from_str::<Value>(body)
+        .is_ok_and(|v| v.get("error").and_then(Value::as_str) == Some("invalid_grant"));
+    if refused_grant {
+        AppError::auth_invalid(format!(
+            "OAuth token exchange refused the authorization code: HTTP {status}: {body}"
+        ))
+    } else {
+        AppError::external_service(
+            "oauth",
+            format!("Token endpoint returned HTTP {status}: {body}"),
+        )
+    }
 }

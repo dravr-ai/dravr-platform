@@ -534,15 +534,6 @@ pub fn default_locale() -> String {
 pub const FEDERATED_ONLY_PASSWORD_HASH: &str = "!firebase-auth-only!";
 
 impl User {
-    /// Whether this account has a password to sign in with.
-    ///
-    /// A federated-only account has none. Setting a password later replaces
-    /// the marker with a bcrypt hash, and from then on it has one.
-    #[must_use]
-    pub fn has_password(&self) -> bool {
-        self.password_hash != FEDERATED_ONLY_PASSWORD_HASH
-    }
-
     /// Create a new user with the given email and password hash
     ///
     /// Tenant membership is managed separately via the `tenant_users` table.

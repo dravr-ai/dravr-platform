@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::collections::{HashMap, HashSet};
+use std::fmt::Display;
 // Both name the sync notifier handed to `RefreshService`, which only exists
 // under `health-sync`.
 #[cfg(feature = "health-sync")]
@@ -184,6 +185,36 @@ pub async fn handle_oauth_callback(
     }
 }
 
+/// The error a failed OAuth authorization-URL request surfaces as, logged at
+/// the level its cause deserves.
+///
+/// `{provider}` is the caller's path segment: one that does not exist or has
+/// no OAuth is refused and passes through as the refusal it is. Anything else
+/// is the server failing to build the URL, and pages.
+fn oauth_url_failure(error: AppError, provider: &str, user_id: impl Display) -> AppError {
+    if error.is_server_fault() {
+        error!("Failed to generate OAuth URL for {provider} user {user_id}: {error}");
+        AppError::internal(format!(
+            "Failed to generate OAuth URL for {provider}: {error}"
+        ))
+    } else {
+        warn!("OAuth URL refused for {provider} user {user_id}: {error}");
+        error
+    }
+}
+
+/// Log a failed OAuth callback at the level its cause deserves.
+///
+/// A made-up or spent state, or a code the provider refused, can be sent by
+/// anyone; only the server or the provider failing is worth a page.
+fn log_callback_failure(e: &AppError) {
+    if e.is_server_fault() {
+        error!("OAuth callback failed: {}", e);
+    } else {
+        warn!("OAuth callback refused: {}", e);
+    }
+}
+
 /// The response to an OAuth callback that failed.
 ///
 /// `mobile_url` is the redirect from a state this server redeemed, or `None`
@@ -196,7 +227,7 @@ fn callback_failure_response(
     e: &AppError,
     mobile_url: Option<&str>,
 ) -> Response {
-    error!("OAuth callback failed: {}", e);
+    log_callback_failure(e);
 
     // Determine error message and description based on error type
     let (error_msg, description) = categorize_oauth_error(e);
@@ -224,13 +255,13 @@ fn callback_failure_response(
     }
 
     let html = OAuthTemplateRenderer::render_error_template(provider, error_msg, description);
+    let status = if e.is_server_fault() {
+        StatusCode::INTERNAL_SERVER_ERROR
+    } else {
+        StatusCode::BAD_REQUEST
+    };
 
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        [(header::CONTENT_TYPE, "text/html")],
-        html,
-    )
-        .into_response()
+    (status, [(header::CONTENT_TYPE, "text/html")], html).into_response()
 }
 
 /// Handle OAuth status check
@@ -712,13 +743,7 @@ pub async fn handle_oauth_auth_initiate(
             },
         )
         .await
-        .map_err(|e| {
-            error!(
-                "Failed to generate OAuth URL for {} user {}: {}",
-                provider, user_id, e
-            );
-            AppError::internal(format!("Failed to generate OAuth URL for {provider}: {e}"))
-        })?;
+        .map_err(|e| oauth_url_failure(e, &provider, user_id))?;
 
     info!(
         "Generated OAuth URL for {} user {} (state issued)",
@@ -843,13 +868,7 @@ pub async fn handle_mobile_oauth_init(
             )
             .await
     }
-    .map_err(|e| {
-        error!(
-            "Failed to generate OAuth URL for {} user {}: {}",
-            provider, user_id, e
-        );
-        AppError::internal(format!("Failed to generate OAuth URL for {provider}: {e}"))
-    })?;
+    .map_err(|e| oauth_url_failure(e, &provider, user_id))?;
 
     // Build redirect URI for state storage
     let oauth_redirect_uri = format!(

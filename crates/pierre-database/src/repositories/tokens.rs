@@ -716,7 +716,15 @@ macro_rules! impl_oauth2_server_repository {
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
-                        AppError::database(format!("Failed to store OAuth2 state: {e}"))
+                        // `state` is the client's own value and the table's
+                        // primary key: a repeat is the client reusing it.
+                        if e.as_database_error()
+                            .is_some_and(|db| db.is_unique_violation())
+                        {
+                            AppError::already_exists("OAuth2 state")
+                        } else {
+                            AppError::database(format!("Failed to store OAuth2 state: {e}"))
+                        }
                     })?;
 
                 Ok(())

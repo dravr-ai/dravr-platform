@@ -14,6 +14,8 @@ pub mod models;
 mod pkce;
 /// Rate limiting for OAuth 2.0 endpoints
 pub mod rate_limiting;
+/// Checks on the text a client sends, before any of it reaches a query
+mod request_text;
 /// Typestate pattern for compile-time OAuth flow safety
 pub mod typestate;
 

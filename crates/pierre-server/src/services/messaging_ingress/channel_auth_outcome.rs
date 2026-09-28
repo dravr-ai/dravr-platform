@@ -90,6 +90,21 @@ pub(super) async fn record_channel_usage(resources: &ServerContext, user_id: Uui
     record_jwt_usage_for_request(&resources.common.repos, user_id, &endpoint, "WEBHOOK").await;
 }
 
+/// Log a channel authentication that neither resolved nor was answered.
+///
+/// A link to an account that no longer exists is the sender's state and logs
+/// a warning; the lookup failing is the server's and pages on-call through
+/// dravr-tronc. The sender id is a phone number on `WhatsApp`, so it stays at
+/// DEBUG.
+fn log_channel_auth_failure(e: &AppError, sender_id: &str, channel_type: ChannelType) {
+    debug!(sender_id = %sender_id, "Channel authentication did not resolve");
+    if e.is_server_fault() {
+        error!(error = %e, channel = %channel_type, "Channel authentication failed, dropping message");
+    } else {
+        warn!(error = %e, channel = %channel_type, "Channel authentication refused, dropping message");
+    }
+}
+
 /// Branch on the channel-authentication outcome, surfacing the right reply
 /// for each terminal state and returning the [`AuthResult`] only on success.
 pub(super) async fn handle_channel_auth_outcome(
@@ -154,14 +169,7 @@ pub(super) async fn handle_channel_auth_outcome(
             Ok(None)
         }
         Err(e) => {
-            // Operator-category failure — drop the message, let dravr-tronc
-            // page on-call via the ERROR subscriber.
-            error!(
-                error = %e,
-                sender_id = %inputs.message.sender_id,
-                channel = %inputs.channel_type,
-                "Channel authentication failed, dropping message"
-            );
+            log_channel_auth_failure(&e, &inputs.message.sender_id, inputs.channel_type);
             Err(())
         }
     }

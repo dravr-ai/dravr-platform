@@ -25,9 +25,9 @@ use axum::response::Html;
 use axum::Form;
 use chrono::Utc;
 use serde::Deserialize;
-use tokio::task::spawn_blocking;
-use tracing::info;
+use tracing::{error, info};
 
+use pierre_auth::password::verify_password;
 use pierre_core::html::{escape_html_attribute, HOSTED_PAGE_CSS};
 use pierre_core::models::User;
 
@@ -54,13 +54,20 @@ pub struct DeviceApproveForm {
 }
 
 /// Verify email + password, returning the [`User`] if the credentials are valid.
+///
+/// Every failure reads as "not recognized" on the page, so the log is where a
+/// lookup that failed is told apart from credentials that did not match.
 async fn authenticate(context: &AdminApiContext, email: &str, password: &str) -> Option<User> {
-    let user = context.repos.users.get_by_email(email).await.ok()??;
-    let hash = user.password_hash.clone();
-    let candidate = password.to_owned();
-    let verified = spawn_blocking(move || bcrypt::verify(&candidate, &hash))
+    let user = match context.repos.users.get_by_email(email).await {
+        Ok(user) => user?,
+        Err(e) => {
+            error!(error = %e, "Device approval sign-in could not complete: user lookup failed");
+            return None;
+        }
+    };
+    // A fault inside the verifier is logged there; it answers false here.
+    let verified = verify_password(password.to_owned(), user.password_hash.clone())
         .await
-        .ok()?
         .unwrap_or(false);
     verified.then_some(user)
 }

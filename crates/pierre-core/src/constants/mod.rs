@@ -765,6 +765,17 @@ pub mod oauth2_client_retention {
     pub const MAX_PENDING_REGISTRATIONS: u64 = 10_000;
 }
 
+/// Bounds on the values a client hands the `OAuth2` authorization endpoint.
+pub mod oauth2_authorization {
+    /// Longest `state` accepted, in bytes: 1,024.
+    ///
+    /// RFC 6749 leaves `state` opaque and unbounded, but the server stores it
+    /// as the primary key of `oauth2_states`, and a `PostgreSQL` btree entry
+    /// tops out near 2,700 bytes. A client's CSRF token is tens of bytes; a
+    /// kilobyte leaves room for one that encodes its own context.
+    pub const MAX_STATE_BYTES: usize = 1024;
+}
+
 /// Cache configuration constants
 pub mod cache_config {
     /// Default cache capacity for LRU cache

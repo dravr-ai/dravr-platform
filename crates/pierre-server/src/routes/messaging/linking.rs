@@ -31,6 +31,7 @@ use uuid::Uuid;
 use super::templates;
 use crate::mcp::resources::ServerContext;
 use pierre_auth::auth::AuthResult;
+use pierre_auth::password::verify_password;
 use pierre_config::utils::http_client::shared_client;
 use pierre_core::errors::AppError;
 use pierre_messaging::http_client::describe_request_error;
@@ -847,13 +848,8 @@ async fn authenticate_user(
         })?
         .ok_or_else(|| "Invalid email or password.".to_owned())?;
 
-    // Verify password using bcrypt with spawn_blocking
-    let password_owned = password.to_owned();
-    let hash_owned = user.password_hash.clone();
-
-    let is_valid = spawn_blocking(move || bcrypt::verify(&password_owned, &hash_owned))
+    let is_valid = verify_password(password.to_owned(), user.password_hash.clone())
         .await
-        .map_err(|_| "An error occurred. Please try again.".to_owned())?
         .map_err(|_| "An error occurred. Please try again.".to_owned())?;
 
     if !is_valid {
@@ -903,7 +899,7 @@ async fn register_user(
         "An error occurred. Please try again.".to_owned()
     })?;
 
-    info!(user_id = %user_id, email = %form.email, "User registered via channel link auth");
+    info!(user_id = %user_id, "User registered via channel link auth");
 
     Ok(user_id)
 }

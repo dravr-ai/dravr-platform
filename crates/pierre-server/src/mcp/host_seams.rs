@@ -42,12 +42,11 @@ use dravr_tronc::mcp::tasks::{TaskId, TaskManager, TaskOptions, TaskOwner, TaskS
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext, ToolRegistry};
 use pierre_auth::auth::AuthResult;
 use pierre_core::auth_header::is_api_key_format;
-use pierre_core::constants::http_status::INTERNAL_SERVER_ERROR;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_schema::McpResponse;
-use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
+use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
 use pierre_middleware::rate_limiting::report_request_operation;
 use pierre_tool_runtime::context::AuthMethod;
 use pierre_tool_runtime::implementations::guided_flow::{
@@ -259,7 +258,7 @@ fn auth_refusal(error: &AppError, base_url: &str) -> AuthError {
             reason: error.sanitized_message(),
         };
     }
-    if error.http_status() >= INTERNAL_SERVER_ERROR {
+    if error.is_server_fault() {
         error!(error = %error, "MCP request failed: authentication could not complete");
         return AuthError::Internal {
             reason: error.sanitized_message(),
@@ -388,11 +387,7 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
                 reason: "User must be assigned to a tenant to execute tools".to_owned(),
             }),
             Err(e) => {
-                error!(
-                    user_id = %auth_result.user_id,
-                    error = %e,
-                    "Tenant context extraction failed - rejecting request"
-                );
+                log_tenant_failure(auth_result.user_id, &e);
                 Err(AuthError::Forbidden {
                     reason: "Failed to extract tenant context".to_owned(),
                 })

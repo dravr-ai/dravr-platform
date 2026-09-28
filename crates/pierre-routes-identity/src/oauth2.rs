@@ -28,12 +28,14 @@ use pierre_auth::oauth2_server::{
     },
     rate_limiting::OAuth2RateLimiter,
 };
+use pierre_auth::password::verify_password;
 use pierre_auth::rate_limiting::OAuth2Endpoint;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::html::with_hosted_page_css;
 use pierre_core::models::OAuthClientGrant;
 use pierre_database::backends::{factory::Database, OAuth2ServerRepository};
 use pierre_database::database::repositories::{TenantRepository, UserRepository};
+use pierre_middleware::redaction::mask_email;
 use sha2::{Digest, Sha256};
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 use tokio::task::spawn_blocking;
@@ -252,7 +254,7 @@ impl OAuth2Routes {
 
         match client_manager.register_client(request, ceiling).await {
             Ok(response) => (StatusCode::CREATED, Json(response)).into_response(),
-            Err(error) => (error.registration_status(), Json(error)).into_response(),
+            Err(error) => (error.http_status(), Json(error)).into_response(),
         }
     }
 
@@ -371,7 +373,10 @@ impl OAuth2Routes {
                     &scope,
                 )
                 .await
-                .unwrap_or(None)
+                .unwrap_or_else(|e| {
+                    error!("Failed to look up the client grant, showing consent: {e}");
+                    None
+                })
                 .is_some(),
             None => false,
         };
@@ -420,6 +425,7 @@ impl OAuth2Routes {
             .tenants
             .list_for_user(user_id)
             .await
+            .inspect_err(|e| error!("Failed to list tenants for the client grant: {e}"))
             .ok()
             .and_then(|tenants| tenants.first().map(|t| t.id.to_string()))
     }
@@ -527,7 +533,7 @@ impl OAuth2Routes {
                 revoked_at: None,
             };
             if let Err(e) = context.oauth2_server.store_client_grant(&grant).await {
-                warn!("Failed to persist OAuth client grant: {e}");
+                error!("Failed to persist OAuth client grant: {e}");
             }
         }
 
@@ -596,7 +602,7 @@ impl OAuth2Routes {
                     form.get("client_id").map_or("unknown", |v| v),
                     error
                 );
-                (StatusCode::BAD_REQUEST, Json(error)).into_response()
+                (error.http_status(), Json(error)).into_response()
             }
         }
     }
@@ -933,7 +939,7 @@ impl OAuth2Routes {
 
                 info!(
                     "User {} authenticated successfully for OAuth, redirecting to authorization",
-                    email
+                    mask_email(email)
                 );
 
                 // Set session cookie and redirect to authorization endpoint
@@ -959,7 +965,11 @@ impl OAuth2Routes {
                     .into_response()
             }
             Err(e) => {
-                warn!("Authentication failed for OAuth login: {}", e);
+                if e.is_server_fault() {
+                    error!("OAuth login could not complete: {}", e);
+                } else {
+                    warn!("Authentication failed for OAuth login: {}", e);
+                }
 
                 // Use embedded template - zero filesystem IO, guaranteed to exist at compile-time
                 // Values go into an <a href> URL attribute — URL-encode for URL
@@ -1397,7 +1407,7 @@ impl OAuth2Routes {
             .ok_or_else(|| AppError::not_found("User not found"))?;
 
         // Verify password hash
-        if !user.has_password() || !Self::verify_password(password, &user.password_hash).await? {
+        if !verify_password(password.to_owned(), user.password_hash.clone()).await? {
             return Err(AppError::auth_invalid("Invalid password"));
         }
 
@@ -1415,28 +1425,6 @@ impl OAuth2Routes {
             .map_err(|e| AppError::internal(format!("Token generation failed: {e}")))?;
 
         Ok(token)
-    }
-
-    /// Verify password against hash using bcrypt with `spawn_blocking`
-    ///
-    /// Uses `tokio::task::spawn_blocking` to avoid blocking the async executor
-    /// with CPU-intensive bcrypt operations.
-    async fn verify_password(password: &str, hash: &str) -> AppResult<bool> {
-        let password = password.to_owned();
-        let hash = hash.to_owned();
-
-        let result = spawn_blocking(move || bcrypt::verify(&password, &hash))
-            .await
-            .map_err(|e| {
-                error!("Password verification task panicked: {e}");
-                AppError::internal("Password verification failed")
-            })?
-            .map_err(|_| {
-                error!("bcrypt could not read the stored password hash");
-                AppError::internal("Password verification failed")
-            })?;
-
-        Ok(result)
     }
 
     /// Extract session token from cookie header
@@ -1507,11 +1495,6 @@ impl OAuth2Routes {
                 ),
             );
 
-        let status = match error.error.as_str() {
-            "too_many_requests" => StatusCode::TOO_MANY_REQUESTS,
-            "temporarily_unavailable" => StatusCode::SERVICE_UNAVAILABLE,
-            _ => StatusCode::BAD_REQUEST,
-        };
-        (status, Html(html)).into_response()
+        (error.http_status(), Html(html)).into_response()
     }
 }

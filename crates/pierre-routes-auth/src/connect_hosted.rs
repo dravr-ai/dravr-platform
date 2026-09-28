@@ -26,6 +26,8 @@
 //! transcript. Identity (`user_id` + `tenant_id`) comes from the signed token,
 //! so the resulting connection is stored under the user's own tenant.
 
+use std::fmt::Display;
+
 use crate::sciotte_hosted_templates::{exposure_notice, ExposureNotice};
 use axum::extract::{Path, Query, State};
 use axum::http::{header, StatusCode};
@@ -338,12 +340,25 @@ pub async fn handle_connect_oauth_init(
                 .into_response()
         }
         Err(e) => {
-            error!(provider = %provider, user_id = %user_id, error = %e, "Hosted connect: OAuth init failed");
+            log_oauth_init_failure(&provider, &user_id, &e);
             Html(connect_hosted_templates::render_connect_error_page(
                 "We couldn't start the connection for this provider. Please go back and try again.",
             ))
             .into_response()
         }
+    }
+}
+
+/// Log a hosted-connect OAuth start that failed, at the level its cause
+/// deserves.
+///
+/// `{provider}` is the caller's path segment: naming one that does not exist,
+/// or has no OAuth, is refused, not a fault.
+fn log_oauth_init_failure(provider: &str, user_id: &dyn Display, e: &AppError) {
+    if e.is_server_fault() {
+        error!(provider = %provider, user_id = %user_id, error = %e, "Hosted connect: OAuth init failed");
+    } else {
+        warn!(provider = %provider, user_id = %user_id, error = %e, "Hosted connect: OAuth init refused");
     }
 }
 

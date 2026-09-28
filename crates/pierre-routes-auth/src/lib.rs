@@ -81,6 +81,8 @@ mod sciotte_hosted_templates;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_session_reuse;
 mod short_link;
+/// The RFC 6749 §5.2 error bodies of the password and refresh-token grant.
+mod token_errors;
 #[cfg(feature = "provider-sciotte")]
 mod trainingpeaks_account;
 

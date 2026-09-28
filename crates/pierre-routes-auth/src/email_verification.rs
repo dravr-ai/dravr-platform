@@ -208,7 +208,13 @@ async fn claim_token(resources: &AuthRoutesContext, token: Option<&str>) -> Opti
     {
         Ok(id) => Some(id),
         Err(e) => {
-            info!(error = %e, "verification token rejected");
+            // The caller is answered the same either way; only the log knows
+            // whether the token was bad or the lookup failed.
+            if e.is_server_fault() {
+                error!(error = %e, "verification token could not be checked");
+            } else {
+                info!(error = %e, "verification token rejected");
+            }
             None
         }
     }

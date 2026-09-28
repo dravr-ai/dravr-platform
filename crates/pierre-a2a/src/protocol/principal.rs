@@ -10,7 +10,6 @@
 //! acting [`AuthPrincipal`], and the access helpers confine that principal
 //! to the tasks keyed to clients it owns.
 
-use pierre_core::constants::http_status::INTERNAL_SERVER_ERROR;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::permissions::scopes::OAuthScope;
 use serde_json::{Number, Value};
@@ -242,7 +241,7 @@ impl A2AServer {
                 Some(request_id),
             );
         }
-        if error.http_status() >= INTERNAL_SERVER_ERROR {
+        if error.is_server_fault() {
             error!("A2A authentication could not complete: {error}");
             return Self::a2a_error(
                 -32000,

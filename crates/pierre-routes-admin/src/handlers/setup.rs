@@ -10,15 +10,16 @@ use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use chrono::Utc;
 use serde_json::json;
 use tokio::task;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use pierre_auth::auth::SetupStatusResponse;
 use pierre_core::admin::models::{AdminPermission, CreateAdminTokenRequest};
-use pierre_core::errors::AppResult;
+use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{User, UserStatus};
 use pierre_core::permissions::UserRole;
 use pierre_database::RepositoryRegistry;
+use pierre_middleware::redaction::mask_email;
 
 use super::api_keys::json_response;
 use super::types::{AdminResponse, AdminSetupRequest};
@@ -61,6 +62,28 @@ async fn check_no_admin_exists(
     }
 }
 
+/// The response to an admin user the setup could not create.
+///
+/// An email already held by an existing user is the caller's; the insert
+/// failing is the server's, and its detail stays in the log.
+fn user_creation_failure(e: &AppError) -> (StatusCode, Json<AdminResponse>) {
+    let status = if e.is_server_fault() {
+        error!("Failed to create admin user: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    } else {
+        warn!("Admin user creation refused: {}", e);
+        StatusCode::BAD_REQUEST
+    };
+    (
+        status,
+        Json(AdminResponse {
+            success: false,
+            message: format!("Failed to create admin user: {}", e.sanitized_message()),
+            data: None,
+        }),
+    )
+}
+
 /// Create admin user record with hashed password
 async fn create_admin_user_record(
     repos: &RepositoryRegistry,
@@ -95,20 +118,10 @@ async fn create_admin_user_record(
 
     match repos.users.create(&admin_user).await {
         Ok(_) => {
-            info!("Admin user created successfully: {}", request.email);
+            info!(user_id = %user_id, "Admin user created successfully");
             Ok(user_id)
         }
-        Err(e) => {
-            error!("Failed to create admin user: {}", e);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(AdminResponse {
-                    success: false,
-                    message: format!("Failed to create admin user: {e}"),
-                    data: None,
-                }),
-            ))
-        }
+        Err(e) => Err(user_creation_failure(&e)),
     }
 }
 
@@ -160,7 +173,7 @@ pub(crate) async fn handle_admin_setup(
     State(context): State<Arc<AdminApiContext>>,
     Json(request): Json<AdminSetupRequest>,
 ) -> AppResult<impl IntoResponse> {
-    info!("Admin setup request for email: {}", request.email);
+    info!(email = %mask_email(&request.email), "Admin setup request");
 
     let ctx = context.as_ref();
 
@@ -181,7 +194,7 @@ pub(crate) async fn handle_admin_setup(
             Err(error_response) => return Ok(error_response),
         };
 
-    info!("Admin setup completed successfully for: {}", request.email);
+    info!(user_id = %user_id, "Admin setup completed successfully");
     Ok((
         StatusCode::CREATED,
         Json(AdminResponse {

@@ -31,7 +31,7 @@ use chrono::SecondsFormat;
 use pierre_core::models::a2a::A2APushNotificationConfig;
 pub use pierre_core::models::a2a::{A2ATask, TaskStatus};
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
+use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
 use pierre_middleware::McpAuthMiddleware;
 use pierre_runtime_context::A2ACtx;
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
@@ -934,7 +934,7 @@ impl A2AServer {
             Ok(Some(context)) => context,
             Ok(None) => return Err("User does not belong to any tenant".into()),
             Err(e) => {
-                error!("Failed to resolve tenant context: {e}");
+                log_tenant_failure(user_id, &e);
                 return Err("Failed to resolve tenant context".into());
             }
         };

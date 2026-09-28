@@ -22,7 +22,7 @@ use pierre_core::models::{OAuthNotification, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::NotificationRepository;
 use pierre_mcp_schema::{McpError, McpResponse};
-use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
+use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
 use pierre_services::quota_policy::{check_quotas, QuotaPolicyInputs, QuotaSurface};
 use pierre_services::usage_counter::UsageCounterService;
@@ -36,7 +36,7 @@ use std::fmt::Write;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::field::Empty;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 /// Default ID for notifications and error responses that don't have a request ID
@@ -111,7 +111,7 @@ impl ToolHandlers {
                 );
             }
             Err(e) => {
-                error!(user_id = %user_id, error = %e, "Tenant context extraction failed");
+                log_tenant_failure(user_id, &e);
                 return ToolResponse::error("Failed to extract tenant context".to_owned());
             }
         };

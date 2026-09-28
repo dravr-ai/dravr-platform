@@ -545,7 +545,14 @@ async fn create_verified_channel_link(
     };
 
     if let Err(e) = db_msg.create_channel_link(&link_params).await {
-        error!(error = %e, "Failed to create channel link during OTP verification");
+        // An identity already linked to another account is the sender's
+        // situation, and its error names the sender's phone number, so only
+        // the insert failing is logged with its detail.
+        if e.is_server_fault() {
+            error!(error = %e, "Failed to create channel link during OTP verification");
+        } else {
+            warn!(channel = %params.channel, "OTP verification refused: the channel identity is already linked");
+        }
         return Err(Box::new(otp_reply(
             params.channel_type,
             params.sender_id,
@@ -909,7 +916,11 @@ async fn create_chat_originated_user(
         .await
         .map(|_| ())
         .map_err(|e| {
-            error!(error = %e, "in-chat signup failed");
+            if e.is_server_fault() {
+                error!(error = %e, "in-chat signup failed");
+            } else {
+                warn!(error = %e, "in-chat signup refused");
+            }
             e
         })
 }

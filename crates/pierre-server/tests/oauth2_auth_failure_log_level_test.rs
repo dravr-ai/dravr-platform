@@ -1,5 +1,5 @@
-// ABOUTME: A refused OAuth2 or JWT caller logs at WARN and never at ERROR, the level that pages the ops channel
-// ABOUTME: Pins the rl-probe token path, control-character input, federated-only logins, and that a database failure still pages
+// ABOUTME: A refused auth caller logs at WARN and never at ERROR, the level that pages the ops channel
+// ABOUTME: Pins OAuth2, JWT, registration, password, provider-callback refusals, and that a database failure still pages
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -30,9 +30,13 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 use axum::extract::connect_info::MockConnectInfo;
-use common::{create_test_server_resources, get_shared_test_jwks};
+use axum::http::StatusCode;
+use axum::routing::post;
+use axum::Router;
+use common::{create_test_server_resources, create_test_user, get_shared_test_jwks};
 use helpers::axum_test::AxumTestRequest;
 use pierre_auth::auth::AuthManager;
+use pierre_auth::oauth2_client::{OAuth2Client, OAuth2Config};
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::endpoints::OAuth2AuthorizationServer;
 use pierre_auth::oauth2_server::models::{
@@ -40,14 +44,20 @@ use pierre_auth::oauth2_server::models::{
     TokenRequest,
 };
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
+use pierre_auth::password::verify_password;
+use pierre_core::constants::oauth2_authorization::MAX_STATE_BYTES;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
+use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{User, UserStatus, FEDERATED_ONLY_PASSWORD_HASH};
 use pierre_database::backends::factory::Database;
 use pierre_database::backends::DatabaseProvider;
 use pierre_database::database::generate_encryption_key;
 use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_routes_auth::AuthRoutes;
 use pierre_routes_identity::oauth2::{OAuth2Context, OAuth2Routes};
+use serde_json::{json, Value};
+use tokio::net::TcpListener;
 use tracing::field::{Field, Visit};
 use tracing::subscriber::DefaultGuard;
 use tracing::{Level, Subscriber};
@@ -272,19 +282,23 @@ fn authorize_request(client_id: &str, state: &str) -> AuthorizeRequest {
     }
 }
 
-/// Moves `oauth2_clients` out of reach, so every client lookup fails in the
-/// database itself, the way an outage or a broken schema would.
-async fn break_client_table(database: &Database) {
-    const RENAME: &str = "ALTER TABLE oauth2_clients RENAME TO oauth2_clients_unreachable";
+/// Moves `table` out of reach, so every query on it fails in the database
+/// itself, the way an outage or a broken schema would.
+async fn break_table(database: &Database, table: &str) {
+    let rename = format!("ALTER TABLE {table} RENAME TO {table}_unreachable");
     match database {
         Database::SQLite(db) => {
-            sqlx::query(RENAME).execute(db.pool()).await.unwrap();
+            sqlx::query(&rename).execute(db.pool()).await.unwrap();
         }
         #[cfg(feature = "postgresql")]
         Database::PostgreSQL(db) => {
-            sqlx::query(RENAME).execute(db.pool()).await.unwrap();
+            sqlx::query(&rename).execute(db.pool()).await.unwrap();
         }
     }
+}
+
+async fn break_client_table(database: &Database) {
+    break_table(database, "oauth2_clients").await;
 }
 
 // ── The token endpoint: the incident path ────────────────────────────────────
@@ -364,7 +378,11 @@ async fn a_database_failure_during_the_client_lookup_still_pages() {
         .await
         .unwrap_err();
 
-    assert_eq!(refused.error, "invalid_client");
+    assert_eq!(
+        refused.error, "server_error",
+        "an outage is not a refused client"
+    );
+    assert_eq!(refused.http_status(), StatusCode::INTERNAL_SERVER_ERROR);
     let page = captured.page("OAuth2 client lookup failed");
     assert_eq!(page.fields["client_id"], client.client_id);
     assert!(
@@ -441,7 +459,10 @@ async fn a_database_failure_at_the_authorize_endpoint_still_pages() {
         .await
         .unwrap_err();
 
-    assert!(matches!(rejection, AuthorizeRejection::ShownToUser(_)));
+    let AuthorizeRejection::ShownToUser(error) = rejection else {
+        panic!("a failed lookup verifies no redirect_uri: {rejection:?}");
+    };
+    assert_eq!(error.error, "server_error");
     captured.page("OAuth2 client lookup failed");
 }
 
@@ -564,7 +585,6 @@ async fn a_password_tried_on_a_federated_only_account_is_refused_without_paging(
         .create(&federated)
         .await
         .unwrap();
-    assert!(!federated.has_password());
 
     let captured = Captured::start();
     let response = AxumTestRequest::post("/oauth2/login")
@@ -591,16 +611,351 @@ async fn a_password_tried_on_a_federated_only_account_is_refused_without_paging(
     );
 }
 
-#[tokio::test]
-async fn a_password_account_is_recognised_as_having_one() {
-    let bcrypt_hash = bcrypt::hash("correct horse", 4).unwrap();
-    let with_password = User::new("athlete@example.com".to_owned(), bcrypt_hash, None);
-    let federated = User::new(
-        "federated@example.com".to_owned(),
-        FEDERATED_ONLY_PASSWORD_HASH.to_owned(),
-        None,
-    );
+// ── The shared password verifier ─────────────────────────────────────────────
 
-    assert!(with_password.has_password());
-    assert!(!federated.has_password());
+#[tokio::test]
+async fn the_password_verifier_refuses_a_federated_account_without_paging() {
+    let captured = Captured::start();
+
+    let matched = verify_password(
+        "any password at all".to_owned(),
+        FEDERATED_ONLY_PASSWORD_HASH.to_owned(),
+    )
+    .await
+    .unwrap();
+
+    assert!(!matched);
+    captured.assert_nothing_paged();
+
+    let hash = bcrypt::hash("correct horse", 4).unwrap();
+    assert!(verify_password("correct horse".to_owned(), hash.clone())
+        .await
+        .unwrap());
+    assert!(!verify_password("wrong horse".to_owned(), hash)
+        .await
+        .unwrap());
+}
+
+#[tokio::test]
+async fn an_unreadable_stored_hash_pages_without_printing_it() {
+    const CORRUPT: &str = "$2b$12$truncated-stored-hash";
+    let captured = Captured::start();
+
+    let failure = verify_password("any password".to_owned(), CORRUPT.to_owned())
+        .await
+        .unwrap_err();
+
+    assert_eq!(failure.code, ErrorCode::InternalError);
+    captured.page("bcrypt could not read a stored password hash");
+    assert!(
+        !captured.all_text().contains("truncated-stored-hash"),
+        "the stored hash never reaches a log line"
+    );
+}
+
+// ── The fault class every split reads ───────────────────────────────────────
+
+#[test]
+fn only_a_5xx_code_is_a_server_fault() {
+    let server = [
+        AppError::database("the pool is gone"),
+        AppError::internal("the signer failed"),
+        AppError::config("no OAuth params"),
+        AppError::external_service("oauth", "provider is down"),
+    ];
+    let caller = [
+        AppError::not_found("OAuth2 client"),
+        AppError::auth_invalid("Invalid email or password"),
+        AppError::invalid_input("Password too weak"),
+        AppError::already_exists("OAuth2 state"),
+        AppError::auth_expired(),
+    ];
+
+    for error in &server {
+        assert!(error.is_server_fault(), "{error:?} is the server's");
+    }
+    for error in &caller {
+        assert!(!error.is_server_fault(), "{error:?} is the caller's");
+    }
+}
+
+// ── The authorization state ──────────────────────────────────────────────────
+
+#[tokio::test]
+async fn a_reused_authorization_state_is_refused_as_the_clients_mistake() {
+    let fixture = fixture().await;
+    let client = register(&fixture).await;
+    let (user_id, _) = create_test_user(&fixture.database).await.unwrap();
+
+    let first = fixture
+        .server
+        .authorize(
+            authorize_request(&client.client_id, "state-reused"),
+            Some(user_id),
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(!first.code.is_empty());
+
+    let captured = Captured::start();
+    let refused = fixture
+        .server
+        .authorize(
+            authorize_request(&client.client_id, "state-reused"),
+            Some(user_id),
+            None,
+        )
+        .await
+        .unwrap_err();
+
+    assert_eq!(refused.error, "invalid_request");
+    assert!(
+        refused
+            .error_description
+            .as_deref()
+            .is_some_and(|d| d.contains("already been used")),
+        "{refused:?}"
+    );
+    captured.assert_nothing_paged();
+    captured.warning("OAuth2 authorization refused: state already used");
+}
+
+#[tokio::test]
+async fn an_oversized_state_is_refused_before_it_reaches_the_database() {
+    let fixture = fixture().await;
+    let client = register(&fixture).await;
+    let captured = Captured::start();
+
+    let rejection = fixture
+        .server
+        .check_authorize_request(&authorize_request(
+            &client.client_id,
+            &"s".repeat(MAX_STATE_BYTES + 1),
+        ))
+        .await
+        .unwrap_err();
+
+    let AuthorizeRejection::RedirectedToClient(error) = rejection else {
+        panic!("a verified client's error goes back to it: {rejection:?}");
+    };
+    assert_eq!(error.error, "invalid_request");
+    captured.assert_nothing_paged();
+
+    fixture
+        .server
+        .check_authorize_request(&authorize_request(
+            &client.client_id,
+            &"s".repeat(MAX_STATE_BYTES),
+        ))
+        .await
+        .unwrap();
+}
+
+// ── The token endpoint over HTTP ─────────────────────────────────────────────
+
+#[tokio::test]
+async fn the_token_endpoint_answers_an_outage_with_server_error() {
+    let resources = create_test_server_resources().await.unwrap();
+    let client = ClientRegistrationManager::new(resources.common.repos.oauth2_server.clone())
+        .register_client(
+            registration(Some("Outage Client")),
+            MAX_PENDING_REGISTRATIONS,
+        )
+        .await
+        .unwrap();
+    let token_request = |client_id: &str, secret: &str| {
+        AxumTestRequest::post("/oauth2/token").form(&[
+            ("grant_type", "client_credentials"),
+            ("client_id", client_id),
+            ("client_secret", secret),
+        ])
+    };
+
+    let unknown = token_request(PROBE_CLIENT_ID, "not-the-secret")
+        .send(oauth2_routes(&resources))
+        .await;
+    assert_eq!(unknown.status(), 400);
+    assert_eq!(unknown.json::<Value>()["error"], "invalid_client");
+
+    break_client_table(&resources.agent.database).await;
+    let captured = Captured::start();
+    let outage = token_request(&client.client_id, &client.client_secret)
+        .send(oauth2_routes(&resources))
+        .await;
+
+    assert_eq!(outage.status(), 500, "a client retries an outage");
+    assert_eq!(outage.json::<Value>()["error"], "server_error");
+    captured.page("OAuth2 client lookup failed");
+}
+
+// ── Registration and password sign-in ────────────────────────────────────────
+
+#[tokio::test]
+async fn a_weak_password_at_public_registration_warns_and_never_pages() {
+    let resources = create_test_server_resources().await.unwrap();
+    let captured = Captured::start();
+
+    let response = AxumTestRequest::post("/api/auth/register")
+        .json(&json!({ "email": "weak@example.com", "password": "short" }))
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await;
+
+    assert_eq!(response.status(), 400);
+    captured.assert_nothing_paged();
+    assert!(
+        captured
+            .at(Level::WARN)
+            .iter()
+            .any(|e| e.message.starts_with("Public registration refused")),
+        "{:#?}",
+        captured.at(Level::WARN)
+    );
+}
+
+#[tokio::test]
+async fn an_unknown_email_at_the_password_grant_is_refused_without_paging() {
+    let resources = create_test_server_resources().await.unwrap();
+    let captured = Captured::start();
+
+    let response = AxumTestRequest::post("/oauth/token")
+        .form(&[
+            ("grant_type", "password"),
+            ("username", "nobody@example.com"),
+            ("password", "any password"),
+        ])
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await;
+
+    assert_eq!(response.status(), 400);
+    assert_eq!(response.json::<Value>()["error"], "invalid_grant");
+    captured.assert_nothing_paged();
+}
+
+#[tokio::test]
+async fn a_database_failure_at_the_password_grant_answers_server_error_and_pages() {
+    let resources = create_test_server_resources().await.unwrap();
+    break_table(&resources.agent.database, "users").await;
+    let captured = Captured::start();
+
+    let response = AxumTestRequest::post("/oauth/token")
+        .form(&[
+            ("grant_type", "password"),
+            ("username", "athlete@example.com"),
+            ("password", "any password"),
+        ])
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await;
+
+    assert_eq!(response.status(), 500);
+    let body = response.json::<Value>();
+    assert_eq!(body["error"], "server_error");
+    assert!(
+        !body["error_description"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("users"),
+        "the database detail stays in the log: {body}"
+    );
+    captured.page("Login could not complete: user lookup failed");
+}
+
+// ── The provider OAuth callback ──────────────────────────────────────────────
+
+#[tokio::test]
+async fn a_made_up_state_at_the_provider_callback_warns_and_never_pages() {
+    let resources = create_test_server_resources().await.unwrap();
+    let captured = Captured::start();
+
+    let response = AxumTestRequest::get("/api/oauth/callback/strava?code=abc&state=forged")
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await;
+
+    assert_ne!(response.status(), 500, "a forged state is the caller's");
+    captured.assert_nothing_paged();
+    assert!(
+        captured
+            .at(Level::WARN)
+            .iter()
+            .any(|e| e.message.starts_with("OAuth callback refused")),
+        "{:#?}",
+        captured.at(Level::WARN)
+    );
+}
+
+#[tokio::test]
+async fn a_database_failure_redeeming_the_callback_state_pages() {
+    let resources = create_test_server_resources().await.unwrap();
+    break_table(&resources.agent.database, "oauth_client_states").await;
+    let captured = Captured::start();
+
+    AxumTestRequest::get("/api/oauth/callback/strava?code=abc&state=any")
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await;
+
+    let pages = captured.at(Level::ERROR);
+    assert!(
+        pages
+            .iter()
+            .any(|e| e.message.starts_with("OAuth callback failed")),
+        "{pages:#?}"
+    );
+}
+
+/// A provider token endpoint on a local port, answering every exchange with
+/// `status` and `body`.
+async fn provider_token_endpoint(status: StatusCode, body: &'static str) -> OAuth2Client {
+    let app = Router::new().route("/oauth/token", post(move || async move { (status, body) }));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    OAuth2Client::new(OAuth2Config {
+        client_id: "pierre".to_owned(),
+        client_secret: "secret".to_owned(),
+        auth_url: format!("http://{addr}/oauth/authorize"),
+        token_url: format!("http://{addr}/oauth/token"),
+        redirect_uri: "http://localhost:8081/api/oauth/callback/strava".to_owned(),
+        scopes: Vec::new(),
+        use_pkce: false,
+    })
+    .unwrap()
+}
+
+#[tokio::test]
+async fn a_provider_refusing_the_code_is_the_callers_refusal() {
+    let provider = provider_token_endpoint(
+        StatusCode::BAD_REQUEST,
+        r#"{"error":"invalid_grant","error_description":"code expired"}"#,
+    )
+    .await;
+
+    let refused = provider.exchange_code("expired-code").await.unwrap_err();
+
+    assert_eq!(refused.code, ErrorCode::AuthInvalid);
+    assert!(!refused.is_server_fault());
+}
+
+#[tokio::test]
+async fn a_provider_refusing_this_server_stays_an_upstream_fault() {
+    let cases = [
+        // Our client credentials, refused the RFC way.
+        (StatusCode::UNAUTHORIZED, r#"{"error":"invalid_client"}"#),
+        // A 400 that names no standard error cannot be read as the caller's.
+        (StatusCode::BAD_REQUEST, r#"{"message":"Bad Request"}"#),
+        (StatusCode::INTERNAL_SERVER_ERROR, "upstream is down"),
+    ];
+    for (status, body) in cases {
+        let provider = provider_token_endpoint(status, body).await;
+
+        let failure = provider.exchange_code("a-code").await.unwrap_err();
+
+        assert_eq!(
+            failure.code,
+            ErrorCode::ExternalServiceError,
+            "{status} {body}"
+        );
+        assert!(failure.is_server_fault());
+    }
 }

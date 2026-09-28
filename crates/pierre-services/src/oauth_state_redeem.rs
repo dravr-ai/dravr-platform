@@ -88,8 +88,9 @@ impl OAuthService {
             .consume_oauth_client_state(state, provider, Utc::now())
             .await
             .map_err(|e| {
-                warn!("Failed to consume OAuth state from database: {}", e);
-                AppError::auth_invalid("OAuth state validation failed")
+                // The lookup failing is an outage, not a bad state: keep the
+                // database error so the callback reports it as the server's.
+                AppError::database(format!("Failed to consume OAuth state: {e}"))
             })?;
 
         let client_state = consumed.ok_or_else(|| {

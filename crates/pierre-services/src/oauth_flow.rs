@@ -12,7 +12,7 @@ use std::{
 };
 
 use chrono::Utc;
-use tracing::{debug, error, field, info, Span};
+use tracing::{debug, error, field, info, warn, Span};
 use urlencoding::encode;
 
 use crate::analytics::cache_user_email;
@@ -317,19 +317,12 @@ impl OAuthService {
             oauth_client
                 .exchange_code_with_pkce(code, &pkce)
                 .await
-                .map_err(|e| {
-                    error!(
-                        "OAuth PKCE token exchange failed for {provider} - user_id: {user_id}, error: {e}",
-                    );
-                    AppError::internal(format!("Failed to exchange OAuth code for token: {e}"))
-                })?
+                .map_err(|e| code_exchange_failure(e, provider, user_id))?
         } else {
-            oauth_client.exchange_code(code).await.map_err(|e| {
-                error!(
-                    "OAuth token exchange failed for {provider} - user_id: {user_id}, error: {e}",
-                );
-                AppError::internal(format!("Failed to exchange OAuth code for token: {e}"))
-            })?
+            oauth_client
+                .exchange_code(code)
+                .await
+                .map_err(|e| code_exchange_failure(e, provider, user_id))?
         };
 
         Ok(token)
@@ -365,7 +358,7 @@ impl OAuthService {
             AppError::invalid_input(format!("Provider {provider} does not support OAuth"))
         })?;
         let params = descriptor.oauth_params().ok_or_else(|| {
-            AppError::invalid_input(format!("Provider {provider} OAuth params not configured"))
+            AppError::config(format!("Provider {provider} OAuth params not configured"))
         })?;
 
         let server_level = get_oauth_config(provider);
@@ -648,7 +641,7 @@ impl OAuthService {
             AppError::invalid_input(format!("Provider {provider} does not support OAuth"))
         })?;
         let params = descriptor.oauth_params().ok_or_else(|| {
-            AppError::invalid_input(format!("Provider {provider} OAuth params not configured"))
+            AppError::config(format!("Provider {provider} OAuth params not configured"))
         })?;
 
         let use_pkce = params.use_pkce;
@@ -887,7 +880,7 @@ impl OAuthService {
 /// Returns `AppError::invalid_input` if the string is not a valid UUID.
 pub fn parse_user_id(user_id_str: &str) -> Result<uuid::Uuid, AppError> {
     uuid::Uuid::parse_str(user_id_str).map_err(|_| {
-        error!("Invalid user_id format: {}", user_id_str);
+        warn!("Invalid user_id format: {}", user_id_str);
         AppError::invalid_input("Invalid user ID format")
     })
 }
@@ -924,6 +917,22 @@ pub async fn get_user_for_oauth(
 /// Returns `AppError::auth_invalid` when no active tenant is set in the session.
 pub fn extract_tenant_id(active_tenant_id: Option<TenantId>) -> Result<TenantId, AppError> {
     active_tenant_id.ok_or_else(|| AppError::auth_invalid("No active tenant in session"))
+}
+
+/// The error a failed authorization-code exchange surfaces as, logged at the
+/// level its cause deserves.
+///
+/// The provider refusing the code (expired, reused, forged) is the caller's
+/// and passes through as the refusal it is. Anything else is the provider or
+/// this server failing, and pages.
+fn code_exchange_failure(error: AppError, provider: &str, user_id: uuid::Uuid) -> AppError {
+    if error.is_server_fault() {
+        error!("OAuth token exchange failed for {provider} - user_id: {user_id}, error: {error}");
+        AppError::internal(format!("Failed to exchange OAuth code for token: {error}"))
+    } else {
+        warn!("OAuth token exchange refused for {provider} - user_id: {user_id}, error: {error}");
+        error
+    }
 }
 
 /// Categorize OAuth errors for better user messaging
