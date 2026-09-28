@@ -91,6 +91,26 @@ appId: host.exp.Exponent
           start: "50%,30%"
           end: "50%,32%"
           duration: 2000
+      # A project load that stalled holds Expo Go on its own loader ("Opening
+      # project…" with a "Go back" button, then "This is taking much longer than
+      # it should") or on its error screen ("There was a problem running the
+      # requested project. The request timed out.", with "Go home"). Neither
+      # screen reacts to the link being sent again, so a round that found one
+      # leaves it first; the link below then starts a fresh load. Seen on main
+      # 2026-09-28 in runs 36382532966 and 36386686048, where the tree a branch
+      # run had passed sat on the loader until the 10-minute step timeout.
+      - runFlow:
+          when:
+            platform: iOS
+            visible: ".*taking much longer than it should.*"
+          commands:
+            - tapOn: "Go back"
+      - runFlow:
+          when:
+            platform: iOS
+            visible: "There was a problem running the requested project.*"
+          commands:
+            - tapOn: "Go home"
       - runFlow:
           when:
             platform: iOS
