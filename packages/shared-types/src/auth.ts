@@ -150,6 +150,11 @@ export interface ResetPasswordResponse {
 export interface ExtendedProviderStatus {
   provider: string;
   display_name: string;
+  /**
+   * The one line under the provider's name, in the reader's locale, as the
+   * server resolves it. Every surface shows it as served.
+   */
+  description: string;
   requires_oauth: boolean;
   connected: boolean;
   /**

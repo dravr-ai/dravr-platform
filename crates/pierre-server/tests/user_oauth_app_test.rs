@@ -16,10 +16,12 @@
 
 use anyhow::Result;
 use chrono::Utc;
-use pierre_auth::tenant::oauth_manager::{CredentialConfig, TenantOAuthManager};
+use pierre_auth::tenant::oauth_manager::TenantOAuthManager;
 use pierre_config::environment::{OAuthConfig, OAuthProviderConfig};
 use pierre_core::models::CoachingPersona;
-use pierre_core::models::{Tenant, TenantId, User, UserOAuthToken, UserStatus, UserTier};
+use pierre_core::models::{
+    Tenant, TenantId, TenantOAuthCredentials, User, UserOAuthToken, UserStatus, UserTier,
+};
 use pierre_core::permissions::UserRole;
 use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{
@@ -577,17 +579,22 @@ async fn test_tenant_credentials_priority() -> Result<()> {
 
     // Set up server-level credentials
     let oauth_config = Arc::new(create_test_oauth_config());
-    let mut oauth_manager = TenantOAuthManager::new(oauth_config);
+    let oauth_manager = TenantOAuthManager::new(oauth_config);
 
     // Store tenant-specific credentials (priority 2)
-    let tenant_creds = CredentialConfig {
-        client_id: "tenant_strava_id".to_owned(),
-        client_secret: "tenant_strava_secret".to_owned(),
-        redirect_uri: "http://tenant.example.com/callback".to_owned(),
-        scopes: vec!["read".to_owned()],
-        configured_by: user_id,
-    };
-    oauth_manager.store_credentials(tenant_id, "strava", tenant_creds)?;
+    database
+        .repositories()
+        .tenants
+        .store_oauth_credentials(&TenantOAuthCredentials {
+            tenant_id,
+            provider: "strava".to_owned(),
+            client_id: "tenant_strava_id".to_owned(),
+            client_secret: "tenant_strava_secret".to_owned(),
+            redirect_uri: "http://tenant.example.com/callback".to_owned(),
+            scopes: vec!["read".to_owned()],
+            rate_limit_per_day: TenantOAuthManager::default_rate_limit_for_provider("strava"),
+        })
+        .await?;
 
     // With no user credentials, should get tenant-specific
     let credentials = oauth_manager
@@ -649,18 +656,20 @@ async fn test_pool_attribution_priority_over_user_and_tenant_credentials() -> Re
     let repos = database.repositories();
 
     let oauth_config = Arc::new(create_test_oauth_config());
-    let mut oauth_manager = TenantOAuthManager::new(oauth_config);
-    oauth_manager.store_credentials(
-        tenant_id,
-        "strava",
-        CredentialConfig {
+    let oauth_manager = TenantOAuthManager::new(oauth_config);
+    database
+        .repositories()
+        .tenants
+        .store_oauth_credentials(&TenantOAuthCredentials {
+            tenant_id,
+            provider: "strava".to_owned(),
             client_id: "tenant_strava_id".to_owned(),
             client_secret: "tenant_strava_secret".to_owned(),
             redirect_uri: "http://tenant.example.com/callback".to_owned(),
             scopes: vec!["read".to_owned()],
-            configured_by: user_id,
-        },
-    )?;
+            rate_limit_per_day: TenantOAuthManager::default_rate_limit_for_provider("strava"),
+        })
+        .await?;
     repos
         .oauth_tokens
         .store_user_oauth_app(
@@ -1213,7 +1222,7 @@ async fn test_complete_three_tier_resolution() -> Result<()> {
 
     // Level 3: Server credentials
     let oauth_config = Arc::new(create_test_oauth_config());
-    let mut oauth_manager = TenantOAuthManager::new(oauth_config);
+    let oauth_manager = TenantOAuthManager::new(oauth_config);
 
     // Test with only server credentials
     let creds = oauth_manager
@@ -1231,14 +1240,19 @@ async fn test_complete_three_tier_resolution() -> Result<()> {
     );
 
     // Level 2: Add tenant credentials
-    let tenant_creds = CredentialConfig {
-        client_id: "tenant_strava_id".to_owned(),
-        client_secret: "tenant_secret".to_owned(),
-        redirect_uri: "http://tenant.com/callback".to_owned(),
-        scopes: vec!["read".to_owned()],
-        configured_by: user_id,
-    };
-    oauth_manager.store_credentials(tenant_id, "strava", tenant_creds)?;
+    database
+        .repositories()
+        .tenants
+        .store_oauth_credentials(&TenantOAuthCredentials {
+            tenant_id,
+            provider: "strava".to_owned(),
+            client_id: "tenant_strava_id".to_owned(),
+            client_secret: "tenant_secret".to_owned(),
+            redirect_uri: "http://tenant.com/callback".to_owned(),
+            scopes: vec!["read".to_owned()],
+            rate_limit_per_day: TenantOAuthManager::default_rate_limit_for_provider("strava"),
+        })
+        .await?;
 
     let creds = oauth_manager
         .get_credentials_for_user(

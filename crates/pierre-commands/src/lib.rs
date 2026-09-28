@@ -49,6 +49,8 @@ pub mod guardian_confirm;
 pub mod guided_walk;
 /// Help command listing available commands
 pub mod help;
+/// Language command pinning the locale a messaging channel reads in
+pub mod language;
 /// Guided pillar-onboarding command (`/pillars`)
 pub mod onboarding;
 /// Markdown command definition loader for messaging slash commands

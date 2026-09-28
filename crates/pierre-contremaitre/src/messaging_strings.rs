@@ -518,6 +518,15 @@ pub const KEY_TIMEZONE_SET: &str = "commands.timezone.set";
 /// Key: `/timezone` rejection when the argument is missing or not a valid IANA
 /// timezone database name.
 pub const KEY_TIMEZONE_INVALID: &str = "commands.timezone.invalid";
+/// Key: `/language` confirmation, rendered in the language just set. No
+/// format placeholders.
+pub const KEY_LANGUAGE_SET: &str = "commands.language.set";
+/// Key: `/language` rejection when the argument is missing or not a supported
+/// locale. `{0}` = the supported codes, comma-separated.
+pub const KEY_LANGUAGE_INVALID: &str = "commands.language.invalid";
+/// Key: `/language` refusal where the conversation has no messaging channel
+/// link to pin a language on (the web and mobile apps). No format placeholders.
+pub const KEY_LANGUAGE_NO_CHANNEL: &str = "commands.language.no_channel";
 
 // ── /pillars command keys ─────────────────────────────────────────────────
 
@@ -1222,6 +1231,35 @@ pub const KEY_GROUP_DIGEST_ROOM_SCOPE: &str = "notifications.group_digest.room_s
 pub const KEY_NOTIFICATION_ACTION_REPLY: &str = "notifications.action.reply";
 /// Key: the "reconnect this provider" action button. No format placeholders.
 pub const KEY_NOTIFICATION_ACTION_RECONNECT: &str = "notifications.action.reconnect";
+
+// ── Provider descriptions ─────────────────────────────────────────────────
+//
+// The one line under a provider's name, which `/api/providers` and the hosted
+// connect picker serve resolved in the reader's locale, so no client keeps a
+// map of its own. A card and the backend a mirror serves it through share one
+// line (the `sciotte` card is Strava). No format placeholders.
+
+/// Key: the Strava card's description.
+pub const KEY_PROVIDER_DESCRIPTION_STRAVA: &str = "providerDescription.strava";
+/// Key: the Garmin card's description.
+pub const KEY_PROVIDER_DESCRIPTION_GARMIN: &str = "providerDescription.garmin";
+/// Key: the TrainingPeaks card's description.
+pub const KEY_PROVIDER_DESCRIPTION_TRAININGPEAKS: &str = "providerDescription.trainingpeaks";
+/// Key: the COROS card's description.
+pub const KEY_PROVIDER_DESCRIPTION_COROS: &str = "providerDescription.coros";
+/// Key: the WHOOP card's description.
+pub const KEY_PROVIDER_DESCRIPTION_WHOOP: &str = "providerDescription.whoop";
+/// Key: the Intervals.icu card's description.
+pub const KEY_PROVIDER_DESCRIPTION_INTERVALS_ICU: &str = "providerDescription.intervals_icu";
+/// Key: the Terra card's description.
+pub const KEY_PROVIDER_DESCRIPTION_TERRA: &str = "providerDescription.terra";
+/// Key: the synthetic development provider's description.
+pub const KEY_PROVIDER_DESCRIPTION_SYNTHETIC: &str = "providerDescription.synthetic";
+/// Key: the synthetic sleep development provider's description.
+pub const KEY_PROVIDER_DESCRIPTION_SYNTHETIC_SLEEP: &str = "providerDescription.synthetic_sleep";
+/// Key: the description of a provider the catalogue has no line of its own for
+/// (one a provider bundle registered at runtime).
+pub const KEY_PROVIDER_DESCRIPTION_GENERIC: &str = "providerDescription.generic";
 
 /// The catalogue, embedded at build time.
 ///

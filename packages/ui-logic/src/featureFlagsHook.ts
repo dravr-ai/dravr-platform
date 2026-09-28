@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: React Query hook for the calling user's feature flag map, bound to each client's flags API
-// ABOUTME: Gates surfaces like the API Tokens settings row and the Billing header on both clients
+// ABOUTME: Gates surfaces like the MCP tokens and API keys settings rows and the Billing header on both clients
 
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';

@@ -12,6 +12,7 @@
 use chrono::{Duration, Utc};
 use pierre_core::constants::key_prefixes;
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::UserTier;
 use rand::distr::Alphanumeric;
 use rand::Rng;
 use sha2::{Digest, Sha256};
@@ -22,6 +23,10 @@ pub use pierre_core::models::{
     ApiKey, ApiKeyData, ApiKeyResponse, ApiKeyTier, ApiKeyUsage, ApiKeyUsageStats,
     CreateApiKeyRequest, CreateApiKeyRequestSimple,
 };
+
+/// The request budget of a key whose tier has no monthly cap (Enterprise):
+/// effectively unlimited, and inside the database column's range.
+pub const ENTERPRISE_KEY_REQUEST_CEILING: u32 = 1_000_000_000;
 
 /// API Key Manager
 #[derive(Clone)]
@@ -121,7 +126,12 @@ impl ApiKeyManager {
         api_key.starts_with("pk_trial_")
     }
 
-    /// Create a new API key with simplified request
+    /// Create a user's own API key at the tier their plan entitles them to.
+    ///
+    /// The key's tier and request budget come from `plan`, the minting user's
+    /// tier, never from the request: a Starter user gets a Starter key whatever
+    /// they ask for. An Enterprise plan's key is uncapped
+    /// ([`ENTERPRISE_KEY_REQUEST_CEILING`]) because the plan is.
     ///
     /// # Errors
     ///
@@ -129,66 +139,20 @@ impl ApiKeyManager {
     pub fn create_api_key_simple(
         &self,
         user_id: Uuid,
+        plan: UserTier,
         request: CreateApiKeyRequestSimple,
     ) -> AppResult<(ApiKey, String)> {
-        // Determine tier based on rate limit (keep trial functionality but don't expose in UI)
-        let tier = if request.rate_limit_requests <= 1_000 {
-            ApiKeyTier::Trial
-        } else if request.rate_limit_requests <= 10_000 {
-            ApiKeyTier::Starter
-        } else if request.rate_limit_requests <= 100_000 {
-            ApiKeyTier::Professional
-        } else {
-            ApiKeyTier::Enterprise
-        };
-
-        let is_trial = tier.is_trial();
-
-        // Generate the key components
-        let api_key_data = self.generate_api_key(is_trial);
-        let full_key = api_key_data.full_key;
-        let key_prefix = api_key_data.key_prefix;
-        let key_hash = api_key_data.key_hash;
-
-        // Calculate expiration
-        let expires_at = if is_trial {
-            let days = request
-                .expires_in_days
-                .or_else(|| tier.default_trial_days())
-                .unwrap_or(14);
-            Some(Utc::now() + Duration::days(days))
-        } else {
-            request
-                .expires_in_days
-                .map(|days| Utc::now() + Duration::days(days))
-        };
-
-        // Use custom rate limits
-        let rate_limit_requests = if request.rate_limit_requests == 0 {
-            1_000_000_000 // Effectively unlimited but fits in database constraints
-        } else {
-            request.rate_limit_requests
-        };
-        let rate_limit_window = tier.rate_limit_window();
-
-        // Create the API key record
-        let api_key = ApiKey {
-            id: Uuid::new_v4().to_string(),
+        let tier = ApiKeyTier::from(plan);
+        self.create_api_key(
             user_id,
-            name: request.name,
-            key_prefix,
-            key_hash,
-            description: request.description,
-            tier,
-            rate_limit_requests,
-            rate_limit_window_seconds: rate_limit_window,
-            is_active: true,
-            last_used_at: None,
-            expires_at,
-            created_at: Utc::now(),
-        };
-
-        Ok((api_key, full_key))
+            CreateApiKeyRequest {
+                name: request.name,
+                description: request.description,
+                tier,
+                rate_limit_requests: None,
+                expires_in_days: request.expires_in_days,
+            },
+        )
     }
 
     /// Create a new API key with tier-based access
@@ -226,9 +190,12 @@ impl ApiKeyManager {
 
         // Get rate limits - use custom if provided, otherwise use tier defaults
         // For enterprise tier, use a high value that fits in database constraints
-        let rate_limit_requests = request
-            .rate_limit_requests
-            .unwrap_or_else(|| request.tier.monthly_limit().unwrap_or(1_000_000_000));
+        let rate_limit_requests = request.rate_limit_requests.unwrap_or_else(|| {
+            request
+                .tier
+                .monthly_limit()
+                .unwrap_or(ENTERPRISE_KEY_REQUEST_CEILING)
+        });
         let rate_limit_window = request.tier.rate_limit_window();
 
         // Create the API key record

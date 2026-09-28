@@ -1564,6 +1564,91 @@ mod command_tests {
         assert!(response.text.contains("Invalid timezone"));
     }
 
+    #[tokio::test]
+    async fn test_language_handler_pins_the_channel_locale() {
+        use pierre_commands::language::LanguageHandler;
+        use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
+        use pierre_services::locale::resolve_channel_locale;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
+
+        let make_ctx = |channel: &str, args: Vec<String>| PlatformCommandContext {
+            user_id,
+            tenant_id,
+            channel_type: channel.to_owned(),
+            args,
+            raw_text: "/language".to_owned(),
+            ctx: Arc::<ServerContext>::clone(&resources),
+            locale: "fr".to_owned(),
+            is_direct_message: true,
+            ambient_group_fallback: true,
+            conversation_id: None,
+            conversation_tenant_id: tenant_id,
+            sender_id: None,
+            rotation: ConversationRotation::default(),
+            tool_runtime: Arc::<ServerContext>::clone(&resources),
+        };
+        let channel_locale = || async {
+            resolve_channel_locale(
+                resources.common.repos.messaging.as_ref(),
+                resources.common.repos.users.as_ref(),
+                tenant_id,
+                "telegram",
+                SENDER_ID,
+                Some(user_id),
+            )
+            .await
+        };
+
+        // A supported code pins the channel and is confirmed in that language.
+        let response = LanguageHandler
+            .execute(&make_ctx("telegram", vec!["EN".to_owned()]))
+            .await
+            .unwrap();
+        assert_eq!(
+            response.text,
+            "Done — on this channel I'll write to you in English from now on."
+        );
+        assert_eq!(channel_locale().await, "en");
+
+        // An unsupported code is refused in the current language and changes nothing.
+        let response = LanguageHandler
+            .execute(&make_ctx("telegram", vec!["it".to_owned()]))
+            .await
+            .unwrap();
+        assert!(
+            response.text.contains("fr, en, es, de, pt"),
+            "{}",
+            response.text
+        );
+        assert!(
+            response.text.starts_with("Langue inconnue"),
+            "{}",
+            response.text
+        );
+        assert_eq!(channel_locale().await, "en");
+
+        // So is a missing one.
+        let response = LanguageHandler
+            .execute(&make_ctx("telegram", vec![]))
+            .await
+            .unwrap();
+        assert!(
+            response.text.starts_with("Langue inconnue"),
+            "{}",
+            response.text
+        );
+
+        // A conversation with no channel link has nothing to pin.
+        let response = LanguageHandler
+            .execute(&make_ctx("web", vec!["de".to_owned()]))
+            .await
+            .unwrap();
+        assert!(response.text.contains("Réglages"), "{}", response.text);
+        assert_eq!(channel_locale().await, "en");
+    }
+
     // ════════════════════════════════════════════════════════════════
     // /group command handlers — populated paths (direct execute())
     // ════════════════════════════════════════════════════════════════

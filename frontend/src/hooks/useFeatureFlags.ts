@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The web client's binding of the shared feature-flag hook to its feature flags API
-// ABOUTME: Gates surfaces like the API Tokens settings tab and Billing header
+// ABOUTME: Gates surfaces like the MCP tokens and API keys settings tabs and Billing header
 
 import { createFeatureFlagsHook } from '@pierre/ui-logic';
 import { featureFlagsApi } from '../services/api';

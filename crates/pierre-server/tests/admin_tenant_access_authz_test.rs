@@ -1,5 +1,5 @@
 // ABOUTME: Regression tests for cross-tenant authz on web-admin financial endpoints
-// ABOUTME: A tenant-scoped admin must not read another tenant's LLM usage/invoice/billing (CWE-863)
+// ABOUTME: A tenant-scoped admin must not read another tenant's LLM usage or the platform billing export (CWE-863)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -23,7 +23,6 @@ use pierre_core::models::{ConversationTurnId, InsertLlmUsage, Tenant, TenantId, 
 use pierre_core::permissions::UserRole;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_web_admin::WebAdminRoutes;
-use serde_json::Value;
 use serial_test::serial;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -119,129 +118,6 @@ async fn seed_usage(resources: &Arc<ServerContext>, tenant_id: &str, user_id: &s
             .await
             .unwrap();
     }
-}
-
-// ============================================================================
-// handle_get_tenant_usage — /api/admin/tenants/{tenant_id}/usage
-// ============================================================================
-
-/// A tenant-scoped admin of tenant A must be denied usage for tenant B (403).
-#[tokio::test]
-#[serial]
-async fn test_tenant_admin_denied_cross_tenant_usage() -> Result<()> {
-    let resources = create_test_server_resources().await?;
-    let (_a_id, _a_tenant, a_token) =
-        create_user_with_role(&resources, "authz_usage_admin_a@test.com", UserRole::Admin).await;
-    let (b_id, b_tenant, _b_token) =
-        create_user_with_role(&resources, "authz_usage_admin_b@test.com", UserRole::Admin).await;
-    seed_usage(&resources, &b_tenant.to_string(), &b_id.to_string(), 3).await;
-
-    let response = AxumTestRequest::get(&format!("/api/admin/tenants/{b_tenant}/usage"))
-        .header("authorization", &a_token)
-        .send(router(&resources))
-        .await;
-
-    assert_eq!(
-        response.status(),
-        403,
-        "tenant-scoped admin A must be denied tenant B usage"
-    );
-    Ok(())
-}
-
-/// A super-admin (global operator) is allowed usage for any tenant (200).
-#[tokio::test]
-#[serial]
-async fn test_super_admin_allowed_cross_tenant_usage() -> Result<()> {
-    let resources = create_test_server_resources().await?;
-    let (_s_id, _s_tenant, s_token) = create_user_with_role(
-        &resources,
-        "authz_usage_super@test.com",
-        UserRole::SuperAdmin,
-    )
-    .await;
-    let (b_id, b_tenant, _b_token) =
-        create_user_with_role(&resources, "authz_usage_admin_b2@test.com", UserRole::Admin).await;
-    seed_usage(&resources, &b_tenant.to_string(), &b_id.to_string(), 2).await;
-
-    let response = AxumTestRequest::get(&format!("/api/admin/tenants/{b_tenant}/usage"))
-        .header("authorization", &s_token)
-        .send(router(&resources))
-        .await;
-
-    assert_eq!(
-        response.status(),
-        200,
-        "super-admin must be allowed cross-tenant usage"
-    );
-    let body: Value = response.json();
-    let expected_tenant = b_tenant.to_string();
-    assert_eq!(
-        body["tenant_id"].as_str(),
-        Some(expected_tenant.as_str()),
-        "response should echo the requested tenant"
-    );
-    Ok(())
-}
-
-/// The fix must not break legitimate same-tenant access: an admin reading their
-/// own tenant's usage still succeeds (200).
-#[tokio::test]
-#[serial]
-async fn test_tenant_admin_allowed_own_tenant_usage() -> Result<()> {
-    let resources = create_test_server_resources().await?;
-    let (a_id, a_tenant, a_token) =
-        create_user_with_role(&resources, "authz_usage_own@test.com", UserRole::Admin).await;
-    seed_usage(&resources, &a_tenant.to_string(), &a_id.to_string(), 2).await;
-
-    let response = AxumTestRequest::get(&format!("/api/admin/tenants/{a_tenant}/usage"))
-        .header("authorization", &a_token)
-        .send(router(&resources))
-        .await;
-
-    assert_eq!(
-        response.status(),
-        200,
-        "admin must still read their own tenant's usage"
-    );
-    Ok(())
-}
-
-// ============================================================================
-// handle_get_tenant_invoice — /api/admin/tenants/{tenant_id}/invoice
-// ============================================================================
-
-/// A tenant-scoped admin of tenant A must be denied invoice for tenant B (403).
-#[tokio::test]
-#[serial]
-async fn test_tenant_admin_denied_cross_tenant_invoice() -> Result<()> {
-    let resources = create_test_server_resources().await?;
-    let (_a_id, _a_tenant, a_token) = create_user_with_role(
-        &resources,
-        "authz_invoice_admin_a@test.com",
-        UserRole::Admin,
-    )
-    .await;
-    let (_b_id, b_tenant, _b_token) = create_user_with_role(
-        &resources,
-        "authz_invoice_admin_b@test.com",
-        UserRole::Admin,
-    )
-    .await;
-
-    let response = AxumTestRequest::get(&format!(
-        "/api/admin/tenants/{b_tenant}/invoice?period=2026-07"
-    ))
-    .header("authorization", &a_token)
-    .send(router(&resources))
-    .await;
-
-    assert_eq!(
-        response.status(),
-        403,
-        "tenant-scoped admin must be denied a cross-tenant invoice"
-    );
-    Ok(())
 }
 
 // ============================================================================

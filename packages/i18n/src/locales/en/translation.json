@@ -84,6 +84,32 @@
     "signOutHint": "Sign out of your account on this device.",
     "usageUnavailable": "Usage data unavailable"
   },
+  "apiKeys": {
+    "blurb": "Keys your own scripts and tools use to call the Dravr API as you. Each works until you revoke it or it expires.",
+    "copied": "Copied",
+    "copy": "Copy",
+    "create": "Create key",
+    "createFailed": "Couldn't create the key.",
+    "createdHint": "This is the only time the full key is shown. Store it somewhere safe.",
+    "createdOn": "Created {{date}}",
+    "createdTitle": "Copy your new key",
+    "creating": "Creating…",
+    "done": "Done",
+    "empty": "No API keys yet.",
+    "expiresHint": "Leave empty for a key that does not expire.",
+    "expiresLabel": "Expires in (days)",
+    "expiresOn": "Expires {{date}}",
+    "lastUsed": "Last used {{date}}",
+    "loadFailed": "Couldn't load your API keys.",
+    "nameLabel": "Name",
+    "namePlaceholder": "e.g. Training export script",
+    "neverUsed": "Never used",
+    "requests30d": "{{count}} requests in the last 30 days",
+    "revoke": "Revoke",
+    "revokeFailed": "Couldn't revoke the key.",
+    "revokeMessage": "Anything using this key stops working at once. This cannot be undone.",
+    "revokeTitle": "Revoke {{name}}?"
+  },
   "app": {
     "account": "Account",
     "accountActivatesOnConfirm": "Your account activates as soon as it is confirmed",
@@ -341,7 +367,6 @@
     "failedUpdateRole": "Failed to update role",
     "failedUpdateSharing": "Failed to update sharing consent",
     "finishAuthInBrowser": "Finish the authorisation in the browser. We'll route you to your dashboard automatically once {{provider}} confirms.",
-    "fitnessDataProvider": "Fitness data provider",
     "fitnessProviders": "Fitness Providers",
     "forget": "Forget",
     "forgetThisFactQ": "Forget this fact?",
@@ -512,15 +537,6 @@
     "profileTypeBlurb": "How will you use Dravr? This tailors the agents we suggest. You can change it anytime in Settings.",
     "profileUpdated": "Profile updated",
     "promote": "Promote",
-    "provActivitiesHealth": "Activities + health metrics",
-    "provEnduranceWellness": "Endurance analytics + wellness",
-    "provFitnessData": "Fitness data",
-    "provGarminBlurb": "Activities and health metrics from Garmin devices",
-    "provIntervalsBlurb": "Endurance analytics, activities, and wellness",
-    "provRecoveryStrainSleep": "Recovery, strain, sleep",
-    "provRunCycleSwim": "Running, cycling, swimming",
-    "provStravaBlurb": "Running, cycling, and swimming activities",
-    "provWhoopBlurb": "Recovery, strain, and sleep metrics",
     "provider": "Provider",
     "providerConflictWarning": "Connecting {{connecting}} will disconnect {{disconnecting}}. Both providers access Strava data — only one can be active at a time. Continue?",
     "providerConnected": "{{provider}} connected successfully!",
@@ -740,11 +756,7 @@
     "youllReceiveApproval": "You'll receive an approval email",
     "yourActivitiesCount": "Your Activities ({{count}})",
     "brandTrainingPeaks": "TrainingPeaks",
-    "provTrainingPeaksBlurb": "Completed workouts and their training load from TrainingPeaks",
-    "provTrainingPeaksShort": "Completed workouts & training load",
-    "brandCoros": "COROS",
-    "provCorosBlurb": "Activities and recovery metrics from COROS watches",
-    "provCorosShort": "Activities & laps"
+    "brandCoros": "COROS"
   },
   "auth": {
     "activatesOnConfirm": "Your account activates as soon as the address is confirmed",
@@ -1252,6 +1264,12 @@
       "footer": "\nOr just send a message to chat with your agent.",
       "header": "Available commands:\n"
     },
+    "language": {
+      "description": "Set the language I write to you in on this channel",
+      "invalid": "Unknown language. Use one of {0}, e.g. `/language en`.",
+      "no_channel": "This conversation has no messaging channel to set a language on. Change the app's language in Settings.",
+      "set": "Done — on this channel I'll write to you in English from now on."
+    },
     "logout": {
       "confirm_prompt": "This will unlink your {0} account from Dravr.\nYou will need to re-link to use messaging again.\n\nType \"logout\" to confirm.",
       "description": "Unlink this messaging account"
@@ -1516,6 +1534,10 @@
     "sortPopular": "Popular",
     "storeEmpty": "Store is empty",
     "storeListMissing": "The server did not return an agent list.",
+    "submitToStore": "Submit to the Store",
+    "submitToStoreFailed": "Couldn't submit this agent to the Store.",
+    "submitToStoreHint": "An admin reviews it before it appears in the Store.",
+    "submittedToStore": "Submitted — an admin will review it before it appears in the Store.",
     "successCriteriaSection": "Success Criteria",
     "tagsSection": "Tags",
     "tokenCount": "Token Count",
@@ -1819,6 +1841,22 @@
     "trainingpeaksAccount": "Coach account",
     "trainingpeaksAccountHint": "TrainingPeaks keeps no calendar for a coach account. Link your athletes from a group you coach.",
     "youCoach": "You coach this group"
+  },
+  "impersonationLog": {
+    "active": "Active",
+    "details": "Details",
+    "duration": "{{minutes}} min",
+    "empty": "No impersonation sessions yet.",
+    "ended": "Ended",
+    "endedAt": "Ended {{date}}",
+    "hideDetails": "Hide details",
+    "hint": "Every session in which a super admin acted as another user, newest first.",
+    "loadFailed": "Couldn't load the impersonation log.",
+    "noReason": "No reason given",
+    "pair": "{{impersonator}} as {{target}}",
+    "reason": "Reason",
+    "started": "Started {{date}}",
+    "unknownUser": "Unknown user"
   },
   "messaging": {
     "account": {
@@ -2336,20 +2374,17 @@
     "memberSince": "Member Since",
     "title": "Profile Information"
   },
-  "providerBlurb": {
-    "activitiesSleepRecovery": "Activities, sleep & recovery",
-    "activitiesWorkouts": "Activities & workouts",
-    "fitnessData": "Fitness data",
-    "garmin": "Activities and health metrics from Garmin devices",
-    "generic": "Fitness data provider",
-    "intervals": "Endurance analytics, activities, and wellness",
-    "sleepTracking": "Sleep tracking",
+  "providerDescription": {
     "strava": "Running, cycling, and swimming activities",
-    "synthSleep": "Synthetic sleep data for development",
-    "synthTest": "Synthetic test data for development",
-    "whoop": "Recovery, strain, and sleep metrics",
+    "garmin": "Activities and health metrics from Garmin devices",
     "trainingpeaks": "Completed workouts and their training load from TrainingPeaks",
-    "coros": "Activities and recovery metrics from COROS watches"
+    "coros": "Activities and recovery metrics from COROS watches",
+    "whoop": "Recovery, strain, and sleep metrics",
+    "intervals_icu": "Endurance analytics, activities, and wellness",
+    "terra": "Activities, sleep, and health data from connected wearables, through Terra",
+    "synthetic": "Synthetic test data for development",
+    "synthetic_sleep": "Synthetic sleep data for development",
+    "generic": "Fitness data provider"
   },
   "providers": {
     "add": "Add Provider",
@@ -2478,6 +2513,8 @@
     "aboutHint": "Version, help and legal",
     "account": "Account",
     "accountHint": "Password, email, closing your account",
+    "apiKeys": "API keys",
+    "apiKeysHint": "Keys your own scripts use to call Dravr",
     "coaching": "Coaching style",
     "coachingHint": "How your agent talks to you",
     "connections": "Data providers",
@@ -2491,8 +2528,8 @@
     "privacyHint": "Analytics consent and your data",
     "profile": "Profile",
     "profileHint": "Name, display name, coaching persona",
-    "tokens": "API Tokens",
-    "tokensHint": "Personal API tokens"
+    "tokens": "MCP tokens",
+    "tokensHint": "Tokens for Claude Desktop, Cursor and other MCP clients"
   },
   "settingsUi": {
     "agents": "Agents",
@@ -2661,6 +2698,7 @@
     "navGroups": "Groups",
     "navGuardianConfig": "Guardian Config",
     "navHarnessConfig": "Harness Config",
+    "navImpersonationLog": "Impersonation log",
     "navMemoryWorker": "Memory Worker",
     "navMythBusting": "Myth Busting",
     "navNotifications": "Notifications",
@@ -2760,7 +2798,7 @@
     "setupInstructions": "Setup Instructions",
     "setupInstructionsFor": "for Claude & ChatGPT",
     "statusActive": "Active",
-    "title": "API Tokens"
+    "title": "MCP tokens"
   },
   "usage": {
     "blockedLimitReached": "{{label}} limit reached. Limits reset at {{time}}.",

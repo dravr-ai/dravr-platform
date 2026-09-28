@@ -24,6 +24,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="privacy" options={{ title: t(settingsPane('privacy').nameKey) }} />
       <Stack.Screen name="profile" options={{ title: t(settingsPane('profile').nameKey) }} />
       <Stack.Screen name="tokens" options={{ title: t(settingsPane('tokens').nameKey) }} />
+      <Stack.Screen name="api-keys" options={{ title: t(settingsPane('api-keys').nameKey) }} />
     </Stack>
   );
 }

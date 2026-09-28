@@ -81,6 +81,7 @@ describe('Type Definitions', () => {
       const status: ExtendedProviderStatus = {
         provider: 'sciotte',
         display_name: 'Strava',
+        description: 'Running, cycling, and swimming activities',
         requires_oauth: false,
         connected: true,
         connected_backend: 'strava',

@@ -244,6 +244,14 @@ export interface RevertAgentVersionResponse {
   new_version: number;
 }
 
+/** Response for POST /api/agents/{id}/submit: the agent now waits in the Store review queue. */
+export interface SubmitAgentForReviewResponse {
+  agent_id: string;
+  publish_status: PublishStatus;
+  /** When it entered the review queue (RFC 3339) */
+  review_submitted_at: string | null;
+}
+
 /** Standard metadata for agent API responses */
 export interface AgentMetadata {
   timestamp: string;

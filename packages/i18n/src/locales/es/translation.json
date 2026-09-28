@@ -84,6 +84,32 @@
     "signOutHint": "Cierra la sesión de tu cuenta en este dispositivo.",
     "usageUnavailable": "Datos de uso no disponibles"
   },
+  "apiKeys": {
+    "blurb": "Las claves que tus propios scripts y herramientas usan para llamar a la API de Dravr en tu nombre. Cada una funciona hasta que la revoques o caduque.",
+    "copied": "Copiada",
+    "copy": "Copiar",
+    "create": "Crear clave",
+    "createFailed": "No se pudo crear la clave.",
+    "createdHint": "Es la única vez que se muestra la clave completa. Guárdala en un lugar seguro.",
+    "createdOn": "Creada el {{date}}",
+    "createdTitle": "Copia tu nueva clave",
+    "creating": "Creando…",
+    "done": "Listo",
+    "empty": "Todavía no tienes claves de API.",
+    "expiresHint": "Déjalo vacío para una clave que no caduque.",
+    "expiresLabel": "Caduca en (días)",
+    "expiresOn": "Caduca el {{date}}",
+    "lastUsed": "Usada el {{date}}",
+    "loadFailed": "No se pudieron cargar tus claves de API.",
+    "nameLabel": "Nombre",
+    "namePlaceholder": "p. ej. Script de exportación de entrenamientos",
+    "neverUsed": "Nunca usada",
+    "requests30d": "{{count}} solicitudes en los últimos 30 días",
+    "revoke": "Revocar",
+    "revokeFailed": "No se pudo revocar la clave.",
+    "revokeMessage": "Todo lo que use esta clave deja de funcionar al instante. No se puede deshacer.",
+    "revokeTitle": "¿Revocar {{name}}?"
+  },
   "app": {
     "account": "Cuenta",
     "accountActivatesOnConfirm": "Tu cuenta se activa en cuanto se confirma",
@@ -341,7 +367,6 @@
     "failedUpdateRole": "No se pudo actualizar el rol",
     "failedUpdateSharing": "No se pudo actualizar el consentimiento para compartir",
     "finishAuthInBrowser": "Termina la autorización en el navegador. Te llevaremos a tu panel automáticamente en cuanto {{provider}} lo confirme.",
-    "fitnessDataProvider": "Proveedor de datos de fitness",
     "fitnessProviders": "Proveedores de fitness",
     "forget": "Olvidar",
     "forgetThisFactQ": "¿Olvidar este dato?",
@@ -512,15 +537,6 @@
     "profileTypeBlurb": "¿Cómo vas a usar Dravr? Esto adapta los agentes que sugerimos. Puedes cambiarlo cuando quieras en Ajustes.",
     "profileUpdated": "Perfil actualizado",
     "promote": "Ascender",
-    "provActivitiesHealth": "Actividades + métricas de salud",
-    "provEnduranceWellness": "Analítica de resistencia + bienestar",
-    "provFitnessData": "Datos de forma física",
-    "provGarminBlurb": "Actividades y métricas de salud de los dispositivos Garmin",
-    "provIntervalsBlurb": "Analítica de resistencia, actividades y bienestar",
-    "provRecoveryStrainSleep": "Recuperación, esfuerzo, sueño",
-    "provRunCycleSwim": "Correr, ciclismo, natación",
-    "provStravaBlurb": "Actividades de carrera, ciclismo y natación",
-    "provWhoopBlurb": "Métricas de recuperación, esfuerzo y sueño",
     "provider": "Proveedor",
     "providerConflictWarning": "Conectar {{connecting}} desconectará {{disconnecting}}. Ambos proveedores acceden a los datos de Strava: solo uno puede estar activo a la vez. ¿Continuar?",
     "providerConnected": "¡{{provider}} conectado!",
@@ -740,11 +756,7 @@
     "youllReceiveApproval": "Recibirás un correo de aprobación",
     "yourActivitiesCount": "Tus actividades ({{count}})",
     "brandTrainingPeaks": "TrainingPeaks",
-    "provTrainingPeaksBlurb": "Entrenamientos completados y su carga de entrenamiento desde TrainingPeaks",
-    "provTrainingPeaksShort": "Entrenamientos completados y carga",
-    "brandCoros": "COROS",
-    "provCorosBlurb": "Actividades y métricas de recuperación de los relojes COROS",
-    "provCorosShort": "Actividades y vueltas"
+    "brandCoros": "COROS"
   },
   "auth": {
     "activatesOnConfirm": "Tu cuenta se activa en cuanto se confirme la dirección",
@@ -1252,6 +1264,12 @@
       "footer": "\nO simplemente escríbeme para conversar con tu agente.",
       "header": "Comandos disponibles:\n"
     },
+    "language": {
+      "description": "Elegir el idioma en que te escribo en este canal",
+      "invalid": "Idioma desconocido. Usa uno de estos códigos: {0}, por ejemplo `/language es`.",
+      "no_channel": "Esta conversación no tiene un canal de mensajería al que asignar un idioma. Cambia el idioma de la app en Ajustes.",
+      "set": "Hecho: en este canal te escribiré en español a partir de ahora."
+    },
     "logout": {
       "confirm_prompt": "Esto desvinculará tu cuenta de {0} de Dravr.\nTendrás que volver a vincularla para usar la mensajería.\n\nEscribe «logout» para confirmar.",
       "description": "Desvincular esta cuenta de mensajería"
@@ -1516,6 +1534,10 @@
     "sortPopular": "Populares",
     "storeEmpty": "La tienda está vacía",
     "storeListMissing": "El servidor no devolvió ninguna lista de agentes.",
+    "submitToStore": "Enviar a la tienda",
+    "submitToStoreFailed": "No se pudo enviar este agente a la tienda.",
+    "submitToStoreHint": "Un administrador lo revisa antes de que aparezca en la tienda.",
+    "submittedToStore": "Enviado: un administrador lo revisará antes de que aparezca en la tienda.",
     "successCriteriaSection": "Criterios de éxito",
     "tagsSection": "Etiquetas",
     "tokenCount": "Número de tokens",
@@ -1819,6 +1841,22 @@
     "trainingpeaksAccount": "Cuenta de entrenador",
     "trainingpeaksAccountHint": "TrainingPeaks no guarda calendario para una cuenta de entrenador. Vincula a tus atletas desde un grupo que entrenas.",
     "youCoach": "Entrenas este grupo"
+  },
+  "impersonationLog": {
+    "active": "Activa",
+    "details": "Detalles",
+    "duration": "{{minutes}} min",
+    "empty": "Todavía no hay sesiones de suplantación.",
+    "ended": "Terminada",
+    "endedAt": "Terminada el {{date}}",
+    "hideDetails": "Ocultar detalles",
+    "hint": "Cada sesión en la que un superadministrador actuó como otro usuario, de la más reciente a la más antigua.",
+    "loadFailed": "No se pudo cargar el registro de suplantación.",
+    "noReason": "Sin motivo indicado",
+    "pair": "{{impersonator}} como {{target}}",
+    "reason": "Motivo",
+    "started": "Iniciada el {{date}}",
+    "unknownUser": "Usuario desconocido"
   },
   "messaging": {
     "account": {
@@ -2336,20 +2374,17 @@
     "memberSince": "Miembro desde",
     "title": "Información del perfil"
   },
-  "providerBlurb": {
-    "activitiesSleepRecovery": "Actividades, sueño y recuperación",
-    "activitiesWorkouts": "Actividades y entrenamientos",
-    "fitnessData": "Datos de fitness",
-    "garmin": "Actividades y métricas de salud de dispositivos Garmin",
-    "generic": "Proveedor de datos deportivos",
-    "intervals": "Análisis de resistencia, actividades y bienestar",
-    "sleepTracking": "Seguimiento del sueño",
+  "providerDescription": {
     "strava": "Actividades de carrera, ciclismo y natación",
-    "synthSleep": "Datos de sueño sintéticos para desarrollo",
-    "synthTest": "Datos de prueba sintéticos para desarrollo",
-    "whoop": "Métricas de recuperación, esfuerzo y sueño",
+    "garmin": "Actividades y métricas de salud de dispositivos Garmin",
     "trainingpeaks": "Entrenamientos completados y su carga de entrenamiento desde TrainingPeaks",
-    "coros": "Actividades y métricas de recuperación de relojes COROS"
+    "coros": "Actividades y métricas de recuperación de relojes COROS",
+    "whoop": "Métricas de recuperación, esfuerzo y sueño",
+    "intervals_icu": "Análisis de resistencia, actividades y bienestar",
+    "terra": "Actividades, sueño y datos de salud de dispositivos conectados, a través de Terra",
+    "synthetic": "Datos de prueba sintéticos para desarrollo",
+    "synthetic_sleep": "Datos de sueño sintéticos para desarrollo",
+    "generic": "Proveedor de datos deportivos"
   },
   "providers": {
     "add": "Añadir proveedor",
@@ -2478,6 +2513,8 @@
     "aboutHint": "Versión, ayuda y avisos legales",
     "account": "Cuenta",
     "accountHint": "Contraseña, correo, cierre de la cuenta",
+    "apiKeys": "Claves de API",
+    "apiKeysHint": "Las claves que usan tus scripts para llamar a Dravr",
     "coaching": "Estilo de coaching",
     "coachingHint": "Cómo te habla tu agente",
     "connections": "Fuentes de datos",
@@ -2491,8 +2528,8 @@
     "privacyHint": "Consentimiento de analíticas y tus datos",
     "profile": "Perfil",
     "profileHint": "Nombre, nombre visible, persona de coaching",
-    "tokens": "Tokens de API",
-    "tokensHint": "Tokens de API personales"
+    "tokens": "Tokens MCP",
+    "tokensHint": "Tokens para Claude Desktop, Cursor y otros clientes MCP"
   },
   "settingsUi": {
     "agents": "Agentes",
@@ -2661,6 +2698,7 @@
     "navGroups": "Grupos",
     "navGuardianConfig": "Configuración de Guardian",
     "navHarnessConfig": "Configuración del banco",
+    "navImpersonationLog": "Registro de suplantación",
     "navMemoryWorker": "Proceso de memoria",
     "navMythBusting": "Mitos desmontados",
     "navNotifications": "Notificaciones",
@@ -2760,7 +2798,7 @@
     "setupInstructions": "Instrucciones de configuración",
     "setupInstructionsFor": "para Claude y ChatGPT",
     "statusActive": "Activo",
-    "title": "Tokens de API"
+    "title": "Tokens MCP"
   },
   "usage": {
     "blockedLimitReached": "Límite de {{label}} alcanzado. Los límites se reinician a las {{time}}.",

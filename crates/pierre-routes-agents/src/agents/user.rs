@@ -20,7 +20,7 @@ use chrono::{Duration as ChronoDuration, Utc};
 use pierre_agent_parser::parse_agent_content;
 use pierre_cache::{CacheKey, CacheResource};
 use pierre_config::agent_recommendations::AgentRecommendationConfig;
-use pierre_core::errors::AppError;
+use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::agents::{
     AgentCategory, AgentListItem, AgentPrerequisites, ListAgentsFilter, UpdateAgentRequest,
 };
@@ -42,7 +42,7 @@ use super::proposal_profile::{build_profile_view, pillar_context_prompt, Profile
 use super::types::{
     validate_max_tool_iterations, AgentProposalResponse, AgentResponse, ImportAgentResponse,
     ListAgentsQuery, ListAgentsResponse, MissingPrerequisite, ProposedAgent, RecordUsageResponse,
-    SearchAgentsQuery, SportProfileSummary, UpdateAgentBody,
+    SearchAgentsQuery, SportProfileSummary, SubmitForReviewResponse, UpdateAgentBody,
 };
 
 /// Whether the user may see coach-facing builder personas (agents tagged
@@ -718,6 +718,55 @@ pub(super) async fn handle_delete<C: AgentsCtx + MiddlewareCtx>(
     }
 
     Ok((StatusCode::NO_CONTENT, ()).into_response())
+}
+
+/// Handle POST /api/agents/:id/submit - Submit one of the caller's agents to
+/// the Store review queue.
+///
+/// Only the agent's author may submit it: an agent in the caller's tenant
+/// that someone else wrote is refused with 403, one the caller cannot see at
+/// all reads as 404. The listing lands in the admin review queue as
+/// `pending_review`, where an admin approves or rejects it.
+#[tracing::instrument(
+    skip(ctx, auth),
+    fields(
+        route = "coach_submit_for_review",
+        user_id = field::Empty,
+        tenant_id = field::Empty,
+    )
+)]
+pub(super) async fn handle_submit_for_review<C: AgentsCtx + MiddlewareCtx>(
+    State(ctx): State<Arc<C>>,
+    auth: AuthenticatedUser,
+    Path(id): Path<String>,
+) -> Result<Response, AppError> {
+    let auth = auth.into_inner();
+    let tenant_id = super::get_user_tenant(&auth)?;
+    let span = Span::current();
+    span.record("user_id", field::display(&auth.user_id));
+    span.record("tenant_id", field::display(&tenant_id));
+
+    let agent = super::get_agents_manager(&ctx)
+        .get_in_tenant(&id, tenant_id)
+        .await?
+        .ok_or_else(|| AppError::not_found(format!("Coach {id}")))?;
+    if agent.user_id != auth.user_id {
+        return Err(AppError::new(
+            ErrorCode::PermissionDenied,
+            "Only the agent's author can submit it to the Store",
+        ));
+    }
+
+    let listing = super::get_store_manager(&ctx)
+        .submit_for_review(&id, auth.user_id, tenant_id)
+        .await?;
+
+    let response = SubmitForReviewResponse {
+        agent_id: id,
+        publish_status: listing.publish_status,
+        review_submitted_at: listing.review_submitted_at.map(|at| at.to_rfc3339()),
+    };
+    Ok((StatusCode::OK, Json(response)).into_response())
 }
 
 /// Handle POST /api/agents/:id/usage - Record agent usage

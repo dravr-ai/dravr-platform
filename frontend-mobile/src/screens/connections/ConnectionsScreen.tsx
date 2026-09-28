@@ -258,23 +258,6 @@ export function ConnectionsScreen() {
     }
   };
 
-  // The one line under a provider's name. After the 2026-Q2 provider cleanup
-  // the API surfaces `sciotte` (Strava-branded), `sciotte_garmin`
-  // (Garmin-branded), `sciotte_trainingpeaks` (TrainingPeaks-branded),
-  // `sciotte_coros` (COROS-branded), `whoop` and `intervals_icu`; an unknown id gets the
-  // generic line so the screen never crashes on an unexpected payload.
-  const providerBlurb = (providerId: string): string => {
-    const blurbs: Record<string, string> = {
-      sciotte: t('app.provStravaBlurb'),
-      sciotte_garmin: t('app.provGarminBlurb'),
-      sciotte_trainingpeaks: t('app.provTrainingPeaksBlurb'),
-      sciotte_coros: t('app.provCorosBlurb'),
-      whoop: t('app.provWhoopBlurb'),
-      intervals_icu: t('app.provIntervalsBlurb'),
-    };
-    return blurbs[providerId] ?? t('app.fitnessDataProvider');
-  };
-
   const renderProvider = (provider: ExtendedProviderStatus, last: boolean) => {
     const id = provider.provider;
     const isConnected = provider.connected;
@@ -311,7 +294,7 @@ export function ConnectionsScreen() {
     // proposed, it waits for the athlete's answer in the group.
     const delegation = provider.delegation;
     const isDelegated = isConnected && delegation?.status === 'confirmed';
-    let subtitle = providerBlurb(id);
+    let subtitle = provider.description;
     if (owesAuthorization) {
       subtitle = t('providers.authorizeToKeepSyncing', { provider: provider.display_name });
     } else if (isDelegated) {
@@ -410,7 +393,7 @@ export function ConnectionsScreen() {
             </View>
             <Text
               className="text-sm text-text-secondary"
-              numberOfLines={subtitle === providerBlurb(id) ? 1 : 2}
+              numberOfLines={subtitle === provider.description ? 1 : 2}
               testID={`provider-subtitle-${id}`}
             >
               {subtitle}

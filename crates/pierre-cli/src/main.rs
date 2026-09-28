@@ -62,6 +62,7 @@ mod dispatch;
 mod helpers;
 
 use clap::{Parser, Subcommand};
+use commands::tenant::TenantCommand;
 use pierre_auth::key_management::KeyManager;
 #[cfg(feature = "postgresql")]
 use pierre_core::config::database::PostgresPoolConfig;
@@ -581,135 +582,6 @@ enum UserCommand {
 
 #[non_exhaustive]
 #[derive(Subcommand)]
-enum TenantCommand {
-    /// Set a tenant's plan (unlocks plan-gated tools via `tool_catalog.min_plan`)
-    SetPlan {
-        /// Email of a user in the target tenant
-        #[arg(long)]
-        email: String,
-
-        /// Plan: starter | professional | enterprise
-        #[arg(long)]
-        plan: String,
-
-        /// Tenant id (required only if the user belongs to multiple tenants)
-        #[arg(long)]
-        tenant_id: Option<String>,
-    },
-
-    /// Force-enable an MCP tool for the whole tenant (overrides plan gating)
-    EnableTool {
-        /// Email of a user in the target tenant
-        #[arg(long)]
-        email: String,
-
-        /// MCP tool name (must exist in the tool catalog)
-        #[arg(long)]
-        tool: String,
-
-        /// Tenant id (required only if the user belongs to multiple tenants)
-        #[arg(long)]
-        tenant_id: Option<String>,
-
-        /// Operator note recorded on the override
-        #[arg(long)]
-        reason: Option<String>,
-    },
-
-    /// Force-disable an MCP tool for the whole tenant
-    DisableTool {
-        /// Email of a user in the target tenant
-        #[arg(long)]
-        email: String,
-
-        /// MCP tool name (must exist in the tool catalog)
-        #[arg(long)]
-        tool: String,
-
-        /// Tenant id (required only if the user belongs to multiple tenants)
-        #[arg(long)]
-        tenant_id: Option<String>,
-
-        /// Operator note recorded on the override
-        #[arg(long)]
-        reason: Option<String>,
-    },
-
-    /// Remove a tenant tool override (revert to plan/catalog default)
-    ResetTool {
-        /// Email of a user in the target tenant
-        #[arg(long)]
-        email: String,
-
-        /// MCP tool name
-        #[arg(long)]
-        tool: String,
-
-        /// Tenant id (required only if the user belongs to multiple tenants)
-        #[arg(long)]
-        tenant_id: Option<String>,
-    },
-
-    /// List the tenant's effective tools with each decision's source
-    ListTools {
-        /// Email of a user in the target tenant
-        #[arg(long)]
-        email: String,
-
-        /// Tenant id (required only if the user belongs to multiple tenants)
-        #[arg(long)]
-        tenant_id: Option<String>,
-    },
-
-    /// Set a tenant-default feature flag (per-user overrides still win)
-    SetFeature {
-        /// Email of a user in the target tenant
-        #[arg(long)]
-        email: String,
-
-        /// Feature key (e.g. `api_tokens`, `billing_header`)
-        #[arg(long)]
-        key: String,
-
-        /// true to enable, false to disable (explicit value required — a bare
-        /// presence flag would make the omitted case silently mean "disable")
-        #[arg(long, action = clap::ArgAction::Set)]
-        enabled: bool,
-
-        /// Tenant id (required only if the user belongs to multiple tenants)
-        #[arg(long)]
-        tenant_id: Option<String>,
-    },
-
-    /// Clear a tenant-default feature flag (built-in default applies again)
-    ClearFeature {
-        /// Email of a user in the target tenant
-        #[arg(long)]
-        email: String,
-
-        /// Feature key
-        #[arg(long)]
-        key: String,
-
-        /// Tenant id (required only if the user belongs to multiple tenants)
-        #[arg(long)]
-        tenant_id: Option<String>,
-    },
-
-    /// List a tenant's explicit feature-flag defaults
-    ListFeatures {
-        /// Email of a user in the target tenant
-        #[arg(long)]
-        email: String,
-
-        /// Tenant id (required only if the user belongs to multiple tenants)
-        #[arg(long)]
-        tenant_id: Option<String>,
-    },
-}
-
-#[non_exhaustive]
-#[derive(Subcommand)]
 enum ToolCommand {
     /// Force-enable an MCP tool for a user (overrides plan + tenant gating)
     Enable {
@@ -1057,59 +929,7 @@ async fn main() -> Result<()> {
                 commands::user::list_features(&repos, email).await?;
             }
         },
-        Command::Tenant { action } => match action {
-            TenantCommand::SetPlan {
-                email,
-                plan,
-                tenant_id,
-            } => {
-                commands::tenant::set_plan(&repos, email, plan, tenant_id).await?;
-            }
-            TenantCommand::EnableTool {
-                email,
-                tool,
-                tenant_id,
-                reason,
-            } => {
-                commands::tenant::set_tool(&repos, email, tool, true, tenant_id, reason).await?;
-            }
-            TenantCommand::DisableTool {
-                email,
-                tool,
-                tenant_id,
-                reason,
-            } => {
-                commands::tenant::set_tool(&repos, email, tool, false, tenant_id, reason).await?;
-            }
-            TenantCommand::ResetTool {
-                email,
-                tool,
-                tenant_id,
-            } => {
-                commands::tenant::reset_tool(&repos, email, tool, tenant_id).await?;
-            }
-            TenantCommand::ListTools { email, tenant_id } => {
-                commands::tenant::list_tools(&repos, email, tenant_id).await?;
-            }
-            TenantCommand::SetFeature {
-                email,
-                key,
-                enabled,
-                tenant_id,
-            } => {
-                commands::tenant::set_feature(&repos, email, key, enabled, tenant_id).await?;
-            }
-            TenantCommand::ClearFeature {
-                email,
-                key,
-                tenant_id,
-            } => {
-                commands::tenant::clear_feature(&repos, email, key, tenant_id).await?;
-            }
-            TenantCommand::ListFeatures { email, tenant_id } => {
-                commands::tenant::list_features(&repos, email, tenant_id).await?;
-            }
-        },
+        Command::Tenant { action } => commands::tenant::dispatch(&repos, action).await?,
         Command::Tool { action } => match action {
             ToolCommand::Enable {
                 email,

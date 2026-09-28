@@ -1,5 +1,5 @@
 // ABOUTME: PrescribedWorkoutRepository trait plus the one shared implementation both backends emit: the calendar-entry ledger
-// ABOUTME: Upsert by id, tenant-scoped reads (by id, recent, live-per-provider), terminal status transitions; payload_json is an opaque blob
+// ABOUTME: Upsert by id, tenant-scoped reads (by id, live-per-provider), terminal status transitions; payload_json is an opaque blob
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -27,15 +27,6 @@ pub trait PrescribedWorkoutRepository: Send + Sync {
     /// Insert a ledger row, or refresh an existing row's outcome fields
     /// (`provider_event_id`, `status`, payload, hash, `updated_at`) by id.
     async fn upsert_prescribed_workout(&self, prescribed: &PrescribedWorkout) -> AppResult<()>;
-
-    /// List the most recent `limit` rows for a (`tenant_id`, `user_id`),
-    /// newest first.
-    async fn list_prescribed_workouts(
-        &self,
-        tenant_id: TenantId,
-        user_id: Uuid,
-        limit: u32,
-    ) -> AppResult<Vec<PrescribedWorkout>>;
 
     /// Fetch one row by id. Returns `None` when no row matches the
     /// (`tenant_id`, `user_id`, `id`) tuple — a row of another athlete is
@@ -66,9 +57,6 @@ pub trait PrescribedWorkoutRepository: Send + Sync {
         status: &str,
     ) -> AppResult<()>;
 }
-
-/// The most rows one list call returns, whatever `limit` asked for.
-pub(crate) const MAX_LIST_LIMIT: u32 = 200;
 
 /// The column list every read projects, in the order [`prescribed_from_row`]
 /// names them.
@@ -107,19 +95,6 @@ pub(crate) const UPSERT_PRESCRIBED_WORKOUT_SQL: &str = concat!(
                 payload_json = EXCLUDED.payload_json,
                 payload_hash = EXCLUDED.payload_hash,
                 updated_at = EXCLUDED.updated_at
-            "
-);
-
-/// The newest rows of one athlete, capped by the bound `LIMIT`.
-pub(crate) const LIST_PRESCRIBED_WORKOUTS_SQL: &str = concat!(
-    "
-            SELECT ",
-    prescribed_columns!(),
-    "
-            FROM prescribed_workouts
-            WHERE tenant_id = $1 AND user_id = $2
-            ORDER BY created_at DESC
-            LIMIT $3
             "
 );
 
@@ -297,23 +272,6 @@ macro_rules! impl_prescribed_workout_repository {
                     .await
                     .map_err(|e| AppError::database(format!("upsert_prescribed_workout: {e}")))?;
                 Ok(())
-            }
-
-            async fn list_prescribed_workouts(
-                &self,
-                tenant_id: TenantId,
-                user_id: Uuid,
-                limit: u32,
-            ) -> AppResult<Vec<PrescribedWorkout>> {
-                let bounded = limit.clamp(1, MAX_LIST_LIMIT);
-                let rows = sqlx::query(LIST_PRESCRIBED_WORKOUTS_SQL)
-                    .bind(tenant_id)
-                    .bind(UserId::from_uuid(user_id))
-                    .bind(i64::from(bounded))
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("list_prescribed_workouts: {e}")))?;
-                rows.iter().map(prescribed_from_row).collect()
             }
 
             async fn get_prescribed_workout(

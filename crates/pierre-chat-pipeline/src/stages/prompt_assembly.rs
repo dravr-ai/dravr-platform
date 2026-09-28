@@ -32,7 +32,9 @@ use super::super::surface_profile::{ProseFormat, SurfaceProfile};
 use super::super::turn::TurnInput;
 use super::commitments::inject_commitments;
 use super::followups::inject_pending_followups;
-use super::memory::{inject_okf_bundle, inject_playbooks, inject_training_plan};
+use super::memory::{
+    inject_agent_notes, inject_okf_bundle, inject_playbooks, inject_training_plan,
+};
 #[cfg(feature = "tools-groups")]
 use super::prompt_builder::resolve_group_context;
 use super::prompt_builder::{
@@ -808,6 +810,18 @@ pub(crate) async fn assemble_prompt_and_messages(
         ctx.repos.playbooks.as_ref(),
         ctx.repos.activity_cache.as_ref(),
         &playbook_tenant,
+        &input.user_id,
+        turn_agent_id,
+        base_prompt,
+    )
+    .await;
+
+    // Stage 7e.3: The notes the answering agent wrote about this athlete with
+    // `agent_note_add`, newest first, suppressed ones left out. Scoped to the
+    // TOOL tenant — the tenant the note tool writes under.
+    let base_prompt = inject_agent_notes(
+        ctx.repos.memory.as_ref(),
+        input.tool_tenant_id,
         &input.user_id,
         turn_agent_id,
         base_prompt,

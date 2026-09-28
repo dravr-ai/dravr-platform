@@ -267,22 +267,6 @@ export function OnboardingConnectScreen() {
     (p) => p.requires_oauth || p.provider.startsWith('sciotte') || p.provider === 'intervals_icu',
   );
 
-  // The one line under a provider's name — same descriptions the old
-  // letter-tile row showed, now paired with `ProviderGlyph`'s brand mark
-  // instead of a colored square. An unknown id gets the generic line so the
-  // screen never crashes on an unexpected payload.
-  const providerDescription = (providerId: string): string => {
-    const descriptions: Record<string, string> = {
-      sciotte: t('app.provRunCycleSwim'),
-      sciotte_garmin: t('app.provActivitiesHealth'),
-      sciotte_trainingpeaks: t('app.provTrainingPeaksShort'),
-      sciotte_coros: t('app.provCorosShort'),
-      whoop: t('app.provRecoveryStrainSleep'),
-      intervals_icu: t('app.provEnduranceWellness'),
-    };
-    return descriptions[providerId] ?? t('app.provFitnessData');
-  };
-
   const renderProvider = (provider: ExtendedProviderStatus, last: boolean) => {
     const isConnecting = connectingProvider === provider.provider;
     const isConnected = provider.connected;
@@ -300,7 +284,7 @@ export function OnboardingConnectScreen() {
           <View className="flex-1 min-w-0 py-2 mr-3">
             <Text className="text-base text-text-primary">{provider.display_name}</Text>
             <Text className="text-sm text-text-secondary mt-0.5" numberOfLines={1}>
-              {providerDescription(provider.provider)}
+              {provider.description}
             </Text>
           </View>
           {isConnected ? (

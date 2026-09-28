@@ -1,4 +1,4 @@
-// ABOUTME: Repository trait, statements and shared body for tenants, their OAuth credentials and OAuth apps
+// ABOUTME: Repository trait, statements and shared body for tenants and their provider OAuth credentials
 // ABOUTME: One SQL text per operation; each backend shell supplies its uuid codec and its list-column codec
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,12 +8,11 @@
 //!
 //! A tenant row, its owner through `tenant_users`, the per-provider OAuth
 //! client credentials it registered (client secret enveloped under
-//! AES-256-GCM, bound by AAD to tenant and provider), and the OAuth apps a
-//! user registered for MCP clients. Two things differ per backend and come
-//! in as macro arguments: the uuid columns (`tenant_users.user_id`,
-//! `oauth_apps.id`, `oauth_apps.owner_user_id`), native on Postgres and
-//! `TEXT` on `SQLite`, through the [`uuid_columns`](super::uuid_columns)
-//! codec; and the list columns (`scopes`, `redirect_uris`), `TEXT[]` on
+//! AES-256-GCM, bound by AAD to tenant and provider). Two things differ per
+//! backend and come in as macro arguments: the uuid column
+//! (`tenant_users.user_id`), native on Postgres and `TEXT` on `SQLite`,
+//! through the [`uuid_columns`](super::uuid_columns) codec; and the list
+//! column (`scopes`), `TEXT[]` on
 //! Postgres and a JSON array in `TEXT` on `SQLite`, through the
 //! [`list_columns`](super::list_columns) codec. A [`TenantId`] binds and
 //! reads natively on both drivers, so it needs neither.
@@ -27,7 +26,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 
-use pierre_core::models::{OAuthApp, Tenant};
+use pierre_core::models::Tenant;
 use pierre_core::models::{TenantId, TenantOAuthCredentials};
 use uuid::Uuid;
 
@@ -91,8 +90,6 @@ pub trait TenantRepository: Send + Sync {
         tenant_id: TenantId,
         provider: &str,
     ) -> AppResult<Option<TenantOAuthCredentials>>;
-    /// Create OAuth application for MCP clients
-    async fn create_oauth_app(&self, app: &OAuthApp) -> AppResult<()>;
     /// Get all tenants for key rotation check
     async fn get_all(&self) -> AppResult<Vec<Tenant>>;
     /// Get user role for a specific tenant
@@ -199,14 +196,6 @@ pub(crate) const GET_TENANT_OAUTH_CREDENTIALS_SQL: &str = r"
                    redirect_uri, scopes, rate_limit_per_day
             FROM tenant_oauth_credentials
             WHERE tenant_id = $1 AND provider = $2 AND is_active = true
-            ";
-
-/// Register an OAuth app.
-pub(crate) const CREATE_OAUTH_APP_SQL: &str = r"
-            INSERT INTO oauth_apps
-                (id, client_id, client_secret, name, description, redirect_uris,
-                 scopes, app_type, owner_user_id, is_active, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, $10, $11)
             ";
 
 /// The agent a member has selected in a tenant.
@@ -526,26 +515,6 @@ macro_rules! impl_tenant_repository {
                     )
                 })
                 .transpose()
-            }
-
-            async fn create_oauth_app(&self, app: &OAuthApp) -> AppResult<()> {
-                sqlx::query(CREATE_OAUTH_APP_SQL)
-                    .bind($ids::bind(app.id))
-                    .bind(&app.client_id)
-                    .bind(&app.client_secret)
-                    .bind(&app.name)
-                    .bind(&app.description)
-                    .bind($lists::bind_json(&app.redirect_uris))
-                    .bind($lists::bind_json(&app.scopes))
-                    .bind(&app.app_type)
-                    .bind($ids::bind(app.owner_user_id))
-                    .bind(app.created_at)
-                    .bind(app.updated_at)
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("Failed to create OAuth app: {e}")))?;
-
-                Ok(())
             }
 
             async fn get_all(&self) -> AppResult<Vec<Tenant>> {

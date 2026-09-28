@@ -90,6 +90,9 @@ struct ConnectProviderCard {
     provider: String,
     /// User-facing label (e.g. "Strava", "Garmin", "Whoop").
     display_name: String,
+    /// The line under the label, in the user's locale, as `/api/providers`
+    /// serves it.
+    description: String,
     /// Already connected — the card is shown disabled.
     connected: bool,
     /// "oauth" (full-page redirect to consent) or "sciotte" (credential form).
@@ -150,6 +153,7 @@ async fn build_connect_providers(
                         "sciotte".to_owned()
                     },
                     display_name: p.display_name,
+                    description: p.description,
                     connected: p.connected,
                     kind: if oauth_first { "oauth" } else { "sciotte" },
                     target: "strava".to_owned(),
@@ -165,6 +169,7 @@ async fn build_connect_providers(
                     cards.push(ConnectProviderCard {
                         provider: provider_name.clone(),
                         display_name: p.display_name,
+                        description: p.description,
                         connected: p.connected,
                         kind: "sciotte",
                         target: target.to_owned(),
@@ -184,6 +189,7 @@ async fn build_connect_providers(
             _ if p.requires_oauth => cards.push(ConnectProviderCard {
                 provider: p.provider,
                 display_name: p.display_name,
+                description: p.description,
                 connected: p.connected,
                 kind: "oauth",
                 target: String::new(),

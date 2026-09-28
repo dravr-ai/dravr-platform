@@ -54,6 +54,7 @@ function trainingPeaks(overrides: Partial<ExtendedProviderStatus>): ExtendedProv
   return {
     provider: ID,
     display_name: 'TrainingPeaks',
+    description: 'Completed workouts and their training load from TrainingPeaks',
     requires_oauth: false,
     connected: false,
     needs_reauth: false,

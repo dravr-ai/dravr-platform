@@ -82,6 +82,8 @@ pub const KEY_COMMAND_DESC_CALIBRATE: &str = "commands.calibrate.description";
 pub const KEY_COMMAND_DESC_SEASON: &str = "commands.season.description";
 /// Key: one-line description of the `plan-share` catalogue command — `/help`, the command palette and the Telegram menu.
 pub const KEY_COMMAND_DESC_PLAN_SHARE: &str = "commands.plan-share.description";
+/// Key: one-line description of the `language` catalogue command — `/help`, the command palette and the Telegram menu.
+pub const KEY_COMMAND_DESC_LANGUAGE: &str = "commands.language.description";
 /// Key: one-line description of the `plan` catalogue command — `/help`, the command palette and the Telegram menu.
 pub const KEY_COMMAND_DESC_PLAN: &str = "commands.plan.description";
 

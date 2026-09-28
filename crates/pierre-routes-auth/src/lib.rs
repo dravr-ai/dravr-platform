@@ -52,6 +52,7 @@ use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_auth::tenant::TenantOAuthClient;
 use pierre_cache::Cache;
 use pierre_config::environment::ServerConfig;
+use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
 #[cfg(feature = "provider-sciotte")]
@@ -175,6 +176,10 @@ pub struct AuthRoutesContext {
     pub sync_failure_notices: SyncFailureNotices,
     /// Shared cache handle — used by the Sciotte prefetch path.
     pub cache: Arc<Cache>,
+    /// The hot-reloadable string catalogue — shared with every surface that
+    /// renders server-side text; resolves each provider's description in the
+    /// reader's locale.
+    pub messaging_strings: Arc<MessagingStringsRegistry>,
     /// Admin-token JWT signing secret — also used to verify the Sciotte
     /// hosted-login link-token.
     pub admin_jwt_secret: Arc<str>,

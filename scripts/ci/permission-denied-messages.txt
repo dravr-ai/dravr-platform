@@ -48,6 +48,7 @@ crates/pierre-routes-admin/src/handlers/impersonation.rs:Super admin privileges 
 crates/pierre-routes-admin/src/handlers/user_removal.rs:Removing or disconnecting an admin account requires a super-admin token
 crates/pierre-routes-admin/src/handlers/user_removal.rs:Token is scoped to tenant {bound}; the user belongs to or holds a provider in a tenant outside it
 crates/pierre-routes-admin/src/tool_selection.rs:Tool settings of this tenant are managed by its own admins
+crates/pierre-routes-agents/src/agents/user.rs:Only the agent's author can submit it to the Store
 crates/pierre-routes-auth/src/sciotte.rs:This login link is for another provider; ask for a fresh link for this one
 crates/pierre-routes-groups/src/delegated_connections.rs:Only the group's coach can link TrainingPeaks athletes
 crates/pierre-routes-groups/src/delegated_connections.rs:Only the group's coach or the linked member can end this link

@@ -21,21 +21,6 @@ use std::sync::Arc;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-/// Credential configuration for storing OAuth credentials
-#[derive(Debug, Clone)]
-pub struct CredentialConfig {
-    /// OAuth client ID (public)
-    pub client_id: String,
-    /// OAuth client secret (to be encrypted)
-    pub client_secret: String,
-    /// OAuth redirect URI
-    pub redirect_uri: String,
-    /// OAuth scopes
-    pub scopes: Vec<String>,
-    /// User who configured these credentials
-    pub configured_by: Uuid,
-}
-
 /// Where [`issuing_client`] found the client a token belongs to.
 #[derive(Debug, Clone)]
 pub enum IssuingClient {
@@ -98,9 +83,6 @@ pub struct IssuingLookup<'a> {
     pub issuing_app: Option<&'a str>,
     /// The server-level credentials for `provider`.
     pub server_level: &'a OAuthProviderConfig,
-    /// Tenant credentials held in memory, read before the database: the
-    /// tenant OAuth manager's cache. `None` reads the database alone.
-    pub cached_tenant: Option<&'a TenantOAuthCredentials>,
 }
 
 /// The client an issued token belongs to: the one a refresh, a code exchange
@@ -111,7 +93,7 @@ pub struct IssuingLookup<'a> {
 /// 1. Strava only: the shared-pool app `issuing_app` names, while its secret
 ///    is stored, whatever user or tenant credentials were configured since
 /// 2. The user's own OAuth app (`user_oauth_app_credentials`)
-/// 3. The tenant's credentials (`cached_tenant`, then the database)
+/// 3. The tenant's credentials (the `tenants` repository)
 /// 4. The server-level credentials
 ///
 /// This is the one place the order is written; the tenant OAuth manager, the
@@ -199,8 +181,8 @@ async fn user_app(
     }
 }
 
-/// The tenant's credentials for the lookup's provider: the cached entry,
-/// else the database's. `None` without a tenant.
+/// The tenant's credentials for the lookup's provider, from the `tenants`
+/// repository. `None` without a tenant.
 async fn tenant_credentials(
     lookup: &IssuingLookup<'_>,
     tenants: &dyn TenantRepository,
@@ -208,9 +190,6 @@ async fn tenant_credentials(
     let Some(tenant_id) = lookup.tenant_id else {
         return Ok(None);
     };
-    if let Some(cached) = lookup.cached_tenant {
-        return Ok(Some(cached.clone())); // Safe: the cache keeps its entry
-    }
     let credentials = tenants
         .get_oauth_credentials(tenant_id, lookup.provider)
         .await?;
@@ -244,13 +223,10 @@ fn server_level_client(lookup: &IssuingLookup<'_>) -> AppResult<IssuingClient> {
 
 /// Manager for tenant-specific OAuth credentials.
 ///
-/// Maintains a per-process cache of tenant OAuth credentials plus per-process
-/// daily usage counters for rate limiting. Durable credential storage is the
-/// `tenants` repository (the source of truth); the MCP credential-store path
-/// persists there in addition to populating this cache.
+/// Tenant credentials live in the `tenants` repository alone, written by
+/// `pierre-cli tenant set-oauth-app` (secret encrypted at rest) and read here.
+/// The manager keeps only per-process daily usage counters for rate limiting.
 pub struct TenantOAuthManager {
-    /// Per-process cache of tenant credentials; the durable copy lives in the tenants repository.
-    credentials: HashMap<(TenantId, String), TenantOAuthCredentials>,
     /// Per-process daily usage counters used for rate limiting.
     usage_tracking: HashMap<(TenantId, String, chrono::NaiveDate), u32>,
     // Server-level OAuth configuration (read once at startup)
@@ -262,7 +238,6 @@ impl TenantOAuthManager {
     #[must_use]
     pub fn new(oauth_config: Arc<OAuthConfig>) -> Self {
         Self {
-            credentials: HashMap::new(),
             usage_tracking: HashMap::new(),
             oauth_config,
         }
@@ -287,7 +262,7 @@ impl TenantOAuthManager {
     /// Load OAuth credentials with user-specific priority: the client of the
     /// user's stored token, resolved by [`issuing_client`] with the Strava
     /// pool app that token names, this manager's server-level configuration
-    /// and its tenant cache.
+    /// and the tenant's stored credentials.
     ///
     /// # Errors
     ///
@@ -323,7 +298,6 @@ impl TenantOAuthManager {
                 provider,
                 issuing_app: issuing_app.as_deref(),
                 server_level: &server_level,
-                cached_tenant: self.credentials.get(&(tenant_id, provider.to_owned())),
             },
             tenants,
             oauth_tokens,
@@ -353,7 +327,7 @@ impl TenantOAuthManager {
     /// Resolution order, the one the code exchange resolves the pinned state
     /// by (`OAuthService::create_oauth_config_with_user`):
     /// 1. User-specific credentials (from `user_oauth_app_credentials` table)
-    /// 2. Tenant-specific credentials (in-memory cache, then database)
+    /// 2. Tenant-specific credentials (the `tenants` repository)
     /// 3. Strava only: the app [`select_strava_app`] picks — the one the
     ///    athlete's grant holds a seat on, else their pool app while it has
     ///    room, else the env app, then a pool app with a free seat
@@ -405,38 +379,18 @@ impl TenantOAuthManager {
             })
     }
 
-    /// Store OAuth credentials for a tenant
+    /// A tenant's usage of `provider` today and its daily limit: the limit its
+    /// stored credentials carry, else the provider's default.
     ///
     /// # Errors
     ///
-    /// Returns an error if credential storage fails
-    pub fn store_credentials(
-        &mut self,
+    /// Returns an error if the tenant's credentials cannot be read
+    pub async fn check_rate_limit(
+        &self,
         tenant_id: TenantId,
         provider: &str,
-        config: CredentialConfig,
-    ) -> AppResult<()> {
-        let credentials = TenantOAuthCredentials {
-            tenant_id,
-            provider: provider.to_owned(),
-            client_id: config.client_id,
-            client_secret: config.client_secret,
-            redirect_uri: config.redirect_uri,
-            scopes: config.scopes,
-            rate_limit_per_day: Self::default_rate_limit_for_provider(provider),
-        };
-
-        self.credentials
-            .insert((tenant_id, provider.to_owned()), credentials);
-        Ok(())
-    }
-
-    /// Check tenant's daily rate limit usage
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if rate limit check fails
-    pub fn check_rate_limit(&self, tenant_id: TenantId, provider: &str) -> AppResult<(u32, u32)> {
+        tenants: &dyn TenantRepository,
+    ) -> AppResult<(u32, u32)> {
         let today = Utc::now().date_naive();
         let usage = self
             .usage_tracking
@@ -445,9 +399,9 @@ impl TenantOAuthManager {
             .unwrap_or(0);
 
         // Get tenant's rate limit
-        let daily_limit = self
-            .credentials
-            .get(&(tenant_id, provider.to_owned()))
+        let daily_limit = tenants
+            .get_oauth_credentials(tenant_id, provider)
+            .await?
             .map_or_else(
                 || Self::default_rate_limit_for_provider(provider),
                 |c| c.rate_limit_per_day,
@@ -759,27 +713,13 @@ impl TenantOAuthManager {
         format!("{base_url}/api/oauth/callback/{provider}")
     }
 
-    /// Try to load tenant-specific OAuth credentials from memory cache and database
+    /// Load the tenant's stored OAuth credentials from the `tenants` repository
     async fn try_tenant_specific_credentials(
         &self,
         tenant_id: TenantId,
         provider: &str,
         tenants: &dyn TenantRepository,
     ) -> Option<TenantOAuthCredentials> {
-        // First check in-memory cache
-        if let Some(credentials) = self
-            .credentials
-            .get(&(tenant_id, provider.to_owned()))
-            .cloned()
-        {
-            info!(
-                "Using cached tenant-specific {} OAuth credentials for tenant {}",
-                provider, tenant_id
-            );
-            return Some(credentials);
-        }
-
-        // Then check database
         if let Ok(Some(db_credentials)) = tenants.get_oauth_credentials(tenant_id, provider).await {
             info!(
                 "Using database-stored tenant-specific {} OAuth credentials for tenant {}",

@@ -228,3 +228,6 @@ export { BASEMAP_STYLE } from './route-map';
 
 // What every unread and notification badge prints for a count
 export { badgeLabel } from './badge';
+
+// The athlete's own API keys: the window each key's usage line counts over
+export { API_KEY_USAGE_WINDOW_DAYS } from './api-keys';

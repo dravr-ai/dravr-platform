@@ -13,8 +13,8 @@ use uuid::Uuid;
 use crate::database::Database;
 use crate::repositories::prescribed_workouts::{
     impl_prescribed_workout_repository, prescribed_from_row, PrescribedWorkoutRepository,
-    GET_PRESCRIBED_WORKOUT_SQL, LIST_LIVE_CALENDAR_EVENTS_SQL, LIST_PRESCRIBED_WORKOUTS_SQL,
-    MAX_LIST_LIMIT, SET_PRESCRIBED_WORKOUT_STATUS_SQL, UPSERT_PRESCRIBED_WORKOUT_SQL,
+    GET_PRESCRIBED_WORKOUT_SQL, LIST_LIVE_CALENDAR_EVENTS_SQL, SET_PRESCRIBED_WORKOUT_STATUS_SQL,
+    UPSERT_PRESCRIBED_WORKOUT_SQL,
 };
 use crate::uuid_column::UuidColumn;
 

@@ -13,6 +13,7 @@ export { pierreApi } from './client';
 export const authApi = pierreApi.auth;
 export const chatApi = pierreApi.chat;
 export const coachesApi = pierreApi.coaches;
+export const apiKeysApi = pierreApi.apiKeys;
 export const oauthApi = pierreApi.oauth;
 export const storeApi = pierreApi.store;
 export const userApi = pierreApi.user;

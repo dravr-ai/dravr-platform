@@ -17,8 +17,7 @@
 //! - Per-user tool overrides (`tools/user/{id}/*`)
 //! - Tenant plan (`tenants/{id}/plan`)
 //! - Analytics (`analytics/recent-activity`)
-//! - Billing / usage (`users/{id}/usage`, `cost-timeseries`,
-//!   `tenants/{id}/usage|invoice`, `billing/export`)
+//! - Billing / usage (`users/{id}/usage`, `cost-timeseries`, `billing/export`)
 //!
 //! Every operation the admin-token API also serves — the user listing and
 //! lifecycle, the pre-approved emails, auto-approval, admin tokens, and the
@@ -54,7 +53,6 @@ use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_config::security::llm_base_url_allowlist as config_llm_base_url_allowlist;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::usage::{LlmUsageAggregateRow, LlmUsageDailyRow};
-use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
 use pierre_middleware::tenant_path::TenantPath;
 use pierre_middleware::{extract_auth_from_headers, require_admin, McpAuthMiddleware};
@@ -171,18 +169,11 @@ struct AdminListResponse {
     admins: Vec<AdminListEntry>,
 }
 
-/// Query parameters for the usage-range endpoints (per-user and per-tenant).
+/// Query parameters for the per-user usage-range endpoints.
 #[derive(Debug, Deserialize)]
 pub struct UsageRangeQuery {
     /// Inclusive window start (`RFC3339`). Defaults to first of the month.
     pub from: Option<String>,
-}
-
-/// Query parameters for the tenant invoice preview.
-#[derive(Debug, Deserialize)]
-pub struct InvoicePeriodQuery {
-    /// `YYYY-MM` period to bill.
-    pub period: String,
 }
 
 /// Query parameters for the bulk CSV/JSON export endpoint.
@@ -210,8 +201,7 @@ pub struct LlmUsageAggregateRowWithCost {
     pub cost_usd: f64,
 }
 
-/// Per-user usage response — same shape as the tenant variant so the
-/// admin UI can render either with one component.
+/// Per-user usage response.
 #[derive(Debug, Serialize)]
 pub struct UserUsageResponse {
     /// User UUID.
@@ -234,32 +224,6 @@ pub struct UserCostTimeseriesResponse {
     /// Window start (`RFC3339`).
     pub from: String,
     /// Daily time series points.
-    pub daily: Vec<LlmUsageDailyRow>,
-}
-
-/// Aggregated usage snapshot for a tenant over a window.
-#[derive(Debug, Serialize)]
-pub struct TenantUsageResponse {
-    /// Tenant UUID.
-    pub tenant_id: String,
-    /// Window start (`RFC3339`).
-    pub from: String,
-    /// Per-(provider, model, `call_type`) rollup.
-    pub by_model: Vec<LlmUsageAggregateRow>,
-    /// Daily time series over the window.
-    pub daily: Vec<LlmUsageDailyRow>,
-}
-
-/// Invoice preview — echoes the period + the tenant aggregate for the window.
-#[derive(Debug, Serialize)]
-pub struct TenantInvoiceResponse {
-    /// Tenant UUID.
-    pub tenant_id: String,
-    /// `YYYY-MM` period.
-    pub period: String,
-    /// Aggregate rollup (sum tokens + call count per provider/model).
-    pub by_model: Vec<LlmUsageAggregateRow>,
-    /// Daily points for the period.
     pub daily: Vec<LlmUsageDailyRow>,
 }
 
@@ -316,14 +280,6 @@ impl WebAdminRoutes {
             .route(
                 "/api/admin/users/{user_id}/usage",
                 get(Self::handle_get_user_usage),
-            )
-            .route(
-                "/api/admin/tenants/{tenant_id}/usage",
-                get(Self::handle_get_tenant_usage),
-            )
-            .route(
-                "/api/admin/tenants/{tenant_id}/invoice",
-                get(Self::handle_get_tenant_invoice),
             )
             .route(
                 "/api/admin/billing/export",
@@ -762,82 +718,6 @@ impl WebAdminRoutes {
                 from,
                 by_model,
                 total_cost_usd,
-                daily,
-            }),
-        )
-            .into_response())
-    }
-
-    /// `GET /api/admin/tenants/{tenant_id}/usage?from=<rfc3339>`
-    async fn handle_get_tenant_usage(
-        State(resources): State<WebAdminContext>,
-        headers: HeaderMap,
-        Path(tenant_id): Path<String>,
-        Query(q): Query<UsageRangeQuery>,
-    ) -> Result<Response, AppError> {
-        let auth = Self::authenticate_admin(&headers, &resources).await?;
-        // SECURITY (CWE-863): this reads financial data scoped to a
-        // client-supplied tenant. A tenant-scoped admin must not read another
-        // tenant's usage; `verify_admin_tenant_access` restricts regular admins
-        // to their own tenant while passing super-admin (global operators).
-        let tenant = TenantId::parse_str(&tenant_id)
-            .map_err(|_| AppError::invalid_input("Invalid tenant_id format"))?;
-        admin_ops::verify_admin_tenant_access(&resources.data, auth.user_id, tenant).await?;
-        let from = resolve_start(q.from.as_deref())?.to_rfc3339();
-        let by_model = resources
-            .repos
-            .llm_usage
-            .get_llm_usage_aggregates(&tenant_id, &from)
-            .await?;
-        let daily = resources
-            .repos
-            .llm_usage
-            .get_llm_usage_daily_series(&tenant_id, &from)
-            .await?;
-        Ok((
-            StatusCode::OK,
-            Json(TenantUsageResponse {
-                tenant_id,
-                from,
-                by_model,
-                daily,
-            }),
-        )
-            .into_response())
-    }
-
-    /// `GET /api/admin/tenants/{tenant_id}/invoice?period=YYYY-MM`
-    async fn handle_get_tenant_invoice(
-        State(resources): State<WebAdminContext>,
-        headers: HeaderMap,
-        Path(tenant_id): Path<String>,
-        Query(q): Query<InvoicePeriodQuery>,
-    ) -> Result<Response, AppError> {
-        let auth = Self::authenticate_admin(&headers, &resources).await?;
-        // SECURITY (CWE-863): invoice/billing data scoped to a client-supplied
-        // tenant. Restrict tenant-scoped admins to their own tenant; super-admins
-        // (global operators) pass.
-        let tenant = TenantId::parse_str(&tenant_id)
-            .map_err(|_| AppError::invalid_input("Invalid tenant_id format"))?;
-        admin_ops::verify_admin_tenant_access(&resources.data, auth.user_id, tenant).await?;
-        let (start, _end) = parse_month_period(&q.period)?;
-        let from = start.to_rfc3339();
-        let by_model = resources
-            .repos
-            .llm_usage
-            .get_llm_usage_aggregates(&tenant_id, &from)
-            .await?;
-        let daily = resources
-            .repos
-            .llm_usage
-            .get_llm_usage_daily_series(&tenant_id, &from)
-            .await?;
-        Ok((
-            StatusCode::OK,
-            Json(TenantInvoiceResponse {
-                tenant_id,
-                period: q.period,
-                by_model,
                 daily,
             }),
         )

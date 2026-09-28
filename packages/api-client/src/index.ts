@@ -64,6 +64,8 @@ export type { TurnCallbacks, TurnProgressSink, SseFrame } from './core/turn-stre
 export type { ClaimVerdict, ChatVerdictsResponse } from './domains/chat';
 
 export { createCoachesApi } from './domains/coaches';
+export { createApiKeysApi } from './domains/apiKeys';
+export type { ApiKeysApi } from './domains/apiKeys';
 export type {
   AgentsApi,
   Agent,
@@ -173,6 +175,7 @@ import { createAxiosClient } from './core/client';
 import { createAuthApi } from './domains/auth';
 import { createChatApi } from './domains/chat';
 import { createCoachesApi } from './domains/coaches';
+import { createApiKeysApi } from './domains/apiKeys';
 import { createOAuthApi } from './domains/oauth';
 import { createStoreApi } from './domains/store';
 import { createUserApi } from './domains/user';
@@ -215,6 +218,8 @@ export interface PierreApiService {
   chat: ReturnType<typeof createChatApi>;
   /** Coaches API */
   coaches: ReturnType<typeof createCoachesApi>;
+  /** The caller's own API keys */
+  apiKeys: ReturnType<typeof createApiKeysApi>;
   /** OAuth API */
   oauth: ReturnType<typeof createOAuthApi>;
   /** Store API */
@@ -276,6 +281,7 @@ export function createPierreApi(adapter: PlatformAdapter): PierreApiService {
     auth: createAuthApi(axios, adapter.authStorage, adapter.platform),
     chat: createChatApi(axios, adapter),
     coaches: createCoachesApi(axios),
+    apiKeys: createApiKeysApi(axios),
     oauth: createOAuthApi(axios),
     store: createStoreApi(axios),
     user: createUserApi(axios),

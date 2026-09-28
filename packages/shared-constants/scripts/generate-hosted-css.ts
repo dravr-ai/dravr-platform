@@ -770,7 +770,17 @@ code {
 ${glyphRules}
 
 .pc-label {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pc-desc {
+  color: rgb(var(--color-on-surface-variant));
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
 }
 
 .pc-tag {

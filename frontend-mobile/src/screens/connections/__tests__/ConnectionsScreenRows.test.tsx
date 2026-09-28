@@ -74,6 +74,7 @@ function provider(
   return {
     provider: id,
     display_name: displayName,
+    description: `${displayName}, as the server describes it`,
     requires_oauth: false,
     connected: false,
     needs_reauth: false,
@@ -133,6 +134,18 @@ describe('ConnectionsScreen rows', () => {
     expect(screen.queryByTestId('glyph-polar')).toBeNull();
     const polarRow = screen.getByTestId('provider-row-polar');
     expect(polarRow.findAllByType(InitialsAvatar)).toHaveLength(1);
+  });
+
+  it('each row shows the description the server serves, never a line of its own', async () => {
+    await renderWith([
+      provider('sciotte', 'Strava', { description: 'Activités de course, de vélo et de natation' }),
+      provider('polar', 'Polar Flow', { requires_oauth: true, description: 'Données sportives' }),
+    ]);
+
+    expect(screen.getByTestId('provider-subtitle-sciotte')).toHaveTextContent(
+      'Activités de course, de vélo et de natation',
+    );
+    expect(screen.getByTestId('provider-subtitle-polar')).toHaveTextContent('Données sportives');
   });
 
   it('a disconnected provider carries the ink "Connect" and no status word', async () => {

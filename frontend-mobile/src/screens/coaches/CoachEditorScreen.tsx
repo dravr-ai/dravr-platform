@@ -24,6 +24,7 @@ import { coachesApi } from '../../services/api';
 import { CollapsibleSection } from '../../components/ui';
 import type { Agent, UpdateAgentRequest } from '../../types';
 import { CoachVersionHistory } from './CoachVersionHistory';
+import { CoachStoreSubmit } from './CoachStoreSubmit';
 import { useTranslation } from '@pierre/i18n';
 
 // Category options with colors matching Stitch UX spec
@@ -651,6 +652,8 @@ export function CoachEditorScreen() {
           </CollapsibleSection>
 
           <CoachVersionHistory agentId={agentId} onReverted={hydrate} />
+
+          <CoachStoreSubmit agentId={agentId} />
 
           {/* Delete: the coach leaves the athlete's list, and this sheet closes with it */}
           <TouchableOpacity

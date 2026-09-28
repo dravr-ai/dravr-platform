@@ -30,22 +30,6 @@ import { useTheme } from '../hooks/useTheme';
 const ROW_CLASS =
   'group flex w-full items-center gap-3 rounded-lg border-t ghost-border-faint py-3 text-left first:border-t-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50';
 
-// The corpus key of the one-line blurb a provider's capability set earns;
-// the card resolves it with t() so the line reads in the athlete's language.
-const providerDescriptionKey = (provider: ProviderStatus): string => {
-  const caps = provider.capabilities;
-  if (caps.includes('activities') && caps.includes('sleep')) {
-    return 'providerBlurb.activitiesSleepRecovery';
-  }
-  if (caps.includes('activities')) {
-    return 'providerBlurb.activitiesWorkouts';
-  }
-  if (caps.includes('sleep')) {
-    return 'providerBlurb.sleepTracking';
-  }
-  return 'providerBlurb.fitnessData';
-};
-
 // SVG icons for each provider - clean and professional. `sciotte` reuses the
 // Strava chevron (it's the Strava data path); `sciotte_garmin` reuses the Garmin
 // dial; `sciotte_trainingpeaks` is a pair of peaks; `sciotte_coros` is COROS'
@@ -325,7 +309,7 @@ export default function ProviderConnectionCards({
                 : provider.connected
                 ? t('providers.isConnectedAria', { provider: provider.display_name })
                 : isNonOAuth
-                  ? `${provider.display_name} - ${t(providerDescriptionKey(provider))}`
+                  ? `${provider.display_name} - ${provider.description}`
                   : t('providers.connectToAria', { provider: provider.display_name })
             }
           >
@@ -343,7 +327,7 @@ export default function ProviderConnectionCards({
             </span>
             <span className={`flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 ${isNonOAuth ? 'opacity-60' : ''}`}>
               <span className="text-sm font-medium text-on-surface">{provider.display_name}</span>
-              <span className="min-w-0 truncate text-xs text-on-surface-variant">{t(providerDescriptionKey(provider))}</span>
+              <span className="min-w-0 truncate text-xs text-on-surface-variant">{provider.description}</span>
             </span>
             {owesAuthorization && (
               <span

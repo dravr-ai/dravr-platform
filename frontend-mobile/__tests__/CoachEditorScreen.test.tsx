@@ -1,5 +1,5 @@
 // ABOUTME: Unit tests for CoachEditorScreen — the edit-only sheet for one of the athlete's own coaches
-// ABOUTME: Pins load-by-id, save through update, delete with confirmation, version history (list, compare, revert), no create mode
+// ABOUTME: Pins load-by-id, save, delete with confirmation, version history (list, compare, revert), Store submit, no create mode
 
 import React from 'react';
 import { render as rtlRender, fireEvent, waitFor, within } from '@testing-library/react-native';
@@ -22,6 +22,7 @@ const mockCreate = jest.fn();
 const mockListVersions = jest.fn();
 const mockDiffVersion = jest.fn();
 const mockRevertToVersion = jest.fn();
+const mockSubmitToStore = jest.fn();
 
 jest.mock('../src/services/api', () => ({
   coachesApi: {
@@ -32,6 +33,7 @@ jest.mock('../src/services/api', () => ({
     listVersions: (...args: unknown[]) => mockListVersions(...args),
     diffVersion: (...args: unknown[]) => mockDiffVersion(...args),
     revertToVersion: (...args: unknown[]) => mockRevertToVersion(...args),
+    submitToStore: (...args: unknown[]) => mockSubmitToStore(...args),
   },
 }));
 
@@ -281,6 +283,33 @@ describe('CoachEditorScreen', () => {
 
     expect(mockRevertToVersion).not.toHaveBeenCalled();
     expect(getByTestId('coach-title-input').props.value).toBe('Coach Tempo');
+  });
+
+  it('submits the agent to the Store and says it waits for an admin', async () => {
+    mockSubmitToStore.mockResolvedValue({
+      agent_id: 'coach-1',
+      publish_status: 'pending_review',
+      review_submitted_at: '2026-09-28T10:00:00Z',
+    });
+    const { findByTestId, queryByTestId } = render(<CoachEditorScreen />);
+
+    fireEvent.press(await findByTestId('agent-store-submit-button'));
+
+    expect(await findByTestId('agent-store-submitted')).toHaveTextContent(
+      'Submitted — an admin will review it before it appears in the Store.',
+    );
+    expect(mockSubmitToStore).toHaveBeenCalledWith('coach-1');
+    expect(queryByTestId('agent-store-submit-button')).toBeNull();
+  });
+
+  it('says why the Store refused the submission', async () => {
+    mockSubmitToStore.mockRejectedValue(new Error('network down'));
+    const { findByTestId } = render(<CoachEditorScreen />);
+
+    fireEvent.press(await findByTestId('agent-store-submit-button'));
+
+    expect(await findByTestId('agent-store-submit-error')).toBeTruthy();
+    expect(await findByTestId('agent-store-submit-button')).toBeTruthy();
   });
 
   it('says so when the agent has never been edited', async () => {

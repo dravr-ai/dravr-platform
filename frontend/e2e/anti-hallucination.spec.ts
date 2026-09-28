@@ -173,16 +173,16 @@ test.describe('Anti-Hallucination Tests - User Mode', () => {
   });
 
   // ========================================
-  // API Tokens Tab - No Hallucinated Data
+  // MCP tokens Tab - No Hallucinated Data
   // ========================================
-  test.describe('API Tokens - No Hallucinated Data', () => {
+  test.describe('MCP tokens - No Hallucinated Data', () => {
     test.beforeEach(async ({ page }) => {
       await loginAsUser(page, 'webtest');
       await navigateToTab(page, 'Settings');
       await waitForNetworkIdle(page);
 
-      // Click API Tokens tab
-      const tokensTab = page.getByRole('button', { name: 'API Tokens' });
+      // Click MCP tokens tab
+      const tokensTab = page.getByRole('button', { name: 'MCP tokens' });
       await tokensTab.click();
       await page.waitForTimeout(300);
     });

@@ -838,17 +838,16 @@ async fn test_legacy_conversion_functionality() {
     let simple_request = CreateApiKeyRequestSimple {
         name: "Simple API Key".to_owned(),
         description: Some("Created using simplified format".to_owned()),
-        rate_limit_requests: 25_000, // Maps to Professional tier
         expires_in_days: None,
     };
 
     let (simple_key, simple_full_key) = api_key_manager
-        .create_api_key_simple(user.id, simple_request)
+        .create_api_key_simple(user.id, UserTier::Professional, simple_request)
         .unwrap();
 
-    // Verify simple key properties (tier is automatically determined)
+    // The key's tier and budget are the minting user's plan.
     assert_eq!(simple_key.tier, ApiKeyTier::Professional);
-    assert_eq!(simple_key.rate_limit_requests, 25_000);
+    assert_eq!(simple_key.rate_limit_requests, 100_000);
     assert!(simple_key.expires_at.is_none());
 
     // Test trial key creation using legacy method

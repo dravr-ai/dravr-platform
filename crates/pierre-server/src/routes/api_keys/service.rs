@@ -93,7 +93,7 @@ impl ApiKeyRoutes {
         }
     }
 
-    /// Create a new API key with simplified rate limit approach
+    /// Create the caller's own API key at the tier and budget of their plan
     ///
     /// # Errors
     ///
@@ -108,10 +108,20 @@ impl ApiKeyRoutes {
     ) -> AppResult<ApiKeyCreateResponse> {
         let user_id = auth.user_id;
 
-        // Create the API key
+        // The key's tier and budget are the caller's own plan, never the
+        // request's: no one mints above what their plan allows.
+        let plan = self
+            .resources
+            .common
+            .repos
+            .users
+            .get_global(user_id)
+            .await?
+            .ok_or_else(|| AppError::not_found("User"))?
+            .tier;
         let (api_key, full_key) = self
             .api_key_manager
-            .create_api_key_simple(user_id, request)?;
+            .create_api_key_simple(user_id, plan, request)?;
 
         // Store in database
         self.resources

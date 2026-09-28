@@ -39,6 +39,7 @@ export const onAuthFailure = (listener: () => void): (() => void) => {
 export const authApi = api.auth;
 export const chatApi = api.chat;
 export const coachesApi = api.coaches;
+export const apiKeysApi = api.apiKeys;
 export const oauthApi = api.oauth;
 export const storeApi = api.store;
 export const userApi = api.user;

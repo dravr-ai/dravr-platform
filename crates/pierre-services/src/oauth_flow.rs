@@ -352,7 +352,6 @@ impl OAuthService {
                 provider,
                 issuing_app: oauth_app_client_id,
                 server_level: &server_level,
-                cached_tenant: None,
             },
             repos.tenants.as_ref(),
             repos.oauth_tokens.as_ref(),

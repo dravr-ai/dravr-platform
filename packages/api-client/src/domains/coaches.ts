@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Coaches domain API - list, read, update and delete the caller's coaches, and their version history
+// ABOUTME: Coaches domain API - list, read, update, delete and submit to the Store the caller's coaches, and their version history
 // ABOUTME: Creation, install and catalogue browsing live in /coach and /discover
 
 import type { AxiosInstance } from 'axios';
@@ -13,6 +13,7 @@ import type {
   ListAgentVersionsResponse,
   AgentVersionDiffResponse,
   RevertAgentVersionResponse,
+  SubmitAgentForReviewResponse,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
@@ -25,6 +26,7 @@ export type {
   ListAgentVersionsResponse,
   AgentVersionDiffResponse,
   RevertAgentVersionResponse,
+  SubmitAgentForReviewResponse,
 };
 
 export interface ListAgentsOptions {
@@ -122,6 +124,16 @@ export function createCoachesApi(axios: AxiosInstance) {
       const response = await axios.post<RevertAgentVersionResponse>(
         ENDPOINTS.COACHES.VERSION_REVERT(agentId, version)
       );
+      return response.data;
+    },
+
+    /**
+     * Submit one of the caller's own coaches to the Store. It waits in the
+     * admin review queue until an admin approves or rejects it; only its
+     * author may submit it.
+     */
+    async submitToStore(agentId: string): Promise<SubmitAgentForReviewResponse> {
+      const response = await axios.post<SubmitAgentForReviewResponse>(ENDPOINTS.COACHES.SUBMIT(agentId));
       return response.data;
     },
 

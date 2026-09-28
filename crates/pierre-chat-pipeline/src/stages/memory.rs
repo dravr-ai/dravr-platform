@@ -15,6 +15,7 @@
 //! the turn completes and distills new facts from the exchange.
 
 use std::collections::HashSet;
+use std::fmt::Write;
 use std::time::Instant;
 
 use chrono::{Duration, Utc};
@@ -23,8 +24,9 @@ use uuid::Uuid;
 
 use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_core::models::{SportType, TenantId};
+use pierre_core::untrusted::flatten_line;
 use pierre_database::repositories::{
-    ActivityCacheRepository, DossierRepository, PlaybookRepository,
+    ActivityCacheRepository, DossierRepository, HarnessMemoryRepository, PlaybookRepository,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_memory::playbooks::{ArchetypePrior, Playbook};
@@ -150,6 +152,52 @@ pub async fn inject_training_plan(
         Some(block) => format!("{base_prompt}{block}"),
         None => base_prompt,
     }
+}
+
+/// Append the notes the answering agent wrote about this athlete.
+///
+/// `agent_note_add` persists what the agent decided to remember across
+/// sessions; this is where the agent reads it back. Only the newest
+/// [`AGENT_NOTES_INJECT_LIMIT`] notes the agent itself wrote come back, and a
+/// note an admin suppressed from the audit tab never does. Best-effort like
+/// the playbooks: a read error or no notes pass the prompt through. `tenant_id`
+/// is the TOOL tenant, the one `agent_note_add` writes under; a turn with no
+/// agent has no notes.
+pub async fn inject_agent_notes(
+    memory: &dyn HarnessMemoryRepository,
+    tenant_id: TenantId,
+    user_id: &str,
+    agent_id: Option<&str>,
+    base_prompt: String,
+) -> String {
+    let Some(agent_id) = agent_id else {
+        return base_prompt;
+    };
+    let notes = match memory
+        .list_agent_notes(tenant_id, user_id, agent_id, AGENT_NOTES_INJECT_LIMIT)
+        .await
+    {
+        Ok(notes) => notes,
+        Err(e) => {
+            tracing::warn!(error = %e, "agent note read failed; continuing without notes");
+            return base_prompt;
+        }
+    };
+    if notes.is_empty() {
+        return base_prompt;
+    }
+    let mut block = String::from("\n\n## Notes you wrote about this athlete (newest first)\n\n");
+    for note in &notes {
+        // One line per note, whatever it holds, so a note can never open a
+        // prompt section of its own.
+        let _ = writeln!(
+            block,
+            "- {} ({})",
+            flatten_line(&note.content),
+            note.created_at.date_naive()
+        );
+    }
+    format!("{base_prompt}{block}")
 }
 
 /// Append the athlete's proven coaching playbooks to the system prompt.
@@ -283,6 +331,12 @@ fn sport_slug(sport: &SportType) -> Option<String> {
     }
 }
 
+/// How many of the agent's own notes reach the prompt, newest first.
+///
+/// A note may run to 2 000 characters, so five bound the block near 10 000
+/// characters (about 2 500 tokens) in the worst case while keeping the most
+/// recent things the agent chose to remember.
+pub const AGENT_NOTES_INJECT_LIMIT: i64 = 5;
 /// How many playbooks to pull for the prompt — the renderer filters to the
 /// well-evidenced top few, so a modest ceiling is plenty.
 const PLAYBOOK_INJECT_LIMIT: i64 = 20;

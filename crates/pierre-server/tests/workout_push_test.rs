@@ -34,8 +34,9 @@ use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::{
     CalendarEventSource, CalendarKey, ConnectionType, PrescribedWorkout, SportType, TenantId,
-    UserOAuthToken, WorkoutStep,
+    UserId, UserOAuthToken, WorkoutStep,
 };
+use pierre_database::backends::factory::Database;
 use pierre_database::repositories::training_plans::PlanOwner;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
@@ -47,6 +48,7 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::task_cancellation::scoped_with_cancel_flag;
 use pierre_tool_runtime::McpTool;
 use serde_json::{json, Value};
+use sqlx::Row;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
@@ -348,15 +350,45 @@ impl Fixture {
         self.tenant.to_string()
     }
 
-    /// Every ledger row recorded for this athlete, newest first.
+    /// Every ledger row recorded for this athlete, newest first, whatever
+    /// its status. The repository reads a row by id or the live rows of one
+    /// provider, never the whole ledger, so the ids come from the table and
+    /// each row is read through `get_prescribed_workout`.
     async fn ledger(&self) -> Vec<PrescribedWorkout> {
-        self.executor
-            .resources
-            .repos()
-            .prescribed_workouts
-            .list_prescribed_workouts(self.tenant, self.user_id, 50)
-            .await
-            .expect("list ledger")
+        const SQL: &str = "SELECT id FROM prescribed_workouts \
+                           WHERE tenant_id = $1 AND user_id = $2 ORDER BY created_at DESC";
+        let ids: Vec<Uuid> = match self.executor.resources.database().as_ref() {
+            Database::SQLite(db) => sqlx::query(SQL)
+                .bind(self.tenant)
+                .bind(UserId::from_uuid(self.user_id))
+                .fetch_all(db.pool())
+                .await
+                .expect("list ledger ids")
+                .iter()
+                .map(|row| Uuid::parse_str(&row.get::<String, _>("id")).expect("uuid id"))
+                .collect(),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(db) => sqlx::query(SQL)
+                .bind(self.tenant)
+                .bind(UserId::from_uuid(self.user_id))
+                .fetch_all(db.pool())
+                .await
+                .expect("list ledger ids")
+                .iter()
+                .map(|row| row.get::<Uuid, _>("id"))
+                .collect(),
+        };
+        let repo = &self.executor.resources.repos().prescribed_workouts;
+        let mut rows = Vec::with_capacity(ids.len());
+        for id in ids {
+            rows.push(
+                repo.get_prescribed_workout(self.tenant, self.user_id, id)
+                    .await
+                    .expect("read ledger row")
+                    .expect("a listed row reads back"),
+            );
+        }
+        rows
     }
 
     /// The rows whose entry is live on the calendar, in calendar order.
@@ -635,8 +667,9 @@ async fn prescribing_a_cornerstone_creates_the_calendar_event_and_records_its_id
     assert_eq!(result["duration_minutes"].as_u64(), Some(90));
     let prescription_id = result["prescription_id"].as_str().expect("prescription id");
 
-    let rows = fixture.ledger().await;
-    assert_eq!(rows.len(), 1, "one prescription recorded");
+    let rows = fixture.live().await;
+    assert_eq!(rows.len(), 1, "one prescription live on the calendar");
+    assert_eq!(fixture.ledger().await.len(), 1, "one prescription recorded");
     assert_eq!(rows[0].status, "pushed");
     assert_eq!(rows[0].provider_event_id.as_deref(), Some("987654"));
     assert_eq!(rows[0].provider, "intervals_icu");
@@ -774,6 +807,11 @@ async fn re_prescribing_the_same_session_reuses_one_template_row() -> Result<()>
     // per athlete, so a second mint would have violated that index outright.
     assert_eq!(stub.requests().await.len(), 2, "one push per prescription");
     assert_eq!(fixture.ledger().await.len(), 2);
+    assert_eq!(
+        fixture.live().await.len(),
+        2,
+        "both prescriptions are live on the calendar"
+    );
     assert_eq!(stub.events().await.len(), 2, "two entries on the calendar");
     let templates = fixture
         .executor

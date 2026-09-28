@@ -9,7 +9,7 @@ import { applyTestStubs } from './test-helpers';
 
 // Helper to set up mocks for an authenticated user session
 interface MockOptions {
-  providers?: Array<{ provider: string; display_name: string; requires_oauth: boolean; connected: boolean; capabilities: string[] }>;
+  providers?: Array<{ provider: string; display_name: string; description?: string; requires_oauth: boolean; connected: boolean; capabilities: string[] }>;
 }
 
 async function setupAuthenticatedMocks(page: import('@playwright/test').Page, isAdmin = false, options: MockOptions = {}) {
@@ -369,7 +369,7 @@ test.describe('Settings Page - User Mode', () => {
     // Use button role to avoid matching headings with the same text
     await expect(page.getByRole('button', { name: 'Profile' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Data Providers' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'API Tokens' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'MCP tokens' })).toBeVisible();
     // No AI Settings pane: nobody brings their own model, and the pane stored a
     // key while changing nothing about the coaching that followed.
     await expect(page.getByRole('button', { name: 'AI Settings' })).toHaveCount(0);
@@ -481,20 +481,69 @@ test.describe('Settings Page - User Mode', () => {
   test('tokens tab shows create new token button', async ({ page }) => {
     await loginAndNavigateToSettings(page);
 
-    await page.getByRole('button', { name: 'API Tokens' }).click();
+    await page.getByRole('button', { name: 'MCP tokens' }).click();
     await page.waitForTimeout(300);
 
     await expect(page.getByText('Create New Token')).toBeVisible();
+  });
+
+  test('API keys tab shows a created key once and a revoked key leaves', async ({ page }) => {
+    await loginAndNavigateToSettings(page);
+    let keys = [
+      {
+        id: 'k1', name: 'Export script', description: null, tier: 'starter', key_prefix: 'pk_live_k1',
+        is_active: true, last_used_at: null, expires_at: null, created_at: '2026-09-20T08:30:00Z',
+      },
+    ];
+    await page.route('**/api/keys', async (route) => {
+      if (route.request().method() === 'POST') {
+        const created = { ...keys[0], id: 'k2', name: 'Garmin sync', key_prefix: 'pk_live_k2' };
+        keys = [...keys, created];
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({ api_key: 'pk_live_k2_full_secret', key_info: created, warning: 'Store it.' }),
+        });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ api_keys: keys }) });
+    });
+    await page.route('**/api/keys/*/usage*', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ stats: { api_key_id: 'k1', total_requests: 3, successful_requests: 3, failed_requests: 0, total_response_time_ms: 10, tool_usage: {}, period_start: '', period_end: '' } }),
+      })
+    );
+    await page.route('**/api/keys/k1', async (route) => {
+      keys = keys.map((k) => (k.id === 'k1' ? { ...k, is_active: false } : k));
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ message: 'ok', deactivated_at: '2026-09-28T10:00:00Z' }) });
+    });
+
+    await page.getByRole('button', { name: 'API keys' }).click();
+    await expect(page.getByTestId('api-key-k1')).toContainText('Export script');
+    await expect(page.getByTestId('api-key-usage-k1')).toHaveText('3 requests in the last 30 days');
+
+    await page.getByTestId('api-key-name').fill('Garmin sync');
+    await page.getByTestId('api-key-create').click();
+    await expect(page.getByTestId('api-key-secret')).toHaveText('pk_live_k2_full_secret');
+    await page.getByTestId('api-key-done').click();
+    await expect(page.getByTestId('api-key-secret')).toHaveCount(0);
+    await expect(page.getByTestId('api-key-k2')).toContainText('Garmin sync');
+
+    await page.getByTestId('api-key-revoke-k1').click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Revoke' }).click();
+    await expect(page.getByTestId('api-key-k1')).toHaveCount(0);
   });
 
   test('data providers tab displays individual provider names', async ({ page }) => {
     // The API surfaces `sciotte` (Strava-branded), `sciotte_garmin`
     // (Garmin-branded), `sciotte_trainingpeaks` (TrainingPeaks-branded) and `whoop`.
     const testProviders = [
-      { provider: 'sciotte', display_name: 'Strava', requires_oauth: false, connected: false, capabilities: ['activities'] },
-      { provider: 'sciotte_garmin', display_name: 'Garmin', requires_oauth: false, connected: false, capabilities: ['activities', 'sleep', 'recovery', 'health'] },
-      { provider: 'sciotte_trainingpeaks', display_name: 'TrainingPeaks', requires_oauth: false, connected: false, capabilities: ['activities'], consent_required: true },
-      { provider: 'whoop', display_name: 'WHOOP', requires_oauth: true, connected: false, capabilities: ['activities', 'sleep'] },
+      { provider: 'sciotte', display_name: 'Strava', description: 'Running, cycling, and swimming activities', requires_oauth: false, connected: false, capabilities: ['activities'] },
+      { provider: 'sciotte_garmin', display_name: 'Garmin', description: 'Activities and health metrics from Garmin devices', requires_oauth: false, connected: false, capabilities: ['activities', 'sleep', 'recovery', 'health'] },
+      { provider: 'sciotte_trainingpeaks', display_name: 'TrainingPeaks', description: 'Completed workouts and their training load from TrainingPeaks', requires_oauth: false, connected: false, capabilities: ['activities'], consent_required: true },
+      { provider: 'whoop', display_name: 'WHOOP', description: 'Recovery, strain, and sleep metrics', requires_oauth: true, connected: false, capabilities: ['activities', 'sleep'] },
     ];
     await loginAndNavigateToSettings(page, false, { providers: testProviders });
 
@@ -506,6 +555,9 @@ test.describe('Settings Page - User Mode', () => {
     await expect(page.getByText('Garmin', { exact: true })).toBeVisible();
     await expect(page.getByText('TrainingPeaks', { exact: true })).toBeVisible();
     await expect(page.getByText('WHOOP', { exact: true })).toBeVisible();
+    // Each row's line under the name is the one the server serves, as served
+    await expect(page.getByText('Activities and health metrics from Garmin devices')).toBeVisible();
+    await expect(page.getByText('Recovery, strain, and sleep metrics')).toBeVisible();
   });
 
   test('TrainingPeaks connects only after its notice is accepted', async ({ page }) => {
@@ -698,7 +750,7 @@ test.describe('Settings Page - User Mode', () => {
   test('tokens tab shows setup instructions button for Claude and ChatGPT', async ({ page }) => {
     await loginAndNavigateToSettings(page);
 
-    await page.getByRole('button', { name: 'API Tokens' }).click();
+    await page.getByRole('button', { name: 'MCP tokens' }).click();
     await page.waitForTimeout(300);
 
     // Should show Setup Instructions toggle button with Claude & ChatGPT mention
@@ -709,7 +761,7 @@ test.describe('Settings Page - User Mode', () => {
   test('tokens tab shows Connected Apps section', async ({ page }) => {
     await loginAndNavigateToSettings(page);
 
-    await page.getByRole('button', { name: 'API Tokens' }).click();
+    await page.getByRole('button', { name: 'MCP tokens' }).click();
     await page.waitForTimeout(300);
 
     // Should show Connected Apps heading (use .first() in case of duplicate heading elements)

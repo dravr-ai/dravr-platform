@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use pierre_core::admin::models::GeneratedAdminToken;
+use pierre_core::constants::ports::DEFAULT_HTTP_PORT;
 
 /// Display a generated token with important security warnings
 pub fn display_generated_token(token: &GeneratedAdminToken) {
@@ -61,7 +62,7 @@ pub fn display_generated_token(token: &GeneratedAdminToken) {
 
     println!("\nUSAGE EXAMPLE:");
     println!("curl -H \"Authorization: Bearer {}\" \\", token.jwt_token);
-    println!("     -X POST http://localhost:8080/admin/provision-api-key \\");
+    println!("     -X POST http://localhost:{DEFAULT_HTTP_PORT}/admin/provision \\");
     println!("     -d '{{\"user_email\":\"user@example.com\",\"tier\":\"starter\"}}'");
 
     println!("\nSuccess Token is ready to use!");

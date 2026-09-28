@@ -236,7 +236,7 @@ async fn the_rest_entry_point_refuses_a_delegation_the_scoped_one_carries_it() {
 async fn a_delegated_grant_cannot_mint_an_api_key() {
     let resources = create_test_server_resources().await.unwrap();
     let athlete = athlete(&resources, "delegation-keys@example.com", UserRole::User).await;
-    let body = json!({ "name": "escalation", "rate_limit_requests": 1000 });
+    let body = json!({ "name": "escalation" });
 
     let response = AxumTestRequest::post("/api/keys")
         .header(

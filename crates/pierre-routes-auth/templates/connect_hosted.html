@@ -152,7 +152,7 @@
                 channel: "{{CHANNEL}}",
                 channelLabel: "{{CHANNEL_LABEL}}",
                 // Providers JSON embedded server-side (mirrors GET /api/providers):
-                // [{ provider, display_name, connected, kind: 'oauth'|'sciotte', target, consent_required, notice?, login_identifier }]
+                // [{ provider, display_name, description, connected, kind: 'oauth'|'sciotte', target, consent_required, notice?, login_identifier }]
                 // `notice` is shown before the credentials (sciotte) or before the
                 // OAuth redirect (oauth) while `consent_required` holds.
                 providers: {{PROVIDERS_JSON}},
@@ -237,7 +237,13 @@
                     btn.appendChild(glyph);
                     const label = document.createElement('span');
                     label.className = 'pc-label';
-                    label.textContent = p.display_name;
+                    const name = document.createElement('span');
+                    name.textContent = p.display_name;
+                    label.appendChild(name);
+                    const description = document.createElement('span');
+                    description.className = 'pc-desc';
+                    description.textContent = p.description;
+                    label.appendChild(description);
                     btn.appendChild(label);
                     const tag = document.createElement('span');
                     tag.className = 'pc-tag' + (p.connected ? ' connected' : '');

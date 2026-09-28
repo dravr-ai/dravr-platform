@@ -21,6 +21,7 @@ const PANE_ROUTES: ReadonlyArray<[SettingsPaneId, string | null, string]> = [
   ['profile', 'settings/profile', '/(app)/(tabs)/(settings)/profile'],
   ['connections', 'settings/connections', '/(app)/(tabs)/(settings)/connections'],
   ['tokens', 'settings/tokens', '/(app)/(tabs)/(settings)/tokens'],
+  ['api-keys', 'settings/api-keys', '/(app)/(tabs)/(settings)/api-keys'],
   ['coaching', 'settings/coaching', '/(app)/(tabs)/(settings)/coaching-style'],
   ['messaging', 'settings/messaging', '/(app)/(tabs)/(settings)/messaging'],
   ['notifications', 'settings/notifications', '/(app)/(tabs)/(settings)/notification-preferences'],

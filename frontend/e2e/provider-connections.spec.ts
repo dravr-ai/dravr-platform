@@ -15,6 +15,7 @@ const mockProviders = {
     {
       provider: 'sciotte',
       display_name: 'Strava',
+      description: 'Running, cycling, and swimming activities',
       requires_oauth: false,
       connected: true,
       connected_backend: 'strava',
@@ -27,6 +28,7 @@ const mockProviders = {
     {
       provider: 'sciotte_garmin',
       display_name: 'Garmin',
+      description: 'Activities and health metrics from Garmin devices',
       requires_oauth: false,
       connected: false,
       needs_reauth: false,
@@ -36,6 +38,7 @@ const mockProviders = {
     {
       provider: 'synthetic',
       display_name: 'Synthetic',
+      description: 'Synthetic test data for development',
       requires_oauth: false,
       connected: false,
       needs_reauth: false,
@@ -45,6 +48,7 @@ const mockProviders = {
     {
       provider: 'synthetic_sleep',
       display_name: 'Synthetic Sleep',
+      description: 'Synthetic sleep data for development',
       requires_oauth: false,
       connected: false,
       needs_reauth: false,

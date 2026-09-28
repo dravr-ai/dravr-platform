@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The Discover edit sheet for one of the athlete's own agents — loads it, saves it, deletes it, reverts it
+// ABOUTME: The Discover edit sheet for one of the athlete's own agents — loads it, saves it, deletes it, reverts it, submits it
 // ABOUTME: The only agent editor left outside the admin console; agent creation is the /agent create command
 
 import { useEffect, useState } from 'react';
@@ -11,6 +11,7 @@ import { QUERY_KEYS } from '../../constants/queryKeys';
 import { Button, ConfirmDialog } from '../ui';
 import CoachFormModal from './CoachFormModal';
 import CoachVersionHistory from './CoachVersionHistory';
+import CoachStoreSubmit from './CoachStoreSubmit';
 import { coachToFormData, formDataToUpdateRequest } from './coachForm';
 import type { AgentFormData } from './coachForm';
 import type { Agent } from '@pierre/shared-types';
@@ -120,6 +121,7 @@ export default function CoachEditSheet({ agentId, onClose }: AgentEditSheetProps
         onDelete={() => setConfirmingDelete(true)}
       >
         <CoachVersionHistory agentId={agentId} onReverted={handleReverted} />
+        <CoachStoreSubmit agentId={agentId} />
       </CoachFormModal>
       <ConfirmDialog
         isOpen={confirmingDelete}

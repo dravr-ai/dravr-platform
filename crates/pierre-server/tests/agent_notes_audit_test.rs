@@ -1,5 +1,5 @@
 // ABOUTME: Sprint C8 — integration tests for tenant-wide coach_notes audit listing
-// ABOUTME: Covers list_agent_notes_for_tenant ordering, clamp, and tenant isolation
+// ABOUTME: Covers list_agent_notes_for_tenant ordering, clamp, isolation, and the notes the chat prompt reads back
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,6 +10,7 @@
 use std::time::Duration;
 
 use anyhow::Result;
+use pierre_chat_pipeline::stages::memory::{inject_agent_notes, AGENT_NOTES_INJECT_LIMIT};
 use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
 use pierre_core::models::{Tenant, TenantId, User};
 use pierre_database::backends::factory::Database;
@@ -159,5 +160,81 @@ async fn tenant_audit_is_tenant_scoped() -> Result<()> {
     assert_eq!(rows_b.len(), 1);
     assert_eq!(rows_b[0].content, "beta note");
 
+    Ok(())
+}
+
+/// The chat prompt reads back the answering agent's own notes about the
+/// athlete: newest first, bounded, never a suppressed note, never another
+/// agent's or another athlete's.
+#[tokio::test]
+async fn chat_prompt_reads_back_the_agents_newest_unsuppressed_notes() -> Result<()> {
+    let db = open_db().await?;
+    let memory = db.repositories().memory;
+    let (tenant, agent_id) = seed_user_tenant_agent(&db).await?;
+
+    let mut ids = Vec::new();
+    for i in 0..7 {
+        let note = memory
+            .insert_agent_note(&note_params(
+                tenant,
+                "user-a",
+                &agent_id,
+                &format!("note {i}"),
+            ))
+            .await?;
+        ids.push(note.id);
+        sleep(Duration::from_millis(5)).await;
+    }
+    memory
+        .insert_agent_note(&note_params(tenant, "user-b", &agent_id, "someone else"))
+        .await?;
+    memory
+        .set_agent_note_suppressed(&ids[6], tenant, true, "admin@example.com")
+        .await?;
+
+    let prompt = inject_agent_notes(
+        memory.as_ref(),
+        tenant,
+        "user-a",
+        Some(&agent_id),
+        "BASE".to_owned(),
+    )
+    .await;
+
+    let bullets: Vec<&str> = prompt.lines().filter(|l| l.starts_with("- ")).collect();
+    assert_eq!(bullets.len(), 5, "{prompt}");
+    assert_eq!(usize::try_from(AGENT_NOTES_INJECT_LIMIT)?, bullets.len());
+    for (bullet, expected) in bullets
+        .iter()
+        .zip(["note 5", "note 4", "note 3", "note 2", "note 1"])
+    {
+        assert!(bullet.starts_with(&format!("- {expected} (")), "{bullet}");
+    }
+    assert!(
+        prompt.starts_with("BASE\n\n## Notes you wrote about this athlete"),
+        "{prompt}"
+    );
+    assert!(
+        !prompt.contains("note 6"),
+        "a suppressed note never returns: {prompt}"
+    );
+    assert!(
+        !prompt.contains("note 0"),
+        "the oldest falls past the bound: {prompt}"
+    );
+    assert!(!prompt.contains("someone else"), "{prompt}");
+
+    let other_agent = inject_agent_notes(
+        memory.as_ref(),
+        tenant,
+        "user-a",
+        Some("another-agent"),
+        "BASE".to_owned(),
+    )
+    .await;
+    assert_eq!(other_agent, "BASE");
+    let no_agent =
+        inject_agent_notes(memory.as_ref(), tenant, "user-a", None, "BASE".to_owned()).await;
+    assert_eq!(no_agent, "BASE");
     Ok(())
 }

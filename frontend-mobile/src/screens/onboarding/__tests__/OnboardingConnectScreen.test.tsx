@@ -55,6 +55,7 @@ const linkingParse = Linking.parse as jest.Mock;
 const STRAVA_CARD = {
   provider: 'sciotte',
   display_name: 'Strava',
+  description: 'Activités de course, de vélo et de natation',
   requires_oauth: false,
   connected: false,
   needs_reauth: false,
@@ -81,6 +82,7 @@ describe('OnboardingConnectScreen — TrainingPeaks', () => {
     getProvidersStatus.mockResolvedValue({ providers: [{
     provider: 'sciotte_trainingpeaks',
     display_name: 'TrainingPeaks',
+    description: 'Completed workouts and their training load from TrainingPeaks',
     requires_oauth: false,
     connected: false,
     needs_reauth: false,
@@ -129,6 +131,8 @@ describe('OnboardingConnectScreen — Strava OAuth failure fallback', () => {
 
     expect(screen.getByTestId('onboarding-progress-bar')).toBeTruthy();
     expect(await screen.findByTestId('provider-action-sciotte')).toHaveTextContent('Connect');
+    // The line under the name is the one the server serves, as served.
+    expect(screen.getByText('Activités de course, de vélo et de natation')).toBeTruthy();
     // The demoted Logout is its own quiet link, not the old full-width Button.
     expect(screen.getByTestId('onboarding-logout-link')).toBeTruthy();
   });

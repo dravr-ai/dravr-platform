@@ -93,7 +93,7 @@ impl FeatureKey {
     pub const fn description(self) -> &'static str {
         match self {
             Self::ApiTokens => {
-                "Show the API Tokens tab in user Settings (personal MCP tokens for Claude Desktop / Cursor)."
+                "Show the MCP tokens (Claude Desktop / Cursor) and API keys (your own scripts) tabs in user Settings."
             }
             Self::BillingHeader => {
                 "Show the Current Plan / upgrade card on the Usage screen."

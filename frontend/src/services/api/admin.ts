@@ -137,6 +137,26 @@ export interface StorePackageReview {
 /** Largest page the user listing serves (`USER_PAGE_MAX` on the server). */
 const USER_PAGE_LIMIT = 100;
 
+/** One impersonation session as GET /api/admin/impersonate/sessions lists it. */
+export interface ImpersonationSessionSummary {
+  id: string;
+  impersonator_id: string;
+  impersonator_email: string | null;
+  target_user_id: string;
+  target_user_email: string | null;
+  reason: string | null;
+  started_at: string;
+  ended_at: string | null;
+  is_active: boolean;
+  duration_seconds: number;
+}
+
+/** GET /api/admin/impersonate/sessions. */
+export interface ImpersonationSessionsResponse {
+  sessions: ImpersonationSessionSummary[];
+  total_count: number;
+}
+
 export const adminApi = {
   // ==================== ADMIN TOKEN MANAGEMENT ====================
   // The admin-token handlers `pierre-cli` reaches too; every answer is the
@@ -497,6 +517,20 @@ export const adminApi = {
     duration_seconds: number;
   }> {
     const response = await axios.post('/api/admin/impersonate/end');
+    return response.data;
+  },
+
+  /** The impersonation log: the latest sessions, newest first (super admin only). */
+  async listImpersonationSessions(): Promise<ImpersonationSessionsResponse> {
+    const response = await axios.get<ImpersonationSessionsResponse>('/api/admin/impersonate/sessions');
+    return response.data;
+  },
+
+  /** One impersonation session (super admin only). */
+  async getImpersonationSession(sessionId: string): Promise<ImpersonationSessionSummary> {
+    const response = await axios.get<ImpersonationSessionSummary>(
+      `/api/admin/impersonate/sessions/${encodeURIComponent(sessionId)}`
+    );
     return response.data;
   },
 

@@ -74,6 +74,7 @@ describe('ProviderConnectionCards — the glyph ink follows the scheme', () => {
   const card = (provider: string, display_name: string) => ({
     provider,
     display_name,
+    description: `${display_name}, as the server describes it`,
     requires_oauth: false,
     connected: false,
     needs_reauth: false,
@@ -124,6 +125,14 @@ describe('ProviderConnectionCards — the glyph ink follows the scheme', () => {
 
     expect(screen.getByTestId('provider-glyph-whoop')).toHaveStyle({ color: 'rgb(0, 212, 106)' });
     expect(screen.getByTestId('provider-glyph-sciotte')).toHaveStyle({ color: 'rgb(252, 76, 2)' });
+  });
+
+  it('shows each card with the description the server serves', async () => {
+    renderCards();
+
+    expect(await screen.findByText('WHOOP, as the server describes it')).toBeInTheDocument();
+    expect(screen.getByText('Strava, as the server describes it')).toBeInTheDocument();
+    expect(screen.getByLabelText('Synthetic - Synthetic, as the server describes it')).toBeInTheDocument();
   });
 
   it('draws a provider with no brand colour in body ink in either scheme', async () => {

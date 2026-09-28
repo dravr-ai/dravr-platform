@@ -182,6 +182,7 @@ export type SettingsPaneId =
   | 'profile'
   | 'connections'
   | 'tokens'
+  | 'api-keys'
   | 'coaching'
   | 'messaging'
   | 'notifications'
@@ -265,6 +266,14 @@ export const SETTINGS_PANES: readonly SettingsPane[] = [
     hintKey: 'settingsTabs.tokensHint',
     web: 'tokens',
     mobile: '/(app)/(tabs)/(settings)/tokens',
+    flag: 'api_tokens',
+  },
+  {
+    id: 'api-keys',
+    nameKey: 'settingsTabs.apiKeys',
+    hintKey: 'settingsTabs.apiKeysHint',
+    web: 'api-keys',
+    mobile: '/(app)/(tabs)/(settings)/api-keys',
     flag: 'api_tokens',
   },
   {

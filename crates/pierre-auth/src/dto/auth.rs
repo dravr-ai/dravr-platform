@@ -350,6 +350,9 @@ pub struct ProviderStatus {
     pub provider: String,
     /// Human-readable display name (e.g., "Strava", "Synthetic")
     pub display_name: String,
+    /// The one line under the provider's name, in the reader's locale. Every
+    /// surface shows this text as served; none keeps a description of its own.
+    pub description: String,
     /// Whether this provider requires OAuth authentication
     pub requires_oauth: bool,
     /// Whether the user is connected to this provider

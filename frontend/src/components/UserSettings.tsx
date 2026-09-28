@@ -27,6 +27,7 @@ import A2AClientList from './A2AClientList';
 import CreateA2AClient from './CreateA2AClient';
 import CoachingPersonaTab from './CoachingPersonaTab';
 import { SETTINGS_TABS, type SettingsTab } from './settings/settingsTabs';
+import ApiKeysSettings from './settings/ApiKeysSettings';
 import MessagingSettingsTab from './MessagingSettingsTab';
 import NotificationSettingsTab from './NotificationSettingsTab';
 import PrivacySettingsTab from './PrivacySettingsTab';
@@ -116,10 +117,10 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
     const base = isAdminUser
       ? SETTINGS_TABS.filter(tab => !ADMIN_HIDDEN_PANES.has(tab.id))
       : SETTINGS_TABS;
-    // API Tokens tab is gated behind the per-tenant/per-user flag; default
+    // API Tokens and API keys tabs are gated behind the per-tenant/per-user flag; default
     // off until an admin flips it on.
     if (!featureFlags[FEATURE_KEYS.apiTokens]) {
-      return base.filter(tab => tab.id !== 'tokens');
+      return base.filter(tab => tab.id !== 'tokens' && tab.id !== 'api-keys');
     }
     return base;
   }, [isAdminUser, featureFlags]);
@@ -493,26 +494,6 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
     }
   };
 
-  // The one-line blurb for each fitness provider (matching mobile). After the
-  // 2026-Q2 provider cleanup the API surfaces only sciotte / sciotte_garmin /
-  // sciotte_trainingpeaks / whoop / intervals_icu (plus the synthetic dev
-  // providers); coros/terra are feature-gated off until we ship
-  // dedicated integrations. `strava` is retained so legacy rows still display
-  // correctly when surfaced through the disconnect flow. The letter's colour
-  // is not here: it comes from `PROVIDER_GLYPH_INK`, per scheme.
-  const PROVIDER_DESCRIPTION: Record<string, string> = {
-    strava: t('providerBlurb.strava'),
-    garmin: t('providerBlurb.garmin'),
-    whoop: t('providerBlurb.whoop'),
-    synthetic: t('providerBlurb.synthTest'),
-    synthetic_sleep: t('providerBlurb.synthSleep'),
-    sciotte: t('providerBlurb.strava'),
-    sciotte_garmin: t('providerBlurb.garmin'),
-    sciotte_trainingpeaks: t('providerBlurb.trainingpeaks'),
-    sciotte_coros: t('providerBlurb.coros'),
-    intervals_icu: t('providerBlurb.intervals'),
-  };
-
   const copyToClipboard = async (text: string) => {
     await navigator.clipboard.writeText(text);
     setCopied(true);
@@ -725,8 +706,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
               ) : (
                 <div>
                   {fitnessProviders.map((provider) => {
-                    const description =
-                      PROVIDER_DESCRIPTION[provider.provider] ?? t('providerBlurb.generic');
+                    const description = provider.description;
                     const glyphInk = providerGlyphInk(provider.provider, scheme);
                     const isConnecting = connectingProvider === provider.provider;
                     // A connection the user's group coach serves: confirmed, it is
@@ -1079,6 +1059,8 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
           </Section>
           </>
         )}
+
+        {activeTab === 'api-keys' && <ApiKeysSettings />}
 
         {/* Tokens Tab */}
         {activeTab === 'tokens' && (

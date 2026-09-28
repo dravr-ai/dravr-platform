@@ -24,7 +24,7 @@ const CONNECT_TEMPLATE: &str = include_str!("../templates/connect_hosted.html");
 /// into selectable cards.
 ///
 /// `providers_json` is a serialized JSON array of
-/// `{ provider, display_name, connected, kind, target }` produced by
+/// `{ provider, display_name, description, connected, kind, target, … }` produced by
 /// [`crate::connect_hosted::build_connect_providers`]. It is injected verbatim
 /// into a `<script>` literal, so it MUST be valid, already-escaped JSON.
 #[must_use]

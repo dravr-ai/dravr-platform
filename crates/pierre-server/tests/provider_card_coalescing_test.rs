@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests for GET /api/providers — a card reflects EITHER backend that serves it
-// ABOUTME: Pins carnet#255/#352 (which rows light a card) and carnet#574 (raw mirrored cards are never served)
+// ABOUTME: Pins carnet#255/#352 (which rows light a card) and carnet#574 (no raw mirrored card; descriptions localized)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -287,5 +287,61 @@ async fn connected_card_names_the_backend_behind_it() {
         mirror["connected_backend"],
         oauth_providers::SCIOTTE,
         "the mirror session serves the card: {mirror}"
+    );
+}
+
+/// The line under a card's name comes from the server, in the reader's own
+/// locale (carnet#574). Each client used to keep its own map from provider id
+/// to a catalogue key, and the four maps disagreed.
+#[tokio::test]
+async fn each_card_describes_itself_in_the_readers_locale() {
+    let (resources, user_id, _tenant_id, user) = test_setup().await;
+    let description = |cards: &[Value], provider: &str| {
+        cards
+            .iter()
+            .find(|c| c["provider"] == provider)
+            .and_then(|c| c["description"].as_str())
+            .unwrap_or_else(|| panic!("no {provider} card with a description in {cards:?}"))
+            .to_owned()
+    };
+
+    resources
+        .common
+        .repos
+        .users
+        .update_locale(user_id, "fr")
+        .await
+        .unwrap();
+    let french = provider_cards_json(&resources, &user).await;
+    assert_eq!(
+        description(&french, oauth_providers::SCIOTTE),
+        "Activités de course, de vélo et de natation"
+    );
+    assert_eq!(
+        description(&french, oauth_providers::WHOOP),
+        "Données de récupération, de charge et de sommeil"
+    );
+
+    resources
+        .common
+        .repos
+        .users
+        .update_locale(user_id, "en")
+        .await
+        .unwrap();
+    let english = provider_cards_json(&resources, &user).await;
+    assert_eq!(
+        description(&english, oauth_providers::SCIOTTE),
+        "Running, cycling, and swimming activities"
+    );
+    assert_eq!(
+        description(&english, oauth_providers::WHOOP),
+        "Recovery, strain, and sleep metrics"
+    );
+    assert!(
+        english
+            .iter()
+            .all(|c| !c["description"].as_str().unwrap_or_default().is_empty()),
+        "every card carries a description: {english:?}"
     );
 }

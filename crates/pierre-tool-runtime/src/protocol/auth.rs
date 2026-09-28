@@ -1060,7 +1060,6 @@ impl AuthService {
                 provider,
                 issuing_app,
                 server_level: &server_level,
-                cached_tenant: None,
             },
             repos.tenants.as_ref(),
             repos.oauth_tokens.as_ref(),

@@ -1,5 +1,5 @@
 // ABOUTME: Multi-tenant organization models for OAuth apps and LLM credentials
-// ABOUTME: TenantId newtype, Tenant, OAuthApp, OAuthAppParams, client grants and credential types
+// ABOUTME: TenantId newtype, Tenant, client grants and credential types
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -258,74 +258,6 @@ impl Tenant {
             domain,
             plan,
             owner_user_id,
-            created_at: now,
-            updated_at: now,
-        }
-    }
-}
-
-/// OAuth application registration for MCP clients
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OAuthApp {
-    /// Unique app identifier
-    pub id: Uuid,
-    /// OAuth client ID
-    pub client_id: String,
-    /// OAuth client secret
-    pub client_secret: String,
-    /// Application name
-    pub name: String,
-    /// Application description
-    pub description: Option<String>,
-    /// Allowed redirect URIs
-    pub redirect_uris: Vec<String>,
-    /// Permitted scopes
-    pub scopes: Vec<String>,
-    /// OAuth 2.0 client type: "public" or "confidential"
-    pub app_type: String,
-    /// User ID of the app owner
-    pub owner_user_id: Uuid,
-    /// When app was registered
-    pub created_at: DateTime<Utc>,
-    /// When app was last updated
-    pub updated_at: DateTime<Utc>,
-}
-
-/// OAuth app creation parameters
-pub struct OAuthAppParams {
-    /// OAuth 2.0 client identifier
-    pub client_id: String,
-    /// OAuth 2.0 client secret for authentication
-    pub client_secret: String,
-    /// Human-readable name of the OAuth application
-    pub name: String,
-    /// Optional description of the application's purpose
-    pub description: Option<String>,
-    /// List of authorized redirect URIs for OAuth flow
-    pub redirect_uris: Vec<String>,
-    /// List of OAuth scopes the app can request
-    pub scopes: Vec<String>,
-    /// OAuth 2.0 client type: "public" or "confidential"
-    pub app_type: String,
-    /// UUID of the user who owns this OAuth app
-    pub owner_user_id: Uuid,
-}
-
-impl OAuthApp {
-    /// Create new OAuth app from parameters
-    #[must_use]
-    pub fn new(params: OAuthAppParams) -> Self {
-        let now = Utc::now();
-        Self {
-            id: Uuid::new_v4(),
-            client_id: params.client_id,
-            client_secret: params.client_secret,
-            name: params.name,
-            description: params.description,
-            redirect_uris: params.redirect_uris,
-            scopes: params.scopes,
-            app_type: params.app_type,
-            owner_user_id: params.owner_user_id,
             created_at: now,
             updated_at: now,
         }

@@ -7,7 +7,7 @@
 // - OAuth credential string ownership transfers (client_id, client_secret, redirect_uri)
 // - Tenant context ownership for multi-tenant OAuth flows
 
-use super::oauth_manager::{CredentialConfig, TenantOAuthManager};
+use super::oauth_manager::TenantOAuthManager;
 use super::TenantContext;
 use crate::oauth2_client::{OAuth2Client, OAuth2Config, OAuth2Token, PkceParams};
 use pierre_core::errors::{AppError, AppResult};
@@ -17,22 +17,6 @@ use std::env;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
-use uuid::Uuid;
-
-/// Request for storing tenant OAuth credentials  
-#[derive(Debug)]
-pub struct StoreCredentialsRequest {
-    /// OAuth client ID (public)
-    pub client_id: String,
-    /// OAuth client secret (will be encrypted)
-    pub client_secret: String,
-    /// OAuth redirect URI
-    pub redirect_uri: String,
-    /// OAuth scopes
-    pub scopes: Vec<String>,
-    /// User who configured these credentials
-    pub configured_by: Uuid,
-}
 
 /// An authorization URL and the Strava shared-pool app it names.
 ///
@@ -79,8 +63,9 @@ impl TenantOAuthClient {
     ) -> AppResult<OAuth2Client> {
         // Check rate limit first
         let manager = self.oauth_manager.lock().await;
-        let (current_usage, daily_limit) =
-            manager.check_rate_limit(tenant_context.tenant_id, provider)?;
+        let (current_usage, daily_limit) = manager
+            .check_rate_limit(tenant_context.tenant_id, provider, tenants)
+            .await?;
 
         if current_usage >= daily_limit {
             return Err(AppError::invalid_input(format!(
@@ -126,8 +111,9 @@ impl TenantOAuthClient {
         oauth_tokens: &dyn OAuthTokenRepository,
     ) -> AppResult<(OAuth2Client, Option<String>)> {
         let manager = self.oauth_manager.lock().await;
-        let (current_usage, daily_limit) =
-            manager.check_rate_limit(tenant_context.tenant_id, provider)?;
+        let (current_usage, daily_limit) = manager
+            .check_rate_limit(tenant_context.tenant_id, provider, tenants)
+            .await?;
         if current_usage >= daily_limit {
             return Err(AppError::invalid_input(format!(
                 "Tenant {} has exceeded daily rate limit for provider {}: {}/{}",
@@ -345,9 +331,10 @@ impl TenantOAuthClient {
         &self,
         tenant_id: TenantId,
         provider: &str,
+        tenants: &dyn TenantRepository,
     ) -> AppResult<(u32, u32)> {
         let manager = self.oauth_manager.lock().await;
-        manager.check_rate_limit(tenant_id, provider)
+        manager.check_rate_limit(tenant_id, provider, tenants).await
     }
 
     /// Get tenant's OAuth credentials (without decrypted secret)
@@ -367,29 +354,6 @@ impl TenantOAuthClient {
             .get_credentials(tenant_id, provider, tenants, oauth_tokens)
             .await
             .map(Some)
-    }
-
-    /// Store OAuth credentials for a tenant
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if credential storage fails
-    pub async fn store_credentials(
-        &self,
-        tenant_id: TenantId,
-        provider: &str,
-        request: StoreCredentialsRequest,
-    ) -> AppResult<()> {
-        let config = CredentialConfig {
-            client_id: request.client_id,
-            client_secret: request.client_secret,
-            redirect_uri: request.redirect_uri,
-            scopes: request.scopes,
-            configured_by: request.configured_by,
-        };
-
-        let mut manager = self.oauth_manager.lock().await;
-        manager.store_credentials(tenant_id, provider, config)
     }
 
     /// Build `OAuth2Config` from tenant credentials

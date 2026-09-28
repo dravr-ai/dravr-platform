@@ -36,10 +36,10 @@
 //!   and renames it over the original, and a table created in 2025 and dropped
 //!   in 2026 is not part of either schema.
 //!
-//! The trees do diverge in three places on purpose, and those three are pinned
+//! The trees do diverge in two places on purpose, and those two are pinned
 //! by name in [`PG_ONLY_TABLES`] with the reason for each. The assertion is an
 //! equality, not a subset: a new one-sided table fails the test, and so does
-//! resolving one of the pinned three without updating the constant.
+//! resolving one of the pinned two without updating the constant.
 
 // `doc_markdown` would force backticks around every bare SQLite/PostgreSQL/SQLX
 // mention in this file's prose, which hurts readability of the parity rationale.
@@ -69,24 +69,17 @@ const SQLX_BOOKKEEPING_TABLE: &str = "_sqlx_migrations";
 /// Tables the PostgreSQL tree ends up with and the SQLite tree does not.
 ///
 /// A pinned fact, not an exception list: the test asserts the computed
-/// PostgreSQL-only set *equals* this one, so a fourth one-sided table fails, and
-/// so does removing one of these three without editing the constant. Sorted,
+/// PostgreSQL-only set *equals* this one, so a third one-sided table fails, and
+/// so does removing one of these two without editing the constant. Sorted,
 /// because a `BTreeSet` difference is.
 ///
 /// - `agents_orphaned` — quarantine target of the PostgreSQL-only migration
 ///   that converts `agents.tenant_id` to a UUID foreign key. Rows whose
 ///   `tenant_id` is not a UUID are moved here instead of deleted. SQLite runs
 ///   no such conversion and has nothing to quarantine.
-/// - `authorization_codes` — the PostgreSQL OAuth2 authorization-code store,
-///   read by `pierre_database::backends::postgres::oauth`. Both trees also
-///   create `oauth2_auth_codes`; only PostgreSQL carries this second table.
 /// - `tenant_provider_usage` — per-tenant, per-provider request/error counters,
 ///   created only in the PostgreSQL tree.
-const PG_ONLY_TABLES: [&str; 3] = [
-    "agents_orphaned",
-    "authorization_codes",
-    "tenant_provider_usage",
-];
+const PG_ONLY_TABLES: [&str; 2] = ["agents_orphaned", "tenant_provider_usage"];
 
 /// Tables the SQLite tree ends up with and the PostgreSQL tree does not.
 ///
@@ -242,7 +235,7 @@ async fn sqlite_schema(pool: &sqlx::Pool<sqlx::Sqlite>) -> BTreeMap<String, BTre
 #[tokio::test]
 async fn whole_table_sets_have_no_unexpected_divergence() {
     // P2-13 — portable, always-on guard. Replays both trees' table-level DDL and
-    // fails on any table wired into only one backend beyond the pinned three.
+    // fails on any table wired into only one backend beyond the pinned two.
     // Runs in every CI lane (no Postgres required), catching the most common
     // drift: a whole table/feature added to a single backend.
     let sqlite_tables = final_table_names(SQLITE_MIGRATIONS);
@@ -280,7 +273,7 @@ async fn whole_table_sets_have_no_unexpected_divergence() {
          with no counterpart in `migrations/` ships as a runtime \"no such \
          table\" on SQLite: add it to the SQLite tree. If the divergence is \
          deliberate, document it in PG_ONLY_TABLES with its reason; if one of \
-         the pinned three was resolved, drop it from that constant."
+         the pinned two was resolved, drop it from that constant."
     );
 }
 

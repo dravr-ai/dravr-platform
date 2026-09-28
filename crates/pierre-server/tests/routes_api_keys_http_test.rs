@@ -21,6 +21,7 @@ use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
     SecurityHeadersConfig, ServerConfig,
 };
+use pierre_core::models::{ApiKeyTier, UserTier};
 use pierre_mcp_server::{
     mcp::resources::{ServerContext, ServerContextOptions},
     routes::api_keys::ApiKeyRoutes,
@@ -123,8 +124,7 @@ async fn test_create_api_key_success() {
 
     let request_body = json!({
         "name": "Test API Key",
-        "description": "Integration test key",
-        "rate_limit_requests": 1000
+        "description": "Integration test key"
     });
 
     let response = AxumTestRequest::post("/api/keys")
@@ -144,14 +144,64 @@ async fn test_create_api_key_success() {
         .contains("Store this API key securely"));
 }
 
+/// A key's tier and budget are the caller's own plan. A Starter user who
+/// asks for an Enterprise-sized budget, or for 0 (which once meant
+/// unlimited), still gets a Starter key capped at the Starter budget.
+#[tokio::test]
+async fn test_create_api_key_takes_the_callers_plan_not_the_requested_budget() {
+    let setup = ApiKeyTestSetup::new().await.expect("Setup failed");
+    let user = setup
+        .resources
+        .common
+        .repos
+        .users
+        .get_global(setup.user_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        user.tier,
+        UserTier::Starter,
+        "the fixture user is on Starter"
+    );
+
+    for asked in [1_000_000_000_u64, 500_000, 0] {
+        let response = AxumTestRequest::post("/api/keys")
+            .header("authorization", &setup.auth_header())
+            .json(&json!({ "name": format!("asks {asked}"), "rate_limit_requests": asked }))
+            .send(setup.routes())
+            .await;
+        assert_eq!(response.status(), 201, "{}", response.text());
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["key_info"]["tier"], "starter", "asked {asked}: {body}");
+
+        let key_id = body["key_info"]["id"].as_str().unwrap().to_owned();
+        let stored = setup
+            .resources
+            .common
+            .repos
+            .api_keys
+            .get_for_user(setup.user_id)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|key| key.id == key_id)
+            .expect("the key is stored");
+        assert_eq!(stored.tier, ApiKeyTier::Starter);
+        assert_eq!(
+            stored.rate_limit_requests, 10_000,
+            "asked {asked}: the Starter budget, never more and never unlimited"
+        );
+    }
+}
+
 #[tokio::test]
 async fn test_create_api_key_missing_auth() {
     let setup = ApiKeyTestSetup::new().await.expect("Setup failed");
     let routes = setup.routes();
 
     let request_body = json!({
-        "name": "Test API Key",
-        "rate_limit_requests": 1000
+        "name": "Test API Key"
     });
 
     let response = AxumTestRequest::post("/api/keys")
@@ -168,8 +218,7 @@ async fn test_create_api_key_invalid_auth() {
     let routes = setup.routes();
 
     let request_body = json!({
-        "name": "Test API Key",
-        "rate_limit_requests": 1000
+        "name": "Test API Key"
     });
 
     let response = AxumTestRequest::post("/api/keys")
@@ -377,8 +426,7 @@ async fn test_get_api_key_usage_success() {
     // First create an API key
     let create_request = json!({
         "name": "Usage Test Key",
-        "description": "Key for usage testing",
-        "rate_limit_requests": 1000
+        "description": "Key for usage testing"
     });
 
     let create_response = AxumTestRequest::post("/api/keys")
@@ -416,8 +464,7 @@ async fn test_get_api_key_usage_missing_auth() {
     // Create a key first to get a valid key_id
     let create_request = json!({
         "name": "Auth Test Key",
-        "description": "Key for auth testing",
-        "rate_limit_requests": 1000
+        "description": "Key for auth testing"
     });
 
     let create_response = AxumTestRequest::post("/api/keys")
@@ -449,8 +496,7 @@ async fn test_get_api_key_usage_invalid_auth() {
     // Create a key first to get a valid key_id
     let create_request = json!({
         "name": "Invalid Auth Test Key",
-        "description": "Key for invalid auth testing",
-        "rate_limit_requests": 1000
+        "description": "Key for invalid auth testing"
     });
 
     let create_response = AxumTestRequest::post("/api/keys")
@@ -489,8 +535,7 @@ async fn test_create_multiple_api_keys() {
     // Create first key
     let request1 = json!({
         "name": "First Key",
-        "description": "First test key",
-        "rate_limit_requests": 1000
+        "description": "First test key"
     });
 
     let response1 = AxumTestRequest::post("/api/keys")
@@ -504,8 +549,7 @@ async fn test_create_multiple_api_keys() {
     // Create second key
     let request2 = json!({
         "name": "Second Key",
-        "description": "Second test key",
-        "rate_limit_requests": 2000
+        "description": "Second test key"
     });
 
     let response2 = AxumTestRequest::post("/api/keys")

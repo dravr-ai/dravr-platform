@@ -34,6 +34,7 @@ export type {
   AgentFieldChange,
   AgentVersionDiffResponse,
   RevertAgentVersionResponse,
+  SubmitAgentForReviewResponse,
 } from './coaches.js';
 
 // Auth types (users, login, OAuth)
@@ -253,6 +254,18 @@ export type { MemoryFactKind } from './memory';
 
 // The quota counters GET /api/usage/status serves
 export type { LimitCheckResult, UsageStatusResponse } from './usage';
+
+// The athlete's own API keys, as /api/keys serves them
+export type {
+  ApiKeyTier,
+  ApiKeyInfo,
+  ApiKeyListResponse,
+  CreateApiKeyRequest,
+  ApiKeyCreateResponse,
+  ApiKeyDeactivateResponse,
+  ApiKeyUsageStats,
+  ApiKeyUsageResponse,
+} from './api-keys';
 
 // Billing: subscription, invoices, plan catalogue, quota snapshot, checkout and portal
 export type {

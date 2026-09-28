@@ -68,6 +68,10 @@ where
             "/api/agents/{id}/usage",
             post(user::handle_record_usage::<C>),
         )
+        .route(
+            "/api/agents/{id}/submit",
+            post(user::handle_submit_for_review::<C>),
+        )
         // Version history routes
         .route(
             "/api/agents/{id}/versions",

@@ -79,6 +79,8 @@ export const ENDPOINTS = {
     VERSION_DIFF: (id: string, version: number) => `/api/agents/${id}/versions/${version}/diff`,
     /** Restore a stored version's content */
     VERSION_REVERT: (id: string, version: number) => `/api/agents/${id}/versions/${version}/revert`,
+    /** Submit the caller's own coach to the Store review queue */
+    SUBMIT: (id: string) => `/api/agents/${id}/submit`,
   },
 
   // ==================== OAUTH ====================
@@ -238,6 +240,15 @@ export const ENDPOINTS = {
   USAGE: {
     /** The calling user's quota counters and resource caps */
     STATUS: '/api/usage/status',
+  },
+  // ==================== API KEYS ====================
+  API_KEYS: {
+    /** List (GET) or create (POST) the caller's API keys */
+    LIST: '/api/keys',
+    /** Revoke one key (DELETE) */
+    KEY: (id: string) => `/api/keys/${id}`,
+    /** One key's usage over a window */
+    USAGE: (id: string) => `/api/keys/${id}/usage`,
   },
   // ==================== BILLING ====================
   BILLING: {

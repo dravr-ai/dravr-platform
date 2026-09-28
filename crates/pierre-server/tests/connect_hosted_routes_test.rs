@@ -773,6 +773,42 @@ async fn an_unarmed_account_is_asked_for_no_notice() {
     }
 }
 
+/// Each picker card carries the description `/api/providers` serves, in the
+/// user's own locale, and the page renders it under the name (carnet#574).
+#[tokio::test]
+async fn picker_cards_carry_the_served_description() {
+    let (resources, user_id, tenant_id) = test_setup().await;
+    resources
+        .common
+        .repos
+        .users
+        .update_locale(user_id, "fr")
+        .await
+        .expect("set the user's locale");
+    let url = format!(
+        "/providers/connect?token={}",
+        urlencoding::encode(&connect_token(&resources, user_id, tenant_id))
+    );
+
+    let body = AxumTestRequest::get(&url)
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await
+        .text();
+    let cards = picker_cards(&body);
+    assert_eq!(
+        picker_card(&cards, "coros")["description"],
+        "Activités et indicateurs de récupération des montres COROS"
+    );
+    assert_eq!(
+        picker_card(&cards, "strava")["description"],
+        "Activités de course, de vélo et de natation"
+    );
+    assert!(
+        body.contains("description.className = 'pc-desc'"),
+        "the page renders each card's description under its name"
+    );
+}
+
 // ============================================================================
 // The chat each hosted page says the athlete came from
 // ============================================================================

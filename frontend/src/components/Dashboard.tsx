@@ -36,7 +36,7 @@ const ADMIN_ONLY_TABS = new Set([
   'platform-settings', 'claim-verdicts', 'harness-config', 'guardian-config',
   'memory-worker', 'agent-followups', 'agent-notes-audit', 'myth-busting',
   'agent-grading', 'eval-harness', 'activity', 'engagement', 'connections',
-  'analytics', 'admin-tokens', 'billing',
+  'analytics', 'admin-tokens', 'billing', 'impersonation-log',
 ]);
 
 /**
@@ -51,6 +51,23 @@ const ADMIN_ONLY_TABS = new Set([
  * with a working sidebar — so it resolves to the role's default instead.
  */
 const RETIRED_TABS = new Set(['insights', 'my-coaches', 'groups']);
+
+/**
+ * Tabs only a super admin may open: the sidebar offers them to no other role,
+ * and every endpoint behind them refuses a plain admin. A typed or bookmarked
+ * `#impersonation-log` would otherwise mount the pane for an admin and show
+ * the server's refusal where the page should be.
+ */
+const SUPER_ADMIN_ONLY_TABS = new Set(['admin-tokens', 'impersonation-log']);
+
+/** Whether `tab` is outside what the caller's role may open, or retired. */
+function isUnservedTab(tab: string, isAdminUser: boolean, isSuperAdmin: boolean): boolean {
+  return (
+    (!isAdminUser && ADMIN_ONLY_TABS.has(tab)) ||
+    (!isSuperAdmin && SUPER_ADMIN_ONLY_TABS.has(tab)) ||
+    RETIRED_TABS.has(tab)
+  );
+}
 
 const UsageAnalytics = lazy(() => import('./UsageAnalytics'));
 const ActivityTab = lazy(() => import('./ActivityTab'));
@@ -73,6 +90,7 @@ const GuardianConfigTab = lazy(() => import('./GuardianConfigTab'));
 const MemoryExtractionMonitorTab = lazy(() => import('./MemoryExtractionMonitorTab'));
 const CoachFollowupsTab = lazy(() => import('./CoachFollowupsTab'));
 const CoachNotesAuditTab = lazy(() => import('./CoachNotesAuditTab'));
+const ImpersonationLogTab = lazy(() => import('./ImpersonationLogTab'));
 const MythBustingTab = lazy(() => import('./MythBustingTab'));
 const CoachGradingTab = lazy(() => import('./CoachGradingTab'));
 const EvalHarnessTab = lazy(() => import('./EvalHarnessTab'));
@@ -134,10 +152,9 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // `applyRoute`, so gating only there would leave the very path a user takes
   // wide open.
   const initialFallback = isAdminUser ? 'users' : 'home';
-  const initialTab =
-    (!isAdminUser && ADMIN_ONLY_TABS.has(initialTabSeg)) || RETIRED_TABS.has(initialTabSeg)
-      ? initialFallback
-      : initialTabSeg || initialFallback;
+  const initialTab = isUnservedTab(initialTabSeg, isAdminUser, isSuperAdmin)
+    ? initialFallback
+    : initialTabSeg || initialFallback;
   const [activeTab, setActiveTab] = useState<string>(initialTab);
 
   // Hash-route mirroring + back/forward handling live below, after the
@@ -310,10 +327,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     // 403s), so nothing leaked — but the pane still rendered its filter chrome
     // and then retried the 403 on a loop. Resolve an out-of-role tab back to
     // the role's own default instead of mounting a surface it cannot use.
-    const tab =
-      (!isAdminUser && ADMIN_ONLY_TABS.has(requested)) || RETIRED_TABS.has(requested)
-        ? fallback
-        : requested;
+    const tab = isUnservedTab(requested, isAdminUser, isSuperAdmin) ? fallback : requested;
     // A rewritten hash typed while the fallback tab is already active changes
     // no state, so the route effect below never runs and the stale hash would
     // stay in the address bar. Replace it here — never push, so Back does not
@@ -329,7 +343,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     setEditingCoachId(tab === 'discover' && sub ? decodeURIComponent(sub) : null);
     setSelectedConversation(tab === 'chat' && sub ? decodeURIComponent(sub) : null);
     setSettingsTab(tab === 'settings' ? parseSettingsTab(sub) : null);
-  }, [isAdminUser]);
+  }, [isAdminUser, isSuperAdmin]);
 
   // React to back/forward and external hash edits.
   useEffect(() => {
@@ -472,12 +486,17 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // Super admin tabs extend admin tabs with admin token management
   const superAdminTabs: TabDefinition[] = useMemo(() => [
     ...adminTabs,
+    { id: 'impersonation-log', name: t('shell.navImpersonationLog'), section: 'Configuration', icon: (
+      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    ) },
     { id: 'admin-tokens', name: t('shell.navAdminTokens'), icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
       </svg>
     ) },
-  ], [adminTabs]);
+  ], [adminTabs, t]);
 
   // Regular user tabs — the destinations of the rail. Settings is reached
   // from the gear and the avatar, and a provider connection is configuration,
@@ -930,6 +949,11 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         {activeTab === 'agent-notes-audit' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
             <CoachNotesAuditTab />
+          </Suspense>
+        )}
+        {activeTab === 'impersonation-log' && (
+          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+            <ImpersonationLogTab />
           </Suspense>
         )}
         {activeTab === 'myth-busting' && (

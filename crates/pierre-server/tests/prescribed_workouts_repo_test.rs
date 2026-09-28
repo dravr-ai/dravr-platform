@@ -70,7 +70,7 @@ fn make_prescribed(
 }
 
 #[tokio::test]
-async fn upsert_and_list_round_trips() {
+async fn upsert_and_read_back_round_trips() {
     let db = make_test_db().await;
     let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
@@ -80,13 +80,13 @@ async fn upsert_and_list_round_trips() {
         .upsert_prescribed_workout(&prescribed)
         .await
         .expect("upsert");
-    let rows = db
+    let rows = [db
         .repositories()
         .prescribed_workouts
-        .list_prescribed_workouts(tenant_id, user_id, 10)
+        .get_prescribed_workout(tenant_id, user_id, prescribed.id)
         .await
-        .expect("list");
-    assert_eq!(rows.len(), 1);
+        .expect("get")
+        .expect("the row reads back")];
     assert_eq!(rows[0].template_slug.as_deref(), Some("long_run_z2"));
     assert_eq!(rows[0].status, "pushed");
     assert_eq!(
@@ -112,13 +112,13 @@ async fn a_refused_push_round_trips_as_a_failed_row() {
         .upsert_prescribed_workout(&prescribed)
         .await
         .expect("upsert");
-    let rows = db
+    let rows = [db
         .repositories()
         .prescribed_workouts
-        .list_prescribed_workouts(tenant_id, user_id, 10)
+        .get_prescribed_workout(tenant_id, user_id, prescribed.id)
         .await
-        .expect("list");
-    assert_eq!(rows.len(), 1);
+        .expect("get")
+        .expect("the row reads back")];
     assert_eq!(rows[0].status, "failed");
     assert!(rows[0].provider_event_id.is_none());
 }
@@ -141,13 +141,13 @@ async fn an_absent_event_id_reads_back_as_absent_not_as_an_empty_string() {
         .upsert_prescribed_workout(&prescribed)
         .await
         .expect("upsert");
-    let rows = db
+    let rows = [db
         .repositories()
         .prescribed_workouts
-        .list_prescribed_workouts(tenant_id, user_id, 10)
+        .get_prescribed_workout(tenant_id, user_id, prescribed.id)
         .await
-        .expect("list");
-    assert_eq!(rows.len(), 1);
+        .expect("get")
+        .expect("the row reads back")];
     assert_eq!(
         rows[0].provider_event_id, None,
         "a NULL event id must read back as None, never as Some(\"\")"
@@ -181,14 +181,15 @@ async fn upsert_replays_with_same_id_to_update_provider_event_id() {
     let rows = db
         .repositories()
         .prescribed_workouts
-        .list_prescribed_workouts(tenant_id, user_id, 10)
+        .list_live_calendar_events(tenant_id, user_id, "intervals_icu", None)
         .await
-        .expect("list");
+        .expect("list live");
     assert_eq!(
         rows.len(),
         1,
         "same-id upsert must not create a duplicate row"
     );
+    assert_eq!(rows[0].id, prescribed.id);
     assert_eq!(
         rows[0].provider_event_id.as_deref(),
         Some("intervals-evt-99")
@@ -216,61 +217,28 @@ async fn prescriptions_are_tenant_scoped() {
         .await
         .expect("upsert B");
 
-    let rows_a = repos
+    let live_a = repos
         .prescribed_workouts
-        .list_prescribed_workouts(tenant_a, user_id, 10)
+        .list_live_calendar_events(tenant_a, user_id, "intervals_icu", None)
         .await
         .expect("list A");
-    let rows_b = repos
+    let live_b = repos
         .prescribed_workouts
-        .list_prescribed_workouts(tenant_b, user_id, 10)
+        .list_live_calendar_events(tenant_b, user_id, "intervals_icu", None)
         .await
         .expect("list B");
-    assert_eq!(rows_a.len(), 1);
-    assert_eq!(rows_b.len(), 1);
-    assert_eq!(rows_a[0].template_slug.as_deref(), Some("long_run_z2"));
-    assert_eq!(rows_b[0].template_slug.as_deref(), Some("vo2_5x3"));
+    assert_eq!(live_a.len(), 1);
+    assert_eq!(live_b.len(), 1);
+    assert_eq!(live_a[0].template_slug.as_deref(), Some("long_run_z2"));
+    assert_eq!(live_b[0].template_slug.as_deref(), Some("vo2_5x3"));
 
     let other_user = Uuid::new_v4();
-    let rows_c = repos
+    let live_c = repos
         .prescribed_workouts
-        .list_prescribed_workouts(tenant_a, other_user, 10)
+        .list_live_calendar_events(tenant_a, other_user, "intervals_icu", None)
         .await
         .expect("list C");
-    assert!(rows_c.is_empty(), "other-user list must be empty");
-}
-
-#[tokio::test]
-async fn list_orders_newest_first_and_respects_limit() {
-    let db = make_test_db().await;
-    let tenant_id = TenantId::generate();
-    let user_id = Uuid::new_v4();
-    let repos = db.repositories();
-    for i in 0..5 {
-        let prescribed = make_prescribed(
-            tenant_id,
-            user_id,
-            "recovery_30min",
-            anchor_date() + chrono::Duration::days(i),
-        );
-        repos
-            .prescribed_workouts
-            .upsert_prescribed_workout(&prescribed)
-            .await
-            .expect("upsert");
-        // Tiny delay to ensure distinct created_at values.
-        sleep(Duration::from_millis(5)).await;
-    }
-    let rows = repos
-        .prescribed_workouts
-        .list_prescribed_workouts(tenant_id, user_id, 3)
-        .await
-        .expect("list");
-    assert_eq!(rows.len(), 3, "limit must cap the returned rows");
-    assert!(
-        rows.windows(2).all(|w| w[0].created_at >= w[1].created_at),
-        "rows must be newest-first"
-    );
+    assert!(live_c.is_empty(), "other-user list must be empty");
 }
 
 #[tokio::test]

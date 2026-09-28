@@ -285,7 +285,7 @@ describe('UserSettings Component', () => {
       expect(screen.getByText('Profile')).toBeInTheDocument();
       // Data Providers moved out of Settings into a top-level sidebar tab.
       expect(screen.queryByText('Data Providers')).not.toBeInTheDocument();
-      expect(screen.getByText('API Tokens')).toBeInTheDocument();
+      expect(screen.getByText('MCP tokens')).toBeInTheDocument();
       // The per-athlete AI-provider pane is gone: nobody brings their own key,
       // and the pane stored one while changing nothing about the coaching.
       expect(screen.queryByText('AI Settings')).not.toBeInTheDocument();
@@ -605,6 +605,7 @@ describe('UserSettings Component', () => {
     const whoopCard = (capabilities: string[]) => ({
       provider: 'whoop',
       display_name: 'WHOOP',
+      description: 'Données de récupération, de charge et de sommeil',
       requires_oauth: true,
       connected: false,
       needs_reauth: false,
@@ -646,6 +647,18 @@ describe('UserSettings Component', () => {
 
       expect(
         await screen.findByText('activities, sleep, recovery, health'),
+      ).toBeInTheDocument();
+    });
+
+    it('shows the description the server serves under the name', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [whoopCard(['sleep'])] });
+
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      expect(
+        await screen.findByText('Données de récupération, de charge et de sommeil'),
       ).toBeInTheDocument();
     });
 
@@ -1108,7 +1121,7 @@ describe('UserSettings Component', () => {
         renderUserSettings();
       });
 
-      await user.click(screen.getByText('API Tokens'));
+      await user.click(screen.getByText('MCP tokens'));
 
       await waitFor(() => {
         // Should show the tokens content with create button

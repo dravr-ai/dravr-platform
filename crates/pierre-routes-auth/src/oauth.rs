@@ -46,7 +46,15 @@ use pierre_services::sync_failure_notice::health_sync_failure_is_told;
 
 use pierre_auth::dto::auth::{ProviderDelegation, ProviderStatus, ProvidersStatusResponse};
 use pierre_auth::strava_pool;
+use pierre_contremaitre::messaging_strings::{
+    KEY_PROVIDER_DESCRIPTION_COROS, KEY_PROVIDER_DESCRIPTION_GARMIN,
+    KEY_PROVIDER_DESCRIPTION_GENERIC, KEY_PROVIDER_DESCRIPTION_INTERVALS_ICU,
+    KEY_PROVIDER_DESCRIPTION_STRAVA, KEY_PROVIDER_DESCRIPTION_SYNTHETIC,
+    KEY_PROVIDER_DESCRIPTION_SYNTHETIC_SLEEP, KEY_PROVIDER_DESCRIPTION_TERRA,
+    KEY_PROVIDER_DESCRIPTION_TRAININGPEAKS, KEY_PROVIDER_DESCRIPTION_WHOOP,
+};
 use pierre_core::constants::oauth::providers as oauth_providers;
+use pierre_services::locale::resolve_user_locale;
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -314,6 +322,30 @@ fn card_is_connected(card: &str, rows: &HashSet<String>) -> bool {
         .any(|backend| rows.contains(backend.as_str()))
 }
 
+/// The catalogue key of the one line under a card's name.
+///
+/// A card named for a mirror backend describes the provider it mirrors, so
+/// `sciotte` and `strava` read the same. A provider a bundle registered at
+/// runtime has no line of its own and reads the generic one.
+fn provider_description_key(card: &str) -> &'static str {
+    match card {
+        oauth_providers::STRAVA | oauth_providers::SCIOTTE => KEY_PROVIDER_DESCRIPTION_STRAVA,
+        oauth_providers::GARMIN | oauth_providers::SCIOTTE_GARMIN => {
+            KEY_PROVIDER_DESCRIPTION_GARMIN
+        }
+        oauth_providers::TRAININGPEAKS | oauth_providers::SCIOTTE_TRAININGPEAKS => {
+            KEY_PROVIDER_DESCRIPTION_TRAININGPEAKS
+        }
+        oauth_providers::COROS | oauth_providers::SCIOTTE_COROS => KEY_PROVIDER_DESCRIPTION_COROS,
+        oauth_providers::WHOOP => KEY_PROVIDER_DESCRIPTION_WHOOP,
+        oauth_providers::INTERVALS_ICU => KEY_PROVIDER_DESCRIPTION_INTERVALS_ICU,
+        oauth_providers::TERRA => KEY_PROVIDER_DESCRIPTION_TERRA,
+        oauth_providers::SYNTHETIC => KEY_PROVIDER_DESCRIPTION_SYNTHETIC,
+        oauth_providers::SYNTHETIC_SLEEP => KEY_PROVIDER_DESCRIPTION_SYNTHETIC_SLEEP,
+        _ => KEY_PROVIDER_DESCRIPTION_GENERIC,
+    }
+}
+
 /// A member's link as the provider card carries it.
 fn provider_delegation(delegation: MemberDelegation) -> ProviderDelegation {
     ProviderDelegation {
@@ -366,6 +398,9 @@ pub async fn compute_providers_status(
     // Get all supported providers from the registry
     let registry = global_registry();
     let supported_providers = registry.supported_providers();
+
+    // Each card's description reads in the user's own locale.
+    let locale = resolve_user_locale(resources.repos.users.as_ref(), user_id).await;
 
     // Get user's provider connections (cross-tenant view, single source of truth)
     let connections = resources
@@ -512,6 +547,9 @@ pub async fn compute_providers_status(
             provider_statuses.push(ProviderStatus {
                 provider: provider_name.to_owned(),
                 display_name: descriptor.display_name().to_owned(),
+                description: resources
+                    .messaging_strings
+                    .get(provider_description_key(provider_name), &locale),
                 requires_oauth,
                 connected,
                 connected_backend,

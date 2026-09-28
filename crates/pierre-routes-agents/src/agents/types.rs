@@ -7,7 +7,7 @@
 use pierre_core::constants::tool_execution::{MAX_MAX_TOOL_ITERATIONS, MIN_MAX_TOOL_ITERATIONS};
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::field_update::FieldUpdate;
-use pierre_core::models::agents::{AgentWithListing, DataRequirements};
+use pierre_core::models::agents::{AgentWithListing, DataRequirements, PublishStatus};
 use pierre_database::database::agents::{
     Agent, AgentAssignment as DbAgentAssignment, AgentCategory, AgentListItem, AgentVersion,
     AgentVisibility, CreateSystemAgentRequest as DbCreateSystemAgentRequest, UpdateAgentRequest,
@@ -248,6 +248,17 @@ pub struct SearchAgentsQuery {
 pub struct RecordUsageResponse {
     /// Whether the usage was recorded
     pub success: bool,
+}
+
+/// Response for submitting one of the caller's agents to the Store review queue
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SubmitForReviewResponse {
+    /// The submitted agent
+    pub agent_id: String,
+    /// Where the listing now stands: `pending_review`
+    pub publish_status: PublishStatus,
+    /// When it entered the review queue (RFC 3339)
+    pub review_submitted_at: Option<String>,
 }
 
 /// Response for importing an agent from markdown

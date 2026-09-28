@@ -16,6 +16,7 @@ use crate::constants::{
     tiers,
 };
 use crate::errors::AppError;
+use crate::models::UserTier;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -42,6 +43,18 @@ impl Display for ApiKeyTier {
             Self::Starter => write!(f, "Starter"),
             Self::Professional => write!(f, "Professional"),
             Self::Enterprise => write!(f, "Enterprise"),
+        }
+    }
+}
+
+/// The key tier a user's own plan entitles them to: a key never carries more
+/// than the plan of the user who mints it.
+impl From<UserTier> for ApiKeyTier {
+    fn from(tier: UserTier) -> Self {
+        match tier {
+            UserTier::Starter => Self::Starter,
+            UserTier::Professional => Self::Professional,
+            UserTier::Enterprise => Self::Enterprise,
         }
     }
 }
@@ -153,15 +166,17 @@ pub struct CreateApiKeyRequest {
     pub expires_in_days: Option<i64>,
 }
 
-/// Simplified API Key creation request
+/// Simplified API Key creation request, the one a user sends for their own key.
+///
+/// It carries no tier and no budget: the key's tier and request budget come
+/// from the plan of the user minting it, and a budget a client sends is
+/// ignored, so no user can mint above their own plan.
 #[derive(Debug, Deserialize)]
 pub struct CreateApiKeyRequestSimple {
     /// Human-readable name for the key
     pub name: String,
     /// Optional description of the key's purpose
     pub description: Option<String>,
-    /// Maximum requests allowed (0 = unlimited)
-    pub rate_limit_requests: u32,
     /// Number of days until expiration
     pub expires_in_days: Option<i64>,
 }
