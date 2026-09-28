@@ -1,0 +1,338 @@
+{
+  "colors": {
+    "primary": "Sage-forest, the one accent: filled CTAs, the send button, the unread pill, links, the wordmark. Text on it is `on-primary`; as text it clears 4.5:1 on every surface tier.",
+    "on-primary": "Mandatory text on a `primary` fill (7.4:1 light). Never `on-surface` on `primary`: dark-on-dark is a bug.",
+    "primary-container": "A tint, never a dense fill: the athlete's bubble, the active rail item, a selected tile, an avatar ground, the login aside in light.",
+    "on-primary-container": "Text on `primary-container` (9.8:1 light, 7.5:1 dark).",
+    "primary-hover": "Hover fill of a filled `primary`; `on-primary` keeps its contrast (white 9.2:1).",
+    "primary-fixed": "MD3 fixed tone; the mint of the dark accent family.",
+    "primary-fixed-dim": "MD3 fixed-dim tone; chart ramps and the dark primary.",
+    "on-primary-fixed": "Text on `primary-fixed`.",
+    "on-primary-fixed-variant": "Secondary text on `primary-fixed`.",
+    "inverse-primary": "Primary on an inverse surface (snackbars).",
+    "secondary": "MD3 neutral secondary; rarely used in product — prefer `on-surface-variant`.",
+    "on-secondary": "Text on `secondary`.",
+    "secondary-container": "MD3 neutral container.",
+    "on-secondary-container": "Text on `secondary-container`.",
+    "tertiary": "Deep boreal ink (light) / pale sage (dark); the sixth avatar slot.",
+    "on-tertiary": "Text on `tertiary`.",
+    "tertiary-container": "Dense deep-forest container.",
+    "on-tertiary-container": "Text on `tertiary-container`.",
+    "tertiary-fixed-dim": "MD3 fixed-dim tertiary.",
+    "error": "Failed, destructive, blocking. A dot, a rule or an error underline; `.btn-danger` fill with `on-error`.",
+    "on-error": "Text on an `error` fill.",
+    "error-container": "Dense error container — never on a dark card beside the page's one action; prefer an `error` tint.",
+    "on-error-container": "Text on `error-container` or an `error` tint.",
+    "surface": "Warm paper, the one ground: rail, list column, thread canvas, every page. Panes are separated by hairlines, not fill steps.",
+    "surface-dim": "Dimmed surface tone.",
+    "surface-bright": "Bright surface tone.",
+    "surface-container-lowest": "Cards, the composer field, popovers, table bodies (white in light). In dark it sits BELOW the canvas — lift a dark card to `surface-container-high`.",
+    "surface-container-low": "Composer and search fields, row hover, the day pill; the login aside in dark.",
+    "surface-container": "Pressed states.",
+    "surface-container-high": "The dark resting card; the neutral `.badge` ground.",
+    "surface-container-highest": "Top tier; reserved. `outline` text still clears 4.5:1 here (4.51:1 light, the binding pair).",
+    "surface-variant": "MD3 surface variant.",
+    "surface-tint": "MD3 surface tint (equals `primary`).",
+    "on-surface": "Body ink on every surface tier (17.3:1 top, 10.9:1 bottom in light). Never pure black.",
+    "on-surface-variant": "Muted body copy, descriptions, inactive tabs (≥5.95:1 on every light tier).",
+    "inverse-surface": "Inverse ground (snackbars).",
+    "inverse-on-surface": "Text on `inverse-surface`.",
+    "background": "MD3 background (equals `surface`).",
+    "on-background": "Text on `background`.",
+    "outline": "A TEXT role: helper lines, timestamps, counts, section labels; the edge of a checkbox or radio. Clears 4.5:1 on every tier in its scheme.",
+    "outline-variant": "Inactive icons, separator hints, the offline status dot. Not for text.",
+    "scrim": "The veil behind a sheet, drawer or dialog, drawn at 60%.",
+    "activity": "Activity pillar — movement, fitness, training load. Drawn as an 8px dot beside a word, an avatar ground or a tint; text on it takes `on-activity-container`.",
+    "nutrition": "Nutrition pillar — food, fuel, calories. Bare on `surface` it is 3.2:1: never body text. Drawn as an 8px dot beside a word, an avatar ground or a tint; text on it takes `on-nutrition-container`.",
+    "recovery": "Recovery pillar — sleep, HRV, rest. Drawn as an 8px dot beside a word, an avatar ground or a tint; text on it takes `on-recovery-container`.",
+    "mobility": "Mobility pillar — flexibility, range of motion. Drawn as an 8px dot beside a word, an avatar ground or a tint; text on it takes `on-mobility-container`.",
+    "success": "Connected, completed, healthy. A dot, rule or /15 tint; its label takes `on-success-container`. Never a stock Tailwind shade.",
+    "warning": "Pending, attention, advisory. A dot, rule or /15 tint; its label takes `on-warning-container`. Never a stock Tailwind shade.",
+    "info": "Informational, processing. A dot, rule or /15 tint; its label takes `on-info-container`. Never a stock Tailwind shade.",
+    "on-activity-container": "Bound ink: text on a /10–/15 tint of `activity` over any tier (≥4.58:1 light, ≥4.73:1 dark); /20 up to `surface-container-high`.",
+    "on-nutrition-container": "Bound ink: text on a /10–/15 tint of `nutrition` over any tier (≥4.58:1 light, ≥4.73:1 dark); /20 up to `surface-container-high`.",
+    "on-recovery-container": "Bound ink: text on a /10–/15 tint of `recovery` over any tier (≥4.58:1 light, ≥4.73:1 dark); /20 up to `surface-container-high`.",
+    "on-mobility-container": "Bound ink: text on a /10–/15 tint of `mobility` over any tier (≥4.58:1 light, ≥4.73:1 dark); /20 up to `surface-container-high`.",
+    "on-info-container": "Bound ink: text on a /10–/15 tint of `info` over any tier (≥4.58:1 light, ≥4.73:1 dark); /20 up to `surface-container-high`.",
+    "on-success-container": "Bound ink: text on a /10–/15 tint of `success` over any tier (≥4.58:1 light, ≥4.73:1 dark); /20 up to `surface-container-high`.",
+    "on-warning-container": "Bound ink: text on a /10–/15 tint of `warning` over any tier (≥4.58:1 light, ≥4.73:1 dark); /20 up to `surface-container-high`.",
+    "ghost-border": "The 1px hairline at pane edges, cards, fields and the composer. The ink changes between schemes, not only the opacity.",
+    "ghost-border-strong": "A separator that must read; active separators. Not a control edge (1.55:1) — use `outline` for that.",
+    "ghost-border-faint": "The divider INSIDE a list or table, inset to the text.",
+    "mark-ink": "The Boreal Ripple mark's ink: forest on every light surface, mint on the dark canvas. Never a pillar hue.",
+    "forest-50": "Forest tonal ramp (`PRIMARY_PALETTE`) for chart gradients and data-density ramps only — not UI chrome.",
+    "forest-100": "Forest tonal ramp (`PRIMARY_PALETTE`) for chart gradients and data-density ramps only — not UI chrome.",
+    "forest-200": "Forest tonal ramp (`PRIMARY_PALETTE`) for chart gradients and data-density ramps only — not UI chrome.",
+    "forest-300": "Forest tonal ramp (`PRIMARY_PALETTE`) for chart gradients and data-density ramps only — not UI chrome.",
+    "forest-400": "Forest tonal ramp (`PRIMARY_PALETTE`) for chart gradients and data-density ramps only — not UI chrome.",
+    "forest-500": "Forest tonal ramp (`PRIMARY_PALETTE`) for chart gradients and data-density ramps only — not UI chrome.",
+    "forest-600": "Forest tonal ramp (`PRIMARY_PALETTE`) for chart gradients and data-density ramps only — not UI chrome.",
+    "forest-700": "Forest tonal ramp (`PRIMARY_PALETTE`) for chart gradients and data-density ramps only — not UI chrome.",
+    "forest-800": "Forest tonal ramp (`PRIMARY_PALETTE`) for chart gradients and data-density ramps only — not UI chrome.",
+    "forest-900": "Forest tonal ramp (`PRIMARY_PALETTE`) for chart gradients and data-density ramps only — not UI chrome.",
+    "forest-950": "Forest tonal ramp (`PRIMARY_PALETTE`) for chart gradients and data-density ramps only — not UI chrome.",
+    "provider-strava": "Strava orange (third-party). Glyph clears 3:1 on both canvases. Only inside that provider's glyph or connection tile, marked as a third-party colour.",
+    "provider-garmin": "Garmin blue (third-party). Only inside that provider's glyph or connection tile, marked as a third-party colour.",
+    "provider-whoop": "WHOOP green (third-party). 1.83:1 on light paper: the glyph takes `on-surface` in light. Only inside that provider's glyph or connection tile, marked as a third-party colour.",
+    "provider-intervals-icu": "intervals.icu blue (third-party). Only inside that provider's glyph or connection tile, marked as a third-party colour.",
+    "provider-trainingpeaks": "TrainingPeaks blue (third-party). 2.46:1 on the dark canvas: the glyph takes `on-surface` in dark. Only inside that provider's glyph or connection tile, marked as a third-party colour.",
+    "provider-coros": "COROS red (third-party). Only inside that provider's glyph or connection tile, marked as a third-party colour."
+  },
+  "spacing": {
+    "space-xs": "Tight inline gaps.",
+    "space-sm": "Icon gaps, chip padding.",
+    "space-md": "Standard component padding; card padding on a phone.",
+    "space-lg": "Card padding at md+, section gap.",
+    "space-xl": "Major section separation; the gap between Sections.",
+    "space-2xl": "Hero spacing.",
+    "space-section": "Editorial spreads only (marketing tier)."
+  },
+  "radius": {
+    "radius-sm": "Hairline details.",
+    "radius-md": "Chips on the phone, small insets.",
+    "radius-lg": "Buttons, fields, icon buttons.",
+    "radius-xl": "Cards, the composer field, floating panels.",
+    "radius-bubble": "The athlete's bubble (with a 4px tail corner, bottom-right).",
+    "radius-full": "Badges, tags, avatars, status dots only."
+  },
+  "shadow": {
+    "shadow-floating": "Menus, popovers, drawers, modals — never a resting card."
+  },
+  "layout": {
+    "note": "Fixed dimensions of the messenger shell and controls (DESIGN.md §5–6).",
+    "tokens": [
+      {
+        "name": "control-height",
+        "value": "32px",
+        "usage": "Buttons, icon buttons, search field at a fine pointer."
+      },
+      {
+        "name": "control-height-sm",
+        "value": "28px",
+        "usage": "`.btn-sm`."
+      },
+      {
+        "name": "control-height-lg",
+        "value": "44px",
+        "usage": "`.btn-lg` (auth CTA) and every control on a coarse pointer or under `lg`."
+      },
+      {
+        "name": "header-height",
+        "value": "52px",
+        "usage": "TabHeader, thread header, list title row."
+      },
+      {
+        "name": "rail-width",
+        "value": "72px",
+        "usage": "The web icon rail."
+      },
+      {
+        "name": "list-width",
+        "value": "320px",
+        "usage": "The chat list column at `lg` (340px at `xl`)."
+      },
+      {
+        "name": "reading-width",
+        "value": "720px",
+        "usage": "The thread column and its composer."
+      },
+      {
+        "name": "prose-width",
+        "value": "620px",
+        "usage": "The agent's words inside the thread."
+      },
+      {
+        "name": "content-max",
+        "value": "1280px",
+        "usage": "Main content max-width."
+      },
+      {
+        "name": "row-chat",
+        "value": "60px",
+        "usage": "A chat list row (web)."
+      },
+      {
+        "name": "row-table",
+        "value": "44px",
+        "usage": "A table row."
+      }
+    ]
+  },
+  "opacity": {
+    "tokens": [
+      {
+        "name": "tint-chip",
+        "value": "0.15",
+        "usage": "The `bg-X/15` tint of a status or pillar chip."
+      },
+      {
+        "name": "scrim-alpha",
+        "value": "0.6",
+        "usage": "`scrim` behind a sheet, drawer or dialog."
+      },
+      {
+        "name": "disabled",
+        "value": "0.5",
+        "usage": "Disabled controls."
+      }
+    ]
+  },
+  "type": [
+    {
+      "name": "Display",
+      "family": "display",
+      "styles": [
+        {
+          "name": "wordmark",
+          "step": "xl",
+          "fontWeight": 600,
+          "usage": "The DRAVR wordmark in the lockup, `primary` ink — the only tracked text in the product.",
+          "tracking": "brand",
+          "sample": "DRAVR"
+        },
+        {
+          "name": "text-xl",
+          "step": "xl",
+          "fontWeight": 600,
+          "usage": "Page and column titles.",
+          "tracking": "heading"
+        },
+        {
+          "name": "text-2xl",
+          "step": "2xl",
+          "fontWeight": 600,
+          "usage": "Hero numbers.",
+          "tracking": "heading"
+        },
+        {
+          "name": "text-3xl",
+          "step": "3xl",
+          "fontWeight": 600,
+          "usage": "Auth and onboarding headlines.",
+          "tracking": "heading"
+        },
+        {
+          "name": "text-4xl",
+          "step": "4xl",
+          "fontWeight": 600,
+          "usage": "The login aside line.",
+          "tracking": "heading"
+        }
+      ]
+    },
+    {
+      "name": "Interface",
+      "family": "sans",
+      "styles": [
+        {
+          "name": "text-xs",
+          "step": "xs",
+          "fontWeight": 400,
+          "usage": "Captions, timestamps, section labels, counts — the floor."
+        },
+        {
+          "name": "text-sm",
+          "step": "sm",
+          "fontWeight": 500,
+          "usage": "Interface text: nav, tabs, rows, tables, buttons, labels, helper lines. The body default; font-medium on anything navigable."
+        },
+        {
+          "name": "text-base",
+          "step": "base",
+          "fontWeight": 400,
+          "usage": "Reading text: messages, descriptions, anything read as a paragraph."
+        },
+        {
+          "name": "text-lg",
+          "step": "lg",
+          "fontWeight": 400,
+          "usage": "Lead lines."
+        },
+        {
+          "name": "label",
+          "step": "sm",
+          "fontWeight": 500,
+          "usage": "Field labels, tabs, buttons, table headers — sentence case, no tracking."
+        },
+        {
+          "name": "section-title",
+          "step": "sm",
+          "fontWeight": 600,
+          "usage": "A `Section` title: the interface face, not a display heading."
+        }
+      ]
+    },
+    {
+      "name": "Accent",
+      "family": "serif",
+      "styles": [
+        {
+          "name": "serif-line",
+          "step": "4xl",
+          "fontWeight": 400,
+          "usage": "The one editorial line on the login and onboarding pages, nowhere else.",
+          "fontStyle": "italic",
+          "sample": "Every session, read into one story."
+        }
+      ]
+    },
+    {
+      "name": "Numbers",
+      "family": "mono",
+      "styles": [
+        {
+          "name": "mono-sm",
+          "step": "sm",
+          "fontWeight": 400,
+          "usage": "Numbers that get compared (TSS, CTL, dates in tables), IDs, code. Tabular figures.",
+          "sample": "TSS 142 · CTL 68.4"
+        },
+        {
+          "name": "mono-stat",
+          "step": "2xl",
+          "fontWeight": 400,
+          "usage": "A stat: a mono number under its label, no box.",
+          "sample": "68.4"
+        }
+      ]
+    },
+    {
+      "name": "Phone",
+      "family": "sans",
+      "scale": "mobile",
+      "styles": [
+        {
+          "name": "m-text-md",
+          "step": "md",
+          "fontWeight": 400,
+          "usage": "Phone: a row's second line when read — the chat preview."
+        },
+        {
+          "name": "m-text-base",
+          "step": "base",
+          "fontWeight": 400,
+          "usage": "Phone reading text: messages, row titles, field values, button labels (platform face)."
+        },
+        {
+          "name": "m-text-lg",
+          "step": "lg",
+          "fontWeight": 600,
+          "usage": "Phone inline title."
+        },
+        {
+          "name": "m-text-xl",
+          "step": "xl",
+          "fontWeight": 400,
+          "usage": "Phone hero number."
+        },
+        {
+          "name": "m-text-3xl",
+          "step": "3xl",
+          "fontWeight": 600,
+          "usage": "Phone auth and onboarding headline, Schibsted Grotesk 600.",
+          "family": "display"
+        }
+      ]
+    }
+  ]
+}

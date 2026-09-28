@@ -1,0 +1,9 @@
+<!-- @dsCard group="Chat" height=230 -->
+<div id="root"></div>
+<script>
+const h=React.createElement,B=window.Boreal,root=ReactDOM.createRoot(document.getElementById('root'));
+const av=h('span',{className:'inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary-container text-[11px] font-semibold text-on-primary-container'},'CO');
+root.render(h('div',{style:{padding:20,maxWidth:720,display:'grid',gap:16}},
+ h(B.MessageBubble,{side:'user',timestamp:'07:41'},'How did my long run look against last week?'),
+ h(B.MessageBubble,{side:'assistant',authorLabel:'Coach agent',avatar:av,timestamp:'07:42',groupStart:true},'Steadier. You held 5:12/km for 24 km with heart-rate drift of 3.1%, against 6.8% last Sunday.')));
+</script>

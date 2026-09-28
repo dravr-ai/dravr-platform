@@ -1,0 +1,8 @@
+<!-- @dsCard group="Brand" height=100 -->
+<div id="root"></div>
+<script>
+const h=React.createElement,B=window.Boreal,root=ReactDOM.createRoot(document.getElementById('root'));
+root.render(h('div',{style:{padding:24,display:'flex',gap:40,alignItems:'center'}},
+ h('span',{className:'inline-flex items-center gap-2.5'},h(B.DravrLogo,{size:32}),h('span',{className:'font-display text-xl font-semibold tracking-brand text-primary'},'DRAVR')),
+ h(B.DravrLogo,{size:40}),h(B.DravrLogo,{size:96})));
+</script>

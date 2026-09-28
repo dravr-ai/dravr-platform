@@ -1,0 +1,7 @@
+<!-- @dsCard group="Surfaces" height=160 -->
+<div id="root"></div>
+<script>
+const h=React.createElement,B=window.Boreal,root=ReactDOM.createRoot(document.getElementById('root'));
+root.render(h('div',{style:{padding:20,maxWidth:440}},h(B.Section,{title:'Connected providers',description:'Where your agent reads your training.',actions:h(B.Button,{variant:'tertiary',size:'sm'},'Add')},
+ h(B.StatusIndicator,{status:'online',label:'Strava'}))));
+</script>

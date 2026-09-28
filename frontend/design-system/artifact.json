@@ -1,0 +1,68 @@
+{
+  "artifact": "https://claude.ai/artifact/NGizBhmoqTqmx2h2fGBXMY",
+  "title": "Dravr Boreal",
+  "namespace": "Boreal",
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-09-28T12:00:00Z"
+  },
+  "assetGroups": {
+    "Logos": {
+      "name": "Logos",
+      "tile": "m",
+      "order": [
+        "mark-ink-96.png",
+        "mark-ink-192.png",
+        "mark-ink-512.png",
+        "mark-mint-96.png",
+        "mark-mint-192.png",
+        "mark-mint-512.png",
+        "favicon.svg"
+      ],
+      "files": {
+        "mark-ink-96.png": {
+          "name": "mark-ink-96.png",
+          "blob": "5333c4f08e3c04c10bec7e9a8a7c8421",
+          "size": 7461,
+          "type": "image/png"
+        },
+        "mark-ink-192.png": {
+          "name": "mark-ink-192.png",
+          "blob": "0ca49392d20f728b1ac79a17c9a65094",
+          "size": 22584,
+          "type": "image/png"
+        },
+        "mark-ink-512.png": {
+          "name": "mark-ink-512.png",
+          "blob": "0ca9c0a9217c3f089bdeefd08a633ac4",
+          "size": 101966,
+          "type": "image/png"
+        },
+        "mark-mint-96.png": {
+          "name": "mark-mint-96.png",
+          "blob": "5471cf3815140a09962963c29705bf8d",
+          "size": 7453,
+          "type": "image/png"
+        },
+        "mark-mint-192.png": {
+          "name": "mark-mint-192.png",
+          "blob": "ebccbee3a92fd6ed88c7e713af427441",
+          "size": 22480,
+          "type": "image/png"
+        },
+        "mark-mint-512.png": {
+          "name": "mark-mint-512.png",
+          "blob": "f7015c387586b1c1b277ed3bf27ae94e",
+          "size": 101811,
+          "type": "image/png"
+        },
+        "favicon.svg": {
+          "name": "favicon.svg",
+          "blob": "4122c0860ecc4c134989e5b6fa6f1d51",
+          "size": 577,
+          "type": "image/svg+xml"
+        }
+      }
+    }
+  }
+}

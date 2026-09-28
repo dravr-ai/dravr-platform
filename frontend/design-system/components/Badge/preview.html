@@ -1,0 +1,7 @@
+<!-- @dsCard group="Status" height=80 -->
+<div id="root"></div>
+<script>
+const h=React.createElement,B=window.Boreal,root=ReactDOM.createRoot(document.getElementById('root'));
+root.render(h('div',{style:{padding:20,display:'flex',flexWrap:'wrap',gap:8}},
+ ...[['secondary','Archived'],['success','Connected'],['warning','Pending'],['error','Failed'],['info','Syncing'],['mobility','Mobility'],['trial','Trial'],['professional','Professional']].map(([v,t])=>h(B.Badge,{key:v,variant:v},t))));
+</script>
