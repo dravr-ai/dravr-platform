@@ -545,16 +545,21 @@ describe('coming back to Home', () => {
   });
 
   it('drops the reconnect prompt once the athlete comes back from reconnecting', async () => {
-    mockGetProvidersStatus.mockResolvedValueOnce(PROVIDERS_RECONNECT).mockResolvedValue(PROVIDERS_CONNECTED);
+    mockGetProvidersStatus.mockResolvedValue(PROVIDERS_RECONNECT);
     const screen = renderHome();
     fireEvent.press(await screen.findByTestId('home-activities-reconnect'));
     expect(mockPush).toHaveBeenCalledWith(CONNECTIONS_ROUTE);
 
+    // The athlete reconnected while away: from here on every read says so,
+    // however many reads the screen made before this point.
+    mockGetProvidersStatus.mockResolvedValue(PROVIDERS_CONNECTED);
+    const readsBeforeReturn = mockGetProvidersStatus.mock.calls.length;
     await act(async () => {
       mockFocusCallback?.();
     });
 
-    await waitFor(() => expect(screen.queryByTestId('home-reconnect-provider')).toBeNull());
+    await waitFor(() => expect(mockGetProvidersStatus.mock.calls.length).toBeGreaterThan(readsBeforeReturn));
+    await waitFor(() => expect(screen.queryByTestId('home-reconnect-provider')).toBeNull(), { timeout: 5000 });
     expect(screen.getByTestId('home-activity-strava-9001')).toBeTruthy();
   });
 });
