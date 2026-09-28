@@ -57,6 +57,13 @@ jobs:
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
+      - name: Setup Node
+        # Node-hosted tools (vitest, tsc, eslint, jest, Metro, Playwright) run
+        # on the repo's .nvmrc, not on whatever the runner image ships.
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:

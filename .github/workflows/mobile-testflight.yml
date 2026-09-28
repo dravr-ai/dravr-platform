@@ -61,6 +61,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Setup Node
+        # Node-hosted tools (vitest, tsc, eslint, jest, Metro, Playwright) run
+        # on the repo's .nvmrc, not on whatever the runner image ships.
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -102,6 +109,13 @@ jobs:
         if: ${{ inputs.submit == true && inputs.profile != 'production' }}
         run: |
           echo "::warning::Submit was requested with the ${{ inputs.profile }} profile and will be skipped. The stores accept App Store-distribution builds only, and ${{ inputs.profile }} is distribution: internal. Re-run with profile=production to submit."
+
+      - name: Setup Node
+        # Node-hosted tools (vitest, tsc, eslint, jest, Metro, Playwright) run
+        # on the repo's .nvmrc, not on whatever the runner image ships.
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -179,6 +193,13 @@ jobs:
             echo "::error::Cannot submit — these repository secrets are unset:$missing. The build succeeded and is available in EAS; set the secrets and re-run submission." >&2
             exit 1
           fi
+
+      - name: Setup Node
+        # Node-hosted tools (vitest, tsc, eslint, jest, Metro, Playwright) run
+        # on the repo's .nvmrc, not on whatever the runner image ships.
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2

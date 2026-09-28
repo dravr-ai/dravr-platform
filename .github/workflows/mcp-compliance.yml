@@ -77,6 +77,13 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.98.1
 
+      - name: Setup Node
+        # Node-hosted tools (vitest, tsc, eslint, jest, Metro, Playwright) run
+        # on the repo's .nvmrc, not on whatever the runner image ships.
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
