@@ -36,6 +36,7 @@ use axum::Router;
 use common::{create_test_server_resources, create_test_user, get_shared_test_jwks};
 use helpers::axum_test::AxumTestRequest;
 use pierre_auth::auth::AuthManager;
+use pierre_auth::config::OAuth2ServerConfig;
 use pierre_auth::oauth2_client::{OAuth2Client, OAuth2Config};
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::endpoints::OAuth2AuthorizationServer;
@@ -227,6 +228,7 @@ async fn fixture() -> Fixture {
         Arc::new(AuthManager::new(24)),
         get_shared_test_jwks(),
         30,
+        OAuth2ServerConfig::default().mcp_resource_url,
     );
     let registrations = ClientRegistrationManager::new(repos.oauth2_server.clone());
     Fixture {
@@ -268,6 +270,7 @@ fn client_credentials(client_id: &str, client_secret: &str) -> TokenRequest {
         scope: None,
         refresh_token: None,
         code_verifier: None,
+        resource: None,
     }
 }
 
@@ -280,6 +283,7 @@ fn authorize_request(client_id: &str, state: &str) -> AuthorizeRequest {
         state: Some(state.to_owned()),
         code_challenge: Some(CODE_CHALLENGE.to_owned()),
         code_challenge_method: Some("S256".to_owned()),
+        resource: None,
     }
 }
 
@@ -492,7 +496,7 @@ async fn an_authorize_state_carrying_a_control_character_goes_back_to_the_client
         .check_authorize_request(&authorize_request(&client.client_id, "state-1"))
         .await
         .unwrap();
-    assert!(!scope.is_empty());
+    assert!(!scope.scope.is_empty());
 }
 
 // ── Dynamic registration ─────────────────────────────────────────────────────

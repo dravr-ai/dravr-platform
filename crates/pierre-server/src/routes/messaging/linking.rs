@@ -6,16 +6,15 @@
 
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::response::{IntoResponse, Response};
+use axum::response::IntoResponse;
 use axum::Json;
 use chrono::{Duration, Utc};
 use pierre_core::errors::messaging::MessagingError;
 use pierre_core::http_client::SharedHttpError;
 use pierre_core::models::messaging::{ChannelType, LinkingMethod, LINK_CODE_TTL_MINUTES};
-use pierre_core::models::{TenantId, User};
+use pierre_core::models::TenantId;
 use pierre_database::backends::{
     CreateChannelLinkParams, CreateLinkStateParams, MessagingRepository, TenantRepository,
-    UserRepository,
 };
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -24,14 +23,15 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::{LazyLock, RwLock};
-use tokio::task::spawn_blocking;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+mod link_account;
+
 use super::templates;
 use crate::mcp::resources::ServerContext;
+use link_account::resolve_user_from_form;
 use pierre_auth::auth::AuthResult;
-use pierre_auth::password::verify_password;
 use pierre_config::utils::http_client::shared_client;
 use pierre_core::errors::AppError;
 use pierre_messaging::http_client::describe_request_error;
@@ -380,14 +380,20 @@ fn qr_svg_for(url: &str) -> Option<String> {
 /// Initiates channel linking by generating a verification code and returning
 /// a platform-specific linking URL. Requires JWT authentication.
 ///
-/// LIMITATION(registre#439): `init_channel_link` reads the config and writes link state under the caller's tenant, which the bot's `consume_link_state` never reads.
+/// The bot is the one that serves the caller's tenant, per
+/// `MessagingRepository::resolve_channel_config` — the tenant's own when it
+/// configured one, otherwise the deployment's platform-scope bot. The link
+/// state is written under the tenant that OWNS that config, not the caller's:
+/// the webhook resolves its tenant from the same config row and consumes the
+/// code with `consume_link_state(code, bot_tenant)`, so a state stored anywhere
+/// else is a code the bot can never redeem.
 pub async fn init_channel_link(
     State(resources): State<Arc<ServerContext>>,
     Path(channel): Path<String>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
-    let tenant_id = resolve_tenant_id(&auth, &resources).await?;
+    let caller_tenant_id = resolve_tenant_id(&auth, &resources).await?;
     let user_id = auth.user_id.to_string();
 
     let channel_type = ChannelType::from_str(&channel)
@@ -400,15 +406,43 @@ pub async fn init_channel_link(
 
     let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
 
-    // Fetch channel config for building the linking URL
+    // The bot this link goes through. A disabled config is refused as absent:
+    // the webhook only routes to active configs, so its bot could never
+    // redeem the code.
     let config = db
-        .get_channel_config(tenant_id, &channel)
+        .resolve_channel_config(caller_tenant_id, &channel)
         .await?
-        .unwrap_or(json!({}));
+        .filter(|config| {
+            config
+                .get("is_active")
+                .and_then(Value::as_bool)
+                .unwrap_or(true)
+        })
+        .ok_or_else(|| {
+            AppError::invalid_input(format!(
+                "No {channel_type} bot is available for your account, so there is \
+                 nothing to link to. Choose a channel from the available list."
+            ))
+        })?;
+    let bot_tenant_id = config
+        .get("tenant_id")
+        .and_then(Value::as_str)
+        .and_then(|raw| TenantId::parse_str(raw).ok())
+        .ok_or_else(|| AppError::internal("Channel config carries no valid tenant_id"))?;
+
+    // Build the URL before storing the code, so a config that cannot produce
+    // one leaves no redeemable state behind.
+    let linking_url = build_linking_url(
+        channel_type,
+        &code,
+        &config,
+        &resources.common.config.base_url,
+    )
+    .await?;
 
     let params = CreateLinkStateParams {
         id: &id,
-        tenant_id,
+        tenant_id: bot_tenant_id,
         user_id: Some(&user_id),
         channel_type: &channel,
         code: &code,
@@ -418,14 +452,6 @@ pub async fn init_channel_link(
         expires_at: &expires_at.to_rfc3339(),
     };
     db.create_link_state(&params).await?;
-
-    let linking_url = build_linking_url(
-        channel_type,
-        &code,
-        &config,
-        &resources.common.config.base_url,
-    )
-    .await?;
     let expires_at_str = expires_at.to_rfc3339();
 
     info!(
@@ -560,7 +586,12 @@ pub async fn link_callback(
 ///
 /// Lists all linked channels for the authenticated user.
 ///
-/// LIMITATION(registre#439): `list_channel_links` reads the caller's tenant, but ingress writes every bot-made link under the bot's tenant.
+/// Authorized by `user_id = auth.user_id` across tenants, not by the caller's
+/// tenant: a link made through the deployment bot is stored under the bot's
+/// tenant (ingress looks the sender up with `get_channel_link(bot_tenant, ..)`),
+/// while the athlete lives in their own. Each row names the person it belongs
+/// to and the id comes from the verified session, so only the caller's own
+/// links are ever returned.
 pub async fn list_channel_links(
     State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
@@ -570,7 +601,7 @@ pub async fn list_channel_links(
     let user_id = auth.user_id.to_string();
 
     let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
-    let links = db.list_user_channel_links(tenant_id, &user_id).await?;
+    let links = db.list_channel_links_for_user(&user_id).await?;
 
     let response: Vec<ChannelLinkResponse> = links
         .iter()
@@ -598,23 +629,38 @@ pub async fn list_channel_links(
 ///
 /// Unlinks a channel for the authenticated user.
 ///
-/// LIMITATION(registre#439): `delete_channel_link` deletes under the caller's tenant, so a bot-made link answers `ChannelNotLinked`.
+/// Authorized the way [`list_channel_links`] is: by `user_id = auth.user_id`,
+/// across the tenants that hold the caller's links. Every link of this channel
+/// that names the caller is removed, each under the tenant that stores it —
+/// the athlete asked to be unlinked from the channel, not from one bot's copy.
+/// Another user's rows are never reachable: the lookup is keyed on the
+/// session's own user id.
 pub async fn delete_channel_link(
     State(resources): State<Arc<ServerContext>>,
     Path(channel): Path<String>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
-    let tenant_id = resolve_tenant_id(&auth, &resources).await?;
     let user_id = auth.user_id.to_string();
 
     let channel_type = ChannelType::from_str(&channel)
         .map_err(|_| AppError::invalid_input(format!("Unknown messaging channel: {channel}")))?;
 
     let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
-    let deleted = db
-        .delete_channel_link(tenant_id, &user_id, &channel)
-        .await?;
+    let mut deleted = false;
+    for link in db.list_channel_links_for_user(&user_id).await? {
+        if link.get("channel_type").and_then(Value::as_str) != Some(channel.as_str()) {
+            continue;
+        }
+        let tenant_id = link
+            .get("tenant_id")
+            .and_then(Value::as_str)
+            .and_then(|raw| TenantId::parse_str(raw).ok())
+            .ok_or_else(|| AppError::internal("Channel link carries no valid tenant_id"))?;
+        deleted |= db
+            .delete_channel_link(tenant_id, &user_id, &channel)
+            .await?;
+    }
 
     if !deleted {
         return Err(MessagingError::ChannelNotLinked {
@@ -715,9 +761,9 @@ pub async fn channel_link_auth(
     };
 
     // Authenticate or register
-    let user_id = resolve_user_from_form(&resources, &form).await;
-    let user_id = match user_id {
-        Ok(uid) => uid,
+    let resolved = resolve_user_from_form(&resources, &form).await;
+    let (user_id, user_status) = match resolved {
+        Ok(resolved) => resolved,
         Err(msg) => {
             return templates::render_link_login_page(
                 &channel,
@@ -729,21 +775,24 @@ pub async fn channel_link_auth(
         }
     };
 
-    // For login (existing user), verify they belong to the link state's tenant.
-    // For register (new user), skip — they were just created and have no tenants yet.
+    // For login (existing user), verify the bot that issued this code serves
+    // them (see `bot_serves_user`). For register (new user), skip — they were
+    // just created and have no tenants yet.
     if form.action != "register" {
-        let tenant_repo: &dyn TenantRepository = resources.common.repos.tenants.as_ref();
-        let has_role = tenant_repo
-            .get_user_role(user_id, tenant_id)
-            .await
-            .ok()
-            .flatten();
+        let serves = match bot_serves_user(&resources, user_id, tenant_id, &channel).await {
+            Ok(serves) => serves,
+            Err(e) => {
+                error!(error = %e, "Failed to check the bot's reach during link auth");
+                return templates::render_link_error_page("An error occurred. Please try again.")
+                    .into_response();
+            }
+        };
 
-        if has_role.is_none() {
+        if !serves {
             warn!(
                 user_id = %user_id,
                 tenant_id = %tenant_id,
-                "User does not belong to the channel's tenant"
+                "Channel's bot does not serve this user"
             );
             return templates::render_link_login_page(
                 &channel,
@@ -766,20 +815,55 @@ pub async fn channel_link_auth(
         sender_name,
     )
     .await
+    .map_or_else(
+        |refusal| templates::render_link_error_page(refusal).into_response(),
+        |()| templates::render_link_success_page(&channel, user_status).into_response(),
+    )
 }
 
-/// Resolve user identity from form data (login or register)
-async fn resolve_user_from_form(
+/// Whether the bot that issued a link code — the config `channel` holds under
+/// `bot_tenant_id`, the tenant the link state and the link itself are stored
+/// under — may link `user_id`.
+///
+/// A bot serves the members of the tenant that owns it, and every user whose
+/// own tenant it serves per `MessagingRepository::resolve_channel_config`: the
+/// tenant's own config for the channel when it has one, otherwise the
+/// deployment's platform-scope bot. That is the rule Settings offers channels
+/// and issues codes by, so an athlete in a personal tenant links through the
+/// deployment bot here exactly as through the in-chat OTP flow — the link is
+/// stored under the bot's tenant and names the athlete. A bot a tenant keeps
+/// to itself serves no one outside that tenant.
+async fn bot_serves_user(
     resources: &ServerContext,
-    form: &ChannelLinkAuthForm,
-) -> Result<Uuid, String> {
-    match form.action.as_str() {
-        "register" => register_user(resources, form).await,
-        _ => authenticate_user(resources, &form.email, &form.password).await,
+    user_id: Uuid,
+    bot_tenant_id: TenantId,
+    channel: &str,
+) -> Result<bool, AppError> {
+    let tenants: &dyn TenantRepository = resources.common.repos.tenants.as_ref();
+    if tenants
+        .get_user_role(user_id, bot_tenant_id)
+        .await?
+        .is_some()
+    {
+        return Ok(true);
     }
+    let messaging: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
+    for tenant in tenants.list_for_user(user_id).await? {
+        let serving = messaging.resolve_channel_config(tenant.id, channel).await?;
+        let serving_tenant = serving
+            .as_ref()
+            .and_then(|config| config.get("tenant_id"))
+            .and_then(Value::as_str)
+            .and_then(|raw| TenantId::parse_str(raw).ok());
+        if serving_tenant == Some(bot_tenant_id) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
-/// Complete the link state and create the permanent channel link, returning an HTML response
+/// Complete the link state and create the permanent channel link, or return
+/// the words the error page says why it could not be made in
 async fn complete_link_and_respond(
     db: &dyn MessagingRepository,
     code: &str,
@@ -788,16 +872,13 @@ async fn complete_link_and_respond(
     channel: &str,
     channel_user_id: &str,
     sender_name: Option<&str>,
-) -> Response {
+) -> Result<(), &'static str> {
     let user_id_str = user_id.to_string();
 
     // Complete the link state (set user_id, mark used)
     if let Err(e) = db.complete_link_state(code, &user_id_str).await {
         warn!(error = %e, code = %code, "Failed to complete link state");
-        return templates::render_link_error_page(
-            "This link has already been used or has expired. Please request a new link.",
-        )
-        .into_response();
+        return Err("This link has already been used or has expired. Please request a new link.");
     }
 
     // Create the permanent channel link
@@ -813,10 +894,7 @@ async fn complete_link_and_respond(
 
     if let Err(e) = db.create_channel_link(&link_params).await {
         warn!(error = %e, "Failed to create channel link after auth");
-        return templates::render_link_error_page(
-            "This channel identity is already linked to an account.",
-        )
-        .into_response();
+        return Err("This channel identity is already linked to an account.");
     }
 
     info!(
@@ -826,82 +904,7 @@ async fn complete_link_and_respond(
         "Channel linked via webhook-initiated auth flow"
     );
 
-    templates::render_link_success_page(channel).into_response()
-}
-
-/// Authenticate a user by email and password
-///
-/// Returns the user ID on success, or an error message string on failure.
-async fn authenticate_user(
-    resources: &ServerContext,
-    email: &str,
-    password: &str,
-) -> Result<Uuid, String> {
-    let user_repo: &dyn UserRepository = resources.common.repos.users.as_ref();
-
-    let user = user_repo
-        .get_by_email(email)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Database error during link auth");
-            "An error occurred. Please try again.".to_owned()
-        })?
-        .ok_or_else(|| "Invalid email or password.".to_owned())?;
-
-    let is_valid = verify_password(password.to_owned(), user.password_hash.clone())
-        .await
-        .map_err(|_| "An error occurred. Please try again.".to_owned())?;
-
-    if !is_valid {
-        return Err("Invalid email or password.".to_owned());
-    }
-
-    Ok(user.id)
-}
-
-/// Register a new user and return their ID
-///
-/// Creates the user account. Returns a user-facing error on failure.
-async fn register_user(
-    resources: &ServerContext,
-    form: &ChannelLinkAuthForm,
-) -> Result<Uuid, String> {
-    let user_repo: &dyn UserRepository = resources.common.repos.users.as_ref();
-
-    // Check for existing user
-    let existing = user_repo.get_by_email(&form.email).await.map_err(|e| {
-        error!(error = %e, "Database error during registration");
-        "An error occurred. Please try again.".to_owned()
-    })?;
-
-    if existing.is_some() {
-        return Err("An account with this email already exists. Please log in instead.".to_owned());
-    }
-
-    // Hash password using bcrypt with spawn_blocking
-    let password_owned = form.password.clone();
-    let password_hash = spawn_blocking(move || bcrypt::hash(&password_owned, bcrypt::DEFAULT_COST))
-        .await
-        .map_err(|_| "An error occurred. Please try again.".to_owned())?
-        .map_err(|_| "An error occurred. Please try again.".to_owned())?;
-
-    let display_name = form
-        .display_name
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .map(String::from);
-
-    let user = User::new(form.email.clone(), password_hash, display_name);
-    let user_id = user.id;
-
-    user_repo.create(&user).await.map_err(|e| {
-        error!(error = %e, "Failed to create user during link registration");
-        "An error occurred. Please try again.".to_owned()
-    })?;
-
-    info!(user_id = %user_id, "User registered via channel link auth");
-
-    Ok(user_id)
+    Ok(())
 }
 
 /// Exchange an OAuth authorization code for the sender's id on that platform.

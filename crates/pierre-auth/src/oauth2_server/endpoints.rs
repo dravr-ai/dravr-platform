@@ -15,21 +15,24 @@ use super::models::{
 };
 use super::pkce::{check_code_challenge, verify_challenge};
 use super::request_text::{refuse_control_characters, refuse_oversized_state};
+use super::resource::{bound_audience, token_audience};
 use crate::admin::jwks::JwksManager;
-use crate::auth::{AuthManager, Claims, JwtValidationError};
+use crate::auth::AuthManager;
 use crate::refresh_rotation::{
     consume_or_revoke_family, generate_refresh_token, refresh_token_lifetime,
 };
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{Duration, Utc};
-use jsonwebtoken::dangerous::insecure_decode;
-use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::errors::{AppError, AppResult};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::{OAuth2ServerRepository, TenantRepository, UserRepository};
 use ring::rand::{SecureRandom, SystemRandom};
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
+
+/// Access-token validation with refresh, `validate_and_refresh`
+mod validate_refresh;
 
 /// Parameters for authorization code generation
 struct AuthCodeParams<'a> {
@@ -41,6 +44,18 @@ struct AuthCodeParams<'a> {
     state: Option<&'a str>,
     code_challenge: Option<&'a str>,
     code_challenge_method: Option<&'a str>,
+    resource: Option<&'a str>,
+}
+
+/// What an accepted authorization request is granted: the scope the code
+/// carries and the RFC 8707 resource its tokens are bound to, if it named one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckedAuthorization {
+    /// The granted scope, space-delimited
+    pub scope: String,
+    /// The audience the tokens are bound to; `None` when the request named no
+    /// resource, which mints the platform audience
+    pub resource: Option<String>,
 }
 
 /// OAuth 2.0 Authorization Server
@@ -56,6 +71,10 @@ pub struct OAuth2AuthorizationServer {
     users: Arc<dyn UserRepository>,
     /// How long each issued refresh token stays exchangeable
     refresh_token_lifetime: Duration,
+    /// Identifier of the MCP resource server this authorization server mints
+    /// audience-bound tokens for (RFC 8707) — the `resource` its
+    /// protected-resource metadata publishes
+    resource: String,
 }
 
 impl OAuth2AuthorizationServer {
@@ -63,6 +82,10 @@ impl OAuth2AuthorizationServer {
     ///
     /// `refresh_token_expiry_days` is the one `REFRESH_TOKEN_EXPIRY_DAYS`
     /// setting first-party session refresh tokens read as well.
+    ///
+    /// `resource` is the MCP resource server's identifier
+    /// (`OAuth2ServerConfig::mcp_resource_url`): the one resource a `resource`
+    /// parameter may name, and the audience of the tokens bound to it.
     #[must_use]
     pub fn new(
         oauth2_server: Arc<dyn OAuth2ServerRepository>,
@@ -71,6 +94,7 @@ impl OAuth2AuthorizationServer {
         auth_manager: Arc<AuthManager>,
         jwks_manager: Arc<JwksManager>,
         refresh_token_expiry_days: i64,
+        resource: String,
     ) -> Self {
         let client_manager = ClientRegistrationManager::new(oauth2_server.clone()); // Safe: Arc clone for manager construction
 
@@ -82,26 +106,27 @@ impl OAuth2AuthorizationServer {
             tenants,
             users,
             refresh_token_lifetime: refresh_token_lifetime(refresh_token_expiry_days),
+            resource,
         }
     }
 
-    /// Check an authorization request and resolve the scope it is granted,
-    /// before the user is asked anything.
+    /// Check an authorization request and resolve the scope and resource it
+    /// is granted, before the user is asked anything.
     ///
     /// The client and its `redirect_uri` are checked first because they decide
     /// where every later error goes (RFC 6749 Section 4.1.2.1): an unknown
     /// client or an unregistered `redirect_uri` is
     /// [`AuthorizeRejection::ShownToUser`], and any error after both are
-    /// verified (`response_type`, scope, PKCE) is
+    /// verified (`response_type`, scope, PKCE, resource) is
     /// [`AuthorizeRejection::RedirectedToClient`].
     ///
     /// # Errors
     /// Returns the rejection when the client, `redirect_uri`, `response_type`,
-    /// scope or PKCE parameters are refused.
+    /// scope, PKCE or resource parameters are refused.
     pub async fn check_authorize_request(
         &self,
         request: &AuthorizeRequest,
-    ) -> Result<String, AuthorizeRejection> {
+    ) -> Result<CheckedAuthorization, AuthorizeRejection> {
         let client = self
             .client_manager
             .get_client(&request.client_id)
@@ -118,16 +143,18 @@ impl OAuth2AuthorizationServer {
             ));
         }
 
-        Self::check_verified_client_request(&client, request)
+        self.check_verified_client_request(&client, request)
             .map_err(AuthorizeRejection::RedirectedToClient)
     }
 
     /// The checks that follow a verified client and `redirect_uri`: the
-    /// response type, the scope and PKCE. Returns the granted scope.
+    /// response type, the scope, PKCE and the RFC 8707 resource. Returns what
+    /// the request is granted.
     fn check_verified_client_request(
+        &self,
         client: &OAuth2Client,
         request: &AuthorizeRequest,
-    ) -> Result<String, OAuth2Error> {
+    ) -> Result<CheckedAuthorization, OAuth2Error> {
         refuse_control_characters(&[request.state.as_deref(), request.code_challenge.as_deref()])?;
         refuse_oversized_state(request.state.as_deref())?;
 
@@ -156,7 +183,15 @@ impl OAuth2AuthorizationServer {
         let scope = Self::authorized_scope(client, request.scope.as_deref())?;
 
         check_code_challenge(request)?;
-        Ok(scope)
+
+        // RFC 8707 §2: a resource this server does not serve is refused with
+        // `invalid_target` now, before the user is asked to consent to it.
+        let resource = request
+            .resource
+            .as_deref()
+            .map(|requested| bound_audience(&self.resource, requested))
+            .transpose()?;
+        Ok(CheckedAuthorization { scope, resource })
     }
 
     /// Handle authorization request (GET /oauth/authorize)
@@ -172,7 +207,7 @@ impl OAuth2AuthorizationServer {
         user_id: Option<Uuid>,     // From authentication
         tenant_id: Option<String>, // From JWT claims
     ) -> Result<AuthorizeResponse, OAuth2Error> {
-        let scope = self
+        let checked = self
             .check_authorize_request(&request)
             .await
             .map_err(AuthorizeRejection::into_error)?;
@@ -205,10 +240,11 @@ impl OAuth2AuthorizationServer {
                 user_id,
                 tenant_id: &tenant_id,
                 redirect_uri: &request.redirect_uri,
-                scope: Some(&scope),
+                scope: Some(&checked.scope),
                 state: request.state.as_deref(),
                 code_challenge: request.code_challenge.as_deref(),
                 code_challenge_method: request.code_challenge_method.as_deref(),
+                resource: checked.resource.as_deref(),
             })
             .await
             .map_err(|e| {
@@ -307,6 +343,10 @@ impl OAuth2AuthorizationServer {
             .redirect_uri
             .ok_or_else(|| OAuth2Error::invalid_request("Missing redirect_uri"))?;
 
+        // A resource this server does not serve is refused before the code is
+        // spent, so a client that named the wrong one can still correct it.
+        self.check_requested_resource(request.resource.as_deref())?;
+
         // Validate and consume authorization code (with PKCE verification)
         let auth_code = self
             .validate_and_consume_auth_code(
@@ -317,10 +357,23 @@ impl OAuth2AuthorizationServer {
             )
             .await?;
 
+        // The audience: the resource the authorization was bound to, or the
+        // one this request narrows an unbound authorization to (RFC 8707 §2.2).
+        let audience = token_audience(
+            &self.resource,
+            request.resource.as_deref(),
+            auth_code.resource.as_deref(),
+        )?;
+
         // Generate JWT access token
         let granted = Self::delegated_grant(auth_code.scope.as_deref());
         let access_token = self
-            .generate_access_token(&request.client_id, Some(auth_code.user_id), &granted)
+            .generate_access_token(
+                &request.client_id,
+                Some(auth_code.user_id),
+                &granted,
+                audience.as_deref(),
+            )
             .await
             .map_err(|e| {
                 error!(
@@ -347,6 +400,9 @@ impl OAuth2AuthorizationServer {
             created_at: now,
             revoked: false,
             family_id: Uuid::new_v4().to_string(),
+            // The grant keeps the resource it was authorized for; a token
+            // request that narrowed an unbound grant bound only that token.
+            resource: auth_code.resource,
         };
 
         // Store refresh token
@@ -380,6 +436,8 @@ impl OAuth2AuthorizationServer {
         client: &OAuth2Client,
         request: TokenRequest,
     ) -> Result<TokenResponse, OAuth2Error> {
+        let audience = token_audience(&self.resource, request.resource.as_deref(), None)?;
+
         let scope = Self::authorized_scope(client, request.scope.as_deref())?;
         let granted = OAuthScope::parse_granted(&scope);
         let access_token = self
@@ -387,6 +445,7 @@ impl OAuth2AuthorizationServer {
                 &request.client_id,
                 None, // No user for client credentials
                 &granted,
+                audience.as_deref(),
             )
             .await
             .map_err(|e| {
@@ -415,6 +474,10 @@ impl OAuth2AuthorizationServer {
             .refresh_token
             .ok_or_else(|| OAuth2Error::invalid_request("Missing refresh_token"))?;
 
+        // A resource this server does not serve is refused before the refresh
+        // token is rotated away.
+        self.check_requested_resource(request.resource.as_deref())?;
+
         // Consume the presented token and issue its successor; a replayed one
         // revokes its whole chain instead
         let (old_refresh_token, new_refresh_token_value) = self
@@ -438,6 +501,12 @@ impl OAuth2AuthorizationServer {
                 OAuth2Error::invalid_grant("Invalid or expired refresh token")
             })?;
 
+        let audience = token_audience(
+            &self.resource,
+            request.resource.as_deref(),
+            old_refresh_token.resource.as_deref(),
+        )?;
+
         // Generate new access token
         let granted = Self::delegated_grant(old_refresh_token.scope.as_deref());
         let access_token = self
@@ -445,6 +514,7 @@ impl OAuth2AuthorizationServer {
                 &request.client_id,
                 Some(old_refresh_token.user_id),
                 &granted,
+                audience.as_deref(),
             )
             .await
             .map_err(|e| {
@@ -486,6 +556,7 @@ impl OAuth2AuthorizationServer {
             state: params.state.map(str::to_owned),
             code_challenge: params.code_challenge.map(str::to_owned),
             code_challenge_method: params.code_challenge_method.map(str::to_owned),
+            resource: params.resource.map(str::to_owned),
         };
 
         self.store_auth_code(&auth_code).await?;
@@ -660,6 +731,14 @@ impl OAuth2AuthorizationServer {
         Ok(auth_code)
     }
 
+    /// Refuse a token request's `resource` this server does not serve, before
+    /// anything is consumed (RFC 8707 §2).
+    fn check_requested_resource(&self, requested: Option<&str>) -> Result<(), OAuth2Error> {
+        requested.map_or(Ok(()), |requested| {
+            bound_audience(&self.resource, requested).map(|_| ())
+        })
+    }
+
     /// The scopes this server advertises in both metadata documents.
     ///
     /// Served from the vocabulary rather than a literal list, so a scope cannot
@@ -746,11 +825,15 @@ impl OAuth2AuthorizationServer {
     /// scopes, which is how an OAuth-minted token came to report `fitness:read`
     /// as a connected provider; the grant now rides in the token's own `scope`
     /// claim and `providers` means what it means everywhere else.
+    ///
+    /// `audience` is the RFC 8707 resource the token is bound to, `None` for
+    /// the platform audience.
     async fn generate_access_token(
         &self,
         client_id: &str,
         user_id: Option<Uuid>,
         granted: &[OAuthScope],
+        audience: Option<&str>,
     ) -> AppResult<String> {
         if granted.is_empty() {
             debug!(
@@ -772,6 +855,7 @@ impl OAuth2AuthorizationServer {
                     client_id,
                     &scopes,
                     None, // tenant_id for client credentials
+                    audience,
                 )
                 .map_err(|e| {
                     AppError::internal(format!("Failed to generate client credentials token: {e}"))
@@ -792,7 +876,14 @@ impl OAuth2AuthorizationServer {
             .unwrap_or_default();
 
         self.auth_manager
-            .generate_oauth_access_token(&self.jwks_manager, &uid, &scopes, &providers, None)
+            .generate_oauth_access_token(
+                &self.jwks_manager,
+                &uid,
+                &scopes,
+                &providers,
+                None,
+                audience,
+            )
             .map_err(|e| AppError::internal(format!("Failed to generate OAuth access token: {e}")))
     }
 
@@ -866,286 +957,11 @@ impl OAuth2AuthorizationServer {
             created_at: now,
             revoked: false,
             family_id: consumed.family_id.clone(),
+            // Rotation keeps the grant's resource binding.
+            resource: consumed.resource.clone(),
         };
         self.store_refresh_token(&successor).await?;
 
         Ok(Some((consumed, successor_value)))
-    }
-
-    /// Validate and optionally refresh an access token
-    ///
-    /// This endpoint checks if a JWT access token is valid. If valid, it returns the expiration time.
-    /// If expired but a refresh token is provided, it attempts to refresh and return new tokens.
-    /// If invalid or cannot be refreshed, it returns an error with the reason.
-    ///
-    /// # Errors
-    /// Returns an error if token validation fails catastrophically (database errors, etc.)
-    pub async fn validate_and_refresh(
-        &self,
-        access_token: &str,
-        request: super::models::ValidateRefreshRequest,
-    ) -> AppResult<super::models::ValidateRefreshResponse> {
-        // Validate the JWT token
-        match self
-            .auth_manager
-            .validate_token_detailed(access_token, &self.jwks_manager)
-        {
-            Ok(claims) => self.handle_valid_token_claims(claims).await,
-            Err(validation_error) => {
-                self.handle_token_validation_error(validation_error, access_token, &request)
-                    .await
-            }
-        }
-    }
-
-    /// Handle valid token claims by checking user existence
-    async fn handle_valid_token_claims(
-        &self,
-        claims: Claims,
-    ) -> AppResult<super::models::ValidateRefreshResponse> {
-        use super::models::{ValidateRefreshResponse, ValidationStatus};
-
-        match Uuid::parse_str(&claims.sub) {
-            // SECURITY: Global lookup — OAuth2 token validation, no tenant context
-            Ok(user_id) => match self.users.get_global(user_id).await {
-                Ok(Some(_user)) => Ok(ValidateRefreshResponse {
-                    status: ValidationStatus::Valid,
-                    expires_in: Some(claims.exp - Utc::now().timestamp()),
-                    access_token: None,
-                    refresh_token: None,
-                    token_type: None,
-                    reason: None,
-                    requires_full_reauth: None,
-                }),
-                Ok(None) => Ok(Self::create_invalid_response("user_not_found")),
-                Err(e) => {
-                    error!("Database error while validating token: {}", e);
-                    Ok(Self::create_invalid_response("database_error"))
-                }
-            },
-            Err(_) => Ok(Self::create_invalid_response("invalid_user_id")),
-        }
-    }
-
-    /// Create a successful refresh response
-    fn create_refreshed_response(
-        new_access_token: String,
-        refresh_token_value: &str,
-    ) -> super::models::ValidateRefreshResponse {
-        use super::models::{ValidateRefreshResponse, ValidationStatus};
-        ValidateRefreshResponse {
-            status: ValidationStatus::Refreshed,
-            expires_in: Some(3600), // 1 hour
-            access_token: Some(new_access_token),
-            refresh_token: Some(refresh_token_value.to_owned()),
-            token_type: Some("Bearer".to_owned()),
-            reason: None,
-            requires_full_reauth: None,
-        }
-    }
-
-    /// Execute the refresh token rotation and access token generation
-    ///
-    /// Uses `?` propagation — caller converts errors to invalid responses.
-    async fn execute_token_refresh(
-        &self,
-        refresh_token_value: &str,
-        user_id_str: &str,
-    ) -> AppResult<super::models::ValidateRefreshResponse> {
-        let refresh_token_data = self
-            .lookup_and_validate_refresh_token(refresh_token_value, user_id_str)
-            .await?;
-
-        let (_, new_refresh_token_value) = self
-            .rotate_refresh_token(refresh_token_value, &refresh_token_data.client_id)
-            .await?
-            .ok_or_else(|| {
-                AppError::new(
-                    ErrorCode::AuthInvalid,
-                    "Refresh token already consumed (possible replay)",
-                )
-            })?;
-
-        let new_access_token = self
-            .generate_access_token(
-                &refresh_token_data.client_id,
-                Some(refresh_token_data.user_id),
-                &Self::delegated_grant(refresh_token_data.scope.as_deref()),
-            )
-            .await?;
-
-        info!(
-            "Refresh token rotated via validate_and_refresh for user {}",
-            user_id_str
-        );
-
-        Ok(Self::create_refreshed_response(
-            new_access_token,
-            &new_refresh_token_value,
-        ))
-    }
-
-    /// Attempt to refresh an expired token using a refresh token
-    ///
-    /// Enforces the same token lifecycle as `handle_refresh_token_grant`:
-    /// atomically consumes the old refresh token and issues a rotated one.
-    async fn attempt_token_refresh(
-        &self,
-        refresh_token_value: &str,
-        claims: &Claims,
-    ) -> AppResult<super::models::ValidateRefreshResponse> {
-        match self
-            .execute_token_refresh(refresh_token_value, &claims.sub)
-            .await
-        {
-            Ok(response) => Ok(response),
-            Err(e) => {
-                // A spent, revoked or expired refresh token is the caller's; the
-                // lookup or the minting failing is an outage and pages.
-                if e.is_server_fault() {
-                    error!("Token refresh failed: {}", e);
-                } else {
-                    warn!("Token refresh failed: {}", e);
-                }
-                Ok(Self::create_invalid_response("invalid_refresh_token"))
-            }
-        }
-    }
-
-    /// Handle expired token with optional refresh
-    async fn handle_expired_token(
-        &self,
-        expired_access_token: &str,
-        refresh_token_value: Option<&String>,
-    ) -> AppResult<super::models::ValidateRefreshResponse> {
-        let Some(refresh_token_value) = refresh_token_value else {
-            return Ok(Self::create_invalid_response("token_expired"));
-        };
-
-        info!("Access token expired, attempting refresh with provided refresh_token");
-
-        // Decode expired token to extract user_id and client info (without validation)
-        let claims = match Self::decode_expired_token(expired_access_token) {
-            Ok(claims) => claims,
-            Err(e) => {
-                error!("Failed to decode expired token: {}", e);
-                return Ok(Self::create_invalid_response("malformed_expired_token"));
-            }
-        };
-
-        self.attempt_token_refresh(refresh_token_value, &claims)
-            .await
-    }
-
-    /// Handle JWT validation errors
-    async fn handle_token_validation_error(
-        &self,
-        validation_error: JwtValidationError,
-        expired_access_token: &str,
-        request: &super::models::ValidateRefreshRequest,
-    ) -> AppResult<super::models::ValidateRefreshResponse> {
-        use JwtValidationError;
-
-        match validation_error {
-            JwtValidationError::TokenExpired { .. } => {
-                self.handle_expired_token(expired_access_token, request.refresh_token.as_ref())
-                    .await
-            }
-            JwtValidationError::TokenInvalid { reason } => {
-                debug!("Token invalid: {reason}");
-                Ok(Self::create_invalid_response("invalid_signature"))
-            }
-            JwtValidationError::TokenMalformed { details } => {
-                debug!("Token malformed: {details}");
-                Ok(Self::create_invalid_response("malformed_token"))
-            }
-        }
-    }
-
-    /// Create an invalid token response
-    fn create_invalid_response(reason: &str) -> super::models::ValidateRefreshResponse {
-        use super::models::{ValidateRefreshResponse, ValidationStatus};
-
-        ValidateRefreshResponse {
-            status: ValidationStatus::Invalid,
-            expires_in: None,
-            access_token: None,
-            refresh_token: None,
-            token_type: None,
-            reason: Some(reason.to_owned()),
-            requires_full_reauth: Some(true),
-        }
-    }
-
-    /// Decode an expired JWT token without validation to extract claims
-    ///
-    /// This is safe because we only need to read the claims, not trust them.
-    /// The refresh token will be validated separately.
-    fn decode_expired_token(token: &str) -> AppResult<Claims> {
-        // Decode without validation - we only need the claims data.
-        // The refresh token will be validated separately.
-        let token_data = insecure_decode::<Claims>(token).map_err(|e| {
-            AppError::new(
-                ErrorCode::AuthMalformed,
-                format!("Failed to decode expired token: {e}"),
-            )
-        })?;
-
-        Ok(token_data.claims)
-    }
-
-    /// Look up refresh token by value and validate it belongs to the specified user
-    async fn lookup_and_validate_refresh_token(
-        &self,
-        refresh_token_value: &str,
-        user_id_str: &str,
-    ) -> AppResult<super::models::OAuth2RefreshToken> {
-        // Parse user_id from string
-        let user_id = Uuid::parse_str(user_id_str).map_err(|e| {
-            AppError::new(
-                ErrorCode::AuthMalformed,
-                format!("Invalid user_id in token claims: {e}"),
-            )
-        })?;
-
-        // Look up refresh token in database
-        // We need to find it without knowing the client_id
-        let refresh_token = self
-            .oauth2_server
-            .get_refresh_token_by_value(refresh_token_value)
-            .await
-            .map_err(|e| {
-                AppError::new(
-                    ErrorCode::DatabaseError,
-                    format!("Database error looking up refresh token: {e}"),
-                )
-            })?
-            .ok_or_else(|| AppError::new(ErrorCode::ResourceNotFound, "Refresh token not found"))?;
-
-        // Verify the refresh token belongs to this user
-        if refresh_token.user_id != user_id {
-            return Err(AppError::new(
-                ErrorCode::AuthInvalid,
-                "Refresh token does not belong to the user in the access token",
-            ));
-        }
-
-        // Verify the refresh token hasn't expired
-        if refresh_token.expires_at < Utc::now() {
-            return Err(AppError::new(
-                ErrorCode::AuthExpired,
-                "Refresh token has expired",
-            ));
-        }
-
-        // Verify the refresh token hasn't been revoked
-        if refresh_token.revoked {
-            return Err(AppError::new(
-                ErrorCode::AuthInvalid,
-                "Refresh token has been revoked",
-            ));
-        }
-
-        Ok(refresh_token)
     }
 }

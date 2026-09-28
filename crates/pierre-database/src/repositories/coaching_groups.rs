@@ -321,22 +321,14 @@ pub(crate) const INSERT_TRANSCRIPT_ENTRY_SQL: &str = r"INSERT INTO group_transcr
                source_conversation_id, source_message_id, created_at)
               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)";
 
-/// The transcript a viewer may see, newest first. No tenant filter:
-/// membership is cross-tenant and the caller verified the viewer's
-/// membership. Consent-gated like the peer-grounding fetch: a peer's entries
-/// need the group kill-switch AND that member's own standing consent; the
-/// viewer always sees their own entries.
-pub(crate) const LIST_TRANSCRIPT_VISIBLE_TO_SQL: &str = concat!(
-    r"SELECT e.id, e.group_id, e.tenant_id, e.author_user_id, e.speaker,
-              e.content, e.source_conversation_id, e.source_message_id, e.created_at,
-              ",
-    person_name_column!(),
-    r" AS author_display_name
-              FROM group_transcript_entries e
-              JOIN coaching_groups g ON g.id = e.group_id
-              LEFT JOIN users u ON u.id = e.author_user_id
-              WHERE e.group_id = $1
-                AND (
+/// Whether the viewer bound as `$2` may read transcript entry `e` of group
+/// `g` — the one consent rule every transcript read applies. Gated like the
+/// peer-grounding fetch: a peer's entries need the group kill-switch AND that
+/// member's own standing consent (and a member who has not left); the viewer
+/// always reads their own entries.
+macro_rules! transcript_entry_visible {
+    () => {
+        r"(
                   e.author_user_id = $2
                   OR (
                     g.peer_data_sharing = TRUE
@@ -348,9 +340,76 @@ pub(crate) const LIST_TRANSCRIPT_VISIBLE_TO_SQL: &str = concat!(
                         AND gm.left_at IS NULL
                     )
                   )
-                )
+                )"
+    };
+}
+
+/// The transcript a viewer may see, newest first, withheld entries left out
+/// — what the agent's ambient context reasons over. No tenant filter:
+/// membership is cross-tenant and the caller verified the viewer's
+/// membership.
+pub(crate) const LIST_TRANSCRIPT_VISIBLE_TO_SQL: &str = concat!(
+    r"SELECT e.id, e.group_id, e.tenant_id, e.author_user_id, e.speaker,
+              e.content, e.source_conversation_id, e.source_message_id, e.created_at,
+              ",
+    person_name_column!(),
+    r" AS author_display_name
+              FROM group_transcript_entries e
+              JOIN coaching_groups g ON g.id = e.group_id
+              LEFT JOIN users u ON u.id = e.author_user_id
+              WHERE e.group_id = $1
+                AND ",
+    transcript_entry_visible!(),
+    r"
               ORDER BY e.created_at DESC, e.id DESC
               LIMIT $3"
+);
+
+/// One page of the room as a viewer reads it, newest first: every entry,
+/// with the author, words and provenance of the ones the viewer may not read
+/// nulled inside the statement, so they never leave the database. `$4` is the
+/// id of the oldest entry the viewer already holds (NULL for the newest
+/// page); the page holds the entries ordered strictly before it, on the same
+/// `(created_at, id)` order the page is sorted by. No tenant filter:
+/// membership is cross-tenant and the caller verified the viewer's
+/// membership.
+pub(crate) const LIST_ROOM_TRANSCRIPT_SQL: &str = concat!(
+    r"SELECT r.id, r.speaker, r.created_at, r.visible,
+              CASE WHEN r.visible THEN r.author_user_id END AS author_user_id,
+              CASE WHEN r.visible THEN ",
+    person_name_column!(),
+    r" END AS author_display_name,
+              CASE WHEN r.visible THEN r.content END AS content,
+              CASE WHEN r.visible THEN r.source_conversation_id END AS source_conversation_id,
+              CASE WHEN r.visible THEN r.source_message_id END AS source_message_id
+              FROM (
+                SELECT e.id, e.author_user_id, e.speaker, e.content,
+                       e.source_conversation_id, e.source_message_id, e.created_at,
+                       ",
+    transcript_entry_visible!(),
+    r" AS visible
+                FROM group_transcript_entries e
+                JOIN coaching_groups g ON g.id = e.group_id
+                WHERE e.group_id = $1
+                  AND (
+                    $4 IS NULL
+                    OR e.created_at < (
+                      SELECT c.created_at FROM group_transcript_entries c
+                      WHERE c.id = $4 AND c.group_id = $1
+                    )
+                    OR (
+                      e.created_at = (
+                        SELECT c.created_at FROM group_transcript_entries c
+                        WHERE c.id = $4 AND c.group_id = $1
+                      )
+                      AND e.id < $4
+                    )
+                  )
+                ORDER BY e.created_at DESC, e.id DESC
+                LIMIT $3
+              ) r
+              LEFT JOIN users u ON u.id = r.author_user_id
+              ORDER BY r.created_at DESC, r.id DESC"
 );
 
 // ============================================================================
@@ -473,6 +532,35 @@ macro_rules! impl_coaching_group_repository {
                 source_message_id: column(r, "source_message_id")?,
                 created_at: instant(r, "created_at")?,
                 author_display_name: column(r, "author_display_name")?,
+            })
+        }
+
+        /// Decode one row of a room page. A withheld row carries NULL for
+        /// everything but its place in the room, so only a visible one is
+        /// read past its id, speaker and time.
+        fn row_to_room_entry(r: &$row) -> AppResult<RoomTranscriptEntry> {
+            let speaker: String = column(r, "speaker")?;
+            let visible: bool = column(r, "visible")?;
+            let body = if visible {
+                RoomEntryBody::Shared(SharedRoomEntry {
+                    author_user_id: $ids::read(r, "author_user_id")?,
+                    author_display_name: column(r, "author_display_name")?,
+                    content: column(r, "content")?,
+                    source_conversation_id: column(r, "source_conversation_id")?,
+                    source_message_id: column(r, "source_message_id")?,
+                })
+            } else {
+                RoomEntryBody::Withheld
+            };
+            Ok(RoomTranscriptEntry {
+                id: $ids::read(r, "id")?,
+                speaker: TranscriptSpeaker::from_str_opt(&speaker).ok_or_else(|| {
+                    AppError::database(format!(
+                        "group_transcript_entries column `speaker` holds unknown value `{speaker}`"
+                    ))
+                })?,
+                created_at: instant(r, "created_at")?,
+                body,
             })
         }
 
@@ -968,6 +1056,25 @@ macro_rules! impl_coaching_group_repository {
                     })?;
 
                 rows.iter().map(row_to_transcript_entry).collect()
+            }
+
+            async fn list_room_transcript_for(
+                &self,
+                group_id: &str,
+                viewer_user_id: Uuid,
+                before: Option<Uuid>,
+                limit: i64,
+            ) -> AppResult<Vec<RoomTranscriptEntry>> {
+                let rows = sqlx::query(LIST_ROOM_TRANSCRIPT_SQL)
+                    .bind($ids::bind_text(group_id)?)
+                    .bind($ids::bind(viewer_user_id))
+                    .bind(limit.clamp(1, 500))
+                    .bind($ids::bind_opt(before))
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to list the room: {e}")))?;
+
+                rows.iter().map(row_to_room_entry).collect()
             }
 
             async fn claim_group_digest(

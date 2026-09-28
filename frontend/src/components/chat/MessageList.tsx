@@ -137,6 +137,9 @@ export default function MessageList({
         previousDay = day;
       }
       const groupStart = previous === null || !isSameMessageGroup(previous, msg);
+      // Copy, rating and retry act on a row of the caller's own conversation;
+      // a row the group thread shows from the room is not one, so it has none.
+      const ownReply = msg.role === 'assistant' && !msg.room;
       out.push(
         <MessageItem
           key={msg.id}
@@ -153,14 +156,14 @@ export default function MessageList({
           // The bubble hands back the reply as a reader outside the app can
           // use it — its charts named rather than left as ⟦viz:N⟧ markers —
           // because only the bubble has the resolved scenes to name them from.
-          onCopy={msg.role === 'assistant' ? onCopyMessage : undefined}
-          onShare={msg.role === 'assistant' ? onShareMessage : undefined}
-          onThumbsUp={msg.role === 'assistant' ? () => onThumbsUp(msg.id) : undefined}
-          onThumbsDown={msg.role === 'assistant' ? () => onThumbsDown(msg.id) : undefined}
+          onCopy={ownReply ? onCopyMessage : undefined}
+          onShare={ownReply ? onShareMessage : undefined}
+          onThumbsUp={ownReply ? () => onThumbsUp(msg.id) : undefined}
+          onThumbsDown={ownReply ? () => onThumbsDown(msg.id) : undefined}
           onSubmitReason={
-            msg.role === 'assistant' ? (comment: string) => onSubmitFeedbackReason(msg.id, comment) : undefined
+            ownReply ? (comment: string) => onSubmitFeedbackReason(msg.id, comment) : undefined
           }
-          onRetry={msg.role === 'assistant' ? () => onRetryMessage(msg.id) : undefined}
+          onRetry={ownReply ? () => onRetryMessage(msg.id) : undefined}
           onShowVerdict={onShowVerdict}
           onAskAboutClaim={onAskAboutClaim}
           onActionClick={onActionClick}

@@ -280,4 +280,6 @@ pub struct A2AUsageStats {
     pub total_request_bytes: Option<u64>,
     /// Total bytes sent in responses
     pub total_response_bytes: Option<u64>,
+    /// The most recent request in the period, if any
+    pub last_request_at: Option<DateTime<Utc>>,
 }

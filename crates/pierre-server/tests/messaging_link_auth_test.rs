@@ -22,7 +22,7 @@ mod helpers;
 
 use chrono::{Duration, Utc};
 use helpers::axum_test::AxumTestRequest;
-use pierre_core::models::{Tenant, TenantId, User};
+use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_database::backends::{CreateLinkStateParams, MessagingRepository};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::messaging::MessagingRoutes;
@@ -652,4 +652,183 @@ async fn callback_resolves_the_link_state_by_state_not_by_the_provider_code() {
          past state resolution and fail later on the unconfigured channel. body={}",
         body.split("</head>").last().unwrap_or(&body)
     );
+}
+
+// ════════════════════════════════════════════════════════════════
+// POST /messaging/link/auth — The Account Behind The Link
+// ════════════════════════════════════════════════════════════════
+
+#[tokio::test]
+async fn test_link_auth_register_follows_the_signup_rules() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+    let (_owner_id, tenant_id) = seed_tenant_with_owner(&resources).await;
+
+    let code =
+        create_channel_initiated_link_state(db, tenant_id, "telegram", "tg-signup", None, false)
+            .await;
+
+    let app = MessagingRoutes::routes(resources.clone());
+    let form_data = [
+        ("code", code.as_str()),
+        ("email", "signup@example.com"),
+        ("password", "NewUser123!"),
+        ("action", "register"),
+        ("display_name", "Signup"),
+    ];
+    let resp = AxumTestRequest::post("/messaging/link/auth")
+        .form(&form_data)
+        .send(app)
+        .await;
+    assert_eq!(resp.status(), 200);
+    let body = resp.text();
+
+    // The account came out of the one signup path: it has the personal tenant
+    // every registration gets, and a status the approval rules decided.
+    let user = resources
+        .common
+        .repos
+        .users
+        .get_by_email("signup@example.com")
+        .await
+        .unwrap()
+        .expect("registration through the link page creates the account");
+    let own_tenants = resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(user.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        own_tenants.len(),
+        1,
+        "the signup path gives the new account its personal tenant"
+    );
+    assert_ne!(
+        own_tenants[0].id, tenant_id,
+        "that tenant is the athlete's own, not the bot's"
+    );
+
+    // The page tells the athlete what their status lets them do next.
+    assert!(body.contains("<h1>Account Linked!</h1>"), "got: {body}");
+    match user.user_status {
+        UserStatus::Pending => assert!(
+            body.contains("waiting for an administrator&#x27;s approval")
+                || body.contains("waiting for an administrator's approval"),
+            "a pending account is told it waits for approval, got: {body}"
+        ),
+        UserStatus::Active => assert!(
+            body.contains("send a message to get started"),
+            "an approved account is told to start chatting, got: {body}"
+        ),
+        UserStatus::Suspended => panic!("a fresh signup is never suspended"),
+    }
+
+    // And the channel is linked to that account under the bot's tenant.
+    let link = db
+        .get_channel_link(tenant_id, "telegram", "tg-signup")
+        .await
+        .unwrap()
+        .expect("the link is made");
+    assert_eq!(link["user_id"], user.id.to_string());
+}
+
+#[tokio::test]
+async fn test_link_auth_register_refuses_a_weak_password() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+    let (_owner_id, tenant_id) = seed_tenant_with_owner(&resources).await;
+
+    let code =
+        create_channel_initiated_link_state(db, tenant_id, "telegram", "tg-weak", None, false)
+            .await;
+
+    let app = MessagingRoutes::routes(resources.clone());
+    let form_data = [
+        ("code", code.as_str()),
+        ("email", "weak@example.com"),
+        ("password", "short"),
+        ("action", "register"),
+    ];
+    let resp = AxumTestRequest::post("/messaging/link/auth")
+        .form(&form_data)
+        .send(app)
+        .await;
+    assert_eq!(resp.status(), 200);
+    let body = resp.text();
+    assert!(
+        body.contains("Password must be at least 8 characters."),
+        "the signup rule's reason reaches the page, got: {body}"
+    );
+    assert!(
+        resources
+            .common
+            .repos
+            .users
+            .get_by_email("weak@example.com")
+            .await
+            .unwrap()
+            .is_none(),
+        "no account is created for a refused signup"
+    );
+    assert!(
+        db.get_channel_link(tenant_id, "telegram", "tg-weak")
+            .await
+            .unwrap()
+            .is_none(),
+        "no link is made for a refused signup"
+    );
+}
+
+#[tokio::test]
+async fn test_link_auth_suspended_account_is_linked_and_told() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+    let (_owner_id, tenant_id) = seed_tenant_with_owner(&resources).await;
+
+    let code =
+        create_channel_initiated_link_state(db, tenant_id, "whatsapp", "wa-suspended", None, false)
+            .await;
+
+    let password_hash = spawn_blocking(|| bcrypt::hash("SecurePass123!", 4).unwrap())
+        .await
+        .unwrap();
+    let mut user = User::new(
+        "suspended@example.com".to_owned(),
+        password_hash,
+        Some("Suspended".to_owned()),
+    );
+    user.user_status = UserStatus::Suspended;
+    let user_id = user.id;
+    resources.common.repos.users.create(&user).await.unwrap();
+    add_user_to_tenant(&resources, user_id, tenant_id).await;
+
+    let app = MessagingRoutes::routes(resources.clone());
+    let form_data = [
+        ("code", code.as_str()),
+        ("email", "suspended@example.com"),
+        ("password", "SecurePass123!"),
+        ("action", "login"),
+    ];
+    let resp = AxumTestRequest::post("/messaging/link/auth")
+        .form(&form_data)
+        .send(app)
+        .await;
+    assert_eq!(resp.status(), 200);
+    let body = resp.text();
+    assert!(
+        body.contains("Your Dravr account is suspended"),
+        "a suspended account is told the agent will not answer, got: {body}"
+    );
+    assert!(
+        !body.contains("send a message to get started"),
+        "a suspended account is not told to start chatting, got: {body}"
+    );
+    let link = db
+        .get_channel_link(tenant_id, "whatsapp", "wa-suspended")
+        .await
+        .unwrap()
+        .expect("the link is made, as the in-chat flow makes it");
+    assert_eq!(link["user_id"], user_id.to_string());
 }

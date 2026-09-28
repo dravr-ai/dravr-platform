@@ -236,19 +236,6 @@ pub struct ApiKeyUsageStats {
     pub tool_usage: serde_json::Value,
 }
 
-/// An API key's calls inside its own sliding rate-limit window.
-///
-/// Read in one statement, so the count and the oldest call describe the same
-/// rows: the window frees its first slot at `oldest` plus the key's
-/// `rate_limit_window_seconds`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ApiKeyWindowUsage {
-    /// Calls recorded inside the window
-    pub count: u32,
-    /// The earliest of those calls; `None` when the window holds none
-    pub oldest: Option<DateTime<Utc>>,
-}
-
 /// Generated API key data
 #[derive(Debug)]
 pub struct ApiKeyData {

@@ -1,4 +1,4 @@
-// ABOUTME: Request budgets for JWT, cookie, channel-link and API-key callers, plus the OAuth2 IP limiter
+// ABOUTME: Request budgets for JWT, cookie, channel-link, API-key and A2A-client callers, plus the OAuth2 IP limiter
 // ABOUTME: One RequestBudget per authenticated request: the gate reads it, the X-RateLimit-* headers render it
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -9,18 +9,19 @@
 //! What an authenticated principal may still spend. A user (JWT, cookie,
 //! channel link) has a monthly request budget, counted from the first instant
 //! of the UTC month: an admin's per-user override when one is set, else its
-//! tier's limit. An API key has its own `rate_limit_requests` over a sliding
-//! `rate_limit_window_seconds`. Both answer with one [`RequestBudget`], which
-//! the auth middleware gates on and reports as the `X-RateLimit-*` response
-//! headers. Both calculators take `now` so a caller and its tests agree on the
-//! instant the window is measured from.
+//! tier's limit. An API key, and an A2A client acting on a client-credentials
+//! token, each have their own row's `rate_limit_requests` over a sliding
+//! `rate_limit_window_seconds`. Every calculator answers with one
+//! [`RequestBudget`], which authentication gates on and reports as the
+//! `X-RateLimit-*` response headers, and takes `now` so a caller and its tests
+//! agree on the instant the window is measured from.
 
 use chrono::{DateTime, Duration, Timelike, Utc};
 use serde::Serialize;
 
 use crate::api_keys::{ApiKey, ApiKeyTier};
 use crate::config::rate_limit::RateLimitConfig;
-use pierre_core::models::{ApiKeyWindowUsage, JwtMonthlyUsage, User};
+use pierre_core::models::{A2AClient, JwtMonthlyUsage, User, WindowUsage};
 use pierre_database::repositories::analytics::next_utc_month_start;
 
 /// What a principal may still spend in its current rate-limit window.
@@ -96,32 +97,95 @@ pub fn api_key_window_start(api_key: &ApiKey, now: DateTime<Utc>) -> DateTime<Ut
 
 /// An API key's budget over its own sliding window.
 ///
-/// An Enterprise key is [`RequestBudget::Unlimited`]. Every other key frees
-/// its first slot when the oldest call in the window leaves it, `oldest +
-/// window`; an empty window names `now + window`. That instant is exact while
-/// `used <= limit`; after concurrent requests overshoot the limit, the first
-/// freed slot still leaves the window full, so a client retrying on it is
-/// refused once more with a fresh retry window.
+/// An Enterprise key is [`RequestBudget::Unlimited`]; every other key is
+/// metered by [`sliding_window_budget`].
 #[must_use]
 pub fn calculate_api_key_rate_limit(
     api_key: &ApiKey,
-    usage: &ApiKeyWindowUsage,
+    usage: &WindowUsage,
     now: DateTime<Utc>,
 ) -> RequestBudget {
     if api_key.tier == ApiKeyTier::Enterprise {
         return RequestBudget::Unlimited;
     }
-    let window = api_key_window(api_key);
-    RequestBudget::Metered {
-        limit: api_key.rate_limit_requests,
-        used: usage.count,
-        resets_at: usage.oldest.map_or(now + window, |oldest| oldest + window),
-    }
+    sliding_window_budget(
+        api_key.rate_limit_requests,
+        api_key_window(api_key),
+        usage,
+        now,
+    )
 }
 
 /// The length of an API key's sliding window.
 fn api_key_window(api_key: &ApiKey) -> Duration {
     Duration::seconds(i64::from(api_key.rate_limit_window_seconds))
+}
+
+/// The first instant an A2A client's sliding window covers at `now`: its
+/// calls after this count against its `rate_limit_requests`.
+#[must_use]
+pub fn a2a_client_window_start(client: &A2AClient, now: DateTime<Utc>) -> DateTime<Utc> {
+    now - a2a_client_window(client)
+}
+
+/// An A2A client's budget on a client-credentials token: its row's
+/// `rate_limit_requests` over a sliding `rate_limit_window_seconds`, metered
+/// by [`sliding_window_budget`].
+///
+/// Always metered: a client row carries a limit and no tier that lifts it.
+#[must_use]
+pub fn calculate_a2a_client_rate_limit(
+    client: &A2AClient,
+    usage: &WindowUsage,
+    now: DateTime<Utc>,
+) -> RequestBudget {
+    sliding_window_budget(
+        client.rate_limit_requests,
+        a2a_client_window(client),
+        usage,
+        now,
+    )
+}
+
+/// When an A2A client's sliding window frees its first slot, given the
+/// calls `usage` counted inside it: the reset its budget names.
+#[must_use]
+pub fn a2a_client_window_resets_at(
+    client: &A2AClient,
+    usage: &WindowUsage,
+    now: DateTime<Utc>,
+) -> DateTime<Utc> {
+    window_resets_at(a2a_client_window(client), usage, now)
+}
+
+/// The length of an A2A client's sliding window.
+fn a2a_client_window(client: &A2AClient) -> Duration {
+    Duration::seconds(i64::from(client.rate_limit_window_seconds))
+}
+
+/// `limit` calls per sliding `window`, given the calls `usage` counted inside
+/// it, resetting at [`window_resets_at`].
+fn sliding_window_budget(
+    limit: u32,
+    window: Duration,
+    usage: &WindowUsage,
+    now: DateTime<Utc>,
+) -> RequestBudget {
+    RequestBudget::Metered {
+        limit,
+        used: usage.count,
+        resets_at: window_resets_at(window, usage, now),
+    }
+}
+
+/// When a sliding `window` frees its first slot: when the oldest call in it
+/// leaves, at `oldest + window`; an empty window names `now + window`.
+///
+/// That instant is exact while `used <= limit`; after concurrent requests
+/// overshoot the limit, the first freed slot still leaves the window full, so
+/// a client retrying on it is refused once more with a fresh retry window.
+fn window_resets_at(window: Duration, usage: &WindowUsage, now: DateTime<Utc>) -> DateTime<Utc> {
+    usage.oldest.map_or(now + window, |oldest| oldest + window)
 }
 
 /// An `OAuth2` endpoint the per-address limiter meters. Each has its own limit

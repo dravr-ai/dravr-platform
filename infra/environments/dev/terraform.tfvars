@@ -33,7 +33,9 @@ frontend_previous_origins = ["https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.
 # frontend service. app.dravr.ai is the address provider OAuth applications
 # register their callback against; mcp.dravr.ai is reserved for distributing
 # the MCP server through the AI chats and is NOT to be listed anywhere until
-# registre#484 (host-aware protected-resource metadata) lands. Both hostnames
+# the backend runs with MCP_RESOURCE_URL=https://mcp.dravr.ai, which is what
+# the protected-resource metadata, the /mcp 401 challenge and RFC 8707 token
+# audiences name (unset, they name BASE_URL, app.dravr.ai). Both hostnames
 # share one load balancer, one IP pair and one bundle of forwarding rules, so
 # the second costs nothing.
 public_domains = ["app.dravr.ai", "mcp.dravr.ai"]

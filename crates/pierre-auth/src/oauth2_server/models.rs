@@ -74,6 +74,9 @@ pub struct AuthorizeRequest {
     pub code_challenge: Option<String>,
     /// PKCE code challenge method (plain or S256)
     pub code_challenge_method: Option<String>,
+    /// RFC 8707 resource indicator: the resource server the tokens this
+    /// authorization yields are for. `None` mints the platform audience.
+    pub resource: Option<String>,
 }
 
 /// OAuth 2.0 Authorization Response
@@ -104,6 +107,9 @@ pub struct TokenRequest {
     pub refresh_token: Option<String>,
     /// PKCE code verifier (RFC 7636, for `authorization_code` grant)
     pub code_verifier: Option<String>,
+    /// RFC 8707 resource indicator: the resource server the access token is
+    /// for. Must fall within what the code or refresh token was authorized for.
+    pub resource: Option<String>,
 }
 
 /// OAuth 2.0 Token Response
@@ -268,6 +274,18 @@ impl OAuth2Error {
             error_uri: Some(
                 "https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1".to_owned(),
             ),
+        }
+    }
+
+    /// Create an `invalid_target` error (RFC 8707 Section 2)
+    /// Used when a `resource` parameter names no resource server this
+    /// authorization server mints tokens for, or one the grant does not cover
+    #[must_use]
+    pub fn invalid_target(description: &str) -> Self {
+        Self {
+            error: "invalid_target".to_owned(),
+            error_description: Some(description.to_owned()),
+            error_uri: Some("https://datatracker.ietf.org/doc/html/rfc8707#section-2".to_owned()),
         }
     }
 

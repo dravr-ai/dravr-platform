@@ -46,6 +46,7 @@ use async_trait::async_trait;
 use pierre_core::errors::{AppError, AppResult};
 use serde_json::json;
 use tracing::{debug, info};
+use uuid::Uuid;
 
 // Re-export all public modules from dravr-commere
 pub use dravr_commere::constants;
@@ -69,12 +70,15 @@ pub use dravr_commere::{
     compute_next_fire_time, validate_cron_expression, CommereError, CommereResult, DispatchOutcome,
     DispatchRequest, SuppressionReason, TenantId,
 };
-pub use events::{EventDispatch, NotificationActionSpec, NotificationEvent};
+pub use events::{EventDispatch, NotificationActionSpec, NotificationEvent, SubjectAthlete};
 pub use policy::{DigestCadence, PersonaPolicyGate, PushPolicy, PushTier};
 
 /// JSON key marking a persisted notification the persona policy withheld from
-/// push. The weekly digest scheduler collects rows carrying this marker; the
-/// in-app list shows them like any other notification.
+/// push.
+///
+/// The persona digest returns rows carrying this marker on the cadence the
+/// recipient's persona contract names; the in-app list shows them like any
+/// other notification.
 pub const PERSONA_GATED_DATA_KEY: &str = "persona_gated";
 
 /// Whether an accepted notification also goes out on the recipient's linked
@@ -365,7 +369,7 @@ impl NotificationService {
     /// The persona gate runs first. When the recipient's policy is **armed**
     /// and the event's tier falls above their floor (floor `Pn` delivers tiers
     /// ≤ `Pn` only), the notification is persisted directly — visible in-app
-    /// and collectible by the weekly digest, its `data` carrying
+    /// and returned by the persona digest, its `data` carrying
     /// [`PERSONA_GATED_DATA_KEY`] — and neither Expo push nor the channel sink
     /// runs. The returned [`DispatchOutcome::PersistedNoDevices`] is then
     /// indistinguishable from an ungated dispatch to a device-less user: the
@@ -398,6 +402,19 @@ impl NotificationService {
             .map(|delivery| delivery.outcome)
     }
 
+    /// The persona push policy the attached gate resolves for `user_id`, or
+    /// `None` when no gate is attached or no policy applies.
+    ///
+    /// The dispatch gate and the persona digest both read the policy through
+    /// here, so what a digest returns and what the gate withheld are decided
+    /// by one policy.
+    pub async fn push_policy(&self, user_id: Uuid, tenant_id: TenantId) -> Option<PushPolicy> {
+        match &self.policy_gate {
+            Some(gate) => gate.policy_for(user_id, tenant_id).await,
+            None => None,
+        }
+    }
+
     /// The persona gate, then the pipeline and every sink `fan_out` allows:
     /// the body of [`Self::dispatch_with_tier`] and of both event dispatches,
     /// reporting the whole [`Delivery`].
@@ -407,32 +424,30 @@ impl NotificationService {
         tier: PushTier,
         fan_out: ChannelFanOut,
     ) -> CommereResult<Delivery> {
-        if let Some(gate) = &self.policy_gate {
-            if let Some(push_policy) = gate.policy_for(request.user_id, request.tenant_id).await {
-                let would_gate = push_policy.gates(tier);
-                if push_policy.armed && would_gate {
-                    return self.persist_gated(request, tier, &push_policy).await;
-                }
-                if !push_policy.armed {
-                    info!(
-                        user_id = %request.user_id,
-                        persona = %push_policy.persona,
-                        notification_type = %request.notification_type,
-                        event_tier = %tier,
-                        floor = ?push_policy.floor,
-                        would_gate,
-                        "persona notification policy shadow verdict"
-                    );
-                }
+        if let Some(push_policy) = self.push_policy(request.user_id, request.tenant_id).await {
+            let would_gate = push_policy.gates(tier);
+            if push_policy.armed && would_gate {
+                return self.persist_gated(request, tier, &push_policy).await;
+            }
+            if !push_policy.armed {
+                info!(
+                    user_id = %request.user_id,
+                    persona = %push_policy.persona,
+                    notification_type = %request.notification_type,
+                    event_tier = %tier,
+                    floor = ?push_policy.floor,
+                    would_gate,
+                    "persona notification policy shadow verdict"
+                );
             }
         }
         self.deliver(request, fan_out).await
     }
 
     /// Persist a persona-gated notification without running the pipeline's
-    /// push path or the channel sink. The row is what the weekly digest and
+    /// push path or the channel sink. The row is what the persona digest and
     /// the in-app list read; the `persona_gated` marker in `data` is how the
-    /// digest scheduler finds it.
+    /// digest finds it.
     async fn persist_gated(
         &self,
         request: &DispatchRequest,

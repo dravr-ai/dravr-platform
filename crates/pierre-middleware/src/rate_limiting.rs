@@ -1,5 +1,5 @@
-// ABOUTME: The per-request budget slot, the gate on it, the X-RateLimit-* headers and the API-key usage row
-// ABOUTME: Auth reports into a task-local; one outer layer renders the budget and records the admitted key's real outcome
+// ABOUTME: The per-request budget slot, the gate on it, the X-RateLimit-* headers and the metered caller's usage row
+// ABOUTME: Auth reports into a task-local; one outer layer renders the budget and records the admitted caller's real outcome
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,16 +10,19 @@
 //! extractor, a `&HeaderMap` helper or the MCP transport's auth hook, and none
 //! of them can reach the response. They report what they decided into a
 //! task-local slot at the site that decides it ([`report_request_budget`],
-//! [`report_api_key_request`], [`report_request_operation`]), and
-//! [`request_budget_middleware`], installed once around the whole router,
-//! opens the slot for each request and, once the handler has answered:
+//! [`report_api_key_request`], [`report_a2a_client_request`],
+//! [`report_request_operation`]), and [`request_budget_middleware`],
+//! installed once around the whole router, opens the slot for each request
+//! and, once the handler has answered:
 //!
 //! - renders the budget as `X-RateLimit-Limit`, `X-RateLimit-Remaining` and
 //!   `X-RateLimit-Reset`;
-//! - writes the admitted API key's `api_key_usage` row with the request's
-//!   real outcome: the response status, the milliseconds it took, and the
-//!   endpoint it reached. That row is both what the dashboard's usage and
-//!   request-log views read and what the key's sliding window counts.
+//! - writes the metered caller's usage row with the request's real outcome:
+//!   the response status, the milliseconds it took, and the endpoint it
+//!   reached. An API key's row goes to `api_key_usage`, an A2A client's (a
+//!   client-credentials token) to `a2a_usage`. That row is both what the
+//!   usage and request-log views read and what the caller's sliding window
+//!   counts.
 //!
 //! Properties:
 //!
@@ -37,11 +40,12 @@
 //! - **Scope.** Authentication that runs outside the request's task (a spawned
 //!   task, stdio, background work) finds no slot: the response then carries no
 //!   headers, never another request's, and no usage row is written. Every
-//!   API-key authentication the server performs runs inside a request.
+//!   API-key and A2A client authentication the server performs runs inside a
+//!   request.
 //! - **Outcome.** A handler that panics is recorded as the 500 the panic layer
 //!   answers with. A request its client abandons before the response exists is
 //!   recorded as 499, the "client closed request" status, so leaving early
-//!   never takes a call out of the key's window.
+//!   never takes a call out of the caller's window.
 //! - **Messaging.** Channel-link authentication never reports: its responses
 //!   go to the messaging vendor, and the headers would hand it the athlete's
 //!   quota.
@@ -64,8 +68,9 @@ use futures_util::FutureExt;
 use http::{HeaderMap, HeaderValue, StatusCode};
 use pierre_auth::rate_limiting::RequestBudget;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::ApiKeyUsage;
-use pierre_database::backends::UsageRepository;
+use pierre_core::models::{A2AUsage, ApiKeyUsage};
+use pierre_database::backends::{A2ARepository, UsageRepository};
+use pierre_database::RepositoryRegistry;
 use tokio::runtime::Handle;
 use tracing::{trace, warn};
 
@@ -89,15 +94,39 @@ pub mod headers {
 /// answers with, so it never passes for a real outcome.
 const CLIENT_CLOSED_REQUEST: u16 = 499;
 
+/// An A2A client-credentials call its client's own budget admitted: what
+/// its `a2a_usage` row records besides the request's outcome.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct A2AClientCall {
+    /// The client the token names
+    pub client_id: String,
+    /// The A2A protocol version the call was served under
+    pub protocol_version: String,
+    /// The capabilities the client registered with
+    pub client_capabilities: Vec<String>,
+    /// The scopes the client-credentials token grants
+    pub granted_scopes: Vec<String>,
+}
+
+/// The credential whose own budget admitted the request, and whose usage
+/// row the layer writes.
+enum MeteredCaller {
+    /// An API key, by id: its row goes to `api_key_usage`.
+    ApiKey(String),
+    /// An A2A client on a client-credentials token: its row goes to
+    /// `a2a_usage`.
+    A2AClient(A2AClientCall),
+}
+
 /// What authentication reported about the request its task serves.
 #[derive(Default)]
 struct RequestReport {
     /// The budget that decided the request: the one that admitted its
     /// credential, or the one whose 429 refused it.
     budget: Option<RequestBudget>,
-    /// The API key that admitted the request, whose usage row the layer
-    /// writes.
-    api_key_id: Option<String>,
+    /// The metered credential that admitted the request, whose usage row
+    /// the layer writes.
+    caller: Option<MeteredCaller>,
     /// The operation the request performed, when its route serves many.
     operation: Option<String>,
 }
@@ -168,15 +197,28 @@ pub fn report_request_budget(budget: RequestBudget) {
 /// `api_key_usage` row once the request has an outcome. Outside one there is
 /// no request to count, and nothing is written.
 pub fn report_api_key_request(api_key_id: &str) {
-    let api_key_id = api_key_id.to_owned();
-    report(|slot| slot.api_key_id = Some(api_key_id));
+    let caller = MeteredCaller::ApiKey(api_key_id.to_owned());
+    report(|slot| slot.caller = Some(caller));
+}
+
+/// Record that an A2A client's own budget admitted this request.
+///
+/// The enclosing [`request_budget_middleware`] writes the client's
+/// `a2a_usage` row once the request has an outcome; that row is what the
+/// client's sliding window counts. Outside one there is no request to count,
+/// and nothing is written.
+pub fn report_a2a_client_request(call: A2AClientCall) {
+    let caller = MeteredCaller::A2AClient(call);
+    report(|slot| slot.caller = Some(caller));
 }
 
 /// Name the operation this request performed, for a route that serves many.
 ///
 /// The usage row otherwise names the route (`GET /api/usage/status`); the MCP
 /// endpoint serves every tool from `POST /mcp`, so its auth hook names the
-/// tool, or the JSON-RPC method when the request calls none.
+/// tool, or the JSON-RPC method when the request calls none, and the A2A
+/// protocol serves every method from `POST /a2a/jsonrpc`, so its
+/// client-credentials admission names the method.
 pub fn report_request_operation(operation: &str) {
     let operation = operation.to_owned();
     report(|slot| slot.operation = Some(operation));
@@ -207,11 +249,83 @@ pub fn enforce_request_budget(budget: RequestBudget, now: DateTime<Utc>) -> AppR
     }
 }
 
-/// Writes the usage row of the API key that admitted one request, exactly
-/// once: with the response's status when there is one, and as
+/// Where the request-budget layer writes a metered caller's usage row: each
+/// credential's own ledger, which is also the table its sliding window
+/// counts.
+#[derive(Clone)]
+pub struct UsageLedgers {
+    /// `api_key_usage`, for a request an API key admitted
+    pub api_keys: Arc<dyn UsageRepository>,
+    /// `a2a_usage`, for a request an A2A client-credentials token admitted
+    pub a2a_clients: Arc<dyn A2ARepository>,
+}
+
+impl UsageLedgers {
+    /// The ledgers `repos` holds.
+    #[must_use]
+    pub fn from_registry(repos: &RepositoryRegistry) -> Self {
+        Self {
+            api_keys: Arc::clone(&repos.usage),
+            a2a_clients: Arc::clone(&repos.a2a),
+        }
+    }
+}
+
+/// One admitted request's usage row, bound for its credential's ledger.
+enum UsageRow {
+    ApiKey(ApiKeyUsage),
+    A2AClient(A2AUsage),
+}
+
+impl UsageRow {
+    /// The credential the row counts against.
+    fn caller(&self) -> &str {
+        match self {
+            Self::ApiKey(row) => &row.api_key_id,
+            Self::A2AClient(row) => &row.client_id,
+        }
+    }
+
+    /// The endpoint or operation the row names.
+    fn endpoint(&self) -> &str {
+        match self {
+            Self::ApiKey(row) => &row.tool_name,
+            Self::A2AClient(row) => &row.tool_name,
+        }
+    }
+
+    /// The table the row goes to.
+    const fn ledger(&self) -> &'static str {
+        match self {
+            Self::ApiKey(_) => "api_key_usage",
+            Self::A2AClient(_) => "a2a_usage",
+        }
+    }
+
+    /// Best-effort: a failed write is logged and the response still goes out.
+    async fn write(&self, ledgers: &UsageLedgers) {
+        let (status, written) = match self {
+            Self::ApiKey(row) => (row.status_code, ledgers.api_keys.record_api_key(row).await),
+            Self::A2AClient(row) => (row.status_code, ledgers.a2a_clients.record_usage(row).await),
+        };
+        if let Err(e) = written {
+            warn!(
+                caller = %self.caller(),
+                endpoint = %self.endpoint(),
+                ledger = self.ledger(),
+                status,
+                error = %e,
+                "Failed to record a usage row (rate limiting counter and usage analytics impacted)"
+            );
+        }
+    }
+}
+
+/// Writes the usage row of the metered credential that admitted one request,
+/// exactly once: with the response's status when there is one, and as
 /// [`CLIENT_CLOSED_REQUEST`] when the request is dropped before it has one.
 struct UsageRecorder {
-    usage: Arc<dyn UsageRepository>,
+    ledgers: UsageLedgers,
     slot: ReportSlot,
     /// `METHOD /matched/route`, the endpoint a row names unless the request
     /// reported its operation.
@@ -222,35 +336,57 @@ struct UsageRecorder {
 }
 
 impl UsageRecorder {
-    /// The row for this request's outcome, or `None` when no API key
-    /// admitted it or the row was already taken.
-    fn take_row(&mut self, status_code: u16) -> Option<ApiKeyUsage> {
+    /// The row for this request's outcome, or `None` when no metered
+    /// credential admitted it or the row was already taken.
+    fn take_row(&mut self, status_code: u16) -> Option<UsageRow> {
         if self.recorded {
             return None;
         }
         self.recorded = true;
         let report = self.slot.lock().unwrap_or_else(PoisonError::into_inner);
-        Some(ApiKeyUsage {
-            id: None,
-            api_key_id: report.api_key_id.clone()?,
-            timestamp: self.received_at,
-            tool_name: report
-                .operation
-                .clone()
-                .unwrap_or_else(|| self.route.clone()),
-            response_time_ms: u32::try_from(self.started.elapsed().as_millis()).ok(),
-            status_code,
-            error_message: None,
-            request_size_bytes: None,
-            response_size_bytes: None,
-            ip_address: None,
-            user_agent: None,
-        })
+        let endpoint = report
+            .operation
+            .clone()
+            .unwrap_or_else(|| self.route.clone());
+        let response_time_ms = u32::try_from(self.started.elapsed().as_millis()).ok();
+        match report.caller.as_ref()? {
+            MeteredCaller::ApiKey(api_key_id) => Some(UsageRow::ApiKey(ApiKeyUsage {
+                id: None,
+                api_key_id: api_key_id.clone(),
+                timestamp: self.received_at,
+                tool_name: endpoint,
+                response_time_ms,
+                status_code,
+                error_message: None,
+                request_size_bytes: None,
+                response_size_bytes: None,
+                ip_address: None,
+                user_agent: None,
+            })),
+            MeteredCaller::A2AClient(call) => Some(UsageRow::A2AClient(A2AUsage {
+                id: None,
+                client_id: call.client_id.clone(),
+                // A client-credentials token opens no A2A session.
+                session_token: None,
+                timestamp: self.received_at,
+                tool_name: endpoint,
+                response_time_ms,
+                status_code,
+                error_message: None,
+                request_size_bytes: None,
+                response_size_bytes: None,
+                ip_address: None,
+                user_agent: None,
+                protocol_version: call.protocol_version.clone(),
+                client_capabilities: call.client_capabilities.clone(),
+                granted_scopes: call.granted_scopes.clone(),
+            })),
+        }
     }
 
     async fn record(&mut self, status: StatusCode) {
         if let Some(row) = self.take_row(status.as_u16()) {
-            write_usage_row(self.usage.as_ref(), &row).await;
+            row.write(&self.ledgers).await;
         }
     }
 }
@@ -264,27 +400,15 @@ impl Drop for UsageRecorder {
         };
         let Ok(runtime) = Handle::try_current() else {
             warn!(
-                api_key_id = %row.api_key_id,
-                endpoint = %row.tool_name,
-                "No runtime to record an abandoned API-key request (rate limiting counter impacted)"
+                caller = %row.caller(),
+                endpoint = %row.endpoint(),
+                ledger = row.ledger(),
+                "No runtime to record an abandoned metered request (rate limiting counter impacted)"
             );
             return;
         };
-        let usage = Arc::clone(&self.usage);
-        runtime.spawn(async move { write_usage_row(usage.as_ref(), &row).await });
-    }
-}
-
-/// Best-effort: a failed write is logged and the response still goes out.
-async fn write_usage_row(usage: &dyn UsageRepository, row: &ApiKeyUsage) {
-    if let Err(e) = usage.record_api_key(row).await {
-        warn!(
-            api_key_id = %row.api_key_id,
-            endpoint = %row.tool_name,
-            status = row.status_code,
-            error = %e,
-            "Failed to record api_key_usage (rate limiting counter and usage analytics impacted)"
-        );
+        let ledgers = self.ledgers.clone(); // Arc clones: the write outlives the request
+        runtime.spawn(async move { row.write(&ledgers).await });
     }
 }
 
@@ -303,8 +427,8 @@ fn route_label(request: &Request) -> String {
 ///
 /// Opens the request's slot, runs the rest of the stack inside it (Axum's
 /// `Next::run` awaits the handler and every extractor in this task), then
-/// writes the admitted API key's usage row with the response's status and
-/// latency, and inserts the `X-RateLimit-*` headers for the budget that
+/// writes the admitted API key's or A2A client's usage row with the
+/// response's status and latency, and inserts the `X-RateLimit-*` headers for the budget that
 /// decided the request. `insert` replaces, so a header another layer set is
 /// never duplicated. A request no budget decided (it never authenticated, or
 /// its credential was refused before any budget was read) gets no headers.
@@ -312,13 +436,13 @@ fn route_label(request: &Request) -> String {
 /// A panicking handler is recorded as a 500 and the panic resumed, so the
 /// panic layer outside still answers it.
 pub async fn request_budget_middleware(
-    State(usage): State<Arc<dyn UsageRepository>>,
+    State(ledgers): State<UsageLedgers>,
     request: Request,
     next: Next,
 ) -> Response {
     let slot = ReportSlot::default();
     let mut recorder = UsageRecorder {
-        usage,
+        ledgers,
         slot: Arc::clone(&slot),
         route: route_label(&request),
         received_at: Utc::now(),

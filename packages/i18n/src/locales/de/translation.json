@@ -28,6 +28,7 @@
     "createdBody": "Dein A2A-Client wurde erfolgreich registriert. Bewahre diese Zugangsdaten sicher auf — sie werden nicht erneut angezeigt.",
     "createdTitle": "A2A-Client erstellt!",
     "creating": "Wird erstellt…",
+    "dailyRequests": "Anfragen pro Tag",
     "deactivateTitle": "A2A-Client deaktivieren",
     "descriptionPlaceholder": "Beschreibe, was dein KI-Agent tut…",
     "descriptionRequired": "Beschreibung *",
@@ -36,12 +37,15 @@
     "secretShownOnce": "Client-Secret und API-Schlüssel werden nur einmal angezeigt, bei der Registrierung.",
     "emptyCta": "Erste App registrieren",
     "emptyTitle": "Noch keine verbundenen Apps",
+    "failedCount": "{{count}} fehlgeschlagen",
     "hideCredentials": "Zugangsdaten ausblenden",
     "lastRequest": "Letzte Anfrage:",
+    "limitWindow": "Zeitfenster:",
     "loadFailedBody": "Beim Laden deiner A2A-Clients ist ein Fehler aufgetreten.",
     "loadFailedTitle": "A2A-Clients konnten nicht geladen werden",
     "monthlyLimit": "Monatslimit:",
     "noToolUsage": "Noch keine Tool-Nutzung",
+    "noRequests": "Noch keine Anfragen",
     "rateLimits": "Ratenbegrenzungen",
     "redirectUrisOptional": "Redirect-URIs (optional)",
     "registerBlurb": "Erstelle einen Agent-zu-Agent-Protokoll-Client für die Kommunikation zwischen KI-Agenten.",
@@ -50,6 +54,7 @@
     "registerTitle": "A2A-Client registrieren",
     "registrationFailed": "Registrierung fehlgeschlagen",
     "remaining": "Verbleibend:",
+    "requestLimit": "Limit:",
     "resets": "Zurücksetzung:",
     "securityNoticeBody": "Bewahre diese Zugangsdaten sicher auf. Client-Secret und API-Schlüssel werden aus Sicherheitsgründen nicht erneut angezeigt.",
     "securityNoticeTitle": "Wichtiger Sicherheitshinweis",
@@ -1005,6 +1010,9 @@
     "renameConversation": "Unterhaltung umbenennen",
     "restDay": "Ruhe",
     "retry": "Erneut versuchen",
+    "roomEntryHidden": "Die Nachricht eines Mitglieds ist ausgeblendet: Teilen nicht aktiviert",
+    "roomReplyHidden": "Die Antwort des Agenten an ein Mitglied ist ausgeblendet: Teilen nicht aktiviert",
+    "roomReplyTo": "an {{name}}",
     "routeAlt": "Karte der aufgezeichneten Route",
     "routeAltTitled": "Karte der aufgezeichneten Route: {{title}}",
     "routeClimbCategory": "Kat. {{category}}",
@@ -2072,7 +2080,19 @@
     "channel_body": "🔔 {0}\n\n{1}",
     "daysAgo": "vor {{count}} T.",
     "digest": {
+      "athlete": {
+        "body": "{0} Benachrichtigung(en) zu {1} gemäß deinem Coaching-Profil zurückgehalten. Alles findest du in der App.",
+        "title": "Benachrichtigungsübersicht: {0}"
+      },
       "body": "{0} Benachrichtigung(en) diese Woche gemäß deinem Coaching-Profil zurückgehalten. Alles findest du in der App.",
+      "daily": {
+        "body": "{0} Benachrichtigung(en) in den letzten 24 Stunden gemäß deinem Coaching-Profil zurückgehalten. Alles findest du in der App.",
+        "title": "Deine tägliche Benachrichtigungsübersicht"
+      },
+      "session": {
+        "body": "{0} Benachrichtigung(en) seit deiner letzten Einheit gemäß deinem Coaching-Profil zurückgehalten. Alles findest du in der App.",
+        "title": "Deine Benachrichtigungsübersicht nach dem Training"
+      },
       "title": "Deine wöchentliche Benachrichtigungsübersicht"
     },
     "event": {

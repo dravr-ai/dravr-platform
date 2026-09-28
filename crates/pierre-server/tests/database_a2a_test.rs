@@ -11,17 +11,16 @@ use std::time::Duration;
 
 use chrono::Utc;
 use pierre_auth::api_keys::{ApiKey, ApiKeyTier};
+use pierre_auth::rate_limiting::a2a_client_window_start;
 use pierre_core::models::a2a::{A2APushNotificationConfig, A2AUsage};
-use pierre_core::models::CoachingPersona;
+use pierre_core::models::{CoachingPersona, WindowUsage};
 use pierre_core::models::{User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::test_utils::create_test_db;
 use pierre_database::RepositoryRegistry;
-use pierre_mcp_server::a2a::{
-    client::{A2AClient, A2ASession},
-    protocol::TaskStatus,
-};
+use pierre_mcp_server::a2a::{client::A2ASession, models::a2a::A2AClient, protocol::TaskStatus};
+use sha2::{Digest, Sha256};
 use tokio::time::sleep;
 use uuid::Uuid;
 
@@ -208,42 +207,65 @@ async fn test_a2a_client_round_trips_through_every_read() {
         );
     }
 
-    let (id, secret_hash) = repos
-        .a2a
-        .get_client_credentials(&client.id)
-        .await
-        .expect("get_client_credentials must not error")
-        .expect("credentials must exist");
-    assert_eq!(id, client.id);
+    let secret_hash = stored_secret_hash(&db, &client.id).await;
     assert_ne!(
         secret_hash, client.public_key,
         "the public key must never be the secret hash"
     );
+    assert_ne!(
+        secret_hash, "test_secret",
+        "the secret is never stored as given"
+    );
     assert_eq!(
-        secret_hash.len(),
-        64,
+        secret_hash,
+        format!("{:x}", Sha256::digest(b"test_secret")),
         "the secret is stored as its SHA-256 hex digest"
     );
 }
 
-/// The current-usage count is bounded by the client's own rate-limit
-/// window, not by a fixed hour: a request older than a 60-second window is
-/// not current.
+/// The secret digest stored on `client_id`'s row, read from the backend's
+/// own table rather than through the repository, which never hands it out.
+async fn stored_secret_hash(db: &Database, client_id: &str) -> String {
+    const SQL: &str = "SELECT client_secret_hash FROM a2a_clients WHERE client_id = $1";
+    let (hash,): (String,) = match db {
+        Database::SQLite(sqlite) => {
+            sqlx::query_as(SQL)
+                .bind(client_id)
+                .fetch_one(sqlite.pool())
+                .await
+        }
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(pg) => {
+            sqlx::query_as(SQL)
+                .bind(client_id)
+                .fetch_one(pg.pool())
+                .await
+        }
+    }
+    .expect("the client row carries its secret digest");
+    hash
+}
+
+/// The window read is bounded by the client's own rate-limit window, not by
+/// a fixed hour: a request older than a 60-second window is outside it, and
+/// the oldest call inside it is the instant the window's first slot frees.
 #[tokio::test]
-async fn test_a2a_current_usage_honours_the_client_window() {
+async fn test_a2a_window_usage_honours_the_client_window() {
     let db = create_test_db()
         .await
         .expect("Failed to create test database");
     let repos = db.repositories();
 
     let (client, _user_id, _api_key_id) = create_test_client_with_window(&repos, 60).await;
+    let now = Utc::now();
+    let inside = now - chrono::Duration::seconds(5);
 
-    for age in [chrono::Duration::minutes(5), chrono::Duration::seconds(5)] {
+    for at in [now - chrono::Duration::minutes(5), inside] {
         let usage = A2AUsage {
             id: None,
             client_id: client.id.clone(),
             session_token: None,
-            timestamp: Utc::now() - age,
+            timestamp: at,
             tool_name: "analyze".into(),
             request_size_bytes: None,
             response_size_bytes: None,
@@ -263,24 +285,35 @@ async fn test_a2a_current_usage_honours_the_client_window() {
             .expect("record_usage must succeed");
     }
 
-    let current = repos
+    let window_start = a2a_client_window_start(&client, now);
+    let window = repos
         .a2a
-        .get_client_current_usage(&client.id)
+        .get_client_window_usage(&client.id, window_start)
         .await
-        .expect("get_client_current_usage must not error");
+        .expect("get_client_window_usage must not error");
     assert_eq!(
-        current, 1,
-        "only the request inside the client's 60 s window is current"
+        window.count, 1,
+        "only the request inside the client's 60 s window counts"
+    );
+    let oldest = window
+        .oldest
+        .expect("a window with a call names its oldest");
+    assert!(
+        (oldest - inside).num_milliseconds().abs() < 1,
+        "the oldest call inside the window is {inside}, got {oldest}"
     );
 
-    let missing = repos
+    let unused = repos
         .a2a
-        .get_client_current_usage("no-such-client")
+        .get_client_window_usage("no-such-client", window_start)
         .await
-        .expect_err("an unknown client has no window to count in");
-    assert!(
-        missing.to_string().contains("no-such-client"),
-        "the error names the client: {missing}"
+        .expect("a client with no rows reads an empty window");
+    assert_eq!(
+        unused,
+        WindowUsage {
+            count: 0,
+            oldest: None
+        }
     );
 }
 
@@ -629,13 +662,14 @@ async fn test_a2a_usage_tracking() {
         .await
         .expect("Failed to record A2A usage");
 
-    // Check current usage
-    let current_usage = repos
+    // The call counts inside the client's rate-limit window
+    let window = repos
         .a2a
-        .get_client_current_usage(&client.id)
+        .get_client_window_usage(&client.id, a2a_client_window_start(&client, Utc::now()))
         .await
-        .expect("Failed to get current usage");
-    assert_eq!(current_usage, 1);
+        .expect("Failed to read the client's window");
+    assert_eq!(window.count, 1);
+    assert!(window.oldest.is_some());
 
     // Get usage stats
     let stats = repos
@@ -853,10 +887,10 @@ fn usage_at(client_id: &str, at: chrono::DateTime<Utc>, status_code: u16) -> A2A
     }
 }
 
-/// Usage history is one row per UTC calendar day, newest day first — the
-/// caller (`ClientManager::get_client_usage`) reads the first row as the
-/// last request — with a 2xx/3xx counted as a success and a 4xx/5xx as an
-/// error.
+/// Usage history is one row per UTC calendar day at or after `since`, newest
+/// day first — the daily breakdown `A2AClientManager::get_client_usage`
+/// serves — with a 2xx/3xx counted as a success and a 4xx/5xx as an error.
+/// A call before `since` is not counted.
 #[tokio::test]
 async fn test_a2a_usage_history_is_per_day_newest_first() {
     let db = create_test_db()
@@ -867,7 +901,14 @@ async fn test_a2a_usage_history_is_per_day_newest_first() {
     let (client, _user_id) = create_test_client(&repos).await;
     let now = Utc::now();
     let yesterday = now - chrono::Duration::days(1);
-    for (at, code) in [(yesterday, 200), (now, 200), (now, 302), (now, 500)] {
+    let last_week = now - chrono::Duration::days(8);
+    for (at, code) in [
+        (last_week, 200),
+        (yesterday, 200),
+        (now, 200),
+        (now, 302),
+        (now, 500),
+    ] {
         repos
             .a2a
             .record_usage(&usage_at(&client.id, at, code))
@@ -877,7 +918,7 @@ async fn test_a2a_usage_history_is_per_day_newest_first() {
 
     let history = repos
         .a2a
-        .get_client_usage_history(&client.id, 7)
+        .get_client_usage_history(&client.id, now - chrono::Duration::days(7))
         .await
         .expect("get_client_usage_history must not error");
     let days: Vec<(chrono::NaiveDate, u32, u32)> = history
@@ -887,7 +928,7 @@ async fn test_a2a_usage_history_is_per_day_newest_first() {
     assert_eq!(
         days,
         vec![(now.date_naive(), 2, 1), (yesterday.date_naive(), 1, 0)],
-        "two calendar days, today first, with today's 200 and 302 as successes and its 500 as an error"
+        "two calendar days, today first, with today's 200 and 302 as successes and its 500 as an error; the call before `since` is left out"
     );
     assert_eq!(
         history[0].0.time(),
@@ -935,4 +976,9 @@ async fn test_a2a_usage_stats_partition_on_the_400_boundary() {
     assert_eq!(stats.avg_response_time_ms, Some(100));
     assert_eq!(stats.total_request_bytes, Some(4 * 256));
     assert_eq!(stats.total_response_bytes, Some(4 * 512));
+    assert_eq!(
+        stats.last_request_at.map(|at| at.timestamp()),
+        Some(now.timestamp()),
+        "the latest request in the window"
+    );
 }

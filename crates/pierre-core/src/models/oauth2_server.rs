@@ -97,6 +97,9 @@ pub struct OAuth2AuthCode {
     pub code_challenge: Option<String>,
     /// PKCE code challenge method (plain or S256)
     pub code_challenge_method: Option<String>,
+    /// RFC 8707 resource the authorization was bound to — the audience of the
+    /// access token this code is exchanged for. `None` when the request named none.
+    pub resource: Option<String>,
 }
 
 /// OAuth 2.0 Refresh Token
@@ -122,6 +125,9 @@ pub struct OAuth2RefreshToken {
     /// exchange issues joins its predecessor's family, so presenting one that
     /// was already rotated out revokes the whole chain.
     pub family_id: String,
+    /// RFC 8707 resource the grant was bound to — every access token minted
+    /// from this refresh token carries it as its audience. `None` when unbound.
+    pub resource: Option<String>,
 }
 
 /// OAuth 2.0 State for CSRF Protection

@@ -1441,7 +1441,7 @@ dependencies = [
 [[package]]
 name = "dravr-contremaitre"
 version = "0.1.0"
-source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=3271d50e736ff28c4a10dad75f2d899afa536318#3271d50e736ff28c4a10dad75f2d899afa536318"
+source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=55a66ff62695a00cb2ed2675090dfdaa985cbf93#55a66ff62695a00cb2ed2675090dfdaa985cbf93"
 
 [[package]]
 name = "dravr-enforme"
@@ -4107,7 +4107,6 @@ name = "pierre-routes-a2a"
 version = "0.3.0"
 dependencies = [
  "axum",
- "chrono",
  "pierre-a2a",
  "pierre-auth",
  "pierre-core",

@@ -116,6 +116,7 @@ async fn authorize(database: &Database, client_id: &str) -> DateTime<Utc> {
         created_at: issued_at,
         revoked: false,
         family_id: "test-family".to_owned(),
+        resource: None,
     };
     database
         .repositories()
@@ -146,6 +147,7 @@ async fn issue_dependents(database: &Database, client_id: &str) {
             state: None,
             code_challenge: None,
             code_challenge_method: None,
+            resource: None,
         })
         .await
         .unwrap();

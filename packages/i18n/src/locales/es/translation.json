@@ -28,6 +28,7 @@
     "createdBody": "Tu cliente A2A se ha registrado correctamente. Guarda estas credenciales en un lugar seguro: no volverán a mostrarse.",
     "createdTitle": "¡Cliente A2A creado!",
     "creating": "Creando…",
+    "dailyRequests": "Solicitudes por día",
     "deactivateTitle": "Desactivar el cliente A2A",
     "descriptionPlaceholder": "Describe lo que hace tu agente de IA…",
     "descriptionRequired": "Descripción *",
@@ -36,12 +37,15 @@
     "secretShownOnce": "El secreto de cliente y la clave API se muestran una sola vez, al registrarse.",
     "emptyCta": "Registrar tu primera app",
     "emptyTitle": "Aún no hay apps conectadas",
+    "failedCount": "{{count}} con error",
     "hideCredentials": "Ocultar credenciales",
     "lastRequest": "Última solicitud:",
+    "limitWindow": "Ventana:",
     "loadFailedBody": "Se produjo un error al cargar tus clientes A2A.",
     "loadFailedTitle": "No se pudieron cargar los clientes A2A",
     "monthlyLimit": "Límite mensual:",
     "noToolUsage": "Aún no hay uso de herramientas",
+    "noRequests": "Aún no hay solicitudes",
     "rateLimits": "Límites de tasa",
     "redirectUrisOptional": "URI de redirección (opcional)",
     "registerBlurb": "Crea un cliente del protocolo agente a agente para la comunicación entre agentes de IA.",
@@ -50,6 +54,7 @@
     "registerTitle": "Registrar un cliente A2A",
     "registrationFailed": "Registro fallido",
     "remaining": "Restante:",
+    "requestLimit": "Límite:",
     "resets": "Se reinicia:",
     "securityNoticeBody": "Guarda estas credenciales de forma segura. El secreto de cliente y la clave de API no volverán a mostrarse por motivos de seguridad.",
     "securityNoticeTitle": "Aviso de seguridad importante",
@@ -1005,6 +1010,9 @@
     "renameConversation": "Renombrar la conversación",
     "restDay": "Descanso",
     "retry": "Reintentar",
+    "roomEntryHidden": "El mensaje de un miembro está oculto: compartir no activado",
+    "roomReplyHidden": "La respuesta del agente a un miembro está oculta: compartir no activado",
+    "roomReplyTo": "para {{name}}",
     "routeAlt": "Mapa de la ruta registrada",
     "routeAltTitled": "Mapa de la ruta registrada: {{title}}",
     "routeClimbCategory": "Cat. {{category}}",
@@ -2072,7 +2080,19 @@
     "channel_body": "🔔 {0}\n\n{1}",
     "daysAgo": "hace {{count}} d",
     "digest": {
+      "athlete": {
+        "body": "{0} notificación(es) sobre {1} guardadas según tu perfil de coaching. Todo está en la app.",
+        "title": "Resumen de notificaciones: {0}"
+      },
       "body": "{0} notificación(es) guardadas esta semana según tu perfil de coaching. Todo está en la app.",
+      "daily": {
+        "body": "{0} notificación(es) guardadas en las últimas 24 horas según tu perfil de coaching. Todo está en la app.",
+        "title": "Tu resumen diario de notificaciones"
+      },
+      "session": {
+        "body": "{0} notificación(es) guardadas desde tu última sesión según tu perfil de coaching. Todo está en la app.",
+        "title": "Tu resumen de notificaciones tras la sesión"
+      },
       "title": "Tu resumen semanal de notificaciones"
     },
     "event": {

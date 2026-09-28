@@ -633,7 +633,79 @@ export function MessageList({
     }
   };
 
+  /**
+   * A row a group thread shows from the room that is not the caller's own:
+   * another member's words under their name, the agent's reply to them, or a
+   * placeholder where the author's sharing consent withholds an entry.
+   *
+   * It has no menu. Rating, retry and copy act on a row of the caller's own
+   * conversation, and a room row is not one.
+   */
+  const renderRoomRow = (
+    item: Message,
+    room: NonNullable<Message['room']>,
+    groupStart: boolean,
+    clock: string,
+  ) => {
+    const spacing = groupStart ? 'mt-3' : 'mt-1';
+    const time = clock ? (
+      <Text className="text-xs text-text-tertiary mt-1" testID="message-time">
+        {clock}
+      </Text>
+    ) : null;
+
+    if (room.withheld) {
+      // Its place in the room, naming no one — never a silent gap.
+      return (
+        <View testID="room-entry-withheld" className={`${spacing} w-full`}>
+          <Text className="text-sm italic text-text-tertiary">
+            {t(room.speaker === 'coach' ? 'chat.roomReplyHidden' : 'chat.roomEntryHidden')}
+          </Text>
+          {time}
+        </View>
+      );
+    }
+
+    const name = room.author_name ?? room.author_user_id ?? '';
+    if (room.speaker === 'member') {
+      // Another member's words, shown as typed, on the room's side of the
+      // thread under their name.
+      return (
+        <View testID="room-entry-member" className={`${spacing} items-start`}>
+          {groupStart ? (
+            <Text className="text-xs font-semibold text-text-secondary mb-1">{name}</Text>
+          ) : null}
+          <View className="max-w-[85%] rounded-[18px] rounded-bl-[4px] px-3 py-2 bg-surface-container-high">
+            <Text className="text-base leading-6 text-text-primary">{item.content}</Text>
+          </View>
+          {time}
+        </View>
+      );
+    }
+
+    // The coach's reply to another member, as the coach's own turns read.
+    const rows = (verdicts ?? []).filter((verdict) => verdict.message_id === item.id);
+    const blocks = transcriptBlocks(item, rows);
+    const sceneBlock = blocks.find((block) => block.type === 'scene');
+    const scenes = sceneBlock?.type === 'scene' ? parseSceneBlocks(sceneBlock.scene_blocks) : [];
+    const context = { isUser: false, messageId: item.id, scenes, rows };
+    return (
+      <View testID="room-entry-coach" className={`${spacing} w-full`}>
+        {groupStart ? (
+          <Text className="text-xs font-semibold text-text-secondary mb-1">
+            {t('chat.roomReplyTo', { name })}
+          </Text>
+        ) : null}
+        {blocks.map((block, index) => renderBlock(block, index, context))}
+        {time}
+      </View>
+    );
+  };
+
   const renderMessage = (item: Message, groupStart: boolean) => {
+    const clock = item.created_at ? formatMessageTime(item.created_at, language) : '';
+    if (item.room && !item.room.own) return renderRoomRow(item, item.room, groupStart, clock);
+
     const isUser = item.role === 'user';
     const isError = item.isError === true;
     const rows = (verdicts ?? []).filter((verdict) => verdict.message_id === item.id);
@@ -649,8 +721,6 @@ export function MessageList({
     // markers this surface turns into charts; pasted anywhere else they are a
     // token that means nothing, so each becomes a line naming its chart.
     const readableCopy = copyableText(item.content, scenes, t);
-
-    const clock = item.created_at ? formatMessageTime(item.created_at, language) : '';
 
     return (
       <View
@@ -708,12 +778,15 @@ export function MessageList({
           /* The coach's turn — full width, no bubble, prose then the clock.
              Copy, share, the two ratings and retry live behind a long press,
              presented by the platform's own menu; nothing but the time sits
-             under the prose. */
+             under the prose. A reply the room holds for the caller outside
+             this conversation — one given in another of their threads of the
+             group — is no row of this conversation, so it has no menu: rating
+             and retry act on this conversation's rows only. */
           <Pressable
             testID={`message-turn-${item.id}`}
             className="w-full"
             delayLongPress={300}
-            onLongPress={() =>
+            onLongPress={item.room ? undefined : () =>
               presentMessageMenu(
                 {
                   canRetry: true,

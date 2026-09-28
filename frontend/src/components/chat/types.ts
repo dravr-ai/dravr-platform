@@ -4,7 +4,13 @@
 // ABOUTME: Shared types for chat components
 // ABOUTME: Centralizes type definitions used across chat-related components
 
-import type { Conversation, Agent, MessageActions, MessageRole } from '@pierre/shared-types';
+import type {
+  Conversation,
+  Agent,
+  MessageActions,
+  MessageRole,
+  RoomAttribution,
+} from '@pierre/shared-types';
 
 export interface Message {
   id: string;
@@ -29,6 +35,12 @@ export interface Message {
    */
   actions?: MessageActions;
   isError?: boolean;
+  /**
+   * Set on a row a group thread shows from the room — another member's words,
+   * the agent's reply to them, or a placeholder for an entry the author's
+   * sharing consent withholds. Absent on the caller's own rows.
+   */
+  room?: RoomAttribution;
 }
 
 export interface ConversationListResponse {

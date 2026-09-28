@@ -223,6 +223,12 @@ fn validate_required_environment() -> Result<()> {
             description: "Public base URL of this server (e.g. https://app.pierre.ai). Used to construct hosted-login URLs for channel-initiated provider connections. Falls back to http://localhost:8081 for local development.",
         },
         EnvValidation {
+            name: "MCP_RESOURCE_URL",
+            value: env::var("MCP_RESOURCE_URL").ok(),
+            required: false,
+            description: "Origin MCP clients dial for /mcp (e.g. https://mcp.dravr.ai), with no path. Published as `resource` in /.well-known/oauth-protected-resource, used for the resource_metadata URL of every /mcp 401 challenge, and the only RFC 8707 `resource` the OAuth authorize and token endpoints accept and bind tokens to. Defaults to BASE_URL.",
+        },
+        EnvValidation {
             name: "PROVIDER_LINK_WEBHOOK_URL",
             value: env::var("PROVIDER_LINK_WEBHOOK_URL").ok(),
             required: false,
@@ -1015,22 +1021,17 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         );
     }
 
-    // Start the persona notification digest scheduler (weekly cadence). Rolls
-    // the notifications the armed persona policy withheld from push into one
-    // localized digest per user; unarmed users produce nothing, so this is
+    // Start the persona notification digest scheduler (daily tick). Returns
+    // the notifications the armed persona policy withheld from push as
+    // localized digests on each user's daily, weekly or per-athlete cadence;
+    // the per-session digest goes out when a training session lands, from the
+    // activity-cache write-through. Unarmed users produce nothing, so this is
     // inert while the policy ships in shadow mode.
     #[cfg(feature = "client-notifications")]
     if let Some(notification_service) = resources.common.notification_service.clone() {
-        use pierre_notifications::PersonaPolicyGate;
         use pierre_services::notification_digest_scheduler::start_persona_digest_scheduler;
-        use pierre_services::persona_notification_policy_gate::PersonaNotificationPolicyGate;
-        let gate: Arc<dyn PersonaPolicyGate> = Arc::new(PersonaNotificationPolicyGate::new(
-            Arc::clone(&resources.common.repos),
-            Arc::clone(&resources.fitness.persona_contract_registry),
-        ));
         start_persona_digest_scheduler(
             Arc::clone(&resources.common.repos),
-            gate,
             notification_service,
             Arc::clone(&resources.mcp.messaging_strings_registry),
         );

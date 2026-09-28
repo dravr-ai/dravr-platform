@@ -64,22 +64,21 @@ describe('a2aApi', () => {
   })
 
   describe('getA2AClientUsage', () => {
-    it('should fetch client usage without dates', async () => {
-      mockAxios.get.mockResolvedValue({ data: { total: 100 } })
+    it('should fetch the client usage the route counts', async () => {
+      const usage = {
+        client_id: 'client-1',
+        requests_today: 3,
+        requests_this_month: 40,
+        total_requests: 52,
+        last_request_at: '2026-09-28T09:15:00Z',
+        daily_usage: [{ date: '2026-09-28', success_count: 2, error_count: 1 }],
+      }
+      mockAxios.get.mockResolvedValue({ data: usage })
 
-      await a2aApi.getA2AClientUsage('client-1')
+      const result = await a2aApi.getA2AClientUsage('client-1')
 
-      expect(mockAxios.get).toHaveBeenCalledWith('/a2a/clients/client-1/usage?')
-    })
-
-    it('should fetch client usage with date range', async () => {
-      mockAxios.get.mockResolvedValue({ data: { total: 50 } })
-
-      await a2aApi.getA2AClientUsage('client-1', '2026-01-01', '2026-02-01')
-
-      expect(mockAxios.get).toHaveBeenCalledWith(
-        '/a2a/clients/client-1/usage?start_date=2026-01-01&end_date=2026-02-01'
-      )
+      expect(mockAxios.get).toHaveBeenCalledWith('/a2a/clients/client-1/usage')
+      expect(result).toEqual(usage)
     })
   })
 })

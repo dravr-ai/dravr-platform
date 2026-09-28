@@ -148,12 +148,16 @@ const ALL_CHANNELS: [ChannelType; 5] = [
 
 /// GET /api/messaging/channels/available
 ///
-/// Secret-free list of channels the tenant has configured and enabled, for the
-/// onboarding channel-picker. Reads only each config's `is_active` flag and never
-/// returns credentials — unlike `list_channel_configs`, which is the admin
-/// surface. Requires a valid session.
+/// Secret-free list of channels the caller can connect to, for the onboarding
+/// channel-picker and Settings. Reads only each config's `is_active` flag and
+/// the presence of its linking credentials, and never returns credentials —
+/// unlike `list_channel_configs`, which is the admin surface. Requires a valid
+/// session.
 ///
-/// LIMITATION(registre#439): `list_available_channels` reads configs under the caller's tenant; the env-seeded bot config exists only under the admin's tenant.
+/// Each channel's config is the one that serves the caller's tenant, per
+/// `MessagingRepository::resolve_channel_config`: the tenant's own bot when it
+/// configured one, otherwise the deployment's platform-scope bot. An athlete in
+/// a personal tenant is offered the deployment bot the same way an admin is.
 ///
 /// # Errors
 ///
@@ -170,11 +174,12 @@ pub async fn list_available_channels(
     let mut available = Vec::new();
     for channel in ALL_CHANNELS {
         let channel_str = channel.to_string();
-        // Connectable = the tenant has a config row that is not explicitly
-        // disabled. `get_channel_config` serializes the stored flag as `is_active`
-        // (the write side maps the request's `enabled` onto it); we read ONLY that
-        // scalar flag — never any secret field.
-        let Some(config) = db.get_channel_config(tenant_id, &channel_str).await? else {
+        // Connectable = a config serves this tenant and is not explicitly
+        // disabled. The config JSON carries the stored flag as `is_active` (the
+        // write side maps the request's `enabled` onto it); we read ONLY that
+        // scalar flag — never any secret field. A tenant's own disabled config
+        // withholds the channel: its operator turned it off.
+        let Some(config) = db.resolve_channel_config(tenant_id, &channel_str).await? else {
             continue;
         };
         let is_active = config

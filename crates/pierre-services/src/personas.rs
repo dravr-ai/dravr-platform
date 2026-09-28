@@ -208,12 +208,12 @@ const fn summary_key(persona: CoachingPersona) -> &'static str {
 /// contract itself pins an acronym rule, which covers a source document
 /// that predates the glossary.
 ///
-/// Deliberately not rendered: `notification` (its weekly digest ships
-/// dark behind the persona-notification-policy feature key, and the
-/// remaining cadences are registered under registre#7 — a card must not
-/// advertise a cadence until it delivers), `inherits` (already flattened away by the
-/// registry), and `framework_allowlist` (only meaningful through the
-/// citations-required rule it parameterizes).
+/// Deliberately not rendered: `notification` (its tier floor and digests
+/// ship dark behind the persona-notification-policy feature key, which is
+/// off by default — a card must not advertise a cadence the athlete is not
+/// receiving), `inherits` (already flattened away by the registry), and
+/// `framework_allowlist` (only meaningful through the citations-required
+/// rule it parameterizes).
 fn render_rules(
     contract: &PersonaContract,
     snapshot: &PersonaContractsSnapshot,

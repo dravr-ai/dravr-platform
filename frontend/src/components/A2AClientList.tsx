@@ -9,7 +9,7 @@ import { Button, Section, Badge, StatusIndicator, StatusFilter, ConfirmDialog } 
 import type { StatusFilterValue } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useTranslation } from '@pierre/i18n';
-import { formatDate } from '@pierre/chat-utils';
+import { formatDate, formatDateTime } from '@pierre/chat-utils';
 /**
  * How long ago `date` was, in the athlete's language.
  *
@@ -29,6 +29,18 @@ const formatDistanceToNow = (date: Date, language: string): string => {
   const days = Math.round(elapsedMs / 86_400_000);
   if (Math.abs(days) < 1) return relative.format(hours, 'hour');
   return relative.format(days, 'day');
+};
+
+/**
+ * A rate-limit window's length in the athlete's language — "1 hour",
+ * "15 minutes" — in the largest unit that divides it exactly.
+ */
+const formatWindow = (seconds: number, language: string): string => {
+  const [value, unit] =
+    seconds % 3600 === 0 ? [seconds / 3600, 'hour']
+    : seconds % 60 === 0 ? [seconds / 60, 'minute']
+    : [seconds, 'second'];
+  return new Intl.NumberFormat(language, { style: 'unit', unit, unitDisplay: 'long' }).format(value);
 };
 
 interface A2AClientListProps {
@@ -87,21 +99,6 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
         return allClients;
     }
   }, [allClients, statusFilter]);
-
-  const getTierBadgeColor = (tier: string) => {
-    switch (tier.toLowerCase()) {
-      case 'trial':
-        return 'bg-nutrition/20 text-on-nutrition-container border border-nutrition/30';
-      case 'standard':
-        return 'bg-primary-container text-on-primary-container border border-primary/20';
-      case 'professional':
-        return 'bg-activity/20 text-on-activity-container border border-activity/30';
-      case 'enterprise':
-        return 'bg-primary/20 text-primary border border-primary/30';
-      default:
-        return 'bg-surface-container-high text-on-surface-variant border ghost-border';
-    }
-  };
 
   const getCapabilityBadgeColor = (capability: string) => {
     const colorMap: { [key: string]: string } = {
@@ -314,54 +311,58 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
               <h4 className="text-sm font-medium text-on-surface mb-2">{t('a2a.rateLimits')}</h4>
               <div className="space-y-2">
                 <div className="flex justify-between">
-                  <span className="text-on-surface-variant">{t('a2a.tier')}</span>
-                  <Badge variant="info" className={getTierBadgeColor(clientRateLimit?.tier || 'trial')}>
-                    {clientRateLimit?.tier || t('a2a.tierTrial')}
-                  </Badge>
+                  <span className="text-on-surface-variant">{t('a2a.requestLimit')}</span>
+                  <span className="font-medium text-on-surface">{clientRateLimit.rate_limit_requests.toLocaleString()}</span>
                 </div>
-                {clientRateLimit?.limit && (
-                  <>
-                    <div className="flex justify-between">
-                      <span className="text-on-surface-variant">{t('a2a.monthlyLimit')}</span>
-                      <span className="font-medium text-on-surface">{clientRateLimit.limit.toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-on-surface-variant">{t('a2a.remaining')}</span>
-                      <span className={`font-medium ${
-                        clientRateLimit.remaining && clientRateLimit.remaining < clientRateLimit.limit * 0.1
-                          ? 'text-error'
-                          : 'text-activity'
-                      }`}>
-                        {clientRateLimit.remaining?.toLocaleString() || 0}
-                      </span>
-                    </div>
-                    {clientRateLimit.reset_at && (
-                      <div className="flex justify-between">
-                        <span className="text-on-surface-variant">{t('a2a.resets')}</span>
-                        <span className="font-medium text-on-surface">
-                          {formatDate(clientRateLimit.reset_at, language)}
-                        </span>
-                      </div>
-                    )}
-                  </>
-                )}
+                <div className="flex justify-between">
+                  <span className="text-on-surface-variant">{t('a2a.limitWindow')}</span>
+                  <span className="font-medium text-on-surface">
+                    {formatWindow(clientRateLimit.rate_limit_window_seconds, language)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-on-surface-variant">{t('a2a.remaining')}</span>
+                  <span className={`font-medium ${
+                    clientRateLimit.is_rate_limited
+                      || clientRateLimit.remaining < clientRateLimit.rate_limit_requests * 0.1
+                      ? 'text-error'
+                      : 'text-activity'
+                  }`}>
+                    {clientRateLimit.remaining.toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-on-surface-variant">{t('a2a.resets')}</span>
+                  <span className="font-medium text-on-surface">
+                    {formatDateTime(clientRateLimit.reset_at, language)}
+                  </span>
+                </div>
               </div>
             </div>
 
-            {/* Tool Usage */}
+            {/* Daily Requests */}
             <div>
-              <h4 className="text-sm font-medium text-on-surface mb-2">{t('a2a.topTools')}</h4>
-              <div className="space-y-2">
-                {clientUsage?.tool_usage_breakdown?.slice(0, 3).map((tool: { tool_name: string; usage_count: number }) => (
-                  <div key={tool.tool_name} className="flex justify-between">
-                    <span className="text-on-surface-variant truncate">{tool.tool_name}:</span>
-                    <span className="font-medium text-on-surface">{tool.usage_count}</span>
-                  </div>
-                ))}
-                {(!clientUsage?.tool_usage_breakdown || clientUsage.tool_usage_breakdown.length === 0) && (
-                  <div className="text-outline text-sm">{t('a2a.noToolUsage')}</div>
-                )}
-              </div>
+              <h4 className="text-sm font-medium text-on-surface mb-2">{t('a2a.dailyRequests')}</h4>
+              {clientUsage.daily_usage.length === 0 ? (
+                <div className="text-outline text-sm">{t('a2a.noRequests')}</div>
+              ) : (
+                <ul className="space-y-2" aria-label={t('a2a.dailyRequests')}>
+                  {clientUsage.daily_usage.map((day) => (
+                    <li key={day.date} className="flex justify-between gap-2">
+                      <span className="text-on-surface-variant">{formatDate(day.date, language, 'UTC')}</span>
+                      <span className="font-medium text-on-surface">
+                        {(day.success_count + day.error_count).toLocaleString()}
+                        {day.error_count > 0 && (
+                          <span className="text-error font-normal">
+                            {' · '}
+                            {t('a2a.failedCount', { count: day.error_count })}
+                          </span>
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         </Section>

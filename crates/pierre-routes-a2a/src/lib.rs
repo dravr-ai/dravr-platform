@@ -43,10 +43,10 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use chrono::Utc;
 use pierre_a2a::{
     agent_card::AgentCard,
     client::{A2AClientManager, ClientRegistrationRequest},
+    A2AError,
 };
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::AppError;
@@ -113,8 +113,8 @@ pub struct A2ARoutesState<C: MiddlewareCtx + A2ACtx> {
     /// MCP auth middleware — admits a user JWT on the protocol routes
     /// (account status, request budget, usage row, budget report).
     pub auth_middleware: Arc<McpAuthMiddleware>,
-    /// Tool runtime — backs the universal tool executor used by the
-    /// JSON-RPC `tools.execute` dispatch path in [`service::A2ARoutes`].
+    /// Tool runtime — backs the universal tool executor the protocol
+    /// bindings hand to the A2A server for tool-intent messages.
     pub tool_runtime: Arc<dyn ToolRuntime>,
 }
 
@@ -414,7 +414,7 @@ impl A2ARoutes {
             .await
             .map_err(|e| {
                 error!(error = %e, "Failed to register A2A client");
-                AppError::internal(format!("Failed to register A2A client: {e}"))
+                management_error(e, "Failed to register A2A client")
             })?;
 
         let response = CreateA2AClientResponse {
@@ -528,26 +528,20 @@ impl A2ARoutes {
             return Err(AppError::not_found(format!("A2A client {client_id}")));
         }
 
-        // Get current usage count
-        let current_usage = A2ACtx::repos(state.ctx.as_ref())
-            .a2a
-            .get_client_current_usage(&client_id)
+        let usage = state
+            .client_manager
+            .get_client_usage(&client.id)
             .await
-            .unwrap_or(0);
+            .map_err(|e| {
+                error!(error = %e, client_id = %client.id, "Failed to read A2A client usage");
+                AppError::internal(format!("Failed to read A2A client usage: {e}"))
+            })?;
 
-        Ok((
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "client_id": client_id,
-                "total_requests": current_usage,
-                "requests_today": 0,
-                "daily_usage": []
-            })),
-        )
-            .into_response())
+        Ok((StatusCode::OK, Json(usage)).into_response())
     }
 
-    /// Get A2A client rate limit status
+    /// Get A2A client rate limit status: the budget a client-credentials
+    /// call from the client spends and is refused on
     async fn handle_client_rate_limit<C: MiddlewareCtx + A2ACtx>(
         State(state): State<A2ARoutesState<C>>,
         auth: A2AAuth,
@@ -567,26 +561,25 @@ impl A2ARoutes {
             return Err(AppError::not_found(format!("A2A client {client_id}")));
         }
 
-        let current_usage = A2ACtx::repos(state.ctx.as_ref())
-            .a2a
-            .get_client_current_usage(&client_id)
+        let status = state
+            .client_manager
+            .get_client_rate_limit_status(&client.id)
             .await
-            .unwrap_or(0);
+            .map_err(|e| {
+                error!(error = %e, client_id = %client.id, "Failed to read A2A client rate limit");
+                AppError::internal(format!("Failed to read A2A client rate limit: {e}"))
+            })?;
 
-        let limit = client.rate_limit_requests;
-        let remaining = limit.saturating_sub(current_usage);
+        Ok((StatusCode::OK, Json(status)).into_response())
+    }
+}
 
-        Ok((
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "client_id": client_id,
-                "rate_limit_requests": limit,
-                "rate_limit_window_seconds": client.rate_limit_window_seconds,
-                "current_usage": current_usage,
-                "remaining": remaining,
-                "reset_at": Utc::now().to_rfc3339()
-            })),
-        )
-            .into_response())
+/// The response a client-manager failure answers a management route with:
+/// a request the manager refused as invalid is the caller's 400, anything
+/// else is the server's 500 under `context`.
+fn management_error(error: A2AError, context: &str) -> AppError {
+    match error {
+        A2AError::InvalidRequest(message) => AppError::invalid_input(message),
+        other => AppError::internal(format!("{context}: {other}")),
     }
 }

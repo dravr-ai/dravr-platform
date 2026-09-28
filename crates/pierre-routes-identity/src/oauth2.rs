@@ -31,7 +31,7 @@ use pierre_auth::oauth2_server::{
 use pierre_auth::password::verify_password;
 use pierre_auth::rate_limiting::OAuth2Endpoint;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::html::{escape_html_attribute, with_hosted_page_css};
+use pierre_core::html::with_hosted_page_css;
 use pierre_core::models::OAuthClientGrant;
 use pierre_database::backends::{factory::Database, OAuth2ServerRepository};
 use pierre_database::database::repositories::{TenantRepository, UserRepository};
@@ -43,6 +43,11 @@ use tracing::{debug, error, info, trace, warn};
 
 use crate::authorize_redirect::{code_redirect, error_redirect, rejection_response};
 use crate::oauth2_rate_limited::{page_refusal, refusal};
+
+/// Server-rendered login, consent and error pages of the authorization flow
+mod pages;
+
+pub use pages::{ConsentHtmlParams, LoginHtmlParams};
 
 /// OAuth 2.0 server context shared across all handlers
 #[derive(Clone)]
@@ -72,48 +77,6 @@ pub struct OAuth2Context {
 
 /// OAuth 2.0 routes implementation
 pub struct OAuth2Routes;
-
-/// Parameters for generating OAuth login HTML
-#[derive(Clone, Copy)]
-pub struct LoginHtmlParams<'a> {
-    /// OAuth client identifier
-    pub client_id: &'a str,
-    /// OAuth redirect URI after authorization
-    pub redirect_uri: &'a str,
-    /// OAuth response type (typically "code")
-    pub response_type: &'a str,
-    /// OAuth state parameter for CSRF protection
-    pub state: &'a str,
-    /// OAuth scope for requested permissions
-    pub scope: &'a str,
-    /// PKCE code challenge
-    pub code_challenge: &'a str,
-    /// PKCE code challenge method (e.g., "S256")
-    pub code_challenge_method: &'a str,
-    /// Default email to pre-fill in login form (dev/test only)
-    pub default_email: &'a str,
-    /// Default password to pre-fill in login form (dev/test only)
-    pub default_password: &'a str,
-}
-
-/// Parameters for rendering the OAuth consent page.
-#[derive(Clone, Copy)]
-pub struct ConsentHtmlParams<'a> {
-    /// OAuth client identifier requesting access
-    pub client_id: &'a str,
-    /// OAuth redirect URI after authorization
-    pub redirect_uri: &'a str,
-    /// OAuth response type (typically "code")
-    pub response_type: &'a str,
-    /// OAuth state parameter for CSRF protection
-    pub state: &'a str,
-    /// OAuth scope being consented to
-    pub scope: &'a str,
-    /// PKCE code challenge
-    pub code_challenge: &'a str,
-    /// PKCE code challenge method (e.g., "S256")
-    pub code_challenge_method: &'a str,
-}
 
 impl OAuth2Routes {
     /// Create all OAuth 2.0 routes with context
@@ -187,19 +150,21 @@ impl OAuth2Routes {
     ///
     /// The MCP authorization spec requires a protected MCP server to act as an OAuth 2.1 resource
     /// server publishing this document, so a client can find the authorization server after a 401;
-    /// `/mcp` 401s point here. Pierre hosts its own, so both fields resolve to the issuer base URL.
-    ///
-    /// LIMITATION(registre#484): `resource` is the issuer, so this document is correct for
-    /// one hostname only — a client dialling a second name must reject it (RFC 9728 §3.3).
+    /// `/mcp` 401s point here. `resource` is the MCP resource identifier (`MCP_RESOURCE_URL`,
+    /// defaulting to `BASE_URL`) — the origin clients dial, which RFC 9728 §3.3 has them compare
+    /// against this value — and `authorization_servers` names the issuer, which may be another
+    /// host. The same identifier is the one `resource` parameter the authorize and token
+    /// endpoints accept (RFC 8707), and the audience of the tokens they bind to it.
     async fn handle_protected_resource_metadata(
         State(context): State<OAuth2Context>,
     ) -> Json<serde_json::Value> {
         let issuer_url = context.config.issuer_url.clone();
+        let resource_url = context.config.mcp_resource_url.clone();
 
         // Use spawn_blocking for JSON serialization (CPU-bound operation)
         let metadata_json = spawn_blocking(move || {
             serde_json::json!({
-                "resource": issuer_url,
+                "resource": resource_url,
                 "authorization_servers": [issuer_url],
                 "jwks_uri": format!("{issuer_url}/.well-known/jwks.json"),
                 "scopes_supported": OAuth2AuthorizationServer::supported_scopes(),
@@ -377,20 +342,6 @@ impl OAuth2Routes {
         Self::render_consent_page(&request)
     }
 
-    /// Render the consent screen for a not-yet-granted authorization request.
-    fn render_consent_page(request: &AuthorizeRequest) -> Response {
-        let html = Self::generate_consent_html(ConsentHtmlParams {
-            client_id: &request.client_id,
-            redirect_uri: &request.redirect_uri,
-            response_type: &request.response_type,
-            state: request.state.as_deref().unwrap_or_default(),
-            scope: request.scope.as_deref().unwrap_or_default(),
-            code_challenge: request.code_challenge.as_deref().unwrap_or_default(),
-            code_challenge_method: request.code_challenge_method.as_deref().unwrap_or_default(),
-        });
-        Html(html).into_response()
-    }
-
     /// Resolve the tenant used to key an OAuth client grant.
     ///
     /// Uses the tenant from the session claims when present, otherwise the user's
@@ -412,8 +363,8 @@ impl OAuth2Routes {
             .and_then(|tenants| tenants.first().map(|t| t.id.to_string()))
     }
 
-    /// The authorization server the authorize and consent routes check and
-    /// mint through.
+    /// The authorization server every route checks, mints and validates
+    /// through, serving the configured MCP resource.
     fn authorization_server(context: &OAuth2Context) -> OAuth2AuthorizationServer {
         OAuth2AuthorizationServer::new(
             context.oauth2_server.clone(),
@@ -422,6 +373,7 @@ impl OAuth2Routes {
             context.auth_manager.clone(),
             context.jwks_manager.clone(),
             context.refresh_token_expiry_days,
+            context.config.mcp_resource_url.clone(),
         )
     }
 
@@ -702,6 +654,7 @@ impl OAuth2Routes {
             &headers,
             &context.auth_manager,
             &context.jwks_manager,
+            &context.config.mcp_resource_url,
         ) {
             Ok(valid) => valid,
             Err(response) => return *response,
@@ -717,89 +670,6 @@ impl OAuth2Routes {
         } else {
             Self::validation_missing_credentials_response()
         }
-    }
-
-    /// Generate OAuth login page HTML
-    #[must_use]
-    pub fn generate_login_html(params: LoginHtmlParams<'_>) -> String {
-        // Use embedded template - zero filesystem IO, guaranteed to exist at compile-time
-        let displayed_scope = if params.scope.is_empty() {
-            OAuth2AuthorizationServer::default_scope_display()
-        } else {
-            params.scope.to_owned()
-        };
-
-        with_hosted_page_css(Self::OAUTH_LOGIN_TEMPLATE)
-            .replace("{{CLIENT_ID}}", &escape_html_attribute(params.client_id))
-            .replace(
-                "{{REDIRECT_URI}}",
-                &escape_html_attribute(params.redirect_uri),
-            )
-            .replace(
-                "{{RESPONSE_TYPE}}",
-                &escape_html_attribute(params.response_type),
-            )
-            .replace("{{STATE}}", &escape_html_attribute(params.state))
-            .replace("{{SCOPE}}", &escape_html_attribute(&displayed_scope))
-            .replace(
-                "{{CODE_CHALLENGE}}",
-                &escape_html_attribute(params.code_challenge),
-            )
-            .replace(
-                "{{CODE_CHALLENGE_METHOD}}",
-                &escape_html_attribute(params.code_challenge_method),
-            )
-            .replace(
-                "{{DEFAULT_EMAIL}}",
-                &escape_html_attribute(params.default_email),
-            )
-            .replace(
-                "{{DEFAULT_PASSWORD}}",
-                &escape_html_attribute(params.default_password),
-            )
-    }
-
-    /// Render the OAuth consent page for a client requesting access.
-    #[must_use]
-    pub fn generate_consent_html(params: ConsentHtmlParams<'_>) -> String {
-        use std::fmt::Write;
-
-        let displayed_scope = if params.scope.is_empty() {
-            OAuth2AuthorizationServer::default_scope_display()
-        } else {
-            params.scope.to_owned()
-        };
-        // Each scope token becomes a list item; the token text is HTML-escaped
-        // before the (literal) <li> markup is substituted into the template.
-        let scope_items =
-            displayed_scope
-                .split_whitespace()
-                .fold(String::new(), |mut acc, scope| {
-                    write!(acc, "<li>{}</li>", escape_html_attribute(scope)).ok();
-                    acc
-                });
-
-        with_hosted_page_css(Self::OAUTH_CONSENT_TEMPLATE)
-            .replace("{{CLIENT_ID}}", &escape_html_attribute(params.client_id))
-            .replace(
-                "{{REDIRECT_URI}}",
-                &escape_html_attribute(params.redirect_uri),
-            )
-            .replace(
-                "{{RESPONSE_TYPE}}",
-                &escape_html_attribute(params.response_type),
-            )
-            .replace("{{STATE}}", &escape_html_attribute(params.state))
-            .replace("{{SCOPE}}", &escape_html_attribute(&displayed_scope))
-            .replace(
-                "{{CODE_CHALLENGE}}",
-                &escape_html_attribute(params.code_challenge),
-            )
-            .replace(
-                "{{CODE_CHALLENGE_METHOD}}",
-                &escape_html_attribute(params.code_challenge_method),
-            )
-            .replace("{{SCOPE_ITEMS}}", &scope_items)
     }
 
     /// Handle OAuth login page (GET /oauth2/login)
@@ -829,6 +699,9 @@ impl OAuth2Routes {
         let code_challenge_method = params
             .get("code_challenge_method")
             .map_or_else(String::new, ToString::to_string);
+        let resource = params
+            .get("resource")
+            .map_or_else(String::new, ToString::to_string);
 
         // Get default form values from OAuth2ServerConfig (for dev/test only)
         // Safe: Option<String> ownership for HTML template
@@ -853,6 +726,7 @@ impl OAuth2Routes {
                 scope: &scope,
                 code_challenge: &code_challenge,
                 code_challenge_method: &code_challenge_method,
+                resource: &resource,
                 default_email: &default_email,
                 default_password: &default_password,
             })
@@ -889,24 +763,9 @@ impl OAuth2Routes {
         .await
         {
             Ok(token) => {
-                // Extract OAuth parameters from form to continue authorization flow (including PKCE)
-                let client_id = form.get("client_id").map_or("", |v| v);
-                let redirect_uri = form.get("redirect_uri").map_or("", |v| v);
-                let response_type = form.get("response_type").map_or("", |v| v);
-                let state = form.get("state").map_or("", |v| v);
-                let scope = form.get("scope").map_or("", |v| v);
-                let code_challenge = form.get("code_challenge").map_or("", |v| v);
-                let code_challenge_method = form.get("code_challenge_method").map_or("", |v| v);
-
-                let auth_url = Self::build_authorization_url_from_form(
-                    client_id,
-                    redirect_uri,
-                    response_type,
-                    state,
-                    scope,
-                    code_challenge,
-                    code_challenge_method,
-                );
+                // Continue the authorization flow with the OAuth parameters the
+                // form carried (PKCE and the RFC 8707 resource included)
+                let auth_url = Self::build_authorization_url_from_form(&form);
 
                 info!(
                     "User {} authenticated successfully for OAuth, redirecting to authorization",
@@ -942,66 +801,7 @@ impl OAuth2Routes {
                     warn!("Authentication failed for OAuth login: {}", e);
                 }
 
-                // Use embedded template - zero filesystem IO, guaranteed to exist at compile-time
-                // Values go into an <a href> URL attribute — URL-encode for URL
-                // correctness, then HTML-escape for attribute safety (XSS prevention)
-                let error_html = with_hosted_page_css(Self::OAUTH_LOGIN_ERROR_TEMPLATE)
-                    .replace(
-                        "{{ERROR_MESSAGE}}",
-                        &escape_html_attribute(
-                            "Authentication Failed: Invalid email or password. Please try again.",
-                        ),
-                    )
-                    .replace(
-                        "{{CLIENT_ID}}",
-                        &escape_html_attribute(
-                            urlencoding::encode(form.get("client_id").map_or("", |v| v)).as_ref(),
-                        ),
-                    )
-                    .replace(
-                        "{{REDIRECT_URI}}",
-                        &escape_html_attribute(
-                            urlencoding::encode(form.get("redirect_uri").map_or("", |v| v))
-                                .as_ref(),
-                        ),
-                    )
-                    .replace(
-                        "{{RESPONSE_TYPE}}",
-                        &escape_html_attribute(
-                            urlencoding::encode(form.get("response_type").map_or("", |v| v))
-                                .as_ref(),
-                        ),
-                    )
-                    .replace(
-                        "{{STATE}}",
-                        &escape_html_attribute(
-                            urlencoding::encode(form.get("state").map_or("", |v| v)).as_ref(),
-                        ),
-                    )
-                    .replace(
-                        "{{SCOPE}}",
-                        &escape_html_attribute(
-                            urlencoding::encode(form.get("scope").map_or("", |v| v)).as_ref(),
-                        ),
-                    )
-                    .replace(
-                        "{{CODE_CHALLENGE}}",
-                        &escape_html_attribute(
-                            urlencoding::encode(form.get("code_challenge").map_or("", |v| v))
-                                .as_ref(),
-                        ),
-                    )
-                    .replace(
-                        "{{CODE_CHALLENGE_METHOD}}",
-                        &escape_html_attribute(
-                            urlencoding::encode(
-                                form.get("code_challenge_method").map_or("", |v| v),
-                            )
-                            .as_ref(),
-                        ),
-                    );
-
-                (StatusCode::UNAUTHORIZED, Html(error_html)).into_response()
+                Self::login_failure_response(&form)
             }
         }
     }
@@ -1144,11 +944,15 @@ impl OAuth2Routes {
             })
     }
 
-    /// Validate Bearer token for token-validate endpoint (returns OK with valid:false on errors)
+    /// Validate Bearer token for token-validate endpoint (returns OK with valid:false on errors).
+    ///
+    /// A token audience-bound to `resource`, the MCP resource this server mints
+    /// for, is as valid as one carrying the platform audience.
     fn validate_bearer_token_for_validate_endpoint(
         headers: &HeaderMap,
         auth_manager: &AuthManager,
         jwks_manager: &JwksManager,
+        resource: &str,
     ) -> Result<bool, Box<Response>> {
         let Some(header) = headers.get(header::AUTHORIZATION) else {
             // No token provided - not an error, just return false
@@ -1183,7 +987,7 @@ impl OAuth2Routes {
             )
         })?;
 
-        match auth_manager.validate_token(token, jwks_manager) {
+        match auth_manager.validate_resource_token(token, jwks_manager, resource) {
             Ok(_) => Ok(true),
             Err(e) => {
                 debug!("Token validation failed: {}", e);
@@ -1236,19 +1040,32 @@ impl OAuth2Routes {
             .ok();
         }
 
+        if let Some(ref resource) = request.resource {
+            use std::fmt::Write;
+            write!(
+                &mut login_url,
+                "&resource={}",
+                urlencoding::encode(resource)
+            )
+            .ok();
+        }
+
         login_url
     }
 
-    /// Build authorization URL from form data with OAuth parameters preserved for redirect
-    fn build_authorization_url_from_form(
-        client_id: &str,
-        redirect_uri: &str,
-        response_type: &str,
-        state: &str,
-        scope: &str,
-        code_challenge: &str,
-        code_challenge_method: &str,
-    ) -> String {
+    /// Build authorization URL from the login form's fields, with the OAuth
+    /// parameters preserved for the redirect
+    fn build_authorization_url_from_form(form: &HashMap<String, String>) -> String {
+        let field = |name: &str| form.get(name).map_or("", String::as_str);
+        let client_id = field("client_id");
+        let redirect_uri = field("redirect_uri");
+        let response_type = field("response_type");
+        let state = field("state");
+        let scope = field("scope");
+        let code_challenge = field("code_challenge");
+        let code_challenge_method = field("code_challenge_method");
+        let resource = field("resource");
+
         let mut auth_url = format!(
             "/oauth2/authorize?client_id={}&redirect_uri={}&response_type={}&state={}",
             urlencoding::encode(client_id),
@@ -1281,6 +1098,11 @@ impl OAuth2Routes {
             .ok();
         }
 
+        if !resource.is_empty() {
+            use std::fmt::Write;
+            write!(&mut auth_url, "&resource={}", urlencoding::encode(resource)).ok();
+        }
+
         auth_url
     }
 
@@ -1311,6 +1133,9 @@ impl OAuth2Routes {
         let state = params.get("state").cloned();
         let code_challenge = params.get("code_challenge").cloned();
         let code_challenge_method = params.get("code_challenge_method").cloned();
+        // The login and consent forms always post a `resource` field, empty
+        // when the client named none; empty is absent, not a resource.
+        let resource = params.get("resource").filter(|r| !r.is_empty()).cloned();
 
         Ok(AuthorizeRequest {
             response_type,
@@ -1320,6 +1145,7 @@ impl OAuth2Routes {
             state,
             code_challenge,
             code_challenge_method,
+            resource,
         })
     }
 
@@ -1348,6 +1174,7 @@ impl OAuth2Routes {
         let scope = form.get("scope").cloned();
         let refresh_token = form.get("refresh_token").cloned();
         let code_verifier = form.get("code_verifier").cloned();
+        let resource = form.get("resource").filter(|r| !r.is_empty()).cloned();
 
         Ok(TokenRequest {
             grant_type,
@@ -1358,6 +1185,7 @@ impl OAuth2Routes {
             scope,
             refresh_token,
             code_verifier,
+            resource,
         })
     }
 
@@ -1416,56 +1244,5 @@ impl OAuth2Routes {
             }
         }
         app_token
-    }
-
-    /// OAuth error template embedded at compile-time
-    const OAUTH_ERROR_TEMPLATE: &'static str = include_str!("../templates/oauth_error.html");
-
-    /// OAuth login page template embedded at compile-time
-    /// Loaded with `include_str`!() to avoid blocking filesystem IO at runtime
-    const OAUTH_LOGIN_TEMPLATE: &'static str = include_str!("../templates/oauth_login.html");
-
-    /// OAuth consent page template embedded at compile-time
-    const OAUTH_CONSENT_TEMPLATE: &'static str = include_str!("../templates/oauth_consent.html");
-
-    /// OAuth login error template embedded at compile-time
-    /// Loaded with `include_str`!() to avoid blocking filesystem IO at runtime
-    const OAUTH_LOGIN_ERROR_TEMPLATE: &'static str =
-        include_str!("../templates/oauth_login_error.html");
-
-    /// Render HTML error page for OAuth errors shown in browser: 429 for
-    /// `too_many_requests`, 503 for `temporarily_unavailable`, else 400
-    pub(crate) fn render_oauth_error_response(error: &OAuth2Error) -> Response {
-        let error_title = match error.error.as_str() {
-            "invalid_client" => "✗ Invalid Client",
-            "unauthorized_client" => "✗ Unauthorized Client",
-            "access_denied" => "✗ Access Denied",
-            "unsupported_response_type" => "✗ Unsupported Response Type",
-            "invalid_scope" => "✗ Invalid Scope",
-            "server_error" => "✗ Server Error",
-            "temporarily_unavailable" => "✗ Temporarily Unavailable",
-            _ => "✗ OAuth Error",
-        };
-
-        let default_description =
-            "An error occurred during the OAuth authorization process.".to_owned();
-        let error_description = error
-            .error_description
-            .as_ref()
-            .unwrap_or(&default_description);
-
-        let html = with_hosted_page_css(Self::OAUTH_ERROR_TEMPLATE)
-            .replace("{{error_title}}", &escape_html_attribute(error_title))
-            .replace("{{ERROR}}", &escape_html_attribute(&error.error))
-            .replace("{{PROVIDER}}", "Dravr")
-            .replace(
-                "{{DESCRIPTION}}",
-                &format!(
-                    r#"<div class="description">{}</div>"#,
-                    escape_html_attribute(error_description)
-                ),
-            );
-
-        (error.http_status(), Html(html)).into_response()
     }
 }

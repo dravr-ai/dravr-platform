@@ -154,9 +154,10 @@ pub trait McpDispatchCtx: Send + Sync + 'static {
 
 /// Slice of runtime state the A2A (Agent-to-Agent) protocol layer needs.
 ///
-/// Covers what `pierre_a2a::protocol::A2AServer`
-/// pulls from `ServerContext` today: the JWT-validation auth pair (manager + JWKS) used
-/// by the A2A protocol's bearer-token authentication, the repository registry for
+/// Covers what `pierre_a2a::protocol::A2AServer` and the `pierre-routes-a2a`
+/// client-management routes pull from `ServerContext`: the JWT-validation
+/// auth pair (manager + JWKS) used by the A2A protocol's bearer-token
+/// authentication, the repository registry for
 /// A2A-client / task / push-config lookups, and the configured server base URL
 /// used to construct the agent card's `supportedInterfaces` URLs.
 ///
@@ -174,9 +175,7 @@ pub trait A2ACtx: Send + Sync + 'static {
     fn jwks_manager(&self) -> &Arc<JwksManager>;
 
     /// Repository registry — primary data-access surface for A2A operations
-    /// (a2a clients, sessions, tasks, push-notification configs, usage;
-    /// `tenants` for default-tenant resolution during `OAuth2`
-    /// authentication).
+    /// (a2a clients, sessions, tasks, push-notification configs, usage).
     fn repos(&self) -> &Arc<RepositoryRegistry>;
 
     /// Configured server base URL — used to construct the agent card's

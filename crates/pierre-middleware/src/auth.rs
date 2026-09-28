@@ -48,13 +48,21 @@ const LAST_ACTIVE_REFRESH_MINUTES: i64 = 5;
 /// athlete can do: minting a full-grant API key that outlives the grant,
 /// driving a chat turn that runs under the self grant, reaching the admin
 /// console when the athlete is an operator.
+///
+/// The path that takes a delegated grant is a protected resource with an
+/// identifier, and an OAuth access token can be audience-bound to one (RFC
+/// 8707). Such a token is accepted only by the resource it names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum GrantPolicy {
+enum GrantPolicy<'a> {
     /// The athlete's own credential only: a session, an API key. A delegated
     /// grant is refused with 403.
     DirectOnly,
     /// A delegated grant too, because the caller enforces its scopes.
-    ScopesEnforced,
+    ScopesEnforced {
+        /// Identifier of the protected resource the request is addressed to;
+        /// a token audience-bound to any other resource is refused.
+        resource: &'a str,
+    },
 }
 
 /// The refusal a delegated grant meets on a path that reads no scope.
@@ -281,14 +289,20 @@ impl McpAuthMiddleware {
     /// OAuth grant, whose narrowed scopes ride out on [`AuthResult::scopes`].
     /// A caller that does not read those scopes must not use this.
     ///
+    /// `resource` is the identifier of the protected resource the request is
+    /// addressed to. An access token audience-bound to it (RFC 8707) is
+    /// accepted; one bound to any other resource is refused as invalid.
+    ///
     /// # Errors
     ///
-    /// As [`Self::authenticate_request`], less the delegated-grant refusal.
+    /// As [`Self::authenticate_request`], less the delegated-grant refusal,
+    /// plus a token audience-bound to another resource.
     pub async fn authenticate_scoped_request(
         &self,
         auth_header: Option<&str>,
+        resource: &str,
     ) -> AppResult<AuthResult> {
-        self.authenticate_header(auth_header, GrantPolicy::ScopesEnforced)
+        self.authenticate_header(auth_header, GrantPolicy::ScopesEnforced { resource })
             .await
     }
 
@@ -306,7 +320,7 @@ impl McpAuthMiddleware {
     async fn authenticate_header(
         &self,
         auth_header: Option<&str>,
-        policy: GrantPolicy,
+        policy: GrantPolicy<'_>,
     ) -> AppResult<AuthResult> {
         debug!("=== AUTH MIDDLEWARE AUTHENTICATE_REQUEST START ===");
         debug!("Auth header provided: {}", auth_header.is_some());
@@ -617,11 +631,19 @@ impl McpAuthMiddleware {
     /// the self grant is refused before anything is read or written for it —
     /// no usage row, no activity, no budget — since the request it carries is
     /// not served.
-    async fn authenticate_jwt_token(&self, token: &str, policy: GrantPolicy) -> Checked {
-        let claims = self
-            .auth_manager
-            .validate_token_detailed(token, &self.jwks_manager)
-            .map_err(|e| AppError::auth_invalid(format!("JWT validation failed: {e}")))?;
+    async fn authenticate_jwt_token(&self, token: &str, policy: GrantPolicy<'_>) -> Checked {
+        // The audience check: every path takes the platform audience, and the
+        // protected resource also takes a token bound to itself — never one
+        // bound to another resource.
+        let claims = match policy {
+            GrantPolicy::DirectOnly => self
+                .auth_manager
+                .validate_token_detailed(token, &self.jwks_manager),
+            GrantPolicy::ScopesEnforced { resource } => self
+                .auth_manager
+                .validate_resource_token_detailed(token, &self.jwks_manager, resource),
+        }
+        .map_err(|e| AppError::auth_invalid(format!("JWT validation failed: {e}")))?;
 
         let user_id = parse_uuid(&claims.sub)
             .map_err(|_| AppError::auth_invalid("Invalid user ID in token"))?;

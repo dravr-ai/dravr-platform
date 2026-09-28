@@ -102,7 +102,7 @@ pub fn proactive_rich_text(
 }
 
 /// One channel a user can be reached on: which adapter, which recipient id
-/// there, and which locale that link speaks.
+/// there, which locale that link speaks, and which tenant's bot holds it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkedChannelTarget {
     /// Channel the link belongs to.
@@ -112,22 +112,37 @@ pub struct LinkedChannelTarget {
     /// BCP-47 locale recorded on the link, or [`DEFAULT_LOCALE`] when it
     /// records none.
     pub locale: String,
+    /// The tenant that stores the link: the tenant of the bot that holds this
+    /// chat, whose channel config is the one that can post into it. For a link
+    /// made through the deployment bot this is the bot's tenant, not the
+    /// athlete's own.
+    pub tenant_id: TenantId,
 }
 
-/// Resolve every channel `user_id` can be reached on within `tenant_id`.
+/// Resolve every channel `user_id` can be reached on, whichever tenant's bot
+/// holds each link.
+///
+/// Reads the user's links by `user_id` across tenants
+/// (`MessagingRepository::list_channel_links_for_user`), not under one tenant:
+/// ingress stores a link made through the deployment bot under the bot's
+/// tenant, while the athlete lives in a personal tenant of their own, so a read
+/// scoped to the athlete's tenant never reaches it. A user id is strictly
+/// narrower than a tenant — each row names the person it belongs to — and the
+/// platform is messaging that same person about themselves, so the result is
+/// only ever the recipient's own chats. Callers pass the id of the user being
+/// notified, never one taken from a request.
 ///
 /// Split out from [`send_to_linked_channels`] because this half is the whole
-/// decision — who gets told, where, and in what language — while the half after
-/// it is a network call to a channel host. Links with an unreadable shape or an
-/// unknown channel type are skipped, so a single malformed row cannot silence
-/// the athlete's other channels.
+/// decision — who gets told, where, in what language, and through which bot —
+/// while the half after it is a network call to a channel host. Links with an
+/// unreadable shape, an unknown channel type, or no valid tenant are skipped,
+/// so a single malformed row cannot silence the athlete's other channels.
 pub async fn resolve_linked_targets(
     messaging: &dyn MessagingRepository,
-    tenant_id: TenantId,
     user_id: Uuid,
 ) -> Vec<LinkedChannelTarget> {
     let links = match messaging
-        .list_user_channel_links(tenant_id, &user_id.to_string())
+        .list_channel_links_for_user(&user_id.to_string())
         .await
     {
         Ok(links) => links,
@@ -149,6 +164,14 @@ pub async fn resolve_linked_targets(
             warn!(channel = %channel_str, "Unknown channel type on link; skipping proactive send");
             continue;
         };
+        let Some(tenant_id) = link
+            .get("tenant_id")
+            .and_then(Value::as_str)
+            .and_then(|raw| TenantId::parse_str(raw).ok())
+        else {
+            warn!(channel = %channel_str, "Channel link carries no valid tenant; skipping proactive send");
+            continue;
+        };
         targets.push(LinkedChannelTarget {
             channel_type,
             recipient_id: recipient.to_owned(),
@@ -157,13 +180,19 @@ pub async fn resolve_linked_targets(
                 .and_then(Value::as_str)
                 .unwrap_or(DEFAULT_LOCALE)
                 .to_owned(),
+            tenant_id,
         });
     }
     targets
 }
 
-/// Send a localized text on every messaging channel `user_id` has linked
-/// within `tenant_id`, and report how many were delivered.
+/// Send a localized text on every messaging channel `user_id` has linked, and
+/// report how many were delivered.
+///
+/// Each link is delivered by the bot that holds it: the channel config is read
+/// under the link's own tenant ([`LinkedChannelTarget::tenant_id`]), because
+/// that is the bot the chat was opened with and the only one that can post
+/// into it.
 ///
 /// `body_for_locale` is called once per link with that link's BCP-47 locale, so
 /// the caller renders through the messaging-strings registry rather than
@@ -175,32 +204,30 @@ pub async fn resolve_linked_targets(
 /// who only uses the app.
 pub async fn send_to_linked_channels<F>(
     messaging: &dyn MessagingRepository,
-    tenant_id: TenantId,
     user_id: Uuid,
     body_for_locale: F,
 ) -> usize
 where
     F: Fn(&str) -> String,
 {
-    let targets = resolve_linked_targets(messaging, tenant_id, user_id).await;
+    let targets = resolve_linked_targets(messaging, user_id).await;
 
-    // One config lookup per channel type, not per link: a user linked twice on
-    // the same channel would otherwise re-read and re-parse the same row.
-    let mut senders: HashMap<ChannelType, (Arc<dyn MessagingChannel>, ChannelConfig)> =
+    // One config lookup per bot, not per link: a user linked twice through the
+    // same bot would otherwise re-read and re-parse the same row.
+    let mut senders: HashMap<(TenantId, ChannelType), (Arc<dyn MessagingChannel>, ChannelConfig)> =
         HashMap::new();
     let mut delivered = 0;
 
     for target in &targets {
         let channel_str = target.channel_type.to_string();
-        if let Entry::Vacant(slot) = senders.entry(target.channel_type) {
-            let Some(sender) =
-                resolve_sender(messaging, tenant_id, &channel_str, target.channel_type).await
-            else {
+        let bot = (target.tenant_id, target.channel_type);
+        if let Entry::Vacant(slot) = senders.entry(bot) {
+            let Some(sender) = resolve_target_sender(messaging, target).await else {
                 continue;
             };
             slot.insert(sender);
         }
-        let Some((adapter, config)) = senders.get(&target.channel_type) else {
+        let Some((adapter, config)) = senders.get(&bot) else {
             continue;
         };
 
@@ -220,15 +247,24 @@ where
     delivered
 }
 
-/// Resolve the channel adapter and its config for an outbound send, or `None`
-/// (logged) when the channel is unconfigured or its config cannot be read.
-async fn resolve_sender(
+/// Resolve the adapter and config of the bot that posts into `target`'s chat.
+///
+/// That is the bot the link's own tenant ([`LinkedChannelTarget::tenant_id`])
+/// holds on the link's channel. `None` (logged) when that bot is unconfigured
+/// or its config cannot be read.
+///
+/// The half of [`send_to_linked_channels`] that picks the sending bot, so the
+/// choice can be checked without posting to a channel host.
+pub async fn resolve_target_sender(
     messaging: &dyn MessagingRepository,
-    tenant_id: TenantId,
-    channel_str: &str,
-    channel_type: ChannelType,
+    target: &LinkedChannelTarget,
 ) -> Option<(Arc<dyn MessagingChannel>, ChannelConfig)> {
-    let raw_config = match messaging.get_channel_config(tenant_id, channel_str).await {
+    let channel_type = target.channel_type;
+    let channel_str = channel_type.to_string();
+    let raw_config = match messaging
+        .get_channel_config(target.tenant_id, &channel_str)
+        .await
+    {
         Ok(Some(cfg)) => cfg,
         Ok(None) => {
             warn!(channel = %channel_str, "No channel config for proactive send");

@@ -34,7 +34,10 @@ use serde_json::{json, Value};
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::events::{NotificationActionSpec, ACTION_RECONNECT, ACTION_REPLY};
+use crate::events::{
+    NotificationActionSpec, SubjectAthlete, ACTION_RECONNECT, ACTION_REPLY,
+    SUBJECT_ATHLETE_DATA_KEY,
+};
 use crate::models::{NotificationActionType, NotificationCategory, TenantId};
 use crate::{EventDispatch, NotificationEvent, NotificationService, PushTier};
 
@@ -259,7 +262,9 @@ pub fn trigger_sync_failure(
 // people, and a coach linking a whole squad must not lose the last replies.
 // The member's notices open their connections, where the TrainingPeaks card
 // names the link; the coach's name the group and carry no destination, like
-// the group's weekly digest.
+// the group's weekly digest. Each of the coach's names the member it concerns
+// under `SUBJECT_ATHLETE_DATA_KEY`, which is what a `per_athlete` persona
+// digest rolls the coach's withheld notices up on.
 
 /// A delegated-connection notice for `user_id`, in category `coach`.
 fn delegation_dispatch(
@@ -279,6 +284,16 @@ fn delegation_dispatch(
         actions: None,
         bypass_frequency_cap: true,
     }
+}
+
+/// The data of a coach's notice about one member: no destination, and the
+/// member it concerns.
+fn about_member(member_id: Uuid, member_name: &str) -> Value {
+    let subject = SubjectAthlete {
+        id: member_id,
+        name: member_name.to_owned(),
+    };
+    json!({ SUBJECT_ATHLETE_DATA_KEY: subject.to_value() })
 }
 
 /// The member's connections, where their `TrainingPeaks` card names the link.
@@ -313,6 +328,7 @@ pub fn trigger_delegation_confirmed(
     service: &Arc<NotificationService>,
     coach_id: Uuid,
     tenant_id: TenantId,
+    member_id: Uuid,
     member_name: &str,
     group_name: &str,
 ) {
@@ -321,7 +337,7 @@ pub fn trigger_delegation_confirmed(
         tenant_id,
         NotificationEvent::DelegationConfirmed,
         json!({ "member_name": member_name, "group_name": group_name }),
-        Value::Null,
+        about_member(member_id, member_name),
     );
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P2);
 }
@@ -331,6 +347,7 @@ pub fn trigger_delegation_declined(
     service: &Arc<NotificationService>,
     coach_id: Uuid,
     tenant_id: TenantId,
+    member_id: Uuid,
     member_name: &str,
     group_name: &str,
 ) {
@@ -339,7 +356,7 @@ pub fn trigger_delegation_declined(
         tenant_id,
         NotificationEvent::DelegationDeclined,
         json!({ "member_name": member_name, "group_name": group_name }),
-        Value::Null,
+        about_member(member_id, member_name),
     );
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P2);
 }
@@ -350,6 +367,7 @@ pub fn trigger_delegation_off_roster(
     service: &Arc<NotificationService>,
     coach_id: Uuid,
     tenant_id: TenantId,
+    member_id: Uuid,
     member_name: &str,
     group_name: &str,
 ) {
@@ -358,7 +376,7 @@ pub fn trigger_delegation_off_roster(
         tenant_id,
         NotificationEvent::DelegationOffRoster,
         json!({ "member_name": member_name, "group_name": group_name }),
-        Value::Null,
+        about_member(member_id, member_name),
     );
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P2);
 }

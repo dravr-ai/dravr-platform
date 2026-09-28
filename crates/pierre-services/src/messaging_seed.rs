@@ -6,6 +6,7 @@
 
 use std::env;
 
+use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_database::backends::UpsertChannelConfigParams;
 use pierre_database::repositories::MessagingRepository;
@@ -16,7 +17,8 @@ use uuid::Uuid;
 /// Seed messaging channel configs from environment variables
 ///
 /// Reads channel credentials from env vars and upserts them into the database.
-/// Resolves the admin user's tenant as the owning tenant for all channel configs.
+/// Resolves the admin user's tenant as the owning tenant for all channel configs,
+/// and marks every seeded config platform scope (see `seed_platform_config`).
 /// Skipped silently when no messaging env vars are set.
 pub async fn seed_from_env(repos: &RepositoryRegistry) {
     let admin_email = env::var("ADMIN_EMAIL").unwrap_or_else(|_| "admin@example.com".to_owned());
@@ -59,6 +61,51 @@ async fn resolve_admin_tenant(repos: &RepositoryRegistry, admin_email: &str) -> 
     Some(tenant.id)
 }
 
+/// Upsert one env-seeded config and mark it platform scope.
+///
+/// The environment is the deployment's, not the admin tenant's: the bot it
+/// configures answers every athlete, whatever tenant they live in, so the row
+/// is marked readable by all of them through `resolve_channel_config`. The
+/// admin tenant only stores it.
+async fn seed_platform_config(
+    database: &(dyn MessagingRepository + '_),
+    params: &UpsertChannelConfigParams<'_>,
+    label: &str,
+) -> Option<u32> {
+    match upsert_as_platform(database, params).await {
+        Ok(()) => {
+            info!(
+                channel = label,
+                "Seeded platform channel config from env vars"
+            );
+            Some(1)
+        }
+        Err(e) => {
+            warn!(error = %e, channel = label, "Failed to seed platform channel config");
+            None
+        }
+    }
+}
+
+/// Write the config, then mark the row it landed in as platform scope.
+async fn upsert_as_platform(
+    database: &(dyn MessagingRepository + '_),
+    params: &UpsertChannelConfigParams<'_>,
+) -> AppResult<()> {
+    database.upsert_channel_config(params).await?;
+    if database
+        .mark_channel_config_platform_scope(params.tenant_id, params.channel_type)
+        .await?
+    {
+        Ok(())
+    } else {
+        Err(AppError::not_found(format!(
+            "{} channel config for tenant {}",
+            params.channel_type, params.tenant_id
+        )))
+    }
+}
+
 /// Seed Slack channel config from `SLACK_BOT_TOKEN` + `SLACK_SIGNING_SECRET`
 async fn seed_slack(database: &(dyn MessagingRepository + '_), tenant_id: TenantId) -> Option<u32> {
     let bot_token = env::var("SLACK_BOT_TOKEN").ok()?;
@@ -83,16 +130,7 @@ async fn seed_slack(database: &(dyn MessagingRepository + '_), tenant_id: Tenant
         is_active: true,
     };
 
-    match database.upsert_channel_config(&params).await {
-        Ok(()) => {
-            info!("Seeded Slack channel config from env vars");
-            Some(1)
-        }
-        Err(e) => {
-            warn!(error = %e, "Failed to seed Slack channel config");
-            None
-        }
-    }
+    seed_platform_config(database, &params, "Slack").await
 }
 
 /// Seed Telegram channel config from `TELEGRAM_BOT_TOKEN` + `TELEGRAM_WEBHOOK_SECRET`
@@ -122,16 +160,7 @@ async fn seed_telegram(
         is_active: true,
     };
 
-    match database.upsert_channel_config(&params).await {
-        Ok(()) => {
-            info!("Seeded Telegram channel config from env vars");
-            Some(1)
-        }
-        Err(e) => {
-            warn!(error = %e, "Failed to seed Telegram channel config");
-            None
-        }
-    }
+    seed_platform_config(database, &params, "Telegram").await
 }
 
 /// Seed `WhatsApp` channel config from `META_WHATSAPP_*` env vars
@@ -164,16 +193,7 @@ async fn seed_whatsapp(
         is_active: true,
     };
 
-    match database.upsert_channel_config(&params).await {
-        Ok(()) => {
-            info!("Seeded WhatsApp channel config from env vars");
-            Some(1)
-        }
-        Err(e) => {
-            warn!(error = %e, "Failed to seed WhatsApp channel config");
-            None
-        }
-    }
+    seed_platform_config(database, &params, "WhatsApp").await
 }
 
 /// Seed Messenger channel config from `META_MESSENGER_*` env vars
@@ -205,16 +225,7 @@ async fn seed_messenger(
         is_active: true,
     };
 
-    match database.upsert_channel_config(&params).await {
-        Ok(()) => {
-            info!("Seeded Messenger channel config from env vars");
-            Some(1)
-        }
-        Err(e) => {
-            warn!(error = %e, "Failed to seed Messenger channel config");
-            None
-        }
-    }
+    seed_platform_config(database, &params, "Messenger").await
 }
 
 /// Seed Discord channel config from `DISCORD_BOT_TOKEN` + `DISCORD_PUBLIC_KEY`
@@ -246,14 +257,5 @@ async fn seed_discord(
         is_active: true,
     };
 
-    match database.upsert_channel_config(&params).await {
-        Ok(()) => {
-            info!("Seeded Discord channel config from env vars");
-            Some(1)
-        }
-        Err(e) => {
-            warn!(error = %e, "Failed to seed Discord channel config");
-            None
-        }
-    }
+    seed_platform_config(database, &params, "Discord").await
 }

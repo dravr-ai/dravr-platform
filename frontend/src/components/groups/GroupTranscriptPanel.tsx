@@ -15,10 +15,12 @@ interface GroupTranscriptPanelProps {
 /**
  * The room, as every member shares it.
  *
- * Entries come consent-filtered from the server: an unconsented member stays
- * on the roster while their words are withheld, which is the same rule the
- * pipeline applies before the agent reasons over the room. A messaging turn,
- * a web turn and ambient room chatter all land in this one transcript.
+ * Entries come consent-gated from the server: an unconsented member stays on
+ * the roster while their words are withheld, which is the same rule the
+ * pipeline applies before the agent reasons over the room. A withheld entry
+ * keeps its place as a placeholder naming no one, so the room never reads as
+ * quieter than it was. A messaging turn, a web turn and ambient room chatter
+ * all land in this one transcript.
  */
 export default function GroupTranscriptPanel({ groupId }: GroupTranscriptPanelProps) {
   const { t } = useTranslation();
@@ -54,26 +56,32 @@ export default function GroupTranscriptPanel({ groupId }: GroupTranscriptPanelPr
 
   return (
     <div className="space-y-3" data-testid="group-transcript">
-      {transcript.entries.map((entry) => (
-        <div key={entry.id} className="flex gap-3">
-          <div
-            className={`flex-1 rounded-lg px-3 py-2 ${
-              entry.speaker === 'coach' ? 'bg-surface-container-high' : 'bg-surface-container-low'
-            }`}
-          >
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="text-xs font-medium text-on-surface-variant">
-                {entry.author_display_name ?? entry.author_user_id}
-                {entry.speaker === 'coach' ? ' · agent' : ''}
-              </span>
-              <span className="text-xs text-outline">
-                {new Date(entry.created_at).toLocaleString()}
-              </span>
+      {transcript.entries.map((entry) =>
+        entry.withheld ? (
+          <p key={entry.id} data-testid="room-entry-withheld" className="px-3 text-xs italic text-outline">
+            {t(entry.speaker === 'coach' ? 'chat.roomReplyHidden' : 'chat.roomEntryHidden')}
+          </p>
+        ) : (
+          <div key={entry.id} className="flex gap-3">
+            <div
+              className={`flex-1 rounded-lg px-3 py-2 ${
+                entry.speaker === 'coach' ? 'bg-surface-container-high' : 'bg-surface-container-low'
+              }`}
+            >
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-xs font-medium text-on-surface-variant">
+                  {entry.author_display_name ?? entry.author_user_id}
+                  {entry.speaker === 'coach' ? ' · agent' : ''}
+                </span>
+                <span className="text-xs text-outline">
+                  {new Date(entry.created_at).toLocaleString()}
+                </span>
+              </div>
+              <p className="text-sm text-on-surface whitespace-pre-wrap mt-0.5">{entry.content}</p>
             </div>
-            <p className="text-sm text-on-surface whitespace-pre-wrap mt-0.5">{entry.content}</p>
           </div>
-        </div>
-      ))}
+        ),
+      )}
     </div>
   );
 }

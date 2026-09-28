@@ -367,7 +367,7 @@ macro_rules! impl_usage_repository {
                 &self,
                 api_key_id: &str,
                 window_start: DateTime<Utc>,
-            ) -> AppResult<ApiKeyWindowUsage> {
+            ) -> AppResult<WindowUsage> {
                 // A system-level lookup with no user scoping: the rate
                 // limiter has only the key in hand.
                 let row = sqlx::query(API_KEY_WINDOW_USAGE_SQL)
@@ -384,7 +384,7 @@ macro_rules! impl_usage_repository {
                 let oldest: Option<DateTime<Utc>> = row
                     .try_get("oldest")
                     .map_err(|e| usage_column_error("oldest", e))?;
-                Ok(ApiKeyWindowUsage {
+                Ok(WindowUsage {
                     count: u32_from_count(count, "count")?,
                     oldest,
                 })

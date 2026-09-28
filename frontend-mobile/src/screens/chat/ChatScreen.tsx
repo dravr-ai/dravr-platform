@@ -11,7 +11,9 @@ import {
   TextInput,
   TouchableOpacity,
   Alert,
+  AppState,
   Keyboard,
+  type AppStateStatus,
 } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useHeaderHeight } from 'expo-router/react-navigation';
@@ -98,7 +100,14 @@ export function ChatScreen() {
   const chatPlus = useChatPlusActions(conversations.currentConversation?.id ?? null);
 
   const { messages } = messagesHook;
-  const lastMessageId = messages.length > 0 ? messages[messages.length - 1].id : null;
+  // The newest row of the caller's own conversation: the read marker names a
+  // chat message, and a group thread's room rows are not the caller's.
+  const lastMessageId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (!messages[i].room) return messages[i].id;
+    }
+    return null;
+  }, [messages]);
   // Reading is looking: the marker advances only while this screen is focused
   // and the app is awake, and again on every new last message.
   useMarkConversationRead({
@@ -148,12 +157,29 @@ export function ChatScreen() {
         // Skipped mid-send so an in-flight optimistic turn isn't clobbered.
         const openId = conversations.currentConversation?.id;
         if (openId && !messagesHook.isSending) {
-          void messagesHook.loadMessages(openId);
+          void messagesHook.loadMessages(openId, conversations.currentConversation?.group_id);
         }
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isAuthenticated, conversations.currentConversation?.id, messagesHook.isSending])
   );
+
+  // Coming back to the app is coming back to the thread: another member's
+  // line, or a reply sent from a channel, landed with no push to the app, so
+  // the open thread — a group thread's room included — is read again on the
+  // way back to the foreground. Skipped mid-send, as the focus read is.
+  const openConversationId = conversations.currentConversation?.id;
+  const openGroupId = conversations.currentConversation?.group_id;
+  const { isSending, loadMessages } = messagesHook;
+  useEffect(() => {
+    if (!isAuthenticated || !openConversationId) return undefined;
+    const subscription = AppState.addEventListener('change', (status: AppStateStatus) => {
+      if (status === 'active' && !isSending) {
+        void loadMessages(openConversationId, openGroupId);
+      }
+    });
+    return () => subscription.remove();
+  }, [isAuthenticated, openConversationId, openGroupId, isSending, loadMessages]);
 
   // Load messages when conversation changes
   useEffect(() => {
@@ -162,7 +188,10 @@ export function ChatScreen() {
         conversations.justCreatedConversationRef.current = null;
         return;
       }
-      messagesHook.loadMessages(conversations.currentConversation.id);
+      messagesHook.loadMessages(
+        conversations.currentConversation.id,
+        conversations.currentConversation.group_id,
+      );
     } else {
       messagesHook.clearMessages();
     }
@@ -506,6 +535,15 @@ export function ChatScreen() {
           onClose={() => setVerdictMessageId(null)}
           onAskAboutClaim={handleAskAboutClaim}
         />
+
+        {messagesHook.roomUnavailable ? (
+          <Text
+            testID="room-load-failed"
+            className="text-sm text-text-tertiary text-center px-4 pt-2"
+          >
+            {t('groups.roomLoadFailed')}
+          </Text>
+        ) : null}
 
         <MessageList
           messages={messagesHook.messages}

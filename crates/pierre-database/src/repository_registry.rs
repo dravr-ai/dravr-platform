@@ -20,8 +20,8 @@ use crate::repositories::{
     ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository, McpTaskRepository,
     MemoryExtractionJobRepository, MessagingRepository, MobilityRepository, NotificationRepository,
     OAuth2ServerRepository, OAuthClientStateRepository, OAuthTokenRepository,
-    PasswordResetRepository, PersonalBestRepository, PlaybookRepository,
-    PreApprovedEmailRepository, PrescribedWorkoutRepository, ProfileRepository,
+    PasswordResetRepository, PersonaDigestReturnRepository, PersonalBestRepository,
+    PlaybookRepository, PreApprovedEmailRepository, PrescribedWorkoutRepository, ProfileRepository,
     ProviderConnectionRepository, ProviderDataRepository, RecipeRepository, RecoveryRepository,
     ResumableTurnRepository, RouteSummaryRepository, SecurityRepository, SeederRepository,
     SessionRefreshTokenRepository, ShortLinkRepository, SleepRepository, StoreListingsRepository,
@@ -101,6 +101,8 @@ pub struct RepositoryRegistry {
     pub strava_seat_reclaim_warnings: Arc<dyn StravaSeatReclaimWarningRepository>,
     /// All-time best efforts at the standard running distances, and the runs scanned for them
     pub personal_bests: Arc<dyn PersonalBestRepository>,
+    /// The persona-held notifications each persona digest returned
+    pub persona_digest_returns: Arc<dyn PersonaDigestReturnRepository>,
     /// Durable per-user onboarding step completion state (server-driven onboarding flow)
     pub user_onboarding: Arc<dyn UserOnboardingRepository>,
     /// Store listings for agent marketplace
@@ -240,6 +242,7 @@ impl RepositoryRegistry {
             short_links: db.clone(),
             strava_seat_reclaim_warnings: db.clone(),
             personal_bests: db.clone(),
+            persona_digest_returns: db.clone(),
             user_onboarding: db.clone(),
             store_listings: db.clone(),
             tenants: db.clone(),
@@ -319,6 +322,7 @@ impl RepositoryRegistry {
             short_links: db.clone(),
             strava_seat_reclaim_warnings: db.clone(),
             personal_bests: db.clone(),
+            persona_digest_returns: db.clone(),
             user_onboarding: db.clone(),
             store_listings: db.clone(),
             tenants: db.clone(),

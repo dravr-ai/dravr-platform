@@ -196,7 +196,9 @@ pub struct Claims {
     pub jti: String,
     /// Available fitness providers
     pub providers: Vec<String>,
-    /// Audience (who the token is intended for)
+    /// Audience (who the token is intended for): the platform audience `mcp`,
+    /// or the RFC 8707 resource an OAuth access token was bound to — which only
+    /// that resource server accepts
     pub aud: String,
     /// Active tenant `ID` for this session (user can belong to multiple tenants)
     /// This is the tenant context for all operations in this session.
@@ -576,6 +578,32 @@ impl AuthManager {
     /// - JWKS manager doesn't have the specified key
     /// - Token claims cannot be deserialized
     pub fn validate_token(&self, token: &str, jwks_manager: &JwksManager) -> AppResult<Claims> {
+        Self::validate_token_for(token, jwks_manager, &[MCP])
+    }
+
+    /// Validate a RS256 JWT token as the protected resource `resource`
+    /// (RFC 8707): the platform audience, or a token audience-bound to
+    /// `resource`. A token bound to any other resource is refused.
+    ///
+    /// # Errors
+    ///
+    /// Everything [`Self::validate_token`] refuses, less a token whose audience
+    /// is `resource`.
+    pub fn validate_resource_token(
+        &self,
+        token: &str,
+        jwks_manager: &JwksManager,
+        resource: &str,
+    ) -> AppResult<Claims> {
+        Self::validate_token_for(token, jwks_manager, &[MCP, resource])
+    }
+
+    /// Validate a RS256 JWT token whose audience is one of `audiences`.
+    fn validate_token_for(
+        token: &str,
+        jwks_manager: &JwksManager,
+        audiences: &[&str],
+    ) -> AppResult<Claims> {
         // Extract kid from token header
         let header = jsonwebtoken::decode_header(token)
             .map_err(|e| AppError::auth_invalid(format!("Failed to decode token header: {e}")))?;
@@ -596,7 +624,7 @@ impl AuthManager {
 
         let mut validation = Validation::new(Algorithm::RS256);
         validation.validate_exp = true;
-        validation.set_audience(&[MCP]);
+        validation.set_audience(audiences);
         validation.set_issuer(&[PIERRE_MCP_SERVER]);
 
         let token_data = decode::<Claims>(token, &decoding_key, &validation).map_err(|e| {
@@ -681,9 +709,37 @@ impl AuthManager {
         token: &str,
         jwks_manager: &JwksManager,
     ) -> Result<Claims, JwtValidationError> {
+        Self::validate_detailed_for(token, jwks_manager, &[MCP])
+    }
+
+    /// Validate a RS256 JWT token as the protected resource `resource`
+    /// (RFC 8707), with detailed error information: the platform audience, or
+    /// a token audience-bound to `resource`. A token bound to any other
+    /// resource is refused as invalid.
+    ///
+    /// # Errors
+    ///
+    /// Everything [`Self::validate_token_detailed`] refuses, less a token whose
+    /// audience is `resource`.
+    pub fn validate_resource_token_detailed(
+        &self,
+        token: &str,
+        jwks_manager: &JwksManager,
+        resource: &str,
+    ) -> Result<Claims, JwtValidationError> {
+        Self::validate_detailed_for(token, jwks_manager, &[MCP, resource])
+    }
+
+    /// Validate a RS256 JWT token whose audience is one of `audiences`, with
+    /// detailed error information.
+    fn validate_detailed_for(
+        token: &str,
+        jwks_manager: &JwksManager,
+        audiences: &[&str],
+    ) -> Result<Claims, JwtValidationError> {
         debug!("Validating RS256 JWT token (length: {} chars)", token.len());
 
-        let claims = Self::decode_token_claims(token, jwks_manager)?;
+        let claims = Self::decode_token_claims(token, jwks_manager, audiences)?;
         Self::validate_claims_expiry(&claims)?;
 
         debug!(
@@ -693,10 +749,12 @@ impl AuthManager {
         Ok(claims)
     }
 
-    /// Decode RS256 JWT token claims without expiration validation
+    /// Decode RS256 JWT token claims without expiration validation, accepting
+    /// a token whose audience is one of `audiences`
     fn decode_token_claims(
         token: &str,
         jwks_manager: &JwksManager,
+        audiences: &[&str],
     ) -> Result<Claims, JwtValidationError> {
         // Extract kid from token header
         let header =
@@ -727,7 +785,7 @@ impl AuthManager {
 
         let mut validation_no_exp = Validation::new(Algorithm::RS256);
         validation_no_exp.validate_exp = false;
-        validation_no_exp.set_audience(&[MCP]);
+        validation_no_exp.set_audience(audiences);
         validation_no_exp.set_issuer(&[PIERRE_MCP_SERVER]);
 
         decode::<Claims>(token, &decoding_key, &validation_no_exp)
@@ -831,7 +889,7 @@ impl AuthManager {
     ) -> AppResult<String> {
         // First validate the old token signature (even if expired)
         // This ensures the refresh request is legitimate
-        Self::decode_token_claims(old_token, jwks_manager).map_err(|e| -> AppError {
+        Self::decode_token_claims(old_token, jwks_manager, &[MCP]).map_err(|e| -> AppError {
             AppError::auth_invalid(format!("Failed to validate old token for refresh: {e}"))
         })?;
 
@@ -894,6 +952,9 @@ impl AuthManager {
     /// This method uses RSA private key from JWKS manager for token signing.
     /// Clients can verify tokens using the public key from /.well-known/jwks.json
     ///
+    /// `audience` is the RFC 8707 resource the token is bound to; `None` mints
+    /// the platform audience every Pierre surface accepts.
+    ///
     /// # Errors
     ///
     /// Returns an error if:
@@ -907,6 +968,7 @@ impl AuthManager {
         scopes: &[String],
         providers: &[String],
         active_tenant_id: Option<String>,
+        audience: Option<&str>,
     ) -> AppResult<String> {
         let now = Utc::now();
         let expiry = now + Duration::hours(OAUTH_ACCESS_TOKEN_EXPIRY_HOURS);
@@ -925,7 +987,7 @@ impl AuthManager {
             // `scope`, where a resource server can read it.
             providers: providers.to_vec(),
             scope: scopes.join(" "),
-            aud: MCP.to_owned(),
+            aud: audience.unwrap_or(MCP).to_owned(),
             active_tenant_id,
             impersonator_id: None,
             impersonation_session_id: None,
@@ -953,6 +1015,9 @@ impl AuthManager {
     /// This method uses RSA private key from JWKS manager for token signing.
     /// Clients can verify tokens using the public key from /.well-known/jwks.json
     ///
+    /// `audience` is the RFC 8707 resource the token is bound to; `None` mints
+    /// the platform audience every Pierre surface accepts.
+    ///
     /// # Errors
     ///
     /// Returns an error if:
@@ -965,6 +1030,7 @@ impl AuthManager {
         client_id: &str,
         scopes: &[String],
         active_tenant_id: Option<String>,
+        audience: Option<&str>,
     ) -> AppResult<String> {
         let now = Utc::now();
         let expiry = now + Duration::hours(1); // 1 hour for client credentials
@@ -981,7 +1047,7 @@ impl AuthManager {
             // report — not a placeholder. The grant rides in `scope`.
             providers: Vec::new(),
             scope: scopes.join(" "),
-            aud: MCP.to_owned(),
+            aud: audience.unwrap_or(MCP).to_owned(),
             active_tenant_id,
             impersonator_id: None,
             impersonation_session_id: None,

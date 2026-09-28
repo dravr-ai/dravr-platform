@@ -6,11 +6,12 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo, useReducer } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { chatApi, providersApi } from '../services/api';
+import { chatApi, groupsApi, providersApi } from '../services/api';
 import { track } from '../services/analytics';
 import {
   avatarSlot,
   COMMAND_FINISH_REASON,
+  composeRoomThread,
   initialsFor,
   providerStatusLine,
   readLostTurn,
@@ -165,8 +166,9 @@ export default function ChatTab({
   // connected — every chat load.
   const showConnectBanner = providersLoaded && !hasConnectedProvider;
 
-  // Fetch messages for selected conversation
-  // LIMITATION(registre#440): `chat.messages` reads the caller's own conversation, so a channel group thread omits every other member's turns.
+  // Fetch messages for selected conversation — the caller's own rows. In a
+  // group thread these are the model's context store, and the room below is
+  // woven through them.
   const { data: messagesData, isLoading: messagesLoading } = useQuery<{ messages: Message[]; feedback?: MessageFeedbackEntry[] }>({
     queryKey: QUERY_KEYS.chat.messages(selectedConversation),
     queryFn: () => chatApi.getConversationMessages(selectedConversation!),
@@ -244,6 +246,35 @@ export default function ChatTab({
   // list cannot see it; the group names its agent as the caller reads it.
   const { group: activeGroup } = useGroup(activeConversation?.group_id ?? '');
   const activeCoachTitle = activeGroup?.agent_title ?? activeCoach?.title ?? null;
+
+  // A group thread renders the room, not only the caller's side of it: every
+  // member's words and the agent's replies to them, each under its author, and
+  // a placeholder wherever a member's sharing consent withholds an entry. The
+  // room is read back to the oldest row of the caller's own conversation, so
+  // no stretch of the thread shows one side only. It refetches on focus like
+  // the messages do — another member's turn reaches no push either. One group
+  // can hold several of the caller's threads (a channel session rotates), each
+  // reaching back to its own oldest row, so the read is keyed by that reach:
+  // a thread never paints a room read that stopped short of its history.
+  const roomGroupId = activeConversation?.group_id ?? null;
+  const ownMessages = messagesData?.messages;
+  const roomSince = useMemo(
+    () => ownMessages?.find(m => !m.id.startsWith(OPTIMISTIC_USER_ID_PREFIX))?.created_at ?? null,
+    [ownMessages],
+  );
+  const { data: roomEntries, isError: roomFailed } = useQuery({
+    queryKey: [...QUERY_KEYS.groups.room(roomGroupId ?? ''), roomSince],
+    queryFn: () => groupsApi.readRoom(roomGroupId!, roomSince),
+    enabled: !!roomGroupId && !!messagesData,
+    refetchOnWindowFocus: true,
+  });
+  const threadMessages = useMemo<Message[]>(
+    () =>
+      roomGroupId && roomEntries
+        ? composeRoomThread(ownMessages ?? [], roomEntries)
+        : ownMessages ?? [],
+    [roomGroupId, roomEntries, ownMessages],
+  );
 
   // What the header names: the thread's stored title, which the server
   // already spells as the group, the agent, or the moment it started — the
@@ -593,6 +624,10 @@ export default function ChatTab({
 
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
 
+        // The turn joined the room too, and so may have other members'
+        // lines since the room was last read.
+        if (roomGroupId) queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.room(roomGroupId) });
+
         // The turn's verdict rows are written before `done`, and the stream's
         // `verdicts` block names only the flagged claims — a reply whose claims
         // all held streams no chip. Re-reading the rows gives the live reply
@@ -626,6 +661,7 @@ export default function ChatTab({
         const note = error instanceof TurnIdleAbortedError ? t('chat.turnIdleAborted') : error.message;
         setErrorMessage(note);
         queryClient.invalidateQueries({ queryKey: conversationKey });
+        if (roomGroupId) queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.room(roomGroupId) });
         // Failed while the athlete was away — the idle stop dropped the
         // stream, or the network went with a sleeping laptop. The server kept
         // going, so the note stands only until a read of the thread holds the
@@ -645,7 +681,7 @@ export default function ChatTab({
     // line has nothing left to say.
     setProgressStatusText(null);
     usageStatus.invalidate();
-  }, [selectedConversation, isStreaming, queryClient, usageStatus, onSelectConversation, t]);
+  }, [selectedConversation, isStreaming, queryClient, usageStatus, onSelectConversation, t, roomGroupId]);
 
   /** The composer's own send: hand the typed text to {@link sendTurn} and clear the box. */
   const handleSendMessage = useCallback(() => {
@@ -933,8 +969,13 @@ export default function ChatTab({
           and the first focus scrolls the header and the list off screen. */}
       <div className="relative min-h-0 flex-1 overflow-y-auto">
         <div className="px-4 py-4 md:px-6">
+          {roomFailed ? (
+            <p className="mx-auto mb-2 max-w-[720px] text-center text-sm text-outline" data-testid="room-load-failed">
+              {t('groups.roomLoadFailed')}
+            </p>
+          ) : null}
           <MessageList
-            messages={messagesData?.messages || []}
+            messages={threadMessages}
             messageMetadata={messageMetadata}
             messageFeedback={messageFeedback}
             messageFeedbackComment={messageFeedbackComment}

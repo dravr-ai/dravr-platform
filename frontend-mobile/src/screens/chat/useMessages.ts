@@ -11,10 +11,11 @@ import {
   trackAbsence,
   whenAthleteReturns,
 } from '@pierre/shared-constants';
-import { chatApi } from '../../services/api';
+import { chatApi, groupsApi } from '../../services/api';
 import { replySceneBlocks, TurnIdleAbortedError, type MessagesResponse } from '@pierre/api-client';
-import type { ClaimVerdict, ReplyBlock, ReplyNotice } from '@pierre/shared-types';
+import type { ClaimVerdict, GroupTranscriptEntry, ReplyBlock, ReplyNotice } from '@pierre/shared-types';
 import {
+  composeRoomThread,
   filterDisplayMessages,
   readLostTurn,
   reduceLostTurn,
@@ -73,10 +74,19 @@ export interface MessagesState {
    * Reset to `null` once the turn lands.
    */
   progressText: string | null;
+  /**
+   * The open group thread's room could not be read, so the thread shows only
+   * the caller's own side of it — said on screen rather than left as a gap.
+   */
+  roomUnavailable: boolean;
 }
 
 export interface MessagesActions {
-  loadMessages: (conversationId: string) => Promise<void>;
+  /**
+   * Read a thread onto the screen. `groupId` names the group of a group
+   * thread, whose room is woven through the caller's own conversation.
+   */
+  loadMessages: (conversationId: string, groupId?: string | null) => Promise<void>;
   /**
    * Re-read the conversation's claim verdicts.
    *
@@ -142,11 +152,20 @@ export function useMessages(): MessagesState & MessagesActions {
   const [verdictsLoading, setVerdictsLoading] = useState(false);
   const [quotaNotice, setQuotaNotice] = useState<ReplyNotice | null>(null);
   const [progressText, setProgressText] = useState<string | null>(null);
+  const [roomUnavailable, setRoomUnavailable] = useState(false);
   const flatListRef = useRef<FlashListRef<ChatRow>>(null);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The thread these rows belong to, so a re-read scheduled for one thread
   // never paints its rows over another the athlete has opened since.
   const openConversationRef = useRef<string | null>(null);
+  // The group whose room a loaded thread renders, named with that thread so a
+  // group read for one thread never weaves its room into another.
+  const openRoomRef = useRef<{ conversationId: string; groupId: string } | null>(null);
+  const roomGroupOf = useCallback(
+    (conversationId: string): string | null =>
+      openRoomRef.current?.conversationId === conversationId ? openRoomRef.current.groupId : null,
+    [],
+  );
   // The turn lost while the athlete was away whose reply has not landed yet.
   // A new turn supersedes it, so it is cleared the moment one starts.
   const lostTurnRef = useRef<LostTurn<LostTurnRows> | null>(null);
@@ -202,14 +221,21 @@ export function useMessages(): MessagesState & MessagesActions {
 
   // Put a conversation's transcript on screen exactly as the server holds it,
   // with a lost turn's note under it for as long as the transcript does not
-  // answer that turn.
-  const showTranscript = useCallback(async (conversationId: string, response: MessagesResponse) => {
+  // answer that turn. A group thread's room, when read, is woven through it;
+  // the lost turn is judged on the caller's own rows alone, since a room row
+  // another member wrote is never this turn's reply.
+  const showTranscript = useCallback(async (
+    conversationId: string,
+    response: MessagesResponse,
+    room: readonly GroupTranscriptEntry[] | null,
+  ) => {
     // Drop internal LLM plumbing rows (tool_call / tool_result) so their raw
     // <tool_call>/<tool_result> XML never renders — critical for
     // messaging-origin conversations (Telegram etc.) that carry the same
     // scaffolding rows as native chat.
     const transcript = response.messages || [];
-    const rows = filterDisplayMessages(transcript);
+    const own = filterDisplayMessages(transcript);
+    const rows = room ? composeRoomThread(own, room) : own;
     const lost = lostTurnRef.current;
     const reading = readLostTurn(lost, conversationId, transcript);
     lostTurnRef.current = reduceLostTurn(lost, { type: 'read', conversationId, transcript });
@@ -243,19 +269,44 @@ export function useMessages(): MessagesState & MessagesActions {
     deferredScrollToBottom(100);
   }, [deferredScrollToBottom, refreshVerdicts]);
 
-  // LIMITATION(registre#440): `loadMessages` reads the caller's own conversation, so a channel group thread omits every other member's turns.
-  const loadMessages = useCallback(async (conversationId: string) => {
+  /**
+   * Read a thread: the caller's own conversation and, for a group thread, the
+   * room reaching back to that conversation's oldest row.
+   *
+   * A room that cannot be read leaves the thread on the caller's own rows and
+   * says so through `roomUnavailable`; the conversation itself failing to
+   * read is the failure the caller reports.
+   */
+  const readThread = useCallback(async (conversationId: string, groupId: string | null) => {
+    const response = await chatApi.getConversationMessages(conversationId);
+    if (!groupId) {
+      setRoomUnavailable(false);
+      return { response, room: null };
+    }
+    try {
+      const room = await groupsApi.readRoom(groupId, response.messages?.[0]?.created_at ?? null);
+      setRoomUnavailable(false);
+      return { response, room };
+    } catch (roomErr) {
+      console.error('Failed to read the group room:', roomErr);
+      setRoomUnavailable(true);
+      return { response, room: null };
+    }
+  }, []);
+
+  const loadMessages = useCallback(async (conversationId: string, groupId: string | null = null) => {
     openConversationRef.current = conversationId;
+    openRoomRef.current = groupId ? { conversationId, groupId } : null;
     try {
       setError(null);
-      const response = await chatApi.getConversationMessages(conversationId);
-      await showTranscript(conversationId, response);
+      const { response, room } = await readThread(conversationId, groupId);
+      await showTranscript(conversationId, response, room);
     } catch (err) {
       const errorMessage = describeApiError(err, { t, fallbackKey: 'app.failedLoadMessages' });
       setError(errorMessage);
       console.error('Failed to load messages:', err);
     }
-  }, [showTranscript]);
+  }, [readThread, showTranscript]);
 
   /**
    * Re-read a thread whose turn was lost while the athlete was away, now that
@@ -275,13 +326,13 @@ export function useMessages(): MessagesState & MessagesActions {
       lostTurnRef.current === lost && openConversationRef.current === lost.conversationId;
     if (!stillShowing()) return;
     try {
-      const response = await chatApi.getConversationMessages(lost.conversationId);
+      const { response, room } = await readThread(lost.conversationId, roomGroupOf(lost.conversationId));
       if (!stillShowing()) return;
-      await showTranscript(lost.conversationId, response);
+      await showTranscript(lost.conversationId, response, room);
     } catch (err) {
       console.error('Failed to re-read the interrupted turn:', err);
     }
-  }, [showTranscript]);
+  }, [readThread, roomGroupOf, showTranscript]);
 
   /**
    * Once a turn has settled, schedule the re-read for the athlete's return if
@@ -359,6 +410,8 @@ export function useMessages(): MessagesState & MessagesActions {
     // Set from the turn envelope when the turn moved the athlete to another
     // thread, and handed back so the screen can open it.
     let rotatedTo: string | null = null;
+    // The reply landed; a group thread then re-reads its room.
+    let landed = false;
     // A streaming turn holds the client active: the athlete asked and is
     // waiting, even with the screen untouched. Released in the finally so
     // the idle threshold measures the quiet after the turn, not during it.
@@ -411,6 +464,7 @@ export function useMessages(): MessagesState & MessagesActions {
             return [...filtered, ...newMessages];
           });
           invalidateConversationList();
+          landed = true;
           rotatedTo = turn.rotated_to_conversation_id ?? null;
           // The turn's verdict rows are written before `done`, and the
           // stream's `verdicts` block names only the flagged claims — a reply
@@ -450,14 +504,22 @@ export function useMessages(): MessagesState & MessagesActions {
     setIsSending(false);
     setProgressText(null);
     recoverOnReturn(heldIds);
+    // The turn joined the room, and other members may have spoken since it
+    // was last read: a group thread re-reads its room once the reply is in.
+    const roomGroup = roomGroupOf(conversationId);
+    if (landed && !rotatedTo && roomGroup) void loadMessages(conversationId, roomGroup);
     return rotatedTo;
-  }, [isSending, messages, deferredScrollToBottom, invalidateConversationList, failedTurnRow, recoverOnReturn, refreshVerdicts]);
+  }, [isSending, messages, deferredScrollToBottom, invalidateConversationList, failedTurnRow, recoverOnReturn, refreshVerdicts, roomGroupOf, loadMessages]);
 
   const retryMessage = useCallback(async (messageId: string, conversationId: string) => {
-    const messageIndex = messages.findIndex(m => m.id === messageId);
+    // The caller's own rows only: in a group thread another member's line can
+    // sit between a question and its failed reply, and re-sending that line
+    // as the caller's turn would put their words in the caller's mouth.
+    const ownRows = messages.filter(m => !m.room);
+    const messageIndex = ownRows.findIndex(m => m.id === messageId);
     if (messageIndex <= 0) return;
 
-    const userMessage = messages[messageIndex - 1];
+    const userMessage = ownRows[messageIndex - 1];
     if (userMessage.role !== 'user') return;
 
     setMessages(prev => prev.filter(m => m.id !== messageId));
@@ -612,6 +674,8 @@ export function useMessages(): MessagesState & MessagesActions {
   // otherwise keep drawing over whatever conversation is opened next.
   const clearMessages = useCallback(() => {
     openConversationRef.current = null;
+    openRoomRef.current = null;
+    setRoomUnavailable(false);
     setMessages([]);
     setMessageBlocks({});
     setVerdicts([]);
@@ -629,6 +693,7 @@ export function useMessages(): MessagesState & MessagesActions {
     verdictsLoading,
     quotaNotice,
     progressText,
+    roomUnavailable,
     loadMessages,
     refreshVerdicts,
     sendTurn,

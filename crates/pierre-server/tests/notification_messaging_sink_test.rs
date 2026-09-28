@@ -18,7 +18,9 @@
 //!   pipeline suppressed, so the sink can never route around a preference;
 //! - the outbound resolution: `send_to_linked_channels` walks every link the
 //!   user has, in that link's own locale, which is what makes the sink's
-//!   registry render locale-correct per channel.
+//!   registry render locale-correct per channel — including a link made
+//!   through the deployment bot, which is stored under the bot's tenant rather
+//!   than the athlete's (carnet#439), and is sent by that bot.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -32,14 +34,16 @@ mod sink_tests {
     use pierre_contremaitre::messaging_strings::DEFAULT_LOCALE;
     use pierre_core::models::messaging::ChannelType;
     use pierre_database::backends::factory::Database;
-    use pierre_database::backends::CreateChannelLinkParams;
+    use pierre_database::backends::{CreateChannelLinkParams, UpsertChannelConfigParams};
     use pierre_notifications::models::{NotificationCategory, UpsertNotificationPreferenceParams};
     use pierre_notifications::{
         DispatchOutcome, DispatchRequest, EventDispatch, NotificationChannelSink,
         NotificationEvent, NotificationService, PushTier, SuppressionReason,
         TenantId as CommTenantId,
     };
-    use pierre_services::messaging_broadcast::{resolve_linked_targets, LinkedChannelTarget};
+    use pierre_services::messaging_broadcast::{
+        resolve_linked_targets, resolve_target_sender, LinkedChannelTarget,
+    };
     use pierre_services::notification_channel_sink::MessagingChannelSink;
     use serde_json::json;
     use std::sync::{Arc, Mutex};
@@ -251,7 +255,7 @@ mod sink_tests {
             .await
             .unwrap();
 
-        let mut targets = resolve_linked_targets(messaging, tenant, user.id).await;
+        let mut targets = resolve_linked_targets(messaging, user.id).await;
         targets.sort_by(|a, b| a.recipient_id.cmp(&b.recipient_id));
 
         assert_eq!(
@@ -261,11 +265,13 @@ mod sink_tests {
                     channel_type: ChannelType::Slack,
                     recipient_id: "slack-user".to_owned(),
                     locale: DEFAULT_LOCALE.to_owned(),
+                    tenant_id: tenant,
                 },
                 LinkedChannelTarget {
                     channel_type: ChannelType::Telegram,
                     recipient_id: "telegram-user".to_owned(),
                     locale: "en".to_owned(),
+                    tenant_id: tenant,
                 },
             ],
             "both linked channels resolve, each carrying its own locale"
@@ -358,6 +364,117 @@ mod sink_tests {
         );
     }
 
+    /// carnet#439: the deployment bot is configured under the admin's tenant,
+    /// and ingress stores every link it makes under that bot tenant, while a
+    /// self-registered athlete lives in a personal tenant. A notification
+    /// raised in the athlete's tenant must still reach that chat, through the
+    /// bot that holds it — and never reach another user's chat on the same bot.
+    ///
+    /// Stops at the resolution and the bot's config, for the reason the test
+    /// above gives: the adapter posts to the channel's real host.
+    #[tokio::test]
+    async fn a_bot_made_link_under_another_tenant_is_reached_through_that_bot() {
+        let resources = create_test_server_resources().await.unwrap();
+        let messaging = resources.common.repos.messaging.as_ref();
+        let tenants = &resources.common.repos.tenants;
+
+        let (bot_admin, _) = create_test_tenant(&resources, "sink_bot_admin@example.com")
+            .await
+            .unwrap();
+        let bot_tenant = tenants.list_for_user(bot_admin.id).await.unwrap()[0].id;
+        let (athlete, _) = create_test_tenant(&resources, "sink_bot_athlete@example.com")
+            .await
+            .unwrap();
+        let athlete_tenant = tenants.list_for_user(athlete.id).await.unwrap()[0].id;
+        let (other, _) = create_test_tenant(&resources, "sink_bot_other@example.com")
+            .await
+            .unwrap();
+        assert_ne!(
+            athlete_tenant, bot_tenant,
+            "the athlete lives apart from the bot"
+        );
+
+        // The deployment's Telegram bot, under the admin's tenant only.
+        messaging
+            .upsert_channel_config(&UpsertChannelConfigParams {
+                id: &Uuid::new_v4().to_string(),
+                tenant_id: bot_tenant,
+                channel_type: "telegram",
+                api_key: None,
+                api_secret: None,
+                webhook_secret: Some("sink_bot_secret"),
+                verify_token: None,
+                account_id: None,
+                phone_number: None,
+                bot_token: Some("439:sink-deployment-bot"),
+                is_active: true,
+            })
+            .await
+            .unwrap();
+        assert!(messaging
+            .mark_channel_config_platform_scope(bot_tenant, "telegram")
+            .await
+            .unwrap());
+
+        // Both chats were opened with that bot, so both links live under it.
+        for (user_id, chat) in [(athlete.id, "tg-athlete-439"), (other.id, "tg-other-439")] {
+            messaging
+                .create_channel_link(&CreateChannelLinkParams {
+                    id: &Uuid::new_v4().to_string(),
+                    tenant_id: bot_tenant,
+                    user_id: &user_id.to_string(),
+                    channel_type: "telegram",
+                    channel_user_id: chat,
+                    display_name: None,
+                })
+                .await
+                .unwrap();
+        }
+        messaging
+            .set_channel_link_locale(bot_tenant, &athlete.id.to_string(), "telegram", Some("fr"))
+            .await
+            .unwrap();
+
+        let targets = resolve_linked_targets(messaging, athlete.id).await;
+        assert_eq!(
+            targets,
+            vec![LinkedChannelTarget {
+                channel_type: ChannelType::Telegram,
+                recipient_id: "tg-athlete-439".to_owned(),
+                locale: "fr".to_owned(),
+                tenant_id: bot_tenant,
+            }],
+            "the athlete's bot-made link is their one target, carrying the bot's tenant"
+        );
+
+        // The sender is the bot that holds the chat, resolved by the same call
+        // `send_to_linked_channels` makes: its config under the link's tenant.
+        let (_, sender) = resolve_target_sender(messaging, &targets[0])
+            .await
+            .expect("the bot that holds the chat sends to it");
+        assert_eq!(sender.tenant_id, bot_tenant.to_string());
+        assert_eq!(sender.bot_token.as_deref(), Some("439:sink-deployment-bot"));
+        assert_eq!(sender.channel_type, ChannelType::Telegram);
+
+        // Scoped to the athlete's own tenant, the same chat has no bot to send
+        // it: that is the read this path used to make, and it reached nothing.
+        let athlete_scoped = LinkedChannelTarget {
+            tenant_id: athlete_tenant,
+            ..targets[0].clone()
+        };
+        assert!(resolve_target_sender(messaging, &athlete_scoped)
+            .await
+            .is_none());
+
+        // The other user on the same bot resolves to their own chat only.
+        let other_targets = resolve_linked_targets(messaging, other.id).await;
+        let recipients: Vec<&str> = other_targets
+            .iter()
+            .map(|t| t.recipient_id.as_str())
+            .collect();
+        assert_eq!(recipients, vec!["tg-other-439"]);
+    }
+
     /// An athlete with no linked channel resolves to nothing — that is an app-
     /// only user, not a failure.
     #[tokio::test]
@@ -366,20 +483,9 @@ mod sink_tests {
         let (user, _token) = create_test_tenant(&resources, "sink_unlinked@example.com")
             .await
             .unwrap();
-        let tenant = resources
-            .common
-            .repos
-            .tenants
-            .list_for_user(user.id)
-            .await
-            .unwrap()
-            .first()
-            .unwrap()
-            .id;
 
         let targets =
-            resolve_linked_targets(resources.common.repos.messaging.as_ref(), tenant, user.id)
-                .await;
+            resolve_linked_targets(resources.common.repos.messaging.as_ref(), user.id).await;
         assert!(
             targets.is_empty(),
             "an athlete with no channel link has nowhere to be messaged: {targets:?}"

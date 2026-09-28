@@ -210,6 +210,8 @@ export const QUERY_KEYS = {
     health: (groupId: string) => ['groups', groupId, 'health'] as const,
     invites: (groupId: string) => ['groups', groupId, 'invites'] as const,
     transcript: (groupId: string) => ['groups', groupId, 'transcript'] as const,
+    /** The room a group thread renders, paged back to the thread's own history. */
+    room: (groupId: string) => ['groups', groupId, 'room'] as const,
     delegatedConnections: (groupId: string) =>
       ['groups', groupId, 'delegated-connections'] as const,
     delegationRoster: (groupId: string) => ['groups', groupId, 'delegation-roster'] as const,

@@ -73,6 +73,8 @@ mod oauth_client_state;
 pub mod oauth_notifications;
 /// Password reset token management for admin-initiated password resets
 pub mod password_reset_tokens;
+/// The persona-held notifications each digest returned (`SQLite`)
+pub mod persona_digest_returns;
 /// Personal bests at the standard running distances and the runs scanned for them (`SQLite`)
 pub mod personal_bests;
 /// `SQLite` `PlaybookRepository` impl — procedural coaching memory.

@@ -13,11 +13,12 @@
 #![cfg(feature = "postgresql")]
 
 use chrono::{DateTime, Duration, Utc};
+use pierre_auth::rate_limiting::a2a_client_window_start;
 use pierre_core::models::recipes::{IngredientUnit, Recipe, RecipeIngredient};
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{
     A2AClient, A2AUsage, ApiKey, ApiKeyTier, ApiKeyUsage, DataSource, DeviceType,
-    StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession,
+    StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, WindowUsage,
 };
 use pierre_core::models::{Tenant, TenantId, TenantPlan, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
@@ -1325,74 +1326,18 @@ async fn test_parity_a2a_usage_stats() {
 
     for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
         let repos = db.repositories();
-        let (user_id, _tenant_id) = create_test_user(&repos).await;
-
-        let api_key = ApiKey {
-            id: Uuid::new_v4().to_string(),
-            user_id,
-            name: "parity-a2a-key".to_owned(),
-            key_prefix: "pk_a2a".to_owned(),
-            key_hash: "parity-a2a-hash".to_owned(),
-            description: None,
-            tier: ApiKeyTier::Starter,
-            rate_limit_requests: 1000,
-            rate_limit_window_seconds: 3600,
-            is_active: true,
-            last_used_at: None,
-            expires_at: None,
-            created_at: Utc::now(),
-        };
-        repos
-            .api_keys
-            .create(&api_key)
-            .await
-            .unwrap_or_else(|e| panic!("{backend}: api key create must succeed: {e}"));
-
-        let client = A2AClient {
-            id: Uuid::new_v4().to_string(),
-            name: "parity-client".to_owned(),
-            description: "parity a2a client".to_owned(),
-            public_key: "parity-public-key".to_owned(),
-            user_id,
-            capabilities: vec!["fitness-data-analysis".to_owned()],
-            redirect_uris: vec!["https://test.example.com".to_owned()],
-            contact_email: Some("parity@example.com".to_owned()),
-            permissions: vec!["read_activities".to_owned()],
-            rate_limit_requests: 1000,
-            rate_limit_window_seconds: 3600,
-            is_active: true,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        repos
-            .a2a
-            .create_client(&client, "parity-secret", &api_key.id)
-            .await
-            .unwrap_or_else(|e| panic!("{backend}: a2a client create must succeed: {e}"));
+        let client = create_parity_a2a_client(&repos, backend, 3600).await;
 
         for (response_time_ms, status_code) in [(90, 200), (100, 200), (110, 500)] {
-            let usage = A2AUsage {
-                id: None,
-                client_id: client.id.clone(),
-                session_token: None,
-                timestamp: Utc::now(),
-                tool_name: "analyze".to_owned(),
-                response_time_ms: Some(response_time_ms),
+            record_parity_a2a_call(
+                &repos,
+                backend,
+                &client,
+                Utc::now(),
+                response_time_ms,
                 status_code,
-                error_message: None,
-                request_size_bytes: Some(256),
-                response_size_bytes: Some(512),
-                ip_address: None,
-                user_agent: None,
-                protocol_version: "1.0".to_owned(),
-                client_capabilities: vec!["analysis".to_owned()],
-                granted_scopes: vec!["read".to_owned()],
-            };
-            repos
-                .a2a
-                .record_usage(&usage)
-                .await
-                .unwrap_or_else(|e| panic!("{backend}: a2a usage record must succeed: {e}"));
+            )
+            .await;
         }
 
         let stats = repos
@@ -1419,9 +1364,151 @@ async fn test_parity_a2a_usage_stats() {
     }
 }
 
+/// A client-credentials call is budgeted over the client's own sliding
+/// window: both backends count the calls inside it and name the earliest,
+/// the instant its first slot frees.
+#[tokio::test]
+async fn test_parity_a2a_client_window_usage() {
+    let (sqlite_db, pg_db) = create_both_databases().await;
+
+    for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
+        let repos = db.repositories();
+        let client = create_parity_a2a_client(&repos, backend, 60).await;
+        let now = Utc::now();
+        let window_start = a2a_client_window_start(&client, now);
+
+        let empty = repos
+            .a2a
+            .get_client_window_usage(&client.id, window_start)
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: window read must not error: {e}"));
+        assert_eq!(
+            empty,
+            WindowUsage {
+                count: 0,
+                oldest: None
+            },
+            "{backend}: a client with no calls has an empty window"
+        );
+
+        let earliest_inside = now - Duration::seconds(30);
+        for at in [
+            now - Duration::minutes(5),
+            earliest_inside,
+            now - Duration::seconds(5),
+        ] {
+            record_parity_a2a_call(&repos, backend, &client, at, 10, 200).await;
+        }
+
+        let window = repos
+            .a2a
+            .get_client_window_usage(&client.id, window_start)
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: window read must not error: {e}"));
+        assert_eq!(
+            window.count, 2,
+            "{backend}: only the calls inside the 60 s window count"
+        );
+        let oldest = window
+            .oldest
+            .unwrap_or_else(|| panic!("{backend}: a window with calls names its oldest"));
+        assert!(
+            (oldest - earliest_inside).num_milliseconds().abs() < 1,
+            "{backend}: the oldest call inside the window is {earliest_inside}, got {oldest}"
+        );
+    }
+}
+
 // ============================================================================
 // Helper Functions
 // ============================================================================
+
+/// A user, an API key and an A2A client owned by that user on `repos`, the
+/// client admitting 1000 calls per `rate_limit_window_seconds`.
+async fn create_parity_a2a_client(
+    repos: &RepositoryRegistry,
+    backend: &str,
+    rate_limit_window_seconds: u32,
+) -> A2AClient {
+    let (user_id, _tenant_id) = create_test_user(repos).await;
+
+    let api_key = ApiKey {
+        id: Uuid::new_v4().to_string(),
+        user_id,
+        name: "parity-a2a-key".to_owned(),
+        key_prefix: "pk_a2a".to_owned(),
+        key_hash: format!("parity-a2a-hash-{}", Uuid::new_v4()),
+        description: None,
+        tier: ApiKeyTier::Starter,
+        rate_limit_requests: 1000,
+        rate_limit_window_seconds: 3600,
+        is_active: true,
+        last_used_at: None,
+        expires_at: None,
+        created_at: Utc::now(),
+    };
+    repos
+        .api_keys
+        .create(&api_key)
+        .await
+        .unwrap_or_else(|e| panic!("{backend}: api key create must succeed: {e}"));
+
+    let client = A2AClient {
+        id: Uuid::new_v4().to_string(),
+        name: format!("parity-client-{}", Uuid::new_v4()),
+        contact_email: None,
+        description: "parity a2a client".to_owned(),
+        public_key: "parity-public-key".to_owned(),
+        user_id,
+        capabilities: vec!["fitness-data-analysis".to_owned()],
+        redirect_uris: vec!["https://test.example.com".to_owned()],
+        permissions: vec!["read_activities".to_owned()],
+        rate_limit_requests: 1000,
+        rate_limit_window_seconds,
+        is_active: true,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+    repos
+        .a2a
+        .create_client(&client, "parity-secret", &api_key.id)
+        .await
+        .unwrap_or_else(|e| panic!("{backend}: a2a client create must succeed: {e}"));
+    client
+}
+
+/// One `a2a_usage` row for `client` at `at`.
+async fn record_parity_a2a_call(
+    repos: &RepositoryRegistry,
+    backend: &str,
+    client: &A2AClient,
+    at: DateTime<Utc>,
+    response_time_ms: u32,
+    status_code: u16,
+) {
+    let usage = A2AUsage {
+        id: None,
+        client_id: client.id.clone(),
+        session_token: None,
+        timestamp: at,
+        tool_name: "analyze".to_owned(),
+        response_time_ms: Some(response_time_ms),
+        status_code,
+        error_message: None,
+        request_size_bytes: Some(256),
+        response_size_bytes: Some(512),
+        ip_address: None,
+        user_agent: None,
+        protocol_version: "1.0".to_owned(),
+        client_capabilities: vec!["analysis".to_owned()],
+        granted_scopes: vec!["read".to_owned()],
+    };
+    repos
+        .a2a
+        .record_usage(&usage)
+        .await
+        .unwrap_or_else(|e| panic!("{backend}: a2a usage record must succeed: {e}"));
+}
 
 /// Create both `SQLite` and `PostgreSQL` test databases.
 ///

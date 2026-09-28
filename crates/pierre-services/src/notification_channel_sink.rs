@@ -24,7 +24,6 @@ use async_trait::async_trait;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_NOTIFICATION_CHANNEL_BODY,
 };
-use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
 use pierre_notifications::{DispatchRequest, NotificationChannelSink};
 use tracing::debug;
@@ -54,22 +53,19 @@ impl MessagingChannelSink {
 #[async_trait]
 impl NotificationChannelSink for MessagingChannelSink {
     async fn deliver(&self, request: &DispatchRequest) -> usize {
-        // The commere `TenantId` newtype wraps the same UUID the platform's
-        // does; channel links are stored under the platform tenant.
-        let tenant_id = TenantId::from_uuid(request.tenant_id.0);
+        // The notification's tenant does not scope the send: a user's links
+        // are theirs whichever bot's tenant stores them, and a link made
+        // through the deployment bot lives under the bot's tenant, not the
+        // athlete's personal one.
         let title = request.title.clone();
         let body = request.body.clone();
 
-        let delivered = send_to_linked_channels(
-            self.repos.messaging.as_ref(),
-            tenant_id,
-            request.user_id,
-            |locale| {
+        let delivered =
+            send_to_linked_channels(self.repos.messaging.as_ref(), request.user_id, |locale| {
                 self.strings
                     .render(KEY_NOTIFICATION_CHANNEL_BODY, locale, &[&title, &body])
-            },
-        )
-        .await;
+            })
+            .await;
 
         debug!(
             user_id = %request.user_id,

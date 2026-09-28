@@ -106,16 +106,25 @@ impl FromStr for PushTier {
 }
 
 /// Digest cadence a persona contract prescribes for gated notifications.
+///
+/// Every cadence returns what the armed floor withheld; they differ in when
+/// and how it is grouped. `pierre_services::notification_digest_scheduler`
+/// delivers all four: the calendar cadences on its daily tick, `per_session`
+/// when the athlete's next training session lands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DigestCadence {
-    /// One digest per day.
+    /// One digest per day, on the digest scheduler's daily tick.
     Daily,
-    /// One digest per week — the only cadence the digest scheduler batches
-    /// today; see `pierre_services::notification_digest_scheduler`.
+    /// One digest per week: the daily tick sends it once seven days have
+    /// passed since the recipient's previous digest.
     Weekly,
-    /// Digest attached to each training session (Power-athlete request).
+    /// One digest attached to each training session (Power-athlete request):
+    /// sent when the athlete's next session lands in the activity cache,
+    /// holding everything withheld since their previous digest.
     PerSession,
-    /// Digest rolled up per coached athlete (Agent request).
+    /// Digests rolled up per coached athlete (Agent request): on the daily
+    /// tick, one digest per athlete the withheld notifications concern, and
+    /// one daily digest for those that concern the recipient themselves.
     PerAthlete,
 }
 

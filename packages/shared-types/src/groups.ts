@@ -236,22 +236,53 @@ export interface TranscriptMember {
   peer_sharing_consent: boolean;
 }
 
-/** One utterance of the shared room, oldest first in the listing. */
+/** Who spoke in a room entry: a member, or the coach answering one. */
+export type TranscriptSpeaker = 'member' | 'coach';
+
+/**
+ * One utterance of the shared room, oldest first in the listing.
+ *
+ * Mirrors `TranscriptEntryResponse` in `routes/chat/group_transcript.rs`. An
+ * entry the author's sharing consent withholds from the reader keeps its
+ * place — id, speaker, time — and carries no author and no words, so a client
+ * shows a placeholder where it sits rather than a silent gap.
+ */
 export interface GroupTranscriptEntry {
+  /** Entry id — the cursor the page before it is read from. */
   id: string;
-  author_user_id: string;
+  speaker: TranscriptSpeaker;
+  /** The reader may not see this entry: author and content are `null`. */
+  withheld: boolean;
+  /** Attributed to the reader: their own words, or the agent's reply to them. */
+  own: boolean;
+  /** The member the entry is attributed to; `null` when withheld. */
+  author_user_id: string | null;
+  /** The author's display name, else their email; `null` when withheld. */
   author_display_name: string | null;
-  /** `member` or `coach` */
-  speaker: string;
-  content: string;
+  /** The utterance; `null` when withheld. */
+  content: string | null;
+  /**
+   * The chat message a turn entry was fanned out from, so a thread that
+   * already holds that row shows it from its own conversation; `null` for
+   * ambient room chatter and for a withheld entry.
+   */
+  message_id: string | null;
   created_at: string;
 }
 
-/** The shared room view every surface reads: roster plus visible entries. */
+/** The shared room view every surface reads: the roster plus one page of entries. */
 export interface GroupTranscriptResponse {
   group_id: string;
   members: TranscriptMember[];
   entries: GroupTranscriptEntry[];
+}
+
+/** Which page of the room to read. */
+export interface GroupTranscriptPage {
+  /** Entries per page; the server clamps it to `1..=200`. */
+  limit?: number;
+  /** Id of the oldest entry already held: the page holds the entries before it. */
+  before?: string;
 }
 
 // ========== DELEGATED CONNECTIONS (TrainingPeaks through the group's coach) ==========

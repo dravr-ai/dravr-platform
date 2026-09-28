@@ -183,16 +183,13 @@ pub struct PersonaContract {
     #[serde(default)]
     pub require_tenant_isolation: bool,
 
-    /// Notification cadence policy. `tier_floor` and `digest: weekly` are
-    /// consumed by the persona notification-policy gate in
-    /// `pierre-notifications` (shadow-mode dark launch, ledgered in
-    /// `feature-phases.yaml`; the push pipeline is commere-backed — the
-    /// earlier marker's "canot" attribution was wrong, neither external
-    /// crate carries tier metadata and the gate lives in the platform
-    /// facade).
-    /// LIMITATION(registre#7): the `per_session` and `per_athlete` digest
-    /// cadences are parsed but delivered as immediate pass-through — only
-    /// the weekly digest batches.
+    /// Notification cadence policy. `tier_floor` is consumed by the persona
+    /// notification-policy gate in `pierre-notifications`, which withholds
+    /// every push above the floor, and every `digest` cadence (`daily`,
+    /// `weekly`, `per_session`, `per_athlete`) by the persona digest in
+    /// `pierre_services::notification_digest_scheduler`, which returns what
+    /// the gate withheld. Both ship as a shadow-mode dark launch, ledgered
+    /// in `feature-phases.yaml`.
     #[serde(default)]
     pub notification: NotificationPolicy,
 
@@ -211,8 +208,8 @@ pub struct NotificationPolicy {
     /// Stored as a free-form label until canot exposes a typed enum.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tier_floor: Option<String>,
-    /// Digest cadence: `daily`, `weekly`, `per_session`, `per_athlete`,
-    /// or any future label canot exposes.
+    /// Digest cadence: `daily`, `weekly`, `per_session` or `per_athlete`.
+    /// Any other label resolves to no digest.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub digest: Option<String>,
 }

@@ -1,10 +1,13 @@
 // ABOUTME: A2A client registration, credential, and usage data structures
-// ABOUTME: Standalone types for client management and rate limiting
+// ABOUTME: Standalone types for client management and the client's request budget
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
+use pierre_auth::rate_limiting::{a2a_client_window_resets_at, calculate_a2a_client_rate_limit};
+use pierre_core::models::a2a::A2AClient;
+use pierre_core::models::WindowUsage;
 use serde::{Deserialize, Serialize};
 
 /// A2A Client registration request
@@ -39,104 +42,69 @@ pub struct ClientCredentials {
     pub key_type: String,
 }
 
-/// A2A Client usage statistics
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// A2A client usage statistics, counted over the client's `a2a_usage` rows
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ClientUsageStats {
     /// Client identifier
     pub client_id: String,
-    /// Number of requests made today
+    /// Calls since the start of the UTC day
     pub requests_today: u64,
-    /// Number of requests made this month
+    /// Calls since the start of the UTC month
     pub requests_this_month: u64,
-    /// Total number of requests ever made
+    /// Every call the client has made
     pub total_requests: u64,
-    /// Timestamp of the most recent request
+    /// Timestamp of the most recent call
     pub last_request_at: Option<DateTime<Utc>>,
-    /// Current rate limit tier
-    pub rate_limit_tier: String,
+    /// One row per UTC calendar day that saw a call, newest first
+    pub daily_usage: Vec<DailyUsage>,
 }
 
-/// A2A Client rate limit tiers
-#[non_exhaustive]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub enum A2AClientTier {
-    /// Trial tier - 1,000 requests/month, auto-expires in 30 days
-    #[default]
-    Trial,
-    /// Standard tier - 10,000 requests/month
-    Standard,
-    /// Professional tier - 100,000 requests/month
-    Professional,
-    /// Enterprise tier - Unlimited requests
-    Enterprise,
+/// A client's calls on one UTC calendar day
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DailyUsage {
+    /// The UTC calendar day
+    pub date: NaiveDate,
+    /// Calls answered below 400
+    pub success_count: u32,
+    /// Calls answered 400 or above
+    pub error_count: u32,
 }
 
-impl A2AClientTier {
-    /// Returns the monthly API call limit for this tier
-    ///
-    /// Returns `None` for Enterprise tier (unlimited)
-    #[must_use]
-    pub const fn monthly_limit(&self) -> Option<u32> {
-        match self {
-            Self::Trial => Some(1000),
-            Self::Standard => Some(10000),
-            Self::Professional => Some(100_000),
-            Self::Enterprise => None, // Unlimited
-        }
-    }
-
-    /// Returns the human-readable display name for this tier
-    #[must_use]
-    pub const fn display_name(&self) -> &'static str {
-        match self {
-            Self::Trial => "Trial",
-            Self::Standard => "Standard",
-            Self::Professional => "Professional",
-            Self::Enterprise => "Enterprise",
-        }
-    }
-}
-
-/// A2A Rate limit status
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// An A2A client's request budget as its owner sees it: the client row's
+/// `rate_limit_requests` over a sliding `rate_limit_window_seconds`, the
+/// budget a client-credentials call spends and is refused on.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct A2ARateLimitStatus {
-    /// Whether the client is currently rate limited
-    pub is_rate_limited: bool,
-    /// Maximum requests allowed in the current period
-    pub limit: Option<u32>,
-    /// Remaining requests in the current period
-    pub remaining: Option<u32>,
-    /// When the rate limit period resets
-    pub reset_at: Option<DateTime<Utc>>,
-    /// Current rate limit tier
-    pub tier: A2AClientTier,
-}
-
-/// Parameters for detailed A2A usage recording
-#[derive(Debug, Clone)]
-pub struct A2AUsageParams {
     /// Client identifier
     pub client_id: String,
-    /// Session token if available
-    pub session_token: Option<String>,
-    /// Name of the tool/endpoint called
-    pub tool_name: String,
-    /// Response time in milliseconds
-    pub response_time_ms: Option<u32>,
-    /// HTTP status code returned
-    pub status_code: u16,
-    /// Error message if the request failed
-    pub error_message: Option<String>,
-    /// Size of the request in bytes
-    pub request_size_bytes: Option<u32>,
-    /// Size of the response in bytes
-    pub response_size_bytes: Option<u32>,
-    /// Client IP address
-    pub ip_address: Option<String>,
-    /// Client user agent string
-    pub user_agent: Option<String>,
-    /// Capabilities advertised by the client
-    pub client_capabilities: Vec<String>,
-    /// `OAuth2` scopes granted for this request
-    pub granted_scopes: Vec<String>,
+    /// Whether the window has already admitted its limit, so the next call
+    /// is refused
+    pub is_rate_limited: bool,
+    /// Calls the window admits
+    pub rate_limit_requests: u32,
+    /// The length of the sliding window, in seconds
+    pub rate_limit_window_seconds: u32,
+    /// Calls counted inside the window
+    pub current_usage: u32,
+    /// Calls the window still admits
+    pub remaining: u32,
+    /// When the window frees its first slot
+    pub reset_at: DateTime<Utc>,
+}
+
+impl A2ARateLimitStatus {
+    /// The status of `client`'s budget, given the calls `usage` counted
+    /// inside its window at `now`.
+    #[must_use]
+    pub fn from_window(client: &A2AClient, usage: &WindowUsage, now: DateTime<Utc>) -> Self {
+        Self {
+            client_id: client.id.clone(),
+            is_rate_limited: calculate_a2a_client_rate_limit(client, usage, now).is_exceeded(),
+            rate_limit_requests: client.rate_limit_requests,
+            rate_limit_window_seconds: client.rate_limit_window_seconds,
+            current_usage: usage.count,
+            remaining: client.rate_limit_requests.saturating_sub(usage.count),
+            reset_at: a2a_client_window_resets_at(client, usage, now),
+        }
+    }
 }

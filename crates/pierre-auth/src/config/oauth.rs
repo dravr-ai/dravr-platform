@@ -6,10 +6,12 @@
 
 use pierre_core::constants::provider_seats::STRAVA_OAUTH_SEAT_CAP_DEFAULT;
 use pierre_core::constants::{oauth2_client_retention, oauth_providers};
+use pierre_core::errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::env;
 use tracing::{debug, info, warn};
+use url::Url;
 
 /// OAuth provider configuration for fitness platforms
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -158,6 +160,17 @@ pub struct OAuth2ServerConfig {
     /// `OAuth2` issuer URL for RFC 8414 discovery (format: <https://your-domain.com>)
     /// MUST be set in production to actual deployment domain. Defaults to `http://localhost:PORT` in development.
     pub issuer_url: String,
+    /// Resource identifier of the MCP resource server (RFC 9728 §2, RFC 8707).
+    ///
+    /// The origin MCP clients dial, `scheme://host[:port]` with no path.
+    ///
+    /// Published as `resource` in `/.well-known/oauth-protected-resource`, the
+    /// origin of the `resource_metadata` URL in every `/mcp` 401 challenge, the
+    /// one value a `resource` parameter on `/oauth2/authorize` and
+    /// `/oauth2/token` may name, and the audience of the tokens minted for it.
+    /// `MCP_RESOURCE_URL`, defaulting to `BASE_URL`, so a deployment that
+    /// answers to one hostname needs no setting.
+    pub mcp_resource_url: String,
     /// Default email for OAuth login page (dev/test only - do not use in production)
     pub default_login_email: Option<String>,
     /// Default password for OAuth login page (dev/test only - NEVER use in production!)
@@ -171,6 +184,7 @@ impl Default for OAuth2ServerConfig {
     fn default() -> Self {
         Self {
             issuer_url: "http://localhost:8081".to_owned(),
+            mcp_resource_url: "http://localhost:8081".to_owned(),
             default_login_email: None,
             default_login_password: None,
             client_retention: ClientRetentionConfig::default(),
@@ -265,6 +279,33 @@ pub fn resolve_issuer_url(
     base_url: Option<&str>,
     http_port: u16,
 ) -> String {
+    first_configured_url(explicit, base_url, http_port)
+}
+
+/// Resolve the MCP resource identifier (`MCP_RESOURCE_URL`, else `BASE_URL`).
+///
+/// The same precedence as the issuer, then the local form, so an unset
+/// `MCP_RESOURCE_URL` names the address the deployment already answers to.
+///
+/// A trailing `/` is dropped: the value is published verbatim as the RFC 9728
+/// `resource`, and `/.well-known/oauth-protected-resource` is appended to it
+/// for the 401 challenge. Like [`resolve_issuer_url`], split out of
+/// [`OAuth2ServerConfig::from_env`] so the precedence is testable without
+/// mutating the process environment.
+#[must_use]
+pub fn resolve_mcp_resource_url(
+    explicit: Option<&str>,
+    base_url: Option<&str>,
+    http_port: u16,
+) -> String {
+    first_configured_url(explicit, base_url, http_port)
+        .trim_end_matches('/')
+        .to_owned()
+}
+
+/// The first of `explicit` and `base_url` that is set and not blank, else
+/// `http://localhost:{http_port}`.
+fn first_configured_url(explicit: Option<&str>, base_url: Option<&str>, http_port: u16) -> String {
     explicit
         .map(str::trim)
         .filter(|v| !v.is_empty())
@@ -281,6 +322,7 @@ impl OAuth2ServerConfig {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(8081);
+        let base_url = env::var("BASE_URL").ok();
         Self {
             // The issuer is published verbatim in
             // `/.well-known/oauth-authorization-server` and
@@ -296,12 +338,71 @@ impl OAuth2ServerConfig {
             // for.
             issuer_url: resolve_issuer_url(
                 env::var("OAUTH2_ISSUER_URL").ok().as_deref(),
-                env::var("BASE_URL").ok().as_deref(),
+                base_url.as_deref(),
+                http_port,
+            ),
+            // The MCP resource server is named separately from the issuer
+            // (RFC 9728 expects the two to differ) so the MCP endpoint can be
+            // published under its own hostname while the authorization server
+            // stays where it is (carnet#484).
+            mcp_resource_url: resolve_mcp_resource_url(
+                env::var("MCP_RESOURCE_URL").ok().as_deref(),
+                base_url.as_deref(),
                 http_port,
             ),
             default_login_email: env::var("OAUTH_DEFAULT_EMAIL").ok(),
             default_login_password: env::var("OAUTH_DEFAULT_PASSWORD").ok(),
             client_retention: ClientRetentionConfig::from_env(),
+        }
+    }
+
+    /// Refuse an `mcp_resource_url` that cannot be published as a resource
+    /// identifier.
+    ///
+    /// It must be an absolute `http`/`https` URL naming an origin — no path,
+    /// query, fragment or credentials. The protected-resource document is
+    /// served only at `{origin}/.well-known/oauth-protected-resource`, and RFC
+    /// 9728 §3.3 has a client reject a `resource` that differs from the URL it
+    /// fetched that document from, so a value with a path publishes a
+    /// document every conforming client refuses. `require_https` is set in
+    /// production, where a bearer token must never cross a plain-HTTP hop.
+    ///
+    /// # Errors
+    /// Returns an invalid-input error naming the defect.
+    pub fn validate_mcp_resource_url(&self, require_https: bool) -> AppResult<()> {
+        let value = &self.mcp_resource_url;
+        let url = Url::parse(value).map_err(|e| {
+            AppError::invalid_input(format!(
+                "MCP_RESOURCE_URL must be an absolute URL ({e}): {value}"
+            ))
+        })?;
+        match url.scheme() {
+            "https" => {}
+            "http" if !require_https => {}
+            "http" => {
+                return Err(AppError::invalid_input(format!(
+                    "MCP_RESOURCE_URL must use HTTPS in production: {value}"
+                )))
+            }
+            _ => {
+                return Err(AppError::invalid_input(format!(
+                    "MCP_RESOURCE_URL must be an http or https URL: {value}"
+                )))
+            }
+        }
+        let is_origin = url.host().is_some()
+            && url.path() == "/"
+            && url.query().is_none()
+            && url.fragment().is_none()
+            && url.username().is_empty()
+            && url.password().is_none();
+        if is_origin {
+            Ok(())
+        } else {
+            Err(AppError::invalid_input(format!(
+                "MCP_RESOURCE_URL must name an origin (scheme://host[:port]) with no path, \
+                 query, fragment or credentials: {value}"
+            )))
         }
     }
 }

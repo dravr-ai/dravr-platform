@@ -162,6 +162,37 @@ pub trait MessagingRepository: Send + Sync {
         channel_type: &str,
     ) -> AppResult<Option<Value>>;
 
+    /// Resolve the config that serves `tenant_id`'s users on `channel_type`.
+    ///
+    /// One rule, evaluated in one query: the tenant's own config for the
+    /// channel when it has one (a tenant that brings its own bot uses it,
+    /// enabled or not), otherwise the deployment's platform-scope config —
+    /// the bot seeded from the server's environment, which answers every
+    /// athlete whatever tenant they live in. Reading a platform-scope row
+    /// across tenants is deliberate: it is deployment configuration, not one
+    /// tenant's data, and the caller never returns its secrets to a user.
+    ///
+    /// The returned JSON carries the owning `tenant_id`; link state for the
+    /// bot must be written under that tenant, because the webhook resolves the
+    /// bot's tenant from the same row and consumes codes there.
+    async fn resolve_channel_config(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+    ) -> AppResult<Option<Value>>;
+
+    /// Mark a tenant's config for `channel_type` as platform scope, readable
+    /// by every tenant through [`Self::resolve_channel_config`].
+    ///
+    /// Called by the environment seed, which is what makes a bot the
+    /// deployment's. The API upsert never changes the scope of an existing
+    /// row. Returns `false` when the tenant holds no such config.
+    async fn mark_channel_config_platform_scope(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+    ) -> AppResult<bool>;
+
     /// List all active channel configurations for a tenant
     async fn list_channel_configs(&self, tenant_id: TenantId) -> AppResult<Vec<Value>>;
 
@@ -363,6 +394,18 @@ pub trait MessagingRepository: Send + Sync {
         channel_type: &str,
         channel_user_id: &str,
     ) -> AppResult<Option<TenantId>>;
+
+    /// List every channel link that names `user_id`, under whichever tenant
+    /// holds it.
+    ///
+    /// Cross-tenant by design, scoped by `user_id`: a link made through the
+    /// deployment bot is stored under the bot's tenant (ingress resolves the
+    /// sender with `get_channel_link(bot_tenant, ..)`), while the athlete lives
+    /// in their own tenant, so a tenant-scoped read would hide it from them.
+    /// The row names its owner, and a user id is strictly narrower than a
+    /// tenant, so the result is only ever the caller's own links. Callers pass
+    /// the authenticated user's id, never one taken from a request.
+    async fn list_channel_links_for_user(&self, user_id: &str) -> AppResult<Vec<Value>>;
 
     /// List all channel links for a user
     async fn list_user_channel_links(
@@ -602,6 +645,27 @@ pub(crate) const CHANNEL_IDENTITY_CLAIMED_SQL: &str = r"
 pub(crate) const DELETE_CHANNEL_CONFIG_SQL: &str =
     "DELETE FROM messaging_channel_configs WHERE tenant_id = $1 AND channel_type = $2";
 
+/// The config that serves a tenant on one channel: the tenant's own row when
+/// it has one, otherwise the deployment's platform-scope row. Ranked in one
+/// statement so there is a single rule, not a second lookup after a miss;
+/// among platform rows (an `ADMIN_EMAIL` change can leave two) the most
+/// recently seeded wins.
+pub(crate) const RESOLVE_CHANNEL_CONFIG_SQL: &str = concat!(
+    "SELECT ",
+    channel_config_columns!(),
+    " FROM messaging_channel_configs \
+     WHERE channel_type = $2 AND (tenant_id = $1 OR platform_scope = TRUE) \
+     ORDER BY CASE WHEN tenant_id = $1 THEN 0 ELSE 1 END, updated_at DESC, id \
+     LIMIT 1"
+);
+
+/// Mark one tenant's config for one channel type as platform scope.
+pub(crate) const MARK_CHANNEL_CONFIG_PLATFORM_SCOPE_SQL: &str = r"
+            UPDATE messaging_channel_configs
+               SET platform_scope = TRUE
+             WHERE tenant_id = $1 AND channel_type = $2
+            ";
+
 /// The session projection every session read returns.
 macro_rules! session_columns {
     () => {
@@ -732,6 +796,17 @@ pub(crate) const LIST_USER_CHANNEL_LINKS_SQL: &str = r"
             FROM messaging_channel_links
             WHERE tenant_id = $1 AND user_id = $2
             ORDER BY linked_at
+            ";
+
+/// Every link a user holds under any tenant, with the link's own locale
+/// override. Scoped by `user_id` alone: the row names the person, and a user
+/// id belongs to exactly one account, so this can only ever return that
+/// person's own links (see `list_channel_links_for_user`).
+pub(crate) const LIST_CHANNEL_LINKS_FOR_USER_SQL: &str = r"
+            SELECT id, tenant_id, user_id, channel_type, channel_user_id, display_name, locale, linked_at
+            FROM messaging_channel_links
+            WHERE user_id = $1
+            ORDER BY linked_at, id
             ";
 
 /// Unlink one channel from a user.

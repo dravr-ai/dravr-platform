@@ -22,6 +22,8 @@ import type {
   GroupWeeklyReportResponse,
   GroupHealthFlagsResponse,
   GroupPermissionsResponse,
+  GroupTranscriptEntry,
+  GroupTranscriptPage,
   GroupTranscriptResponse,
   DelegatedConnection,
   DelegatedConnectionsResponse,
@@ -29,6 +31,12 @@ import type {
   ProposeDelegatedConnectionRequest,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
+
+/**
+ * Entries per page when a thread reads the room back: the most one page of the
+ * transcript route holds, so the fewest round trips cover a thread's history.
+ */
+const ROOM_PAGE_SIZE = 200;
 
 // Re-export types for consumers
 export type {
@@ -55,6 +63,29 @@ export type {
  * Creates the groups API methods bound to an axios instance.
  */
 export function createGroupsApi(axios: AxiosInstance) {
+  /**
+   * Read one page of the group's shared room transcript as the authenticated
+   * member: the newest page, or with `before` the page ahead of that entry.
+   *
+   * The server keeps an unconsented member on the roster and every entry in
+   * the room, withholding the words and the author of theirs — one
+   * visibility rule, every surface, and a placeholder where a withheld entry
+   * sits rather than a gap.
+   */
+  async function getTranscript(
+    groupId: string,
+    page: GroupTranscriptPage = {},
+  ): Promise<GroupTranscriptResponse> {
+    const params: GroupTranscriptPage = {};
+    if (page.limit !== undefined) params.limit = page.limit;
+    if (page.before !== undefined) params.before = page.before;
+    const response = await axios.get<GroupTranscriptResponse>(
+      ENDPOINTS.GROUPS.TRANSCRIPT(groupId),
+      Object.keys(params).length === 0 ? undefined : { params },
+    );
+    return response.data;
+  }
+
   return {
     // ==================== GROUP CRUD ====================
 
@@ -236,19 +267,35 @@ export function createGroupsApi(axios: AxiosInstance) {
       return response.data;
     },
 
+    /** Read one page of the group's shared room transcript (see {@link getTranscript}). */
+    getTranscript,
+
     /**
-     * Read the group's shared room transcript as the authenticated member.
+     * The room a group thread renders: its entries, oldest first, reaching
+     * back to `since` — the oldest row of the caller's own conversation.
      *
-     * The server withholds an unconsented member's entries while keeping them
-     * on the roster, so the caller renders exactly what the pipeline's own
-     * ambient context sees -- one visibility rule, every surface.
+     * The newest page always comes back, so a thread with no history of its
+     * own still opens on what the room said last; older pages follow, each
+     * read from the oldest entry the one before it held, until a page reaches
+     * `since` or the room runs out. The per-member conversation the thread
+     * also holds starts at `since`, so every row it shows sits among the room
+     * said around it — no stretch of the thread shows one member's side only.
+     * A withheld entry comes back as the server's placeholder, never dropped.
      */
-    async getTranscript(groupId: string, limit?: number): Promise<GroupTranscriptResponse> {
-      const response = await axios.get<GroupTranscriptResponse>(
-        ENDPOINTS.GROUPS.TRANSCRIPT(groupId),
-        limit === undefined ? undefined : { params: { limit } },
-      );
-      return response.data;
+    async readRoom(groupId: string, since?: string | null): Promise<GroupTranscriptEntry[]> {
+      const reachBack = since ? Date.parse(since) : Number.NaN;
+      const pages: GroupTranscriptEntry[][] = [];
+      let before: string | undefined;
+      for (;;) {
+        const { entries } = await getTranscript(groupId, { limit: ROOM_PAGE_SIZE, before });
+        pages.unshift(entries);
+        const oldest = entries[0];
+        if (!oldest || entries.length < ROOM_PAGE_SIZE || oldest.id === before) break;
+        // No own history to reach back to, or this page already reaches it.
+        if (Number.isNaN(reachBack) || Date.parse(oldest.created_at) <= reachBack) break;
+        before = oldest.id;
+      }
+      return pages.flat();
     },
   };
 }

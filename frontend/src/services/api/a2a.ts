@@ -4,6 +4,7 @@
 // ABOUTME: Agent-to-Agent (A2A) protocol API methods - client registration, listing, usage, rate limits
 // ABOUTME: Handles A2A protocol for agent-to-agent communication
 
+import type { A2AUsageStats } from '@pierre/shared-types';
 import { axios } from './client';
 
 export const a2aApi = {
@@ -30,12 +31,8 @@ export const a2aApi = {
     return response.data;
   },
 
-  async getA2AClientUsage(clientId: string, startDate?: string, endDate?: string) {
-    const params = new URLSearchParams();
-    if (startDate) params.append('start_date', startDate);
-    if (endDate) params.append('end_date', endDate);
-
-    const response = await axios.get(`/a2a/clients/${clientId}/usage?${params}`);
+  async getA2AClientUsage(clientId: string): Promise<A2AUsageStats> {
+    const response = await axios.get<A2AUsageStats>(`/a2a/clients/${clientId}/usage`);
     return response.data;
   },
 

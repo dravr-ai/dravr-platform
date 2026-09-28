@@ -40,7 +40,6 @@ use dravr_tronc::mcp::tasks::{TaskId, TaskManager, TaskOptions, TaskOwner, TaskS
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext, ToolRegistry};
 use pierre_auth::auth::AuthResult;
 use pierre_core::auth_header::is_api_key_format;
-use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{EffectiveTool, TenantId, ToolEnablementSource};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
@@ -69,6 +68,11 @@ use crate::constants::errors::{
 };
 use crate::constants::get_server_config;
 use crate::constants::protocol::{server_name_multitenant, SERVER_VERSION};
+
+/// RFC 6750 / RFC 9728 challenges and the transport refusal an auth failure maps to
+mod auth_challenge;
+
+use auth_challenge::{auth_refusal, insufficient_scope_challenge, www_authenticate_challenge};
 
 /// Supported MCP protocol revisions advertised by the platform server, in
 /// preference order.
@@ -143,31 +147,6 @@ fn schema_to_tool(schema: ToolSchema) -> Tool {
     }
 }
 
-/// Build the RFC 9728 `WWW-Authenticate` challenge value pointing clients at the
-/// protected resource metadata document. `error` carries an optional RFC 6750
-/// error code (e.g. `invalid_token`).
-fn www_authenticate_challenge(base_url: &str, error: Option<&str>) -> String {
-    let metadata_url = format!("{base_url}/.well-known/oauth-protected-resource");
-    error.map_or_else(
-        || format!("Bearer resource_metadata=\"{metadata_url}\""),
-        |err| format!("Bearer resource_metadata=\"{metadata_url}\", error=\"{err}\""),
-    )
-}
-
-/// Build the RFC 6750 §3.1 `insufficient_scope` challenge naming the grant the
-/// caller is missing.
-///
-/// The `scope` parameter is the whole point of this error code: a client that
-/// reads it knows exactly which grant to re-request and can recover, where a
-/// bare 403 tells it only that it lost. `resource_metadata` rides along so the
-/// client also knows *which* authorization server to ask.
-fn insufficient_scope_challenge(base_url: &str, missing: OAuthScope) -> String {
-    let metadata_url = format!("{base_url}/.well-known/oauth-protected-resource");
-    format!(
-        "Bearer resource_metadata=\"{metadata_url}\", error=\"insufficient_scope\", scope=\"{missing}\""
-    )
-}
-
 /// Resolves the instructions advertised in `initialize` from the prompt
 /// registry, on every handshake.
 ///
@@ -237,35 +216,6 @@ impl PierreAuthHook {
     }
 }
 
-/// The transport refusal for an authentication failure.
-///
-/// Only a refused credential is a 401 `invalid_token`, which tells an `OAuth`
-/// client its token is dead and sends it to refresh and re-authorize. A spent
-/// request budget is a 429 carrying the refusal's own retry window, and a
-/// server-side failure (a database error reading the user or the usage
-/// counter) is a 500: neither says anything about the credential, and a 401
-/// for either loops the client through re-authorization only to be refused
-/// again. Mirrors [`AppError::into_auth_refusal`] on the REST routes.
-fn auth_refusal(error: &AppError, base_url: &str) -> AuthError {
-    if error.code == ErrorCode::RateLimitExceeded {
-        debug!(error = %error, "MCP request refused: the credential's request budget is spent");
-        return AuthError::RateLimited {
-            retry_after_secs: error.retry_after_secs().unwrap_or(1),
-            reason: error.sanitized_message(),
-        };
-    }
-    if error.is_server_fault() {
-        error!(error = %error, "MCP request failed: authentication could not complete");
-        return AuthError::Internal {
-            reason: error.sanitized_message(),
-        };
-    }
-    debug!(error = %error, "MCP request rejected: bearer token failed validation");
-    AuthError::Unauthorized {
-        www_authenticate: www_authenticate_challenge(base_url, Some("invalid_token")),
-    }
-}
-
 /// What an MCP request did, for its usage row: the tool a `tools/call`
 /// names, otherwise the JSON-RPC method.
 fn mcp_operation(request: &JsonRpcRequest) -> &str {
@@ -289,11 +239,13 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
         request: &JsonRpcRequest,
         _state: &Arc<dyn ToolRuntime>,
     ) -> Result<ToolContext, AuthError> {
-        let base_url = &self.resources.common.config.base_url;
+        // The MCP resource server's identifier: the origin its 401 challenges
+        // point at and the only resource a bound token may name.
+        let resource_url = &self.resources.common.config.oauth2_server.mcp_resource_url;
 
         let Some(token) = request.auth_token.as_deref() else {
             return Err(AuthError::Unauthorized {
-                www_authenticate: www_authenticate_challenge(base_url, None),
+                www_authenticate: www_authenticate_challenge(resource_url, None),
             });
         };
 
@@ -314,11 +266,11 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
             .resources
             .auth
             .auth_middleware
-            .authenticate_scoped_request(Some(&auth_header))
+            .authenticate_scoped_request(Some(&auth_header), resource_url)
             .await
         {
             Ok(result) => result,
-            Err(e) => return Err(auth_refusal(&e, base_url)),
+            Err(e) => return Err(auth_refusal(&e, resource_url)),
         };
         // The usage row an API key's request writes names the tool it
         // called, not `POST /mcp`, which serves every tool.
@@ -370,7 +322,7 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
                         "MCP request rejected: the caller's grant does not cover this tool"
                     );
                     return Err(AuthError::InsufficientScope {
-                        www_authenticate: insufficient_scope_challenge(base_url, missing),
+                        www_authenticate: insufficient_scope_challenge(resource_url, missing),
                         reason: format!(
                             "The grant does not cover this tool; '{missing}' is required"
                         ),

@@ -8,8 +8,7 @@ use chrono::{DateTime, Utc};
 use pierre_core::constants::http_status::{BAD_REQUEST, SUCCESS_MAX, SUCCESS_MIN};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    ApiKeyUsage, ApiKeyUsageStats, ApiKeyWindowUsage, JwtMonthlyUsage, JwtUsage, RequestLog,
-    ToolUsage,
+    ApiKeyUsage, ApiKeyUsageStats, JwtMonthlyUsage, JwtUsage, RequestLog, ToolUsage, WindowUsage,
 };
 use sqlx::Row;
 use tracing::warn;

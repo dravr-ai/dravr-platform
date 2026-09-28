@@ -7,6 +7,7 @@
 use axum::response::Html;
 
 use pierre_core::html::{escape_html_attribute, with_hosted_page_css};
+use pierre_core::models::UserStatus;
 
 /// Login page template embedded at compile-time
 const LINK_LOGIN_TEMPLATE: &str = include_str!("../../../templates/messaging_link_login.html");
@@ -47,9 +48,26 @@ pub fn render_link_login_page(
     Html(html)
 }
 
-/// Render the success page after a channel has been linked
-pub fn render_link_success_page(channel: &str) -> Html<String> {
+/// Render the success page after a channel has been linked.
+///
+/// The link is made whatever the account's status, as the in-chat flow makes
+/// it; what the athlete can do next is not the same. An active account can
+/// talk to the agent now, a pending one waits for an administrator, and a
+/// suspended one is refused on every message until support restores it.
+pub fn render_link_success_page(channel: &str, status: UserStatus) -> Html<String> {
+    let next_step = match status {
+        UserStatus::Active => {
+            "Go back to {{CHANNEL}} and send a message to get started."
+        }
+        UserStatus::Pending => {
+            "Your Dravr account is waiting for an administrator's approval. The agent answers on {{CHANNEL}} once it is approved."
+        }
+        UserStatus::Suspended => {
+            "Your Dravr account is suspended, so the agent does not answer on {{CHANNEL}}. Contact support to restore it."
+        }
+    };
     let html = with_hosted_page_css(LINK_SUCCESS_TEMPLATE)
+        .replace("{{NEXT_STEP}}", next_step)
         .replace("{{CHANNEL}}", &escape_html_attribute(channel));
     Html(html)
 }

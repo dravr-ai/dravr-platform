@@ -60,8 +60,7 @@ pub(crate) mod task_events;
 pub use agent_card::AgentCard;
 pub use client::A2AClientManager;
 pub use client_types::{
-    A2AClientTier, A2ARateLimitStatus, A2AUsageParams, ClientCredentials,
-    ClientRegistrationRequest, ClientUsageStats,
+    A2ARateLimitStatus, ClientCredentials, ClientRegistrationRequest, ClientUsageStats, DailyUsage,
 };
 pub use jsonrpc::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, JSONRPC_VERSION};
 pub use protocol::A2AServer;

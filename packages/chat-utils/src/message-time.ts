@@ -1,7 +1,9 @@
 // ABOUTME: The clock and the day a message row shows — one rule for web and mobile, in the reader's locale
 // ABOUTME: A 24-hour time inside the bubble, a day pill between days, and the grouping window for consecutive rows
 
+import type { RoomAttribution } from '@pierre/shared-types';
 import { clock24, dayDiff } from './date-buckets';
+import { runAuthorOf } from './room-thread';
 
 /** Rows from the same author closer than this are drawn as one group. */
 export const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000;
@@ -56,12 +58,15 @@ export function dayLabelFor(iso: string, locale: string, now: Date = new Date())
 /**
  * Whether two consecutive rows belong to one visual group: the same author,
  * on the same day, within {@link MESSAGE_GROUP_WINDOW_MS} of each other.
+ *
+ * In a group thread the author of a room row is the member it belongs to, not
+ * its role, so two members' consecutive lines each keep their own author line.
  */
 export function isSameMessageGroup(
-  previous: { role: string; created_at?: string | null },
-  next: { role: string; created_at?: string | null },
+  previous: { role: string; created_at?: string | null; room?: RoomAttribution | null },
+  next: { role: string; created_at?: string | null; room?: RoomAttribution | null },
 ): boolean {
-  if (previous.role !== next.role) return false;
+  if (runAuthorOf(previous) !== runAuthorOf(next)) return false;
   if (!previous.created_at || !next.created_at) return false;
   const a = Date.parse(previous.created_at);
   const b = Date.parse(next.created_at);

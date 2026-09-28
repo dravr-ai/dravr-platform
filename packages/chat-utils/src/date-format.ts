@@ -32,15 +32,21 @@ export function formatDateTime(iso: string, locale: string): string {
  * spelled out rather than taken from `dateStyle: 'medium'`, which some
  * locales render all-numeric (`01.09.2026` in German).
  *
+ * `timeZone` names the zone whose calendar the day is read in, the reader's
+ * own when omitted. A value that already is a calendar day — a bare
+ * `YYYY-MM-DD`, which parses as that day's UTC midnight — passes `'UTC'`, or
+ * a reader west of Greenwich sees the day before.
+ *
  * An unparseable stamp comes back verbatim, as it does from
  * {@link formatDateTime}.
  */
-export function formatDate(iso: string, locale: string): string {
+export function formatDate(iso: string, locale: string, timeZone?: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
   return new Intl.DateTimeFormat(locale, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
+    timeZone,
   }).format(date);
 }

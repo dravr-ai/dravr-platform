@@ -263,6 +263,20 @@ pub struct JwtMonthlyUsage {
     pub monthly_override: MonthlyLimitOverride,
 }
 
+/// A metered credential's calls inside its own sliding rate-limit window:
+/// an API key's `api_key_usage` rows, or an A2A client's `a2a_usage` rows.
+///
+/// Read in one statement, so the count and the oldest call describe the same
+/// rows: the window frees its first slot at `oldest` plus the credential's
+/// `rate_limit_window_seconds`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowUsage {
+    /// Calls recorded inside the window
+    pub count: u32,
+    /// The earliest of those calls; `None` when the window holds none
+    pub oldest: Option<DateTime<Utc>>,
+}
+
 /// `call_type` sentinel that marks an `llm_usage` row as the
 /// terminal turn-summary record rather than a per-LLM-call record.
 ///

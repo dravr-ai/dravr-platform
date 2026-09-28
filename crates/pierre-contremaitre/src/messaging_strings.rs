@@ -1036,6 +1036,30 @@ pub const KEY_NOTIFICATION_DIGEST_TITLE: &str = "notifications.digest.title";
 /// notifications were held for the digest since the previous one.
 pub const KEY_NOTIFICATION_DIGEST_BODY: &str = "notifications.digest.body";
 
+/// Key: title of the daily persona-digest notification. No format
+/// placeholders.
+pub const KEY_NOTIFICATION_DIGEST_DAILY_TITLE: &str = "notifications.digest.daily.title";
+
+/// Key: body of the daily persona-digest notification. `{0}` = how many
+/// notifications were held for the digest since the previous one.
+pub const KEY_NOTIFICATION_DIGEST_DAILY_BODY: &str = "notifications.digest.daily.body";
+
+/// Key: title of the per-session persona-digest notification, sent when the
+/// athlete's next training session lands. No format placeholders.
+pub const KEY_NOTIFICATION_DIGEST_SESSION_TITLE: &str = "notifications.digest.session.title";
+
+/// Key: body of the per-session persona-digest notification. `{0}` = how
+/// many notifications were held since the athlete's previous session.
+pub const KEY_NOTIFICATION_DIGEST_SESSION_BODY: &str = "notifications.digest.session.body";
+
+/// Key: title of the per-athlete persona-digest notification a coach
+/// receives. `{0}` = the athlete the held notifications concern.
+pub const KEY_NOTIFICATION_DIGEST_ATHLETE_TITLE: &str = "notifications.digest.athlete.title";
+
+/// Key: body of the per-athlete persona-digest notification. `{0}` = how
+/// many notifications were held, `{1}` = the athlete they concern.
+pub const KEY_NOTIFICATION_DIGEST_ATHLETE_BODY: &str = "notifications.digest.athlete.body";
+
 // ── Notification event keys ───────────────────────────────────────────────
 //
 // A notification row stores the event that happened plus its parameters;

@@ -1,4 +1,4 @@
-// ABOUTME: Integration tests for the request-budget layer: X-RateLimit-* headers and the API-key usage row
+// ABOUTME: Integration tests for the request-budget layer: X-RateLimit-* headers and the metered caller's usage row
 // ABOUTME: Pins exact header values, the slot's scope rules, and the row's real status, endpoint and latency
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -21,12 +21,13 @@ use axum::Router;
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use pierre_auth::api_keys::{ApiKey, ApiKeyTier};
 use pierre_auth::rate_limiting::RequestBudget;
-use pierre_core::models::RequestLog;
+use pierre_core::models::{A2AClient, RequestLog};
 use pierre_database::backends::factory::Database;
 use pierre_database::backends::UsageRepository;
 use pierre_middleware::rate_limiting::{
-    create_rate_limit_headers, headers, report_api_key_request, report_request_budget,
-    report_request_operation, request_budget_middleware,
+    create_rate_limit_headers, headers, report_a2a_client_request, report_api_key_request,
+    report_request_budget, report_request_operation, request_budget_middleware, A2AClientCall,
+    UsageLedgers,
 };
 use tokio::sync::oneshot;
 use tokio::time::{sleep, timeout};
@@ -76,6 +77,33 @@ async fn stored_key(database: &Database) -> ApiKey {
     api_key
 }
 
+/// A stored A2A client registered by `key`'s owner against `key`.
+async fn stored_a2a_client(database: &Database, key: &ApiKey) -> A2AClient {
+    let client = A2AClient {
+        id: format!("a2a_client_{}", Uuid::new_v4()),
+        user_id: key.user_id,
+        name: format!("layer test client {}", Uuid::new_v4()),
+        description: "layer test client".to_owned(),
+        public_key: "layer-test-public-key".to_owned(),
+        capabilities: vec!["training-analytics".to_owned()],
+        redirect_uris: Vec::new(),
+        contact_email: None,
+        is_active: true,
+        created_at: Utc::now(),
+        permissions: vec!["read_activities".to_owned()],
+        rate_limit_requests: 100,
+        rate_limit_window_seconds: 3_600,
+        updated_at: Utc::now(),
+    };
+    database
+        .repositories()
+        .a2a
+        .create_client(&client, "layer-test-secret", &key.id)
+        .await
+        .unwrap();
+    client
+}
+
 /// Every usage row recorded for `api_key_id`.
 async fn rows_for(usage: &dyn UsageRepository, api_key_id: &str) -> Vec<RequestLog> {
     usage
@@ -101,10 +129,11 @@ async fn rows_eventually(
     rows_for(usage, api_key_id).await
 }
 
-/// `router` wrapped in the request-budget layer, as the server installs it.
-fn layered(router: Router, usage: &Arc<dyn UsageRepository>) -> Router {
+/// `router` wrapped in the request-budget layer, writing to `database`'s
+/// ledgers, as the server installs it.
+fn layered(router: Router, database: &Database) -> Router {
     router.layer(from_fn_with_state(
-        Arc::clone(usage),
+        UsageLedgers::from_registry(&database.repositories()),
         request_budget_middleware,
     ))
 }
@@ -112,8 +141,8 @@ fn layered(router: Router, usage: &Arc<dyn UsageRepository>) -> Router {
 /// The headers a response carries after going through the layer around
 /// `router`, for one GET of `/`.
 async fn through_layer(router: Router) -> HeaderMap {
-    let (_database, usage) = usage_repository().await;
-    let response = layered(router, &usage)
+    let (database, _usage) = usage_repository().await;
+    let response = layered(router, &database)
         .oneshot(Request::get("/").body(Body::empty()).unwrap())
         .await
         .unwrap();
@@ -288,7 +317,7 @@ async fn test_admitted_key_row_carries_the_real_status_route_and_latency() {
                 }
             }),
         ),
-        &usage,
+        &database,
     );
 
     let before = Utc::now();
@@ -318,6 +347,77 @@ async fn test_admitted_key_row_carries_the_real_status_route_and_latency() {
 }
 
 #[tokio::test]
+async fn test_admitted_a2a_client_row_goes_to_the_clients_own_ledger() {
+    let (database, usage) = usage_repository().await;
+    let key = stored_key(&database).await;
+    let client = stored_a2a_client(&database, &key).await;
+    let call = A2AClientCall {
+        client_id: client.id.clone(),
+        protocol_version: "1.0".to_owned(),
+        client_capabilities: client.capabilities.clone(),
+        granted_scopes: vec!["fitness:read".to_owned()],
+    };
+    let app = layered(
+        Router::new().route(
+            "/a2a/tasks/{id}",
+            get(move || {
+                let call = call.clone();
+                async move {
+                    report_a2a_client_request(call);
+                    report_request_operation("GetTask");
+                    sleep(StdDuration::from_millis(30)).await;
+                    StatusCode::NOT_FOUND
+                }
+            }),
+        ),
+        &database,
+    );
+
+    let before = Utc::now();
+    let response = app
+        .oneshot(Request::get("/a2a/tasks/7").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    let repos = database.repositories();
+    let window = repos
+        .a2a
+        .get_client_window_usage(&client.id, before - Duration::minutes(1))
+        .await
+        .unwrap();
+    assert_eq!(window.count, 1, "one row per admitted request");
+    let stamped = window.oldest.unwrap();
+    assert!(
+        (stamped - before).num_seconds().abs() <= 2,
+        "stamped when the request arrived, got {stamped}"
+    );
+    let stats = repos
+        .a2a
+        .get_usage_stats(
+            &client.id,
+            before - Duration::minutes(1),
+            Utc::now() + Duration::minutes(1),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        (stats.successful_requests, stats.failed_requests),
+        (0, 1),
+        "the handler's 404, never an invented 200"
+    );
+    assert!(
+        stats.avg_response_time_ms.is_some_and(|ms| ms >= 30),
+        "the request's latency, got {:?}",
+        stats.avg_response_time_ms
+    );
+    assert!(
+        rows_for(usage.as_ref(), &key.id).await.is_empty(),
+        "the client's call is never written to an API key's ledger"
+    );
+}
+
+#[tokio::test]
 async fn test_reported_operation_names_the_row() {
     let (database, usage) = usage_repository().await;
     let key = stored_key(&database).await;
@@ -334,7 +434,7 @@ async fn test_reported_operation_names_the_row() {
                 }
             }),
         ),
-        &usage,
+        &database,
     );
 
     let response = app
@@ -369,7 +469,7 @@ async fn test_no_row_without_an_admitted_key() {
                     }
                 }),
             ),
-        &usage,
+        &database,
     );
 
     for uri in ["/public", "/spawned"] {
@@ -402,7 +502,7 @@ async fn test_panicking_handler_is_recorded_as_the_500_it_answers() {
                 }
             }),
         ),
-        &usage,
+        &database,
     )
     .layer(CatchPanicLayer::new());
 
@@ -446,7 +546,7 @@ async fn test_abandoned_request_is_still_counted_as_499() {
                 }
             }),
         ),
-        &usage,
+        &database,
     );
 
     // The client goes away once the key has been admitted.

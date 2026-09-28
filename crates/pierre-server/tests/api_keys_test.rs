@@ -10,12 +10,12 @@
 use chrono::{DateTime, Duration, Utc};
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_auth::rate_limiting::{calculate_api_key_rate_limit, RequestBudget};
-use pierre_core::models::ApiKeyWindowUsage;
+use pierre_core::models::WindowUsage;
 use uuid::Uuid;
 
 /// `count` calls in the key's window, the oldest a day before `now`.
-fn used(count: u32, now: DateTime<Utc>) -> ApiKeyWindowUsage {
-    ApiKeyWindowUsage {
+fn used(count: u32, now: DateTime<Utc>) -> WindowUsage {
+    WindowUsage {
         count,
         oldest: Some(now - Duration::days(1)),
     }
@@ -209,7 +209,7 @@ fn test_rate_limit_reset_time_calculation() {
     let oldest = now - Duration::days(10);
     let budget = calculate_api_key_rate_limit(
         &api_key,
-        &ApiKeyWindowUsage {
+        &WindowUsage {
             count: 5000,
             oldest: Some(oldest),
         },
@@ -225,7 +225,7 @@ fn test_rate_limit_reset_time_calculation() {
     // window from now.
     let empty = calculate_api_key_rate_limit(
         &api_key,
-        &ApiKeyWindowUsage {
+        &WindowUsage {
             count: 0,
             oldest: None,
         },

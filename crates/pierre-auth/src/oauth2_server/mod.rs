@@ -16,6 +16,8 @@ mod pkce;
 pub mod rate_limiting;
 /// Checks on the text a client sends, before any of it reaches a query
 mod request_text;
+/// RFC 8707 resource indicators: the resource server a token is bound to
+pub mod resource;
 /// Typestate pattern for compile-time OAuth flow safety
 pub mod typestate;
 

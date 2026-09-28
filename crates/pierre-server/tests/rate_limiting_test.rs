@@ -32,9 +32,7 @@ use pierre_auth::{
     },
 };
 use pierre_core::errors::ErrorCode;
-use pierre_core::models::{
-    ApiKeyWindowUsage, JwtMonthlyUsage, MonthlyLimitOverride, User, UserTier,
-};
+use pierre_core::models::{JwtMonthlyUsage, MonthlyLimitOverride, User, UserTier, WindowUsage};
 use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::repositories::analytics::next_utc_month_start;
 use pierre_database::{backends::factory::Database, database::generate_encryption_key};
@@ -130,7 +128,7 @@ async fn seed_calls(database: &Database, api_key_id: &str, count: u32, at: DateT
     }
 }
 
-async fn window_usage(database: &Database, api_key: &ApiKey) -> ApiKeyWindowUsage {
+async fn window_usage(database: &Database, api_key: &ApiKey) -> WindowUsage {
     database
         .repositories()
         .usage
@@ -330,7 +328,7 @@ fn test_api_key_reset_is_the_oldest_call_plus_the_window() {
     let oldest = now - Duration::seconds(600);
     let budget = calculate_api_key_rate_limit(
         &api_key,
-        &ApiKeyWindowUsage {
+        &WindowUsage {
             count: 7,
             oldest: Some(oldest),
         },
@@ -348,7 +346,7 @@ fn test_api_key_reset_is_the_oldest_call_plus_the_window() {
 
     let empty = calculate_api_key_rate_limit(
         &api_key,
-        &ApiKeyWindowUsage {
+        &WindowUsage {
             count: 0,
             oldest: None,
         },
@@ -382,7 +380,7 @@ fn test_enterprise_api_key_is_unlimited() {
     );
     let budget = calculate_api_key_rate_limit(
         &api_key,
-        &ApiKeyWindowUsage {
+        &WindowUsage {
             count: 5_000_000,
             oldest: Some(fixed_now()),
         },
@@ -578,7 +576,7 @@ async fn test_window_usage_counts_only_calls_inside_the_window() {
         .unwrap();
     assert_eq!(
         counted,
-        ApiKeyWindowUsage {
+        WindowUsage {
             count: 5,
             oldest: Some(now - Duration::hours(4)),
         }
@@ -733,7 +731,7 @@ async fn test_tier_conversion_scenarios() {
     database.repositories().users.create(&user).await.unwrap();
 
     let now = fixed_now();
-    let half_used = |count| ApiKeyWindowUsage {
+    let half_used = |count| WindowUsage {
         count,
         oldest: Some(now - Duration::days(1)),
     };

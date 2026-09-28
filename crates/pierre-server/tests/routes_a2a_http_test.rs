@@ -1,5 +1,5 @@
 // ABOUTME: HTTP integration tests for A2A 1.0 protocol routes (JSONRPC + HTTP+JSON bindings)
-// ABOUTME: Covers version negotiation, auth gating, SendMessage tool-intent gating, and REST error shapes
+// ABOUTME: Covers version negotiation, auth gating, SendMessage tool-intent gating, REST errors, client usage
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -17,13 +17,17 @@
 mod common;
 mod helpers;
 
+use chrono::{DateTime, Datelike, Duration, NaiveTime, Utc};
 use helpers::axum_test::AxumTestRequest;
+use pierre_a2a::client::USAGE_HISTORY_DAYS;
 use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
     SecurityHeadersConfig, ServerConfig,
 };
+use pierre_core::models::a2a::A2AUsage;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_routes_a2a::{A2ARoutes, A2ARoutesState};
+use pierre_runtime_context::A2ACtx;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use std::sync::Arc;
 
@@ -539,6 +543,7 @@ async fn register_client_and_mint_token(
             &credentials.client_id,
             &["read_activities".to_owned()],
             None,
+            None,
         )
         .expect("mint client-credentials token");
 
@@ -829,4 +834,149 @@ async fn test_registered_contact_email_reads_back_normalized() {
         .find(|c| c["id"] == client_id.as_str())
         .expect("the registered client is listed for its owner");
     assert_eq!(entry["contact_email"], "ops.team@example.com");
+}
+
+/// One `a2a_usage` row for `client_id`, stamped `at` and answered `status_code`.
+fn usage_row(client_id: &str, at: DateTime<Utc>, status_code: u16) -> A2AUsage {
+    A2AUsage {
+        id: None,
+        client_id: client_id.to_owned(),
+        session_token: None,
+        timestamp: at,
+        tool_name: "SendMessage".into(),
+        request_size_bytes: None,
+        response_size_bytes: None,
+        response_time_ms: Some(40),
+        status_code,
+        error_message: None,
+        ip_address: None,
+        user_agent: None,
+        protocol_version: "1.0".into(),
+        client_capabilities: vec!["fitness-data-analysis".into()],
+        granted_scopes: vec!["read".into()],
+    }
+}
+
+#[tokio::test]
+async fn test_client_usage_counts_the_clients_calls_by_day() {
+    let resources = create_a2a_test_resources().await;
+    let (user, jwt) = common::create_test_tenant(&resources, "a2a-usage@example.com")
+        .await
+        .expect("seed user + tenant + JWT");
+    let credentials = resources
+        .a2a
+        .a2a_client_manager
+        .register_client(
+            pierre_a2a::ClientRegistrationRequest {
+                name: "usage fixture".into(),
+                description: "counts its own calls".into(),
+                capabilities: vec!["fitness-data-analysis".into()],
+                redirect_uris: vec![],
+                contact_email: "a2a-usage@example.com".into(),
+            },
+            user.id,
+        )
+        .await
+        .expect("register A2A client");
+    let client_id = credentials.client_id;
+
+    // Today: two answered calls and one refused. The day before: one call.
+    // The breakdown's oldest day, a second after its midnight: one failed
+    // call, inside the window because that day is counted whole. The day
+    // before it, a second before its end, and forty days back: one call
+    // each, outside the breakdown but still part of the client's total.
+    let now = Utc::now();
+    let yesterday = now - Duration::days(1);
+    let oldest_day = now.date_naive() - Duration::days(i64::from(USAGE_HISTORY_DAYS - 1));
+    let oldest_day_dawn = oldest_day.and_time(NaiveTime::MIN).and_utc() + Duration::seconds(1);
+    let day_before_window_dusk =
+        oldest_day.and_time(NaiveTime::MIN).and_utc() - Duration::seconds(1);
+    let long_ago = now - Duration::days(40);
+    let rows = [
+        (now, 200),
+        (now, 200),
+        (now, 429),
+        (yesterday, 200),
+        (oldest_day_dawn, 500),
+        (day_before_window_dusk, 200),
+        (long_ago, 200),
+    ];
+    for (at, code) in rows {
+        A2ACtx::repos(resources.as_ref())
+            .a2a
+            .record_usage(&usage_row(&client_id, at, code))
+            .await
+            .expect("record a2a_usage row");
+    }
+    // A second client's calls are not this client's.
+    let other = resources
+        .a2a
+        .a2a_client_manager
+        .register_client(
+            pierre_a2a::ClientRegistrationRequest {
+                name: "other fixture".into(),
+                description: "someone else's calls".into(),
+                capabilities: vec!["fitness-data-analysis".into()],
+                redirect_uris: vec![],
+                contact_email: "a2a-usage@example.com".into(),
+            },
+            user.id,
+        )
+        .await
+        .expect("register second A2A client");
+    A2ACtx::repos(resources.as_ref())
+        .a2a
+        .record_usage(&usage_row(&other.client_id, now, 200))
+        .await
+        .expect("record the other client's row");
+
+    let response = AxumTestRequest::get(&format!("/a2a/clients/{client_id}/usage"))
+        .header("Authorization", &format!("Bearer {jwt}"))
+        .send(a2a_router_from(&resources))
+        .await;
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json();
+
+    let month_start = now
+        .date_naive()
+        .with_day(1)
+        .expect("the first of the month exists")
+        .and_time(NaiveTime::MIN)
+        .and_utc();
+    let this_month = rows.iter().filter(|(at, _)| *at >= month_start).count();
+
+    assert_eq!(body["client_id"], client_id.as_str());
+    assert_eq!(body["requests_today"], 3, "today's three calls: {body}");
+    assert_eq!(body["requests_this_month"], this_month, "{body}");
+    assert_eq!(
+        body["total_requests"], 7,
+        "every call the client made: {body}"
+    );
+    let last_request_at: DateTime<Utc> = body["last_request_at"]
+        .as_str()
+        .expect("last_request_at is an RFC 3339 string")
+        .parse()
+        .expect("last_request_at parses");
+    assert_eq!(last_request_at.timestamp(), now.timestamp(), "{body}");
+    assert_eq!(
+        body["daily_usage"],
+        serde_json::json!([
+            {
+                "date": now.date_naive().to_string(),
+                "success_count": 2,
+                "error_count": 1
+            },
+            {
+                "date": yesterday.date_naive().to_string(),
+                "success_count": 1,
+                "error_count": 0
+            },
+            {
+                "date": oldest_day.to_string(),
+                "success_count": 0,
+                "error_count": 1
+            }
+        ]),
+        "one row per day of the last thirty, newest first, the oldest day whole: {body}"
+    );
 }

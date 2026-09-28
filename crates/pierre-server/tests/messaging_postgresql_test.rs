@@ -18,6 +18,7 @@ use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::{
     factory::Database, CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams,
+    UpsertChannelConfigParams,
 };
 use pierre_database::database::test_utils::create_test_db;
 use uuid::Uuid;
@@ -302,6 +303,72 @@ async fn test_pg_delete_channel_link() {
         .await
         .unwrap();
     assert!(gone.is_none());
+}
+
+/// A link made through the deployment bot lives under the bot's tenant; the
+/// by-user read finds it for the athlete in their own tenant, and the
+/// platform-scope config resolves for that tenant too.
+#[tokio::test]
+async fn test_pg_bot_tenant_link_and_platform_config_resolve_for_athlete() {
+    let db = pg_db().await;
+    let repos = db.repositories();
+    let messaging = &repos.messaging;
+    let (_owner, bot_tenant) = seed_pg_user_and_tenant(&db).await;
+    let (athlete, athlete_tenant) = seed_pg_user_and_tenant(&db).await;
+    let athlete_id = athlete.to_string();
+
+    messaging
+        .create_channel_link(&CreateChannelLinkParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id: bot_tenant,
+            user_id: &athlete_id,
+            channel_type: "telegram",
+            channel_user_id: "tg-bot-439",
+            display_name: Some("Athlete"),
+        })
+        .await
+        .unwrap();
+
+    let links = messaging
+        .list_channel_links_for_user(&athlete_id)
+        .await
+        .expect("list_channel_links_for_user should bind the uuid on PG");
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0]["channel_user_id"], "tg-bot-439");
+    assert_eq!(links[0]["tenant_id"], bot_tenant.to_string());
+
+    messaging
+        .upsert_channel_config(&UpsertChannelConfigParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id: bot_tenant,
+            channel_type: "telegram",
+            api_key: None,
+            api_secret: None,
+            webhook_secret: Some("pg_platform_secret"),
+            verify_token: None,
+            account_id: None,
+            phone_number: None,
+            bot_token: Some("439:pg-platform"),
+            is_active: true,
+        })
+        .await
+        .unwrap();
+    assert!(messaging
+        .resolve_channel_config(athlete_tenant, "telegram")
+        .await
+        .unwrap()
+        .is_none());
+    assert!(messaging
+        .mark_channel_config_platform_scope(bot_tenant, "telegram")
+        .await
+        .unwrap());
+    let resolved = messaging
+        .resolve_channel_config(athlete_tenant, "telegram")
+        .await
+        .unwrap()
+        .expect("platform-scope config serves every tenant on PG");
+    assert_eq!(resolved["tenant_id"], bot_tenant.to_string());
+    assert_eq!(resolved["bot_token"], "439:pg-platform");
 }
 
 // ============================================================================

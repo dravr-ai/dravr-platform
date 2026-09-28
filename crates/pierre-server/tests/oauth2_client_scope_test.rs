@@ -21,6 +21,7 @@ mod common;
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{Duration, Utc};
 use pierre_auth::auth::AuthManager;
+use pierre_auth::config::OAuth2ServerConfig;
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::endpoints::OAuth2AuthorizationServer;
 use pierre_auth::oauth2_server::models::{
@@ -62,6 +63,7 @@ async fn env() -> Env {
         auth_manager.clone(),
         common::get_shared_test_jwks(),
         30,
+        OAuth2ServerConfig::default().mcp_resource_url,
     );
     let registration = ClientRegistrationManager::new(repos.oauth2_server.clone());
     Env {
@@ -139,6 +141,7 @@ fn authorize_request(client_id: &str, scope: Option<&str>) -> AuthorizeRequest {
         state: None,
         code_challenge: Some(challenge()),
         code_challenge_method: Some("S256".to_owned()),
+        resource: None,
     }
 }
 
@@ -318,6 +321,7 @@ async fn an_authorization_without_a_scope_carries_the_default_grant_into_the_tok
             scope: None,
             refresh_token: None,
             code_verifier: Some(VERIFIER.to_owned()),
+            resource: None,
         })
         .await
         .unwrap();
@@ -357,6 +361,7 @@ async fn a_refresh_token_holding_admin_mints_a_token_without_it() {
             created_at: Utc::now(),
             revoked: false,
             family_id: "test-family".to_owned(),
+            resource: None,
         })
         .await
         .unwrap();
@@ -372,6 +377,7 @@ async fn a_refresh_token_holding_admin_mints_a_token_without_it() {
             scope: None,
             refresh_token: Some("legacy-refresh-token-with-admin".to_owned()),
             code_verifier: None,
+            resource: None,
         })
         .await
         .unwrap();
@@ -412,6 +418,7 @@ fn client_credentials_request(
         scope: scope.map(str::to_owned),
         refresh_token: None,
         code_verifier: None,
+        resource: None,
     }
 }
 

@@ -99,6 +99,11 @@ export {
 } from './message-time';
 export type { DayLabel } from './message-time';
 
+// A group thread: the room's entries woven through the caller's own
+// conversation, with a placeholder where the author's consent withholds one.
+export { composeRoomThread } from './room-thread';
+export type { RoomMessage } from './room-thread';
+
 // One localized date-and-time stamp, and its date-only sibling, for everything
 // a surface saved earlier — memory facts, verdicts, invites, admin tables.
 export { formatDate, formatDateTime } from './date-format';

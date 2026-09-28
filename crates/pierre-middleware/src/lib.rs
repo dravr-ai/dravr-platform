@@ -81,8 +81,10 @@ pub use cors::setup_cors;
 pub use rate_limiting::create_rate_limit_headers;
 /// Rate limit header names
 pub use rate_limiting::headers;
-/// Layer rendering the caller's request budget and recording the admitted API key's outcome
+/// Layer rendering the caller's request budget and recording the admitted caller's outcome
 pub use rate_limiting::request_budget_middleware;
+/// The ledgers the request-budget layer writes usage rows to
+pub use rate_limiting::UsageLedgers;
 
 // PII-safe logging and redaction
 

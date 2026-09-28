@@ -28,6 +28,7 @@
     "createdBody": "Ton client A2A a bien été enregistré. Conserve ces identifiants en lieu sûr : ils ne seront plus affichés.",
     "createdTitle": "Client A2A créé !",
     "creating": "Création…",
+    "dailyRequests": "Requêtes par jour",
     "deactivateTitle": "Désactiver le client A2A",
     "descriptionPlaceholder": "Décris ce que fait ton agent IA…",
     "descriptionRequired": "Description *",
@@ -36,12 +37,15 @@
     "secretShownOnce": "Le secret client et la clé API ne s'affichent qu'une fois, à l'inscription.",
     "emptyCta": "Enregistrer ta première application",
     "emptyTitle": "Aucune application connectée pour l'instant",
+    "failedCount": "{{count}} en échec",
     "hideCredentials": "Masquer les identifiants",
     "lastRequest": "Dernière requête :",
+    "limitWindow": "Fenêtre :",
     "loadFailedBody": "Une erreur est survenue au chargement de tes clients A2A.",
     "loadFailedTitle": "Impossible de charger les clients A2A",
     "monthlyLimit": "Limite mensuelle :",
     "noToolUsage": "Aucune utilisation d'outil pour l'instant",
+    "noRequests": "Aucune requête pour l'instant",
     "rateLimits": "Limites de débit",
     "redirectUrisOptional": "URI de redirection (facultatif)",
     "registerBlurb": "Crée un client du protocole agent-à-agent pour la communication entre agents IA.",
@@ -50,6 +54,7 @@
     "registerTitle": "Enregistrer un client A2A",
     "registrationFailed": "Échec de l'enregistrement",
     "remaining": "Restant :",
+    "requestLimit": "Limite :",
     "resets": "Réinitialisation :",
     "securityNoticeBody": "Conserve ces identifiants en lieu sûr. Le secret client et la clé d'API ne seront plus affichés, pour des raisons de sécurité.",
     "securityNoticeTitle": "Avis de sécurité important",
@@ -1005,6 +1010,9 @@
     "renameConversation": "Renommer la conversation",
     "restDay": "Repos",
     "retry": "Réessayer",
+    "roomEntryHidden": "Le message d’un membre est masqué : partage non activé",
+    "roomReplyHidden": "La réponse de l’agent à un membre est masquée : partage non activé",
+    "roomReplyTo": "à {{name}}",
     "routeAlt": "Carte du parcours enregistré",
     "routeAltTitled": "Carte du parcours enregistré : {{title}}",
     "routeClimbCategory": "Cat. {{category}}",
@@ -2072,7 +2080,19 @@
     "channel_body": "🔔 {0}\n\n{1}",
     "daysAgo": "il y a {{count}} j",
     "digest": {
+      "athlete": {
+        "body": "{0} notification(s) concernant {1} mises de côté selon ton profil de coaching. Tout est dans l'app.",
+        "title": "Récap de notifications : {0}"
+      },
       "body": "{0} notification(s) mises de côté cette semaine selon ton profil de coaching. Tout est dans l'app.",
+      "daily": {
+        "body": "{0} notification(s) mises de côté ces dernières 24 heures selon ton profil de coaching. Tout est dans l'app.",
+        "title": "Ton récap quotidien de notifications"
+      },
+      "session": {
+        "body": "{0} notification(s) mises de côté depuis ta dernière séance selon ton profil de coaching. Tout est dans l'app.",
+        "title": "Ton récap de notifications après séance"
+      },
       "title": "Ton récap hebdo de notifications"
     },
     "event": {

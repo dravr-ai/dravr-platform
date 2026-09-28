@@ -28,6 +28,7 @@
     "createdBody": "O teu cliente A2A foi registado com sucesso. Guarda estas credenciais num local seguro: não voltarão a ser mostradas.",
     "createdTitle": "Cliente A2A criado!",
     "creating": "A criar…",
+    "dailyRequests": "Solicitações por dia",
     "deactivateTitle": "Desativar o cliente A2A",
     "descriptionPlaceholder": "Descreve o que faz o teu agente de IA…",
     "descriptionRequired": "Descrição *",
@@ -36,12 +37,15 @@
     "secretShownOnce": "O segredo do cliente e a chave de API são exibidos uma única vez, no registo.",
     "emptyCta": "Registar a tua primeira aplicação",
     "emptyTitle": "Ainda não há aplicações ligadas",
+    "failedCount": "{{count}} com erro",
     "hideCredentials": "Ocultar credenciais",
     "lastRequest": "Último pedido:",
+    "limitWindow": "Janela:",
     "loadFailedBody": "Ocorreu um erro ao carregar os teus clientes A2A.",
     "loadFailedTitle": "Não foi possível carregar os clientes A2A",
     "monthlyLimit": "Limite mensal:",
     "noToolUsage": "Ainda não há utilização de ferramentas",
+    "noRequests": "Nenhuma solicitação ainda",
     "rateLimits": "Limites de taxa",
     "redirectUrisOptional": "URIs de redirecionamento (opcional)",
     "registerBlurb": "Cria um cliente do protocolo agente-a-agente para a comunicação entre agentes de IA.",
@@ -50,6 +54,7 @@
     "registerTitle": "Registar um cliente A2A",
     "registrationFailed": "Falha no registo",
     "remaining": "Restante:",
+    "requestLimit": "Limite:",
     "resets": "Reinicia:",
     "securityNoticeBody": "Guarda estas credenciais de forma segura. O segredo de cliente e a chave de API não voltarão a ser mostrados por motivos de segurança.",
     "securityNoticeTitle": "Aviso de segurança importante",
@@ -1005,6 +1010,9 @@
     "renameConversation": "Mudar o nome da conversa",
     "restDay": "Descanso",
     "retry": "Tentar de novo",
+    "roomEntryHidden": "A mensagem de um membro está oculta: partilha não ativada",
+    "roomReplyHidden": "A resposta do agente a um membro está oculta: partilha não ativada",
+    "roomReplyTo": "para {{name}}",
     "routeAlt": "Mapa do percurso registado",
     "routeAltTitled": "Mapa do percurso registado: {{title}}",
     "routeClimbCategory": "Cat. {{category}}",
@@ -2072,7 +2080,19 @@
     "channel_body": "🔔 {0}\n\n{1}",
     "daysAgo": "há {{count}} d",
     "digest": {
+      "athlete": {
+        "body": "{0} notificação(ões) sobre {1} guardadas segundo o teu perfil de coaching. Está tudo na app.",
+        "title": "Resumo de notificações: {0}"
+      },
       "body": "{0} notificação(ões) guardadas esta semana segundo o teu perfil de coaching. Está tudo na app.",
+      "daily": {
+        "body": "{0} notificação(ões) guardadas nas últimas 24 horas segundo o teu perfil de coaching. Está tudo na app.",
+        "title": "O teu resumo diário de notificações"
+      },
+      "session": {
+        "body": "{0} notificação(ões) guardadas desde a tua última sessão segundo o teu perfil de coaching. Está tudo na app.",
+        "title": "O teu resumo de notificações pós-sessão"
+      },
       "title": "O teu resumo semanal de notificações"
     },
     "event": {

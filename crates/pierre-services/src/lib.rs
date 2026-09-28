@@ -282,8 +282,9 @@ pub mod notification_text;
 /// renders the event before the push and the linked channels go out.
 pub mod notification_localizer;
 
-/// Weekly digest scheduler that rolls persona-gated notifications into one
-/// localized push per user.
+/// Persona digests returning the pushes an armed persona floor withheld, on
+/// the contract's cadence: daily, weekly and per-athlete on a daily tick,
+/// per-session when a training session lands.
 pub mod notification_digest_scheduler;
 
 /// The usage-cap policy shared by chat turns and direct `/mcp` tool

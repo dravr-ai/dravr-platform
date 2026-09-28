@@ -97,10 +97,10 @@ pub(crate) const GET_OAUTH2_CLIENT_SQL: &str = r"
             WHERE client_id = $1
             ";
 
-/// Mint an authorization code with its PKCE challenge.
+/// Mint an authorization code with its PKCE challenge and RFC 8707 resource.
 pub(crate) const STORE_OAUTH2_AUTH_CODE_SQL: &str = r"
-            INSERT INTO oauth2_auth_codes (code, client_id, user_id, tenant_id, redirect_uri, scope, code_challenge, code_challenge_method, expires_at, used, state)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            INSERT INTO oauth2_auth_codes (code, client_id, user_id, tenant_id, redirect_uri, scope, code_challenge, code_challenge_method, expires_at, used, state, resource)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             ";
 
 /// Exchange the code exactly once: it must belong to the client, match the
@@ -114,18 +114,19 @@ pub(crate) const CONSUME_OAUTH2_AUTH_CODE_SQL: &str = r"
               AND redirect_uri = $3
               AND used = FALSE
               AND expires_at > $4
-            RETURNING code, client_id, user_id, tenant_id, redirect_uri, scope, expires_at, used, state, code_challenge, code_challenge_method
+            RETURNING code, client_id, user_id, tenant_id, redirect_uri, scope, expires_at, used, state, code_challenge, code_challenge_method, resource
             ";
 
-/// Store a refresh token under its HMAC.
+/// Store a refresh token under its HMAC, with the RFC 8707 resource its grant
+/// is bound to.
 pub(crate) const STORE_OAUTH2_REFRESH_TOKEN_SQL: &str = r"
-            INSERT INTO oauth2_refresh_tokens (token, client_id, user_id, tenant_id, scope, created_at, expires_at, revoked, family_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            INSERT INTO oauth2_refresh_tokens (token, client_id, user_id, tenant_id, scope, created_at, expires_at, revoked, family_id, resource)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             ";
 
 /// A refresh token by its HMAC, whatever its state.
 pub(crate) const GET_OAUTH2_REFRESH_TOKEN_SQL: &str = r"
-            SELECT token, client_id, user_id, tenant_id, scope, created_at, expires_at, revoked, family_id
+            SELECT token, client_id, user_id, tenant_id, scope, created_at, expires_at, revoked, family_id, resource
             FROM oauth2_refresh_tokens
             WHERE token = $1
             ";
@@ -139,7 +140,7 @@ pub(crate) const CONSUME_OAUTH2_REFRESH_TOKEN_SQL: &str = r"
               AND client_id = $2
               AND revoked = FALSE
               AND expires_at > $3
-            RETURNING token, client_id, user_id, tenant_id, scope, created_at, expires_at, revoked, family_id
+            RETURNING token, client_id, user_id, tenant_id, scope, created_at, expires_at, revoked, family_id, resource
             ";
 
 /// Revoke every live member of the rotation chain the token (by HMAC)
@@ -349,6 +350,9 @@ where
         code_challenge_method: row
             .try_get("code_challenge_method")
             .map_err(|e| column_error("code_challenge_method", e))?,
+        resource: row
+            .try_get("resource")
+            .map_err(|e| column_error("resource", e))?,
     })
 }
 
@@ -388,6 +392,9 @@ where
         family_id: row
             .try_get("family_id")
             .map_err(|e| column_error("family_id", e))?,
+        resource: row
+            .try_get("resource")
+            .map_err(|e| column_error("resource", e))?,
     })
 }
 
@@ -612,6 +619,7 @@ macro_rules! impl_oauth2_server_repository {
                     .bind(auth_code.expires_at)
                     .bind(auth_code.used)
                     .bind(&auth_code.state)
+                    .bind(&auth_code.resource)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -641,6 +649,7 @@ macro_rules! impl_oauth2_server_repository {
                     .bind(refresh_token.expires_at)
                     .bind(refresh_token.revoked)
                     .bind(&refresh_token.family_id)
+                    .bind(&refresh_token.resource)
                     .execute(&mut *tx)
                     .await
                     .map_err(store_error)?;

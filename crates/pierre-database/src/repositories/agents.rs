@@ -13,7 +13,7 @@ use pierre_core::models::agents::{
 };
 use pierre_core::models::groups::{
     CoachingGroup, GroupInvite, GroupMember, GroupRole, GroupSummary, GroupTranscriptEntry,
-    NewGroupTranscriptEntry, UpdateGroupRequest,
+    NewGroupTranscriptEntry, RoomTranscriptEntry, UpdateGroupRequest,
 };
 
 use pierre_core::models::AgentRuntimeContext;
@@ -479,6 +479,26 @@ pub trait CoachingGroupRepository: Send + Sync {
         viewer_user_id: Uuid,
         limit: i64,
     ) -> AppResult<Vec<GroupTranscriptEntry>>;
+
+    /// Read one page of the room as the viewer reads it, newest first.
+    ///
+    /// Unlike [`Self::list_transcript_visible_to`], every entry comes back:
+    /// the one consent rule both reads share decides only what an entry
+    /// carries, so an entry the viewer may not read arrives as
+    /// [`RoomEntryBody::Withheld`](pierre_core::models::groups::RoomEntryBody::Withheld)
+    /// — its place in the room without its words or its author. `before` is
+    /// the id of the oldest entry the viewer already holds (`None` for the
+    /// newest page); the page holds the entries strictly older than it.
+    /// No tenant filter — membership is cross-tenant, same as `list_members`;
+    /// callers gate access by verifying the viewer's membership first.
+    /// `limit` is clamped to `1..=500`.
+    async fn list_room_transcript_for(
+        &self,
+        group_id: &str,
+        viewer_user_id: Uuid,
+        before: Option<Uuid>,
+        limit: i64,
+    ) -> AppResult<Vec<RoomTranscriptEntry>>;
 
     // -- Weekly digest deliveries --
 

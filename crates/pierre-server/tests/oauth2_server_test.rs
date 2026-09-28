@@ -129,6 +129,7 @@ fn test_authorize_request_clone() {
         state: Some("state".to_owned()),
         code_challenge: None,
         code_challenge_method: None,
+        resource: None,
     };
 
     let cloned = request.clone();
@@ -387,6 +388,7 @@ fn test_oauth2_auth_code_creation() {
         state: Some("csrf_state".to_owned()),
         code_challenge: Some("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM".to_owned()),
         code_challenge_method: Some("S256".to_owned()),
+        resource: None,
     };
 
     assert_eq!(auth_code.code, "auth_code_abc123");
@@ -409,6 +411,7 @@ fn test_oauth2_auth_code_clone() {
         state: None,
         code_challenge: None,
         code_challenge_method: None,
+        resource: None,
     };
 
     let cloned = auth_code.clone();
@@ -468,6 +471,7 @@ fn test_oauth2_refresh_token_creation() {
         created_at: Utc::now(),
         revoked: false,
         family_id: "test-family".to_owned(),
+        resource: None,
     };
 
     assert_eq!(refresh_token.token, "refresh_token_abc");
@@ -486,6 +490,7 @@ fn test_oauth2_refresh_token_revoked() {
         created_at: Utc::now(),
         revoked: true,
         family_id: "test-family".to_owned(),
+        resource: None,
     };
 
     assert!(refresh_token.revoked);

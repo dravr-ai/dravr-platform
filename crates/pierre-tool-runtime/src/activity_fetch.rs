@@ -34,6 +34,12 @@ use crate::runtime::ToolRuntime;
 use pierre_providers::backend_resolver;
 use serde_json::Value;
 
+/// The session a cache write lands, and the `per_session` persona digest it sends
+#[cfg(feature = "client-notifications")]
+mod session_landing;
+#[cfg(feature = "client-notifications")]
+use session_landing::{deliver_session_digest, lands_a_session};
+
 /// Read limit for the single deterministic durable-cache read on the historical
 /// backfill path.
 ///
@@ -903,6 +909,9 @@ pub async fn fetch_recent_activities_all_providers(
 /// Returns the count of net distinct rows persisted (deduped by `activity_id`),
 /// or `None` when the upsert itself failed. The historical backfill surfaces
 /// this honest figure in its completion notice; recent-fetch callers ignore it.
+///
+/// A write that lands a new training session delivers the athlete's
+/// `per_session` persona digest (see [`lands_a_session`]).
 pub(crate) async fn write_through_activity_cache(
     auth_service: &AuthService,
     user_id: Uuid,
@@ -913,6 +922,15 @@ pub(crate) async fn write_through_activity_cache(
 ) -> Option<u64> {
     let data = auth_service.runtime().data();
     let cache = data.repos().activity_cache.clone();
+    #[cfg(feature = "client-notifications")]
+    let landed = lands_a_session(
+        auth_service.runtime(),
+        user_id,
+        &tenant_id,
+        provider,
+        activities,
+    )
+    .await;
     let persisted = match cache
         .upsert_activities(user_id, &tenant_id, provider, activities)
         .await
@@ -926,6 +944,10 @@ pub(crate) async fn write_through_activity_cache(
     let cutoff = Utc::now() - Duration::days(retention_days);
     prune_and_realign_coverage(cache.as_ref(), user_id, tenant_id, provider, cutoff).await;
     stamp_fetch_freshness(cache.as_ref(), user_id, tenant_id, provider).await;
+    #[cfg(feature = "client-notifications")]
+    if landed {
+        deliver_session_digest(auth_service.runtime(), user_id, tenant_id);
+    }
     Some(persisted)
 }
 
@@ -1045,18 +1067,24 @@ pub async fn write_through_served_window(
     if activities.is_empty() {
         return;
     }
-    if let Err(e) = runtime
+    #[cfg(feature = "client-notifications")]
+    let landed = lands_a_session(runtime, user_id, tenant_id, provider_slug, activities).await;
+    let upserted = runtime
         .repos()
         .activity_cache
         .upsert_activities(user_id, tenant_id, provider_slug, activities)
-        .await
-    {
+        .await;
+    if let Err(e) = &upserted {
         warn!(
             user_id = %user_id,
             provider = %provider_slug,
             error = %e,
             "Activity cache: write-through from get_activities failed"
         );
+    }
+    #[cfg(feature = "client-notifications")]
+    if landed && upserted.is_ok() {
+        deliver_session_digest(runtime, user_id, *tenant_id);
     }
 }
 

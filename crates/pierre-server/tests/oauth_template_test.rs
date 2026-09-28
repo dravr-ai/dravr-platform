@@ -119,6 +119,7 @@ async fn test_generate_login_html() {
     let test_scope = "read:activities write:profile";
     let test_challenge = "challenge_abc";
     let test_method = "S256";
+    let test_resource = "https://mcp.example.test";
     let test_email = "test@example.com";
     let test_password = "test_pass_123";
 
@@ -131,6 +132,7 @@ async fn test_generate_login_html() {
         scope: test_scope,
         code_challenge: test_challenge,
         code_challenge_method: test_method,
+        resource: test_resource,
         default_email: test_email,
         default_password: test_password,
     });
@@ -163,6 +165,10 @@ async fn test_generate_login_html() {
     assert!(
         !html.contains("{{CODE_CHALLENGE_METHOD}}"),
         "CODE_CHALLENGE_METHOD placeholder not replaced"
+    );
+    assert!(
+        !html.contains("{{RESOURCE}}"),
+        "RESOURCE placeholder not replaced"
     );
     assert!(
         !html.contains("{{DEFAULT_EMAIL}}"),
@@ -203,6 +209,12 @@ async fn test_generate_login_html() {
         "Generated HTML missing code_challenge_method value"
     );
     assert!(
+        html.contains(&format!(
+            "<input type=\"hidden\" name=\"resource\" value=\"{test_resource}\">"
+        )),
+        "the RFC 8707 resource must survive the login form as a hidden field"
+    );
+    assert!(
         html.contains(test_email),
         "Generated HTML missing default_email value"
     );
@@ -235,6 +247,7 @@ async fn test_generate_login_html_empty_scope() {
         scope: "", // Empty scope
         code_challenge: "challenge",
         code_challenge_method: "S256",
+        resource: "",
         default_email: "test@example.com",
         default_password: "",
     });
@@ -350,6 +363,7 @@ async fn test_templates_use_boreal_design_system() {
         scope: "fitness:read",
         code_challenge: "challenge",
         code_challenge_method: "S256",
+        resource: "",
         default_email: "",
         default_password: "",
     });
@@ -508,6 +522,7 @@ async fn test_login_html_escapes_xss_in_state() {
         scope: "fitness:read",
         code_challenge: "challenge",
         code_challenge_method: "S256",
+        resource: "",
         default_email: "",
         default_password: "",
     });
@@ -538,6 +553,7 @@ async fn test_login_html_escapes_xss_in_redirect_uri() {
         scope: "fitness:read",
         code_challenge: "challenge",
         code_challenge_method: "S256",
+        resource: "",
         default_email: "",
         default_password: "",
     });
@@ -567,6 +583,7 @@ async fn test_oauth_login_page_integration() {
         scope: "read:all write:all",
         code_challenge: "integration_challenge",
         code_challenge_method: "S256",
+        resource: "",
         default_email: "test@pierre.test",
         default_password: "test123",
     });

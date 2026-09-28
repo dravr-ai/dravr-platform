@@ -45,6 +45,12 @@ describe('formatDate', () => {
     expect(formatDate(ISO, 'de')).toBe('13. Apr. 2026');
   });
 
+  it('reads the day in the zone it is given', () => {
+    // 02:00 UTC on the 13th is still the 12th in Los Angeles.
+    expect(formatDate('2026-04-13T02:00:00Z', 'en-US', 'America/Los_Angeles')).toBe('Apr 12, 2026');
+    expect(formatDate('2026-04-13', 'en-US', 'UTC')).toBe('Apr 13, 2026');
+  });
+
   it('returns an unparseable stamp verbatim rather than "Invalid Date"', () => {
     expect(formatDate('not a date', 'fr')).toBe('not a date');
   });

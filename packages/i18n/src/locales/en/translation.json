@@ -28,6 +28,7 @@
     "createdBody": "Your A2A client has been successfully registered. Save these credentials securely - they won't be shown again.",
     "createdTitle": "A2A Client Created!",
     "creating": "Creating...",
+    "dailyRequests": "Daily Requests",
     "deactivateTitle": "Deactivate A2A Client",
     "descriptionPlaceholder": "Describe what your AI agent does...",
     "descriptionRequired": "Description *",
@@ -36,12 +37,15 @@
     "secretShownOnce": "The client secret and API key are shown once, at registration.",
     "emptyCta": "Register Your First App",
     "emptyTitle": "No Connected Apps Yet",
+    "failedCount": "{{count}} failed",
     "hideCredentials": "Hide Credentials",
     "lastRequest": "Last Request:",
+    "limitWindow": "Window:",
     "loadFailedBody": "There was an error loading your A2A clients.",
     "loadFailedTitle": "Failed to load A2A clients",
     "monthlyLimit": "Monthly Limit:",
     "noToolUsage": "No tool usage yet",
+    "noRequests": "No requests yet",
     "rateLimits": "Rate Limits",
     "redirectUrisOptional": "Redirect URIs (Optional)",
     "registerBlurb": "Create a new Agent-to-Agent protocol client for AI agent communication.",
@@ -50,6 +54,7 @@
     "registerTitle": "Register A2A Client",
     "registrationFailed": "Registration Failed",
     "remaining": "Remaining:",
+    "requestLimit": "Limit:",
     "resets": "Resets:",
     "securityNoticeBody": "Store these credentials securely. The client secret and API key will not be displayed again for security reasons.",
     "securityNoticeTitle": "Important Security Notice",
@@ -1005,6 +1010,9 @@
     "renameConversation": "Rename conversation",
     "restDay": "Rest",
     "retry": "Retry",
+    "roomEntryHidden": "A member's message is hidden: sharing not enabled",
+    "roomReplyHidden": "The agent's reply to a member is hidden: sharing not enabled",
+    "roomReplyTo": "to {{name}}",
     "routeAlt": "Map of the recorded route",
     "routeAltTitled": "Map of the recorded route: {{title}}",
     "routeClimbCategory": "Cat {{category}}",
@@ -2072,7 +2080,19 @@
     "channel_body": "🔔 {0}\n\n{1}",
     "daysAgo": "{{count}}d ago",
     "digest": {
+      "athlete": {
+        "body": "{0} notification(s) about {1} held per your coaching profile. Everything is in the app.",
+        "title": "Notification digest: {0}"
+      },
       "body": "{0} notification(s) held for you this week per your coaching profile. Everything is in the app.",
+      "daily": {
+        "body": "{0} notification(s) held for you over the last 24 hours per your coaching profile. Everything is in the app.",
+        "title": "Your daily notification digest"
+      },
+      "session": {
+        "body": "{0} notification(s) held since your last session per your coaching profile. Everything is in the app.",
+        "title": "Your post-session notification digest"
+      },
       "title": "Your weekly notification digest"
     },
     "event": {

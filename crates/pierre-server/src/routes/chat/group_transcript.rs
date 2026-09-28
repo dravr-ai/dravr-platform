@@ -1,5 +1,5 @@
-// ABOUTME: GET /api/chat/groups/{group_id}/transcript — the shared room view of a coaching group
-// ABOUTME: Membership-gated; entry content is consent-gated per author, roster always visible
+// ABOUTME: GET /api/chat/groups/{group_id}/transcript — the shared room view of a coaching group, paged back by cursor
+// ABOUTME: Membership-gated; a withheld entry keeps its place without its words or author, roster always visible
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,11 +8,14 @@
 //!
 //! Serves the same `group_transcript_entries` read model the messaging
 //! ingress injects as ambient prompt context, so a web- or mobile-bound
-//! member reads the identical room every Telegram member is in. Access is
-//! gated on active group membership (or being the group's human coach);
-//! within the room, another member's content appears only under the
-//! consent rules the repository query enforces — the roster, by contrast,
-//! always lists every active member, consented or not.
+//! member reads the identical room every Telegram member is in — the group
+//! thread on both clients renders it. Access is gated on active group
+//! membership (or being the group's human coach); within the room, another
+//! member's content appears only under the consent rule the repository query
+//! enforces. An entry that rule withholds still comes back, as a placeholder
+//! with neither words nor author, so a reader sees that something was said
+//! rather than a silent gap. The roster, by contrast, always lists every
+//! active member, consented or not.
 
 use std::sync::Arc;
 
@@ -26,7 +29,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::mcp::resources::ServerContext;
 use pierre_core::errors::AppError;
+use pierre_core::models::groups::{RoomEntryBody, RoomTranscriptEntry};
+use pierre_core::uuid_utils::parse_uuid;
 use pierre_middleware::AuthenticatedUser;
+use uuid::Uuid;
 
 use super::common::{get_tenant_id, verify_group_membership};
 
@@ -42,6 +48,10 @@ pub struct TranscriptQuery {
     /// Maximum entries to return (newest window; clamped to `1..=200`).
     #[serde(default)]
     pub limit: Option<i64>,
+    /// Id of the oldest entry the caller already holds: the page then holds
+    /// the entries before it. Absent for the newest page.
+    #[serde(default)]
+    pub before: Option<String>,
 }
 
 /// One member row of the group roster.
@@ -58,20 +68,68 @@ pub struct TranscriptMemberResponse {
 }
 
 /// One utterance of the room transcript.
+///
+/// An entry the consent rule withholds from the caller keeps its id, speaker
+/// and time — its place in the room — and carries no author and no words.
 #[derive(Debug, Serialize)]
 pub struct TranscriptEntryResponse {
-    /// Entry id
+    /// Entry id — the cursor for the page before it
     pub id: String,
-    /// The member the entry is attributed to
-    pub author_user_id: String,
-    /// The author's display name, else their email
-    pub author_display_name: Option<String>,
-    /// `member` or `agent`
+    /// `member` or `coach`
     pub speaker: String,
-    /// The utterance text
-    pub content: String,
+    /// The consent rule withholds this entry from the caller: its author and
+    /// its words are absent, and a client shows a placeholder in its place
+    pub withheld: bool,
+    /// The entry is attributed to the caller — their own words, or the
+    /// coach's reply to them
+    pub own: bool,
+    /// The member the entry is attributed to; `None` when withheld
+    pub author_user_id: Option<String>,
+    /// The author's display name, else their email; `None` when withheld
+    pub author_display_name: Option<String>,
+    /// The utterance text; `None` when withheld
+    pub content: Option<String>,
+    /// The `chat_messages` row a turn entry was fanned out from, so a thread
+    /// that already holds that row shows it from its own conversation;
+    /// `None` for ambient room chatter and for a withheld entry
+    pub message_id: Option<String>,
     /// When the utterance was recorded (RFC 3339)
     pub created_at: String,
+}
+
+impl TranscriptEntryResponse {
+    /// Shape one room entry for the caller who reads it.
+    fn for_viewer(entry: RoomTranscriptEntry, viewer: Uuid) -> Self {
+        let id = entry.id.to_string();
+        let speaker = entry.speaker.as_str().to_owned();
+        let created_at = entry.created_at.to_rfc3339();
+        match entry.body {
+            RoomEntryBody::Shared(shared) => Self {
+                id,
+                speaker,
+                withheld: false,
+                own: shared.author_user_id == viewer,
+                author_user_id: Some(shared.author_user_id.to_string()),
+                author_display_name: shared.author_display_name,
+                content: Some(shared.content),
+                // Only a turn row names a chat message: an ambient row's
+                // provenance is the channel's own message id.
+                message_id: shared.source_conversation_id.and(shared.source_message_id),
+                created_at,
+            },
+            RoomEntryBody::Withheld => Self {
+                id,
+                speaker,
+                withheld: true,
+                own: false,
+                author_user_id: None,
+                author_display_name: None,
+                content: None,
+                message_id: None,
+                created_at,
+            },
+        }
+    }
 }
 
 /// Response for the group transcript read.
@@ -81,7 +139,8 @@ pub struct GroupTranscriptResponse {
     pub group_id: String,
     /// Every active member, consented or not — membership is never hidden
     pub members: Vec<TranscriptMemberResponse>,
-    /// Visible entries, oldest first
+    /// Every entry of the page, oldest first — a withheld one as a
+    /// placeholder
     pub entries: Vec<TranscriptEntryResponse>,
 }
 
@@ -108,11 +167,12 @@ pub async fn get_group_transcript(
         .limit
         .unwrap_or(DEFAULT_TRANSCRIPT_LIMIT)
         .clamp(1, MAX_TRANSCRIPT_LIMIT);
+    let before = query.before.as_deref().map(parse_uuid).transpose()?;
     let mut entries = resources
         .common
         .repos
         .groups
-        .list_transcript_visible_to(&group_id, auth.user_id, limit)
+        .list_room_transcript_for(&group_id, auth.user_id, before, limit)
         .await?;
     // Newest-first from the repository (it selects the newest window);
     // render oldest-first, the order a chat view paints.
@@ -131,14 +191,7 @@ pub async fn get_group_transcript(
             .collect(),
         entries: entries
             .into_iter()
-            .map(|e| TranscriptEntryResponse {
-                id: e.id.to_string(),
-                author_user_id: e.author_user_id.to_string(),
-                author_display_name: e.author_display_name,
-                speaker: e.speaker.as_str().to_owned(),
-                content: e.content,
-                created_at: e.created_at.to_rfc3339(),
-            })
+            .map(|e| TranscriptEntryResponse::for_viewer(e, auth.user_id))
             .collect(),
     };
 

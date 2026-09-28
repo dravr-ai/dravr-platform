@@ -1,5 +1,5 @@
-// ABOUTME: Integration tests for the surface-neutral group room transcript read model
-// ABOUTME: Messaging turns readable by web members, web turns visible to messaging, consent withheld
+// ABOUTME: Integration tests for the surface-neutral group room transcript read model and the room a group thread renders
+// ABOUTME: Another member's turns and chatter reach a linked member's room read in order; a withheld entry stays a placeholder
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -27,7 +27,7 @@ mod group_transcript_tests {
     use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::groups::{
         CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
-        GroupTranscriptEntry, TranscriptSpeaker,
+        GroupTranscriptEntry, NewGroupTranscriptEntry, TranscriptSpeaker,
     };
     use pierre_core::models::{ConnectionType, Tenant, TenantId, User, UserStatus};
     use pierre_database::backends::{
@@ -63,6 +63,8 @@ mod group_transcript_tests {
     const BOB_MESSAGE: &str = "Semaine chargée: 60 km de course au total";
     /// Carol has not consented — this content must never fan out to others.
     const CAROL_MESSAGE: &str = "je fais juste 5 km demain matin";
+    /// Alice's unaddressed room chatter, captured for the room without a turn.
+    const ALICE_AMBIENT: &str = "Quelqu'un pour le fractionné de samedi?";
 
     /// Deterministic LLM that counts invocations and captures each request's
     /// serialized messages. Mock is test-only: the assertion point here is
@@ -513,6 +515,80 @@ mod group_transcript_tests {
         (status, body)
     }
 
+    /// GET one page of the transcript route as the given caller, with a raw
+    /// query string (`limit=…&before=…`).
+    async fn get_transcript_page(
+        scenario: &Scenario,
+        auth: &str,
+        query: &str,
+    ) -> (StatusCode, Value) {
+        let router = ChatRoutes::routes(Arc::clone(&scenario.resources));
+        let resp = AxumTestRequest::get(&format!(
+            "/api/chat/groups/{}/transcript?{query}",
+            scenario.group_id
+        ))
+        .header("authorization", auth)
+        .send(router)
+        .await;
+        let status = resp.status_code();
+        let body = if status == StatusCode::OK {
+            resp.json::<Value>()
+        } else {
+            Value::Null
+        };
+        (status, body)
+    }
+
+    /// A bearer token for one fixture user.
+    async fn bearer_for(resources: &ServerContext, user_id: Uuid) -> String {
+        let user = resources
+            .common
+            .repos
+            .users
+            .get_global(user_id)
+            .await
+            .unwrap()
+            .unwrap();
+        format!(
+            "Bearer {}",
+            resources
+                .auth
+                .auth_manager
+                .generate_token(&user, &resources.auth.jwks_manager)
+                .unwrap()
+        )
+    }
+
+    /// An entry the consent rule withholds keeps its place and its speaker,
+    /// and carries neither the author nor the words.
+    fn assert_withheld_placeholder(entry: &Value, speaker: &str) {
+        assert_eq!(
+            entry["withheld"], true,
+            "the entry is a placeholder: {entry}"
+        );
+        assert_eq!(entry["speaker"], speaker);
+        assert!(
+            entry["content"].is_null(),
+            "a placeholder carries no words: {entry}"
+        );
+        assert!(
+            entry["author_user_id"].is_null() && entry["author_display_name"].is_null(),
+            "a placeholder names no author: {entry}"
+        );
+        assert!(
+            entry["message_id"].is_null(),
+            "a placeholder names no source row: {entry}"
+        );
+        assert_eq!(entry["own"], false);
+        assert!(
+            entry["id"].as_str().is_some_and(|id| !id.is_empty())
+                && entry["created_at"]
+                    .as_str()
+                    .is_some_and(|at| !at.is_empty()),
+            "a placeholder keeps its place in the room: {entry}"
+        );
+    }
+
     #[tokio::test]
     #[serial]
     async fn messaging_turn_is_readable_by_web_member_and_consent_withholds_content() {
@@ -556,8 +632,8 @@ mod group_transcript_tests {
         let entries = body["entries"].as_array().unwrap();
         assert_eq!(
             entries.len(),
-            2,
-            "bob sees alice's turn (member + coach) and nothing from unconsented carol"
+            3,
+            "bob sees alice's turn (member + coach) and a placeholder for unconsented carol"
         );
         assert_eq!(entries[0]["speaker"], "member");
         assert_eq!(entries[0]["content"], ALICE_MESSAGE);
@@ -571,8 +647,9 @@ mod group_transcript_tests {
         assert_eq!(
             entries[1]["author_user_id"],
             scenario.alice_id.to_string(),
-            "the coach reply is attributed to the member it answered"
+            "the agent's reply is attributed to the member it answered"
         );
+        assert_withheld_placeholder(&entries[2], "member");
         assert!(
             !body.to_string().contains(CAROL_MESSAGE),
             "an unconsented member's content must not fan out to others"
@@ -774,6 +851,225 @@ mod group_transcript_tests {
                 .unwrap()
                 .is_none(),
             "not even from the room's own tenant"
+        );
+    }
+    /// The room a group thread renders, as a linked member reads it: another
+    /// linked member's addressed turn, the agent's reply to it and their
+    /// unaddressed line, in the order the room heard them and attributed to
+    /// that member, with an unconsented member's line kept as a placeholder
+    /// (carnet#440 — a group thread used to show only the reader's side).
+    #[tokio::test]
+    #[serial]
+    async fn a_linked_members_room_holds_another_members_turn_chatter_and_a_withheld_placeholder() {
+        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+
+        let mock = Arc::new(CapturingLlm::new(AGENT_REPLY));
+        let calls = mock.call_counter();
+        let resources = create_test_server_resources_with_llm(mock).await.unwrap();
+        let scenario = build_scenario(Arc::clone(&resources)).await;
+
+        // Bob is the reader, and linked to the room's Telegram chat too.
+        let messaging: &dyn MessagingRepository = &*resources.common.repos.messaging;
+        messaging
+            .create_channel_link(&CreateChannelLinkParams {
+                id: &Uuid::new_v4().to_string(),
+                tenant_id: scenario.bot_tenant,
+                user_id: &scenario.bob_id.to_string(),
+                channel_type: "telegram",
+                channel_user_id: "44",
+                display_name: Some("Bob"),
+            })
+            .await
+            .unwrap();
+
+        // 1. Alice addresses the coach, and the coach answers her — in her own
+        //    conversation, fanned out to the room.
+        let status =
+            post_group_message(&scenario, 7601, addressed_message(40, 42, ALICE_MESSAGE)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            wait_for_llm_calls(&calls, 1).await,
+            "the addressed group message must dispatch a turn"
+        );
+        wait_for_entries(&scenario, scenario.alice_id, 2).await;
+
+        // 2. Alice's unaddressed line: the room only.
+        let status =
+            post_group_message(&scenario, 7602, ambient_message(41, 42, ALICE_AMBIENT)).await;
+        assert_eq!(status, StatusCode::OK);
+        wait_for_entries(&scenario, scenario.alice_id, 3).await;
+
+        // 3. Carol, unconsented, speaks too; she reads her own line back, so
+        //    the row exists and what bob gets below is withholding, not loss.
+        let status =
+            post_group_message(&scenario, 7603, ambient_message(42, 43, CAROL_MESSAGE)).await;
+        assert_eq!(status, StatusCode::OK);
+        let carol_view = wait_for_entries(&scenario, scenario.carol_id, 4).await;
+        assert!(carol_view.iter().any(|e| e.content == CAROL_MESSAGE));
+
+        // 4. Bob's room: alice's turn, the reply to her, her chatter, then a
+        //    placeholder where carol's line sits.
+        let (status, body) = get_transcript(&scenario, &scenario.bob_auth).await;
+        assert_eq!(status, StatusCode::OK);
+        let entries = body["entries"].as_array().unwrap();
+        assert_eq!(entries.len(), 4, "bob's room: {body}");
+        let alice = scenario.alice_id.to_string();
+
+        assert_eq!(entries[0]["speaker"], "member");
+        assert_eq!(entries[0]["content"], ALICE_MESSAGE);
+        assert_eq!(entries[0]["author_user_id"], alice.as_str());
+        assert_eq!(entries[0]["author_display_name"], "Alice");
+        assert_eq!(entries[0]["own"], false, "alice's turn is not bob's own");
+        assert_eq!(entries[0]["withheld"], false);
+        assert!(
+            entries[0]["message_id"].as_str().is_some(),
+            "a turn entry names the chat row it was fanned out from"
+        );
+
+        assert_eq!(entries[1]["speaker"], "coach");
+        assert_eq!(entries[1]["content"], AGENT_REPLY);
+        assert_eq!(
+            entries[1]["author_user_id"],
+            alice.as_str(),
+            "the agent's reply is attributed to the member it answered"
+        );
+        assert_eq!(entries[1]["own"], false);
+
+        assert_eq!(entries[2]["speaker"], "member");
+        assert_eq!(entries[2]["content"], ALICE_AMBIENT);
+        assert_eq!(entries[2]["author_user_id"], alice.as_str());
+        assert!(
+            entries[2]["message_id"].is_null(),
+            "ambient chatter names no chat row: its provenance is the channel's own id"
+        );
+
+        assert_withheld_placeholder(&entries[3], "member");
+        assert!(
+            !body.to_string().contains(CAROL_MESSAGE),
+            "a withheld entry's words never reach another member"
+        );
+        let stamps: Vec<&str> = entries
+            .iter()
+            .map(|e| e["created_at"].as_str().unwrap())
+            .collect();
+        assert!(
+            stamps.windows(2).all(|w| w[0] <= w[1]),
+            "the room is oldest first: {stamps:?}"
+        );
+
+        // 5. Alice reads the same room: her entries are her own, and each turn
+        //    entry names the row her own conversation holds, which is how her
+        //    thread shows that row instead of a second copy of it.
+        let alice_auth = bearer_for(&resources, scenario.alice_id).await;
+        let (status, body) = get_transcript(&scenario, &alice_auth).await;
+        assert_eq!(status, StatusCode::OK);
+        let entries = body["entries"].as_array().unwrap();
+        assert_eq!(entries.len(), 4, "alice's room: {body}");
+        assert!(entries[..3].iter().all(|e| e["own"] == true));
+        assert_withheld_placeholder(&entries[3], "member");
+
+        let chat = resources.common.repos.chat.as_ref();
+        let page = chat
+            .list_conversations(&alice, scenario.alice_tenant, 50, 0)
+            .await
+            .unwrap();
+        let room_conversation = page
+            .items
+            .iter()
+            .find(|c| c.group_id.is_some())
+            .expect("alice's room conversation");
+        let own_rows = chat
+            .get_messages(&room_conversation.id, &alice, scenario.alice_tenant)
+            .await
+            .unwrap();
+        for (entry, content) in [(&entries[0], ALICE_MESSAGE), (&entries[1], AGENT_REPLY)] {
+            let message_id = entry["message_id"]
+                .as_str()
+                .expect("a turn entry names its row");
+            let row = own_rows
+                .iter()
+                .find(|m| m.id == message_id)
+                .expect("the named row is in alice's own conversation");
+            assert_eq!(row.content, content);
+        }
+    }
+
+    /// The room pages back from a cursor: each page holds the entries strictly
+    /// before the one the reader already holds, oldest first, until the room
+    /// runs out; a malformed cursor is refused rather than read as none.
+    #[tokio::test]
+    #[serial]
+    async fn the_room_pages_back_from_the_oldest_entry_a_reader_holds() {
+        let mock = Arc::new(CapturingLlm::new(AGENT_REPLY));
+        let resources = create_test_server_resources_with_llm(mock).await.unwrap();
+        let scenario = build_scenario(Arc::clone(&resources)).await;
+
+        let group_id = scenario.group_id.to_string();
+        let tenant = scenario.bot_tenant.to_string();
+        for n in 1..=5 {
+            let line = format!("ligne {n}");
+            resources
+                .common
+                .repos
+                .groups
+                .append_transcript_entry(&NewGroupTranscriptEntry {
+                    group_id: &group_id,
+                    tenant_id: &tenant,
+                    author_user_id: scenario.alice_id,
+                    speaker: TranscriptSpeaker::Member,
+                    content: &line,
+                    source_conversation_id: None,
+                    source_message_id: None,
+                })
+                .await
+                .unwrap();
+            // Distinct instants, so the order under test is the clock's.
+            sleep(Duration::from_millis(5)).await;
+        }
+
+        let contents = |body: &Value| -> Vec<String> {
+            body["entries"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["content"].as_str().unwrap().to_owned())
+                .collect()
+        };
+
+        let (status, newest) = get_transcript_page(&scenario, &scenario.bob_auth, "limit=2").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(contents(&newest), ["ligne 4", "ligne 5"]);
+
+        let cursor = newest["entries"][0]["id"].as_str().unwrap().to_owned();
+        let (status, older) = get_transcript_page(
+            &scenario,
+            &scenario.bob_auth,
+            &format!("limit=2&before={cursor}"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(contents(&older), ["ligne 2", "ligne 3"]);
+
+        let cursor = older["entries"][0]["id"].as_str().unwrap().to_owned();
+        let (status, oldest) = get_transcript_page(
+            &scenario,
+            &scenario.bob_auth,
+            &format!("limit=2&before={cursor}"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            contents(&oldest),
+            ["ligne 1"],
+            "the last page is short: the room ran out"
+        );
+
+        let (status, _) =
+            get_transcript_page(&scenario, &scenario.bob_auth, "before=not-an-entry-id").await;
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "a malformed cursor must be refused, not read as the newest page"
         );
     }
 }

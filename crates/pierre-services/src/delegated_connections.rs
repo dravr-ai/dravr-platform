@@ -1078,6 +1078,7 @@ impl<'a> Notices<'a> {
             service,
             link.coach_user_id,
             notice_tenant(link.coach_tenant_id),
+            link.member_user_id,
             &parties.member_name,
             group_name,
         );
@@ -1092,6 +1093,7 @@ impl<'a> Notices<'a> {
             service,
             link.coach_user_id,
             notice_tenant(link.coach_tenant_id),
+            link.member_user_id,
             &parties.member_name,
             group_name,
         );
@@ -1123,6 +1125,7 @@ impl<'a> Notices<'a> {
             service,
             link.coach_user_id,
             notice_tenant(link.coach_tenant_id),
+            link.member_user_id,
             &parties.member_name,
             &group_name,
         );

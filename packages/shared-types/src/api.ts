@@ -1,6 +1,7 @@
 // ABOUTME: Shared TypeScript types for common API structures
 // ABOUTME: Chat types, prompt suggestions, and common response patterns
 
+import type { TranscriptSpeaker } from './groups.js';
 import type { ChatMessageAction } from './turn.js';
 
 // ========== CHAT TYPES ==========
@@ -146,6 +147,33 @@ export interface Message {
   execution_time_ms?: number;
   /** Error flag for failed message responses */
   isError?: boolean;
+  /**
+   * Set on a row a group thread shows from the room rather than from the
+   * caller's own conversation — another member's words, the agent's reply to
+   * them, or an entry the author's sharing consent withholds. Absent on every
+   * row of the caller's own conversation.
+   */
+  room?: RoomAttribution;
+}
+
+/**
+ * Who a room row in a group thread belongs to.
+ *
+ * Built by `composeRoomThread` in `@pierre/chat-utils` from a
+ * `GroupTranscriptEntry`; both clients draw a row carrying it with the
+ * author's name, and a withheld one as a placeholder.
+ */
+export interface RoomAttribution {
+  /** A member's own words, or the agent's reply to one. */
+  speaker: TranscriptSpeaker;
+  /** The member the entry is attributed to; `null` when withheld. */
+  author_user_id: string | null;
+  /** That member's display name, else their email; `null` when withheld. */
+  author_name: string | null;
+  /** Attributed to the reader: their own words, or the agent's reply to them. */
+  own: boolean;
+  /** The author's sharing consent withholds the entry: the row has no words to show. */
+  withheld: boolean;
 }
 
 /**

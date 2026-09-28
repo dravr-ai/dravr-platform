@@ -238,6 +238,15 @@ export GARMIN_REDIRECT_URI=http://localhost:8081/api/oauth/callback/garmin
 # RFC 8414 issuer URL (must be HTTPS in production)
 # export OAUTH2_ISSUER_URL="http://localhost:8081"
 
+# MCP resource identifier (RFC 9728 / RFC 8707): the origin MCP clients dial
+# for /mcp, scheme://host[:port] with no path (must be HTTPS in production).
+# Published as `resource` in /.well-known/oauth-protected-resource, used for
+# the resource_metadata URL in every /mcp 401 challenge, and the only
+# `resource` parameter /oauth2/authorize and /oauth2/token accept — the tokens
+# minted for it are audience-bound to it. Defaults to BASE_URL, so set it only
+# when MCP is served under its own hostname (e.g. https://mcp.dravr.ai).
+# export MCP_RESOURCE_URL="http://localhost:8081"
+
 # ============================================================================
 # LLM PROVIDER CONFIGURATION
 # ============================================================================

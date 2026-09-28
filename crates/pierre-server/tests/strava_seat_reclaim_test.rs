@@ -840,6 +840,7 @@ mod strava_seat_reclaim_tests {
                 &["read".to_owned()],
                 &[],
                 Some(connector.tenant_id.to_string()),
+                None,
             )
             .unwrap();
         let (api_key, api_key_value) = ApiKeyManager::new()
@@ -866,7 +867,10 @@ mod strava_seat_reclaim_tests {
         // The connector's token is a delegated grant, so it authenticates on
         // the MCP path — the scoped entry point — where it is used.
         let by_connector = middleware
-            .authenticate_scoped_request(Some(&format!("Bearer {access_token}")))
+            .authenticate_scoped_request(
+                Some(&format!("Bearer {access_token}")),
+                &resources.common.config.oauth2_server.mcp_resource_url,
+            )
             .await
             .unwrap();
         assert_eq!(by_connector.user_id, connector.user_id);

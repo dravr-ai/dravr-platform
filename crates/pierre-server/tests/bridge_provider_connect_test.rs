@@ -253,7 +253,14 @@ fn delegated_bearer(resources: &ServerContext, user_id: Uuid, grant: &[OAuthScop
     let token = resources
         .auth
         .auth_manager
-        .generate_oauth_access_token(&resources.auth.jwks_manager, &user_id, &scopes, &[], None)
+        .generate_oauth_access_token(
+            &resources.auth.jwks_manager,
+            &user_id,
+            &scopes,
+            &[],
+            None,
+            None,
+        )
         .unwrap();
     format!("Bearer {token}")
 }

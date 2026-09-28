@@ -168,14 +168,14 @@ async function setupConnectionsMocks(page: Page, options: { isAdmin?: boolean } 
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
+        client_id: 'client-1',
         requests_today: 150,
         requests_this_month: 3200,
         total_requests: 45000,
         last_request_at: new Date().toISOString(),
-        tool_usage_breakdown: [
-          { tool_name: 'get_activities', usage_count: 1200 },
-          { tool_name: 'get_athlete', usage_count: 800 },
-          { tool_name: 'analyze_performance', usage_count: 450 },
+        daily_usage: [
+          { date: '2024-01-15', success_count: 140, error_count: 10 },
+          { date: '2024-01-14', success_count: 210, error_count: 0 },
         ],
       }),
     });
@@ -187,8 +187,11 @@ async function setupConnectionsMocks(page: Page, options: { isAdmin?: boolean } 
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        tier: 'professional',
-        limit: 50000,
+        client_id: 'client-1',
+        is_rate_limited: false,
+        rate_limit_requests: 50000,
+        rate_limit_window_seconds: 3600,
+        current_usage: 3200,
         remaining: 46800,
         reset_at: '2024-02-01T00:00:00Z',
       }),
@@ -722,7 +725,7 @@ test.describe('Connections Tab - A2A Client Expansion', () => {
     await expect(page.getByText('Total:')).toBeVisible({ timeout: 5000 });
   });
 
-  test('shows rate limit tier', async ({ page }) => {
+  test('shows the rate limit budget', async ({ page }) => {
     // Connections tab is only available to admin users
     await setupConnectionsMocks(page, { isAdmin: true });
     await loginToDashboard(page);
@@ -737,10 +740,11 @@ test.describe('Connections Tab - A2A Client Expansion', () => {
 
     // Check for rate limits section - use exact match to avoid matching "Client Usage & Rate Limits"
     await expect(page.getByRole('heading', { name: 'Rate Limits', exact: true })).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText('Tier:')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Limit:')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Window:')).toBeVisible({ timeout: 5000 });
   });
 
-  test('shows top tools section', async ({ page }) => {
+  test('shows the daily requests section', async ({ page }) => {
     // Connections tab is only available to admin users
     await setupConnectionsMocks(page, { isAdmin: true });
     await loginToDashboard(page);
@@ -753,8 +757,9 @@ test.describe('Connections Tab - A2A Client Expansion', () => {
     await page.getByText('Fitness Assistant Bot').click();
     await page.waitForTimeout(1000); // Wait for async queries
 
-    // Check for top tools section - use longer timeout
-    await expect(page.getByText('Top Tools')).toBeVisible({ timeout: 10000 });
+    // Check for the per-day breakdown - use longer timeout
+    await expect(page.getByRole('heading', { name: 'Daily Requests' })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('10 failed')).toBeVisible({ timeout: 5000 });
   });
 });
 

@@ -20,7 +20,7 @@ use pierre_auth::{
     rate_limiting::{api_key_window_start, calculate_api_key_rate_limit, RequestBudget},
 };
 use pierre_core::errors::ErrorCode;
-use pierre_core::models::{ApiKeyWindowUsage, User};
+use pierre_core::models::{User, WindowUsage};
 use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{backends::factory::Database, database::generate_encryption_key};
 use pierre_middleware::McpAuthMiddleware;
@@ -66,7 +66,7 @@ async fn create_test_environment() -> (
 }
 
 /// The key's calls inside its own sliding window, as the gate reads them.
-async fn window_usage(database: &Database, api_key: &ApiKey) -> ApiKeyWindowUsage {
+async fn window_usage(database: &Database, api_key: &ApiKey) -> WindowUsage {
     database
         .repositories()
         .usage

@@ -1,5 +1,5 @@
 // ABOUTME: Drives the production HTTP app (build_http_app) to pin X-RateLimit-* and 429 Retry-After per credential
-// ABOUTME: Covers API keys, JWTs, admin overrides, superseded credentials, MCP, A2A, usage rows, CORS and the messaging leak guard
+// ABOUTME: Covers API keys, JWTs, A2A clients, admin overrides, superseded credentials, MCP, usage rows, CORS and the messaging leak guard
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,8 +12,9 @@
 //! route reports its budget, a spent one is a 429 with `Retry-After` on every
 //! transport (REST, MCP, A2A), and nothing is reported for a caller that never
 //! authenticated, for a credential another one superseded, or for a messaging
-//! vendor. An A2A client-credentials token carries no budget at all; that gap
-//! is registered as registre#620 on `A2AServer::resolve_client_principal`.
+//! vendor. An A2A client-credentials token spends its client's own sliding
+//! window, the shape an API key has, and each admitted call writes one
+//! `a2a_usage` row with its real outcome.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -35,7 +36,9 @@ use hmac::{Hmac, Mac};
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, ApiKeyUsage};
 use pierre_config::environment::{CorsConfig, ServerConfig};
 use pierre_core::models::usage::JwtUsage;
-use pierre_core::models::{RequestLog, Tenant, TenantId, User, UserStatus, UserTier};
+use pierre_core::models::{
+    A2AClient, A2AUsage, RequestLog, Tenant, TenantId, User, UserStatus, UserTier,
+};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
 use pierre_database::backends::{
@@ -46,6 +49,8 @@ use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use serde_json::{json, Value};
 use sha2::Sha256;
+use sqlx::sqlite::SqliteRow;
+use sqlx::Row;
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -360,6 +365,147 @@ async fn drop_jwt_usage(resources: &Arc<ServerContext>) {
                 .await
                 .unwrap();
         }
+    }
+}
+
+/// A stored active A2A client `owner` registered, admitting `limit` calls per
+/// hour, and a client-credentials token naming it that grants `fitness:read`
+/// (the `client:{id}` subject `generate_client_credentials_token` mints).
+async fn a2a_client(
+    resources: &Arc<ServerContext>,
+    owner: &Athlete,
+    limit: u32,
+) -> (A2AClient, String) {
+    let (key, _) = api_key(resources, owner.user.id, ApiKeyTier::Starter, 1_000, false).await;
+    let client = A2AClient {
+        id: format!("a2a_client_{}", Uuid::new_v4()),
+        user_id: owner.user.id,
+        name: format!("Budget client {}", Uuid::new_v4()),
+        description: "client-credentials budget".to_owned(),
+        public_key: "budget-public-key".to_owned(),
+        contact_email: None,
+        capabilities: vec!["fitness-data-analysis".to_owned()],
+        redirect_uris: Vec::new(),
+        is_active: true,
+        created_at: Utc::now(),
+        permissions: vec!["read_activities".to_owned()],
+        rate_limit_requests: limit,
+        rate_limit_window_seconds: KEY_WINDOW_SECS,
+        updated_at: Utc::now(),
+    };
+    resources
+        .common
+        .repos
+        .a2a
+        .create_client(&client, "budget-secret", &key.id)
+        .await
+        .unwrap();
+    let token = resources
+        .auth
+        .auth_manager
+        .generate_client_credentials_token(
+            &resources.auth.jwks_manager,
+            &client.id,
+            &["fitness:read".to_owned()],
+            None,
+            None,
+        )
+        .unwrap();
+    (client, token)
+}
+
+/// `count` calls from `client_id` at `at`, written the way the
+/// request-budget layer writes them.
+async fn seed_a2a_calls(
+    resources: &Arc<ServerContext>,
+    client_id: &str,
+    count: u32,
+    at: DateTime<Utc>,
+) {
+    for i in 0..count {
+        resources
+            .common
+            .repos
+            .a2a
+            .record_usage(&A2AUsage {
+                id: None,
+                client_id: client_id.to_owned(),
+                session_token: None,
+                timestamp: at,
+                tool_name: format!("seeded_{i}"),
+                response_time_ms: None,
+                status_code: 200,
+                error_message: None,
+                request_size_bytes: None,
+                response_size_bytes: None,
+                ip_address: None,
+                user_agent: None,
+                protocol_version: "1.0".to_owned(),
+                client_capabilities: Vec::new(),
+                granted_scopes: Vec::new(),
+            })
+            .await
+            .unwrap();
+    }
+}
+
+/// One `a2a_usage` row, as stored.
+#[derive(Debug)]
+struct A2ARow {
+    endpoint: String,
+    status_code: i32,
+    response_time_ms: Option<i32>,
+    session_token: Option<String>,
+    protocol_version: String,
+    client_capabilities: Vec<String>,
+    granted_scopes: Vec<String>,
+}
+
+/// Every `a2a_usage` row recorded for `client_id`, oldest first.
+async fn a2a_rows(resources: &Arc<ServerContext>, client_id: &str) -> Vec<A2ARow> {
+    const ROWS_SQL: &str = "SELECT endpoint, CAST(status_code AS INTEGER) AS status_code, \
+         response_time_ms, session_token, protocol_version, client_capabilities, granted_scopes \
+         FROM a2a_usage WHERE client_id = $1 ORDER BY timestamp";
+    match resources.agent.database.as_ref() {
+        Database::SQLite(sqlite) => {
+            // The list columns hold JSON arrays on SQLite.
+            let list = |row: &SqliteRow, column: &str| -> Vec<String> {
+                serde_json::from_str(&row.get::<String, _>(column)).unwrap()
+            };
+            sqlx::query(ROWS_SQL)
+                .bind(client_id)
+                .fetch_all(sqlite.pool())
+                .await
+                .unwrap()
+                .iter()
+                .map(|row| A2ARow {
+                    endpoint: row.get("endpoint"),
+                    status_code: row.get("status_code"),
+                    response_time_ms: row.get("response_time_ms"),
+                    session_token: row.get("session_token"),
+                    protocol_version: row.get("protocol_version"),
+                    client_capabilities: list(row, "client_capabilities"),
+                    granted_scopes: list(row, "granted_scopes"),
+                })
+                .collect()
+        }
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(postgres) => sqlx::query(ROWS_SQL)
+            .bind(client_id)
+            .fetch_all(postgres.pool())
+            .await
+            .unwrap()
+            .iter()
+            .map(|row| A2ARow {
+                endpoint: row.get("endpoint"),
+                status_code: row.get("status_code"),
+                response_time_ms: row.get("response_time_ms"),
+                session_token: row.get("session_token"),
+                protocol_version: row.get("protocol_version"),
+                client_capabilities: row.get("client_capabilities"),
+                granted_scopes: row.get("granted_scopes"),
+            })
+            .collect(),
     }
 }
 
@@ -1468,6 +1614,136 @@ async fn test_a2a_user_jwt_reports_its_budget_and_a_spent_one_gets_429() {
     assert_eq!(rest.status, StatusCode::TOO_MANY_REQUESTS, "{}", rest.body);
     assert_eq!(rest.body["error"]["status"], "RESOURCE_EXHAUSTED");
     assert!(rest.numeric_header("retry-after") >= 1);
+}
+
+#[tokio::test]
+async fn test_a2a_client_token_spends_its_clients_window_and_a_spent_one_gets_429() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let owner = athlete(&resources, UserTier::Starter, UserRole::User).await;
+    let (client, token) = a2a_client(&resources, &owner, 3).await;
+    let seeded_at = Utc::now().trunc_subsecs(0) - Duration::seconds(600);
+    seed_a2a_calls(&resources, &client.id, 1, seeded_at).await;
+    let expected_reset = (seeded_at + Duration::seconds(i64::from(KEY_WINDOW_SECS))).timestamp();
+
+    let card = send(&app, a2a_request(&token, "GetExtendedAgentCard")).await;
+    assert_eq!(card.status, StatusCode::OK, "{}", card.body);
+    assert!(card.body["error"].is_null(), "{}", card.body);
+    assert_eq!(card.header("x-ratelimit-limit"), Some("3"));
+    // One seeded call and this request: 3 - 2
+    assert_eq!(card.header("x-ratelimit-remaining"), Some("1"));
+    assert!(
+        seconds_apart(card.numeric_header("x-ratelimit-reset"), expected_reset) <= 2,
+        "the window frees its first slot when the seeded call leaves it"
+    );
+    assert!(card.header("retry-after").is_none());
+
+    let rows = a2a_rows(&resources, &client.id).await;
+    assert_eq!(rows.len(), 2, "one row per admitted request: {rows:?}");
+    let row = &rows[1];
+    assert_eq!(row.endpoint, "GetExtendedAgentCard", "the A2A method");
+    assert_eq!(row.status_code, 200);
+    assert!(row.response_time_ms.is_some(), "the request's latency");
+    assert_eq!(row.session_token, None, "a client token opens no session");
+    assert_eq!(row.protocol_version, "1.0");
+    assert_eq!(row.client_capabilities, ["fitness-data-analysis"]);
+    assert_eq!(row.granted_scopes, ["fitness:read"]);
+
+    let last = send(&app, a2a_request(&token, "GetExtendedAgentCard")).await;
+    assert_eq!(last.status, StatusCode::OK, "{}", last.body);
+    assert_eq!(last.header("x-ratelimit-remaining"), Some("0"));
+
+    let refused = send(&app, a2a_request(&token, "GetExtendedAgentCard")).await;
+    let now = Utc::now();
+    assert_eq!(
+        refused.status,
+        StatusCode::TOO_MANY_REQUESTS,
+        "a spent client budget cannot keep running through A2A: {}",
+        refused.body
+    );
+    assert!(
+        refused.headers.get(WWW_AUTHENTICATE).is_none(),
+        "the token is good, the budget is spent"
+    );
+    let retry_after = refused.numeric_header("retry-after");
+    let expected_wait = expected_reset - now.timestamp();
+    assert!(
+        seconds_apart(retry_after, expected_wait) <= 2,
+        "retry {retry_after}s, the seeded call leaves the window in {expected_wait}s"
+    );
+    assert_eq!(
+        refused.body["error"]["data"][0]["reason"], "RATE_LIMIT_EXCEEDED",
+        "{}",
+        refused.body
+    );
+    assert_eq!(
+        refused.body["error"]["data"][1]["retryDelay"],
+        format!("{retry_after}s"),
+        "the RetryInfo detail and the header carry one value"
+    );
+    assert_eq!(refused.header("x-ratelimit-limit"), Some("3"));
+    assert_eq!(refused.header("x-ratelimit-remaining"), Some("0"));
+
+    // The HTTP+JSON binding maps the same refusal to RESOURCE_EXHAUSTED.
+    let bearer = format!("Bearer {token}");
+    let rest = send(
+        &app,
+        get_with("/a2a/tasks?A2A-Version=1.0", &[("authorization", &bearer)]),
+    )
+    .await;
+    assert_eq!(rest.status, StatusCode::TOO_MANY_REQUESTS, "{}", rest.body);
+    assert_eq!(rest.body["error"]["status"], "RESOURCE_EXHAUSTED");
+    assert!(seconds_apart(rest.numeric_header("retry-after"), retry_after) <= 2);
+
+    assert_eq!(
+        a2a_rows(&resources, &client.id).await.len(),
+        3,
+        "a refused request is not counted"
+    );
+}
+
+#[tokio::test]
+async fn test_a2a_client_usage_row_records_the_real_outcome() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let owner = athlete(&resources, UserTier::Starter, UserRole::User).await;
+    let (client, token) = a2a_client(&resources, &owner, 10).await;
+
+    // A method the client is admitted to whose handler fails.
+    let bearer = format!("Bearer {token}");
+    let missing = send(
+        &app,
+        get_with(
+            &format!("/a2a/tasks/{}?A2A-Version=1.0", Uuid::new_v4()),
+            &[("authorization", &bearer)],
+        ),
+    )
+    .await;
+    assert_eq!(missing.status, StatusCode::NOT_FOUND, "{}", missing.body);
+    assert_eq!(missing.header("x-ratelimit-limit"), Some("10"));
+    assert_eq!(missing.header("x-ratelimit-remaining"), Some("9"));
+
+    let rows = a2a_rows(&resources, &client.id).await;
+    assert_eq!(rows.len(), 1, "one row per admitted request: {rows:?}");
+    assert_eq!(rows[0].endpoint, "GetTask", "the A2A method, not the route");
+    assert_eq!(
+        rows[0].status_code, 404,
+        "the handler's status, never an invented 200"
+    );
+
+    // The owner's own JWT is budgeted by its own month, not the client's
+    // window: the client's call wrote no jwt_usage row.
+    assert_eq!(
+        resources
+            .common
+            .repos
+            .usage
+            .get_jwt_current_usage(owner.user.id)
+            .await
+            .unwrap()
+            .used,
+        0
+    );
 }
 
 #[tokio::test]

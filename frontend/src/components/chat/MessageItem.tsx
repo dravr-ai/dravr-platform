@@ -183,9 +183,16 @@ const MessageItem = memo(function MessageItem({
   onActionClick,
 }: MessageItemProps) {
   const { t } = useTranslation();
-  const isUser = message.role === 'user';
+  // A row a group thread shows from the room. Another member's, or the
+  // coach's reply to another member, speaks from the room's side of the
+  // thread under that member's name, whatever its role.
+  const room = message.room;
+  const fromPeer = room !== undefined && !room.own;
+  const isUser = message.role === 'user' && !fromPeer;
   const isCommand = message.finish_reason === COMMAND_FINISH_REASON;
-  const author = assistantLabel ?? t('shell.brandName');
+  const agent = assistantLabel ?? t('shell.brandName');
+  const peerName = room?.author_name ?? room?.author_user_id ?? '';
+  const author = fromPeer ? `${agent} · ${t('chat.roomReplyTo', { name: peerName })}` : agent;
 
   const messageVerdicts = useMemo(
     () => (verdicts ?? []).filter((v) => v.message_id === message.id),
@@ -381,6 +388,35 @@ const MessageItem = memo(function MessageItem({
     }
   }
 
+  // An entry the author's sharing consent withholds keeps its place in the
+  // room as a placeholder — never a silent gap — naming no one.
+  if (room?.withheld) {
+    return (
+      <MessageBubble side="assistant" timestamp={timestamp} groupStart={groupStart}>
+        <p data-testid="room-entry-withheld" className="text-sm italic text-on-surface-variant">
+          {t(room.speaker === 'coach' ? 'chat.roomReplyHidden' : 'chat.roomEntryHidden')}
+        </p>
+      </MessageBubble>
+    );
+  }
+
+  // Another member's own words, shown as typed under their name.
+  if (fromPeer && room.speaker === 'member') {
+    return (
+      <MessageBubble
+        side="assistant"
+        authorLabel={peerName}
+        avatar={<CoachAvatar label={peerName} />}
+        timestamp={timestamp}
+        groupStart={groupStart}
+      >
+        <p data-testid="room-entry-member" className="whitespace-pre-wrap break-words text-base leading-relaxed text-on-surface">
+          {message.content}
+        </p>
+      </MessageBubble>
+    );
+  }
+
   if (isUser) {
     return (
       <MessageBubble side="user" timestamp={timestamp} groupStart={groupStart}>
@@ -459,11 +495,11 @@ const MessageItem = memo(function MessageItem({
       <MessageBubble
         side="assistant"
         authorLabel={author}
-        avatar={<CoachAvatar label={author} />}
+        avatar={<CoachAvatar label={agent} />}
         timestamp={timestamp}
         groupStart={groupStart}
         finishReason={message.finish_reason}
-        actions={actions}
+        actions={room ? undefined : actions}
       >
         {replyBlocks.map((block, index) => renderBlock(block, index))}
       </MessageBubble>

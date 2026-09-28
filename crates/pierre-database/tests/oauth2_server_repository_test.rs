@@ -106,6 +106,7 @@ async fn an_auth_code_is_exchanged_once_and_only_by_its_client_and_redirect() {
         state: Some("xyz".to_owned()),
         code_challenge: Some("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM".to_owned()),
         code_challenge_method: Some("S256".to_owned()),
+        resource: Some("https://mcp.example".to_owned()),
     };
     repos.oauth2_server.store_auth_code(&code).await.unwrap();
 
@@ -153,6 +154,11 @@ async fn an_auth_code_is_exchanged_once_and_only_by_its_client_and_redirect() {
         Some("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
     );
     assert_eq!(consumed.code_challenge_method.as_deref(), Some("S256"));
+    assert_eq!(
+        consumed.resource.as_deref(),
+        Some("https://mcp.example"),
+        "the RFC 8707 resource the code was bound to reaches the token endpoint"
+    );
     assert!(consumed.used, "the returned row is the row after the flip");
     assert_eq!(
         consumed.expires_at.timestamp(),
@@ -214,6 +220,7 @@ async fn a_refresh_token_rotates_once_for_its_client_and_is_stored_hashed() {
         created_at: Utc::now(),
         revoked: false,
         family_id: "test-family".to_owned(),
+        resource: Some("https://mcp.example".to_owned()),
     };
     repos
         .oauth2_server
@@ -231,6 +238,7 @@ async fn a_refresh_token_rotates_once_for_its_client_and_is_stored_hashed() {
     assert_eq!(stored.user_id, user_id);
     assert_eq!(stored.tenant_id, "tenant-b");
     assert_eq!(stored.scope.as_deref(), Some("read write"));
+    assert_eq!(stored.resource.as_deref(), Some("https://mcp.example"));
     assert!(!stored.revoked);
 
     assert!(
@@ -255,6 +263,11 @@ async fn a_refresh_token_rotates_once_for_its_client_and_is_stored_hashed() {
     );
     assert_eq!(rotated.user_id, user_id);
     assert_eq!(rotated.client_id, client.client_id);
+    assert_eq!(
+        rotated.resource.as_deref(),
+        Some("https://mcp.example"),
+        "rotation reads the grant's resource binding back"
+    );
 
     assert!(
         repos

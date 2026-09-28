@@ -132,6 +132,7 @@ fn delegated_token(
             &scopes,
             &[],
             None,
+            None,
         )
         .unwrap()
 }
@@ -206,7 +207,10 @@ async fn the_rest_entry_point_refuses_a_delegation_the_scoped_one_carries_it() {
     assert_eq!(refused.sanitized_message(), REFUSAL);
 
     let scoped = middleware
-        .authenticate_scoped_request(Some(&token))
+        .authenticate_scoped_request(
+            Some(&token),
+            &resources.common.config.oauth2_server.mcp_resource_url,
+        )
         .await
         .expect("the scoped entry point accepts a delegated grant");
     assert_eq!(scoped.user_id, athlete.user_id);

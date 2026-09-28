@@ -1,5 +1,5 @@
 // ABOUTME: A2A protocol-surface authentication — who is calling, and which tasks they may reach
-// ABOUTME: User JWTs pass the shared auth pipeline; client-credentials tokens act as their registering owner
+// ABOUTME: User JWTs pass the shared auth pipeline; client-credentials tokens spend their client's own budget
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,14 +10,21 @@
 //! acting [`AuthPrincipal`], and the access helpers confine that principal
 //! to the tasks keyed to clients it owns.
 
+use chrono::Utc;
+use pierre_auth::rate_limiting::{a2a_client_window_start, calculate_a2a_client_rate_limit};
 use pierre_core::errors::{AppError, ErrorCode};
+use pierre_core::models::a2a::A2AClient;
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_middleware::rate_limiting::{
+    enforce_request_budget, report_a2a_client_request, report_request_budget,
+    report_request_operation, A2AClientCall,
+};
 use serde_json::{Number, Value};
 use tracing::error;
 use uuid::Uuid;
 
 use super::{A2AResources, A2AServer, A2ATask, AuthPrincipal};
-use crate::protocol_types::{rate_limit_details, A2ASpecError};
+use crate::protocol_types::{rate_limit_details, A2ASpecError, A2A_VERSION};
 use crate::{A2AErrorResponse, A2ARequest, A2AResponse};
 
 impl A2AServer {
@@ -34,9 +41,11 @@ impl A2AServer {
     /// [`McpAuthMiddleware`](pierre_middleware::McpAuthMiddleware), the pipeline
     /// every other route uses: the account-status gate, the monthly request
     /// budget, the usage row the budget counts, and the report the
-    /// `X-RateLimit-*` headers render. A spent budget is refused with the
-    /// `RATE_LIMIT_EXCEEDED` reason and a retry window, which the bindings
-    /// answer with 429 and `Retry-After`.
+    /// `X-RateLimit-*` headers render. A client-credentials token spends its
+    /// client's own budget instead (see
+    /// [`resolve_client_principal`](Self::resolve_client_principal)). Either
+    /// way a spent budget is refused with the `RATE_LIMIT_EXCEEDED` reason and
+    /// a retry window, which the bindings answer with 429 and `Retry-After`.
     ///
     /// Authentication is transport-level per the spec; a refused credential
     /// carries the `AUTHENTICATION_REQUIRED` reason so the HTTP layer can
@@ -76,7 +85,7 @@ impl A2AServer {
                 .auth_middleware
                 .authenticate_request(Some(&format!("Bearer {auth_token}")))
                 .await
-                .map_err(|e| Box::new(Self::user_auth_refusal(&e, request_id)))?;
+                .map_err(|e| Box::new(Self::auth_refusal(&e, request_id)))?;
             return Ok(AuthPrincipal {
                 user_id: admitted.user_id,
                 client_id: None,
@@ -94,18 +103,25 @@ impl A2AServer {
         };
 
         let granted = OAuthScope::parse_granted(&claims.scope);
-        Self::resolve_client_principal(client_id, granted, resources, request_id).await
+        Self::resolve_client_principal(client_id, granted, &request.method, resources, request_id)
+            .await
     }
 
     /// Resolve a client-credentials subject into its acting principal: the
     /// client must exist and be active; the principal acts as the client's
     /// registering user with the client identity kept for task scoping.
     ///
-    /// LIMITATION(registre#620): `resolve_client_principal` enforces, records
-    /// and reports no request budget for a client-credentials principal.
+    /// The call spends the client's own request budget, the shape an API key
+    /// has: its row's `rate_limit_requests` over a sliding
+    /// `rate_limit_window_seconds`, counted over the client's `a2a_usage`
+    /// rows. The budget that decides the call is reported for the
+    /// `X-RateLimit-*` headers; an admitted call is reported as the client's,
+    /// so the request-budget layer writes its `a2a_usage` row with the real
+    /// outcome, named after the A2A `method`.
     async fn resolve_client_principal(
         client_id: &str,
         scopes: Vec<OAuthScope>,
+        method: &str,
         resources: &A2AResources,
         request_id: Value,
     ) -> Result<AuthPrincipal, Box<A2AResponse>> {
@@ -133,11 +149,55 @@ impl A2AServer {
             )));
         }
 
+        Self::admit_client_call(&client, &scopes, method, resources, &request_id).await?;
+
         Ok(AuthPrincipal {
             user_id: client.user_id,
             client_id: Some(client.id),
             scopes,
         })
+    }
+
+    /// Gate a client-credentials call on its client's own sliding-window
+    /// budget, and report what decided it.
+    ///
+    /// A spent budget is reported and refused with its retry window; a
+    /// server fault reading the window reports nothing and says nothing
+    /// about the credential. An admitted call reports its budget, names its
+    /// method, and hands the request-budget layer the client whose
+    /// `a2a_usage` row it writes once the call has an outcome.
+    async fn admit_client_call(
+        client: &A2AClient,
+        scopes: &[OAuthScope],
+        method: &str,
+        resources: &A2AResources,
+        request_id: &Value,
+    ) -> Result<(), Box<A2AResponse>> {
+        let now = Utc::now();
+        let budget = resources
+            .ctx
+            .repos()
+            .a2a
+            .get_client_window_usage(&client.id, a2a_client_window_start(client, now))
+            .await
+            .map(|usage| calculate_a2a_client_rate_limit(client, &usage, now))
+            .map_err(|e| Box::new(Self::auth_refusal(&e, request_id.clone())))?;
+
+        report_request_budget(budget);
+        enforce_request_budget(budget, now)
+            .map_err(|refusal| Box::new(Self::auth_refusal(&refusal, request_id.clone())))?;
+
+        report_request_operation(method);
+        report_a2a_client_request(A2AClientCall {
+            client_id: client.id.clone(),
+            protocol_version: A2A_VERSION.to_owned(),
+            client_capabilities: client.capabilities.clone(),
+            granted_scopes: scopes
+                .iter()
+                .map(|scope| scope.as_str().to_owned())
+                .collect(),
+        });
+        Ok(())
     }
 
     /// Get client IDs owned by a user
@@ -226,14 +286,16 @@ impl A2AServer {
         Ok(task)
     }
 
-    /// The refusal for a user credential the auth pipeline did not admit.
+    /// The refusal for a credential authentication did not admit: a user
+    /// JWT the auth pipeline refused, or a client-credentials call over its
+    /// client's budget.
     ///
     /// A spent budget keeps its retry window and is never an authentication
     /// failure: a client told its token is bad re-authenticates, and is
     /// refused again. A server-side failure while authenticating says nothing
     /// about the credential either. Mirrors `AppError::into_auth_refusal` on
     /// the REST routes.
-    fn user_auth_refusal(error: &AppError, request_id: Value) -> A2AResponse {
+    fn auth_refusal(error: &AppError, request_id: Value) -> A2AResponse {
         if error.code == ErrorCode::RateLimitExceeded {
             return Self::rate_limited_error(
                 error.sanitized_message(),

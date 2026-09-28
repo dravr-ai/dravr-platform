@@ -235,7 +235,7 @@ pub use conversation::{
 mod api_key;
 pub use api_key::{
     ApiKey, ApiKeyData, ApiKeyResponse, ApiKeyTier, ApiKeyUsage, ApiKeyUsageStats,
-    ApiKeyWindowUsage, CreateApiKeyRequest, CreateApiKeyRequestSimple,
+    CreateApiKeyRequest, CreateApiKeyRequestSimple,
 };
 
 // A2A protocol data types
@@ -256,7 +256,7 @@ pub use subscription::{Subscription, SubscriptionStatus};
 pub use usage::{
     ConversationTurnLlmCall, ConversationTurnSummary, InsertLlmUsage, JwtMonthlyUsage, JwtUsage,
     LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord, MonthlyLimitOverride, RequestLog,
-    ToolUsage, UsageCounterRecord, TURN_SUMMARY_CALL_TYPE,
+    ToolUsage, UsageCounterRecord, WindowUsage, TURN_SUMMARY_CALL_TYPE,
 };
 
 /// An agent package's training artefacts — flavour, skeleton, workouts — beside its prompt

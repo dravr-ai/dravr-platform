@@ -10,6 +10,7 @@
 mod common;
 
 use base64::{engine::general_purpose, Engine as _};
+use pierre_auth::config::OAuth2ServerConfig;
 use pierre_auth::{
     auth::AuthManager,
     oauth2_server::{
@@ -58,6 +59,7 @@ async fn setup_test_env() -> (
         auth_manager.clone(),
         jwks_manager,
         REFRESH_TOKEN_EXPIRY_DAYS,
+        OAuth2ServerConfig::default().mcp_resource_url,
     );
     let registration_manager = ClientRegistrationManager::new(repos.oauth2_server.clone());
     let registration_request = ClientRegistrationRequest {
@@ -143,6 +145,7 @@ async fn test_pkce_enforcement_no_code_challenge() {
         state: Some("test_state".to_owned()),
         code_challenge: None, // No PKCE
         code_challenge_method: None,
+        resource: None,
     };
 
     let result = oauth_server
@@ -178,6 +181,7 @@ async fn test_pkce_valid_s256_flow() {
         state: Some("test_state".to_owned()),
         code_challenge: Some(code_challenge),
         code_challenge_method: Some("S256".to_owned()),
+        resource: None,
     };
 
     let auth_response = oauth_server
@@ -196,6 +200,7 @@ async fn test_pkce_valid_s256_flow() {
         scope: None,
         refresh_token: None,
         code_verifier: Some(code_verifier),
+        resource: None,
     };
 
     let token_response = oauth_server.token(token_request).await;
@@ -223,6 +228,7 @@ async fn test_pkce_invalid_code_verifier() {
         state: Some("test_state".to_owned()),
         code_challenge: Some(code_challenge),
         code_challenge_method: Some("S256".to_owned()),
+        resource: None,
     };
 
     let auth_response = oauth_server
@@ -241,6 +247,7 @@ async fn test_pkce_invalid_code_verifier() {
         scope: None,
         refresh_token: None,
         code_verifier: Some(wrong_verifier),
+        resource: None,
     };
 
     let result = oauth_server.token(token_request).await;
@@ -270,6 +277,7 @@ async fn test_pkce_code_verifier_with_invalid_characters() {
         state: Some("test_state".to_owned()),
         code_challenge: Some(code_challenge),
         code_challenge_method: Some("S256".to_owned()),
+        resource: None,
     };
 
     let auth_response = oauth_server
@@ -288,6 +296,7 @@ async fn test_pkce_code_verifier_with_invalid_characters() {
         scope: None,
         refresh_token: None,
         code_verifier: Some(malformed_verifier),
+        resource: None,
     };
 
     let error = oauth_server.token(token_request).await.unwrap_err();
@@ -321,6 +330,7 @@ async fn test_pkce_missing_code_verifier() {
         state: Some("test_state".to_owned()),
         code_challenge: Some(code_challenge),
         code_challenge_method: Some("S256".to_owned()),
+        resource: None,
     };
 
     let auth_response = oauth_server
@@ -338,6 +348,7 @@ async fn test_pkce_missing_code_verifier() {
         scope: None,
         refresh_token: None,
         code_verifier: None, // Missing verifier
+        resource: None,
     };
 
     let result = oauth_server.token(token_request).await;
@@ -368,6 +379,7 @@ async fn test_auth_code_replay_prevention() {
         state: Some("test_state".to_owned()),
         code_challenge: Some(code_challenge),
         code_challenge_method: Some("S256".to_owned()),
+        resource: None,
     };
 
     let auth_response = oauth_server
@@ -385,6 +397,7 @@ async fn test_auth_code_replay_prevention() {
         scope: None,
         refresh_token: None,
         code_verifier: Some(code_verifier.clone()),
+        resource: None,
     };
 
     let first_result = oauth_server.token(token_request).await;
@@ -400,6 +413,7 @@ async fn test_auth_code_replay_prevention() {
         scope: None,
         refresh_token: None,
         code_verifier: Some(code_verifier),
+        resource: None,
     };
 
     let result = oauth_server.token(replay_request).await;
@@ -449,6 +463,7 @@ async fn test_auth_code_client_binding() {
         state: Some("test_state".to_owned()),
         code_challenge: Some(code_challenge),
         code_challenge_method: Some("S256".to_owned()),
+        resource: None,
     };
 
     let auth_response = oauth_server
@@ -466,6 +481,7 @@ async fn test_auth_code_client_binding() {
         scope: None,
         refresh_token: None,
         code_verifier: Some(code_verifier),
+        resource: None,
     };
 
     let result = oauth_server.token(token_request).await;
@@ -499,6 +515,7 @@ async fn test_redirect_uri_exact_match() {
         state: Some("test_state".to_owned()),
         code_challenge: Some(code_challenge),
         code_challenge_method: Some("S256".to_owned()),
+        resource: None,
     };
 
     let auth_response = oauth_server
@@ -516,6 +533,7 @@ async fn test_redirect_uri_exact_match() {
         scope: None,
         refresh_token: None,
         code_verifier: Some(code_verifier),
+        resource: None,
     };
 
     let result = oauth_server.token(token_request).await;
@@ -549,6 +567,7 @@ async fn test_refresh_token_rotation() {
         state: Some("test_state".to_owned()),
         code_challenge: Some(code_challenge),
         code_challenge_method: Some("S256".to_owned()),
+        resource: None,
     };
 
     let auth_response = oauth_server
@@ -566,6 +585,7 @@ async fn test_refresh_token_rotation() {
         scope: None,
         refresh_token: None,
         code_verifier: Some(code_verifier),
+        resource: None,
     };
 
     let token_response = oauth_server.token(token_request).await.unwrap();
@@ -592,6 +612,7 @@ async fn test_refresh_token_rotation() {
         scope: None,
         refresh_token: Some(old_refresh_token.clone()),
         code_verifier: None,
+        resource: None,
     };
 
     let refresh_response = oauth_server.token(refresh_request).await.unwrap();
@@ -613,6 +634,7 @@ async fn test_refresh_token_rotation() {
         scope: None,
         refresh_token: Some(old_refresh_token),
         code_verifier: None,
+        resource: None,
     };
 
     let result = oauth_server.token(replay_refresh_request).await;
@@ -631,6 +653,7 @@ async fn test_refresh_token_rotation() {
         scope: None,
         refresh_token: Some(successor),
         code_verifier: None,
+        resource: None,
     };
     let error = oauth_server.token(successor_request).await.unwrap_err();
     assert_eq!(error.error, "invalid_grant");

@@ -120,31 +120,49 @@ export interface A2AClientCredentials {
   api_key: string;
 }
 
-/** Rate limit status for A2A client */
+/**
+ * An A2A client's request budget, as `GET /a2a/clients/{id}/rate-limit`
+ * serves it: `rate_limit_requests` calls per sliding
+ * `rate_limit_window_seconds`, the budget its client-credentials calls spend
+ * and are refused on.
+ */
 export interface A2ARateLimitStatus {
+  client_id: string;
+  /** The window has admitted its limit, so the next call is refused */
   is_rate_limited: boolean;
-  limit?: number;
-  remaining?: number;
-  reset_at?: string;
-  tier: string;
+  /** Calls the window admits */
+  rate_limit_requests: number;
+  /** Length of the sliding window, in seconds */
+  rate_limit_window_seconds: number;
+  /** Calls counted inside the window */
+  current_usage: number;
+  /** Calls the window still admits */
+  remaining: number;
+  /** When the window frees its first slot (RFC 3339) */
+  reset_at: string;
 }
 
-/** Usage statistics for an A2A client */
+/** One UTC calendar day of an A2A client's calls */
+export interface A2ADailyUsage {
+  /** The UTC calendar day (YYYY-MM-DD) */
+  date: string;
+  /** Calls answered below 400 */
+  success_count: number;
+  /** Calls answered 400 or above */
+  error_count: number;
+}
+
+/** Usage statistics for an A2A client, counted over its calls */
 export interface A2AUsageStats {
   client_id: string;
+  /** Calls since the start of the UTC day */
   requests_today: number;
+  /** Calls since the start of the UTC month */
   requests_this_month: number;
+  /** Every call the client has made */
   total_requests: number;
-  last_request_at?: string;
-  rate_limit_tier: string;
-  tool_usage_breakdown: Array<{
-    tool_name: string;
-    usage_count: number;
-    percentage: number;
-  }>;
-  capability_usage: Array<{
-    capability: string;
-    usage_count: number;
-    percentage: number;
-  }>;
+  /** The most recent call (RFC 3339), null before the first */
+  last_request_at: string | null;
+  /** One row per UTC day of the last thirty that saw a call, newest first */
+  daily_usage: A2ADailyUsage[];
 }

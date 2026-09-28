@@ -375,30 +375,6 @@ macro_rules! impl_a2a_repository {
                     .ok_or_else(|| AppError::not_found(format!("A2A client: {client_id}")))
             }
 
-            async fn get_client_credentials(
-                &self,
-                client_id: &str,
-            ) -> AppResult<Option<(String, String)>> {
-                let row = sqlx::query(CLIENT_CREDENTIALS_SQL)
-                    .bind(client_id)
-                    .fetch_optional(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to query A2A client credentials: {e}"))
-                    })?;
-                row.as_ref()
-                    .map(|r| -> AppResult<(String, String)> {
-                        let id: String = r
-                            .try_get("client_id")
-                            .map_err(|e| a2a_column_error("client_id", &e))?;
-                        let secret: String = r
-                            .try_get("client_secret_hash")
-                            .map_err(|e| a2a_column_error("client_secret_hash", &e))?;
-                        Ok((id, secret))
-                    })
-                    .transpose()
-            }
-
             async fn invalidate_client_sessions(&self, client_id: &str) -> AppResult<()> {
                 sqlx::query(INVALIDATE_CLIENT_SESSIONS_SQL)
                     .bind(Utc::now() - Duration::hours(1))
@@ -688,22 +664,32 @@ macro_rules! impl_a2a_repository {
                 Ok(())
             }
 
-            async fn get_client_current_usage(&self, client_id: &str) -> AppResult<u32> {
-                // The window is the client's own rate_limit_window_seconds.
-                let client = A2ARepository::get_client(self, client_id)
-                    .await?
-                    .ok_or_else(|| AppError::not_found(format!("A2A client: {client_id}")))?;
-                let window_start =
-                    Utc::now() - Duration::seconds(i64::from(client.rate_limit_window_seconds));
-                let count: i64 = sqlx::query_scalar(CLIENT_USAGE_SINCE_SQL)
+            async fn get_client_window_usage(
+                &self,
+                client_id: &str,
+                window_start: DateTime<Utc>,
+            ) -> AppResult<WindowUsage> {
+                // A system-level lookup with no user scoping: the rate
+                // limiter has only the client in hand, and a client id is
+                // the credential's own subject.
+                let row = sqlx::query(CLIENT_WINDOW_USAGE_SQL)
                     .bind(client_id)
                     .bind(window_start)
                     .fetch_one(self.pool())
                     .await
                     .map_err(|e| {
-                        AppError::database(format!("Failed to query A2A client usage count: {e}"))
+                        AppError::database(format!("Failed to query A2A client window usage: {e}"))
                     })?;
-                u32_from_count(count, "current_usage")
+                let count: i64 = row
+                    .try_get("count")
+                    .map_err(|e| a2a_column_error("count", &e))?;
+                let oldest: Option<DateTime<Utc>> = row
+                    .try_get("oldest")
+                    .map_err(|e| a2a_column_error("oldest", &e))?;
+                Ok(WindowUsage {
+                    count: u32_from_count(count, "count")?,
+                    oldest,
+                })
             }
 
             async fn get_usage_stats(
@@ -731,6 +717,9 @@ macro_rules! impl_a2a_repository {
                 let avg_response_time: Option<f64> = row
                     .try_get("avg_response_time")
                     .map_err(|e| a2a_column_error("avg_response_time", &e))?;
+                let last_request_at: Option<DateTime<Utc>> = row
+                    .try_get("last_request_at")
+                    .map_err(|e| a2a_column_error("last_request_at", &e))?;
                 Ok(A2AUsageStats {
                     client_id: client_id.to_owned(),
                     period_start: start_date,
@@ -741,17 +730,18 @@ macro_rules! impl_a2a_repository {
                     avg_response_time_ms: avg_response_time.map(average_millis),
                     total_request_bytes: sum("total_request_bytes")?,
                     total_response_bytes: sum("total_response_bytes")?,
+                    last_request_at,
                 })
             }
 
             async fn get_client_usage_history(
                 &self,
                 client_id: &str,
-                days: u32,
+                since: DateTime<Utc>,
             ) -> AppResult<Vec<(DateTime<Utc>, u32, u32)>> {
                 let rows = sqlx::query(usage_history_sql!($day))
                     .bind(client_id)
-                    .bind(Utc::now() - Duration::days(i64::from(days)))
+                    .bind(since)
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {

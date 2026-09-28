@@ -89,6 +89,8 @@ pub mod oauth;
 pub mod oauth_client_state;
 /// Shared statements and body for password-reset tokens: issue, consume once under a lockout, invalidate, rate-limit.
 pub mod password_reset_tokens;
+/// Repository trait for the persona-held notifications each digest returned.
+pub mod persona_digest_returns;
 /// Repository trait for an athlete's personal bests at the standard running distances.
 pub mod personal_bests;
 /// Repository trait for procedural coaching memory (playbooks + pending advice).
@@ -204,6 +206,7 @@ pub use messaging::*;
 pub use mobility::*;
 pub use notifications::*;
 pub use oauth::*;
+pub use persona_digest_returns::PersonaDigestReturnRepository;
 pub use personal_bests::{PersonalBest, PersonalBestRepository};
 pub use personal_bests::{PersonalBestSeed, PersonalBestSeedCandidate};
 pub use playbooks::*;

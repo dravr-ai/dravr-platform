@@ -18,9 +18,10 @@ interface GroupTranscriptSectionProps {
 /**
  * The room, as every member shares it.
  *
- * Entries arrive consent-filtered from the server: an unconsented member stays
- * on the roster while their words are withheld — the same rule the pipeline
- * applies before the coach reasons over the room.
+ * Entries arrive consent-gated from the server: an unconsented member stays on
+ * the roster while their words are withheld — the same rule the pipeline
+ * applies before the coach reasons over the room — and each withheld entry
+ * keeps its place as a placeholder naming no one.
  *
  * No card: this mounts inside `GroupInfoSheet`'s Room `CollapsibleSection`,
  * whose own header already reads "Room" — an inner heading repeating that
@@ -57,22 +58,34 @@ export function GroupTranscriptSection({ groupId }: GroupTranscriptSectionProps)
           {t('app.roomEmpty')}
         </Text>
       ) : (
-        transcript.entries.map((entry) => (
-          <View key={entry.id} style={{ marginBottom: 10 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <Text className="text-xs font-semibold" style={{ color: colors.text.secondary }}>
-                {entry.author_display_name ?? entry.author_user_id}
-                {entry.speaker === 'coach' ? ' · agent' : ''}
-              </Text>
-              <Text className="text-xs font-mono tabular-nums" style={{ color: colors.text.tertiary }}>
-                {new Date(entry.created_at).toLocaleDateString()}
+        transcript.entries.map((entry) =>
+          entry.withheld ? (
+            // A withheld entry keeps its place, naming no one — never a gap.
+            <Text
+              key={entry.id}
+              testID="room-entry-withheld"
+              className="text-xs italic"
+              style={{ color: colors.text.tertiary, marginBottom: 10 }}
+            >
+              {t(entry.speaker === 'coach' ? 'chat.roomReplyHidden' : 'chat.roomEntryHidden')}
+            </Text>
+          ) : (
+            <View key={entry.id} style={{ marginBottom: 10 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text className="text-xs font-semibold" style={{ color: colors.text.secondary }}>
+                  {entry.author_display_name ?? entry.author_user_id}
+                  {entry.speaker === 'coach' ? ' · agent' : ''}
+                </Text>
+                <Text className="text-xs font-mono tabular-nums" style={{ color: colors.text.tertiary }}>
+                  {new Date(entry.created_at).toLocaleDateString()}
+                </Text>
+              </View>
+              <Text className="text-sm" style={{ color: colors.text.primary, marginTop: 2 }}>
+                {entry.content}
               </Text>
             </View>
-            <Text className="text-sm" style={{ color: colors.text.primary, marginTop: 2 }}>
-              {entry.content}
-            </Text>
-          </View>
-        ))
+          ),
+        )
       )}
     </View>
   );

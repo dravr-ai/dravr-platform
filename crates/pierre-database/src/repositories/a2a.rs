@@ -10,6 +10,7 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::a2a::{
     A2AClient, A2APushNotificationConfig, A2ASession, A2ATask, A2AUsage, A2AUsageStats, TaskStatus,
 };
+use pierre_core::models::WindowUsage;
 
 use serde_json::Value;
 use uuid::Uuid;
@@ -32,8 +33,6 @@ pub trait A2ARepository: Send + Sync {
     async fn list_clients(&self, user_id: &Uuid) -> AppResult<Vec<A2AClient>>;
     /// Deactivate an A2A client
     async fn deactivate_client(&self, client_id: &str) -> AppResult<()>;
-    /// Get client credentials for authentication
-    async fn get_client_credentials(&self, client_id: &str) -> AppResult<Option<(String, String)>>;
     /// Invalidate all active sessions for a client
     async fn invalidate_client_sessions(&self, client_id: &str) -> AppResult<()>;
     /// Deactivate all API keys associated with a client
@@ -105,8 +104,13 @@ pub trait A2ARepository: Send + Sync {
     async fn delete_push_config(&self, task_id: &str, config_id: &str) -> AppResult<bool>;
     /// Record A2A usage for analytics
     async fn record_usage(&self, usage: &A2AUsage) -> AppResult<()>;
-    /// Get current A2A usage count for a client
-    async fn get_client_current_usage(&self, client_id: &str) -> AppResult<u32>;
+    /// A client's calls after `window_start` and the earliest of them: its
+    /// usage inside its own sliding rate-limit window
+    async fn get_client_window_usage(
+        &self,
+        client_id: &str,
+        window_start: DateTime<Utc>,
+    ) -> AppResult<WindowUsage>;
     /// Get A2A usage statistics for a client
     async fn get_usage_stats(
         &self,
@@ -114,11 +118,13 @@ pub trait A2ARepository: Send + Sync {
         start_date: DateTime<Utc>,
         end_date: DateTime<Utc>,
     ) -> AppResult<A2AUsageStats>;
-    /// Get A2A client usage history
+    /// A client's daily success and error counts for calls at or after
+    /// `since`, one row per UTC calendar day that saw a call, newest first;
+    /// each day is reported at its midnight
     async fn get_client_usage_history(
         &self,
         client_id: &str,
-        days: u32,
+        since: DateTime<Utc>,
     ) -> AppResult<Vec<(DateTime<Utc>, u32, u32)>>;
 }
 
@@ -202,10 +208,6 @@ pub(crate) const LIST_USER_CLIENTS_SQL: &str = concat!(
 /// Retire a client; the caller checks that a row changed.
 pub(crate) const DEACTIVATE_CLIENT_SQL: &str =
     "UPDATE a2a_clients SET is_active = FALSE, updated_at = $1 WHERE client_id = $2";
-
-/// The id and secret digest an active client authenticates against.
-pub(crate) const CLIENT_CREDENTIALS_SQL: &str =
-    "SELECT client_id, client_secret_hash FROM a2a_clients WHERE client_id = $1 AND is_active = TRUE";
 
 /// End every session of a client by moving its expiry into the past.
 pub(crate) const INVALIDATE_CLIENT_SESSIONS_SQL: &str =
@@ -353,13 +355,16 @@ macro_rules! record_usage_sql {
 }
 pub(crate) use record_usage_sql;
 
-/// A client's requests since `$2`: its current usage against its own
-/// rate-limit window.
-pub(crate) const CLIENT_USAGE_SINCE_SQL: &str =
-    "SELECT COUNT(*) FROM a2a_usage WHERE client_id = $1 AND timestamp > $2";
+/// A client's calls after `$2` and the earliest of them: its usage inside its
+/// own sliding rate-limit window, and the instant the window's first slot
+/// frees. One statement, so both describe the same rows.
+pub(crate) const CLIENT_WINDOW_USAGE_SQL: &str = "SELECT COUNT(*) AS count, \
+            MIN(timestamp) AS oldest \
+     FROM a2a_usage WHERE client_id = $1 AND timestamp > $2";
 
-/// Usage totals over a window. `successful` and `failed` partition every
-/// request on the 400 boundary, so the two sum to `total`. The average is
+/// Usage totals over a window, and the window's latest request. `successful`
+/// and `failed` partition every request on the 400 boundary, so the two sum
+/// to `total`. The average is
 /// cast to a double on both engines: Postgres averages an integer column as
 /// `NUMERIC`, which sqlx will not decode as `f64`.
 pub(crate) const USAGE_STATS_SQL: &str = r"
@@ -369,7 +374,8 @@ pub(crate) const USAGE_STATS_SQL: &str = r"
                 COUNT(CASE WHEN status_code >= 400 THEN 1 END) AS failed_requests,
                 CAST(AVG(response_time_ms) AS DOUBLE PRECISION) AS avg_response_time,
                 SUM(request_size_bytes) AS total_request_bytes,
-                SUM(response_size_bytes) AS total_response_bytes
+                SUM(response_size_bytes) AS total_response_bytes,
+                MAX(timestamp) AS last_request_at
             FROM a2a_usage
             WHERE client_id = $1 AND timestamp >= $2 AND timestamp <= $3
             ";

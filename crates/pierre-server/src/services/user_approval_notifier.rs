@@ -16,7 +16,6 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use pierre_contremaitre::messaging_strings::{MessagingStringsRegistry, KEY_REGISTRATION_APPROVED};
-use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
 use pierre_services::messaging_broadcast::send_to_linked_channels;
@@ -65,14 +64,13 @@ impl ApprovalNotifier {
     ///
     /// Rendered per link locale through the shared proactive path — the same
     /// one the notification messaging sink uses, so "which channels has this
-    /// user linked, and how do we reach them" is resolved in one place.
-    async fn send_channel_messages(&self, user_id: Uuid, tenant_id: TenantId) {
-        send_to_linked_channels(
-            self.repos.messaging.as_ref(),
-            tenant_id,
-            user_id,
-            |locale| self.strings.render(KEY_REGISTRATION_APPROVED, locale, &[]),
-        )
+    /// user linked, and how do we reach them" is resolved in one place. That
+    /// path reads the user's links across every tenant that stores one, each
+    /// link once, so a single call reaches every chat without sending twice.
+    async fn send_channel_messages(&self, user_id: Uuid) {
+        send_to_linked_channels(self.repos.messaging.as_ref(), user_id, |locale| {
+            self.strings.render(KEY_REGISTRATION_APPROVED, locale, &[])
+        })
         .await;
     }
 }
@@ -81,19 +79,7 @@ impl ApprovalNotifier {
 impl UserApprovalNotifier for ApprovalNotifier {
     async fn notify_user_approved(&self, user_id: Uuid, email: &str, display_name: Option<&str>) {
         self.send_email(email, display_name).await;
-
-        // Resolve the user's tenant(s); channel links are tenant-scoped, so we
-        // sweep every tenant the user belongs to (almost always one personal
-        // tenant).
-        let tenants = self
-            .repos
-            .tenants
-            .list_for_user(user_id)
-            .await
-            .unwrap_or_default();
-        for tenant in tenants {
-            self.send_channel_messages(user_id, tenant.id).await;
-        }
+        self.send_channel_messages(user_id).await;
     }
 
     async fn notify_user_invited(&self, email: &str) {

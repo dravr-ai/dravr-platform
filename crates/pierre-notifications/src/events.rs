@@ -19,7 +19,7 @@
 //! sentence. It mirrors `pierre_memory::PredicateCode`: a closed code with a
 //! `catalogue_key`, rendered by one renderer above this crate.
 
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 
 use uuid::Uuid;
 
@@ -74,6 +74,14 @@ pub enum NotificationEvent {
     DelegationOffCoachRoster,
     /// The weekly digest of the pushes a persona floor withheld.
     PersonaDigest,
+    /// The daily digest of the pushes a persona floor withheld.
+    PersonaDailyDigest,
+    /// The digest of the pushes a persona floor withheld since the athlete's
+    /// previous training session, sent when their next one lands.
+    PersonaSessionDigest,
+    /// The digest of the pushes a persona floor withheld about one athlete,
+    /// sent to the coach they concern — one per athlete.
+    PersonaAthleteDigest,
     /// A coaching group's weekly roll-up, sent to the members who manage it.
     ///
     /// Its body is the summary line [`Self::body_params`] fills, followed by
@@ -102,6 +110,9 @@ impl NotificationEvent {
             Self::DelegationOffRoster => "delegation_off_roster",
             Self::DelegationOffCoachRoster => "delegation_off_coach_roster",
             Self::PersonaDigest => "persona_digest",
+            Self::PersonaDailyDigest => "persona_daily_digest",
+            Self::PersonaSessionDigest => "persona_session_digest",
+            Self::PersonaAthleteDigest => "persona_athlete_digest",
             Self::GroupWeeklyDigest => "group_weekly_digest",
         }
     }
@@ -126,6 +137,9 @@ impl NotificationEvent {
             Self::DelegationOffRoster,
             Self::DelegationOffCoachRoster,
             Self::PersonaDigest,
+            Self::PersonaDailyDigest,
+            Self::PersonaSessionDigest,
+            Self::PersonaAthleteDigest,
             Self::GroupWeeklyDigest,
         ]
         .into_iter()
@@ -153,6 +167,9 @@ impl NotificationEvent {
                 "notifications.event.delegation_off_coach_roster.title"
             }
             Self::PersonaDigest => "notifications.digest.title",
+            Self::PersonaDailyDigest => "notifications.digest.daily.title",
+            Self::PersonaSessionDigest => "notifications.digest.session.title",
+            Self::PersonaAthleteDigest => "notifications.digest.athlete.title",
             Self::GroupWeeklyDigest => "notifications.group_digest.title",
         }
     }
@@ -178,6 +195,9 @@ impl NotificationEvent {
                 "notifications.event.delegation_off_coach_roster.body"
             }
             Self::PersonaDigest => "notifications.digest.body",
+            Self::PersonaDailyDigest => "notifications.digest.daily.body",
+            Self::PersonaSessionDigest => "notifications.digest.session.body",
+            Self::PersonaAthleteDigest => "notifications.digest.athlete.body",
             Self::GroupWeeklyDigest => "notifications.group_digest.summary",
         }
     }
@@ -188,6 +208,7 @@ impl NotificationEvent {
         match self {
             Self::SyncFailure | Self::SeatReleaseWarning => &["provider_name"],
             Self::GroupWeeklyDigest => &["group_name"],
+            Self::PersonaAthleteDigest => &["athlete_name"],
             _ => &[],
         }
     }
@@ -210,7 +231,10 @@ impl NotificationEvent {
             Self::DelegationConfirmed | Self::DelegationDeclined | Self::DelegationOffRoster => {
                 &["member_name", "group_name"]
             }
-            Self::PersonaDigest => &["item_count"],
+            Self::PersonaDigest | Self::PersonaDailyDigest | Self::PersonaSessionDigest => {
+                &["item_count"]
+            }
+            Self::PersonaAthleteDigest => &["item_count", "athlete_name"],
             Self::GroupWeeklyDigest => &["active_members", "total_members", "avg_volume_km"],
         }
     }
@@ -289,6 +313,47 @@ pub fn event_data(route: Value, params: Value) -> Value {
 #[must_use]
 pub fn event_params(data: Option<&Value>) -> Option<&Map<String, Value>> {
     data?.get(PARAMS_DATA_KEY)?.as_object()
+}
+
+/// Key under a notification's `data` object naming the athlete the
+/// notification concerns when that athlete is not its recipient.
+///
+/// A coach told about one member of their group gets a row carrying it; a
+/// row without it concerns its own recipient.
+///
+/// The `per_athlete` persona digest rolls the withheld notifications it
+/// returns up on this key, one digest per athlete.
+pub const SUBJECT_ATHLETE_DATA_KEY: &str = "subject_athlete";
+
+/// The athlete a notification concerns, when that is not its recipient.
+///
+/// Stored under [`SUBJECT_ATHLETE_DATA_KEY`] with the name the notification
+/// used, so a digest naming the athlete reads what the notifications it rolls
+/// up read, without another lookup of someone else's account.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubjectAthlete {
+    /// The athlete's user id.
+    pub id: Uuid,
+    /// The athlete's name as the notification gave it.
+    pub name: String,
+}
+
+impl SubjectAthlete {
+    /// The value stored under [`SUBJECT_ATHLETE_DATA_KEY`].
+    #[must_use]
+    pub fn to_value(&self) -> Value {
+        json!({ "id": self.id.to_string(), "name": self.name })
+    }
+
+    /// The athlete a stored notification's `data` names, or `None` when the
+    /// notification concerns its own recipient.
+    #[must_use]
+    pub fn from_data(data: Option<&Value>) -> Option<Self> {
+        let subject = data?.get(SUBJECT_ATHLETE_DATA_KEY)?;
+        let id = subject.get("id")?.as_str()?.parse().ok()?;
+        let name = subject.get("name")?.as_str()?.to_owned();
+        Some(Self { id, name })
+    }
 }
 
 /// A product event, ready to dispatch.

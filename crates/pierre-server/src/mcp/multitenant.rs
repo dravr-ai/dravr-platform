@@ -46,7 +46,7 @@ use pierre_llm::health::{LlmHealthSnapshot, LlmHealthState, LlmHealthStatus};
 use pierre_middleware::telemetry_middleware;
 use pierre_middleware::{
     redaction_middleware, request_budget_middleware, request_id_middleware,
-    response_failure_log_middleware, setup_cors, RedactedRequestLine,
+    response_failure_log_middleware, setup_cors, RedactedRequestLine, UsageLedgers,
 };
 #[cfg(feature = "client-admin-api")]
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
@@ -221,13 +221,14 @@ impl ProviderToolRouter {
     pub fn build_http_app(resources: &Arc<ServerContext>) -> Router {
         // Every route group and CSRF, wrapped by the request-budget layer: it
         // opens the slot authentication reports into, renders the caller's
-        // budget as `X-RateLimit-*`, and writes the admitted API key's usage
-        // row with the response's status. It sits inside the telemetry, trace,
-        // failure-log, redaction, request-id, CORS, panic and compression
-        // layers, so CORS exposes what it sets, compression sees the finished
-        // headers, and a panic is recorded before the panic layer answers it.
+        // budget as `X-RateLimit-*`, and writes the admitted API key's or A2A
+        // client's usage row with the response's status. It sits inside the
+        // telemetry, trace, failure-log, redaction, request-id, CORS, panic
+        // and compression layers, so CORS exposes what it sets, compression
+        // sees the finished headers, and a panic is recorded before the panic
+        // layer answers it.
         let app = Self::setup_axum_router(resources).layer(middleware::from_fn_with_state(
-            Arc::clone(&resources.common.repos.usage),
+            UsageLedgers::from_registry(&resources.common.repos),
             request_budget_middleware,
         ));
 

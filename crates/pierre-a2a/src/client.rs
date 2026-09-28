@@ -14,27 +14,28 @@
 //! that connect to Pierre for agent-to-agent communication.
 
 pub use crate::client_types::{
-    A2AClientTier, A2ARateLimitStatus, A2AUsageParams, ClientCredentials,
-    ClientRegistrationRequest, ClientUsageStats,
+    A2ARateLimitStatus, ClientCredentials, ClientRegistrationRequest, ClientUsageStats, DailyUsage,
 };
 use crate::constants::rate_limits::DEFAULT_BURST_LIMIT;
-use crate::constants::tiers;
 use crate::constants::time::HOUR_SECONDS;
 use crate::system_user::A2ASystemUserService;
 use crate::{map_db_error, A2AError};
-use chrono::Timelike;
-use chrono::Utc;
+use chrono::{DateTime, Datelike, Days, NaiveTime, Utc};
 use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_auth::crypto::A2AKeyManager;
+use pierre_auth::rate_limiting::a2a_client_window_start;
 pub use pierre_core::models::a2a::{A2AClient, A2ASession, A2AUsage};
 // Trait methods are dispatched through repos.a2a / repos.api_keys Arc<dyn Trait>;
-use pierre_database::repositories::analytics::next_utc_month_start;
 use pierre_database::AuthRepos;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 use uuid::Uuid;
+
+/// The calendar days, today included, a client's daily usage breakdown
+/// covers.
+pub const USAGE_HISTORY_DAYS: u32 = 30;
 
 /// A2A Client Manager
 pub struct A2AClientManager {
@@ -311,68 +312,84 @@ impl A2AClientManager {
         Ok(())
     }
 
-    /// Get client usage statistics
+    /// A registered client's calls as its owner reads them, counted over its
+    /// `a2a_usage` rows: since the start of the UTC day, since the start of
+    /// the UTC month, every call it has made, the latest call, and one
+    /// success/error row per UTC day that saw a call over the last
+    /// [`USAGE_HISTORY_DAYS`] calendar days, today included, newest first.
     ///
     /// # Errors
     ///
-    /// Returns an error if database queries fail
-    ///
-    /// # Panics
-    ///
-    /// Panics if time manipulation operations fail (should not happen in practice)
+    /// Returns an error if the client is not registered or a database query
+    /// fails
     pub async fn get_client_usage(&self, client_id: &str) -> Result<ClientUsageStats, A2AError> {
-        // Get current month usage
-        let requests_this_month = u64::from(
-            self.repos
-                .a2a
-                .get_client_current_usage(client_id)
-                .await
-                .map_err(map_db_error("Failed to get current usage"))?,
-        );
+        let client = self
+            .get_client(client_id)
+            .await?
+            .ok_or_else(|| A2AError::ClientNotRegistered(client_id.to_owned()))?;
+        self.client_usage_at(&client.id, Utc::now()).await
+    }
 
-        // Get today's usage
-        let start_of_day = chrono::Utc::now()
-            .with_hour(0)
-            .ok_or_else(|| A2AError::InternalError("Failed to set hour to 0".to_owned()))?
-            .with_minute(0)
-            .ok_or_else(|| A2AError::InternalError("Failed to set minute to 0".to_owned()))?
-            .with_second(0)
-            .ok_or_else(|| A2AError::InternalError("Failed to set second to 0".to_owned()))?;
-        let end_of_day = chrono::Utc::now();
+    /// `client_id`'s usage with every window cut from `now`, so today always
+    /// lies inside this month, even when the month turns mid-read.
+    async fn client_usage_at(
+        &self,
+        client_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<ClientUsageStats, A2AError> {
+        let today = now.date_naive();
+        let start_of_day = today.and_time(NaiveTime::MIN).and_utc();
+        let start_of_month = today
+            .with_day(1)
+            .ok_or_else(|| A2AError::InternalError("Every month has a first day".to_owned()))?
+            .and_time(NaiveTime::MIN)
+            .and_utc();
 
         let today_stats = self
             .repos
             .a2a
-            .get_usage_stats(client_id, start_of_day, end_of_day)
+            .get_usage_stats(client_id, start_of_day, now)
             .await
-            .map_err(|e| A2AError::InternalError(format!("Failed to get today's stats: {e}")))?;
-
-        // Get last request from recent usage history
-        let recent_usage = self
+            .map_err(map_db_error("Failed to get today's usage"))?;
+        let month_stats = self
             .repos
             .a2a
-            .get_client_usage_history(client_id, 1)
+            .get_usage_stats(client_id, start_of_month, now)
             .await
-            .map_err(|e| A2AError::InternalError(format!("Failed to get recent usage: {e}")))?;
-
-        let last_request_at = recent_usage.first().map(|usage| usage.0);
-
-        // Get total requests (use a long period to approximate total)
-        let total_start = chrono::Utc::now() - chrono::Duration::days(365);
-        let total_stats = self
+            .map_err(map_db_error("Failed to get this month's usage"))?;
+        let lifetime_stats = self
             .repos
             .a2a
-            .get_usage_stats(client_id, total_start, chrono::Utc::now())
+            .get_usage_stats(client_id, DateTime::UNIX_EPOCH, now)
             .await
-            .map_err(|e| A2AError::InternalError(format!("Failed to get total stats: {e}")))?;
+            .map_err(map_db_error("Failed to get the client's total usage"))?;
+
+        let first_day = today
+            .checked_sub_days(Days::new(u64::from(USAGE_HISTORY_DAYS.saturating_sub(1))))
+            .ok_or_else(|| {
+                A2AError::InternalError("Daily usage window precedes the calendar".to_owned())
+            })?;
+        let history = self
+            .repos
+            .a2a
+            .get_client_usage_history(client_id, first_day.and_time(NaiveTime::MIN).and_utc())
+            .await
+            .map_err(map_db_error("Failed to get the client's daily usage"))?;
 
         Ok(ClientUsageStats {
             client_id: client_id.to_owned(),
             requests_today: u64::from(today_stats.total_requests),
-            requests_this_month,
-            total_requests: u64::from(total_stats.total_requests),
-            last_request_at,
-            rate_limit_tier: tiers::PROFESSIONAL.into(), // Default for A2A clients
+            requests_this_month: u64::from(month_stats.total_requests),
+            total_requests: u64::from(lifetime_stats.total_requests),
+            last_request_at: lifetime_stats.last_request_at,
+            daily_usage: history
+                .into_iter()
+                .map(|(day, success_count, error_count)| DailyUsage {
+                    date: day.date_naive(),
+                    success_count,
+                    error_count,
+                })
+                .collect(),
         })
     }
 
@@ -432,181 +449,31 @@ impl A2AClientManager {
         // This could trigger a cleanup job if needed
     }
 
-    /// Record API usage for a client
+    /// The request budget a client-credentials call from `client_id`
+    /// spends: its row's `rate_limit_requests` over a sliding
+    /// `rate_limit_window_seconds`, counted over its `a2a_usage` rows.
     ///
     /// # Errors
     ///
-    /// Returns an error if usage recording fails
-    pub async fn record_usage(
-        &self,
-        client_id: &str,
-        method: &str,
-        success: bool,
-    ) -> Result<(), A2AError> {
-        let params = A2AUsageParams {
-            client_id: client_id.to_owned(),
-            session_token: None,
-            tool_name: method.to_owned(),
-            response_time_ms: None,
-            status_code: if success { 200 } else { 500 },
-            error_message: None,
-            request_size_bytes: None,
-            response_size_bytes: None,
-            ip_address: None,
-            user_agent: None,
-            client_capabilities: vec![],
-            granted_scopes: vec![],
-        };
-        self.record_detailed_usage(params).await
-    }
-
-    /// Record detailed A2A usage for tracking and analytics
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if database storage fails
-    pub async fn record_detailed_usage(&self, params: A2AUsageParams) -> Result<(), A2AError> {
-        let usage = A2AUsage {
-            id: None,
-            client_id: params.client_id.clone(),
-            session_token: params.session_token,
-            timestamp: chrono::Utc::now(),
-            tool_name: params.tool_name.clone(),
-            response_time_ms: params.response_time_ms,
-            status_code: params.status_code,
-            error_message: params.error_message,
-            request_size_bytes: params.request_size_bytes,
-            response_size_bytes: params.response_size_bytes,
-            ip_address: params.ip_address,
-            user_agent: params.user_agent,
-            protocol_version: "1.0".into(),
-            client_capabilities: params.client_capabilities,
-            granted_scopes: params.granted_scopes,
-        };
-
-        self.repos
-            .a2a
-            .record_usage(&usage)
-            .await
-            .map_err(|e| A2AError::InternalError(format!("Failed to record A2A usage: {e}")))?;
-
-        debug!(
-            "A2A usage recorded - Client: {}, Tool: {}, Status: {}",
-            params.client_id, params.tool_name, params.status_code
-        );
-        Ok(())
-    }
-
-    /// Calculate rate limit status for a client
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if database queries fail
-    pub async fn calculate_rate_limit_status(
-        &self,
-        client_id: &str,
-        tier: A2AClientTier,
-    ) -> Result<A2ARateLimitStatus, A2AError> {
-        if tier == A2AClientTier::Enterprise {
-            Ok(A2ARateLimitStatus {
-                is_rate_limited: false,
-                limit: None,
-                remaining: None,
-                reset_at: None,
-                tier,
-            })
-        } else {
-            let current_usage = self
-                .repos
-                .a2a
-                .get_client_current_usage(client_id)
-                .await
-                .map_err(|e| {
-                    A2AError::InternalError(format!("Failed to get current usage: {e}"))
-                })?;
-
-            let limit = tier.monthly_limit().unwrap_or(0);
-            let remaining = limit.saturating_sub(current_usage);
-            let is_rate_limited = current_usage >= limit;
-
-            Ok(A2ARateLimitStatus {
-                is_rate_limited,
-                limit: Some(limit),
-                remaining: Some(remaining),
-                reset_at: Some(next_utc_month_start(Utc::now())),
-                tier,
-            })
-        }
-    }
-
-    /// Check if a client is rate limited
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if rate limit calculation fails
-    pub async fn is_client_rate_limited(
-        &self,
-        client_id: &str,
-        tier: A2AClientTier,
-    ) -> Result<bool, A2AError> {
-        let status = self.calculate_rate_limit_status(client_id, tier).await?;
-        Ok(status.is_rate_limited)
-    }
-
-    /// Get rate limit status for a client by ID
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if rate limit calculation fails
+    /// Returns an error if the client is not registered or a database query
+    /// fails
     pub async fn get_client_rate_limit_status(
         &self,
         client_id: &str,
     ) -> Result<A2ARateLimitStatus, A2AError> {
-        // Default to trial tier - tier information stored in database
-        let tier = A2AClientTier::Trial;
-        self.calculate_rate_limit_status(client_id, tier).await
-    }
-
-    /// Get client credentials for authentication
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if database query fails
-    pub async fn get_client_credentials(
-        &self,
-        client_id: &str,
-    ) -> Result<Option<ClientCredentials>, A2AError> {
-        // Fetch credentials from database
-        let creds = self
+        let client = self
+            .get_client(client_id)
+            .await?
+            .ok_or_else(|| A2AError::ClientNotRegistered(client_id.to_owned()))?;
+        let now = Utc::now();
+        let usage = self
             .repos
             .a2a
-            .get_client_credentials(client_id)
+            .get_client_window_usage(&client.id, a2a_client_window_start(&client, now))
             .await
-            .map_err(|e| A2AError::InternalError(format!("Database error: {e}")))?;
-
-        if let Some((id, secret)) = creds {
-            // Get the actual public key from the client record
-            let client = self.get_client(&id).await?;
-            let public_key = client.map_or_else(
-                || {
-                    warn!("Could not retrieve public key for client {id}");
-                    String::new()
-                },
-                |c| c.public_key,
-            );
-
-            let credentials = ClientCredentials {
-                client_id: id.clone(),
-                client_secret: secret,
-                api_key: format!("a2a_{client_id}"),
-                public_key,
-                private_key: String::new(), // Never expose private keys
-                key_type: "ed25519".into(),
-            };
-
-            Ok(Some(credentials))
-        } else {
-            Ok(None)
-        }
+            .map_err(map_db_error(
+                "Failed to read the client's rate-limit window",
+            ))?;
+        Ok(A2ARateLimitStatus::from_window(&client, &usage, now))
     }
 }

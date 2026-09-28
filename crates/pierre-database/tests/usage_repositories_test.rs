@@ -26,8 +26,8 @@ use chrono::{DateTime, Datelike, Duration, SubsecRound, Utc};
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::{
-    ApiKey, ApiKeyTier, ApiKeyUsage, ApiKeyWindowUsage, ConversationTurnId, JwtMonthlyUsage,
-    JwtUsage, MonthlyLimitOverride, TenantId, User,
+    ApiKey, ApiKeyTier, ApiKeyUsage, ConversationTurnId, JwtMonthlyUsage, JwtUsage,
+    MonthlyLimitOverride, TenantId, User, WindowUsage,
 };
 use pierre_database::database::test_utils::create_test_db;
 use pierre_database::repositories::UserRateLimitOverride;
@@ -213,7 +213,7 @@ async fn the_key_window_stats_and_top_tools_count_the_recorded_calls() {
         repo.get_api_key_window_usage(&api_key.id, window_start)
             .await
             .unwrap(),
-        ApiKeyWindowUsage {
+        WindowUsage {
             count: 3,
             oldest: Some(oldest_in_window),
         },
@@ -224,7 +224,7 @@ async fn the_key_window_stats_and_top_tools_count_the_recorded_calls() {
         repo.get_api_key_window_usage(&unused_key.id, window_start)
             .await
             .unwrap(),
-        ApiKeyWindowUsage {
+        WindowUsage {
             count: 0,
             oldest: None,
         },

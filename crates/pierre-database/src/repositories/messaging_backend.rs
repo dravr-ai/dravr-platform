@@ -256,6 +256,40 @@ macro_rules! impl_messaging_repository {
                 row.as_ref().map(channel_config_json).transpose()
             }
 
+            async fn resolve_channel_config(
+                &self,
+                tenant_id: TenantId,
+                channel_type: &str,
+            ) -> AppResult<Option<Value>> {
+                let row = sqlx::query(RESOLVE_CHANNEL_CONFIG_SQL)
+                    .bind(tenant_id.to_string())
+                    .bind(channel_type)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to resolve channel config: {e}"))
+                    })?;
+                row.as_ref().map(channel_config_json).transpose()
+            }
+
+            async fn mark_channel_config_platform_scope(
+                &self,
+                tenant_id: TenantId,
+                channel_type: &str,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(MARK_CHANNEL_CONFIG_PLATFORM_SCOPE_SQL)
+                    .bind(tenant_id.to_string())
+                    .bind(channel_type)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to mark channel config platform scope: {e}"
+                        ))
+                    })?;
+                Ok(result.rows_affected() > 0)
+            }
+
             async fn list_channel_configs(&self, tenant_id: TenantId) -> AppResult<Vec<Value>> {
                 let rows = sqlx::query(LIST_CHANNEL_CONFIGS_SQL)
                     .bind(tenant_id.to_string())
@@ -607,6 +641,17 @@ macro_rules! impl_messaging_repository {
                 row.as_ref()
                     .map(|r| $ids::read(r, "tenant_id").map(TenantId::from_uuid))
                     .transpose()
+            }
+
+            async fn list_channel_links_for_user(&self, user_id: &str) -> AppResult<Vec<Value>> {
+                let rows = sqlx::query(LIST_CHANNEL_LINKS_FOR_USER_SQL)
+                    .bind($ids::bind_text(user_id)?)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to list channel links for user: {e}"))
+                    })?;
+                rows.iter().map(user_channel_link_json).collect()
             }
 
             async fn list_user_channel_links(

@@ -1,5 +1,5 @@
-// ABOUTME: Tests for ChatTab's author label, its header info drawer, its url reply actions and create failures
-// ABOUTME: Covers the coach-titled bubble, the header-as-button contract, the trusted-domain gate and 429 wording
+// ABOUTME: Tests for ChatTab's author label, its header info drawer, its url reply actions, create failures and group room
+// ABOUTME: Covers the coach-titled bubble, the header-as-button contract, the trusted-domain gate, 429 wording and the room thread
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,7 +7,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { ClaimVerdict, CoachingGroup, ReplyBlock, TurnEnvelope } from '@pierre/shared-types';
+import type {
+  ClaimVerdict,
+  CoachingGroup,
+  GroupTranscriptEntry,
+  ReplyBlock,
+  TurnEnvelope,
+} from '@pierre/shared-types';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ChatTab from '../ChatTab';
 import { ToastProvider } from '../ui';
@@ -26,6 +32,7 @@ const getProvidersStatus = vi.fn();
 const applyNotice = vi.fn();
 const createConversation = vi.fn();
 const getGroup = vi.fn();
+const readRoom = vi.fn();
 
 vi.mock('../../services/api', () => ({
   chatApi: {
@@ -42,7 +49,10 @@ vi.mock('../../services/api', () => ({
   },
   coachesApi: { list: (...a: unknown[]) => listCoaches(...a) },
   providersApi: { getProvidersStatus: (...a: unknown[]) => getProvidersStatus(...a) },
-  groupsApi: { getGroup: (...a: unknown[]) => getGroup(...a) },
+  groupsApi: {
+    getGroup: (...a: unknown[]) => getGroup(...a),
+    readRoom: (...a: unknown[]) => readRoom(...a),
+  },
 }));
 
 vi.mock('../groups/GroupInfoPanel', () => ({
@@ -806,5 +816,207 @@ describe('ChatTab conversation create failures', () => {
       await screen.findByText('Something went wrong creating the conversation. Please try again.'),
     ).toBeInTheDocument();
     expect(screen.getByText('Could not start chat')).toBeInTheDocument();
+  });
+});
+
+describe('ChatTab group thread room', () => {
+  const GROUP_ID = 'group-7';
+
+  /** A room entry as the transcript route serialises it. */
+  function roomEntry(
+    overrides: Partial<GroupTranscriptEntry> & Pick<GroupTranscriptEntry, 'id' | 'created_at'>,
+  ): GroupTranscriptEntry {
+    return {
+      speaker: 'member',
+      withheld: false,
+      own: false,
+      author_user_id: 'user-bob',
+      author_display_name: 'Bob',
+      content: null,
+      message_id: null,
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getProvidersStatus.mockResolvedValue({ providers: [{ provider: 'strava', connected: true }] });
+    getConversationVerdicts.mockResolvedValue({ verdicts: [] });
+    listParticipants.mockResolvedValue([]);
+    listCoaches.mockResolvedValue({ agents: [{ id: COACH_ID, title: COACH_TITLE }] });
+    getGroup.mockResolvedValue(groupRecord());
+    getConversations.mockResolvedValue({
+      conversations: [
+        {
+          id: CONVERSATION_ID,
+          title: 'Sunday Riders',
+          agent_id: COACH_ID,
+          group_id: GROUP_ID,
+          group_name: 'Sunday Riders',
+        },
+      ],
+      total: 1,
+    });
+    getConversationMessages.mockResolvedValue({
+      messages: [
+        { id: 'm1', role: 'user', content: 'How was my long run?', created_at: '2026-09-14T10:00:00Z' },
+        {
+          id: 'm2',
+          role: 'assistant',
+          content: 'Your aerobic decoupling held under 5%.',
+          created_at: '2026-09-14T10:00:05Z',
+        },
+      ],
+    });
+  });
+
+  it('renders the room in the thread: another member\'s turn, the reply to them and a withheld placeholder', async () => {
+    readRoom.mockResolvedValue([
+      // The caller's own turn: the conversation's row draws it, once.
+      roomEntry({
+        id: 't1',
+        created_at: '2026-09-14T10:00:00.2Z',
+        own: true,
+        author_user_id: 'user-me',
+        author_display_name: 'Me',
+        content: 'How was my long run?',
+        message_id: 'm1',
+      }),
+      roomEntry({ id: 't2', created_at: '2026-09-14T11:00:00Z', content: 'Anyone for intervals on Saturday?' }),
+      roomEntry({
+        id: 't3',
+        created_at: '2026-09-14T11:00:04Z',
+        speaker: 'coach',
+        content: 'Keep Saturday easy, Bob.',
+        message_id: 'bob-reply',
+      }),
+      roomEntry({
+        id: 't4',
+        created_at: '2026-09-14T11:05:00Z',
+        withheld: true,
+        author_user_id: null,
+        author_display_name: null,
+      }),
+    ]);
+
+    renderChatTab();
+
+    const bobLine = await screen.findByTestId('room-entry-member');
+    expect(bobLine).toHaveTextContent('Anyone for intervals on Saturday?');
+    // Bob speaks under his own name, not as the caller.
+    expect(screen.getByRole('img', { name: 'Bob' })).toBeInTheDocument();
+    expect(screen.getByText(`${COACH_TITLE} · to Bob`)).toBeInTheDocument();
+    expect(screen.getByText('Keep Saturday easy, Bob.')).toBeInTheDocument();
+    expect(screen.getByTestId('room-entry-withheld')).toHaveTextContent(
+      "A member's message is hidden: sharing not enabled",
+    );
+    // The caller's own question is drawn once, from their conversation.
+    expect(screen.getAllByText('How was my long run?')).toHaveLength(1);
+    // The room is read back to the oldest row of the caller's own conversation.
+    expect(readRoom).toHaveBeenCalledWith(GROUP_ID, '2026-09-14T10:00:00Z');
+
+    // In time order: the caller's exchange, then Bob's, then the placeholder.
+    const rows = screen.getAllByTestId('message-row').map((row) => row.textContent ?? '');
+    expect(rows.findIndex((text) => text.includes('How was my long run?'))).toBeLessThan(
+      rows.findIndex((text) => text.includes('Anyone for intervals')),
+    );
+    expect(rows.findIndex((text) => text.includes('Keep Saturday easy'))).toBeLessThan(
+      rows.findIndex((text) => text.includes("A member's message is hidden")),
+    );
+  });
+
+  it('offers no rating or retry on a reply the coach gave another member', async () => {
+    readRoom.mockResolvedValue([
+      roomEntry({
+        id: 't3',
+        created_at: '2026-09-14T11:00:04Z',
+        speaker: 'coach',
+        content: 'Keep Saturday easy, Bob.',
+        message_id: 'bob-reply',
+      }),
+    ]);
+
+    renderChatTab();
+
+    const reply = await screen.findByText('Keep Saturday easy, Bob.');
+    const row = reply.closest('[data-testid="message-row"]') as HTMLElement;
+    expect(within(row).queryByTitle('Good response')).toBeNull();
+    expect(within(row).queryByTitle('Regenerate response')).toBeNull();
+    // The caller's own reply keeps its actions.
+    const ownReply = screen.getByText('Your aerobic decoupling held under 5%.');
+    const ownRow = ownReply.closest('[data-testid="message-row"]') as HTMLElement;
+    expect(within(ownRow).getByRole('group', { name: 'Message actions' })).toBeInTheDocument();
+  });
+
+  it('says so when the room cannot be read, and still shows the caller\'s own rows', async () => {
+    readRoom.mockRejectedValue(new Error('network down'));
+
+    renderChatTab();
+
+    expect(await screen.findByTestId('room-load-failed')).toHaveTextContent(
+      'The room transcript could not be loaded.',
+    );
+    expect(screen.getByText('How was my long run?')).toBeInTheDocument();
+  });
+
+  it('reads the room back to each thread\'s own history when one group holds two of the caller\'s threads', async () => {
+    const OLDER_ID = 'conv-older';
+    getConversations.mockResolvedValue({
+      conversations: [
+        { id: CONVERSATION_ID, title: 'Sunday Riders', agent_id: COACH_ID, group_id: GROUP_ID, group_name: 'Sunday Riders' },
+        { id: OLDER_ID, title: 'Sunday Riders', agent_id: COACH_ID, group_id: GROUP_ID, group_name: 'Sunday Riders' },
+      ],
+      total: 2,
+    });
+    getConversationMessages.mockImplementation((id: string) =>
+      Promise.resolve({
+        messages:
+          id === OLDER_ID
+            ? [{ id: 'o1', role: 'user', content: 'Last month question', created_at: '2026-08-01T09:00:00Z' }]
+            : [{ id: 'm1', role: 'user', content: 'How was my long run?', created_at: '2026-09-14T10:00:00Z' }],
+      }),
+    );
+    readRoom.mockImplementation((_group: string, since: string | null) =>
+      Promise.resolve(
+        since === '2026-08-01T09:00:00Z'
+          ? [roomEntry({ id: 't0', created_at: '2026-08-01T09:30:00Z', content: 'August chatter from Bob' })]
+          : [],
+      ),
+    );
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const tree = (selected: string) => (
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <ChatTab selectedConversation={selected} onSelectConversation={vi.fn()} />
+        </ToastProvider>
+      </QueryClientProvider>
+    );
+    const { rerender } = render(tree(OLDER_ID));
+    expect(await screen.findByText('August chatter from Bob')).toBeInTheDocument();
+
+    // The newer thread reads the room back to its own oldest row only.
+    rerender(tree(CONVERSATION_ID));
+    await waitFor(() => expect(readRoom).toHaveBeenCalledWith(GROUP_ID, '2026-09-14T10:00:00Z'));
+    await waitFor(() => expect(screen.queryByText('August chatter from Bob')).toBeNull());
+
+    // Back on the older thread, whose rows are already held: it paints the
+    // read that reaches its own history, never the newer thread's shorter one.
+    rerender(tree(OLDER_ID));
+    expect(await screen.findByText('August chatter from Bob')).toBeInTheDocument();
+    expect(readRoom).toHaveBeenLastCalledWith(GROUP_ID, '2026-08-01T09:00:00Z');
+  });
+
+  it('reads no room for a thread that is not a group\'s', async () => {
+    getConversations.mockResolvedValue({
+      conversations: [{ id: CONVERSATION_ID, title: 'Sunday long run', agent_id: COACH_ID }],
+      total: 1,
+    });
+
+    renderChatTab();
+
+    await screen.findByText('Your aerobic decoupling held under 5%.');
+    expect(readRoom).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('room-entry-member')).toBeNull();
   });
 });
