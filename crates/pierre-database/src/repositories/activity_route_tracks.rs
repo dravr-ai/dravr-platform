@@ -18,10 +18,18 @@
 //! Postgres. Every id column is `TEXT` on both engines, like
 //! `cached_activities`, so the ids bind as hyphenated text and the
 //! provider-disconnect purge reaches the rows with the same statement it runs
-//! over that table. `created_at` binds as `DateTime<Utc>`, which sqlx stores
-//! as RFC 3339 text on `SQLite` and as `TIMESTAMPTZ` on Postgres.
+//! over that table. `created_at` and `expires_at` bind as `DateTime<Utc>`,
+//! which sqlx stores as RFC 3339 text on `SQLite` and as `TIMESTAMPTZ` on
+//! Postgres, so the expiry comparison against a bound instant orders the same
+//! way on both engines.
+//!
+//! A stored read stands unless it carries an `expires_at`: past that instant
+//! the row reads as no read at all, both to [`ActivityRouteTrackRepository::get_route_track`]
+//! and to the Home list's join, so the route is read again and the upsert
+//! overwrites the row.
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use uuid::Uuid;
@@ -42,6 +50,9 @@ pub enum StoredRouteTrack {
         source: String,
         /// Why there is no track (`no_gps` or `too_short`).
         reason: String,
+        /// When the answer is read again, for one the read could not prove;
+        /// `None` for an answer that stands.
+        expires_at: Option<DateTime<Utc>>,
     },
 }
 
@@ -66,7 +77,7 @@ pub enum StoredRouteOutcome {
 #[async_trait]
 pub trait ActivityRouteTrackRepository: Send + Sync {
     /// The stored route read for one activity, or `None` when it has not been
-    /// read yet.
+    /// read yet or its stored read has expired.
     ///
     /// # Errors
     /// Returns a database error when the read fails or the row holds neither
@@ -96,20 +107,24 @@ pub trait ActivityRouteTrackRepository: Send + Sync {
 /// Write or replace one activity's route read.
 pub(crate) const UPSERT_ROUTE_TRACK_SQL: &str = r"
     INSERT INTO activity_route_tracks (
-        tenant_id, user_id, provider, activity_id, source, track_json, unavailable_reason, created_at
+        tenant_id, user_id, provider, activity_id, source, track_json, unavailable_reason,
+        created_at, expires_at
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     ON CONFLICT (tenant_id, user_id, provider, activity_id) DO UPDATE SET
         source = EXCLUDED.source,
         track_json = EXCLUDED.track_json,
         unavailable_reason = EXCLUDED.unavailable_reason,
-        created_at = EXCLUDED.created_at";
+        created_at = EXCLUDED.created_at,
+        expires_at = EXCLUDED.expires_at";
 
-/// Read one activity's route, scoped by tenant, user and provider.
+/// Read one activity's route, scoped by tenant, user and provider; a row
+/// whose `expires_at` is not after `$5` (now) is no read.
 pub(crate) const GET_ROUTE_TRACK_SQL: &str = r"
-    SELECT source, track_json, unavailable_reason
+    SELECT source, track_json, unavailable_reason, expires_at
     FROM activity_route_tracks
-    WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND activity_id = $4";
+    WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND activity_id = $4
+      AND (expires_at IS NULL OR expires_at > $5)";
 
 /// The stored outcome in one row of either backend.
 ///
@@ -125,6 +140,7 @@ where
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let source: String = row
         .try_get("source")
@@ -135,9 +151,16 @@ where
     let reason: Option<String> = row
         .try_get("unavailable_reason")
         .map_err(|e| AppError::database(format!("read route track reason: {e}")))?;
+    let expires_at: Option<DateTime<Utc>> = row
+        .try_get("expires_at")
+        .map_err(|e| AppError::database(format!("read route track expiry: {e}")))?;
     match (track_json, reason) {
         (Some(track_json), None) => Ok(StoredRouteTrack::Drawn { source, track_json }),
-        (None, Some(reason)) => Ok(StoredRouteTrack::Unavailable { source, reason }),
+        (None, Some(reason)) => Ok(StoredRouteTrack::Unavailable {
+            source,
+            reason,
+            expires_at,
+        }),
         _ => Err(AppError::database(
             "stored route track holds neither exactly one track nor one reason",
         )),
@@ -149,7 +172,8 @@ where
 ///
 /// Reads the `route_source` and `route_unavailable_reason` columns a LEFT
 /// JOIN on `activity_route_tracks` selects. `source` is NOT NULL in a stored
-/// row, so a NULL `route_source` is the join finding nothing; the table's
+/// row, so a NULL `route_source` is the join finding nothing — no read, or
+/// one whose `expires_at` has passed, which the join leaves out; the table's
 /// CHECK constraint gives a stored row exactly one of a track and a reason,
 /// so a stored row with no reason holds a track.
 ///
@@ -174,15 +198,33 @@ where
     }))
 }
 
-/// The `(source, track_json, unavailable_reason)` columns one read writes.
-pub(crate) fn route_track_columns(track: &StoredRouteTrack) -> (&str, Option<&str>, Option<&str>) {
+/// The columns one read writes.
+pub(crate) struct RouteTrackColumns<'a> {
+    pub(crate) source: &'a str,
+    pub(crate) track_json: Option<&'a str>,
+    pub(crate) reason: Option<&'a str>,
+    pub(crate) expires_at: Option<DateTime<Utc>>,
+}
+
+/// The columns one read writes: a drawn track stands, so it never expires.
+pub(crate) fn route_track_columns(track: &StoredRouteTrack) -> RouteTrackColumns<'_> {
     match track {
-        StoredRouteTrack::Drawn { source, track_json } => {
-            (source.as_str(), Some(track_json.as_str()), None)
-        }
-        StoredRouteTrack::Unavailable { source, reason } => {
-            (source.as_str(), None, Some(reason.as_str()))
-        }
+        StoredRouteTrack::Drawn { source, track_json } => RouteTrackColumns {
+            source: source.as_str(),
+            track_json: Some(track_json.as_str()),
+            reason: None,
+            expires_at: None,
+        },
+        StoredRouteTrack::Unavailable {
+            source,
+            reason,
+            expires_at,
+        } => RouteTrackColumns {
+            source: source.as_str(),
+            track_json: None,
+            reason: Some(reason.as_str()),
+            expires_at: *expires_at,
+        },
     }
 }
 
@@ -207,6 +249,7 @@ macro_rules! impl_activity_route_track_repository {
                     .bind(user_id.to_string())
                     .bind(provider)
                     .bind(activity_id)
+                    .bind(Utc::now())
                     .fetch_optional(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("get_route_track: {e}")))?;
@@ -221,16 +264,17 @@ macro_rules! impl_activity_route_track_repository {
                 activity_id: &str,
                 track: &StoredRouteTrack,
             ) -> AppResult<()> {
-                let (source, track_json, reason) = route_track_columns(track);
+                let columns = route_track_columns(track);
                 sqlx::query(UPSERT_ROUTE_TRACK_SQL)
                     .bind(tenant_id.to_string())
                     .bind(user_id.to_string())
                     .bind(provider)
                     .bind(activity_id)
-                    .bind(source)
-                    .bind(track_json)
-                    .bind(reason)
+                    .bind(columns.source)
+                    .bind(columns.track_json)
+                    .bind(columns.reason)
                     .bind(Utc::now())
+                    .bind(columns.expires_at)
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("upsert_route_track: {e}")))?;

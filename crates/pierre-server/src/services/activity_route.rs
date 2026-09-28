@@ -1,5 +1,5 @@
 // ABOUTME: One cached activity's drawable route: the stored read, else the provider's route overview, else its streams
-// ABOUTME: Each activity costs at most one provider read — the outcome, drawn or not, is persisted tenant-scoped
+// ABOUTME: The outcome is persisted tenant-scoped; only a no-GPS answer the read could not prove is read again, a day later
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -23,6 +23,18 @@
 //! stored either way: a track, or the reason there is none, so an indoor ride
 //! costs one read too, not one per page load.
 //!
+//! A `no_gps` answer is only as good as the read behind it. A detail read that
+//! carries a stream set without coordinates is the provider saying the
+//! activity recorded none (Strava's and intervals.icu's streams of a trainer
+//! ride), and it stands. A detail read that carries no stream set at all
+//! proves nothing: a mirror backend's scrape answers that way whenever the
+//! page it read held no map — a trainer ride, but also a page read before it
+//! finished rendering, or a detail read past the scraper's navigation budget —
+//! and an API provider serves its activity without streams when the streams
+//! request fails. That answer is stored with an expiry,
+//! [`UNPROVEN_NO_GPS_RECHECK_HOURS`] out, after which the Home list treats the
+//! route as not read and the next request reads it again.
+//!
 //! A Home page asks for several routes at once, and a streams read is the
 //! expensive step: through a mirror backend it is a headless scrape of a few
 //! seconds, on a service that sheds the requests it cannot queue. So one
@@ -35,6 +47,7 @@
 
 use std::sync::{Arc, LazyLock};
 
+use chrono::{DateTime, Duration, Utc};
 use dashmap::DashMap;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, TenantId};
@@ -55,9 +68,39 @@ use uuid::Uuid;
 /// point past that is payload the phone downloads for nothing.
 pub const HOME_ROUTE_MAX_POINTS: usize = 200;
 
+/// Hours a `no_gps` answer from a detail read that carried no stream set
+/// stands before the route is read again.
+///
+/// A day. Long enough that the read-again reaches the provider, not the
+/// scraper's own detail cache (fifteen minutes by default) or a navigation
+/// budget that has not had time to recover, and that an activity which truly
+/// recorded no GPS on a provider whose detail read never carries streams costs
+/// one read a day while it sits on the Home page rather than one per visit.
+/// Short enough that a GPS ride a failed read labelled "no GPS" is drawn the
+/// next day.
+pub const UNPROVEN_NO_GPS_RECHECK_HOURS: i64 = 24;
+
 /// What reading one activity's route produced: the track, or why there is
 /// none.
 pub type ActivityRouteOutcome = Result<RouteTrack, RouteTrackError>;
+
+/// What a streams read found, and whether its answer can be kept for good.
+struct StreamsRead {
+    outcome: ActivityRouteOutcome,
+    /// `false` when the detail read carried no stream set at all, so its
+    /// `no_gps` says the read found no route, not that the activity recorded
+    /// none.
+    proven: bool,
+}
+
+impl StreamsRead {
+    /// When the stored answer is read again: a day out for an unproven
+    /// `no_gps`, never for anything else.
+    fn expires_at(&self, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+        (!self.proven && matches!(self.outcome, Err(RouteTrackError::NoGps)))
+            .then(|| now + Duration::hours(UNPROVEN_NO_GPS_RECHECK_HOURS))
+    }
+}
 
 /// Where a stored route's geometry came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,7 +199,9 @@ impl Drop for ProviderReadTurn {
 /// takes the athlete's turn at their provider, so one `(user, tenant)` has
 /// one streams read in flight, and looks at the store again once the turn is
 /// its own: a request for the same activity that went first has stored the
-/// answer. The turns are this server instance's own.
+/// answer. The turns are this server instance's own. A `no_gps` answer from a
+/// detail read without a stream set is stored with an expiry, and once it has
+/// passed the stored answer is no answer: the activity is read again.
 ///
 /// # Errors
 ///
@@ -177,24 +222,34 @@ pub async fn activity_route(
     }
     if let Some(track) = overview_track(cached.activity) {
         let source = RouteGeometrySource::SummaryPolyline;
-        return settle(repos, tenant_id, user_id, cached, source, Ok(track)).await;
+        return settle(repos, tenant_id, user_id, cached, source, Ok(track), None).await;
     }
     let turn = ProviderReadTurn::claim(user_id, tenant_id);
     let reading = turn.lock.lock().await;
     if let Some(outcome) = stored_route(repos, tenant_id, user_id, cached).await? {
         return Ok(outcome);
     }
-    let outcome = read_streams(runtime, tenant_id, user_id, cached).await?;
+    let read = read_streams(runtime, tenant_id, user_id, cached).await?;
+    let expires_at = read.expires_at(Utc::now());
     let source = RouteGeometrySource::Streams;
-    let settled = settle(repos, tenant_id, user_id, cached, source, outcome).await;
+    let settled = settle(
+        repos,
+        tenant_id,
+        user_id,
+        cached,
+        source,
+        read.outcome,
+        expires_at,
+    )
+    .await;
     // Held until the outcome is stored, so the next request in the queue
     // finds it.
     drop(reading);
     settled
 }
 
-/// The outcome stored for the activity, or `None` when none is stored or the
-/// stored one no longer decodes.
+/// The outcome stored for the activity, or `None` when none is stored, the
+/// stored one has expired or it no longer decodes.
 async fn stored_route(
     repos: &RepositoryRegistry,
     tenant_id: TenantId,
@@ -223,7 +278,7 @@ async fn stored_route(
 }
 
 /// Simplify a read's track to the points a Home map carries, store the
-/// outcome and answer it.
+/// outcome — until `expires_at` when it has one — and answer it.
 async fn settle(
     repos: &RepositoryRegistry,
     tenant_id: TenantId,
@@ -231,20 +286,32 @@ async fn settle(
     cached: CachedActivityRef<'_>,
     source: RouteGeometrySource,
     outcome: ActivityRouteOutcome,
+    expires_at: Option<DateTime<Utc>>,
 ) -> AppResult<ActivityRouteOutcome> {
     let outcome = outcome.map(|track| track.simplified(HOME_ROUTE_MAX_POINTS));
-    store_outcome(repos, tenant_id, user_id, cached, source, &outcome).await?;
+    let read = StoredRead {
+        source,
+        outcome: &outcome,
+        expires_at,
+    };
+    store_outcome(repos, tenant_id, user_id, cached, read).await?;
     Ok(outcome)
 }
 
 /// Read the route from the activity's recorded streams: one detail read
 /// against the athlete's provider.
+///
+/// A detail answer with no stream set is `no_gps` unproven: the mirror
+/// backends fold a scraped route into the streams and leave them out when the
+/// page held no route, and the API providers serve an activity without them
+/// when the streams request fails. A stream set without coordinates is the
+/// provider's own word that none were recorded.
 async fn read_streams(
     runtime: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
     cached: CachedActivityRef<'_>,
-) -> AppResult<ActivityRouteOutcome> {
+) -> AppResult<StreamsRead> {
     let tenant = tenant_id.to_string();
     let detailed = fetch_activity_from_provider(
         runtime,
@@ -254,9 +321,16 @@ async fn read_streams(
         cached.activity.id(),
     )
     .await?;
+    let unproven = StreamsRead {
+        outcome: Err(RouteTrackError::NoGps),
+        proven: false,
+    };
     Ok(detailed
         .time_series_data()
-        .map_or(Err(RouteTrackError::NoGps), RouteTrack::from_streams))
+        .map_or(unproven, |streams| StreamsRead {
+            outcome: RouteTrack::from_streams(streams),
+            proven: true,
+        }))
 }
 
 /// The drawable track the activity's own route overview yields, or `None`
@@ -281,17 +355,24 @@ fn stored_outcome(stored: &StoredRouteTrack) -> Option<ActivityRouteOutcome> {
     }
 }
 
+/// One read's outcome as it is stored.
+struct StoredRead<'a> {
+    source: RouteGeometrySource,
+    outcome: &'a ActivityRouteOutcome,
+    /// When the stored answer is read again; `None` when it stands.
+    expires_at: Option<DateTime<Utc>>,
+}
+
 /// Persist a read's outcome under the cached row's provider key.
 async fn store_outcome(
     repos: &RepositoryRegistry,
     tenant_id: TenantId,
     user_id: Uuid,
     cached: CachedActivityRef<'_>,
-    source: RouteGeometrySource,
-    outcome: &ActivityRouteOutcome,
+    read: StoredRead<'_>,
 ) -> AppResult<()> {
-    let source = source.as_str().to_owned();
-    let stored = match outcome {
+    let source = read.source.as_str().to_owned();
+    let stored = match read.outcome {
         Ok(track) => StoredRouteTrack::Drawn {
             source,
             track_json: serde_json::to_string(track)
@@ -300,6 +381,7 @@ async fn store_outcome(
         Err(reason) => StoredRouteTrack::Unavailable {
             source,
             reason: reason.as_str().to_owned(),
+            expires_at: read.expires_at,
         },
     };
     repos

@@ -22,6 +22,7 @@ mod common;
 
 use std::collections::HashMap;
 use std::env;
+use std::slice;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration as StdDuration, Instant};
@@ -423,6 +424,234 @@ async fn a_mirror_backend_row_reads_as_the_provider_it_mirrors() {
 }
 
 // ---------------------------------------------------------------------------
+// One row per workout: copies across providers merge as chat merges them
+// ---------------------------------------------------------------------------
+
+/// One ride a watch recorded and synced to Strava, Garmin and COROS, as each
+/// connection caches it: `(cache key, copy)`. Starts sit seconds apart,
+/// durations and distances within a percent. The Garmin copy is the longest,
+/// so it is the one the session merger keeps; it alone carries the route
+/// overview and lacks the elevation the Strava copy recorded.
+fn synced_ride(tag: &str, started: DateTime<Utc>) -> [(&'static str, Activity); 3] {
+    let overview = encode_polyline(&weaving_track(300));
+    [
+        (
+            oauth_providers::STRAVA,
+            ActivityBuilder::new(
+                format!("s-{tag}"),
+                format!("Sortie {tag}"),
+                SportType::Ride,
+                started + Duration::seconds(30),
+                5_400,
+                oauth_providers::STRAVA,
+            )
+            .distance_meters(41_800.0)
+            .elevation_gain(380.0)
+            .build(),
+        ),
+        (
+            oauth_providers::SCIOTTE_GARMIN,
+            ActivityBuilder::new(
+                format!("g-{tag}"),
+                format!("Sortie {tag}"),
+                SportType::Ride,
+                started,
+                5_460,
+                oauth_providers::SCIOTTE,
+            )
+            .distance_meters(42_000.0)
+            .summary_polyline(overview)
+            .build(),
+        ),
+        (
+            oauth_providers::SCIOTTE_COROS,
+            ActivityBuilder::new(
+                format!("c-{tag}"),
+                format!("Sortie {tag}"),
+                SportType::Ride,
+                started + Duration::seconds(50),
+                5_430,
+                oauth_providers::SCIOTTE,
+            )
+            .distance_meters(42_150.0)
+            .build(),
+        ),
+    ]
+}
+
+async fn cache_synced(
+    resources: &Arc<ServerContext>,
+    athlete: &Athlete,
+    copies: &[(&str, Activity)],
+) {
+    for (key, copy) in copies {
+        cache(resources, athlete, key, slice::from_ref(copy)).await;
+    }
+}
+
+/// `(id, provider)` of every row, in the order the list serves them.
+fn ids_and_providers(body: &Value) -> Vec<(String, String)> {
+    body["activities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| {
+            (
+                row["id"].as_str().unwrap().to_owned(),
+                row["provider"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn one_ride_synced_to_three_providers_is_one_row_the_route_endpoint_serves() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "recent-synced").await;
+    cache_synced(&resources, &athlete, &synced_ride("1", days_ago(1))).await;
+    cache(
+        &resources,
+        &athlete,
+        oauth_providers::STRAVA,
+        &[run("older", oauth_providers::STRAVA, days_ago(2))],
+    )
+    .await;
+
+    let body = recent(&resources, &athlete.token, "").await;
+    assert_eq!(
+        ids_and_providers(&body),
+        [
+            ("g-1".to_owned(), "garmin".to_owned()),
+            ("older".to_owned(), "strava".to_owned()),
+        ],
+        "three copies of one ride are one row, the copy chat keeps: {body}"
+    );
+    let ride = &body["activities"][0];
+    assert_eq!(ride["duration_seconds"], 5_460);
+    assert_eq!(ride["distance_meters"], 42_000.0);
+    assert_eq!(
+        ride["elevation_gain_meters"], 380.0,
+        "the merged row carries what the Strava copy recorded"
+    );
+    assert!(ride["summary_polyline"].is_string(), "{ride}");
+
+    let (status, route) = get_json(
+        &resources,
+        &athlete.token,
+        "/api/me/activities/garmin/g-1/route",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{route}");
+    assert_eq!(route["route"]["source_tool"], "garmin");
+    assert!(route["reason"].is_null(), "{route}");
+}
+
+#[tokio::test]
+async fn two_different_workouts_the_same_morning_both_appear() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "recent-same-morning").await;
+    let dawn = days_ago(1);
+    // A 40-minute run on the watch, then a ride on Strava twenty minutes
+    // after the run ended, then an evening run of the same distance.
+    cache(
+        &resources,
+        &athlete,
+        oauth_providers::SCIOTTE_GARMIN,
+        &[run("dawn-run", oauth_providers::SCIOTTE, dawn)],
+    )
+    .await;
+    cache(
+        &resources,
+        &athlete,
+        oauth_providers::STRAVA,
+        &[
+            ActivityBuilder::new(
+                "commute",
+                "Commute",
+                SportType::Ride,
+                dawn + Duration::minutes(60),
+                1_800,
+                oauth_providers::STRAVA,
+            )
+            .distance_meters(12_000.0)
+            .build(),
+            run(
+                "evening-run",
+                oauth_providers::STRAVA,
+                dawn + Duration::hours(12),
+            ),
+        ],
+    )
+    .await;
+
+    let body = recent(&resources, &athlete.token, "").await;
+    assert_eq!(
+        ids_and_providers(&body),
+        [
+            ("evening-run".to_owned(), "strava".to_owned()),
+            ("commute".to_owned(), "strava".to_owned()),
+            ("dawn-run".to_owned(), "garmin".to_owned()),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_limit_of_five_is_filled_when_copies_hold_the_newest_rows() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "recent-fill").await;
+    for provider in [
+        oauth_providers::STRAVA,
+        oauth_providers::SCIOTTE_GARMIN,
+        oauth_providers::SCIOTTE_COROS,
+    ] {
+        resources
+            .common
+            .repos
+            .provider_connections
+            .register_connection(
+                athlete.user_id,
+                athlete.tenant,
+                provider,
+                &ConnectionType::OAuth,
+                None,
+            )
+            .await
+            .unwrap();
+    }
+    // Fetched a moment ago, so no background refresh is started.
+    resources
+        .common
+        .repos
+        .activity_cache
+        .record_activity_fetch(
+            athlete.user_id,
+            &athlete.tenant,
+            oauth_providers::STRAVA,
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    // The three newest workouts are each cached three times: nine rows ahead
+    // of the four single-copy runs behind them.
+    for day in 1..=3 {
+        cache_synced(
+            &resources,
+            &athlete,
+            &synced_ride(&day.to_string(), days_ago(day)),
+        )
+        .await;
+    }
+    let older: Vec<Activity> = (4..=7)
+        .map(|d| run(&format!("o{d}"), oauth_providers::STRAVA, days_ago(d)))
+        .collect();
+    cache(&resources, &athlete, oauth_providers::STRAVA, &older).await;
+
+    let body = recent(&resources, &athlete.token, "?limit=5").await;
+    assert_eq!(body["stale"], false);
+    assert_eq!(ids(&body), ["g-1", "g-2", "g-3", "o4", "o5"]);
+}
+
+// ---------------------------------------------------------------------------
 // has_gps: what the stored route read says, never what the list row lacks
 // ---------------------------------------------------------------------------
 
@@ -478,6 +707,7 @@ async fn store_route_read(
         Err(reason) => StoredRouteTrack::Unavailable {
             source,
             reason: reason.as_str().to_owned(),
+            expires_at: None,
         },
     };
     resources
@@ -490,6 +720,32 @@ async fn store_route_read(
             key.provider,
             key.activity_id,
             &stored,
+        )
+        .await
+        .unwrap();
+}
+
+/// Store a `no_gps` answer that stands only until `expires_at`, as the route
+/// endpoint does when the detail read behind it carried no stream set.
+async fn store_unproven_no_gps(
+    resources: &Arc<ServerContext>,
+    key: RouteKey<'_>,
+    expires_at: DateTime<Utc>,
+) {
+    resources
+        .common
+        .repos
+        .activity_route_tracks
+        .upsert_route_track(
+            &key.tenant,
+            key.user_id,
+            key.provider,
+            key.activity_id,
+            &StoredRouteTrack::Unavailable {
+                source: RouteGeometrySource::Streams.as_str().to_owned(),
+                reason: RouteTrackError::NoGps.as_str().to_owned(),
+                expires_at: Some(expires_at),
+            },
         )
         .await
         .unwrap();
@@ -654,6 +910,68 @@ async fn a_stored_read_that_is_replaced_changes_what_the_row_says() {
             "after a stored {stored:?}"
         );
     }
+}
+
+#[tokio::test]
+async fn an_unproven_no_gps_read_says_so_only_until_it_expires() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "gps-unproven").await;
+    let backend = oauth_providers::SCIOTTE;
+    let rides: Vec<Activity> = ["scraped", "trainer"]
+        .iter()
+        .zip(1..)
+        .map(|(id, day)| mirror_ride(id, days_ago(day)))
+        .collect();
+    cache(&resources, &athlete, backend, &rides).await;
+    // The provider's own word that the trainer ride recorded no GPS: it stands.
+    store_route_read(
+        &resources,
+        RouteKey::of(&athlete, backend, "trainer"),
+        Err(RouteTrackError::NoGps),
+    )
+    .await;
+
+    store_unproven_no_gps(
+        &resources,
+        RouteKey::of(&athlete, backend, "scraped"),
+        Utc::now() + Duration::hours(1),
+    )
+    .await;
+    assert_eq!(
+        gps_by_id(&recent(&resources, &athlete.token, "").await),
+        gps(&[("scraped", false), ("trainer", false)]),
+        "before it expires, the unproven read is the stored answer"
+    );
+
+    store_unproven_no_gps(
+        &resources,
+        RouteKey::of(&athlete, backend, "scraped"),
+        Utc::now() - Duration::minutes(1),
+    )
+    .await;
+    assert_eq!(
+        gps_by_id(&recent(&resources, &athlete.token, "").await),
+        gps(&[("scraped", true), ("trainer", false)]),
+        "an expired read is no read: the client asks for the route again"
+    );
+    let repo = &resources.common.repos.activity_route_tracks;
+    assert_eq!(
+        repo.get_route_track(&athlete.tenant, athlete.user_id, backend, "scraped")
+            .await
+            .unwrap(),
+        None,
+        "the route read finds no stored answer either"
+    );
+    assert_eq!(
+        repo.get_route_track(&athlete.tenant, athlete.user_id, backend, "trainer")
+            .await
+            .unwrap(),
+        Some(StoredRouteTrack::Unavailable {
+            source: "streams".to_owned(),
+            reason: "no_gps".to_owned(),
+            expires_at: None,
+        })
+    );
 }
 
 #[tokio::test]

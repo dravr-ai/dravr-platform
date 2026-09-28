@@ -325,8 +325,10 @@ pub(crate) const GET_CACHED_ACTIVITIES_SQL: &str = r"
 /// in the filter, so a read stored for the same provider and activity id
 /// under another tenant or another user never reaches a row. LEFT JOIN, not
 /// INNER: an activity whose route has not been read keeps its row, with both
-/// route columns NULL. The track itself is not selected. Every id column on
-/// both tables is TEXT on both engines, so the join carries no cast.
+/// route columns NULL, and so does one whose stored read has expired — its
+/// `expires_at` is not after `$6` (now) — because that read is to be made
+/// again. The track itself is not selected. Every id column on both tables is
+/// TEXT on both engines, so the join carries no cast.
 pub(crate) const GET_CACHED_ACTIVITY_ROWS_SQL: &str = r"
     SELECT ca.provider, ca.data_json,
            rt.source AS route_source,
@@ -337,6 +339,7 @@ pub(crate) const GET_CACHED_ACTIVITY_ROWS_SQL: &str = r"
           AND rt.user_id = $1
           AND rt.provider = ca.provider
           AND rt.activity_id = ca.activity_id
+          AND (rt.expires_at IS NULL OR rt.expires_at > $6)
     WHERE ca.user_id = $1 AND ca.tenant_id = $2
       AND ca.start_date >= $3 AND ca.start_date <= $4
     ORDER BY ca.start_date DESC
@@ -776,6 +779,7 @@ macro_rules! impl_activity_cache_repository {
                     .bind(start)
                     .bind(end)
                     .bind(limit)
+                    .bind(Utc::now())
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {

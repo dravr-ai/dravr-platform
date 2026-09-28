@@ -11,6 +11,9 @@
 //! and streams read, so "the second read does no provider fetch" is a count,
 //! not a hope. Geometry assertions are on real coordinates: a handler that
 //! drew the untrimmed track, an empty line or another tenant's route fails.
+//! The mirror-backend cases point the sciotte provider at a local stand-in
+//! for the scraper service (`DRAVR_SCIOTTE_REMOTE_URL`) that counts its
+//! detail reads the same way.
 //
 // This `//!` must precede the crate-level `#![cfg]`: when a feature is off the
 // cfg empties the crate (dropping any inner `#![allow(missing_docs)]`), so
@@ -21,6 +24,8 @@
 #![allow(missing_docs)]
 
 mod common;
+#[path = "helpers/sciotte_mock.rs"]
+mod sciotte_mock;
 
 use std::env;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -28,20 +33,25 @@ use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
 use axum::body::{to_bytes, Body};
+use axum::extract::Path;
+use axum::http::StatusCode as HttpStatus;
 use axum::http::{Request, StatusCode};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use futures_util::future::join_all;
 use pierre_core::models::{
     Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserOAuthToken,
 };
+use pierre_database::backends::factory::Database;
 use pierre_database::repositories::StoredRouteTrack;
 use pierre_fitness_compute::routes::haversine_meters_between;
 use pierre_fitness_compute::{encode_polyline, DEFAULT_PRIVACY_RADIUS_METERS};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
-use pierre_mcp_server::services::activity_route::HOME_ROUTE_MAX_POINTS;
+use pierre_mcp_server::services::activity_route::{
+    HOME_ROUTE_MAX_POINTS, UNPROVEN_NO_GPS_RECHECK_HOURS,
+};
 use pierre_routes_auth::OAuthService;
 use pierre_services::provider_revocation::DisconnectReason;
 use serde_json::{json, Value};
@@ -50,6 +60,8 @@ use tokio::net::TcpListener;
 use tokio::time::sleep;
 use tower::ServiceExt;
 use uuid::Uuid;
+
+use crate::sciotte_mock::seed_sciotte_session;
 
 /// Parc La Fontaine, Montréal — where every fixture track starts.
 const HOME: (f64, f64) = (45.5259, -73.5697);
@@ -258,6 +270,60 @@ async fn stored(
         .unwrap()
 }
 
+/// Move every stored read of the athlete's that carries an expiry to a minute
+/// ago, as if the day it stood for had passed. No repository writes a past
+/// expiry for a read it has just made, so the fixture writes it in SQL; a
+/// read stored without an expiry is left as it is.
+async fn expire_route_reads(resources: &ServerContext, user_id: Uuid) {
+    const SQL: &str = "UPDATE activity_route_tracks SET expires_at = $1 \
+                       WHERE user_id = $2 AND expires_at IS NOT NULL";
+    let past = Utc::now() - Duration::minutes(1);
+    match resources.agent.database.as_ref() {
+        Database::SQLite(sqlite) => {
+            sqlx::query(SQL)
+                .bind(past)
+                .bind(user_id.to_string())
+                .execute(sqlite.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(postgres) => {
+            sqlx::query(SQL)
+                .bind(past)
+                .bind(user_id.to_string())
+                .execute(postgres.pool())
+                .await
+                .unwrap();
+        }
+    }
+}
+
+/// Assert the activity's stored read is an unproven `no_gps` that expires a
+/// recheck period after it was made, somewhere between `before` and now.
+async fn assert_stored_unproven_no_gps(
+    resources: &Arc<ServerContext>,
+    athlete: &Athlete,
+    provider: &str,
+    activity_id: &str,
+    before: DateTime<Utc>,
+) {
+    let recheck = Duration::hours(UNPROVEN_NO_GPS_RECHECK_HOURS);
+    let Some(StoredRouteTrack::Unavailable {
+        source,
+        reason,
+        expires_at: Some(expires_at),
+    }) = stored(resources, athlete, provider, activity_id).await
+    else {
+        panic!("{activity_id}: expected an expiring no_gps read");
+    };
+    assert_eq!((source.as_str(), reason.as_str()), ("streams", "no_gps"));
+    assert!(
+        before + recheck <= expires_at && expires_at <= Utc::now() + recheck,
+        "{activity_id} expires {expires_at}, a recheck period after the read"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // A Strava-shaped mock serving one activity's detail and streams
 // ---------------------------------------------------------------------------
@@ -327,6 +393,20 @@ async fn mock_strava(streams: Value) -> (String, Arc<Hits>) {
 /// requests made together are at the provider together unless something
 /// keeps them apart.
 async fn mock_strava_answering_after(streams: Value, latency: StdDuration) -> (String, Arc<Hits>) {
+    mock_strava_serving(streams, latency, 0).await
+}
+
+/// [`mock_strava`] whose first `failures` streams requests answer 503, as a
+/// streams request Strava could not serve at that moment does.
+async fn mock_strava_failing_streams_first(streams: Value, failures: usize) -> (String, Arc<Hits>) {
+    mock_strava_serving(streams, StdDuration::ZERO, failures).await
+}
+
+async fn mock_strava_serving(
+    streams: Value,
+    latency: StdDuration,
+    failures: usize,
+) -> (String, Arc<Hits>) {
     let hits = Arc::new(Hits::default());
     let detail_hits = Arc::clone(&hits);
     let stream_hits = Arc::clone(&hits);
@@ -356,9 +436,12 @@ async fn mock_strava_answering_after(streams: Value, latency: StdDuration) -> (S
                 let hits = Arc::clone(&stream_hits);
                 let streams = streams.clone();
                 async move {
-                    hits.streams.fetch_add(1, Ordering::SeqCst);
+                    let served = hits.streams.fetch_add(1, Ordering::SeqCst);
                     hits.answer_after(latency).await;
-                    Json(streams)
+                    if served < failures {
+                        return Err(HttpStatus::SERVICE_UNAVAILABLE);
+                    }
+                    Ok(Json(streams))
                 }
             }),
         );
@@ -432,6 +515,78 @@ async fn link_strava(resources: &Arc<ServerContext>, athlete: &Athlete) {
         })
         .await
         .unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// A stand-in for the scraper service a mirror backend reads through
+// ---------------------------------------------------------------------------
+
+/// A scraper stand-in answering one activity's detail read. The first
+/// `misses` answers carry no route, as a detail page scraped before its map
+/// rendered does; every later one carries `track`. Returns the base URL and
+/// the count of detail reads.
+async fn mock_scraper_missing_the_route_first(
+    track: &[(f64, f64)],
+    misses: usize,
+) -> (String, Arc<AtomicUsize>) {
+    let reads = Arc::new(AtomicUsize::new(0));
+    let detail_reads = Arc::clone(&reads);
+    let route = json!({
+        "coordinates": track.iter().map(|&(lat, lon)| json!([lat, lon])).collect::<Vec<_>>()
+    });
+    let app = Router::new()
+        .route(
+            "/auth/import-session",
+            post(|| async { Json(json!({ "session_id": "cap-verified-session" })) }),
+        )
+        .route(
+            "/api/activities/{id}",
+            get(move |Path(id): Path<String>| {
+                let reads = Arc::clone(&detail_reads);
+                let route = route.clone();
+                async move {
+                    let served = reads.fetch_add(1, Ordering::SeqCst);
+                    let mut detail = json!({
+                        "id": id,
+                        "name": "Sortie du matin",
+                        "sport_type": "ride",
+                        "start_date": (Utc::now() - Duration::days(2)).to_rfc3339(),
+                        "duration_seconds": 9_000,
+                        "distance_meters": 60_000.0,
+                        "provider": "strava"
+                    });
+                    if served >= misses {
+                        detail["route"] = route;
+                    }
+                    Json(detail)
+                }
+            }),
+        );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    (format!("http://{addr}"), reads)
+}
+
+/// Connect the athlete's Strava through the mirror backend, with a live
+/// scrape session.
+async fn link_strava_mirror(resources: &Arc<ServerContext>, athlete: &Athlete) {
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(
+            athlete.user_id,
+            athlete.tenant,
+            "sciotte",
+            &ConnectionType::Manual,
+            None,
+        )
+        .await
+        .unwrap();
+    seed_sciotte_session(resources, athlete.user_id, athlete.tenant).await;
 }
 
 // ---------------------------------------------------------------------------
@@ -583,8 +738,109 @@ async fn a_trainer_ride_answers_no_gps_and_is_not_read_again() {
         Some(StoredRouteTrack::Unavailable {
             source: "streams".to_owned(),
             reason: "no_gps".to_owned(),
-        })
+            expires_at: None,
+        }),
+        "streams without coordinates are the provider's word: the answer never expires"
     );
+    assert!(!listed_has_gps(&resources, &athlete.token, "55002").await);
+}
+
+// ---------------------------------------------------------------------------
+// A detail read with no stream set proves nothing: its no_gps expires
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+#[serial]
+async fn a_mirror_detail_read_with_no_route_is_read_again_once_its_answer_expires() {
+    let recorded = weaving_track(900, 0.0);
+    let (scraper, reads) = mock_scraper_missing_the_route_first(&recorded, 1).await;
+    let _env = EnvGuard::set(&[("DRAVR_SCIOTTE_REMOTE_URL", scraper)]);
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "route-mirror-miss").await;
+    link_strava_mirror(&resources, &athlete).await;
+    cache(
+        &resources,
+        athlete.user_id,
+        athlete.tenant,
+        "sciotte",
+        &[ride_without_position("m2")],
+    )
+    .await;
+
+    let before = Utc::now();
+    let (status, body) = route_of(&resources, &athlete.token, "strava", "m2").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body, json!({ "route": null, "reason": "no_gps" }));
+    assert_eq!(reads.load(Ordering::SeqCst), 1);
+    assert_stored_unproven_no_gps(&resources, &athlete, "sciotte", "m2", before).await;
+    assert!(
+        !listed_has_gps(&resources, &athlete.token, "m2").await,
+        "until it expires, the stored answer is what the list says"
+    );
+    let (_, again) = route_of(&resources, &athlete.token, "strava", "m2").await;
+    assert_eq!(again, body);
+    assert_eq!(
+        reads.load(Ordering::SeqCst),
+        1,
+        "until it expires, the stored answer is not read again"
+    );
+
+    expire_route_reads(&resources, athlete.user_id).await;
+    assert!(
+        listed_has_gps(&resources, &athlete.token, "m2").await,
+        "an expired answer sends the client back to the route"
+    );
+    let (status, body) = route_of(&resources, &athlete.token, "strava", "m2").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(reads.load(Ordering::SeqCst), 2, "the route is read again");
+    assert!(body["reason"].is_null(), "{body}");
+    let drawn = coordinates(&body["route"]);
+    assert!(drawn.len() > 2 && drawn.len() <= HOME_ROUTE_MAX_POINTS);
+    assert!(metres(drawn[0], recorded[0]) >= DEFAULT_PRIVACY_RADIUS_METERS);
+    assert!(matches!(
+        stored(&resources, &athlete, "sciotte", "m2").await,
+        Some(StoredRouteTrack::Drawn { ref source, .. }) if source == "streams"
+    ));
+    assert!(listed_has_gps(&resources, &athlete.token, "m2").await);
+    let (_, stored_answer) = route_of(&resources, &athlete.token, "strava", "m2").await;
+    assert_eq!(stored_answer, body);
+    assert_eq!(reads.load(Ordering::SeqCst), 2, "a drawn track stands");
+}
+
+#[tokio::test]
+#[serial]
+async fn a_streams_request_that_failed_answers_no_gps_until_it_expires() {
+    let recorded = weaving_track(900, 0.0);
+    let (api_base, hits) = mock_strava_failing_streams_first(streams_for(&recorded), 1).await;
+    let _env = strava_at(api_base);
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "route-streams-failed").await;
+    link_strava(&resources, &athlete).await;
+    cache(
+        &resources,
+        athlete.user_id,
+        athlete.tenant,
+        "strava",
+        &[ride_without_position("55011")],
+    )
+    .await;
+
+    let before = Utc::now();
+    let (status, body) = route_of(&resources, &athlete.token, "strava", "55011").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body, json!({ "route": null, "reason": "no_gps" }));
+    assert_eq!(hits.counts(), (1, 1));
+    assert_stored_unproven_no_gps(&resources, &athlete, "strava", "55011", before).await;
+
+    expire_route_reads(&resources, athlete.user_id).await;
+    let (status, body) = route_of(&resources, &athlete.token, "strava", "55011").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(hits.counts(), (2, 2), "the expired answer is read again");
+    assert!(coordinates(&body["route"]).len() > 2, "{body}");
+    assert!(matches!(
+        stored(&resources, &athlete, "strava", "55011").await,
+        Some(StoredRouteTrack::Drawn { ref source, .. }) if source == "streams"
+    ));
 }
 
 #[tokio::test]

@@ -10,26 +10,31 @@
 //! mobile alike:
 //!
 //! - `GET /api/me/activities/recent?limit=N` — the newest cached activities
-//!   across every provider, served from the durable cache in one query. A
-//!   login never waits on a provider: when the cache is older than the
-//!   freshness bands allow, a refresh is started in the background through
-//!   the same stale-head path the chat turn uses, and the answer says so
-//!   (`stale`), so the client asks once more a little later. Each row's
-//!   `has_gps` is `false` only when the activity's stored route read found no
-//!   GPS; a row whose route has not been read says `true`, because a list row
-//!   cannot settle it: only some providers' list payloads carry a start
-//!   position or a route overview, and a GPS-recorded ride cached without
-//!   them is drawn from its streams by the route read below.
+//!   across every provider, served from the durable cache in one query, one
+//!   row per workout: a ride a watch synced to Strava, Garmin and COROS is
+//!   one row, merged by the same session merger the chat turn lists
+//!   activities through. A login never waits on a provider: when the cache
+//!   is older than the freshness bands allow, a refresh is started in the
+//!   background through the same stale-head path the chat turn uses, and the
+//!   answer says so (`stale`), so the client asks once more a little later.
+//!   Each row's `has_gps` is `false` only when the activity's stored route
+//!   read found no GPS; a row whose route has not been read says `true`,
+//!   because a list row cannot settle it: only some providers' list
+//!   payloads carry a start position or a route overview, and a GPS-recorded
+//!   ride cached without them is drawn from its streams by the route read
+//!   below.
 //! - `GET /api/me/activities/{provider}/{activity_id}/route` — one cached
 //!   activity's privacy-trimmed route, in the shape both clients' map already
-//!   draws. Read at most once per activity, and its outcome — drawn or not —
-//!   is what the list's `has_gps` reads; see [`crate::services::activity_route`].
+//!   draws. Read once per activity, and its outcome — drawn or not — is what
+//!   the list's `has_gps` reads; a `no_gps` the read could not prove expires
+//!   and is read again. See [`crate::services::activity_route`].
 //! - `GET /api/me/training-plan?locale=xx` — what `/plan` shows, as the
 //!   structured plan card: the active plan under the agent `/plan` reads it
 //!   under, projected on the athlete's own "today".
 //!
 //! Every JSON key is always present; an absent value is `null`.
 
+use std::cmp::Reverse;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
@@ -45,6 +50,7 @@ use pierre_database::repositories::{sport_type_string, CachedActivityRow, Stored
 use pierre_fitness_compute::route_track::{trimmed_overview_polyline, RouteTrack, RouteTrackError};
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_providers::backend_resolver::{backend_pair_for, user_facing_name};
+use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_services::locale::user_locale;
 use pierre_services::personas::resolve_persona_locale;
 use pierre_services::plan_card::{try_load_plan_card, PlanCard};
@@ -69,6 +75,15 @@ const MIN_RECENT_LIMIT: i64 = 1;
 
 /// Most activities the recent list answers with: a landing page, not a log.
 const MAX_RECENT_LIMIT: i64 = 20;
+
+/// Most cached copies of one workout the recent read makes room for.
+///
+/// Each of the athlete's connections can hold its own copy of a workout a
+/// watch synced everywhere, and copies merge after the read, so the read
+/// takes `limit` rows per connection to still fill `limit` workouts. Capped
+/// here so an athlete with many connections costs at most
+/// `MAX_RECENT_LIMIT * MAX_COPIES_PER_WORKOUT` rows.
+const MAX_COPIES_PER_WORKOUT: i64 = 5;
 
 /// Query parameters for `GET /api/me/activities/recent`.
 #[derive(Debug, Deserialize)]
@@ -118,9 +133,14 @@ pub struct HomeActivity {
 }
 
 impl HomeActivity {
-    /// Project one cached row for the Home list.
-    fn from_row(row: &CachedActivityRow) -> Self {
-        let activity = &row.activity;
+    /// Project one workout for the Home list: `activity` is the merged
+    /// session, `row` the cached row of the copy that represents it.
+    ///
+    /// The id, the provider and `has_gps` are the representative row's own,
+    /// so the route endpoint serves exactly that row; the numbers and the
+    /// overview are the merged session's, which carry what the other copies
+    /// filled in.
+    fn from_session(row: &CachedActivityRow, activity: &Activity) -> Self {
         let overview = raw_overview(activity);
         Self {
             id: activity.id().to_owned(),
@@ -139,8 +159,9 @@ impl HomeActivity {
 
 /// Whether a stored route read settled that the activity recorded no GPS.
 ///
-/// No stored read, a drawn track and any other reason all answer `false`: the
-/// route endpoint still has something to say about the activity.
+/// No stored read (the list's join leaves an expired one out), a drawn track
+/// and any other reason all answer `false`: the route endpoint still has
+/// something to say about the activity.
 fn read_found_no_gps(route: Option<&StoredRouteOutcome>) -> bool {
     matches!(
         route,
@@ -174,7 +195,8 @@ pub struct RecentActivitiesResponse {
 /// one of `route` and `reason` is non-null.
 ///
 /// Either answer is stored, and the recent list reads the stored one: after a
-/// `no_gps` answer the activity's row says `has_gps: false`.
+/// `no_gps` answer the activity's row says `has_gps: false`, until that
+/// answer expires when the read behind it could not prove it.
 #[derive(Debug, Clone, Serialize)]
 pub struct ActivityRouteResponse {
     /// The drawable route.
@@ -225,6 +247,10 @@ async fn get_recent_activities(
     });
     let repos = resources.repos();
     let now = Utc::now();
+    let connections = repos
+        .provider_connections
+        .get_for_user(user_id, Some(tenant_id))
+        .await?;
     let rows = repos
         .activity_cache
         .get_cached_activity_rows(
@@ -232,17 +258,14 @@ async fn get_recent_activities(
             &tenant_id,
             now - Duration::days(activity_cache_retention_days()),
             now,
-            limit,
+            limit * copies_per_workout(connections.len()),
         )
         .await?;
     let as_of = repos
         .activity_cache
         .latest_activity_sync_any(user_id, &tenant_id)
         .await?;
-    let connected: Vec<String> = repos
-        .provider_connections
-        .get_for_user(user_id, Some(tenant_id))
-        .await?
+    let connected: Vec<String> = connections
         .into_iter()
         .filter(|connection| connection.status == ConnectionStatus::Active)
         .map(|connection| connection.provider)
@@ -251,30 +274,80 @@ async fn get_recent_activities(
     if stale {
         spawn_stale_refresh(&resources, user_id, tenant_id, connected);
     }
+    // The limit is clamped to at least one, so it always converts.
+    let shown = usize::try_from(limit).unwrap_or_default();
     Ok(Json(RecentActivitiesResponse {
-        activities: home_activities(&rows),
+        activities: home_activities(rows, shown),
         as_of,
         stale,
     }))
 }
 
-/// The Home rows for cached rows, newest first, one per activity.
+/// How many cached copies of each workout the recent read makes room for:
+/// one per connection the athlete holds in this tenant, whatever its status —
+/// a connection that needs re-authorising still has its copies cached — and
+/// at least one, capped at [`MAX_COPIES_PER_WORKOUT`].
+fn copies_per_workout(connections: usize) -> i64 {
+    i64::try_from(connections)
+        .unwrap_or(MAX_COPIES_PER_WORKOUT)
+        .clamp(1, MAX_COPIES_PER_WORKOUT)
+}
+
+/// The Home rows for cached rows, newest first, one per workout, at most
+/// `limit` of them.
 ///
-/// A mirror backend and the provider it mirrors can both hold a copy of the
-/// same activity; both read as the same user-facing provider and id, so the
-/// first — the newest-stored — is kept.
-fn home_activities(rows: &[CachedActivityRow]) -> Vec<HomeActivity> {
-    let mut activities: Vec<HomeActivity> = Vec::with_capacity(rows.len());
+/// Two passes, both over the rows already read:
+///
+/// 1. Identity: a mirror backend and the provider it mirrors can both hold a
+///    copy of the same activity; both read as the same user-facing provider
+///    and id, so the first, the newest-stored, is kept.
+/// 2. Workout: every recording of one workout across providers (a ride a
+///    watch synced to Strava, Garmin and COROS) merges into one session
+///    through [`merge_duplicates`] under [`DedupConfig::from_env`], exactly
+///    as the chat turn's activity list merges them.
+///
+/// The copy that represents a merged workout is the merger's canonical row,
+/// the one chat lists: the copy carrying a distance, then the longest, then
+/// the farthest, then the lowest id. It is always one of the athlete's own
+/// cached rows, so the route endpoint serves its provider and id; its fields
+/// the canonical copy lacks are filled from the other full recordings.
+fn home_activities(rows: Vec<CachedActivityRow>, limit: usize) -> Vec<HomeActivity> {
+    let mut distinct: Vec<CachedActivityRow> = Vec::with_capacity(rows.len());
     for row in rows {
-        let activity = HomeActivity::from_row(row);
-        if !activities
-            .iter()
-            .any(|seen| seen.provider == activity.provider && seen.id == activity.id)
-        {
-            activities.push(activity);
+        let facing = user_facing_name(&row.provider);
+        if !distinct.iter().any(|seen| {
+            user_facing_name(&seen.provider) == facing && seen.activity.id() == row.activity.id()
+        }) {
+            distinct.push(row);
         }
     }
-    activities
+    // The merger consumes its input and rewrites the canonical copy, while
+    // each row's stored key and route read are still needed to project it.
+    let recordings: Vec<Activity> = distinct.iter().map(|row| row.activity.clone()).collect();
+    let (mut sessions, _) = merge_duplicates(recordings, &DedupConfig::from_env());
+    // A merged workout sits where its canonical copy was read, which need not
+    // be where its newest copy was; the list is newest first by the session.
+    sessions.sort_by_key(|session| Reverse(session.start_date()));
+    sessions
+        .iter()
+        .filter_map(|session| {
+            distinct
+                .iter()
+                .find(|row| is_copy_of(&row.activity, session))
+                .map(|row| HomeActivity::from_session(row, session))
+        })
+        .take(limit)
+        .collect()
+}
+
+/// Whether `recording` is the cached copy a merged `session` was built on:
+/// the merger never changes a canonical copy's provider, id, start or
+/// duration, only the fields it lacked.
+fn is_copy_of(recording: &Activity, session: &Activity) -> bool {
+    recording.provider() == session.provider()
+        && recording.id() == session.id()
+        && recording.start_date() == session.start_date()
+        && recording.duration_seconds() == session.duration_seconds()
 }
 
 /// Whether a last successful fetch is past the bands the chat path refreshes

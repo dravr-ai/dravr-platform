@@ -338,6 +338,7 @@ async fn seed_provider_rows(
             &StoredRouteTrack::Unavailable {
                 source: "streams".to_owned(),
                 reason: "no_gps".to_owned(),
+                expires_at: None,
             },
         )
         .await
