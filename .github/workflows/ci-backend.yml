@@ -758,7 +758,7 @@ jobs:
       - name: Setup Node.js (for SDK E2E tests runtime)
         uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version-file: .nvmrc
 
       - name: Setup Bun (for SDK build)
         uses: oven-sh/setup-bun@v2
@@ -976,7 +976,7 @@ jobs:
         if: steps.changed.outputs.files != ''
         uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version-file: .nvmrc
 
       - name: Setup Bun (for SDK build)
         if: steps.changed.outputs.files != ''

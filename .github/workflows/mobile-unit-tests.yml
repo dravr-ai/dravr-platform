@@ -67,12 +67,12 @@ jobs:
         run: ./scripts/ci/ios-simulator-lib.test.sh
 
       # Expo SDK 57 wants Node 22.13 or later, and the image default moves
-      # with the image. 22.23.1 is what eas.json pins for EAS builds, so the
-      # tests run on the Node the app is built with.
+      # with the image. .nvmrc holds the version eas.json pins for EAS builds,
+      # so the tests run on the Node the app is built with.
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
-          node-version: "22.23.1"
+          node-version-file: .nvmrc
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2

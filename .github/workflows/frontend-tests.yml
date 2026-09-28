@@ -84,6 +84,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Setup Node
+        # vitest, eslint, tsc and Playwright run under Node, not Bun: pin the
+        # repo's .nvmrc rather than whatever the runner image ships.
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -117,6 +124,13 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+
+      - name: Setup Node
+        # vitest, eslint, tsc and Playwright run under Node, not Bun: pin the
+        # repo's .nvmrc rather than whatever the runner image ships.
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -159,6 +173,13 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+
+      - name: Setup Node
+        # vitest, eslint, tsc and Playwright run under Node, not Bun: pin the
+        # repo's .nvmrc rather than whatever the runner image ships.
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
