@@ -1411,14 +1411,15 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dravr-browser"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e3c5c1cba8b6c571a2e7f2bff0e11150a11bfdb99667795818a782dd6fcdce6"
+checksum = "7f1f577500301fd0a34f161334012f1023214520ebd1934d9f1686a324453aba"
 dependencies = [
  "async-trait",
  "chromiumoxide",
  "chrono",
  "futures",
+ "getrandom 0.3.4",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -1497,8 +1498,8 @@ source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=947faf17073
 
 [[package]]
 name = "dravr-enforme"
-version = "0.6.3"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.6.3#8005223ec12e8764f0727436e1fd0d95acb10144"
+version = "0.6.5"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.6.5#7a44a38462bc043317719605643c426d92a76f14"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1547,11 +1548,12 @@ dependencies = [
 
 [[package]]
 name = "dravr-riviere"
-version = "0.2.4"
-source = "git+https://github.com/dravr-ai/dravr-riviere.git?tag=v0.2.4#cc883fe80a890513a65d1e35b19a3b716ec6680f"
+version = "0.2.5"
+source = "git+https://github.com/dravr-ai/dravr-riviere.git?tag=v0.2.5#c5e162c4af3eafe6d93faf58370becd92ac5a0ed"
 dependencies = [
  "async-trait",
  "chrono",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -1561,8 +1563,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "0.16.1"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.16.1#295fde005e6fbb4eaf73fb2ae1fde9456528be6d"
+version = "0.19.0"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.19.0#36e84669fff2239a900da1a61fc2636566ecb69f"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2523,7 +2525,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -4904,7 +4906,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -4942,7 +4944,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -7228,7 +7230,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

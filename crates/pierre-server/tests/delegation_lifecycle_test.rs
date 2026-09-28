@@ -696,6 +696,7 @@ async fn a_coach_disconnecting_trainingpeaks_ends_every_link_their_session_serve
     let roster = vec![CoachedAthlete {
         id: "900001".to_owned(),
         display_name: Some("Athlete 900001".to_owned()),
+        email: None,
     }];
     let cache = &w.res.common.cache;
     cache

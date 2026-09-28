@@ -598,6 +598,7 @@ async fn an_unread_role_never_serves_a_cached_roster(w: &World) {
     let planted = vec![CoachedAthlete {
         id: "999999".to_owned(),
         display_name: Some("Someone Else".to_owned()),
+        email: None,
     }];
     w.res
         .common
