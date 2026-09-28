@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Mobile-viewport E2E for the athlete Home — lands there, Home leads the bottom bar, the page fits the phone
-// ABOUTME: Tapping an activity opens chat with the draft at this width too, and a connection to reconnect is named within the phone's width
+// ABOUTME: Tapping an activity opens chat with the draft at this width too, and the reconnect banner fits within the phone's width
 
 import { test, expect, type Page } from '@playwright/test';
 import { setupDashboardMocks, loginToDashboard } from './test-helpers';
@@ -189,7 +189,7 @@ test.describe('Athlete Home — mobile viewport', () => {
     // answers for the row whose route had never been read.
     await expect(page.getByTestId('home-activity-row')).toHaveCount(2);
     await expect(page.getByTestId('route-sketch')).toHaveCount(2);
-    await expect(page.getByTestId('home-reconnect-provider')).toHaveCount(0);
+    await expect(page.getByTestId('provider-reconnect-banner')).toHaveCount(0);
 
     await page.getByTestId('home-activity-row').first().getByRole('button').click();
     await expect(page).toHaveURL(/#chat\/conv-home-mobile$/);
@@ -205,8 +205,8 @@ test.describe('Athlete Home — mobile viewport, a connection to reconnect', () 
     await expect(page.getByTestId('home-page')).toBeVisible();
   });
 
-  test('names the providers inside the phone width, keeps the rows, and leads to the connections pane', async ({ page }) => {
-    const prompt = page.getByTestId('home-reconnect-provider');
+  test('the shell banner names the providers inside the phone width, the rows stay, and it leads to the connections pane', async ({ page }) => {
+    const prompt = page.getByTestId('provider-reconnect-banner');
     await expect(prompt).toContainText('Reconnect Strava and Garmin to see your new activities.');
     await expect(page.getByTestId('home-activity-row')).toHaveCount(2);
 

@@ -918,7 +918,7 @@ export default function ChatTab({
   const banner =
     showConnectBanner && onNavigate && selectedConversation ? (
       <div className="px-4 pt-3 md:px-6">
-        <ConnectProviderBanner onNavigate={onNavigate} />
+        <ConnectProviderBanner kind="connect" onNavigate={onNavigate} />
       </div>
     ) : null;
 

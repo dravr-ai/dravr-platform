@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use crate::protocol::reauth_notice::notify_needs_reauth;
 use crate::protocol::refresh_failure::classify_refresh_failure;
 use crate::protocol::token_writeback::persist_refreshed_token;
 use crate::protocol::types::{UniversalResponse, META_AUTH_REQUIRED_PROVIDER};
@@ -663,8 +664,7 @@ impl AuthService {
             return;
         };
         if self.flip_to_needs_reauth(stored, error_code).await {
-            self.notify_provider_disconnected(user_id, tenant, provider)
-                .await;
+            notify_needs_reauth(&self.resources, user_id, tenant, provider).await;
         }
     }
 

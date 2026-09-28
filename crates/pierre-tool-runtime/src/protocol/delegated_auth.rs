@@ -40,7 +40,7 @@ use pierre_core::constants::oauth_providers::SCIOTTE_TRAININGPEAKS;
 use pierre_core::errors::AppError;
 use pierre_core::models::{
     ConnectionType, DelegatedConnection, DelegationEndReason, ProviderAccountRole,
-    ProviderConnection, ReauthMark, TenantId,
+    ProviderConnection, TenantId,
 };
 use pierre_core::untrusted::display_line;
 use pierre_groups::delegation::{DelegationStore, UnbackedLink};
@@ -59,6 +59,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::protocol::auth::AuthService;
+use crate::protocol::reauth_notice::flag_needs_reauth;
 use crate::protocol::types::UniversalResponse;
 
 /// Longest coach name a refusal carries. A coach's name is their own Dravr
@@ -496,56 +497,30 @@ impl AuthService {
                 return;
             }
         };
-        if self
-            .mark_coach_needs_reauth(&link, attempt_started_at)
-            .await
+        // The coach is the one who must sign in again, so the flag and its
+        // notice are the coach's, under the coach's tenant.
+        match flag_needs_reauth(
+            self.runtime(),
+            link.coach_user_id,
+            link.coach_tenant_id,
+            SCIOTTE_TRAININGPEAKS,
+            DELEGATED_SESSION_EXPIRED,
+            attempt_started_at,
+        )
+        .await
         {
-            self.notify_provider_disconnected(
-                link.coach_user_id,
-                link.coach_tenant_id,
-                SCIOTTE_TRAININGPEAKS,
-            )
-            .await;
-        }
-    }
-
-    /// Flag `link`'s coach connection as needing the coach to sign in again,
-    /// and report whether it flipped now (the one time the coach is told).
-    async fn mark_coach_needs_reauth(
-        &self,
-        link: &DelegatedConnection,
-        attempt_started_at: DateTime<Utc>,
-    ) -> bool {
-        match self
-            .runtime()
-            .repos()
-            .provider_connections
-            .mark_needs_reauth(
-                link.coach_user_id,
-                link.coach_tenant_id,
-                SCIOTTE_TRAININGPEAKS,
-                Some(DELEGATED_SESSION_EXPIRED),
-                attempt_started_at,
-            )
-            .await
-        {
-            Ok(mark) => {
-                info!(
-                    link_id = %link.id,
-                    coach_user_id = %link.coach_user_id,
-                    ?mark,
-                    "Coach's TrainingPeaks session found dead on a linked read"
-                );
-                mark == ReauthMark::Flagged
-            }
-            Err(e) => {
-                warn!(
-                    link_id = %link.id,
-                    error = %e,
-                    "Could not flag the coach's dead TrainingPeaks session"
-                );
-                false
-            }
+            Ok((mark, notice)) => info!(
+                link_id = %link.id,
+                coach_user_id = %link.coach_user_id,
+                ?mark,
+                notified = notice.claimed,
+                "Coach's TrainingPeaks session found dead on a linked read"
+            ),
+            Err(e) => warn!(
+                link_id = %link.id,
+                error = %e,
+                "Could not flag the coach's dead TrainingPeaks session"
+            ),
         }
     }
 

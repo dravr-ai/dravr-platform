@@ -13,10 +13,13 @@
 //!   across every provider, served from the durable cache in one query, one
 //!   row per workout: a ride a watch synced to Strava, Garmin and COROS is
 //!   one row, merged by the same session merger the chat turn lists
-//!   activities through. A login never waits on a provider: when the cache
-//!   is older than the freshness bands allow, a refresh is started in the
-//!   background through the same stale-head path the chat turn uses, and the
-//!   answer says so (`stale`), so the client asks once more a little later.
+//!   activities through. A login never waits on a provider: when a provider's
+//!   own cache is older than the freshness bands allow, a refresh is started
+//!   in the background through the same stale-head path the chat turn uses,
+//!   and the answer says so (`stale`), so the client asks once more a little
+//!   later. A scrape session flagged `needs_reauth` is refreshed too, on the
+//!   throttle `pierre_tool_runtime::reauth_retry` holds: a read it serves
+//!   re-arms it.
 //!   Each row's `has_gps` is `false` only when the activity's stored route
 //!   read found no GPS; a row whose route has not been read says `true`,
 //!   because a list row cannot settle it: only some providers' list
@@ -45,7 +48,9 @@ use chrono::{DateTime, Duration, NaiveDate, Utc};
 use photograveur::{RouteBounds as ViewBounds, RouteView};
 use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{Activity, ConnectionStatus, DataFreshness, TenantId};
+use pierre_core::models::{
+    Activity, ConnectionStatus, DataFreshness, ProviderConnection, TenantId,
+};
 use pierre_database::repositories::{sport_type_string, CachedActivityRow, StoredRouteOutcome};
 use pierre_fitness_compute::route_track::{trimmed_overview_polyline, RouteTrack, RouteTrackError};
 use pierre_middleware::extractors::AuthenticatedUser;
@@ -56,6 +61,7 @@ use pierre_services::personas::resolve_persona_locale;
 use pierre_services::plan_card::{try_load_plan_card, PlanCard};
 use pierre_services::training_plan_render::resolve_plan_agent_slug;
 use pierre_tool_runtime::activity_fetch::{activity_cache_retention_days, refresh_stale_head};
+use pierre_tool_runtime::reauth_retry::{claim_scrape_session_retry, retries_flagged_session};
 use pierre_tool_runtime::revalidation::{RevalidationRegistry, REVALIDATION_TIMEOUT_SECS};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde::{Deserialize, Serialize};
@@ -182,12 +188,16 @@ fn raw_overview(activity: &Activity) -> Option<&str> {
 pub struct RecentActivitiesResponse {
     /// Newest first, at most the requested limit.
     pub activities: Vec<HomeActivity>,
-    /// When a provider fetch last succeeded for the athlete in this tenant;
-    /// `null` when none ever has.
+    /// When a provider fetch last succeeded for the athlete in this tenant,
+    /// across every provider; `null` when none ever has. For display: it is
+    /// not what staleness is judged by.
     pub as_of: Option<DateTime<Utc>>,
-    /// `true` when `as_of` is past the freshness bands (or absent) while a
-    /// provider is connected: a background refresh has been started, and the
-    /// client may ask once more.
+    /// `true` when a provider this load refreshes is past the freshness bands
+    /// (or never fetched), judged by that provider's own last fetch — an
+    /// active connection, or a flagged scrape session whose throttled retry
+    /// this load claimed. A background refresh is then running, and the client
+    /// may ask once more. So `stale` can be `true` while `as_of` is recent: a
+    /// fresh provider does not make a stale one current.
     pub stale: bool,
 }
 
@@ -265,15 +275,8 @@ async fn get_recent_activities(
         .activity_cache
         .latest_activity_sync_any(user_id, &tenant_id)
         .await?;
-    let connected: Vec<String> = connections
-        .into_iter()
-        .filter(|connection| connection.status == ConnectionStatus::Active)
-        .map(|connection| connection.provider)
-        .collect();
-    let stale = !connected.is_empty() && is_stale(as_of);
-    if stale {
-        spawn_stale_refresh(&resources, user_id, tenant_id, connected);
-    }
+    let plan = stale_refresh_plan(&resources, user_id, tenant_id, connections).await?;
+    let stale = start_stale_refresh(&resources, user_id, tenant_id, plan).await;
     // The limit is clamped to at least one, so it always converts.
     let shown = usize::try_from(limit).unwrap_or_default();
     Ok(Json(RecentActivitiesResponse {
@@ -359,26 +362,95 @@ fn is_stale(as_of: Option<DateTime<Utc>>) -> bool {
     )
 }
 
-/// Refresh each connected provider's recent head in the background.
+/// The providers a Home load would refresh, each judged by its own last
+/// successful fetch.
+#[derive(Debug, Default)]
+struct StaleRefreshPlan {
+    /// Active connections whose own head is stale.
+    active: Vec<String>,
+    /// Scrape sessions flagged `needs_reauth` whose own head is stale: each is
+    /// refreshed only when its throttled retry can be claimed.
+    flagged: Vec<String>,
+}
+
+/// Judge each of the athlete's connections by its own last successful fetch.
 ///
-/// One refresh per `(user, tenant)` at a time, shared with every other
-/// stale-cache revalidation: a Home page reloaded ten times while a two-minute
-/// scrape runs starts it once. Each provider re-checks its own freshness
-/// inside `refresh_stale_head`, so one that was fetched a moment ago costs
-/// nothing. Tracked on the server's drain tracker so shutdown waits for it,
-/// and capped at the shared revalidation timeout so a hung scrape frees the
-/// slot.
-fn spawn_stale_refresh(
+/// Per provider, not across them: the newest fetch of any provider says
+/// nothing about another's, and judging by it let a fresh connection hide a
+/// stale one for as long as the fresh one kept syncing. An active connection
+/// whose head is stale is refreshed. A connection flagged `needs_reauth` is
+/// refreshed only when it is a scrape session
+/// ([`retries_flagged_session`]), since one failed read can be the scraper's
+/// and not the session's; a flagged OAuth grant is dead until the athlete
+/// reconnects, and a revoked connection is theirs to restore.
+async fn stale_refresh_plan(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant_id: TenantId,
-    providers: Vec<String>,
-) {
+    connections: Vec<ProviderConnection>,
+) -> AppResult<StaleRefreshPlan> {
+    let cache = &resources.repos().activity_cache;
+    let mut plan = StaleRefreshPlan::default();
+    for connection in connections {
+        let bucket = match connection.status {
+            ConnectionStatus::Active => &mut plan.active,
+            ConnectionStatus::NeedsReauth if retries_flagged_session(&connection.provider) => {
+                &mut plan.flagged
+            }
+            ConnectionStatus::NeedsReauth | ConnectionStatus::Revoked => continue,
+        };
+        let last_sync = cache
+            .latest_activity_sync(user_id, &tenant_id, &connection.provider)
+            .await?;
+        if is_stale(last_sync) {
+            bucket.push(connection.provider);
+        }
+    }
+    Ok(plan)
+}
+
+/// Start the background refresh `plan` calls for, and report whether the page
+/// is stale.
+///
+/// Stale means a provider this load refreshes was past the freshness bands:
+/// an active connection with a stale head, or a flagged scrape session whose
+/// retry this load claimed. The client then asks once more a little later.
+///
+/// One refresh per `(user, tenant)` at a time, shared with every other
+/// stale-cache revalidation: a Home page reloaded ten times while a two-minute
+/// scrape runs starts it once, and every one of those loads still says stale.
+/// A flagged session's retry is claimed only by the load that starts the
+/// refresh, so the claim is never spent on a refresh that does not run; it is
+/// throttled across every caller and replica
+/// ([`claim_scrape_session_retry`]). Tracked on the server's drain tracker so
+/// shutdown waits for it, and capped at the shared revalidation timeout so a
+/// hung scrape frees the slot.
+async fn start_stale_refresh(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    plan: StaleRefreshPlan,
+) -> bool {
+    let StaleRefreshPlan {
+        active: mut providers,
+        flagged,
+    } = plan;
+    if providers.is_empty() && flagged.is_empty() {
+        return false;
+    }
     let Some(slot) = RevalidationRegistry::global().try_claim((user_id, tenant_id)) else {
         debug!(%user_id, "home: activity refresh already in flight; not starting another");
-        return;
+        return !providers.is_empty();
     };
     let runtime = into_runtime(resources);
+    for provider in flagged {
+        if claim_scrape_session_retry(&runtime, user_id, tenant_id, &provider).await {
+            providers.push(provider);
+        }
+    }
+    if providers.is_empty() {
+        return false;
+    }
     resources.common.turns.spawn(async move {
         let refresh = refresh_providers(&runtime, user_id, tenant_id, &providers);
         if timeout(StdDuration::from_secs(REVALIDATION_TIMEOUT_SECS), refresh)
@@ -393,6 +465,7 @@ fn spawn_stale_refresh(
         }
         drop(slot);
     });
+    true
 }
 
 /// Top up each provider's recent head, one after the other.

@@ -39,15 +39,15 @@ use std::str::FromStr;
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use chrono::{Duration, TimeZone, Utc};
 use chrono_tz::Tz;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_BACKFILL_LIST_HEADER, KEY_BACKFILL_LIST_MORE, KEY_BACKFILL_READY,
-    KEY_PROVIDER_REAUTH_REQUIRED,
+    KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
 };
 use pierre_core::civil_time::format_local_day;
 use pierre_core::models::messaging::{ChannelConfig, ChannelType};
-use pierre_core::models::{is_in_app_channel, Activity, ConversationRecord, ReauthMark, TenantId};
+use pierre_core::models::{is_in_app_channel, Activity, ConversationRecord, TenantId};
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_database::backends::MessagingRepository;
 use pierre_database::repositories::shorten_url;
@@ -74,7 +74,7 @@ use crate::services::messaging_ingress::addressing::reply_recipient;
 use crate::services::messaging_ingress::block_render::{render_reply, RenderedReply};
 use crate::services::messaging_ingress::outbound_retry::{enqueue_failed_outbound, FailedOutbound};
 use crate::services::messaging_ingress::surface::messaging_render_profile;
-use pierre_services::messaging_broadcast::proactive_text;
+use pierre_services::messaging_broadcast::{proactive_text, resolve_linked_targets};
 
 /// Max activities rendered inline in the completion notice; the rest collapse
 /// into a "… and N more" footer so a deep backfill can't flood the channel.
@@ -288,6 +288,93 @@ impl ServerBackfillNotifier {
             #[cfg(feature = "client-notifications")]
             notifications: None,
         }
+    }
+
+    /// A one-time hosted-login link for the scrape mirror `provider`, minted
+    /// for `channel` and shortened to a dot-free `<base>/r/<code>` (the raw
+    /// JWT's dots make `WhatsApp` truncate linkification mid-token; the full
+    /// URL is kept when the shortener store write fails). Mirrors
+    /// `auth_recovery::mint_reconnect_url`'s hosted-login arm.
+    ///
+    /// `None`, logged, when `provider` has no hosted login or the token cannot
+    /// be minted.
+    async fn hosted_login_url(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        channel: &str,
+    ) -> Option<String> {
+        let target = backend_resolver::hosted_login_target(provider)?;
+        let token = match mint_link_token(
+            &MintProviderLinkTokenArgs {
+                user_id,
+                tenant_id: tenant_id.as_uuid(),
+                provider: "sciotte",
+                target,
+                channel,
+                channel_thread: None,
+            },
+            &self.admin_jwt_secret,
+        ) {
+            Ok(token) => token,
+            Err(e) => {
+                warn!(error = %e, provider = %provider, "Reconnect link: link-token mint failed");
+                return None;
+            }
+        };
+        let full_url = format!(
+            "{}/providers/sciotte/login?token={}",
+            self.base_url,
+            urlencoding::encode(&token)
+        );
+        Some(
+            shorten_url(
+                self.repos.short_links.as_ref(),
+                &self.base_url,
+                &full_url,
+                &tenant_id.as_uuid().to_string(),
+                &user_id.to_string(),
+            )
+            .await,
+        )
+    }
+
+    /// The reconnect notice for one linked chat on `channel`, in `locale`.
+    ///
+    /// A scrape mirror signs in again on the hosted login page, through a
+    /// one-time link minted for this channel. An OAuth provider has no link
+    /// this notice can carry: its authorization URL and the connect picker's
+    /// token both expire within the hour, well before a notice read the next
+    /// morning, and the sentence promises a day. It is named without a link,
+    /// and reconnected from the app's settings — as is a mirror whose link
+    /// could not be minted.
+    async fn reauth_notice_body(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        channel: &str,
+        locale: &str,
+    ) -> String {
+        let display =
+            backend_resolver::brand_name(&global_registry(), provider).unwrap_or(provider);
+        let url = if backend_resolver::hosted_login_target(provider).is_some() {
+            self.hosted_login_url(user_id, tenant_id, provider, channel)
+                .await
+        } else {
+            None
+        };
+        url.map_or_else(
+            || {
+                self.strings
+                    .render(KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK, locale, &[display])
+            },
+            |url| {
+                self.strings
+                    .render(KEY_PROVIDER_REAUTH_REQUIRED, locale, &[display, &url])
+            },
+        )
     }
 
     /// Resolve the originating channel for a Pierre conversation id, or `None`
@@ -822,43 +909,14 @@ impl BackfillNotifier for ServerBackfillNotifier {
         tenant_id: TenantId,
         pierre_conversation_id: &str,
         provider: &str,
-        attempt_started_at: DateTime<Utc>,
     ) {
-        // Light the needs_reauth flag (web/mobile badge + the synchronous
-        // get_activities reconnect gate). Deliberately NO dedup claim: the
-        // reconnect link is re-sent on every expired-session backfill until the
-        // user actually reconnects (which clears the flag via `mark_active`).
-        // A user whose first nudge carried a broken/never-clicked link must not
-        // be permanently silenced — so this nudge fires each time, matching the
-        // synchronous in-chat reconnect path (which also re-injects every turn).
-        // A reconnect that landed after the backfill began is left active, and
-        // is sent nothing: its session is the new one, and "your session
-        // expired" over it would contradict the connection the app shows. An
-        // already-flagged connection is re-nudged, as above.
-        match self
-            .repos
-            .provider_connections
-            .mark_needs_reauth(
-                user_id,
-                tenant_id,
-                provider,
-                Some("session_expired"),
-                attempt_started_at,
-            )
-            .await
-        {
-            Ok(ReauthMark::ReconnectedSince) => {
-                info!(
-                    provider = %provider,
-                    "Reauth nudge: reconnected since the backfill began; nothing to send"
-                );
-                return;
-            }
-            Ok(_) => {}
-            Err(e) => {
-                warn!(error = %e, provider = %provider, "Reauth nudge: mark_needs_reauth failed");
-            }
-        }
+        // Deliberately NO dedup claim: this answers the conversation that asked,
+        // and the link is re-sent on every expired-session backfill until the
+        // user actually reconnects. A user whose first link was broken or never
+        // clicked must not be permanently silenced — so this fires each time,
+        // matching the synchronous in-chat reconnect path (which also
+        // re-injects every turn). The flag and the once-per-transition notice
+        // were written by the backfill before it called here.
 
         // Resolve the originating channel — cross-channel, DM-correct (the same
         // routing the backfill-ready notice uses).
@@ -875,51 +933,23 @@ impl BackfillNotifier for ServerBackfillNotifier {
             channel_tenant_id,
         } = route;
 
-        // Mint the one-time hosted-login link. The historical backfill only ever
-        // runs on the scrape-backed mirrors, so this is always the sciotte
-        // hosted-login path — mirrors `auth_recovery::mint_reconnect_url`. A
-        // slug with no hosted login means that gate widened: a wrong-brand link
-        // is worse than none, so nothing is sent and the operator hears of it.
-        let Some(target) = backend_resolver::hosted_login_target(provider) else {
+        // The historical backfill only ever runs on the scrape-backed mirrors,
+        // so this is always the sciotte hosted-login path. A slug with no hosted
+        // login means that gate widened: a wrong-brand link is worse than none,
+        // so nothing is sent and the operator hears of it.
+        if backend_resolver::hosted_login_target(provider).is_none() {
             error!(
                 provider = %provider,
                 "Reauth nudge: provider has no hosted login; no reconnect link minted"
             );
             return;
+        }
+        let Some(url) = self
+            .hosted_login_url(user_id, tenant_id, provider, &channel_str)
+            .await
+        else {
+            return;
         };
-        let token = match mint_link_token(
-            &MintProviderLinkTokenArgs {
-                user_id,
-                tenant_id: tenant_id.as_uuid(),
-                provider: "sciotte",
-                target,
-                channel: &channel_str,
-                channel_thread: None,
-            },
-            &self.admin_jwt_secret,
-        ) {
-            Ok(t) => t,
-            Err(e) => {
-                warn!(error = %e, provider = %provider, "Reauth nudge: link-token mint failed");
-                return;
-            }
-        };
-        let full_url = format!(
-            "{}/providers/sciotte/login?token={}",
-            self.base_url,
-            urlencoding::encode(&token)
-        );
-        // Hand the user a short, dot-free `<base>/r/<code>` link — the raw JWT's
-        // dots make WhatsApp truncate linkification mid-token. Degrades to the
-        // full URL if the shortener store write fails.
-        let url = shorten_url(
-            self.repos.short_links.as_ref(),
-            &self.base_url,
-            &full_url,
-            &tenant_id.as_uuid().to_string(),
-            &user_id.to_string(),
-        )
-        .await;
 
         // Render the localized reconnect message ({0}=provider brand, {1}=link)
         // and send via the shared adapter rail.
@@ -966,5 +996,48 @@ impl BackfillNotifier for ServerBackfillNotifier {
         } else {
             info!(channel = %channel_str, provider = %provider, "Sent provider-reauth nudge on channel");
         }
+    }
+
+    async fn push_reauth_to_linked_channels(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> usize {
+        let mut delivered = 0;
+        for target in resolve_linked_targets(self.repos.messaging.as_ref(), user_id).await {
+            let channel_str = target.channel_type.to_string();
+            let locale = resolve_channel_locale(
+                self.repos.messaging.as_ref(),
+                self.repos.users.as_ref(),
+                target.tenant_id,
+                &channel_str,
+                &target.recipient_id,
+                Some(user_id),
+            )
+            .await;
+            let body = self
+                .reauth_notice_body(user_id, tenant_id, provider, &channel_str, &locale)
+                .await;
+            let outgoing = proactive_text(target.channel_type, target.recipient_id.clone(), body);
+            // The link's own tenant holds the bot that can post into its chat.
+            let Some((adapter, channel_config)) = self
+                .resolver
+                .resolve(target.tenant_id, &channel_str, target.channel_type)
+                .await
+            else {
+                continue;
+            };
+            match adapter.send(&outgoing, &channel_config).await {
+                Ok(_) => {
+                    info!(channel = %channel_str, provider = %provider, "Sent reconnect notice on linked channel");
+                    delivered += 1;
+                }
+                Err(e) => {
+                    warn!(error = %e, channel = %channel_str, provider = %provider, "Reconnect notice: linked channel send failed");
+                }
+            }
+        }
+        delivered
     }
 }

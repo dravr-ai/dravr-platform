@@ -222,6 +222,34 @@ pub(crate) const CLAIM_REAUTH_NOTIFICATION_SQL: &str = r"
                AND notified_at IS NULL
             ";
 
+/// Claim one retry of a connection flagged `needs_reauth`: only a caller whose
+/// retry is due affects a row. Due means the flag (`status_changed_at`, itself
+/// an attempt) and the last retry (`reauth_retry_at`) are both at or before
+/// `$5`, the caller's `now - interval`, so every replica and every caller
+/// share one throttle and exactly one of them wins each window.
+pub(crate) const CLAIM_REAUTH_RETRY_SQL: &str = r"
+            UPDATE provider_connections
+               SET reauth_retry_at = $1
+             WHERE user_id = $2 AND tenant_id = $3 AND provider = $4
+               AND status = 'needs_reauth'
+               AND (status_changed_at IS NULL OR status_changed_at <= $5)
+               AND (reauth_retry_at IS NULL OR reauth_retry_at <= $5)
+            ";
+
+/// Every connection flagged `needs_reauth` whose retry is due at `$1` (the
+/// condition [`CLAIM_REAUTH_RETRY_SQL`] claims under), longest-flagged first,
+/// at most `$2` of them — across users and tenants, for the operator sweep.
+pub(crate) const LIST_REAUTH_RETRY_DUE_SQL: &str = r"
+            SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, status, metadata,
+                   account_role
+              FROM provider_connections
+             WHERE status = 'needs_reauth'
+               AND (status_changed_at IS NULL OR status_changed_at <= $1)
+               AND (reauth_retry_at IS NULL OR reauth_retry_at <= $1)
+             ORDER BY status_changed_at ASC
+             LIMIT $2
+            ";
+
 /// Claim the one-time sync-failure notice for an `active` connection: only
 /// the first failing sync after the connection last synced affects a row.
 ///
@@ -566,6 +594,39 @@ macro_rules! impl_provider_connection_repository {
                     .await?;
 
                 Ok(result.rows_affected() > 0)
+            }
+
+            async fn claim_reauth_retry(
+                &self,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                provider: &str,
+                due_before: DateTime<Utc>,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(CLAIM_REAUTH_RETRY_SQL)
+                    .bind(Utc::now())
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .bind(due_before)
+                    .execute(self.pool())
+                    .await?;
+
+                Ok(result.rows_affected() > 0)
+            }
+
+            async fn list_reauth_retry_due(
+                &self,
+                due_before: DateTime<Utc>,
+                limit: i64,
+            ) -> AppResult<Vec<ProviderConnection>> {
+                let rows = sqlx::query(LIST_REAUTH_RETRY_DUE_SQL)
+                    .bind(due_before)
+                    .bind(limit)
+                    .fetch_all(self.pool())
+                    .await?;
+
+                rows.iter().map(connection_from_row).collect()
             }
 
             async fn claim_sync_failure_notification(

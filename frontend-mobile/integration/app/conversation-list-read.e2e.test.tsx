@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Conversation } from '@pierre/shared-types';
 
 import { installHttpStub, type HttpStub } from './helpers/httpStub';
+import { PROVIDERS_CONNECTED } from './helpers/homeFixtures';
 
 const mockPush = jest.fn();
 let mockSegments: string[] = ['(app)', '(tabs)', '(chat)'];
@@ -105,6 +106,8 @@ describe('the unified conversation list and its read marker', () => {
         return { data: { success: true } };
       },
       'GET /api/notifications/unread-count': { data: { unread_count: 0 } },
+      // The shell's reconnect banner reads the provider status.
+      'GET /api/providers': { data: PROVIDERS_CONNECTED },
     });
   });
 

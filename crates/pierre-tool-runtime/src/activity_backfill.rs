@@ -46,7 +46,7 @@ use std::time::Duration as StdDuration;
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::errors::AppResult;
-use pierre_core::models::{Activity, TenantId};
+use pierre_core::models::{Activity, ReauthMark, TenantId};
 use pierre_database::repositories::{ActivityBackfillJobRow, BackfillCoverage};
 use pierre_providers::core::{ActivityQueryParams, FitnessProvider};
 use tokio::task::JoinHandle;
@@ -58,6 +58,7 @@ use crate::activity_fetch::{
     activity_cache_retention_days, read_cached_window, serve_historical_window,
     write_through_activity_cache,
 };
+use crate::protocol::reauth_notice::{flag_needs_reauth, ReauthNotice};
 use crate::protocol::types::auth_required_provider;
 use crate::protocol::UniversalExecutor;
 use crate::runtime::ToolRuntime;
@@ -72,6 +73,10 @@ const DEFAULT_HISTORICAL_BACKFILL_THRESHOLD_DAYS: i64 = 90;
 /// Extra days added to a backfill's prune window so the season it just fetched
 /// is not immediately garbage-collected by its own write-through.
 const BACKFILL_RETENTION_MARGIN_DAYS: i64 = 7;
+
+/// Reason recorded on a connection a backfill flags: the word the capture
+/// sweep writes for the same condition, so `last_error` reads one way.
+const SESSION_EXPIRED: &str = "session_expired";
 
 /// Threshold (days) past which an `after` lower bound triggers background
 /// backfill, from `PIERRE_HISTORICAL_BACKFILL_THRESHOLD_DAYS` (falls back to
@@ -897,29 +902,77 @@ async fn persist_backfill_activities(
     Some(usize::try_from(persisted).unwrap_or(fetched_count))
 }
 
-/// Push a reconnect nudge to the originating channel when a chat-triggered
-/// backfill hit a lapsed provider session — a localized message + a one-time
-/// hosted-login link, routed cross-channel via the shared notifier rail.
-/// Mirrors [`notify_backfill_complete`]'s guards: no conversation id (MCP / A2A
-/// / SSE) or no notifier wired → no-op (the connection-status surface still
-/// reflects the expiry). By design the nudge is NOT deduped: it re-sends every
-/// expired-session turn until a real reconnect clears the flag, so a user whose
-/// first link was broken or never clicked is not permanently silenced.
+/// React to a backfill that found `job`'s provider session dead: flag the
+/// connection, tell the athlete once, and answer the conversation that asked.
 async fn notify_backfill_reauth(job: &ActivityBackfillJob, attempt_started_at: DateTime<Utc>) {
-    let (Some(conversation_id), Some(notifier)) = (
+    backfill_session_expired(
+        &job.resources,
+        job.user_id,
+        job.tenant_id,
+        &job.provider_name,
         job.pierre_conversation_id.as_deref(),
-        job.resources.backfill_notifier(),
-    ) else {
+        attempt_started_at,
+    )
+    .await;
+}
+
+/// What a backfill that began at `attempt_started_at` does when it finds the
+/// `provider` session of `(user_id, tenant_id)` dead.
+///
+/// 1. Flag the connection and send the once-per-transition reconnect notice,
+///    through [`flag_needs_reauth`] like every other flagging path. A
+///    connection the athlete reconnected after the backfill began is left
+///    active and sent nothing: its session is the new one, and "your session
+///    expired" over it would contradict the connection the app shows.
+/// 2. Answer the conversation that asked, when there is one and messaging is
+///    wired ([`crate::runtime::BackfillNotifier::push_provider_reauth`]),
+///    unless the notice just reached the athlete's chats — they would read the
+///    same link twice. That answer is not deduped: an athlete who asks again
+///    while still disconnected gets the link again, so a first link that was
+///    broken or never clicked does not silence them.
+///
+/// `pub` so the integration suite can drive it without a scraper.
+pub async fn backfill_session_expired(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+    pierre_conversation_id: Option<&str>,
+    attempt_started_at: DateTime<Utc>,
+) {
+    let notice = match flag_needs_reauth(
+        runtime,
+        user_id,
+        tenant_id,
+        provider,
+        SESSION_EXPIRED,
+        attempt_started_at,
+    )
+    .await
+    {
+        Ok((ReauthMark::ReconnectedSince, _)) => {
+            info!(
+                provider = %provider,
+                "Activity backfill: reconnected since the backfill began; nothing to send"
+            );
+            return;
+        }
+        Ok((_, notice)) => notice,
+        Err(e) => {
+            warn!(error = %e, provider = %provider, "Activity backfill: could not flag the expired session");
+            ReauthNotice::default()
+        }
+    };
+    if notice.chat_channels > 0 {
+        return;
+    }
+    let (Some(conversation_id), Some(notifier)) =
+        (pierre_conversation_id, runtime.backfill_notifier())
+    else {
         return;
     };
     notifier
-        .push_provider_reauth(
-            job.user_id,
-            job.tenant_id,
-            conversation_id,
-            &job.provider_name,
-            attempt_started_at,
-        )
+        .push_provider_reauth(user_id, tenant_id, conversation_id, provider)
         .await;
 }
 

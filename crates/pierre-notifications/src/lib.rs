@@ -402,6 +402,32 @@ impl NotificationService {
             .map(|delivery| delivery.outcome)
     }
 
+    /// Dispatch a pre-rendered notification at an explicit [`PushTier`] to the
+    /// app alone: [`Self::dispatch_with_tier`] without the linked chat
+    /// channels.
+    ///
+    /// For a notice whose chat copy the caller sends itself, because that copy
+    /// carries something the stored row must not — the provider reconnect
+    /// notice puts a one-time sign-in link in each chat, minted per channel,
+    /// and a link token has no place in a persisted notification. The persona
+    /// gate, the stored row and the device push run exactly as they do for
+    /// [`Self::dispatch_with_tier`], and the returned outcome is how the caller
+    /// learns whether the pipeline suppressed the notice.
+    ///
+    /// # Errors
+    ///
+    /// Returns the upstream [`CommereError`] when persistence or the pipeline
+    /// fails.
+    pub async fn dispatch_in_app_with_tier(
+        &self,
+        request: &DispatchRequest,
+        tier: PushTier,
+    ) -> CommereResult<DispatchOutcome> {
+        self.route(request, tier, ChannelFanOut::InAppOnly)
+            .await
+            .map(|delivery| delivery.outcome)
+    }
+
     /// The persona push policy the attached gate resolves for `user_id`, or
     /// `None` when no gate is attached or no policy applies.
     ///

@@ -290,21 +290,20 @@ describe('the Home tab over the wire', () => {
     expect(mockPush).toHaveBeenCalledWith('/(app)/(tabs)/(settings)/connections');
   });
 
-  it('names the connections to reconnect above the rows it still shows, and leads to Connections', async () => {
+  // The shell's banner names the connections; Home keeps its rows and says
+  // nothing more about them.
+  it('keeps the rows of a connection to reconnect without naming it a second time', async () => {
     stub = installHttpStub(homeServer({ [PROVIDERS_URL]: { data: PROVIDERS_RECONNECT } }));
     const screen = renderHome();
 
-    expect(await screen.findByTestId('home-reconnect-provider')).toHaveTextContent(
-      'Reconnect Strava, Garmin to see your new activities.Reconnect',
-    );
     expect(await screen.findByTestId('home-activity-strava-9001')).toBeTruthy();
+    await waitFor(() => expect(stub.requests.some((request) => request.url === '/api/providers')).toBe(true));
+    expect(screen.queryByTestId('home-activities-reconnect-needed')).toBeNull();
+    expect(screen.queryByText(/Reconnect Strava/)).toBeNull();
     expect(screen.queryByTestId('home-activities-no-provider')).toBeNull();
-
-    fireEvent.press(screen.getByTestId('home-activities-reconnect'));
-    expect(mockPush).toHaveBeenCalledWith('/(app)/(tabs)/(settings)/connections');
   });
 
-  it('names them in place of the empty sentence when the cache holds no rows', async () => {
+  it('says a reconnect is needed in place of the empty sentence when the cache holds no rows', async () => {
     stub = installHttpStub(
       homeServer({
         [RECENT_URL]: { data: recentResponse({ activities: [] }) },
@@ -313,7 +312,7 @@ describe('the Home tab over the wire', () => {
     );
     const screen = renderHome();
 
-    expect(await screen.findByTestId('home-reconnect-provider')).toBeTruthy();
+    expect(await screen.findByTestId('home-activities-reconnect-needed')).toHaveTextContent('Reconnect needed');
     expect(screen.queryByTestId('home-activities-empty')).toBeNull();
     expect(screen.queryByTestId('home-activities-connect')).toBeNull();
   });
@@ -429,6 +428,7 @@ describe('the way back Home', () => {
         data: { conversations: [], total: 0, limit: 50, offset: 0 },
       },
       'GET /api/notifications/unread-count': { data: { unread_count: 0 } },
+      [PROVIDERS_URL]: { data: PROVIDERS_CONNECTED },
     });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
     const screen = render(
@@ -445,5 +445,66 @@ describe('the way back Home', () => {
     expect(lockup.props.accessibilityLabel).toBe('Home');
     fireEvent.press(lockup);
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith(HOME_ROUTE));
+  });
+});
+
+describe('the shell reconnect banner', () => {
+  let stub: HttpStub;
+
+  afterEach(() => {
+    stub.restore();
+  });
+
+  function renderShell() {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    return render(
+      <QueryClientProvider client={client}>
+        <TabsLayout />
+        <HomeScreen />
+      </QueryClientProvider>,
+    );
+  }
+
+  function shellServer(providers: typeof PROVIDERS_CONNECTED): StubRoutes {
+    return homeServer({
+      'GET /api/chat/conversations?limit=50&offset=0': {
+        data: { conversations: [], total: 0, limit: 50, offset: 0 },
+      },
+      'GET /api/notifications/unread-count': { data: { unread_count: 0 } },
+      [PROVIDERS_URL]: { data: providers },
+    });
+  }
+
+  beforeEach(() => {
+    mockPush.mockClear();
+  });
+
+  // Turns red if the banner leaves the shell, stops deduplicating names across
+  // backends, names a disconnected provider, or leads anywhere but Connections.
+  it('names every connection to reconnect above the tabs, once, and leads to Connections', async () => {
+    stub = installHttpStub(shellServer(PROVIDERS_RECONNECT));
+    const screen = renderShell();
+
+    const banner = await screen.findByTestId('reconnect-banner');
+    expect(within(banner).getByTestId('reconnect-banner-providers')).toHaveTextContent(
+      'Reconnect Strava, Garmin to see your new activities.',
+    );
+    expect(within(banner).getByTestId('reconnect-banner-message').props.accessibilityRole).toBe('alert');
+    expect(within(banner).getByText('Reconnect needed')).toBeTruthy();
+    // Home and the banner share one provider-status read.
+    await screen.findByTestId('home-activity-strava-9001');
+    expect(stub.requests.filter((request) => request.url === '/api/providers')).toHaveLength(1);
+
+    fireEvent.press(within(banner).getByTestId('reconnect-banner-action'));
+    expect(mockPush).toHaveBeenCalledWith('/(app)/(tabs)/(settings)/connections');
+  });
+
+  it('draws nothing while every connection is healthy', async () => {
+    stub = installHttpStub(shellServer(PROVIDERS_CONNECTED));
+    const screen = renderShell();
+
+    await screen.findByTestId('home-activity-strava-9001');
+    await waitFor(() => expect(stub.requests.some((request) => request.url === '/api/providers')).toBe(true));
+    expect(screen.queryByTestId('reconnect-banner')).toBeNull();
   });
 });

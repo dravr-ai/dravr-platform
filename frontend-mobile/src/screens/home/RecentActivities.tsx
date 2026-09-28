@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The Home "Recent activities" section — the latest on a live map, the four before it with a route sketch
-// ABOUTME: No GPS in the recording, a stale cache and a connection to reconnect are each said in words; a tap opens a chat drafted about the activity
+// ABOUTME: No GPS in the recording and a stale cache are each said in words; a tap opens a chat drafted about the activity
 
 import React from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
@@ -170,11 +170,12 @@ interface RecentActivitiesProps {
    */
   providerConnected: boolean | null;
   /**
-   * The names of the connected providers that have to be reconnected before
-   * they sync again, from the same status. Empty when there are none.
+   * Whether a connected provider has to be reconnected before it syncs
+   * again, from the same status. The shell's reconnect banner names it and
+   * leads to Connections; the section only stops promising a sync.
    */
-  needsReconnect: string[];
-  /** Leave for Connections, where a provider is connected and reconnected. */
+  needsReconnect: boolean;
+  /** Leave for Connections, where a provider is connected. */
   onConnect: () => void;
   openDraft: OpenDraft;
 }
@@ -184,10 +185,10 @@ interface RecentActivitiesProps {
  * sketch of their route. An empty list says why in one sentence — no
  * provider to read from, with the way to connect one, or nothing synced yet.
  *
- * A connection to reconnect is named above the rows, never instead of them:
- * the rows the cache holds are still the athlete's, and the prompt says why
- * the list has stopped growing. With no rows it stands in for the empty
- * sentence, which would promise a sync the flagged connection cannot make.
+ * A connection to reconnect is named once, by the shell's banner above every
+ * tab. The rows the cache holds stay as they are; with no rows, the section
+ * says a reconnect is needed instead of the empty sentence, which would
+ * promise a sync the flagged connection cannot make.
  */
 export function RecentActivities({
   activities,
@@ -227,10 +228,11 @@ export function RecentActivities({
         </View>
       );
     } else if (providerConnected) {
-      body =
-        needsReconnect.length > 0 ? null : (
-          <EmptyState testID="home-activities-empty">{t('home.activities.empty')}</EmptyState>
-        );
+      body = needsReconnect ? (
+        <EmptyState testID="home-activities-reconnect-needed">{t('providers.reconnectNeeded')}</EmptyState>
+      ) : (
+        <EmptyState testID="home-activities-empty">{t('home.activities.empty')}</EmptyState>
+      );
     } else {
       body = (
         <EmptyState
@@ -267,22 +269,9 @@ export function RecentActivities({
     );
   }
 
-  // The names are joined with a comma, as the chat header joins its provider
-  // names: the phone's JavaScript engine ships no `Intl.ListFormat`.
-  const reconnect =
-    hasData && needsReconnect.length > 0 ? (
-      <EmptyState
-        action={{ label: t('providers.reconnect'), onPress: onConnect, testID: 'home-activities-reconnect' }}
-        testID="home-reconnect-provider"
-      >
-        {t('home.activities.reconnect', { providers: needsReconnect.join(', ') })}
-      </EmptyState>
-    ) : null;
-
   return (
     <Section title={t('home.activities.heading')} testID="home-section-activities">
       {hasData ? <SyncLine stale={stale} staleRefetch={staleRefetch} asOf={asOf} /> : null}
-      {reconnect}
       {body}
       {isError && hasData ? (
         <EmptyState

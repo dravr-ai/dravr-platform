@@ -15,6 +15,8 @@ jest.mock('../src/services/api', () => ({
   chatApi: {
     getConversations: (...args: unknown[]) => mockGetConversations(...args),
   },
+  // The reconnect banner above the tabs reads the provider status.
+  oauthApi: { getProvidersStatus: () => Promise.resolve({ providers: [] }) },
 }));
 jest.mock('../src/hooks/useServerStatus', () => ({
   useServerStatus: () => ({ isServerReachable: true, isChecking: false, checkNow: jest.fn() }),

@@ -16,7 +16,6 @@
 
 use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
-use std::time::Duration as StdDuration;
 
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
@@ -26,7 +25,7 @@ use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_CAPABILITY_REFUSAL, KEY_SCOPE_REFUSAL,
 };
 use pierre_core::models::messaging::{ChannelType, MessageContent};
-use pierre_core::models::{AddMessageParams, ConnectionStatus, ConnectionType, MessageRecord};
+use pierre_core::models::{AddMessageParams, ConnectionType, MessageRecord};
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
 use pierre_mcp_server::services::backfill_reentry::{
@@ -35,7 +34,6 @@ use pierre_mcp_server::services::backfill_reentry::{
 use pierre_messaging::channel::MessagingChannel;
 use pierre_middleware::provider_link_token::verify_link_token;
 use pierre_tool_runtime::runtime::BackfillNotifier;
-use tokio::time::sleep;
 
 // Shared messaging fixtures + channel fakes live in a helpers subdir (not a
 // top-level test binary), pulled in via `#[path]` so this test and the upcoming
@@ -181,8 +179,7 @@ async fn push_provider_reauth_nudges_dm_and_resends_until_reconnect() {
         &conversation_id,
     )
     .await;
-    // A connected Garmin (sciotte mirror): mark_needs_reauth UPDATEs an existing
-    // row, so the connection must exist for the claim/nudge to fire.
+    // A connected Garmin (sciotte mirror), the connection the nudge names.
     repos
         .provider_connections
         .register_connection(
@@ -201,13 +198,7 @@ async fn push_provider_reauth_nudges_dm_and_resends_until_reconnect() {
         ServerBackfillNotifier::with_resolver(repos.clone(), strings(), resolver.clone());
 
     notifier
-        .push_provider_reauth(
-            user_uuid,
-            tenant_id,
-            &conversation_id,
-            "sciotte_garmin",
-            Utc::now(),
-        )
+        .push_provider_reauth(user_uuid, tenant_id, &conversation_id, "sciotte_garmin")
         .await;
 
     // Extract the short code inside the lock scope, then drop the guard before
@@ -258,13 +249,7 @@ async fn push_provider_reauth_nudges_dm_and_resends_until_reconnect() {
     // reconnect link was broken/never-clicked must keep getting the link on every
     // failed turn until they actually reconnect (which clears needs_reauth).
     notifier
-        .push_provider_reauth(
-            user_uuid,
-            tenant_id,
-            &conversation_id,
-            "sciotte_garmin",
-            Utc::now(),
-        )
+        .push_provider_reauth(user_uuid, tenant_id, &conversation_id, "sciotte_garmin")
         .await;
     assert_eq!(
         channel.sent.lock().unwrap().len(),
@@ -316,7 +301,6 @@ async fn push_provider_reauth_for_trainingpeaks_links_the_trainingpeaks_login() 
             tenant_id,
             &conversation_id,
             "sciotte_trainingpeaks",
-            Utc::now(),
         )
         .await;
 
@@ -389,98 +373,12 @@ async fn push_provider_reauth_sends_nothing_for_a_provider_with_no_hosted_login(
     let notifier =
         ServerBackfillNotifier::with_resolver(repos.clone(), strings(), resolver.clone());
     notifier
-        .push_provider_reauth(user_uuid, tenant_id, &conversation_id, "whoop", Utc::now())
+        .push_provider_reauth(user_uuid, tenant_id, &conversation_id, "whoop")
         .await;
 
     assert!(
         channel.sent.lock().unwrap().is_empty(),
         "no reconnect link may be minted for a provider the hosted login cannot serve"
-    );
-}
-
-/// A backfill reports the session it read. When the athlete reconnected after
-/// it began, its nudge leaves the reconnected connection active instead of
-/// flagging the new session, and sends them nothing: "your session expired"
-/// right after they reconnected contradicts the connection the app shows. A
-/// backfill that began after the reconnect and still fails flags it and nudges.
-#[tokio::test]
-async fn push_provider_reauth_leaves_a_connection_reconnected_since_the_backfill_began() {
-    let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
-    let (user_uuid, tenant_id) = seed_user(&db).await;
-    let user_id = user_uuid.to_string();
-    let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
-    // A routable DM, so a nudge that goes out is one the channel records.
-    seed_session(
-        &db,
-        &user_id,
-        tenant_id,
-        "whatsapp",
-        "14502244753",
-        None,
-        &conversation_id,
-    )
-    .await;
-    let pc = &repos.provider_connections;
-    pc.register_connection(
-        user_uuid,
-        tenant_id,
-        "sciotte_garmin",
-        &ConnectionType::OAuth,
-        None,
-    )
-    .await
-    .unwrap();
-    let channel = Arc::new(CapturingChannel::default());
-    let notifier = ServerBackfillNotifier::with_resolver(
-        repos.clone(),
-        strings(),
-        Arc::new(FakeResolver::new(channel.clone())),
-    );
-    let status = || async { pc.get_for_user(user_uuid, Some(tenant_id)).await.unwrap()[0].status };
-    let sent = || channel.sent.lock().unwrap().len();
-
-    let backfill_began = Utc::now();
-    sleep(StdDuration::from_millis(10)).await;
-    pc.register_connection(
-        user_uuid,
-        tenant_id,
-        "sciotte_garmin",
-        &ConnectionType::OAuth,
-        None,
-    )
-    .await
-    .unwrap();
-    notifier
-        .push_provider_reauth(
-            user_uuid,
-            tenant_id,
-            &conversation_id,
-            "sciotte_garmin",
-            backfill_began,
-        )
-        .await;
-    assert_eq!(status().await, ConnectionStatus::Active);
-    assert_eq!(
-        sent(),
-        0,
-        "no reconnect prompt reaches an athlete who reconnected while the backfill ran"
-    );
-
-    notifier
-        .push_provider_reauth(
-            user_uuid,
-            tenant_id,
-            &conversation_id,
-            "sciotte_garmin",
-            Utc::now(),
-        )
-        .await;
-    assert_eq!(status().await, ConnectionStatus::NeedsReauth);
-    assert_eq!(
-        sent(),
-        1,
-        "a session that failed after the reconnect is nudged"
     );
 }
 

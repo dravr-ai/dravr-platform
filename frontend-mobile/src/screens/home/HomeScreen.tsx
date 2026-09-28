@@ -112,7 +112,7 @@ export function HomeScreen() {
           asOf={recent.asOf}
           onRetry={() => void refetchRecent()}
           providerConnected={provider.connected}
-          needsReconnect={provider.needsReconnect}
+          needsReconnect={provider.needsReconnect.length > 0}
           onConnect={() => router.push(CONNECTIONS_ROUTE)}
           openDraft={openDraft}
         />

@@ -24,7 +24,6 @@
 use std::sync::{Arc, LazyLock};
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use pierre_core::models::TenantId;
 use uuid::Uuid;
 
@@ -65,9 +64,11 @@ use pierre_notifications::NotificationService;
 ///
 /// The push is best-effort: the implementation owns its own error handling and
 /// returns unit, so a notification failure never affects the backfill itself.
-/// The concrete implementation and the call from `run_activity_backfill` land
-/// in a later phase; this trait and the [`ToolRuntime::backfill_notifier`]
-/// getter only declare the seam.
+///
+/// The same seam carries the chat half of the provider-reconnect notice
+/// ([`BackfillNotifier::push_reauth_to_linked_channels`]): the messaging
+/// adapters, the channel-link rows and the link-token secret it needs live in
+/// the server crate, behind the implementation.
 #[async_trait]
 pub trait BackfillNotifier: Send + Sync {
     /// Notify the channel behind `pierre_conversation_id` that a background
@@ -89,29 +90,45 @@ pub trait BackfillNotifier: Send + Sync {
         activity_count: usize,
     );
 
-    /// Notify the channel behind `pierre_conversation_id` that `provider`'s
-    /// session/token expired and must be reconnected — a localized message plus
-    /// a one-time hosted-login link, routed to the originating channel (any
-    /// channel) via the same rail as [`Self::push_backfill_complete`].
+    /// Answer the conversation behind `pierre_conversation_id` that
+    /// `provider`'s session expired and must be reconnected — a localized
+    /// message plus a one-time hosted-login link, routed to the originating
+    /// channel (any channel) via the same rail as
+    /// [`Self::push_backfill_complete`].
     ///
     /// Fired from the DETACHED backfill path, where an auth failure would
     /// otherwise be silent (the foreground tool loop already nudges inline).
-    /// Best-effort and not deduped: the link is re-sent on every expired-session
-    /// backfill until the athlete reconnects, so a first link that was broken or
-    /// never clicked does not silence them. Implementations swallow and log
-    /// their own failures.
-    ///
-    /// `attempt_started_at` is when the backfill that failed began: a
-    /// connection the athlete reconnected after it is left active and sent
-    /// nothing, since the failure was the session the backfill read.
+    /// It is the conversation's answer, not the connection's notice: the flag
+    /// and the once-per-transition notice are
+    /// [`crate::protocol::reauth_notice::flag_needs_reauth`]'s, which the
+    /// backfill runs first. This is not deduped: the link is re-sent on every
+    /// expired-session backfill the athlete asks for until they reconnect, so
+    /// a first link that was broken or never clicked does not silence them.
+    /// Implementations swallow and log their own failures.
     async fn push_provider_reauth(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
         pierre_conversation_id: &str,
         provider: &str,
-        attempt_started_at: DateTime<Utc>,
     );
+
+    /// Send the chat half of the reconnect notice: on every messaging channel
+    /// `user_id` has linked, the reconnect sentence in that link's locale, with
+    /// a one-time sign-in link minted for that channel where `provider` has a
+    /// hosted login, and the same sentence without one otherwise. Returns how
+    /// many channels accepted it.
+    ///
+    /// Called only by [`crate::protocol::reauth_notice::notify_needs_reauth`],
+    /// after it won the connection's once-per-transition claim, so an
+    /// implementation sends unconditionally. Best-effort: a channel that is
+    /// unconfigured or refuses the send is logged and skipped.
+    async fn push_reauth_to_linked_channels(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> usize;
 }
 
 /// Narrow façade over the server's shared services that tool implementations

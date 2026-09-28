@@ -1293,3 +1293,62 @@ async fn a_stale_cache_answers_at_once_and_refreshes_once_in_the_background() {
         "a fresh cache reads no provider"
     );
 }
+
+/// Each provider is judged by its own last fetch. A WHOOP synced minutes ago
+/// says nothing about a Strava last read two days ago: the page is stale, the
+/// Strava head is refreshed, and `as_of` still shows the newest fetch of any
+/// provider.
+#[tokio::test]
+#[serial]
+async fn a_fresh_provider_does_not_hide_a_stale_one() {
+    let (api_base, hits) = mock_strava_list().await;
+    let _env = EnvGuard::set(&[
+        ("PIERRE_STRAVA_API_BASE_URL", api_base),
+        ("STRAVA_CLIENT_ID", "test_client".to_owned()),
+        ("STRAVA_CLIENT_SECRET", "test_secret".to_owned()),
+    ]);
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "recent-per-provider").await;
+    link_strava(&resources, &athlete).await;
+    let repos = &resources.common.repos;
+    repos
+        .provider_connections
+        .register_connection(
+            athlete.user_id,
+            athlete.tenant,
+            "whoop",
+            &ConnectionType::OAuth,
+            None,
+        )
+        .await
+        .unwrap();
+    let strava_fetched = Utc::now() - Duration::days(2);
+    let whoop_fetched = Utc::now() - Duration::minutes(5);
+    repos
+        .activity_cache
+        .record_activity_fetch(athlete.user_id, &athlete.tenant, "strava", strava_fetched)
+        .await
+        .unwrap();
+    repos
+        .activity_cache
+        .record_activity_fetch(athlete.user_id, &athlete.tenant, "whoop", whoop_fetched)
+        .await
+        .unwrap();
+
+    let body = recent(&resources, &athlete.token, "").await;
+    assert_eq!(body["stale"], true, "the stale Strava makes the page stale");
+    let as_of = DateTime::parse_from_rfc3339(body["as_of"].as_str().unwrap()).unwrap();
+    assert!(
+        (as_of.with_timezone(&Utc) - whoop_fetched)
+            .num_seconds()
+            .abs()
+            < 1,
+        "as_of is the newest fetch of any provider"
+    );
+    await_background(&resources).await;
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        1,
+        "the stale Strava was refreshed"
+    );
+}

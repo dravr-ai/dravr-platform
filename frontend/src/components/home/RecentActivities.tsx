@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The Home page's recent activities — the latest on the chat's live map, the four before it as route sketches
-// ABOUTME: A tap drafts "analyze my activity" in a new chat; no provider, a provider to reconnect, no GPS and no rows are each said in words
+// ABOUTME: A tap drafts "analyze my activity" in a new chat; no provider, no GPS and no rows are each said in words
 
 import { useMemo, type ReactNode } from 'react';
 import { clsx } from 'clsx';
@@ -20,13 +20,12 @@ import {
   ROW_DATE,
   activityFigures,
   formatInstant,
-  formatNameList,
   formatSyncTime,
   sportLabel,
 } from './homeFormat';
 
 interface RecentActivitiesProps {
-  /** Dashboard route navigator, `tab[/subview]` — the connect and reconnect prompts leave for the connections pane. */
+  /** Dashboard route navigator, `tab[/subview]` — the connect prompt leaves for the connections pane. */
   onNavigate: (route: string) => void;
   /** Open a new chat whose composer holds `text`. */
   onOpenChatDraft: (text: string) => void;
@@ -185,12 +184,12 @@ function ActivityRow({
 }
 
 /**
- * The section: its heading and sync line, then the rows, the connect prompt,
- * the reconnect prompt or the empty sentence — never a made-up row.
+ * The section: its heading and sync line, then the rows, the connect prompt
+ * or the empty sentence — never a made-up row.
  *
- * A provider to reconnect is named above the rows rather than instead of
- * them: the cached rows are the athlete's own activities, and the server
- * adds none from that provider until it is reconnected.
+ * A provider to reconnect is named by the app shell's reconnect banner, above
+ * every tab, so this card does not say it a second time; the cached rows it
+ * still shows are the athlete's own activities.
  */
 export function RecentActivities({ onNavigate, onOpenChatDraft }: RecentActivitiesProps) {
   const { t, language } = useTranslation();
@@ -213,15 +212,6 @@ export function RecentActivities({ onNavigate, onOpenChatDraft }: RecentActiviti
       {t('home.activities.noProvider')}
     </EmptyState>
   );
-  const needsReconnect = providers.needsReconnect.length > 0;
-  const reconnectPrompt = (
-    <EmptyState
-      data-testid="home-reconnect-provider"
-      action={{ label: t('providers.reconnect'), onClick: () => onNavigate(CONNECTIONS_ROUTE) }}
-    >
-      {t('home.activities.reconnect', { providers: formatNameList(providers.needsReconnect, language) })}
-    </EmptyState>
-  );
 
   let body: ReactNode;
   if (recent.isPending) {
@@ -242,8 +232,6 @@ export function RecentActivities({ onNavigate, onOpenChatDraft }: RecentActiviti
   } else if (activities.length === 0) {
     if (noProvider) {
       body = connectPrompt;
-    } else if (needsReconnect) {
-      body = reconnectPrompt;
     } else {
       body = <EmptyState>{t('home.activities.empty')}</EmptyState>;
     }
@@ -253,12 +241,10 @@ export function RecentActivities({ onNavigate, onOpenChatDraft }: RecentActiviti
     // all say their route held no GPS keeps its text flush with the latest
     // row instead.
     const sketchSlot = earlier.some((activity) => activity.has_gps || activity.summary_polyline !== null);
-    const prompted = noProvider || needsReconnect;
     body = (
       <>
         {noProvider && connectPrompt}
-        {needsReconnect && reconnectPrompt}
-        <ul className={clsx(prompted && 'mt-2')}>
+        <ul className={clsx(noProvider && 'mt-2')}>
           <LatestActivity key={`${latest.provider}:${latest.id}`} activity={latest} onOpenChatDraft={onOpenChatDraft} />
           {earlier.map((activity) => (
             <ActivityRow

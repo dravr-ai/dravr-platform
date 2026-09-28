@@ -232,7 +232,7 @@ test.describe('Athlete Home', () => {
       '/api/me/activities/strava/act-3/route',
       '/api/me/activities/strava/act-5/route',
     ]);
-    await expect(page.getByTestId('home-reconnect-provider')).toHaveCount(0);
+    await expect(page.getByTestId('provider-reconnect-banner')).toHaveCount(0);
     // The rail marks Home as the page the athlete is on.
     await expect(page.getByTestId('icon-rail').getByRole('button', { name: 'Home', exact: true }).last()).toHaveAttribute(
       'aria-current',
@@ -311,30 +311,62 @@ test.describe('Athlete Home', () => {
     await expect(page).toHaveURL(/#settings\/connections$/);
   });
 
-  test('a connection to reconnect is named above the cached rows, and leads to the connections pane', async ({ page }) => {
+  test('a connection to reconnect is named by the shell banner on every tab, and leads to the connections pane', async ({ page }) => {
     await signInAthlete(page);
     await mockHome(page, {
-      providers: [provider('strava', 'Strava'), provider('garmin', 'Garmin', { needs_reauth: true })],
+      providers: [
+        provider('strava', 'Strava'),
+        provider('garmin', 'Garmin', { needs_reauth: true }),
+        // A disconnected provider is never named, whatever its flag says.
+        provider('coros', 'COROS', { connected: false, needs_reauth: true }),
+      ],
       recent: [{ activities: ACTIVITIES, as_of: '2026-09-22T06:00:00Z', stale: false }],
     });
+    await mockConversationCreate(page);
     await login(page);
 
-    const section = page.getByTestId('home-activities');
-    const prompt = section.getByTestId('home-reconnect-provider');
-    await expect(prompt).toContainText('Reconnect Garmin to see your new activities.');
+    const banner = page.getByTestId('provider-reconnect-banner');
+    await expect(banner).toBeVisible();
+    await expect(banner).toHaveAttribute('role', 'alert');
+    await expect(banner).toContainText('Reconnect needed');
+    await expect(banner).toContainText('Reconnect Garmin to see your new activities.');
+    await expect(banner).not.toContainText('COROS');
+    // It sits above the page, and the card below does not say it again.
+    const bannerBox = await banner.boundingBox();
+    const homeBox = await page.getByTestId('home-page').boundingBox();
+    expect(bannerBox).not.toBeNull();
+    expect(homeBox).not.toBeNull();
+    expect(bannerBox?.y ?? Infinity).toBeLessThan(homeBox?.y ?? 0);
+    await expect(page.getByTestId('home-activities')).not.toContainText('Reconnect');
     await expect(page.getByTestId('home-connect-provider')).toHaveCount(0);
-    // What the cache holds stays on the page, under the prompt.
-    await expect(section).toContainText('Last synced:');
-    await expect(page.getByTestId('home-activity-latest')).toContainText('Long ride');
+    // What the cache holds stays on the page.
+    await expect(page.getByTestId('home-activities')).toContainText('Last synced:');
     await expect(page.getByTestId('home-activity-row')).toHaveCount(4);
-    const promptBox = await prompt.boundingBox();
-    const latestBox = await page.getByTestId('home-activity-latest').boundingBox();
-    expect(promptBox).not.toBeNull();
-    expect(latestBox).not.toBeNull();
-    expect(promptBox?.y ?? 0).toBeLessThan(latestBox?.y ?? 0);
 
-    await prompt.getByRole('button', { name: 'Reconnect' }).click();
+    // Another tab: the strip stays.
+    await page.getByTestId('icon-rail').getByRole('button', { name: 'Chat', exact: true }).click();
+    await expect(page).toHaveURL(/#chat$/);
+    await expect(page.getByTestId('home-page')).toHaveCount(0);
+    await expect(banner).toBeVisible();
+    await expect(banner).toContainText('Reconnect Garmin to see your new activities.');
+
+    await banner.getByRole('button', { name: 'Reconnect' }).click();
     await expect(page).toHaveURL(/#settings\/connections$/);
+    // The connections pane still carries it until the connection is renewed.
+    await expect(banner).toBeVisible();
+  });
+
+  test('a healthy connection raises no reconnect banner on any tab', async ({ page }) => {
+    await signInAthlete(page);
+    await mockHome(page);
+    await mockConversationCreate(page);
+    await login(page);
+
+    await expect(page.getByTestId('home-activity-row')).toHaveCount(4);
+    await expect(page.getByTestId('provider-reconnect-banner')).toHaveCount(0);
+    await page.getByTestId('icon-rail').getByRole('button', { name: 'Chat', exact: true }).click();
+    await expect(page).toHaveURL(/#chat$/);
+    await expect(page.getByTestId('provider-reconnect-banner')).toHaveCount(0);
   });
 
   test('a stale cache is asked for again until an answer is fresh, each ask after its own delay', async ({ page }) => {

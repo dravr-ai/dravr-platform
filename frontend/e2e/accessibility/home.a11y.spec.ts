@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: WCAG 2.1 AA coverage for the athlete Home — the page sign-in lands on — with colour contrast enabled
-// ABOUTME: Scans the planned week with activities, the reconnect prompt above them and the empty no-plan state, in both themes
+// ABOUTME: Scans the planned week with activities, the shell's reconnect banner above them and the empty no-plan state, in both themes
 
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
@@ -157,9 +157,9 @@ test.describe('Home accessibility', () => {
       expect(await scan(page)).toBe('');
     });
 
-    test(`the reconnect prompt above the activities has no WCAG 2.1 AA violations (${theme})`, async ({ page }) => {
+    test(`the reconnect banner above Home has no WCAG 2.1 AA violations (${theme})`, async ({ page }) => {
       await signIn(page, PLAN, true);
-      await expect(page.getByTestId('home-reconnect-provider')).toContainText(
+      await expect(page.getByTestId('provider-reconnect-banner')).toContainText(
         'Reconnect Strava to see your new activities.',
       );
       await expect(page.getByTestId('home-activity-row')).toHaveCount(1);

@@ -18,8 +18,14 @@
 //!
 //! [`refresh_captures`] **never attempts a login.** It refreshes only what is
 //! already authenticated, and when a capture fails in an auth-shaped way it
-//! flags the connection and moves on. The athlete's next turn already consults
-//! that flag and hands back a reconnect link.
+//! flags the connection and moves on. The flag sends the athlete the reconnect
+//! notice once ([`flag_needs_reauth`]), in the app and on every chat they
+//! linked, and their next turn consults it and hands back a reconnect link.
+//!
+//! A flag on a scrape session is one read's verdict, and the scraper can be
+//! wrong about a session that is fine, so the sweep also retries flagged scrape
+//! sessions on a throttle ([`crate::reauth_retry`]) — the same headless read,
+//! never a login. One the session serves is re-armed.
 //!
 //! That constraint is not fastidiousness. A fresh scraper login can demand a 2FA
 //! phone tap within a four-minute window, and the scraper service scales to zero
@@ -50,6 +56,8 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::activity_fetch::fetch_provider_head;
+use crate::protocol::reauth_notice::flag_needs_reauth;
+use crate::reauth_retry::{claim_scrape_session_retry, SCRAPE_SESSION_RETRY_INTERVAL_HOURS};
 use crate::runtime::ToolRuntime;
 
 /// How far back one sweep fetch reaches. A nightly cadence only needs to cover
@@ -168,17 +176,23 @@ pub struct RefreshReport {
     pub failed: usize,
     /// Connections the time budget left unreached.
     pub skipped: usize,
+    /// Flagged scrape sessions the sweep retried, each also counted in
+    /// `attempted` and in the outcome it reached.
+    pub retried: usize,
     /// Whether the sweep reached every connection in the snapshot.
     pub completed: bool,
     /// Every connection walked, in the order it was walked.
     pub connections: Vec<ConnectionRefresh>,
 }
 
-/// Refresh the recent head of every live provider connection.
+/// Refresh the recent head of every live provider connection, then retry the
+/// flagged scrape sessions whose retry is due.
 ///
 /// Walks the same snapshot the staleness reader judges — which already excludes
-/// connections needing re-auth, since a known-dead one has nothing to refresh
-/// and re-attempting it would spend a scrape per night for nothing.
+/// connections needing re-auth, since a known-dead one has nothing to refresh.
+/// A flagged scrape session is the exception, walked after the live ones by
+/// [`retry_flagged_sessions`] on its own throttle; a flagged OAuth connection
+/// is never re-attempted.
 ///
 /// Never attempts a login. Each connection is fetched through the shared
 /// write-through path; an auth-shaped failure flags the connection with
@@ -209,58 +223,168 @@ pub async fn refresh_captures(
         after: Some(after_ts),
     };
 
-    let mut report = Vec::with_capacity(snapshot.len());
-    let (mut attempted, mut refreshed, mut flagged, mut failed, mut skipped) = (0, 0, 0, 0, 0);
-
+    let mut walk = Walk {
+        runtime,
+        params: &params,
+        per_connection: budget.per_connection,
+        deadline,
+        tally: Tally::default(),
+        connections: Vec::with_capacity(snapshot.len()),
+    };
     for connection in snapshot {
-        let outcome = if Instant::now() >= deadline {
-            skipped += 1;
-            RefreshOutcome::SkippedBudgetExhausted
-        } else {
-            attempted += 1;
-            let outcome = refresh_one(
-                runtime,
-                &connection.tenant_id,
-                &connection.user_id,
-                &connection.provider,
-                &params,
-                budget.per_connection,
-            )
-            .await;
-            match outcome {
-                RefreshOutcome::Refreshed { .. } => refreshed += 1,
-                RefreshOutcome::Flagged { .. } => flagged += 1,
-                _ => failed += 1,
-            }
-            outcome
-        };
-
-        report.push(ConnectionRefresh {
-            tenant_id: connection.tenant_id,
-            user_id: connection.user_id,
-            provider: connection.provider,
-            outcome,
-        });
+        walk.visit(
+            connection.tenant_id,
+            connection.user_id,
+            connection.provider,
+        )
+        .await;
     }
+    let retried = retry_flagged_sessions(&mut walk, budget.connection_limit).await;
 
-    let completed = skipped == 0;
+    let Walk {
+        tally, connections, ..
+    } = walk;
+    let completed = tally.skipped == 0;
 
     info!(
-        attempted,
-        refreshed, flagged, failed, skipped, completed, "Capture sweep finished"
+        attempted = tally.attempted,
+        refreshed = tally.refreshed,
+        flagged = tally.flagged,
+        failed = tally.failed,
+        skipped = tally.skipped,
+        retried,
+        completed,
+        "Capture sweep finished"
     );
 
     Ok(RefreshReport {
         started_at,
         finished_at: Utc::now(),
-        attempted,
-        refreshed,
-        flagged,
-        failed,
-        skipped,
+        attempted: tally.attempted,
+        refreshed: tally.refreshed,
+        flagged: tally.flagged,
+        failed: tally.failed,
+        skipped: tally.skipped,
+        retried,
         completed,
-        connections: report,
+        connections,
     })
+}
+
+/// The report's counters, as one sweep accumulates them.
+#[derive(Debug, Default)]
+struct Tally {
+    attempted: usize,
+    refreshed: usize,
+    flagged: usize,
+    failed: usize,
+    skipped: usize,
+}
+
+/// One sweep in progress: what every connection's fetch shares, and what the
+/// walk has reported so far.
+struct Walk<'a> {
+    runtime: &'a Arc<dyn ToolRuntime>,
+    params: &'a ActivityQueryParams,
+    per_connection: Duration,
+    deadline: Instant,
+    tally: Tally,
+    connections: Vec<ConnectionRefresh>,
+}
+
+impl Walk<'_> {
+    /// Whether the time budget is spent, so no further fetch may start.
+    fn exhausted(&self) -> bool {
+        Instant::now() >= self.deadline
+    }
+
+    /// Fetch one connection's head (or record that the budget left it
+    /// unreached) and add its line to the report.
+    async fn visit(&mut self, tenant_id: String, user_id: String, provider: String) {
+        let outcome = if self.exhausted() {
+            self.tally.skipped += 1;
+            RefreshOutcome::SkippedBudgetExhausted
+        } else {
+            self.tally.attempted += 1;
+            let outcome = refresh_one(
+                self.runtime,
+                &tenant_id,
+                &user_id,
+                &provider,
+                self.params,
+                self.per_connection,
+            )
+            .await;
+            match outcome {
+                RefreshOutcome::Refreshed { .. } => self.tally.refreshed += 1,
+                RefreshOutcome::Flagged { .. } => self.tally.flagged += 1,
+                _ => self.tally.failed += 1,
+            }
+            outcome
+        };
+        self.connections.push(ConnectionRefresh {
+            tenant_id,
+            user_id,
+            provider,
+            outcome,
+        });
+    }
+}
+
+/// Retry the flagged scrape sessions whose retry is due, and report how many
+/// were attempted.
+///
+/// Each is claimed through [`claim_scrape_session_retry`] before it is
+/// fetched, so a connection Home or another replica retried within the
+/// interval is left alone and does not appear in the report. The fetch is the
+/// sweep's ordinary one: a session that serves it is re-armed by the live-read
+/// path, and a refused one stays flagged, reported `flagged`, and is not told
+/// again. Stops claiming once the time budget is spent, so an unreached
+/// session keeps its claim for the next sweep. A listing that cannot be read
+/// is logged and retries nothing: the live half of the sweep already ran.
+async fn retry_flagged_sessions(walk: &mut Walk<'_>, limit: i64) -> usize {
+    let due_before = Utc::now() - ChronoDuration::hours(SCRAPE_SESSION_RETRY_INTERVAL_HOURS);
+    let due = match walk
+        .runtime
+        .repos()
+        .provider_connections
+        .list_reauth_retry_due(due_before, limit)
+        .await
+    {
+        Ok(due) => due,
+        Err(e) => {
+            warn!(error = %e, "Capture sweep: could not list flagged sessions due a retry");
+            return 0;
+        }
+    };
+
+    let mut retried = 0;
+    for connection in due {
+        if walk.exhausted() {
+            break;
+        }
+        let Ok(tenant) = TenantId::parse_str(&connection.tenant_id) else {
+            continue;
+        };
+        if !claim_scrape_session_retry(
+            walk.runtime,
+            connection.user_id,
+            tenant,
+            &connection.provider,
+        )
+        .await
+        {
+            continue;
+        }
+        retried += 1;
+        walk.visit(
+            connection.tenant_id,
+            connection.user_id.to_string(),
+            connection.provider,
+        )
+        .await;
+    }
+    retried
 }
 
 /// Refresh one connection's head, flagging it when the failure is auth-shaped.
@@ -365,15 +489,15 @@ fn flag_outcome(user_id: Uuid, provider: &str, mark: ReauthMark) -> RefreshOutco
     }
 }
 
-/// Flip a connection to `needs_reauth` so the athlete's next turn offers a
-/// reconnect instead of silence.
+/// Flip a connection to `needs_reauth` and tell the athlete once.
 ///
-/// No notification is sent from here. The athlete's next turn already consults
-/// this flag and renders the reconnect link, which is the point — waking someone
-/// at 4am to say a scrape session lapsed is the opposite of the quietness this
-/// design buys. Flipping the status also drops the connection out of the
-/// staleness snapshot, so the reader stops counting a failure that now has a
-/// known reason and a stated remedy.
+/// The flag and its notice go through [`flag_needs_reauth`], the path every
+/// flagging site shares: the athlete hears it once per transition, in the app
+/// and on every chat they linked, with a sign-in link where the provider has
+/// one. Flipping the status also drops the connection out of the staleness
+/// snapshot, so the reader stops counting a failure that now has a known
+/// reason and a stated remedy; a scrape session is then revisited by the
+/// throttled retry ([`retry_flagged_sessions`]), which can re-arm it.
 ///
 /// A connection the athlete reconnected after `attempt_started_at` is left
 /// active: the failure was the credential the fetch read, not the new one. It
@@ -397,19 +521,17 @@ async fn flag_connection(
         };
     };
 
-    match runtime
-        .repos()
-        .provider_connections
-        .mark_needs_reauth(
-            user_id,
-            tenant,
-            provider,
-            Some(FLAG_REASON),
-            attempt_started_at,
-        )
-        .await
+    match flag_needs_reauth(
+        runtime,
+        user_id,
+        tenant,
+        provider,
+        FLAG_REASON,
+        attempt_started_at,
+    )
+    .await
     {
-        Ok(mark) => flag_outcome(user_id, provider, mark),
+        Ok((mark, _)) => flag_outcome(user_id, provider, mark),
         Err(e) => {
             warn!(
                 user_id = %user_id,

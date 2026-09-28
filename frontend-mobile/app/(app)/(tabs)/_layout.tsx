@@ -2,13 +2,14 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The system tab bar — one labelled trigger per entry of the tab list (Home, Chat, Discover, Settings)
-// ABOUTME: UIKit's bar on iOS (glass on iOS 26, minimizing on scroll), Material's on Android; nothing hand-drawn
+// ABOUTME: UIKit's bar on iOS, Material's on Android, nothing hand-drawn; above every tab, the server-down and reconnect banners
 
 import React from 'react';
 import { Platform, View } from 'react-native';
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 import { useTranslation } from '@pierre/i18n';
 import { badgeLabel } from '@pierre/shared-constants';
+import { ReconnectBanner } from '../../../src/components/ReconnectBanner';
 import { ServerStatusBanner } from '../../../src/components/ServerStatusBanner';
 import { useServerStatus } from '../../../src/hooks/useServerStatus';
 import { useThemeColors } from '../../../src/constants/theme';
@@ -26,6 +27,9 @@ export default function TabsLayout() {
   return (
     <View className="flex-1">
       {!isServerReachable && <ServerStatusBanner onRetry={checkNow} isChecking={isChecking} />}
+      {/* Mounted once for every tab; it pads below the status bar only when
+          the server banner is not already doing so above it. */}
+      <ReconnectBanner insetTop={isServerReachable} />
       <NativeTabs
         tintColor={colors.tokens.primary}
         iconColor={{ default: colors.text.secondary }}

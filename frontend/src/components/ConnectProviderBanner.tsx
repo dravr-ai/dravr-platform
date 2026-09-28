@@ -1,37 +1,94 @@
-// ABOUTME: Dismissible one-line nudge to connect a fitness provider — a hairline row, not a boxed card
-// ABOUTME: Shown on agent screens when no provider is connected; routes to the connections pane.
+// ABOUTME: The one provider banner — a warning strip across the app shell while a connection needs reconnecting,
+// ABOUTME: and a dismissible one-line nudge on an open thread while no provider is connected; both lead to the connections pane.
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { providersApi } from '../services/api';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import { AlertTriangle } from 'lucide-react';
 import { useTranslation } from '@pierre/i18n';
 import { CONNECTIONS_ROUTE } from '../constants/surfaceLayout';
+import { useProviderConnection } from '../hooks/useHome';
+import { formatNameList } from './home/homeFormat';
+import { Button } from './ui';
 
 /**
- * Surfaces the "connect a provider" nudge on agent surfaces (the chat flow has its
- * own modal). Hidden once a provider is connected or the user dismisses it for the
- * session. The action navigates through the caller's own router rather than
- * writing `window.location.hash`, so it lands on the one connections route.
+ * Which provider state a mount reports.
+ *
+ * - `reconnect`: mounted once in the app shell, above every tab. A connected
+ *   provider flagged `needs_reauth` syncs nothing until the athlete reconnects
+ *   it, so the strip names it on every screen and cannot be dismissed.
+ * - `connect`: mounted over an open chat thread. It nudges an athlete with no
+ *   provider at all and can be dismissed for the session.
+ *
+ * The two states never hold at once — reconnecting needs a connected
+ * provider — so the two mounts never stack.
  */
-export function ConnectProviderBanner({ onNavigate }: { onNavigate: (route: string) => void }) {
+export type ProviderBannerKind = 'connect' | 'reconnect';
+
+interface ConnectProviderBannerProps {
+  kind: ProviderBannerKind;
+  onNavigate: (route: string) => void;
+}
+
+/**
+ * Reads the provider-status query every provider surface shares and says what
+ * the athlete has to do about it. The action navigates through the caller's
+ * own router rather than writing `window.location.hash`, so it lands on the one
+ * connections route. Nothing renders until that query answers, so a healthy
+ * athlete is never flashed a prompt while it is in flight.
+ */
+export function ConnectProviderBanner({ kind, onNavigate }: ConnectProviderBannerProps) {
+  const providers = useProviderConnection();
+  if (!providers.loaded) {
+    return null;
+  }
+  if (kind === 'reconnect') {
+    return providers.needsReconnect.length > 0 ? (
+      <ReconnectStrip names={providers.needsReconnect} onNavigate={onNavigate} />
+    ) : null;
+  }
+  return providers.connected ? null : <ConnectNudge onNavigate={onNavigate} />;
+}
+
+/**
+ * The reconnect strip: the `warning` tint under its bound
+ * `on-warning-container` ink (DESIGN.md §2, bound ink), an icon so the hue is
+ * not the only signal, and the filled action. `role="alert"` because the
+ * athlete's activities have stopped arriving: it is announced once when it
+ * appears, and stays until the connection is renewed.
+ */
+function ReconnectStrip({ names, onNavigate }: { names: string[]; onNavigate: (route: string) => void }) {
+  const { t, language } = useTranslation();
+  return (
+    <div
+      role="alert"
+      data-testid="provider-reconnect-banner"
+      className="flex-shrink-0 border-b border-warning/40 bg-warning/15 px-4 py-2.5 md:px-6"
+    >
+      <div className="flex items-center gap-3">
+        <AlertTriangle className="h-5 w-5 flex-shrink-0 text-on-warning-container" aria-hidden="true" />
+        <div className="min-w-0 flex-1 text-sm text-on-warning-container">
+          <p className="font-semibold">{t('providers.reconnectNeeded')}</p>
+          <p>{t('home.activities.reconnect', { providers: formatNameList(names, language) })}</p>
+        </div>
+        <Button variant="primary" size="sm" className="flex-shrink-0" onClick={() => onNavigate(CONNECTIONS_ROUTE)}>
+          {t('providers.reconnect')}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One line in the caption size — the title, the action, the dismiss — on the
+ * open thread only. The empty state and Settings already explain what
+ * connecting does.
+ */
+function ConnectNudge({ onNavigate }: { onNavigate: (route: string) => void }) {
   const { t } = useTranslation();
   const [dismissed, setDismissed] = useState(false);
-  const { data, isLoading } = useQuery({
-    queryKey: QUERY_KEYS.providers.status(),
-    queryFn: () => providersApi.getProvidersStatus(),
-  });
-  const hasConnectedProvider = data?.providers?.some((p) => p.connected) ?? false;
-  // Stay hidden until the providers query answers. `hasConnectedProvider`
-  // defaults to false while it is in flight, so rendering on that alone nudges
-  // a connected athlete to connect a provider on every agent-screen load.
-  if (dismissed || isLoading || hasConnectedProvider) {
+  if (dismissed) {
     return null;
   }
   return (
-    // One line in the caption size — the title, the action, the dismiss — on
-    // the open thread only. The second line and the icon went with Boreal
-    // v2.1: the empty state and Settings already explain what connecting does.
     <div
       data-testid="connect-provider-banner"
       className="mx-auto flex max-w-[720px] items-center gap-3 border-b ghost-border-faint py-1.5"

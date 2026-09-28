@@ -116,6 +116,7 @@ interface TabDefinition {
 }
 
 import { DravrLogo } from './DravrLogo';
+import { ConnectProviderBanner } from './ConnectProviderBanner';
 import { IconRail } from './layout/IconRail';
 import SettingsShell from './settings/SettingsShell';
 import { SETTINGS_TABS, type SettingsTab } from './settings/settingsTabs';
@@ -837,6 +838,12 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             </div>
           </header>
         )}
+
+        {/* A connection that needs reconnecting syncs nothing, so it is named
+            above every tab rather than inside one card the athlete may never
+            open. It sits outside the scrolling content so it never scrolls
+            away. */}
+        <ConnectProviderBanner kind="reconnect" onNavigate={applyRoute} />
 
         {/* Content Area. The gutter is a property of the surface, declared in
             constants/surfaceLayout.ts — never of the viewer's role. It used to

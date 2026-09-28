@@ -527,6 +527,32 @@ pub trait ProviderConnectionRepository: Send + Sync {
         tenant_id: TenantId,
         provider: &str,
     ) -> AppResult<bool>;
+    /// Atomically claim one retry of a scrape session flagged `needs_reauth`.
+    ///
+    /// Stamps the retry and returns `true` only when the connection is
+    /// `needs_reauth` and both its flag and its previous retry are at or before
+    /// `due_before` (the caller's `now` minus its retry interval): one retry per
+    /// connection per interval, whichever caller or replica asks first. Which
+    /// connections are worth retrying is the caller's decision — a scrape
+    /// session can outlive the one failed read that flagged it, a dead OAuth
+    /// grant cannot — so this claims whatever it is asked about.
+    async fn claim_reauth_retry(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        due_before: DateTime<Utc>,
+    ) -> AppResult<bool>;
+    /// Every connection flagged `needs_reauth` whose retry is due at
+    /// `due_before`, under the condition [`Self::claim_reauth_retry`] claims,
+    /// longest-flagged first, at most `limit` of them. Crosses users and
+    /// tenants: it feeds the operator capture sweep, which claims each row
+    /// before touching it.
+    async fn list_reauth_retry_due(
+        &self,
+        due_before: DateTime<Utc>,
+        limit: i64,
+    ) -> AppResult<Vec<ProviderConnection>>;
     /// Atomically claim the one-time sync-failure notification for an `active`
     /// connection.
     ///

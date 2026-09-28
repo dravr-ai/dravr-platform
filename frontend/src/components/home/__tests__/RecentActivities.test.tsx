@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests Home's recent activities — the latest on the chat's map, the rest as sketches, who asks for a route, who is told to reconnect
-// ABOUTME: Red if a stored no-GPS activity or one with a polyline costs a route call, a never-read route is called trackless, or a dead connection stays silent
+// ABOUTME: Tests Home's recent activities — the latest on the chat's map, the rest as sketches, who asks for a route, who is told to connect
+// ABOUTME: Red if a stored no-GPS activity or one with a polyline costs a route call, a never-read route is called trackless, or a dead connection hides its rows
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
@@ -304,71 +304,34 @@ describe('RecentActivities', () => {
     expect(await screen.findByText('No activities yet. They show up here once your provider syncs.')).toBeInTheDocument();
     await settled();
     expect(screen.queryByTestId('home-connect-provider')).toBeNull();
-    expect(screen.queryByTestId('home-reconnect-provider')).toBeNull();
   });
 
-  it('names the provider to reconnect above the rows, which stay, and leads to the connections pane', async () => {
+  it('keeps the cached rows for a connection to reconnect and leaves naming it to the shell banner', async () => {
     providers(providerStatus({ provider: 'strava', display_name: 'Strava' }), toReconnect('garmin', 'Garmin'));
-    api.getRecentActivities.mockResolvedValue(recentResponse());
-    const { onNavigate, settled } = renderSection();
-
-    const prompt = await screen.findByTestId('home-reconnect-provider');
-    expect(prompt).toHaveTextContent('Reconnect Garmin to see your new activities.');
-
-    // What the cache holds is still shown, under the prompt and the sync line.
-    const latest = await screen.findByTestId('home-activity-latest');
-    expect(screen.getAllByTestId('home-activity-row')).toHaveLength(4);
-    expect(prompt.compareDocumentPosition(latest) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByText(/^Last synced: /)).toBeInTheDocument();
-    await settled();
-    expect(screen.queryByTestId('home-connect-provider')).toBeNull();
-
-    await userEvent.click(within(prompt).getByRole('button', { name: 'Reconnect' }));
-    expect(onNavigate).toHaveBeenCalledExactlyOnceWith('settings/connections');
-  });
-
-  it('names every provider to reconnect in one phrase, in the order the server lists them', async () => {
-    providers(
-      toReconnect('garmin', 'Garmin'),
-      providerStatus({ provider: 'strava', display_name: 'Strava' }),
-      toReconnect('coros', 'COROS'),
-    );
-    api.getRecentActivities.mockResolvedValue(recentResponse());
-    renderSection();
-
-    expect(await screen.findByTestId('home-reconnect-provider')).toHaveTextContent(
-      'Reconnect Garmin and COROS to see your new activities.',
-    );
-  });
-
-  it('puts the reconnect prompt where the empty sentence would be when the cache holds no rows', async () => {
-    providers(toReconnect('garmin', 'Garmin'));
-    api.getRecentActivities.mockResolvedValue(recentResponse({ activities: [], as_of: '2026-09-20T06:00:00Z' }));
-    const { onNavigate, settled } = renderSection();
-
-    const prompt = await screen.findByTestId('home-reconnect-provider');
-    expect(prompt).toHaveTextContent('Reconnect Garmin to see your new activities.');
-    await settled();
-    expect(screen.queryByText('No activities yet. They show up here once your provider syncs.')).toBeNull();
-    expect(screen.queryByTestId('home-connect-provider')).toBeNull();
-    expect(screen.queryByTestId('home-activity-latest')).toBeNull();
-
-    await userEvent.click(within(prompt).getByRole('button', { name: 'Reconnect' }));
-    expect(onNavigate).toHaveBeenCalledExactlyOnceWith('settings/connections');
-  });
-
-  it('asks nobody to reconnect a provider that is not connected', async () => {
-    providers(
-      providerStatus({ provider: 'strava', display_name: 'Strava' }),
-      providerStatus({ provider: 'garmin', display_name: 'Garmin', connected: false, needs_reauth: true }),
-    );
     api.getRecentActivities.mockResolvedValue(recentResponse());
     const { settled } = renderSection();
 
+    // What the cache holds is still shown, under the sync line.
     await screen.findByTestId('home-activity-latest');
+    expect(screen.getAllByTestId('home-activity-row')).toHaveLength(4);
+    expect(screen.getByText(/^Last synced: /)).toBeInTheDocument();
     await settled();
-    expect(screen.queryByTestId('home-reconnect-provider')).toBeNull();
+    // The app shell's reconnect banner names Garmin above every tab; the card
+    // does not say it a second time.
+    expect(screen.queryByText(/Reconnect Garmin/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reconnect' })).toBeNull();
     expect(screen.queryByTestId('home-connect-provider')).toBeNull();
+  });
+
+  it('says there are no activities yet when the cache is empty and a connection needs reconnecting', async () => {
+    providers(toReconnect('garmin', 'Garmin'));
+    api.getRecentActivities.mockResolvedValue(recentResponse({ activities: [], as_of: '2026-09-20T06:00:00Z' }));
+    const { settled } = renderSection();
+
+    expect(await screen.findByText('No activities yet. They show up here once your provider syncs.')).toBeInTheDocument();
+    await settled();
+    expect(screen.queryByTestId('home-connect-provider')).toBeNull();
+    expect(screen.queryByTestId('home-activity-latest')).toBeNull();
   });
 
   it('joins provider names the way the language does', () => {

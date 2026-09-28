@@ -409,52 +409,35 @@ describe('recent activities', () => {
     await screen.findByTestId('home-activity-strava-9001');
     await waitFor(() => expect(mockGetProvidersStatus).toHaveBeenCalledTimes(1));
     await mockGetProvidersStatus.mock.results[0].value;
-    expect(screen.queryByTestId('home-reconnect-provider')).toBeNull();
+    expect(screen.queryByTestId('home-activities-reconnect-needed')).toBeNull();
     expect(screen.queryByTestId('home-activities-no-provider')).toBeNull();
   });
 
-  it('names the connections to reconnect above the rows, and keeps the rows', async () => {
+  // The shell's reconnect banner names the connections above every tab; the
+  // section repeating it would say the same thing twice on Home.
+  it('keeps the rows of a connection to reconnect and leaves naming it to the shell banner', async () => {
     mockGetProvidersStatus.mockResolvedValue(PROVIDERS_RECONNECT);
     const screen = renderHome();
 
-    // Each name once, whatever backends carry it, and never a disconnected one.
-    expect(await screen.findByTestId('home-reconnect-provider')).toHaveTextContent(
-      'Reconnect Strava, Garmin to see your new activities.Reconnect',
-    );
-    expect(screen.getByTestId('home-activity-strava-9001')).toBeTruthy();
+    expect(await screen.findByTestId('home-activity-strava-9001')).toBeTruthy();
+    await waitFor(() => expect(mockGetProvidersStatus).toHaveBeenCalledTimes(1));
+    await mockGetProvidersStatus.mock.results[0].value;
     expect(screen.getByTestId('home-activity-strava-8998')).toBeTruthy();
     expect(screen.getByTestId('home-activities-synced-at')).toBeTruthy();
-
-    const order = within(screen.getByTestId('home-section-activities'))
-      .getAllByTestId(/^home-(activities-synced-at|reconnect-provider|activity-latest)$/)
-      .map((node) => node.props.testID);
-    expect(order).toEqual(['home-activities-synced-at', 'home-reconnect-provider', 'home-activity-latest']);
-
-    fireEvent.press(screen.getByTestId('home-activities-reconnect'));
-    expect(mockPush).toHaveBeenCalledWith(CONNECTIONS_ROUTE);
+    expect(screen.queryByTestId('home-activities-reconnect-needed')).toBeNull();
+    expect(screen.queryByText(/Reconnect Strava/)).toBeNull();
   });
 
-  it('names them in place of the empty sentence when there are no rows', async () => {
+  it('says a reconnect is needed in place of the empty sentence when there are no rows', async () => {
     mockGetRecentActivities.mockResolvedValue(recentResponse({ activities: [] }));
     mockGetProvidersStatus.mockResolvedValue(PROVIDERS_RECONNECT);
     const screen = renderHome();
 
-    expect(await screen.findByTestId('home-reconnect-provider')).toHaveTextContent(
-      /^Reconnect Strava, Garmin to see your new activities\./,
-    );
+    expect(await screen.findByTestId('home-activities-reconnect-needed')).toHaveTextContent('Reconnect needed');
     // The sentence promises a sync the flagged connection cannot make.
     expect(screen.queryByTestId('home-activities-empty')).toBeNull();
     // Connected, only not usable: never the prompt to connect.
     expect(screen.queryByTestId('home-activities-no-provider')).toBeNull();
-  });
-
-  it('names one connection without a separator', async () => {
-    mockGetProvidersStatus.mockResolvedValue({ providers: [PROVIDERS_RECONNECT.providers[2]] });
-    const screen = renderHome();
-
-    expect(await screen.findByTestId('home-reconnect-provider')).toHaveTextContent(
-      /^Reconnect Garmin to see your new activities\./,
-    );
   });
 
   it('says nothing about reconnecting while the list has not answered', async () => {
@@ -465,7 +448,7 @@ describe('recent activities', () => {
     await screen.findByTestId('home-activities-loading');
     await waitFor(() => expect(mockGetProvidersStatus).toHaveBeenCalledTimes(1));
     await mockGetProvidersStatus.mock.results[0].value;
-    expect(screen.queryByTestId('home-reconnect-provider')).toBeNull();
+    expect(screen.queryByTestId('home-activities-reconnect-needed')).toBeNull();
   });
 
   it('shows a failed list read as a failure with a retry', async () => {
@@ -544,11 +527,11 @@ describe('coming back to Home', () => {
     expect(mockGetActivityRoute).toHaveBeenCalledTimes(3);
   });
 
-  it('drops the reconnect prompt once the athlete comes back from reconnecting', async () => {
+  it('drops the reconnect line once the athlete comes back from reconnecting', async () => {
+    mockGetRecentActivities.mockResolvedValue(recentResponse({ activities: [] }));
     mockGetProvidersStatus.mockResolvedValue(PROVIDERS_RECONNECT);
     const screen = renderHome();
-    fireEvent.press(await screen.findByTestId('home-activities-reconnect'));
-    expect(mockPush).toHaveBeenCalledWith(CONNECTIONS_ROUTE);
+    await screen.findByTestId('home-activities-reconnect-needed');
 
     // The athlete reconnected while away: from here on every read says so,
     // however many reads the screen made before this point.
@@ -559,8 +542,8 @@ describe('coming back to Home', () => {
     });
 
     await waitFor(() => expect(mockGetProvidersStatus.mock.calls.length).toBeGreaterThan(readsBeforeReturn));
-    await waitFor(() => expect(screen.queryByTestId('home-reconnect-provider')).toBeNull(), { timeout: 5000 });
-    expect(screen.getByTestId('home-activity-strava-9001')).toBeTruthy();
+    expect(await screen.findByTestId('home-activities-empty', {}, { timeout: 5000 })).toBeTruthy();
+    expect(screen.queryByTestId('home-activities-reconnect-needed')).toBeNull();
   });
 });
 

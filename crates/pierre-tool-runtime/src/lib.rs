@@ -89,6 +89,8 @@ pub mod implementations;
 pub mod protocol;
 /// Protocol conversion + universal request/response re-exports
 pub mod protocols;
+/// Throttled retry of a scrape session flagged `needs_reauth`.
+pub mod reauth_retry;
 /// The served-without-a-provider signal and its per-turn store.
 pub mod reconnect;
 pub mod registry;
