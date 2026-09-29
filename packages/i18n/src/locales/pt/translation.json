@@ -2111,7 +2111,6 @@
       "reconnect": "Voltar a ligar",
       "reply": "Responder"
     },
-    "askDraft": "Explica-me esta notificação: «{{title}} — {{body}}»",
     "channel_body": "🔔 {0}\n\n{1}",
     "daysAgo": "há {{count}} d",
     "digest": {
