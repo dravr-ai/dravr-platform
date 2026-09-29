@@ -459,6 +459,31 @@ pub async fn set_user_tier(
     Ok(())
 }
 
+/// Grant or revoke a user's `manages_roster` permission, marked as the
+/// operator's so a `TrainingPeaks` disconnect leaves a grant in place.
+///
+/// # Errors
+///
+/// Returns the client's error when the write fails, including the server's
+/// refusal of a token that is not super-admin.
+pub async fn set_user_manages_roster(
+    client: &RemoteClient,
+    user_id: &str,
+    manages_roster: bool,
+) -> AppResult<()> {
+    let body: Value = client
+        .post_json(
+            &format!("/admin/users/{user_id}/manages-roster"),
+            &json!({ "manages_roster": manages_roster }),
+        )
+        .await?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&body).unwrap_or_default()
+    );
+    Ok(())
+}
+
 /// Columns of the pre-approval listing, in order.
 const ALLOWED_COLUMNS: [&str; 5] = [
     "email",

@@ -29,8 +29,7 @@ use crate::backends::shared::enums::str_to_user_status;
 use pierre_core::models::default_locale;
 use pierre_core::models::TenantId;
 use pierre_core::models::{
-    CoachingPersona, PreApprovedEmail, SessionRefreshToken, User, UserDeletion, UserReference,
-    UserStatus, UserTier,
+    CoachingPersona, OperatorRosterGrant, User, UserDeletion, UserReference, UserStatus, UserTier,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use serde_json::Value;
@@ -161,6 +160,26 @@ pub trait UserRepository: Send + Sync {
     /// Independent from `coaching_persona` — see
     /// `Coaching Persona Architecture.md` §8 for the rationale.
     async fn set_manages_roster(&self, user_id: Uuid, manages_roster: bool) -> AppResult<()>;
+    /// Grant or revoke `manages_roster` as an operator (the admin roster
+    /// route, `pierre-cli user set --manages-roster`). A grant records
+    /// `operator` and the time as an [`OperatorRosterGrant`], which
+    /// [`Self::revoke_earned_manages_roster`] never takes back; a revoke
+    /// clears the grant and its record together.
+    async fn set_manages_roster_by_operator(
+        &self,
+        user_id: Uuid,
+        manages_roster: bool,
+        operator: Option<Uuid>,
+    ) -> AppResult<()>;
+    /// Take back a `manages_roster` grant no operator made, as the
+    /// `TrainingPeaks` reconciler does when the coach connection that earned it
+    /// stops earning it. Returns whether a grant was taken back.
+    async fn revoke_earned_manages_roster(&self, user_id: Uuid) -> AppResult<bool>;
+    /// The operator grant behind the user's `manages_roster`, if one holds.
+    async fn manages_roster_operator_grant(
+        &self,
+        user_id: Uuid,
+    ) -> AppResult<Option<OperatorRosterGrant>>;
     /// Persist the user's IANA timezone (e.g. `"America/Toronto"`).
     ///
     /// Captured client-side via `Intl.DateTimeFormat().resolvedOptions().timeZone`
@@ -278,63 +297,6 @@ pub trait EmailVerificationRepository: Send + Sync {
     async fn mark_verified(&self, user_id: Uuid) -> AppResult<()>;
     /// Whether this user's address has been proven.
     async fn is_verified(&self, user_id: Uuid) -> AppResult<bool>;
-}
-
-/// First-party refresh tokens — the credential a device holds between JWTs.
-///
-/// A login opens a family; each exchange stores the successor in that family
-/// and revokes the token it replaced, so at most one member is live. Tokens
-/// are passed in plaintext and stored as their HMAC, the same blind index the
-/// `OAuth2` server's refresh tokens use, so a database read cannot replay one.
-///
-/// Not [`OAuth2ServerRepository`](super::OAuth2ServerRepository)'s refresh
-/// tokens: those are keyed to a registered OAuth client and cascade with it,
-/// which a password login has no counterpart for.
-#[async_trait]
-pub trait SessionRefreshTokenRepository: Send + Sync {
-    /// Store a freshly issued token under its family.
-    async fn store_token(&self, token: &str, record: &SessionRefreshToken) -> AppResult<()>;
-    /// Exchange a token: mark it revoked and return its record, in one
-    /// statement so two concurrent exchanges cannot both succeed. `None` when
-    /// the token is unknown, already revoked, or expired at `now`.
-    async fn consume_token(
-        &self,
-        token: &str,
-        now: DateTime<Utc>,
-    ) -> AppResult<Option<SessionRefreshToken>>;
-    /// Revoke every live member of the family this token belongs to, and
-    /// return how many were revoked. Zero means the token was unknown or its
-    /// family was already dead; more than zero after a failed exchange means a
-    /// rotated-out token was replayed and its successor is now dead too.
-    async fn revoke_token_family(&self, token: &str, now: DateTime<Utc>) -> AppResult<u64>;
-    /// Revoke every live token the user holds, on any device — the password
-    /// changed, so every session minted under the old one ends.
-    async fn revoke_user_tokens(&self, user_id: Uuid, now: DateTime<Utc>) -> AppResult<u64>;
-}
-
-/// Standing per-email pre-approvals — an operator "allow" recorded before the
-/// person has an account.
-///
-/// The registration approval decision consults this list so an allowed address
-/// lands `Active` without the pending queue; `pierre-cli user allow / disallow /
-/// list-allowed` manages it. Implementations store emails normalized (trimmed,
-/// lowercase) and compare them lower-cased, so lookups are case-insensitive.
-#[async_trait]
-pub trait PreApprovedEmailRepository: Send + Sync {
-    /// Record an allow for `email`. Idempotent: returns `false` when the
-    /// address was already on the list (the original row is kept).
-    async fn allow(
-        &self,
-        email: &str,
-        allowed_by: Option<Uuid>,
-        note: Option<&str>,
-    ) -> AppResult<bool>;
-    /// Remove the allow for `email`. Returns `false` when none existed.
-    async fn remove(&self, email: &str) -> AppResult<bool>;
-    /// Fetch the allow for `email`, if present.
-    async fn get(&self, email: &str) -> AppResult<Option<PreApprovedEmail>>;
-    /// Every standing allow, oldest first.
-    async fn list(&self) -> AppResult<Vec<PreApprovedEmail>>;
 }
 
 /// The columns every [`User`] read lists, in the order [`CREATE_USER_SQL`]
@@ -1168,6 +1130,32 @@ macro_rules! impl_user_repository {
                 manages_roster: bool,
             ) -> AppResult<()> {
                 preferences::set_manages_roster(self.pool(), user_id, manages_roster).await
+            }
+
+            async fn set_manages_roster_by_operator(
+                &self,
+                user_id: Uuid,
+                manages_roster: bool,
+                operator: Option<Uuid>,
+            ) -> AppResult<()> {
+                preferences::set_manages_roster_by_operator(
+                    self.pool(),
+                    user_id,
+                    manages_roster,
+                    operator,
+                )
+                .await
+            }
+
+            async fn revoke_earned_manages_roster(&self, user_id: Uuid) -> AppResult<bool> {
+                preferences::revoke_earned_manages_roster(self.pool(), user_id).await
+            }
+
+            async fn manages_roster_operator_grant(
+                &self,
+                user_id: Uuid,
+            ) -> AppResult<Option<OperatorRosterGrant>> {
+                preferences::manages_roster_operator_grant(self.pool(), user_id).await
             }
 
             async fn set_timezone(&self, user_id: Uuid, timezone: &str) -> AppResult<()> {

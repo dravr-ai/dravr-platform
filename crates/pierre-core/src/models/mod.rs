@@ -139,9 +139,9 @@ pub use delegated_connection::{
 
 // User domain
 pub use user::{
-    default_locale, normalize_email, CoachingPersona, ColorScheme, PreApprovedEmail, User,
-    UserDeletion, UserId, UserPhysiologicalProfile, UserReference, UserReferenceKind, UserStatus,
-    UserTier, FEDERATED_ONLY_PASSWORD_HASH, SUPPORTED_LOCALES,
+    default_locale, normalize_email, CoachingPersona, ColorScheme, OperatorRosterGrant,
+    PreApprovedEmail, User, UserDeletion, UserId, UserPhysiologicalProfile, UserReference,
+    UserReferenceKind, UserStatus, UserTier, FEDERATED_ONLY_PASSWORD_HASH, SUPPORTED_LOCALES,
 };
 
 // Endurance zones + dossier + training-history + workout-template domain

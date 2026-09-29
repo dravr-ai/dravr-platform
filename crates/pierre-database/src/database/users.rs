@@ -7,8 +7,8 @@
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    normalize_email, CoachingPersona, TenantId, User, UserDeletion, UserReference, UserStatus,
-    UserTier,
+    normalize_email, CoachingPersona, OperatorRosterGrant, TenantId, User, UserDeletion,
+    UserReference, UserStatus, UserTier,
 };
 use pierre_core::pagination::{Cursor, CursorPage, PaginationParams};
 use pierre_core::permissions::UserRole;

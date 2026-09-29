@@ -146,6 +146,8 @@ pub mod training_plans;
 pub mod usage;
 /// Shared statements, row decode and body for the usage counters both backends serve.
 pub mod usage_counters;
+/// Repository traits for device refresh tokens and email pre-approvals.
+pub mod user_access;
 /// Repository trait, statements and shared body for user MCP tokens.
 pub mod user_mcp_tokens;
 /// Statements, row decoders and the one `OAuthTokenRepository` body for provider OAuth tokens, the Strava pool and BYO OAuth apps.
@@ -225,6 +227,7 @@ pub use tenants::*;
 pub use tool_selection::*;
 pub use training_plans::*;
 pub use usage::*;
+pub use user_access::*;
 pub use user_mcp_tokens::*;
 pub use user_onboarding::*;
 pub use user_physiological_profiles::*;

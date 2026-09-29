@@ -246,6 +246,11 @@ pub async fn handle_get_user(
     // The providers the user holds, across tenants: what a delete would
     // disconnect, and what `pierre-cli user delete` previews without --yes.
     let connected_providers = held_providers(&context.repos, user_uuid).await?;
+    let manages_roster_operator_grant = context
+        .repos
+        .users
+        .manages_roster_operator_grant(user_uuid)
+        .await?;
 
     info!(token_id = %admin_token.token_id, "Read user {user_id}");
 
@@ -260,6 +265,8 @@ pub async fn handle_get_user(
                 "tier": user_tier_to_str(&user.tier),
                 "status": user_status_str(user.user_status),
                 "is_admin": user.is_admin,
+                "manages_roster": user.manages_roster,
+                "manages_roster_operator_grant": manages_roster_operator_grant,
                 "created_at": user.created_at.to_rfc3339(),
                 "last_active": user.last_active.to_rfc3339(),
                 "connected_providers": connected_providers,
@@ -756,6 +763,88 @@ pub(crate) async fn handle_set_user_tier(
                 "user_id": user_uuid.to_string(),
                 "email": updated.email,
                 "tier": user_tier_to_str(&new_tier),
+            }))
+            .ok(),
+        },
+        StatusCode::OK,
+    ))
+}
+
+/// Body for [`handle_set_user_manages_roster`].
+#[derive(Debug, Clone, serde::Deserialize)]
+pub(crate) struct SetManagesRosterRequest {
+    /// Grant (`true`) or revoke (`false`) the permission to become a coaching
+    /// group's human coach.
+    pub manages_roster: bool,
+}
+
+/// Admin: grant or revoke a user's `manages_roster` permission.
+///
+/// `POST /admin/users/{user_id}/manages-roster`, and the console's
+/// `/api/admin/users/{user_id}/manages-roster`. This is how a coach with no
+/// `TrainingPeaks` coach account becomes able to redeem a group's coach
+/// invite. A grant records the operator behind the token and the time, and a
+/// `TrainingPeaks` disconnect never takes it back. Super-admin only, like the
+/// tier override: the grant lets its holder coach the members of any group
+/// that invites them.
+pub(crate) async fn handle_set_user_manages_roster(
+    State(context): State<Arc<AdminApiContext>>,
+    Extension(admin_token): Extension<ValidatedAdminToken>,
+    Path(user_id): Path<String>,
+    Json(request): Json<SetManagesRosterRequest>,
+) -> AppResult<impl IntoResponse> {
+    if !admin_token.is_super_admin {
+        return Ok(json_response(
+            AdminResponse {
+                success: false,
+                message: "Permission denied: super-admin token required".to_owned(),
+                data: None,
+            },
+            StatusCode::FORBIDDEN,
+        ));
+    }
+
+    let user_uuid = Uuid::parse_str(&user_id)
+        .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
+
+    let updated = admin_ops::set_user_manages_roster(
+        &context.repos,
+        user_uuid,
+        request.manages_roster,
+        admin_token.operator_user_id,
+    )
+    .await?;
+    let operator_grant = context
+        .repos
+        .users
+        .manages_roster_operator_grant(user_uuid)
+        .await?;
+
+    info!(
+        target_user_id = %user_uuid,
+        target_user_email = %mask_email(&updated.email),
+        manages_roster = request.manages_roster,
+        token_id = %admin_token.token_id,
+        "Admin manages_roster change applied via token surface"
+    );
+
+    Ok(json_response(
+        AdminResponse {
+            success: true,
+            message: format!(
+                "User {} {} coach a group",
+                updated.email,
+                if updated.manages_roster {
+                    "may now"
+                } else {
+                    "may no longer"
+                }
+            ),
+            data: to_value(json!({
+                "user_id": user_uuid.to_string(),
+                "email": updated.email,
+                "manages_roster": updated.manages_roster,
+                "manages_roster_operator_grant": operator_grant,
             }))
             .ok(),
         },

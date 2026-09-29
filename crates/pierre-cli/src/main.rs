@@ -61,7 +61,7 @@ mod commands;
 mod dispatch;
 mod helpers;
 
-use clap::{Parser, Subcommand};
+use clap::{ArgGroup, Parser, Subcommand};
 use commands::tenant::TenantCommand;
 use pierre_auth::key_management::KeyManager;
 #[cfg(feature = "postgresql")]
@@ -385,15 +385,24 @@ enum UserCommand {
     },
 
     /// Set a field on a user over the admin API
+    #[command(group(
+        ArgGroup::new("field").required(true).multiple(true).args(["tier", "manages_roster"])
+    ))]
     Set {
         /// Email or user id
         selector: String,
 
         /// Tier: starter | professional | enterprise
         #[arg(long)]
-        tier: String,
+        tier: Option<String>,
 
-        /// Operator note recorded on the override marker
+        /// Grant (true) or revoke (false) the permission to become a coaching
+        /// group's human coach. A grant made here survives a TrainingPeaks
+        /// disconnect.
+        #[arg(long, value_name = "true|false")]
+        manages_roster: Option<bool>,
+
+        /// Operator note recorded on the tier override marker
         #[arg(long)]
         note: Option<String>,
 

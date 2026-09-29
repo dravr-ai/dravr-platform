@@ -55,6 +55,28 @@ pub(crate) const SET_COACHING_PERSONA_SQL: &str =
 pub(crate) const SET_MANAGES_ROSTER_SQL: &str =
     "UPDATE users SET manages_roster = $1 WHERE id = $2";
 
+/// Set `manages_roster` as an operator decision, with who made it and when:
+/// a grant stamps both, a revoke clears both.
+pub(crate) const SET_ROSTER_BY_OPERATOR_SQL: &str = r"
+        UPDATE users SET
+            manages_roster = $1,
+            manages_roster_granted_at = $2,
+            manages_roster_granted_by = $3
+        WHERE id = $4
+        ";
+
+/// Take back a `manages_roster` grant only when no operator made it. The flag
+/// values are bound rather than written as literals: `SQLite` stores them as
+/// integers and Postgres as booleans, and a bound `bool` is either.
+pub(crate) const REVOKE_EARNED_ROSTER_SQL: &str = r"
+        UPDATE users SET manages_roster = $1
+        WHERE id = $2 AND manages_roster = $3 AND manages_roster_granted_at IS NULL
+        ";
+
+/// Read who granted the user's `manages_roster` as an operator, and when.
+pub(crate) const GET_ROSTER_OPERATOR_GRANT_SQL: &str =
+    "SELECT manages_roster_granted_at, manages_roster_granted_by FROM users WHERE id = $1";
+
 /// Set the user's IANA timezone.
 pub(crate) const SET_TIMEZONE_SQL: &str = "UPDATE users SET timezone = $1 WHERE id = $2";
 
@@ -63,14 +85,15 @@ pub(crate) const SET_THEME_SQL: &str = "UPDATE users SET theme = $1 WHERE id = $
 
 /// Emit every preference write for one backend.
 ///
-/// `$db` is the sqlx database type the pool is parameterised on; `$bind_id` is
-/// the function turning a `Uuid` into whatever that backend's `users.id`
-/// column accepts — the `bind` of its codec in [`super::uuid_columns`].
+/// `$db` is the sqlx database type the pool is parameterised on; `$ids` is the
+/// backend's codec in [`super::uuid_columns`], whose `bind` turns a `Uuid`
+/// into whatever that backend's `users.id` column accepts and whose `read_opt`
+/// reads one back.
 ///
 /// The bodies are written once here. Each backend module invokes the macro,
 /// and sqlx resolves the driver from the pool type at that expansion.
 macro_rules! impl_user_preferences {
-    ($db:ty, $bind_id:path) => {
+    ($db:ty, $ids:ident) => {
         /// Turn "no row matched" into the `NotFound` the callers contract on.
         fn ensure_updated(rows_affected: u64, user_id: Uuid) -> AppResult<()> {
             (rows_affected > 0)
@@ -91,7 +114,7 @@ macro_rules! impl_user_preferences {
         ) -> AppResult<()> {
             let result = sqlx::query(SET_ANALYTICS_CONSENT_SQL)
                 .bind(enabled)
-                .bind($bind_id(user_id))
+                .bind($ids::bind(user_id))
                 .execute(pool)
                 .await
                 .map_err(|e| {
@@ -119,7 +142,7 @@ macro_rules! impl_user_preferences {
             version: &str,
         ) -> AppResult<()> {
             sqlx::query(SET_PROVIDER_TERMS_SQL)
-                .bind($bind_id(user_id))
+                .bind($ids::bind(user_id))
                 .bind(provider)
                 .bind(version)
                 .execute(pool)
@@ -144,7 +167,7 @@ macro_rules! impl_user_preferences {
             provider: &str,
         ) -> AppResult<Option<String>> {
             sqlx::query_scalar(GET_PROVIDER_TERMS_SQL)
-                .bind($bind_id(user_id))
+                .bind($ids::bind(user_id))
                 .bind(provider)
                 .fetch_optional(pool)
                 .await
@@ -162,7 +185,7 @@ macro_rules! impl_user_preferences {
         pub async fn update_locale(pool: &Pool<$db>, user_id: Uuid, locale: &str) -> AppResult<()> {
             let result = sqlx::query(SET_LOCALE_SQL)
                 .bind(locale)
-                .bind($bind_id(user_id))
+                .bind($ids::bind(user_id))
                 .execute(pool)
                 .await
                 .map_err(|e| AppError::database(format!("Failed to update user locale: {e}")))?;
@@ -189,7 +212,7 @@ macro_rules! impl_user_preferences {
         ) -> AppResult<()> {
             let result = sqlx::query(SET_COACHING_PERSONA_SQL)
                 .bind(persona.as_str())
-                .bind($bind_id(user_id))
+                .bind($ids::bind(user_id))
                 .execute(pool)
                 .await
                 .map_err(|e| AppError::database(format!("Failed to set coaching persona: {e}")))?;
@@ -210,12 +233,91 @@ macro_rules! impl_user_preferences {
         ) -> AppResult<()> {
             let result = sqlx::query(SET_MANAGES_ROSTER_SQL)
                 .bind(manages_roster)
-                .bind($bind_id(user_id))
+                .bind($ids::bind(user_id))
                 .execute(pool)
                 .await
                 .map_err(|e| AppError::database(format!("Failed to set manages_roster: {e}")))?;
 
             ensure_updated(result.rows_affected(), user_id)
+        }
+
+        /// Grant or revoke `manages_roster` as an operator. A grant records
+        /// `operator` and the time, which the `TrainingPeaks` reconciler reads
+        /// as a grant it must leave alone; a revoke clears both.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error if the user is not found or the database update
+        /// fails.
+        pub async fn set_manages_roster_by_operator(
+            pool: &Pool<$db>,
+            user_id: Uuid,
+            manages_roster: bool,
+            operator: Option<Uuid>,
+        ) -> AppResult<()> {
+            let granted_at = manages_roster.then(Utc::now);
+            let granted_by = operator.filter(|_| manages_roster);
+            let result = sqlx::query(SET_ROSTER_BY_OPERATOR_SQL)
+                .bind(manages_roster)
+                .bind(granted_at)
+                .bind($ids::bind_opt(granted_by))
+                .bind($ids::bind(user_id))
+                .execute(pool)
+                .await
+                .map_err(|e| {
+                    AppError::database(format!("Failed to set manages_roster by operator: {e}"))
+                })?;
+
+            ensure_updated(result.rows_affected(), user_id)
+        }
+
+        /// Take back a `manages_roster` grant no operator made. Returns whether
+        /// a grant was taken back: `false` for a user without one, one an
+        /// operator made, or no user at all.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error if the database update fails.
+        pub async fn revoke_earned_manages_roster(
+            pool: &Pool<$db>,
+            user_id: Uuid,
+        ) -> AppResult<bool> {
+            let result = sqlx::query(REVOKE_EARNED_ROSTER_SQL)
+                .bind(false)
+                .bind($ids::bind(user_id))
+                .bind(true)
+                .execute(pool)
+                .await
+                .map_err(|e| AppError::database(format!("Failed to revoke manages_roster: {e}")))?;
+            Ok(result.rows_affected() > 0)
+        }
+
+        /// The operator grant behind the user's `manages_roster`, `None` when
+        /// no operator made one.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error if the user is not found or the database query
+        /// fails.
+        pub async fn manages_roster_operator_grant(
+            pool: &Pool<$db>,
+            user_id: Uuid,
+        ) -> AppResult<Option<OperatorRosterGrant>> {
+            let row = sqlx::query(GET_ROSTER_OPERATOR_GRANT_SQL)
+                .bind($ids::bind(user_id))
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| AppError::database(format!("Failed to read the roster grant: {e}")))?
+                .ok_or_else(|| AppError::not_found(format!("User with ID: {user_id}")))?;
+            let granted_at: Option<DateTime<Utc>> =
+                row.try_get("manages_roster_granted_at").map_err(|e| {
+                    AppError::database(format!("Failed to read manages_roster_granted_at: {e}"))
+                })?;
+            let granted_by = $ids::read_opt(&row, "manages_roster_granted_by")?;
+            Ok(granted_at.map(|granted_at| OperatorRosterGrant {
+                granted_at,
+                granted_by,
+            }))
         }
 
         /// Set the user's IANA timezone.
@@ -231,7 +333,7 @@ macro_rules! impl_user_preferences {
         ) -> AppResult<()> {
             let result = sqlx::query(SET_TIMEZONE_SQL)
                 .bind(timezone)
-                .bind($bind_id(user_id))
+                .bind($ids::bind(user_id))
                 .execute(pool)
                 .await
                 .map_err(|e| AppError::database(format!("Failed to set timezone: {e}")))?;
@@ -256,7 +358,7 @@ macro_rules! impl_user_preferences {
         ) -> AppResult<()> {
             let result = sqlx::query(SET_THEME_SQL)
                 .bind(theme)
-                .bind($bind_id(user_id))
+                .bind($ids::bind(user_id))
                 .execute(pool)
                 .await
                 .map_err(|e| AppError::database(format!("Failed to set theme: {e}")))?;

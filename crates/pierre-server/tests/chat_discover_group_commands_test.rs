@@ -41,6 +41,8 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::{
     ChatMessageAction, ChatRoutes, ConversationResponse, ReplyBlockResponse, TurnResponse,
 };
+use pierre_services::admin_ops;
+use pierre_services::trainingpeaks_accounts::revoke_roster_for_coach_connection;
 use serde_json::json;
 use std::sync::Arc;
 use tokio::task::spawn_blocking;
@@ -1146,5 +1148,81 @@ async fn group_join_with_a_coach_invite_attaches_an_eligible_roster_coach_only()
             .filter(|c| c.group_id.as_deref() == Some(group_id.to_string().as_str()))
             .count(),
         1
+    );
+}
+
+/// A coach with no TrainingPeaks coach account — an Intervals.icu coach — is
+/// refused a group's coach invite until an operator grants `manages_roster`
+/// (carnet#643), is attached once it is granted, and keeps the grant through
+/// the reconciler's revoke a TrainingPeaks disconnect runs.
+#[tokio::test]
+async fn an_operator_grant_lets_a_coach_without_trainingpeaks_join_as_coach() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (owner_id, owner_tenant, _owner_auth) =
+        seed_user_tenant(&resources, "granted-owner@test.com", "professional").await;
+    let agent_id = seed_selected_agent(&resources, owner_id, owner_tenant, "Trail Coach").await;
+    let (group_id, code) = seed_group_with_invite(
+        &resources,
+        owner_id,
+        owner_tenant,
+        &agent_id,
+        GroupInviteKind::Coach,
+    )
+    .await;
+    let repos = &resources.common.repos;
+    let (coach_user_id, coach_auth) =
+        seed_tenant_member(&resources, "granted-coach@test.com", owner_tenant, false).await;
+    let coach_conv =
+        create_conversation(ChatRoutes::routes(Arc::clone(&resources)), &coach_auth).await;
+
+    let refused = send(
+        ChatRoutes::routes(Arc::clone(&resources)),
+        &coach_auth,
+        &coach_conv,
+        &format!("/group join {code}"),
+    )
+    .await;
+    assert_eq!(
+        refused.assistant.message.content,
+        rendered(&resources, KEY_GROUP_JOIN_INVALID_CODE, &[]),
+        "without the grant the coach invite reads as unusable"
+    );
+
+    admin_ops::set_user_manages_roster(repos, coach_user_id, true, Some(owner_id))
+        .await
+        .unwrap();
+    let attached = send(
+        ChatRoutes::routes(Arc::clone(&resources)),
+        &coach_auth,
+        &coach_conv,
+        &format!("/group join {code}"),
+    )
+    .await;
+    assert_eq!(
+        attached.assistant.message.content,
+        rendered(&resources, KEY_GROUP_JOINED_AS_COACH, &["Trail Crew"])
+    );
+    let group = repos
+        .groups
+        .get_group(&group_id.to_string(), owner_tenant)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(group.coach_user_id, Some(coach_user_id));
+
+    // The revoke a TrainingPeaks disconnect runs takes back only what a coach
+    // connection earned; this grant is the operator's.
+    revoke_roster_for_coach_connection(repos, coach_user_id, owner_tenant)
+        .await
+        .unwrap();
+    assert!(
+        repos
+            .users
+            .get_global(coach_user_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .manages_roster,
+        "the TrainingPeaks reconciler never revokes an operator grant"
     );
 }

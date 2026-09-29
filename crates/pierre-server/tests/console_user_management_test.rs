@@ -764,3 +764,125 @@ async fn a_plain_admin_cannot_edit_a_system_prompt() -> Result<()> {
     );
     Ok(())
 }
+
+/// A coach with no TrainingPeaks coach account is granted `manages_roster` by
+/// an operator (carnet#643): a super-admin console session grants and revokes
+/// it, the grant records that operator, and a plain admin is refused.
+#[tokio::test]
+#[serial]
+async fn a_super_admin_grants_and_revokes_the_group_coach_permission() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let repos = &resources.common.repos;
+    let coach = seed_user(
+        &resources,
+        "intervals-coach@example.com",
+        UserStatus::Active,
+    )
+    .await?;
+    let path = format!("/api/admin/users/{coach}/manages-roster");
+
+    let admin = session_with_role(&resources, "roster-admin@example.com", UserRole::Admin).await?;
+    let refused = AxumTestRequest::post(&path)
+        .header("Authorization", &admin.auth)
+        .json(&json!({ "manages_roster": true }))
+        .send(router(&resources))
+        .await;
+    assert_eq!(refused.status(), 403, "a roster grant is super-admin only");
+    assert!(
+        !repos
+            .users
+            .get_global(coach)
+            .await?
+            .expect("coach")
+            .manages_roster,
+        "nothing may have been written"
+    );
+
+    let superadmin = session_with_role(
+        &resources,
+        "roster-superadmin@example.com",
+        UserRole::SuperAdmin,
+    )
+    .await?;
+    let granted = AxumTestRequest::post(&path)
+        .header("Authorization", &superadmin.auth)
+        .json(&json!({ "manages_roster": true }))
+        .send(router(&resources))
+        .await;
+    assert_eq!(granted.status(), 200);
+    let body: Value = granted.json();
+    assert_eq!(body["data"]["manages_roster"], json!(true), "{body}");
+    assert_eq!(
+        body["data"]["manages_roster_operator_grant"]["granted_by"],
+        json!(superadmin.user_id.to_string()),
+        "{body}"
+    );
+    assert!(
+        repos
+            .users
+            .get_global(coach)
+            .await?
+            .expect("coach")
+            .manages_roster
+    );
+    let grant = repos
+        .users
+        .manages_roster_operator_grant(coach)
+        .await?
+        .expect("the operator grant is recorded");
+    assert_eq!(grant.granted_by, Some(superadmin.user_id));
+
+    let revoked = AxumTestRequest::post(&path)
+        .header("Authorization", &superadmin.auth)
+        .json(&json!({ "manages_roster": false }))
+        .send(router(&resources))
+        .await;
+    assert_eq!(revoked.status(), 200);
+    let body: Value = revoked.json();
+    assert_eq!(body["data"]["manages_roster"], json!(false), "{body}");
+    assert_eq!(body["data"]["manages_roster_operator_grant"], Value::Null);
+    assert!(
+        !repos
+            .users
+            .get_global(coach)
+            .await?
+            .expect("coach")
+            .manages_roster
+    );
+    assert_eq!(
+        repos.users.manages_roster_operator_grant(coach).await?,
+        None
+    );
+    Ok(())
+}
+
+/// `pierre-cli user set --manages-roster` reaches the admin-token mount, and
+/// `pierre-cli user get` reads the grant back from the same mount. A service
+/// token names no operator, so its grant records none.
+#[tokio::test]
+#[serial]
+async fn the_cli_mount_grants_the_group_coach_permission_and_reads_it_back() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let cli = super_token(&resources, "cli-roster").await?;
+    let auth = format!("Bearer {}", cli.jwt_token);
+    let coach = seed_user(&resources, "cli-coach@example.com", UserStatus::Active).await?;
+
+    let granted = AxumTestRequest::post(&format!("/admin/users/{coach}/manages-roster"))
+        .header("Authorization", &auth)
+        .json(&json!({ "manages_roster": true }))
+        .send(token_router(&resources))
+        .await;
+    assert_eq!(granted.status(), 200);
+
+    let read = AxumTestRequest::get(&format!("/admin/users/{coach}"))
+        .header("Authorization", &auth)
+        .send(token_router(&resources))
+        .await;
+    assert_eq!(read.status(), 200);
+    let body: Value = read.json();
+    assert_eq!(body["data"]["manages_roster"], json!(true), "{body}");
+    let grant = &body["data"]["manages_roster_operator_grant"];
+    assert!(grant["granted_at"].is_string(), "{body}");
+    assert_eq!(grant["granted_by"], Value::Null, "{body}");
+    Ok(())
+}

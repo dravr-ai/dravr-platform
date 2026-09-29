@@ -1,5 +1,5 @@
 // ABOUTME: Sliding drawer component that shows detailed user information
-// ABOUTME: Displays user profile, rate limits, activity, and admin actions (approve, suspend, impersonate)
+// ABOUTME: Displays user profile, rate limits, activity, and admin actions (approve, suspend, impersonate, group coach grant)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -80,8 +80,9 @@ export default function UserDetailDrawer({
     enabled: !!user && isOpen,
   });
 
+  const adminProfileKey = ['adminUsers', 'admin-profile', user?.id];
   const { data: adminProfile, isLoading: adminProfileLoading } = useQuery({
-    queryKey: ['adminUsers', 'admin-profile', user?.id],
+    queryKey: adminProfileKey,
     queryFn: () => user ? adminApi.getUserAdminProfile(user.id) : null,
     enabled: !!user && isOpen,
   });
@@ -146,6 +147,16 @@ export default function UserDetailDrawer({
     mutationFn: () =>
       user ? adminApi.clearUserTier(user.id) : Promise.reject(new Error('no user')),
     onSuccess: refetchAfterTierChange,
+  });
+
+  const setRosterMutation = useMutation({
+    mutationFn: (managesRoster: boolean) =>
+      user
+        ? adminApi.setUserManagesRoster(user.id, managesRoster)
+        : Promise.reject(new Error('no user')),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: adminProfileKey });
+    },
   });
 
   if (!isOpen || !user) return null;
@@ -320,6 +331,51 @@ export default function UserDetailDrawer({
                 </div>
               )}
             </div>
+
+            {adminProfile && (
+              <div className="mt-4 pt-4 border-t ghost-border text-sm space-y-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <span className="text-on-surface-variant">Group coach</span>
+                    <p className="font-medium text-on-surface" data-testid="roster-grant-status">
+                      {!adminProfile.manages_roster
+                        ? 'Cannot coach a group'
+                        : adminProfile.manages_roster_operator_grant
+                          ? `Can coach a group (granted by an operator ${formatDateTime(
+                              adminProfile.manages_roster_operator_grant.granted_at,
+                              language,
+                            )})`
+                          : 'Can coach a group (TrainingPeaks coach account)'}
+                    </p>
+                  </div>
+                  {isSuperAdmin && (
+                    <Button
+                      onClick={() => setRosterMutation.mutate(!adminProfile.manages_roster)}
+                      disabled={setRosterMutation.isPending}
+                      variant="secondary"
+                    >
+                      {setRosterMutation.isPending
+                        ? 'Saving…'
+                        : adminProfile.manages_roster
+                          ? 'Revoke'
+                          : 'Grant'}
+                    </Button>
+                  )}
+                </div>
+                {isSuperAdmin && (
+                  <p className="text-xs text-on-surface-variant">
+                    Lets the user redeem a group&apos;s coach invite. An operator grant stays
+                    through a TrainingPeaks disconnect; revoking also removes a TrainingPeaks
+                    grant until that account signs in again.
+                  </p>
+                )}
+                {setRosterMutation.isError && (
+                  <p className="text-error text-xs">
+                    Failed to update the group coach permission. Please try again.
+                  </p>
+                )}
+              </div>
+            )}
           </Card>
 
           {/* Rate Limits Card */}

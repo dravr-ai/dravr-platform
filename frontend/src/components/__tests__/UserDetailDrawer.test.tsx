@@ -1,5 +1,5 @@
-// ABOUTME: Tests for the UserDetailDrawer tier override control (super-admin only) and its monthly rate-limit override
-// ABOUTME: Mocks adminApi + useAuth; asserts setUserTier/clearUserTier and setUserRateLimitOverride args and role gating
+// ABOUTME: Tests for the UserDetailDrawer tier override, group coach grant (super-admin only) and monthly rate-limit override
+// ABOUTME: Mocks adminApi + useAuth; asserts setUserTier/clearUserTier, setUserManagesRoster, setUserRateLimitOverride args and role gating
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -16,6 +16,7 @@ const getUserUsage = vi.fn();
 const getUserAdminProfile = vi.fn();
 const setUserTier = vi.fn();
 const clearUserTier = vi.fn();
+const setUserManagesRoster = vi.fn();
 const setUserRateLimitOverride = vi.fn();
 const clearUserRateLimitOverride = vi.fn();
 
@@ -28,6 +29,7 @@ vi.mock('../../services/api', () => ({
     getUserAdminProfile: (...args: unknown[]) => getUserAdminProfile(...args),
     setUserTier: (...args: unknown[]) => setUserTier(...args),
     clearUserTier: (...args: unknown[]) => clearUserTier(...args),
+    setUserManagesRoster: (...args: unknown[]) => setUserManagesRoster(...args),
     setUserRateLimitOverride: (...args: unknown[]) => setUserRateLimitOverride(...args),
     clearUserRateLimitOverride: (...args: unknown[]) => clearUserRateLimitOverride(...args),
   },
@@ -127,6 +129,8 @@ describe('UserDetailDrawer tier control', () => {
       user_id: 'user-42',
       coaching_persona: 'supportive_coach',
       default_coach_id: null,
+      manages_roster: false,
+      manages_roster_operator_grant: null,
       installed_agents: [],
       joined_groups: [],
     });
@@ -321,5 +325,99 @@ describe('UserDetailDrawer rate-limit override', () => {
     await waitFor(() => {
       expect(clearUserRateLimitOverride).toHaveBeenCalledWith('user-42');
     });
+  });
+});
+
+describe('UserDetailDrawer group coach grant', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRole = 'super_admin';
+    getUserRateLimit.mockResolvedValue({
+      user_id: 'user-42',
+      tier: 'starter',
+      rate_limits: { monthly: { limit: 3000, used: 0, remaining: 3000 } },
+      reset_times: { monthly_reset: '2026-08-01T00:00:00Z' },
+      override_active: false,
+      override_note: null,
+    });
+    getUserActivity.mockResolvedValue({
+      user_id: 'user-42',
+      period_days: 30,
+      total_requests: 0,
+      top_tools: [],
+    });
+    getUserUsage.mockResolvedValue({
+      user_id: 'user-42',
+      from: '2026-07-01T00:00:00Z',
+      by_model: [],
+      total_cost_usd: 0,
+      daily: [],
+    });
+    setUserManagesRoster.mockResolvedValue({
+      user_id: 'user-42',
+      email: 'athlete@example.com',
+      manages_roster: true,
+      manages_roster_operator_grant: { granted_at: '2026-09-29T14:00:00Z', granted_by: 'admin-1' },
+    });
+  });
+
+  function profile(managesRoster: boolean, byOperator: boolean) {
+    getUserAdminProfile.mockResolvedValue({
+      user_id: 'user-42',
+      coaching_persona: 'supportive_coach',
+      default_coach_id: null,
+      manages_roster: managesRoster,
+      manages_roster_operator_grant: byOperator
+        ? { granted_at: '2026-09-29T14:00:00Z', granted_by: 'admin-1' }
+        : null,
+      installed_agents: [],
+      joined_groups: [],
+    });
+  }
+
+  it('grants the permission to a user without it', async () => {
+    profile(false, false);
+    renderDrawer();
+    expect(await screen.findByTestId('roster-grant-status')).toHaveTextContent(
+      'Cannot coach a group',
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Grant' }));
+
+    await waitFor(() => {
+      expect(setUserManagesRoster).toHaveBeenCalledWith('user-42', true);
+    });
+  });
+
+  it('revokes an operator grant and names where it came from', async () => {
+    profile(true, true);
+    renderDrawer();
+    expect(await screen.findByTestId('roster-grant-status')).toHaveTextContent(
+      /^Can coach a group \(granted by an operator .*2026.*\)$/,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
+
+    await waitFor(() => {
+      expect(setUserManagesRoster).toHaveBeenCalledWith('user-42', false);
+    });
+  });
+
+  it('names a TrainingPeaks grant as earned by the coach account', async () => {
+    profile(true, false);
+    renderDrawer();
+    expect(await screen.findByTestId('roster-grant-status')).toHaveTextContent(
+      'Can coach a group (TrainingPeaks coach account)',
+    );
+  });
+
+  it('shows the permission but no control to a plain admin', async () => {
+    mockRole = 'admin';
+    profile(false, false);
+    renderDrawer();
+    expect(await screen.findByTestId('roster-grant-status')).toHaveTextContent(
+      'Cannot coach a group',
+    );
+    expect(screen.queryByRole('button', { name: 'Grant' })).not.toBeInTheDocument();
   });
 });

@@ -23,7 +23,8 @@
 //!   lasts as long as the reason for it: when the connection that earned it
 //!   signs in again as an athlete or as a coach account that is not the
 //!   user's, or is disconnected ([`revoke_roster_for_coach_connection`]), the
-//!   grant goes unless another `TrainingPeaks` coach connection still holds it;
+//!   grant goes unless another `TrainingPeaks` coach connection still holds it
+//!   or an operator made it;
 //! - before sciotte 0.14 a coach account's list read fell through to whichever
 //!   athlete TrainingPeaks served, and the platform filed those workouts as the
 //!   coach's own. They are deleted when the account is found to be a coach's.
@@ -271,7 +272,9 @@ async fn recorded_role(
 /// the user's, or when it is disconnected.
 ///
 /// The grant stays while the user holds a `TrainingPeaks` coach connection in
-/// any other tenant, since that connection earns it too.
+/// any other tenant, since that connection earns it too, and whenever an
+/// operator made it: a grant the connection did not earn is not the
+/// connection's to take back.
 ///
 /// # Errors
 ///
@@ -296,13 +299,7 @@ pub async fn revoke_roster_for_coach_connection(
     if coach_elsewhere {
         return Ok(());
     }
-    let holds_grant = repos
-        .users
-        .get_global(user_id)
-        .await?
-        .is_some_and(|user| user.manages_roster);
-    if holds_grant {
-        repos.users.set_manages_roster(user_id, false).await?;
+    if repos.users.revoke_earned_manages_roster(user_id).await? {
         info!(user_id = %user_id, "manages_roster revoked: no TrainingPeaks coach connection left");
     }
     Ok(())

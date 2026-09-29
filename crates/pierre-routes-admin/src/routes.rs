@@ -344,6 +344,11 @@ impl AdminRoutes {
                 "/admin/users/{user_id}/tier",
                 post(users::handle_set_user_tier).delete(users::handle_clear_user_tier_override),
             )
+            // Super-admin only inside the handler, whichever surface reaches it.
+            .route(
+                "/admin/users/{user_id}/manages-roster",
+                post(users::handle_set_user_manages_roster),
+            )
             .route(
                 "/admin/pre-approved-emails",
                 get(users::handle_list_pre_approved_emails).post(users::handle_allow_email),
@@ -395,6 +400,11 @@ impl AdminRoutes {
             .route(
                 "/api/admin/users/{user_id}/tier",
                 post(users::handle_set_user_tier).delete(users::handle_clear_user_tier_override),
+            )
+            // Super-admin only inside the handler, whichever surface reaches it.
+            .route(
+                "/api/admin/users/{user_id}/manages-roster",
+                post(users::handle_set_user_manages_roster),
             )
             .route(
                 "/api/admin/pre-approved-emails",

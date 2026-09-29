@@ -415,6 +415,20 @@ impl FromStr for ColorScheme {
     }
 }
 
+/// A `manages_roster` grant an operator made, from the admin console or
+/// `pierre-cli user set --manages-roster`.
+///
+/// The `TrainingPeaks` reconciler takes back only a grant a coach connection
+/// earned, never one of these.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OperatorRosterGrant {
+    /// When the operator granted it.
+    pub granted_at: DateTime<Utc>,
+    /// The operator who granted it; `None` for a service token, which names
+    /// no one, and once that operator's account is deleted.
+    pub granted_by: Option<Uuid>,
+}
+
 /// Represents a user in the multi-tenant system
 ///
 /// Users are authenticated through `OAuth` providers and have encrypted tokens
@@ -484,9 +498,10 @@ pub struct User {
     /// TrainingPeaks email is the user's verified email, and revoked when that
     /// connection is disconnected or signs in as an athlete or as a coach
     /// account that is not the user's, unless another TrainingPeaks coach
-    /// connection still holds it.
-    /// LIMITATION(registre#643): `manages_roster` has no operator grant — no
-    /// admin route, admin UI or `pierre-cli user` flag sets it.
+    /// connection still holds it. An operator grants or revokes it from the
+    /// admin console or `pierre-cli user set --manages-roster`, and an
+    /// operator grant ([`OperatorRosterGrant`]) is never revoked by the
+    /// TrainingPeaks reconciler.
     #[serde(default)]
     pub manages_roster: bool,
     /// IANA timezone database name (e.g. `"America/Toronto"`,

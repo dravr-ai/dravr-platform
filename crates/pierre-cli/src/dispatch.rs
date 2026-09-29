@@ -54,13 +54,20 @@ pub async fn dispatch_remote_user(action: UserCommand) -> AppResult<()> {
         UserCommand::Set {
             selector,
             tier,
+            manages_roster,
             note,
             server,
             token,
         } => {
             let client = commands::auth::admin_client(server, token)?;
             let id = commands::user_admin::resolve_user_id(&client, &selector).await?;
-            commands::user_admin::set_user_tier(&client, &id, &tier, note.as_deref()).await
+            if let Some(tier) = tier {
+                commands::user_admin::set_user_tier(&client, &id, &tier, note.as_deref()).await?;
+            }
+            if let Some(manages_roster) = manages_roster {
+                commands::user_admin::set_user_manages_roster(&client, &id, manages_roster).await?;
+            }
+            Ok(())
         }
         UserCommand::Allow {
             email,

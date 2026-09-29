@@ -60,6 +60,13 @@ export interface AutoApprovalSetting {
 
 /// A one-time password reset token, returned once. The user redeems it at
 /// `POST /api/auth/complete-reset` with their new password before it expires.
+/** A `manages_roster` grant an operator made; a TrainingPeaks disconnect leaves it in place. */
+export interface RosterOperatorGrant {
+  granted_at: string;
+  /** The operator's user id; null for a service token, or once that account is deleted. */
+  granted_by: string | null;
+}
+
 export interface PasswordResetResult {
   user_id: string;
   email: string;
@@ -400,6 +407,8 @@ export const adminApi = {
     user_id: string;
     coaching_persona: string;
     default_coach_id: string | null;
+    manages_roster: boolean;
+    manages_roster_operator_grant: RosterOperatorGrant | null;
     installed_agents: Array<{
       agent_id: string;
       title: string;
@@ -424,6 +433,18 @@ export const adminApi = {
     tier: string;
   }> {
     const response = await axios.post(`/api/admin/users/${userId}/tier`, { tier });
+    return response.data.data;
+  },
+
+  async setUserManagesRoster(userId: string, managesRoster: boolean): Promise<{
+    user_id: string;
+    email: string;
+    manages_roster: boolean;
+    manages_roster_operator_grant: RosterOperatorGrant | null;
+  }> {
+    const response = await axios.post(`/api/admin/users/${userId}/manages-roster`, {
+      manages_roster: managesRoster,
+    });
     return response.data.data;
   },
 
