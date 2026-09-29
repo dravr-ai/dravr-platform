@@ -2111,6 +2111,7 @@
       "reconnect": "Reconectar",
       "reply": "Responder"
     },
+    "askDraft": "Explícame esta notificación: «{{title}} — {{body}}»",
     "channel_body": "🔔 {0}\n\n{1}",
     "daysAgo": "hace {{count}} d",
     "digest": {

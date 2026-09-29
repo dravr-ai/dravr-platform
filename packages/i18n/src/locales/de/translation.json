@@ -2111,6 +2111,7 @@
       "reconnect": "Neu verbinden",
       "reply": "Antworten"
     },
+    "askDraft": "Erklär mir diese Benachrichtigung: „{{title}} – {{body}}“",
     "channel_body": "🔔 {0}\n\n{1}",
     "daysAgo": "vor {{count}} T.",
     "digest": {
