@@ -485,6 +485,8 @@ pub struct User {
     /// connection is disconnected or signs in as an athlete or as a coach
     /// account that is not the user's, unless another TrainingPeaks coach
     /// connection still holds it.
+    /// LIMITATION(registre#643): `manages_roster` has no operator grant — no
+    /// admin route, admin UI or `pierre-cli user` flag sets it.
     #[serde(default)]
     pub manages_roster: bool,
     /// IANA timezone database name (e.g. `"America/Toronto"`,

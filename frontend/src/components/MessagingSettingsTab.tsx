@@ -3,6 +3,9 @@
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
+//
+// LIMITATION(registre#644): `MessagingSettingsTab` configures bot credentials only; web Settings
+// has no account link to Telegram after onboarding (mobile's MessagingChannelsScreen does).
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';

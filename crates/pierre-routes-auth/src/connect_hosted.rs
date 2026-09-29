@@ -53,6 +53,8 @@ use crate::AuthRoutesContext;
 /// Catalogue cards the connect picker does not offer: the API-key and
 /// synthetic providers are out of the messaging connect scope. A raw card a
 /// mirror covers (`strava`, `garmin`) is never served by the catalogue.
+/// LIMITATION(registre#645): `HIDDEN_FROM_PICKER` hides `intervals_icu` because
+/// the hosted page has no API-key form, so Intervals.icu cannot be connected from a chat.
 const HIDDEN_FROM_PICKER: &[&str] = &["synthetic", "synthetic_sleep", "intervals_icu"];
 
 /// Query parameters for the hosted connect page.

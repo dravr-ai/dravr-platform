@@ -210,6 +210,8 @@ pub trait ChatRepository: Send + Sync {
     /// Count the conversations a user *owns* in a tenant. Owner semantics on
     /// purpose: this sizes the `max_active_conversations` quota, and a thread
     /// someone else opened must not count against the athlete added to it.
+    /// LIMITATION(registre#642): `count_conversations` counts archived threads,
+    /// so `/reset` never frees a quota slot; only deleting a conversation does.
     async fn count_conversations(&self, user_id: &str, tenant_id: TenantId) -> AppResult<i64>;
 
     /// Get recently updated conversations across all tenants (admin view)
