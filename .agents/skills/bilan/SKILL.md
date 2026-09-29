@@ -195,13 +195,14 @@ first prompt arrives, and until this was gated every session opened at "9/10 not
 for having done nothing in its first second. A session nobody has asked anything of scores clean.
 
 Every report also carries the **ask**, verbatim: `asked:` is the latest prompt ChefFamille
-typed, and `first ask:` the first, when they differ. The label names a
-prompt, never an issue: an opening ask that is only a carnet link is not an issue this session
-filed. bilan cannot judge whether the work satisfies it — that would be narration again,
-the thing it exists to treat — but it can refuse to let a session claim completion without the request in view. The latest counts because a long session is
-not what it opened with: one that opened on "Another session reported" and shipped four fixes
-reported under those words. A scheduled wakeup, a task notification or a peer message is text the
-session or the harness wrote, not an ask, and the transcript marks it so.
+typed, and `first ask:` the first, when they differ. The label names a prompt, never an issue:
+an opening ask that is only a carnet link is not an issue this session filed. bilan cannot judge
+whether the work satisfies it — that would be narration again, the thing it exists to treat —
+but it can refuse to let a session claim completion without the request in view. The latest
+counts because a long session is not what it opened with: one that opened on "Another session
+reported" and shipped four fixes reported under those words. A scheduled wakeup, a task
+notification or a peer message is text the session or the harness wrote, not an ask, and the
+transcript marks it so.
 
 ## CI, and one thing it cannot see
 
