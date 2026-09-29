@@ -149,6 +149,8 @@ fn turn_state(content: &str) -> TurnState {
         scene_images: Vec::new(),
         actions: Vec::new(),
         actions_title: None,
+        // The conversation above is bound to no agent.
+        answered_by: None,
     }
 }
 
