@@ -10,8 +10,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::mobility::{
-    DifficultyLevel, ListStretchingFilter, ListYogaFilter, StretchingCategory, StretchingExercise,
-    YogaCategory, YogaPose, YogaPoseType,
+    muscles_in_group, DifficultyLevel, ListStretchingFilter, ListYogaFilter, StretchingCategory,
+    StretchingExercise, YogaCategory, YogaPose, YogaPoseType,
 };
 use serde::de::DeserializeOwned;
 use sqlx::{ColumnIndex, Decode, Row, Type};
@@ -188,17 +188,24 @@ impl Conditions {
         }
     }
 
-    /// `(primary_muscles <like> p OR secondary_muscles <like> p)`.
+    /// `(primary_muscles <like> p OR secondary_muscles <like> p OR ...)`, one
+    /// pair per muscle the group names: a body area matches a row that works
+    /// any of its muscles.
     fn works_muscle(&mut self, like: &str, value: Option<&str>) {
         if let Some(value) = value {
-            let pattern = json_array_pattern(value);
-            self.binds.push(pattern.clone());
-            let p1 = self.binds.len();
-            self.binds.push(pattern);
-            let p2 = self.binds.len();
-            self.clauses.push(format!(
-                "(primary_muscles {like} ${p1} OR secondary_muscles {like} ${p2})"
-            ));
+            let mut alternatives = Vec::new();
+            for muscle in muscles_in_group(value) {
+                let pattern = json_array_pattern(&muscle);
+                self.binds.push(pattern.clone());
+                let p1 = self.binds.len();
+                self.binds.push(pattern);
+                let p2 = self.binds.len();
+                alternatives.push(format!(
+                    "primary_muscles {like} ${p1} OR secondary_muscles {like} ${p2}"
+                ));
+            }
+            self.clauses
+                .push(format!("({})", alternatives.join(" OR ")));
         }
     }
 

@@ -103,32 +103,24 @@ fn build_meal_suggestions(intensity: &str) -> Vec<MealSuggestion> {
 }
 
 pub(super) fn generate_nutrition_recommendations(activities: &[Activity]) -> RecommendationsResult {
-    let most_recent = activities.iter().max_by_key(|a| a.start_date());
-
-    if most_recent.is_none() {
+    // The only caller returns before reaching here when the athlete has no
+    // activity in the last four weeks, so this arm is this function's own
+    // contract for an empty slice rather than a path the tool takes today.
+    let Some(activity) = activities.iter().max_by_key(|a| a.start_date()) else {
         return base_recommendations(
             "nutrition",
             "medium",
             "No recent activity data available".to_owned(),
             vec![
-                "Maintain balanced nutrition with adequate protein (1.6-2.2g/kg body weight)"
+                // 1.2-2.0 g/kg/day is the ACSM/AND/DC range for athletes in
+                // general (Thomas, Erdman & Burke 2016). 1.6-2.2 is Morton
+                // 2018's range for resistance-training gains, not this one.
+                "Maintain balanced nutrition with adequate protein (1.2-2.0g/kg body weight per day), spread across meals"
                     .to_owned(),
                 "Stay hydrated throughout the day (2-3 liters water)".to_owned(),
                 "Eat regular meals with complex carbohydrates, lean protein, and healthy fats"
                     .to_owned(),
             ],
-        );
-    }
-
-    let Some(activity) = most_recent else {
-        // Unreachable: the `is_none` arm above returns first. Kept as the
-        // exhaustive arm, and now answering the declared shape rather than a
-        // bare `recommendations` key that named neither mode nor priority.
-        return base_recommendations(
-            "nutrition",
-            "medium",
-            "No recent activity data available".to_owned(),
-            vec!["No recent activities found for nutrition analysis".to_owned()],
         );
     };
 
@@ -142,11 +134,12 @@ pub(super) fn generate_nutrition_recommendations(activities: &[Activity]) -> Rec
             protein_g,
             carbs_g * 0.5
         ),
-        format!(
-            "Rehydrate with {:.0}-{:.0}ml of water or electrolyte drink",
-            hydration_ml,
-            hydration_ml * 1.3
-        ),
+        // Replace 125-150% of the fluid actually lost (Thomas, Erdman & Burke
+        // 2016). `hydration_ml` is a flat 750 ml/h guess at sweat loss that
+        // ignores what was drunk during the session, so scaling it would
+        // prescribe a volume no one measured; the scale weight is the measure.
+        "Rehydrate with 1.25-1.5 L of water or electrolyte drink for every kg of body weight lost in the session (weigh before and after); sodium from food or drink helps you keep it"
+            .to_owned(),
     ];
 
     if intensity == "high" || duration_hours > 1.0 {

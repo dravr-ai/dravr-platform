@@ -17,6 +17,7 @@ use pierre_mcp_server::constants::tools::{
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::mcp::tool_handlers::ToolHandlers;
+use pierre_seeders::mobility;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -207,21 +208,33 @@ async fn test_e2e_suggest_stretches_for_activity() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_e2e_suggest_stretches_with_duration() -> Result<()> {
+async fn test_e2e_suggest_stretches_with_focus_and_limit() -> Result<()> {
     let handler = MobilityMcpHandler::new().await?;
+    mobility::run(&handler.resources.common.repos).await?;
 
     let response = handler
         .call_tool(
             SUGGEST_STRETCHES_FOR_ACTIVITY,
             json!({
                 "activity_type": "cycling",
-                "duration_minutes": 15
+                "focus": "cooldown",
+                "limit": 3
             }),
         )
         .await?;
 
     assert_eq!(response["jsonrpc"], "2.0");
     assert!(response.get("error").is_none());
+    let suggestion = &response["result"]["structuredContent"];
+    assert_eq!(
+        suggestion["count"], 3,
+        "the limit reaches the tool: {response}"
+    );
+    let exercises = suggestion["exercises"].as_array().unwrap();
+    assert!(
+        exercises.iter().all(|e| e["category"] == "static"),
+        "a cool-down holds static stretches only: {suggestion}"
+    );
 
     Ok(())
 }

@@ -214,7 +214,14 @@ impl CatalogBuilder {
                         max: 95.0,
                     }),
                     units: Some("percentage".into()),
-                    scientific_basis: Some("Faude et al. 2009".into()),
+                    // A practitioner default, not a published figure: Faude et
+                    // al. 2009 reviews threshold concepts and states no %VO2max.
+                    // 85 sits inside the range Joyner & Coyle 2008 (J Physiol
+                    // 586:35-44) give for trained subjects.
+                    scientific_basis: Some(
+                        "Practitioner default for a trained athlete; Joyner & Coyle 2008 place the lactate upturn at about 60% VO2max untrained and 75-90% trained"
+                            .into(),
+                    ),
                     requires_vo2_max: true,
                 },
                 ConfigParameter {

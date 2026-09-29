@@ -200,9 +200,10 @@ impl McpTool<dyn ToolRuntime> for DetectPatternsTool {
                 property_type: "string".to_owned(),
                 description: Some(
                     "Which pattern to detect: 'weekly_schedule' (which days they train), \
-                     'training_blocks' (build and recovery phases), 'volume_progression' \
-                     (how load is trending), or 'overtraining_signals'. Defaults to \
-                     'weekly_schedule'."
+                     'training_blocks' (share of hard and easy sessions, and whether \
+                     recovery between hard efforts is adequate), 'progression' \
+                     (how load is trending), or 'overtraining' (overtraining warning \
+                     signs). Defaults to 'weekly_schedule'."
                         .to_owned(),
                 ),
                 ..Default::default()

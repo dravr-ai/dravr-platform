@@ -9,13 +9,14 @@
 //! This binary creates the default stretching exercises, yoga poses, and
 //! activity-muscle mappings for the mobility feature.
 //!
+//! Every run writes the whole catalogue: a stretch or pose already present
+//! under its name, and a mapping under its activity type, is refreshed in
+//! place, so a corrected entry reaches a seeded database on the next run.
+//!
 //! Usage:
 //! ```bash
-//! # Seed mobility data (uses DATABASE_URL from environment)
+//! # Seed or refresh mobility data (uses DATABASE_URL from environment)
 //! pierre-cli seed mobility
-//!
-//! # Force re-seed (replaces existing data)
-//! pierre-cli seed mobility --force
 //! ```
 
 use std::collections::HashMap;
@@ -26,18 +27,9 @@ use pierre_core::models::mobility::{
     ActivityMuscleMapping, DifficultyLevel, StretchingCategory, StretchingExercise, YogaCategory,
     YogaPose, YogaPoseType,
 };
-use pierre_database::repositories::SeedTable;
 use pierre_database::RepositoryRegistry;
 use tracing::info;
 use uuid::Uuid;
-
-/// CLI arguments for the mobility seeder.
-#[derive(clap::Args)]
-pub struct SeedArgs {
-    /// Force re-seed even if data already exists
-    #[arg(long)]
-    pub force: bool,
-}
 
 // ============================================================================
 // Stretching Exercise Data
@@ -297,24 +289,24 @@ const STRETCHING_EXERCISES: &[StretchingData] = &[
     },
     StretchingData {
         name: "IT Band Foam Roll",
-        description: "Self-myofascial release for the iliotibial band. Helps prevent runner's knee.",
+        description: "Foam rolling for a tight outer thigh: slow passes over the outer quadriceps and the hip muscles beside the IT band, which itself does not lengthen or release. It buys short-lived range and eases perceived soreness.",
         category: "static",
         difficulty: "intermediate",
-        primary_muscles: &["it_band"],
-        secondary_muscles: &["vastus_lateralis"],
+        primary_muscles: &["quadriceps", "glutes"],
+        secondary_muscles: &["vastus_lateralis", "tensor_fasciae_latae"],
         duration_seconds: 60,
         repetitions: None,
         sets: 1,
         recommended_for_activities: &["running", "cycling", "hiking"],
-        contraindications: &["severe_it_band_syndrome"],
+        contraindications: &["outer_knee_pain", "acute_thigh_or_hip_injury"],
         instructions: &[
-            "Lie on your side with a foam roller under your outer thigh",
-            "Support yourself with your arms and top leg",
-            "Slowly roll from hip to just above the knee",
-            "Pause on tender spots for 20-30 seconds",
-            "Roll for 60 seconds total per leg"
+            "Lie on your side, then turn slightly toward the floor so the roller sits under the front-outer thigh, on the outer quadriceps rather than the band",
+            "Support yourself with your forearm and top leg to keep the pressure moderate",
+            "Roll slowly between just below the hip and just above the knee for about 30 seconds",
+            "Move the roller up to the muscles at the side of the hip, off the bony point, for about 30 seconds",
+            "Switch legs: 60 seconds per leg in total"
         ],
-        cues: &["Don't roll directly on the knee", "Breathe through discomfort", "Control the pressure"],
+        cues: &["Stay off the knee and the hip bone", "Moderate pressure: ease off before it turns painful", "Breathe slowly"],
     },
 ];
 
@@ -796,16 +788,14 @@ const ACTIVITY_MAPPINGS: &[ActivityMappingData] = &[
     },
 ];
 
-/// Seed the default stretching exercises, yoga poses, and activity-muscle mappings.
+/// Seed the default stretching exercises, yoga poses, and activity-muscle
+/// mappings, refreshing whichever of them a database already holds.
 ///
 /// # Errors
 ///
 /// Returns an error if any repository upsert fails.
-pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
+pub async fn run(repos: &RepositoryRegistry) -> AppResult<()> {
     info!("=== Pierre MCP Server Mobility Data Seeder ===");
-    if existing_data_blocks_seeding(repos, args.force).await {
-        return Ok(());
-    }
     let now = Utc::now();
     seed_stretching_exercises(repos, now).await?;
     seed_yoga_poses(repos, now).await?;
@@ -822,35 +812,6 @@ fn log_mobility_summary() {
         YOGA_POSES.len(),
         ACTIVITY_MAPPINGS.len()
     );
-}
-
-/// Check whether any mobility table already has data; if so and `--force` wasn't passed,
-/// log and signal the caller to skip re-seeding.
-async fn existing_data_blocks_seeding(repos: &RepositoryRegistry, force: bool) -> bool {
-    let stretch_count = repos
-        .seeder
-        .seed_count_table(SeedTable::StretchingExercises)
-        .await
-        .unwrap_or(0);
-    let yoga_count = repos
-        .seeder
-        .seed_count_table(SeedTable::YogaPoses)
-        .await
-        .unwrap_or(0);
-    let mapping_count = repos
-        .seeder
-        .seed_count_table(SeedTable::ActivityMuscleMapping)
-        .await
-        .unwrap_or(0);
-
-    if (stretch_count > 0 || yoga_count > 0 || mapping_count > 0) && !force {
-        info!(
-            "Mobility data already seeded ({} stretches, {} yoga poses, {} mappings). Use --force to re-seed.",
-            stretch_count, yoga_count, mapping_count
-        );
-        return true;
-    }
-    false
 }
 
 async fn seed_stretching_exercises(

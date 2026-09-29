@@ -63,12 +63,6 @@ pub enum SeedTable {
     A2AUsage,
     /// `synthetic_activities` table
     SyntheticActivities,
-    /// `stretching_exercises` table
-    StretchingExercises,
-    /// `yoga_poses` table
-    YogaPoses,
-    /// `activity_muscle_mapping` table
-    ActivityMuscleMapping,
 }
 
 impl SeedTable {
@@ -83,9 +77,6 @@ impl SeedTable {
             Self::ApiKeyUsage => "api_key_usage",
             Self::A2AUsage => "a2a_usage",
             Self::SyntheticActivities => "synthetic_activities",
-            Self::StretchingExercises => "stretching_exercises",
-            Self::YogaPoses => "yoga_poses",
-            Self::ActivityMuscleMapping => "activity_muscle_mapping",
         }
     }
 }
@@ -118,11 +109,18 @@ pub trait SeederRepository: Send + Sync {
 
     // ---- Mobility seeder (stretching, yoga, activity mappings) ----
 
-    /// Upsert a stretching exercise (insert or replace on conflict)
+    /// Upsert a stretching exercise, identified by its `name`: every row
+    /// already carrying the name is refreshed in place, keeping its id and
+    /// `created_at`; with none, the exercise is inserted under its own `id`.
+    ///
+    /// The catalogue's source of truth is the seeder's list, which names
+    /// exercises and mints a fresh id per run, so the name is what lets a
+    /// re-seed correct a row an earlier seed wrote.
     async fn seed_upsert_stretching_exercise(&self, exercise: &StretchingExercise)
         -> AppResult<()>;
 
-    /// Upsert a yoga pose (insert or replace on conflict)
+    /// Upsert a yoga pose, identified by its `english_name` the way
+    /// [`Self::seed_upsert_stretching_exercise`] is by its name.
     async fn seed_upsert_yoga_pose(&self, pose: &YogaPose) -> AppResult<()>;
 
     /// Upsert an activity-muscle mapping (insert or replace on conflict)
@@ -402,6 +400,14 @@ pub const AGENT_SLUG_REWRITES: [&str; 4] = [
 // ============================================================================
 // Statements
 // ============================================================================
+
+/// The ids of the stretching rows carrying one name.
+pub(crate) const STRETCHING_IDS_BY_NAME_SQL: &str =
+    "SELECT id FROM stretching_exercises WHERE name = $1";
+
+/// The ids of the yoga rows carrying one English name.
+pub(crate) const YOGA_POSE_IDS_BY_NAME_SQL: &str =
+    "SELECT id FROM yoga_poses WHERE english_name = $1";
 
 /// Insert or refresh a stretching exercise; the row keeps its `created_at`.
 pub(crate) const UPSERT_STRETCHING_EXERCISE_SQL: &str = "INSERT INTO stretching_exercises \

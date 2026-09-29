@@ -97,10 +97,11 @@ fn week_with(days: Vec<PlannedDay>) -> PlanWeek {
 
 /// Sodium is worded as a loss, and simply absent when nothing measured it.
 ///
-/// The wording is the assertion, not decoration. Hew-Butler 2008 — the source
-/// the agents used to cite here — found hyponatremia is driven by fluid
-/// intake above sweat rate and that sodium supplementation does not prevent
-/// it, so a prescribed mg/h target inverts the evidence.
+/// The wording is the assertion, not decoration. Drinking above sweat rate
+/// raises the risk of hyponatremia (Hew-Butler 2008), and at the 161 km
+/// Western States sodium supplements did not protect against it: overhydration
+/// marked those who developed it (Hoffman & Stuempfle 2015). A prescribed
+/// mg/h target inverts the evidence.
 #[test]
 fn summary_calls_sodium_a_loss_and_omits_it_when_unmeasured() {
     let full = FuelingProtocol {

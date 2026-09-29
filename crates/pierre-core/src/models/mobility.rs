@@ -52,8 +52,9 @@ impl StretchingCategory {
     }
 }
 
-/// Difficulty level for exercises and poses
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+/// Difficulty level for exercises and poses, ordered easiest first so a
+/// maximum difficulty is a plain `<=` comparison.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum DifficultyLevel {
     /// Suitable for beginners with no prior experience
@@ -129,6 +130,69 @@ pub struct StretchingExercise {
     pub updated_at: DateTime<Utc>,
 }
 
+// ============================================================================
+// Muscle groups
+// ============================================================================
+
+/// The catalogue muscles each body area covers.
+///
+/// Catalogue rows name specific muscles (`hip_flexors`, `lower_back`) while
+/// an athlete asks by area ("tight hips", "stiff back"), so an area named in a
+/// muscle filter stands for every muscle listed here. The IT band is a band
+/// of connective tissue that does not lengthen or release, so asking for it
+/// finds the muscles beside it that rolling and stretching do reach: the outer
+/// quadriceps and the hip muscles.
+const BODY_AREAS: &[(&str, &[&str])] = &[
+    (
+        "it_band",
+        &["vastus_lateralis", "tensor_fasciae_latae", "glutes"],
+    ),
+    (
+        "hips",
+        &[
+            "hips",
+            "hip_flexors",
+            "psoas",
+            "hip_abductors",
+            "hip_adductors",
+            "groin",
+            "hip_rotators",
+            "piriformis",
+            "glutes",
+            "tensor_fasciae_latae",
+        ],
+    ),
+    (
+        "back",
+        &[
+            "back",
+            "lower_back",
+            "upper_back",
+            "spine",
+            "thoracic_spine",
+            "lats",
+        ],
+    ),
+    ("shoulders", &["shoulders", "anterior_deltoids"]),
+];
+
+/// The catalogue muscle names a muscle-group filter matches.
+///
+/// A body area (`hips`, `back`, `shoulders`) expands to every muscle it
+/// covers; any other value is a muscle as the catalogue spells it
+/// (`hamstrings`, `calves`) and matches itself. Matching ignores case.
+#[must_use]
+pub fn muscles_in_group(group: &str) -> Vec<String> {
+    let group = group.trim().to_lowercase();
+    BODY_AREAS
+        .iter()
+        .find(|(area, _)| *area == group)
+        .map_or_else(
+            || vec![group.clone()],
+            |(_, muscles)| muscles.iter().map(|m| (*m).to_owned()).collect(),
+        )
+}
+
 /// Filter options for listing stretching exercises
 #[derive(Debug, Clone, Default)]
 pub struct ListStretchingFilter {
@@ -136,7 +200,8 @@ pub struct ListStretchingFilter {
     pub category: Option<StretchingCategory>,
     /// Filter by difficulty
     pub difficulty: Option<DifficultyLevel>,
-    /// Filter by muscle group
+    /// Filter by muscle group: a catalogue muscle, or a body area that
+    /// [`muscles_in_group`] expands
     pub muscle_group: Option<String>,
     /// Filter by activity type
     pub activity_type: Option<String>,
@@ -312,7 +377,8 @@ pub struct ListYogaFilter {
     pub difficulty: Option<DifficultyLevel>,
     /// Filter by pose type
     pub pose_type: Option<YogaPoseType>,
-    /// Filter by muscle group
+    /// Filter by muscle group: a catalogue muscle, or a body area that
+    /// [`muscles_in_group`] expands
     pub muscle_group: Option<String>,
     /// Filter by activity type
     pub activity_type: Option<String>,

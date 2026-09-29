@@ -601,7 +601,7 @@ export interface DetectPatternsParams {
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
 
-  /** Which pattern to detect: 'weekly_schedule' (which days they train), 'training_blocks' (build and recovery phases), 'volume_progression' (how load is trending), or 'overtraining_signals'. Defaults to 'weekly_schedule'. */
+  /** Which pattern to detect: 'weekly_schedule' (which days they train), 'training_blocks' (share of hard and easy sessions, and whether recovery between hard efforts is adequate), 'progression' (how load is trending), or 'overtraining' (overtraining warning signs). Defaults to 'weekly_schedule'. */
   pattern_type?: string;
 
   /** Fitness provider to query. Defaults to configured provider. */

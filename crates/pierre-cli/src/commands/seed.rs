@@ -17,7 +17,7 @@ use pierre_seeders::agents::{run as run_agents, SeedArgs as AgentsArgs};
 use pierre_seeders::bootstrap::{run as run_bootstrap, SeedArgs as BootstrapArgs};
 use pierre_seeders::demo_data::{run as run_demo_data, SeedArgs as DemoDataArgs};
 use pierre_seeders::llm_usage::{run as run_llm_usage, SeedArgs as LlmUsageArgs};
-use pierre_seeders::mobility::{run as run_mobility, SeedArgs as MobilityArgs};
+use pierre_seeders::mobility::run as run_mobility;
 use pierre_seeders::synthetic_activities::{
     run as run_synthetic_activities, SeedArgs as SyntheticActivitiesArgs,
 };
@@ -41,8 +41,8 @@ pub enum SeedCommand {
     /// Populate the `llm_usage` table with realistic call data for analytics dashboards
     LlmUsage(LlmUsageArgs),
 
-    /// Seed stretching exercises, yoga poses, and activity-muscle mappings
-    Mobility(MobilityArgs),
+    /// Seed or refresh stretching exercises, yoga poses, and activity-muscle mappings (idempotent)
+    Mobility,
 
     /// Seed diverse synthetic activities for testing without OAuth providers
     SyntheticActivities(SyntheticActivitiesArgs),
@@ -112,7 +112,7 @@ async fn dispatch_with_database(action: SeedCommand, database_url: &str) -> AppR
         SeedCommand::Agents(args) => run_agents(args, &repos).await,
         SeedCommand::DemoData(args) => run_demo_data(args, &repos).await,
         SeedCommand::LlmUsage(args) => run_llm_usage(args, &repos).await,
-        SeedCommand::Mobility(args) => run_mobility(args, &repos).await,
+        SeedCommand::Mobility => run_mobility(&repos).await,
         SeedCommand::SyntheticActivities(_) | SeedCommand::TrainingpeaksDelegation(_) => {
             unreachable!("token-writing seeders are handled by dispatch() with full key init")
         }

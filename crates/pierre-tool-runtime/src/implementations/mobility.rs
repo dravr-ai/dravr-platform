@@ -22,8 +22,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::Utc;
 use pierre_core::models::mobility::{
-    DifficultyLevel, ListStretchingFilter, ListYogaFilter, StretchingCategory, YogaCategory,
-    YogaPoseType,
+    muscles_in_group, DifficultyLevel, ListStretchingFilter, ListYogaFilter, StretchingCategory,
+    YogaCategory, YogaPose, YogaPoseType,
 };
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -40,6 +40,75 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
+
+/// Most rows a listing or a suggestion returns, whatever `limit` asks for.
+const MAX_RESULTS: u32 = 100;
+
+/// Rows a listing returns when the caller names no `limit`, as the list
+/// tools' schemas state.
+const DEFAULT_LIST_LIMIT: u32 = 20;
+
+/// Stretches a suggestion holds when the caller names no `limit`, as the
+/// suggestion tool's schema states.
+const DEFAULT_SUGGESTED_STRETCHES: u32 = 6;
+
+/// The `limit` argument bounded to `1..=MAX_RESULTS`, or `default` when the
+/// caller names none.
+#[allow(clippy::cast_possible_truncation)] // clamped to MAX_RESULTS, a u32
+fn limit_arg(args: &Value, default: u32) -> u32 {
+    args.get("limit")
+        .and_then(Value::as_u64)
+        .map_or(default, |limit| {
+            limit.clamp(1, u64::from(MAX_RESULTS)) as u32
+        })
+}
+
+/// When a stretch routine is done, which decides the kind of stretch it
+/// holds: dynamic before training, static after it.
+#[derive(Debug, Clone, Copy)]
+enum StretchFocus {
+    /// Before training: dynamic stretches.
+    Warmup,
+    /// After training: static stretches.
+    Cooldown,
+}
+
+impl StretchFocus {
+    /// Read the `focus` argument; `warm-up`, `Cool_Down` and the like are
+    /// accepted spellings.
+    fn parse(value: &str) -> AppResult<Self> {
+        let letters: String = value
+            .chars()
+            .filter(char::is_ascii_alphanumeric)
+            .collect::<String>()
+            .to_ascii_lowercase();
+        match letters.as_str() {
+            "warmup" => Ok(Self::Warmup),
+            "cooldown" => Ok(Self::Cooldown),
+            _ => Err(AppError::invalid_input("focus must be warmup or cooldown")),
+        }
+    }
+
+    /// The stretch category the moment calls for.
+    const fn category(self) -> StretchingCategory {
+        match self {
+            Self::Warmup => StretchingCategory::Dynamic,
+            Self::Cooldown => StretchingCategory::Static,
+        }
+    }
+}
+
+/// Whether a pose works any of `muscles`, as a primary or a secondary muscle.
+fn works_any(pose: &YogaPose, muscles: &[String]) -> bool {
+    pose.primary_muscles
+        .iter()
+        .chain(&pose.secondary_muscles)
+        .any(|worked| {
+            muscles
+                .iter()
+                .any(|muscle| worked.eq_ignore_ascii_case(muscle))
+        })
+}
 
 /// One stretch as the list tool reports it.
 ///
@@ -379,18 +448,17 @@ impl McpTool<dyn ToolRuntime> for ListStretchingExercisesTool {
                 .and_then(Value::as_str)
                 .map(ToOwned::to_owned);
 
-            #[allow(clippy::cast_possible_truncation)]
-            let limit = args
-                .get("limit")
-                .and_then(Value::as_u64)
-                .map(|l| l.min(100) as u32);
+            let activity_type = args
+                .get("activity_type")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned);
 
             let filter = ListStretchingFilter {
                 category,
                 difficulty,
                 muscle_group,
-                activity_type: None,
-                limit,
+                activity_type,
+                limit: Some(limit_arg(&args, DEFAULT_LIST_LIMIT)),
                 offset: None,
             };
 
@@ -582,36 +650,37 @@ impl McpTool<dyn ToolRuntime> for SuggestStretchesForActivityTool {
                 .and_then(Value::as_str)
                 .ok_or_else(|| AppError::invalid_input("activity_type is required"))?;
 
-            let difficulty = args
-                .get("difficulty")
+            let focus = args
+                .get("focus")
                 .and_then(Value::as_str)
-                .map(DifficultyLevel::parse);
+                .map(StretchFocus::parse)
+                .transpose()?;
 
-            #[allow(clippy::cast_possible_truncation)]
-            let duration_minutes = args
-                .get("duration_minutes")
-                .and_then(Value::as_u64)
-                .map(|d| d.min(240) as u32);
+            let limit = limit_arg(&args, DEFAULT_SUGGESTED_STRETCHES);
 
             let repo = context.resources.repos().mobility.as_ref();
-            let all_exercises = repo
-                .get_stretches_for_activity(activity_type, Some(20))
-                .await
-                .map_err(|e| AppError::internal(format!("Database error: {e}")))?;
+            // A focus keeps one category, and within one category the
+            // listing's name order is the activity query's category-then-name
+            // order, so both branches rank stretches the same way.
+            let exercises = match focus {
+                Some(focus) => {
+                    repo.list_stretching_exercises(&ListStretchingFilter {
+                        category: Some(focus.category()),
+                        activity_type: Some(activity_type.to_owned()),
+                        limit: Some(limit),
+                        ..ListStretchingFilter::default()
+                    })
+                    .await
+                }
+                None => {
+                    repo.get_stretches_for_activity(activity_type, Some(limit))
+                        .await
+                }
+            }
+            .map_err(|e| AppError::internal(format!("Database error: {e}")))?;
 
-            let exercises: Vec<_> = if let Some(ref target_difficulty) = difficulty {
-                all_exercises
-                    .into_iter()
-                    .filter(|e| &e.difficulty == target_difficulty)
-                    .collect()
-            } else {
-                all_exercises
-            };
-
-            let max_exercises = duration_minutes.map_or(6, |d| (d / 5).clamp(3, 12) as usize);
             let suggestions: Vec<SuggestedStretch> = exercises
                 .iter()
-                .take(max_exercises)
                 .map(|e| SuggestedStretch {
                     id: e.id.clone(),
                     name: e.name.clone(),
@@ -624,11 +693,8 @@ impl McpTool<dyn ToolRuntime> for SuggestStretchesForActivityTool {
                 })
                 .collect();
 
-            let total_duration_seconds: u32 = exercises
-                .iter()
-                .take(max_exercises)
-                .map(|e| e.duration_seconds * e.sets)
-                .sum();
+            let total_duration_seconds: u32 =
+                exercises.iter().map(|e| e.duration_seconds * e.sets).sum();
 
             ok_typed(
                 "suggest_stretches_for_activity",
@@ -755,25 +821,24 @@ impl McpTool<dyn ToolRuntime> for ListYogaPosesTool {
                 .and_then(Value::as_str)
                 .map(YogaPoseType::parse);
 
+            let muscle_group = args
+                .get("muscle_group")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned);
+
             let recovery_context = args
                 .get("recovery_context")
                 .and_then(Value::as_str)
                 .map(ToOwned::to_owned);
 
-            #[allow(clippy::cast_possible_truncation)]
-            let limit = args
-                .get("limit")
-                .and_then(Value::as_u64)
-                .map(|l| l.min(100) as u32);
-
             let filter = ListYogaFilter {
                 category,
                 difficulty,
                 pose_type,
-                muscle_group: None,
+                muscle_group,
                 activity_type: None,
                 recovery_context,
-                limit,
+                limit: Some(limit_arg(&args, DEFAULT_LIST_LIMIT)),
                 offset: None,
             };
 
@@ -979,76 +1044,85 @@ impl McpTool<dyn ToolRuntime> for SuggestYogaSequenceTool {
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-        let purpose = args
-            .get("purpose")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("purpose is required"))?;
+            let purpose = args
+                .get("purpose")
+                .and_then(Value::as_str)
+                .ok_or_else(|| AppError::invalid_input("purpose is required"))?;
 
-        #[allow(clippy::cast_possible_truncation)]
-        let duration_minutes = args
-            .get("duration_minutes")
-            .and_then(Value::as_u64)
-            .map_or(15_u32, |v| v.min(240) as u32);
+            #[allow(clippy::cast_possible_truncation)] // bounded to 240 minutes
+            let duration_minutes = args
+                .get("duration_minutes")
+                .and_then(Value::as_u64)
+                .map_or(15_u32, |v| v.min(240) as u32);
 
-        let difficulty = args
-            .get("difficulty")
-            .and_then(Value::as_str)
-            .map(DifficultyLevel::parse);
+            let max_difficulty = args
+                .get("difficulty")
+                .and_then(Value::as_str)
+                .map(DifficultyLevel::parse);
 
-        let repo = context.resources.repos().mobility.as_ref();
-        let all_poses = repo
-            .get_poses_for_recovery(purpose, Some(20))
-            .await
-            .map_err(|e| AppError::internal(format!("Database error: {e}")))?;
+            let focus_area = args.get("focus_area").and_then(Value::as_str);
+            let focus_muscles = focus_area.map(muscles_in_group);
 
-        let poses: Vec<_> = if let Some(ref target_difficulty) = difficulty {
-            all_poses
+            // Every pose the purpose has, up to the listing bound, so the
+            // difficulty and focus filters below choose from the whole set.
+            let repo = context.resources.repos().mobility.as_ref();
+            let poses: Vec<YogaPose> = repo
+                .get_poses_for_recovery(purpose, Some(MAX_RESULTS))
+                .await
+                .map_err(|e| AppError::internal(format!("Database error: {e}")))?
                 .into_iter()
-                .filter(|p| &p.difficulty == target_difficulty)
-                .collect()
-        } else {
-            all_poses
-        };
+                .filter(|pose| max_difficulty.is_none_or(|max| pose.difficulty <= max))
+                .filter(|pose| {
+                    focus_muscles
+                        .as_deref()
+                        .is_none_or(|muscles| works_any(pose, muscles))
+                })
+                .collect();
 
-        let target_seconds = duration_minutes * 60;
-        let mut sequence: Vec<SequencePose> = Vec::new();
-        let mut total_seconds: u32 = 0;
+            let target_seconds = duration_minutes * 60;
+            let mut sequence: Vec<SequencePose> = Vec::new();
+            let mut total_seconds: u32 = 0;
 
-        for pose in &poses {
-            if total_seconds + pose.hold_duration_seconds > target_seconds {
-                break;
+            for pose in &poses {
+                if total_seconds + pose.hold_duration_seconds > target_seconds {
+                    break;
+                }
+                sequence.push(SequencePose {
+                    order: sequence.len() + 1,
+                    id: pose.id.clone(),
+                    english_name: pose.english_name.clone(),
+                    sanskrit_name: pose.sanskrit_name.clone(),
+                    category: pose.category.as_str().to_owned(),
+                    difficulty: pose.difficulty.as_str().to_owned(),
+                    hold_duration_seconds: pose.hold_duration_seconds,
+                    breath_guidance: pose.breath_guidance.clone(),
+                    primary_muscles: pose.primary_muscles.clone(),
+                    instructions: pose.instructions.clone(),
+                });
+                total_seconds += pose.hold_duration_seconds;
             }
-            sequence.push(SequencePose {
-                order: sequence.len() + 1,
-                id: pose.id.clone(),
-                english_name: pose.english_name.clone(),
-                sanskrit_name: pose.sanskrit_name.clone(),
-                category: pose.category.as_str().to_owned(),
-                difficulty: pose.difficulty.as_str().to_owned(),
-                hold_duration_seconds: pose.hold_duration_seconds,
-                breath_guidance: pose.breath_guidance.clone(),
-                primary_muscles: pose.primary_muscles.clone(),
-                instructions: pose.instructions.clone(),
-            });
-            total_seconds += pose.hold_duration_seconds;
-        }
 
-        ok_typed(
-            "suggest_yoga_sequence",
-            SuggestYogaSequenceResult {
-                purpose: purpose.to_owned(),
-                pose_count: sequence.len(),
-                sequence,
-                total_duration_seconds: total_seconds,
-                target_duration_minutes: duration_minutes,
-                guidance: format!(
-                    "This {} yoga sequence is designed for {}. Take your time with each pose and listen to your body.",
-                    duration_minutes,
-                    purpose.replace('_', " ")
-                ),
-                suggested_at: Utc::now().to_rfc3339(),
-            },
-        )
+            let focus_clause = focus_area.map_or_else(String::new, |area| {
+                format!(", focused on the {}", area.trim().replace('_', " "))
+            });
+            let guidance = format!(
+                "This {duration_minutes}-minute yoga sequence is designed for {}{focus_clause}. \
+                 Take your time with each pose and listen to your body.",
+                purpose.replace('_', " ")
+            );
+
+            ok_typed(
+                "suggest_yoga_sequence",
+                SuggestYogaSequenceResult {
+                    purpose: purpose.to_owned(),
+                    pose_count: sequence.len(),
+                    sequence,
+                    total_duration_seconds: total_seconds,
+                    target_duration_minutes: duration_minutes,
+                    guidance,
+                    suggested_at: Utc::now().to_rfc3339(),
+                },
+            )
         }
         .await;
         tool_result_to_response(result)

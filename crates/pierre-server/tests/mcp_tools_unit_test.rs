@@ -1040,6 +1040,30 @@ mod analytics_tests {
         assert_eq!(tool.definition().name, "detect_patterns");
         assert!(!tool.definition().description.is_empty());
 
+        // An unknown pattern_type silently falls back to weekly_schedule, so
+        // the description must name the values the tool dispatches on.
+        let definition = tool.definition();
+        let pattern_type = definition.input_schema["properties"]["pattern_type"]["description"]
+            .as_str()
+            .expect("detect_patterns declares a described pattern_type");
+        for value in [
+            "'weekly_schedule'",
+            "'training_blocks'",
+            "'progression'",
+            "'overtraining'",
+        ] {
+            assert!(
+                pattern_type.contains(value),
+                "pattern_type description must name {value}: {pattern_type}"
+            );
+        }
+        for retired in ["volume_progression", "overtraining_signals"] {
+            assert!(
+                !pattern_type.contains(retired),
+                "pattern_type description names {retired}, which the tool reads as weekly_schedule"
+            );
+        }
+
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
         assert!(caps.contains(ToolCapabilities::READS_DATA));

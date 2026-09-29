@@ -442,3 +442,85 @@ async fn reseeding_reference_rows_keeps_created_at() {
     assert_eq!(pose.updated_at, second);
     assert_eq!(pose.created_at, first, "the re-seed keeps created_at");
 }
+
+/// The mobility seeder mints a fresh id on every run while an earlier run
+/// already wrote the catalogue, so a re-seed identifies a row by its name:
+/// the row an earlier run wrote is refreshed in place — same id, same
+/// `created_at` — and no second row appears under the fresh id.
+#[tokio::test]
+async fn reseeding_under_a_fresh_id_refreshes_the_row_carrying_the_name() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let first = whole_second(Duration::zero());
+    let second = whole_second(Duration::hours(1));
+    let suffix = Uuid::new_v4().simple().to_string();
+    let name = format!("Outer Thigh Roll {suffix}");
+
+    let earlier_id = format!("stretch-earlier-{suffix}");
+    repos
+        .seeder
+        .seed_upsert_stretching_exercise(&stretching_exercise(&earlier_id, &name, first))
+        .await
+        .unwrap();
+    let fresh_id = format!("stretch-fresh-{suffix}");
+    let mut corrected = stretching_exercise(&fresh_id, &name, second);
+    corrected.description = "corrected by the next seed run".to_owned();
+    repos
+        .seeder
+        .seed_upsert_stretching_exercise(&corrected)
+        .await
+        .unwrap();
+
+    let stretch = repos
+        .mobility
+        .get_stretching_exercise(&earlier_id)
+        .await
+        .unwrap()
+        .expect("the earlier row is still there");
+    assert_eq!(stretch.description, "corrected by the next seed run");
+    assert_eq!(stretch.updated_at, second, "the re-seed moves updated_at");
+    assert_eq!(stretch.created_at, first, "the re-seed keeps created_at");
+    assert!(
+        repos
+            .mobility
+            .get_stretching_exercise(&fresh_id)
+            .await
+            .unwrap()
+            .is_none(),
+        "no second row is written under the fresh id"
+    );
+
+    let pose_name = format!("Reclined Twist {suffix}");
+    let earlier_pose = format!("pose-earlier-{suffix}");
+    repos
+        .seeder
+        .seed_upsert_yoga_pose(&yoga_pose(&earlier_pose, &pose_name, first))
+        .await
+        .unwrap();
+    let fresh_pose = format!("pose-fresh-{suffix}");
+    let mut corrected_pose = yoga_pose(&fresh_pose, &pose_name, second);
+    corrected_pose.description = "corrected by the next seed run".to_owned();
+    repos
+        .seeder
+        .seed_upsert_yoga_pose(&corrected_pose)
+        .await
+        .unwrap();
+
+    let pose = repos
+        .mobility
+        .get_yoga_pose(&earlier_pose)
+        .await
+        .unwrap()
+        .expect("the earlier pose is still there");
+    assert_eq!(pose.description, "corrected by the next seed run");
+    assert_eq!(pose.created_at, first, "the re-seed keeps created_at");
+    assert!(
+        repos
+            .mobility
+            .get_yoga_pose(&fresh_pose)
+            .await
+            .unwrap()
+            .is_none(),
+        "no second pose is written under the fresh id"
+    );
+}

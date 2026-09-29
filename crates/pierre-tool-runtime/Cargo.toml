@@ -116,6 +116,10 @@ name = "activity_list_local_clock_test"
 required-features = ["tools-data"]
 
 [[test]]
+name = "activity_list_merge_note_test"
+required-features = ["tools-data"]
+
+[[test]]
 name = "activity_name_neutralized_test"
 required-features = ["tools-data"]
 
@@ -161,6 +165,10 @@ required-features = [
 [[test]]
 name = "group_fitness_weekly_metrics_test"
 required-features = ["tools-groups"]
+
+[[test]]
+name = "headless_fallback_classification_test"
+required-features = ["client-chat"]
 
 [[test]]
 name = "headless_lost_turn_test"

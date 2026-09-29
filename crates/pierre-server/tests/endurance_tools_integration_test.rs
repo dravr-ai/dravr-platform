@@ -702,8 +702,8 @@ async fn test_list_workout_templates_happy_path() -> Result<()> {
     let result = resp.result.unwrap();
     let count = result["count"].as_u64().expect("count field required");
     assert!(
-        count >= 33,
-        "expected the 33-template catalogue bank, got {count}"
+        count >= 37,
+        "expected the 37-template catalogue bank, got {count}"
     );
     let templates = result["templates"].as_array().expect("templates array");
     assert_eq!(templates.len() as u64, count);

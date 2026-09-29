@@ -202,87 +202,115 @@ macro_rules! impl_seeder_repository {
                 &self,
                 exercise: &StretchingExercise,
             ) -> AppResult<()> {
-                sqlx::query(UPSERT_STRETCHING_EXERCISE_SQL)
-                    .bind(&exercise.id)
+                let existing: Vec<String> = sqlx::query_scalar(STRETCHING_IDS_BY_NAME_SQL)
                     .bind(&exercise.name)
-                    .bind(&exercise.description)
-                    .bind(exercise.category.as_str())
-                    .bind(exercise.difficulty.as_str())
-                    .bind(json_field(&exercise.primary_muscles, "primary_muscles")?)
-                    .bind(json_field(
-                        &exercise.secondary_muscles,
-                        "secondary_muscles",
-                    )?)
-                    .bind(int_column(exercise.duration_seconds, "duration_seconds")?)
-                    .bind(
-                        exercise
-                            .repetitions
-                            .map(|r| int_column(r, "repetitions"))
-                            .transpose()?,
-                    )
-                    .bind(int_column(exercise.sets, "sets")?)
-                    .bind(json_field(
-                        &exercise.recommended_for_activities,
-                        "recommended_for_activities",
-                    )?)
-                    .bind(json_field(
-                        &exercise.contraindications,
-                        "contraindications",
-                    )?)
-                    .bind(json_field(&exercise.instructions, "instructions")?)
-                    .bind(json_field(&exercise.cues, "cues")?)
-                    .bind(&exercise.image_url)
-                    .bind(&exercise.video_url)
-                    .bind(exercise.created_at)
-                    .bind(exercise.updated_at)
-                    .execute(self.pool())
+                    .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
-                        AppError::database(format!("Failed to upsert stretching exercise: {e}"))
+                        AppError::database(format!("Failed to find stretching exercise: {e}"))
                     })?;
+                let ids = if existing.is_empty() {
+                    vec![exercise.id.clone()]
+                } else {
+                    existing
+                };
+                for id in &ids {
+                    sqlx::query(UPSERT_STRETCHING_EXERCISE_SQL)
+                        .bind(id)
+                        .bind(&exercise.name)
+                        .bind(&exercise.description)
+                        .bind(exercise.category.as_str())
+                        .bind(exercise.difficulty.as_str())
+                        .bind(json_field(&exercise.primary_muscles, "primary_muscles")?)
+                        .bind(json_field(
+                            &exercise.secondary_muscles,
+                            "secondary_muscles",
+                        )?)
+                        .bind(int_column(exercise.duration_seconds, "duration_seconds")?)
+                        .bind(
+                            exercise
+                                .repetitions
+                                .map(|r| int_column(r, "repetitions"))
+                                .transpose()?,
+                        )
+                        .bind(int_column(exercise.sets, "sets")?)
+                        .bind(json_field(
+                            &exercise.recommended_for_activities,
+                            "recommended_for_activities",
+                        )?)
+                        .bind(json_field(
+                            &exercise.contraindications,
+                            "contraindications",
+                        )?)
+                        .bind(json_field(&exercise.instructions, "instructions")?)
+                        .bind(json_field(&exercise.cues, "cues")?)
+                        .bind(&exercise.image_url)
+                        .bind(&exercise.video_url)
+                        .bind(exercise.created_at)
+                        .bind(exercise.updated_at)
+                        .execute(self.pool())
+                        .await
+                        .map_err(|e| {
+                            AppError::database(format!("Failed to upsert stretching exercise: {e}"))
+                        })?;
+                }
                 Ok(())
             }
 
             async fn seed_upsert_yoga_pose(&self, pose: &YogaPose) -> AppResult<()> {
-                sqlx::query(UPSERT_YOGA_POSE_SQL)
-                    .bind(&pose.id)
+                let existing: Vec<String> = sqlx::query_scalar(YOGA_POSE_IDS_BY_NAME_SQL)
                     .bind(&pose.english_name)
-                    .bind(&pose.sanskrit_name)
-                    .bind(&pose.description)
-                    .bind(json_field(&pose.benefits, "benefits")?)
-                    .bind(pose.category.as_str())
-                    .bind(pose.difficulty.as_str())
-                    .bind(pose.pose_type.as_str())
-                    .bind(json_field(&pose.primary_muscles, "primary_muscles")?)
-                    .bind(json_field(&pose.secondary_muscles, "secondary_muscles")?)
-                    .bind(json_field(&pose.chakras, "chakras")?)
-                    .bind(int_column(
-                        pose.hold_duration_seconds,
-                        "hold_duration_seconds",
-                    )?)
-                    .bind(&pose.breath_guidance)
-                    .bind(json_field(
-                        &pose.recommended_for_activities,
-                        "recommended_for_activities",
-                    )?)
-                    .bind(json_field(
-                        &pose.recommended_for_recovery,
-                        "recommended_for_recovery",
-                    )?)
-                    .bind(json_field(&pose.contraindications, "contraindications")?)
-                    .bind(json_field(&pose.instructions, "instructions")?)
-                    .bind(json_field(&pose.modifications, "modifications")?)
-                    .bind(json_field(&pose.progressions, "progressions")?)
-                    .bind(json_field(&pose.cues, "cues")?)
-                    .bind(json_field(&pose.warmup_poses, "warmup_poses")?)
-                    .bind(json_field(&pose.followup_poses, "followup_poses")?)
-                    .bind(&pose.image_url)
-                    .bind(&pose.video_url)
-                    .bind(pose.created_at)
-                    .bind(pose.updated_at)
-                    .execute(self.pool())
+                    .fetch_all(self.pool())
                     .await
-                    .map_err(|e| AppError::database(format!("Failed to upsert yoga pose: {e}")))?;
+                    .map_err(|e| AppError::database(format!("Failed to find yoga pose: {e}")))?;
+                let ids = if existing.is_empty() {
+                    vec![pose.id.clone()]
+                } else {
+                    existing
+                };
+                for id in &ids {
+                    sqlx::query(UPSERT_YOGA_POSE_SQL)
+                        .bind(id)
+                        .bind(&pose.english_name)
+                        .bind(&pose.sanskrit_name)
+                        .bind(&pose.description)
+                        .bind(json_field(&pose.benefits, "benefits")?)
+                        .bind(pose.category.as_str())
+                        .bind(pose.difficulty.as_str())
+                        .bind(pose.pose_type.as_str())
+                        .bind(json_field(&pose.primary_muscles, "primary_muscles")?)
+                        .bind(json_field(&pose.secondary_muscles, "secondary_muscles")?)
+                        .bind(json_field(&pose.chakras, "chakras")?)
+                        .bind(int_column(
+                            pose.hold_duration_seconds,
+                            "hold_duration_seconds",
+                        )?)
+                        .bind(&pose.breath_guidance)
+                        .bind(json_field(
+                            &pose.recommended_for_activities,
+                            "recommended_for_activities",
+                        )?)
+                        .bind(json_field(
+                            &pose.recommended_for_recovery,
+                            "recommended_for_recovery",
+                        )?)
+                        .bind(json_field(&pose.contraindications, "contraindications")?)
+                        .bind(json_field(&pose.instructions, "instructions")?)
+                        .bind(json_field(&pose.modifications, "modifications")?)
+                        .bind(json_field(&pose.progressions, "progressions")?)
+                        .bind(json_field(&pose.cues, "cues")?)
+                        .bind(json_field(&pose.warmup_poses, "warmup_poses")?)
+                        .bind(json_field(&pose.followup_poses, "followup_poses")?)
+                        .bind(&pose.image_url)
+                        .bind(&pose.video_url)
+                        .bind(pose.created_at)
+                        .bind(pose.updated_at)
+                        .execute(self.pool())
+                        .await
+                        .map_err(|e| {
+                            AppError::database(format!("Failed to upsert yoga pose: {e}"))
+                        })?;
+                }
                 Ok(())
             }
 

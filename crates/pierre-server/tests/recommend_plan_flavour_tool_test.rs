@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! These are content tests over the seeded contremaitre `training/` — the nine
+//! These are content tests over the seeded contremaitre `training/` — the ten
 //! flavours and forty-four selection rows as shipped — not fixtures. The
 //! kernel's own tests cover the mechanics; what is asserted here is that the
 //! data, read through the tool, produces the answers the plan promised.
@@ -97,6 +97,47 @@ fn excluded_reasons<'a>(payload: &'a Value, id: &str) -> Option<&'a Value> {
         .map(|e| &e["reasons"])
 }
 
+fn ranked_entry<'a>(payload: &'a Value, id: &str) -> Option<&'a Value> {
+    payload["verdict"]["ranked"]
+        .as_array()?
+        .iter()
+        .find(|e| e["id"] == id)
+}
+
+/// Whether an exclusion's reasons carry `needle` in the catalogue's own words.
+fn reasons_mention(reasons: Option<&Value>, needle: &str) -> bool {
+    reasons.and_then(Value::as_array).is_some_and(|r| {
+        r.iter()
+            .any(|s| s.as_str().is_some_and(|s| s.contains(needle)))
+    })
+}
+
+/// The weight `dimension` contributed to a ranked flavour's score, when that
+/// dimension's row spoke for it.
+fn weight_from(entry: &Value, dimension: &str) -> Option<u64> {
+    entry["reasons"]
+        .as_array()?
+        .iter()
+        .find(|reason| reason["dimension"] == dimension)
+        .and_then(|reason| reason["weight"].as_u64())
+}
+
+/// A ranked flavour's summed score.
+fn score_of(entry: &Value) -> u64 {
+    entry["score"]
+        .as_u64()
+        .expect("a ranked flavour has a score")
+}
+
+/// Where an input came from, as the reply echoes it.
+fn source_of<'a>(payload: &'a Value, input: &str) -> &'a str {
+    payload["inputs"]["sources"]
+        .as_array()
+        .and_then(|sources| sources.iter().find(|s| s["input"] == input))
+        .and_then(|s| s["from"].as_str())
+        .unwrap_or("")
+}
+
 // ---------------------------------------------------------------------------
 // The four scenarios the plan sets as acceptance criteria
 // ---------------------------------------------------------------------------
@@ -162,6 +203,16 @@ async fn an_ironman_at_fourteen_hours_gets_a_pyramidal_base_with_a_durability_bl
         "pyramidal-long-course",
         "the long-course pyramidal carries the durability block: {}",
         payload["verdict"]["ranked"]
+    );
+    // The trail flavour shares the durability block but has no swim, bike or
+    // brick, so a triathlete is refused it outright rather than out-scored.
+    assert!(
+        reasons_mention(
+            excluded_reasons(&payload, "pyramidal-ultra-trail"),
+            "no swim, bike or brick"
+        ),
+        "the triathlon row excludes the trail flavour and says why: {}",
+        payload["verdict"]["excluded"]
     );
     // The season is laid on the ironman skeleton from the goal backward.
     assert_eq!(payload["season"]["status"], "laid", "{}", payload["season"]);
@@ -263,6 +314,255 @@ async fn an_athlete_with_no_meter_sees_lactate_guided_excluded_with_the_reason()
         payload["inputs"]["measurements"],
         json!(["rpe"]),
         "no device is read as effort, not as an unanswered dimension"
+    );
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// An ultra: the event row puts the trail flavour two ahead of the long-course
+// one, the running row weighs the two alike, and the cycling, triathlon and
+// swimming rows refuse the trail flavour outright
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn an_ultra_runner_gets_the_trail_flavour_not_the_brick_one() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let payload = recommend(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({
+            "hours_per_week": 9.0,
+            "sessions_per_week": 6,
+            "training_age": "trained",
+            "event_class": "ultra",
+            "weeks_to_goal": 24,
+            "interval_experience": "two_seasons",
+            "measurements": ["hr"],
+            "sport_mix": "running",
+        }),
+    )
+    .await?;
+
+    assert_eq!(
+        top_id(&payload),
+        "pyramidal-ultra-trail",
+        "a runner's ultra is climbing and descending, not a brick: {}",
+        payload["verdict"]["ranked"]
+    );
+    let trail = ranked_entry(&payload, "pyramidal-ultra-trail").expect("ranked first");
+    let long_course = ranked_entry(&payload, "pyramidal-long-course")
+        .expect("the brick flavour stays eligible for a runner, only lower");
+    assert!(
+        score_of(trail) >= score_of(long_course) + 2,
+        "the trail flavour leads by the kernel's confident margin, not on id order: {trail} vs {long_course}"
+    );
+    assert_eq!(
+        (
+            weight_from(trail, "event_class"),
+            weight_from(long_course, "event_class")
+        ),
+        (Some(5), Some(3)),
+        "the ultra row is what separates them: {trail} vs {long_course}"
+    );
+    assert_eq!(
+        weight_from(trail, "sport_mix"),
+        weight_from(long_course, "sport_mix"),
+        "the running row weighs the two alike, so an ironman runner keeps the long-course one: {trail} vs {long_course}"
+    );
+    assert_eq!(payload["season"]["status"], "laid", "{}", payload["season"]);
+    assert_eq!(
+        payload["season"]["skeleton_id"], "ultra",
+        "{}",
+        payload["season"]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_ultra_athlete_with_no_sport_on_file_gets_the_trail_flavour() -> Result<()> {
+    // No sport_mix argument and no stored profile: the tool reads `mixed`,
+    // which no row speaks for. The event row alone carries the choice, because
+    // the ultra skeleton is ultra running; were both durability flavours level
+    // there, the tie would go to the long-course one on id order.
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let payload = recommend(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({
+            "hours_per_week": 9.0,
+            "sessions_per_week": 6,
+            "training_age": "trained",
+            "event_class": "ultra",
+            "weeks_to_goal": 24,
+            "interval_experience": "some",
+            "measurements": ["hr"],
+        }),
+    )
+    .await?;
+
+    assert_eq!(
+        payload["inputs"]["sport_mix"], "mixed",
+        "{}",
+        payload["inputs"]
+    );
+    assert_eq!(source_of(&payload, "sport_mix"), "default");
+    assert_eq!(
+        top_id(&payload),
+        "pyramidal-ultra-trail",
+        "an ultra with no sport on file is read as ultra running: {}",
+        payload["verdict"]["ranked"]
+    );
+    let ranked = payload["verdict"]["ranked"].as_array().expect("ranked");
+    assert!(
+        score_of(&ranked[0]) >= score_of(&ranked[1]) + 2,
+        "a clear lead, not a tie broken by id: {}",
+        payload["verdict"]["ranked"]
+    );
+    assert_eq!(
+        payload["season"]["skeleton_id"], "ultra",
+        "{}",
+        payload["season"]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_power_only_ultra_runner_can_run_the_trail_flavour() -> Result<()> {
+    // A running-power foot pod is the only device on file. The trail flavour
+    // admits running power beside HR, effort and pace, so this runner is not
+    // refused it and handed the brick flavour for want of a strap.
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let payload = recommend(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({
+            "hours_per_week": 9.0,
+            "sessions_per_week": 6,
+            "training_age": "trained",
+            "event_class": "ultra",
+            "weeks_to_goal": 24,
+            "interval_experience": "some",
+            "measurements": ["power"],
+            "sport_mix": "running",
+        }),
+    )
+    .await?;
+
+    assert_eq!(payload["inputs"]["measurements"], json!(["power"]));
+    assert!(
+        excluded_reasons(&payload, "pyramidal-ultra-trail").is_none(),
+        "running power is a device the trail flavour admits: {}",
+        payload["verdict"]["excluded"]
+    );
+    assert_eq!(
+        top_id(&payload),
+        "pyramidal-ultra-trail",
+        "{}",
+        payload["verdict"]["ranked"]
+    );
+    assert_eq!(payload["season"]["status"], "laid", "{}", payload["season"]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_ultra_cyclist_keeps_the_long_course_flavour_and_hears_why_not_trail() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let payload = recommend(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({
+            "hours_per_week": 12.0,
+            "sessions_per_week": 7,
+            "training_age": "trained",
+            "event_class": "ultra",
+            "weeks_to_goal": 24,
+            "interval_experience": "two_seasons",
+            "measurements": ["power", "hr"],
+            "sport_mix": "cycling",
+        }),
+    )
+    .await?;
+
+    assert_eq!(
+        top_id(&payload),
+        "pyramidal-long-course",
+        "an ultra on the bike keeps the long-course durability flavour: {}",
+        payload["verdict"]["ranked"]
+    );
+    assert!(
+        ranked_entry(&payload, "pyramidal-ultra-trail").is_none(),
+        "the trail flavour is not ranked for a cyclist at any score: {}",
+        payload["verdict"]["ranked"]
+    );
+    assert!(
+        reasons_mention(
+            excluded_reasons(&payload, "pyramidal-ultra-trail"),
+            "no bike session"
+        ),
+        "the cycling row excludes the trail flavour in the catalogue's words: {}",
+        payload["verdict"]["excluded"]
+    );
+    assert_eq!(
+        payload["season"]["skeleton_id"], "ultra",
+        "{}",
+        payload["season"]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_ironman_runner_keeps_the_long_course_flavour() -> Result<()> {
+    // A triathlete whose profile's primary sport is Run is read as `running`.
+    // The running row's weight on the long-course flavour is what keeps it one
+    // point ahead of polarized here; without it polarized would lead by one.
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let payload = recommend(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({
+            "hours_per_week": 9.0,
+            "sessions_per_week": 6,
+            "training_age": "trained",
+            "event_class": "ironman",
+            "interval_experience": "some",
+            "measurements": ["hr"],
+            "sport_mix": "running",
+            "season_phase": "pre_competition",
+        }),
+    )
+    .await?;
+
+    assert_eq!(
+        top_id(&payload),
+        "pyramidal-long-course",
+        "an ironman is the long-course flavour's event whatever the primary sport: {}",
+        payload["verdict"]["ranked"]
+    );
+    let long_course = ranked_entry(&payload, "pyramidal-long-course").expect("ranked first");
+    assert_eq!(
+        weight_from(long_course, "sport_mix"),
+        Some(2),
+        "the running row speaks for the long-course flavour: {long_course}"
+    );
+    let trail = ranked_entry(&payload, "pyramidal-ultra-trail")
+        .expect("a runner may run the trail flavour, only lower");
+    assert!(
+        weight_from(trail, "event_class").is_none(),
+        "the ironman row gives the trail flavour nothing: {trail}"
+    );
+    assert!(
+        score_of(trail) < score_of(long_course),
+        "{trail} vs {long_course}"
     );
     Ok(())
 }

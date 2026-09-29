@@ -8,7 +8,7 @@
 //! pinned dravr-contremaitre rev compiles from its `training/` tree. A file
 //! that fails to parse is logged and left out rather than failing the boot,
 //! so the exact counts here are what stops a broken file from reaching a
-//! release: 9 flavours, 12 skeletons, 33 workouts, one selection table.
+//! release: 10 flavours, 12 skeletons, 37 workouts, one selection table.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -27,13 +27,16 @@ use pierre_core::models::periodization::{
 };
 use pierre_core::models::SportType;
 
-/// The 33 workout slugs of the Phase 1 bank (spec §9).
-const WORKOUT_SLUGS: [&str; 33] = [
+/// The 37 workout slugs: the 33 of the Phase 1 bank (spec §9) and the four
+/// trail sessions the ultra-trail flavour names.
+const WORKOUT_SLUGS: [&str; 37] = [
+    "back_to_back_long",
     "billat_30_30",
     "brick",
     "complex_training",
     "core_mobility",
     "double_threshold_day",
+    "downhill_repeats",
     "endurance",
     "hill_sprints",
     "long_run_z2",
@@ -56,6 +59,8 @@ const WORKOUT_SLUGS: [&str; 33] = [
     "tempo_progression",
     "threshold_4x8",
     "threshold_short",
+    "trail_race_simulation",
+    "uphill_power_hike",
     "vo2_5x3",
     "vo2max_30_15",
     "vo2max_4x8",
@@ -64,8 +69,8 @@ const WORKOUT_SLUGS: [&str; 33] = [
     "vo2max_varied",
 ];
 
-/// The nine flavour ids (spec §3.3).
-const FLAVOUR_IDS: [&str; 9] = [
+/// The ten flavour ids: the nine of spec §3.3 and the mountain ultra-trail one.
+const FLAVOUR_IDS: [&str; 10] = [
     "hvlit-foundation",
     "norwegian-singles-subthreshold",
     "norwegian-threshold-density",
@@ -73,6 +78,7 @@ const FLAVOUR_IDS: [&str; 9] = [
     "pyramidal-base",
     "pyramidal-long-course",
     "pyramidal-to-polarized",
+    "pyramidal-ultra-trail",
     "race-specific",
     "time-crunched-threshold",
 ];
@@ -93,8 +99,8 @@ const SKELETON_IDS: [&str; 12] = [
     "ultra",
 ];
 
-/// Files the seed carries: 9 + 12 + 33 + the selection table.
-const SEED_FILE_COUNT: usize = 55;
+/// Files the seed carries: 10 + 12 + 37 + the selection table.
+const SEED_FILE_COUNT: usize = 60;
 
 /// The pinned table for one file shape: `(stem, text)` per file.
 fn table(kind: CatalogueKind) -> &'static [(&'static str, &'static str)] {
@@ -138,9 +144,9 @@ fn evidence_keys() -> HashSet<(String, String)> {
 fn the_seed_carries_the_whole_catalogue() {
     let registry = TrainingCatalogueRegistry::new();
     let stats = registry.stats();
-    assert_eq!(stats.flavours, 9, "{stats}");
+    assert_eq!(stats.flavours, 10, "{stats}");
     assert_eq!(stats.skeletons, 12, "{stats}");
-    assert_eq!(stats.workouts, 33, "{stats}");
+    assert_eq!(stats.workouts, 37, "{stats}");
     assert!(stats.selection_rows >= 43, "{stats}");
     assert_eq!(stats.compiled_in_count, SEED_FILE_COUNT, "{stats}");
     assert_eq!(stats.contremaitre_count, 0, "{stats}");
@@ -420,7 +426,7 @@ fn update_overlays_and_remove_reverts_to_the_compiled_in_entry() {
     let stats = registry.stats();
     assert_eq!(
         (stats.workouts, stats.contremaitre_count),
-        (33, 1),
+        (37, 1),
         "{stats}"
     );
 
@@ -456,11 +462,11 @@ fn a_slug_with_no_seed_is_dropped_on_remove() {
         CatalogueItem::Workout(Box::new(extra)),
         "x".to_owned(),
     );
-    assert_eq!(registry.stats().workouts, 34);
+    assert_eq!(registry.stats().workouts, 38);
     assert!(registry.workout("endurance_hot_fix").is_some());
     assert!(registry.remove(CatalogueKind::Workout, "endurance_hot_fix"));
     assert!(registry.workout("endurance_hot_fix").is_none());
-    assert_eq!(registry.stats().workouts, 33);
+    assert_eq!(registry.stats().workouts, 37);
     assert!(!registry.remove(CatalogueKind::Workout, "endurance_hot_fix"));
 }
 
@@ -630,12 +636,12 @@ fn the_open_water_skeleton_is_carried_by_swim_templates() {
 /// Every citation the catalogue makes, by the kind of file that makes it.
 ///
 /// Measured from the tree: one `evidence_refs` key per flavour, skeleton and
-/// workout file and per selection row, 328 references in all.
+/// workout file and per selection row, 356 references in all.
 const CATALOGUE_EVIDENCE_REFS: [(&str, usize); 4] = [
-    ("flavour ", 30),
+    ("flavour ", 42),
     ("skeleton ", 171),
-    ("workout ", 55),
-    ("selection table", 72),
+    ("workout ", 70),
+    ("selection table", 73),
 ];
 
 /// The positive control for [`every_evidence_ref_resolves_against_the_fixtures`].
@@ -721,6 +727,66 @@ fn the_long_course_pyramidal_carries_the_durability_block() {
         "and the plain pyramidal does not carry the block: {:?}",
         base.modifiers
     );
+}
+
+/// The ultra-trail pyramidal is the long-course one for a pure runner: the same
+/// durability block, and no brick in any phase, which is the reason it exists.
+///
+/// Its four trail sessions are catalogue workouts rather than a coach
+/// package's, so any agent that lays this flavour can prescribe them; each is a
+/// run whose purpose the flavour's session mix asks for.
+#[test]
+fn the_ultra_trail_pyramidal_carries_the_durability_block_and_no_brick() {
+    let registry = TrainingCatalogueRegistry::new();
+    let flavour = registry
+        .flavour("pyramidal-ultra-trail")
+        .expect("seeded from the embedded catalogue");
+    assert!(
+        flavour.modifiers.contains(&Modifier::DurabilityBlock),
+        "a mountain ultra is a durability event: {:?}",
+        flavour.modifiers
+    );
+    for (phase, weights) in &flavour.session_mix {
+        assert!(
+            !weights.contains_key(&WorkoutPurpose::Brick),
+            "session_mix.{phase} names a brick a runner has no bike for: {weights:?}"
+        );
+    }
+    // The sibling it replaces for runners does carry one, or the assertion
+    // above pins nothing.
+    let long_course = registry.flavour("pyramidal-long-course").expect("seeded");
+    assert!(
+        long_course
+            .session_mix
+            .values()
+            .any(|weights| weights.contains_key(&WorkoutPurpose::Brick)),
+        "pyramidal-long-course builds a brick: {:?}",
+        long_course.session_mix
+    );
+
+    for slug in [
+        "back_to_back_long",
+        "downhill_repeats",
+        "trail_race_simulation",
+        "uphill_power_hike",
+    ] {
+        let workout = registry
+            .workout(slug)
+            .unwrap_or_else(|| panic!("{slug} is a catalogue workout"));
+        assert!(
+            workout.is_compiled_in,
+            "{slug} is read-only catalogue content"
+        );
+        assert_eq!(workout.sport, SportType::Run, "{slug} is a run");
+        assert!(
+            flavour
+                .session_mix
+                .values()
+                .any(|weights| weights.contains_key(&workout.purpose)),
+            "{slug}'s purpose {} is one the trail flavour asks for",
+            workout.purpose
+        );
+    }
 }
 
 /// The Ironman skeleton pins its base phase to pyramidal, the way the 5 km
