@@ -15,7 +15,7 @@ use pierre_auth::auth::AuthManager;
 use pierre_auth::dto::auth::{
     FirebaseLoginRequest, LoginRequest, LoginResponse, RegisterRequest, RegisterResponse, UserInfo,
 };
-use pierre_auth::firebase::{FirebaseAuth, FirebaseClaims};
+use pierre_auth::firebase::FirebaseAuth;
 use pierre_auth::password::verify_password;
 use pierre_auth::refresh_rotation::{
     consume_or_revoke_family, generate_refresh_token, refresh_token_lifetime,
@@ -25,12 +25,14 @@ use pierre_core::constants::{error_messages, limits, tiers};
 use pierre_core::error_helpers::{user_state_error, validation_error};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    default_locale, normalize_email, CoachingPersona, PreApprovedEmail, SessionRefreshToken,
-    Tenant, TenantId, User, UserStatus, UserTier, FEDERATED_ONLY_PASSWORD_HASH,
+    normalize_email, PreApprovedEmail, SessionRefreshToken, Tenant, TenantId, User, UserStatus,
 };
-use pierre_core::permissions::UserRole;
-use pierre_middleware::mask_email;
 use pierre_runtime_context::DataContext;
+
+/// Sign-in through an external identity (Firebase, Google) and the account rules both follow
+mod federated;
+
+pub use federated::{FederatedIdentity, SignupSource};
 
 // ---------------------------------------------------------------------------
 // AuthService — domain logic for user authentication and registration
@@ -46,19 +48,6 @@ fn invalid_credentials() -> AppError {
         "Authentication failed: {}",
         error_messages::INVALID_CREDENTIALS
     ))
-}
-
-/// Whether a Firebase ID token proves `email`: its `email_verified` claim is
-/// true, so the sign-in provider (Google) verified the address it carries, and
-/// that address is `email`, both in their normalized form ([`normalize_email`]),
-/// so case and surrounding whitespace do not matter. A false or absent claim
-/// proves nothing.
-fn firebase_proves_email(claims: &FirebaseClaims, email: &str) -> bool {
-    claims.email_verified == Some(true)
-        && claims
-            .email
-            .as_deref()
-            .is_some_and(|claimed| normalize_email(claimed) == normalize_email(email))
 }
 
 /// What a refresh-token exchange yields: the same response a login gives,
@@ -294,9 +283,10 @@ impl AuthService {
 
     /// Handle Firebase login - authenticate with Firebase ID token
     ///
-    /// This method validates the Firebase ID token, finds or creates a user,
-    /// marks the user's email verified when the token proves it, and returns a
-    /// JWT token for our authentication system.
+    /// Validates the Firebase ID token, then signs the person it names in
+    /// through [`Self::login_with_federated_identity`]: the account its
+    /// Firebase UID or Google account id is linked to, else the account its
+    /// proven email names, else a new account.
     ///
     /// # Errors
     /// Returns error if Firebase validation fails, or user creation fails
@@ -319,127 +309,16 @@ impl AuthService {
             .map(normalize_email)
             .ok_or_else(|| AppError::auth_invalid("Firebase token missing email claim"))?;
 
-        // Find or create user from Firebase claims
-        let mut user = self.find_or_create_firebase_user(&claims, &email).await?;
-
-        // Block suspended users; pending users authenticate so the frontend
-        // can show the "pending approval" page (user_status is in the response).
-        Self::reject_if_suspended(&user)?;
-
-        self.record_firebase_email_proof(&user, &claims).await?;
-
-        // Retroactively approve pending users whose domain now qualifies
-        self.auto_approve_if_eligible(&mut user).await?;
-
-        // Generate session and return response
-        let response = self
-            .complete_firebase_login(&user, &claims.provider)
-            .await?;
-
-        // Match the password-login path: every successful auth raises user.login.
-        // Without this Slack only saw email/password logins and looked like
-        // Google users never connected. tenant_id is optional on UserInfo —
-        // emit an empty field rather than a literal "None" when it is absent,
-        // mirroring how the OAuth2 token handler records it.
-        info!(
-            target: "notify",
-            event = "user.login",
-            user_id = %user.id,
-            tenant_id = %response.user.tenant_id.as_deref().unwrap_or_default(),
-            "user authenticated"
-        );
-
-        Ok(response)
-    }
-
-    /// Mark `user`'s email verified when the Firebase ID token proves it
-    /// ([`firebase_proves_email`]), as the confirmation link does. A sign-in
-    /// never vouches for an address the account does not hold, and a token
-    /// that proves nothing leaves an earlier mark as it is.
-    async fn record_firebase_email_proof(
-        &self,
-        user: &User,
-        claims: &FirebaseClaims,
-    ) -> AppResult<()> {
-        if !firebase_proves_email(claims, &user.email) {
-            return Ok(());
-        }
-        self.data
-            .repos()
-            .email_verification
-            .mark_verified(user.id)
-            .await?;
-        info!(user_id = %user.id, provider = %claims.provider, "Email verified by the Firebase sign-in provider");
-        Ok(())
-    }
-
-    /// Find existing user or create new one from Firebase claims.
-    ///
-    /// The account already holding the token's Firebase UID is that user's.
-    /// Otherwise an account with the token's email is attached to the Firebase
-    /// user only when the token proves the address ([`firebase_proves_email`]):
-    /// an unverified address proves nothing about who holds it, and attaching
-    /// on it would hand the account to anyone who can mint a token naming it.
-    /// That sign-in is refused with the generic [`invalid_credentials`], so the
-    /// answer does not say an account exists, and creates no account. An email
-    /// no account holds starts a new account, verified or not.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`invalid_credentials`] for an unproven email naming an
-    /// existing account, and the repository error when a read or write fails.
-    async fn find_or_create_firebase_user(
-        &self,
-        claims: &FirebaseClaims,
-        email: &str,
-    ) -> AppResult<User> {
-        // Try to find user by Firebase UID first
-        if let Some(user) = self
-            .data
-            .repos()
-            .users
-            .get_by_firebase_uid(&claims.sub)
-            .await?
-        {
-            tracing::info!(user_id = %user.id, firebase_uid = %claims.sub, "Found user by Firebase UID");
-            return Ok(user);
-        }
-
-        // Check if user exists by email (might need linking)
-        if let Some(user) = self.data.repos().users.get_by_email(email).await? {
-            return self.attach_firebase_user(user, claims).await;
-        }
-
-        // Create new user from Firebase claims
-        self.create_firebase_user(claims, email).await
-    }
-
-    /// Attach the Firebase user `claims` names to the existing account `user`
-    /// its email found, once the token proves that email; refuse it otherwise
-    /// ([`Self::find_or_create_firebase_user`]).
-    async fn attach_firebase_user(
-        &self,
-        mut user: User,
-        claims: &FirebaseClaims,
-    ) -> AppResult<User> {
-        if !firebase_proves_email(claims, &user.email) {
-            warn!(
-                email = %mask_email(&user.email),
-                provider = %claims.provider,
-                "Firebase sign-in refused: an unverified email names an existing account"
-            );
-            return Err(invalid_credentials());
-        }
-        tracing::info!(user_id = %user.id, "Linking existing email user to Firebase UID");
-        user.firebase_uid = Some(claims.sub.clone());
-        user.auth_provider.clone_from(&claims.provider);
-        // `update`, not `create`: the row exists. `create` used to double as an
-        // upsert on SQLite — whose UPDATE branch wrote neither firebase_uid nor
-        // auth_provider, so the link never took and every sign-in re-ran this
-        // branch — and was a bare INSERT on PostgreSQL, where it hit the unique
-        // email index instead.
-        self.data.repos().users.update(&user).await?;
-        Ok(user)
+        self.login_with_federated_identity(FederatedIdentity {
+            firebase_uid: Some(&claims.sub),
+            google_subject: claims.google_subject(),
+            email,
+            email_verified: claims.email_verified == Some(true),
+            display_name: claims.name.as_deref(),
+            provider: &claims.provider,
+            signup_source: SignupSource::Firebase,
+        })
+        .await
     }
 
     /// Create a personal tenant for a user (required for MCP operations)
@@ -679,69 +558,6 @@ impl AuthService {
         }
     }
 
-    /// Create a new user from Firebase claims
-    async fn create_firebase_user(&self, claims: &FirebaseClaims, email: &str) -> AppResult<User> {
-        tracing::info!(firebase_uid = %claims.sub, "Creating new Firebase user");
-
-        let (user_status, approved_at, approved_by) = self.determine_approval_status(email).await;
-        let user_id = uuid::Uuid::new_v4();
-        let display_name = claims
-            .name
-            .as_deref()
-            .unwrap_or_else(|| email.split('@').next().unwrap_or("user"));
-
-        // Step 1: Create user first - tenant membership managed via tenant_users table
-        let now = Utc::now();
-        let new_user = User {
-            id: user_id,
-            email: email.to_owned(),
-            display_name: claims.name.clone(),
-            password_hash: FEDERATED_ONLY_PASSWORD_HASH.to_owned(),
-            tier: UserTier::Starter,
-            strava_token: None,
-            created_at: now,
-            last_active: now,
-            is_active: true,
-            user_status,
-            is_admin: false,
-            role: UserRole::User,
-            approved_by,
-            approved_at,
-            firebase_uid: Some(claims.sub.clone()),
-            auth_provider: claims.provider.clone(),
-            analytics_consent: false,
-            analytics_consent_at: None,
-            locale: default_locale(),
-            coaching_persona: CoachingPersona::default(),
-            manages_roster: false,
-            timezone: None,
-            theme: None,
-        };
-
-        self.data.repos().users.create(&new_user).await?;
-
-        // Step 2: Create personal tenant (adds user to tenant_users as owner)
-        let tenant_id = self
-            .create_personal_tenant(user_id, display_name, tiers::STARTER)
-            .await?;
-
-        info!(firebase_uid = %claims.sub, user_id = %user_id, "Firebase user registered");
-
-        // Social sign-ins must raise the same signup event as the password
-        // register endpoint, or Google / Apple accounts land silently and the
-        // acquisition count under-reports them.
-        info!(
-            target: "notify",
-            event = "user.signed_up",
-            user_id = %user_id,
-            tenant_id = %tenant_id,
-            source = "firebase",
-            "account created"
-        );
-
-        Ok(new_user)
-    }
-
     /// Reject login for suspended users.
     ///
     /// Pending users are allowed to authenticate so the frontend can show
@@ -825,36 +641,6 @@ impl AuthService {
 
         self.auto_approve_if_eligible(&mut user).await?;
         Ok(user.user_status)
-    }
-
-    /// Complete Firebase login: generate JWT and update last active
-    async fn complete_firebase_login(
-        &self,
-        user: &User,
-        provider: &str,
-    ) -> AppResult<LoginResponse> {
-        // Ensure user has a tenant (auto-creates one for users without a tenant)
-        let active_tenant_id = self.ensure_user_has_tenant(user).await?;
-        let tenant_id_for_response = active_tenant_id.clone();
-
-        let jwt_token = self
-            .auth_manager
-            .generate_token_with_tenant(user, &self.jwks_manager, active_tenant_id)
-            .map_err(|e| AppError::internal(format!("Failed to generate token: {e}")))?;
-
-        let expires_at = Utc::now() + chrono::Duration::hours(limits::DEFAULT_SESSION_HOURS);
-
-        self.data.repos().users.update_last_active(user.id).await?;
-
-        tracing::info!(user_id = %user.id, provider = %provider, "Firebase login successful");
-
-        let user_info = self.user_info(user, tenant_id_for_response).await;
-        Ok(LoginResponse {
-            jwt_token: Some(jwt_token),
-            csrf_token: String::new(),
-            expires_at: expires_at.to_rfc3339(),
-            user: user_info,
-        })
     }
 
     /// Open a refresh-token family for a device that just logged in.

@@ -94,6 +94,8 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
         )),
         refresh_token_expiry_days: 30,
         csrf_manager: resources.auth.csrf_manager.clone(),
+        accounts: resources.oauth2_accounts(),
+        google_sign_in: None,
     };
     OAuth2Routes::routes(context).layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40_484))))
 }
@@ -178,7 +180,7 @@ async fn authorization_code(
     session: &str,
     resource: Option<&str>,
 ) -> String {
-    let cookie = format!("pierre_session={session}");
+    let cookie = format!("__Host-pierre_session={session}");
     let consent_page = AxumTestRequest::get(&authorize_uri(client_id, resource))
         .header("cookie", &cookie)
         .send(oauth2_routes(resources))
@@ -433,7 +435,7 @@ async fn a_resource_the_server_does_not_serve_is_invalid_target_at_authorize() {
     let (_user, session) = athlete(&resources, "authorize-target@example.test").await;
 
     let refused = AxumTestRequest::get(&authorize_uri(&client_id, Some(OTHER_RESOURCE)))
-        .header("cookie", &format!("pierre_session={session}"))
+        .header("cookie", &format!("__Host-pierre_session={session}"))
         .send(oauth2_routes(&resources))
         .await;
     let query = redirect_query(&refused);

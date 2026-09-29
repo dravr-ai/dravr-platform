@@ -17,7 +17,8 @@
     <main class="card card-center">
         <div class="lockup" role="img" aria-label="Dravr"></div>
         <h1>Authorize access</h1>
-        <p class="lead"><span class="client">{{CLIENT_ID}}</span> wants to access your Dravr fitness data.</p>
+        <p class="lead"><span class="client">{{CLIENT_LABEL}}</span> wants to access your Dravr fitness data.</p>
+        <p class="fineprint">It will return you to {{REDIRECT_HOST}}</p>
         <div class="scopes">
             <div class="scopes-title">This will allow it to</div>
             <ul>
@@ -39,6 +40,7 @@
                 <button type="submit" name="decision" value="deny" class="btn btn-secondary btn-block">Deny</button>
             </div>
         </form>
+        <p class="fineprint">Signed in as {{ACCOUNT_EMAIL}} · <a href="{{SWITCH_ACCOUNT_URL}}">Use another account</a></p>
         <p class="fineprint">You can revoke this access at any time in your Dravr settings.</p>
     </main>
 </body>

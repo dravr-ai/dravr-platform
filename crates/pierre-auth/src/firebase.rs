@@ -47,14 +47,14 @@
 
 use std::collections::HashMap;
 
-use dravr_tronc::iam::{GoogleKeySet, IamError};
-use jsonwebtoken::errors::ErrorKind;
-use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
+use dravr_tronc::iam::GoogleKeySet;
+use jsonwebtoken::{Algorithm, Validation};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use crate::config::oauth::FirebaseConfig;
+use crate::google_jwt::decode_google_signed;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::http_client::api_inner_client;
 
@@ -92,6 +92,23 @@ pub struct FirebaseClaims {
     /// Authentication provider extracted from `firebase.sign_in_provider`
     #[serde(skip)]
     pub provider: String,
+}
+
+impl FirebaseClaims {
+    /// The Google account id (Google's own `OpenID` Connect `sub`) behind this
+    /// Firebase user, when it signed in with Google: the first entry Firebase
+    /// lists under `firebase.identities["google.com"]`. It is not the
+    /// Firebase UID in [`Self::sub`], which Firebase mints itself.
+    #[must_use]
+    pub fn google_subject(&self) -> Option<&str> {
+        self.firebase
+            .identities
+            .as_ref()?
+            .get("google.com")?
+            .as_array()?
+            .first()?
+            .as_str()
+    }
 }
 
 /// Firebase-specific claims within the token
@@ -177,55 +194,14 @@ impl FirebaseAuth {
             ));
         }
 
-        // Decode the token header to get the key ID
-        let header = decode_header(token).map_err(|e| {
-            debug!(error = %e, "Failed to decode Firebase token header");
-            AppError::auth_invalid("Invalid token format")
-        })?;
-
-        let kid = header.kid.ok_or_else(|| {
-            debug!("Firebase token missing key ID (kid) in header");
-            AppError::auth_invalid("Token missing key ID")
-        })?;
-
-        // Get the public key for this key ID
-        let key = self.keys.key(&kid).await.map_err(|e| match e {
-            IamError::Rejected(why) => {
-                debug!(kid = %kid, reason = %why, "Firebase token names no published signing key");
-                AppError::auth_invalid("Unknown token signing key")
-            }
-            other => {
-                warn!(error = %other, "Firebase signing keys are unavailable");
-                AppError::internal("Firebase signing keys are unavailable")
-            }
-        })?;
-
-        // Create the decoding key from the published modulus and exponent
-        let decoding_key = DecodingKey::from_rsa_components(key.modulus(), key.exponent())
-            .map_err(|e| {
-                warn!(error = %e, kid = %kid, "Firebase signing key did not yield a decoding key");
-                AppError::internal(format!("Invalid public key: {e}"))
-            })?;
-
-        // Set up validation
         let mut validation = Validation::new(Algorithm::RS256);
         validation.set_audience(&[project_id]);
         validation.set_issuer(&[format!("{FIREBASE_ISSUER_TEMPLATE}{project_id}")]);
 
-        // Decode and validate the token
-        let token_data =
-            decode::<FirebaseClaims>(token, &decoding_key, &validation).map_err(|e| {
-                debug!(error = %e, "Firebase token validation failed");
-                match e.kind() {
-                    ErrorKind::ExpiredSignature => AppError::auth_expired(),
-                    ErrorKind::InvalidAudience => AppError::auth_invalid("Invalid token audience"),
-                    ErrorKind::InvalidIssuer => AppError::auth_invalid("Invalid token issuer"),
-                    _ => AppError::auth_invalid("Invalid token"),
-                }
-            })?;
+        let mut claims: FirebaseClaims =
+            decode_google_signed(&self.keys, token, &validation, "Firebase").await?;
 
         // Extract the provider from firebase.sign_in_provider
-        let mut claims = token_data.claims;
         claims.provider = claims
             .firebase
             .sign_in_provider

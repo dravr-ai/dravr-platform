@@ -14,6 +14,8 @@ use std::iter;
 use tracing::{debug, info, warn};
 use url::Url;
 
+use super::google_sign_in::GoogleSignInConfig;
+
 /// OAuth provider configuration for fitness platforms
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct OAuthConfig {
@@ -69,17 +71,20 @@ pub struct OAuthProviderConfig {
     pub enabled: bool,
 }
 
+/// The first 8 hex characters of the SHA-256 of `secret`: enough to tell
+/// two secrets apart in a log line without logging either.
+#[must_use]
+pub(crate) fn secret_fingerprint(secret: &str) -> String {
+    let digest = Sha256::digest(secret.as_bytes());
+    format!("{digest:x}").chars().take(8).collect()
+}
+
 impl OAuthProviderConfig {
     /// Compute SHA256 fingerprint of client secret for debugging (first 8 hex chars)
     /// This allows comparing secrets without logging actual values
     #[must_use]
     pub fn secret_fingerprint(&self) -> Option<String> {
-        self.client_secret.as_ref().map(|secret| {
-            let mut hasher = Sha256::new();
-            hasher.update(secret.as_bytes());
-            let result = hasher.finalize();
-            format!("{result:x}").chars().take(8).collect()
-        })
+        self.client_secret.as_deref().map(secret_fingerprint)
     }
 
     /// Validate OAuth credentials and log diagnostics
@@ -188,6 +193,14 @@ pub struct OAuth2ServerConfig {
     /// How long RFC 7591 dynamic client registrations are kept, and how many
     /// no user has authorized may exist at once
     pub client_retention: ClientRetentionConfig,
+    /// "Continue with Google" on the hosted login page: the Google OAuth web
+    /// client the authorization server signs athletes in through. `None`
+    /// when `GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET` are unset,
+    /// which hides the button. Never serialized: it carries a client secret.
+    /// Boxed so `ServerConfig`, which async setup holds by value across
+    /// awaits, grows by one pointer rather than five strings.
+    #[serde(skip)]
+    pub google_sign_in: Option<Box<GoogleSignInConfig>>,
 }
 
 impl Default for OAuth2ServerConfig {
@@ -199,6 +212,7 @@ impl Default for OAuth2ServerConfig {
             default_login_email: None,
             default_login_password: None,
             client_retention: ClientRetentionConfig::default(),
+            google_sign_in: None,
         }
     }
 }
@@ -408,6 +422,7 @@ impl OAuth2ServerConfig {
             default_login_email: env::var("OAUTH_DEFAULT_EMAIL").ok(),
             default_login_password: env::var("OAUTH_DEFAULT_PASSWORD").ok(),
             client_retention: ClientRetentionConfig::from_env(),
+            google_sign_in: GoogleSignInConfig::from_env().map(Box::new),
         }
     }
 

@@ -565,6 +565,8 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
         config: Arc::new(resources.common.config.oauth2_server.clone()),
         refresh_token_expiry_days: resources.common.config.auth.refresh_token_expiry_days,
         csrf_manager: resources.auth.csrf_manager.clone(),
+        accounts: resources.oauth2_accounts(),
+        google_sign_in: None,
         rate_limiter: Arc::new(OAuth2RateLimiter::new(
             None,
             OAuth2RateLimiter::local_window_store(),
@@ -612,7 +614,7 @@ async fn a_password_tried_on_a_federated_only_account_is_refused_without_paging(
         captured
             .at(Level::WARN)
             .iter()
-            .any(|e| e.message.contains("Invalid password")),
+            .any(|e| e.message.contains("Failed login: invalid password")),
         "the refusal is logged as a failed sign-in: {:#?}",
         captured.at(Level::WARN)
     );

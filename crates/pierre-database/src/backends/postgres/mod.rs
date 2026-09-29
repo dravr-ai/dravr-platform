@@ -44,6 +44,8 @@ pub mod email_verification;
 pub mod encryption;
 /// Tenant defaults + per-user overrides (`Postgres`) backing `FeatureFlagsRepository`.
 pub mod feature_flags;
+/// The external sign-in identities (a Google account id) each account is reached by (Postgres)
+pub mod federated_identities;
 /// Fitness configuration — tenant- and user-scoped training settings
 pub mod fitness_config;
 /// Guardian pending actions (`Postgres`) backing `GuardianPendingActionsRepository`.

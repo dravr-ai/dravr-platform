@@ -264,6 +264,11 @@ pub trait OAuth2ServerRepository: Send + Sync {
     /// Revoke every live token in the rotation chain `token` belongs to,
     /// returning how many were revoked — zero when the token is unknown.
     async fn revoke_refresh_token_family(&self, token: &str) -> AppResult<u64>;
+    /// Revoke every live refresh token issued to `user_id` in `tenant_id`,
+    /// through any client, and return how many were revoked: the connectors
+    /// a person authorized stop refreshing once their account's sign-ins are
+    /// retired.
+    async fn revoke_user_refresh_tokens(&self, user_id: &str, tenant_id: &str) -> AppResult<u64>;
     /// Look up a refresh token by its value (without `client_id` constraint)
     async fn get_refresh_token_by_value(
         &self,

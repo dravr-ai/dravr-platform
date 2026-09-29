@@ -535,6 +535,12 @@ async fn the_register_endpoint_answers_past_the_ceiling_with_429_and_an_rfc7591_
         config: Arc::new(config),
         refresh_token_expiry_days: 30,
         csrf_manager: Arc::new(CsrfTokenManager::with_secret(b"oauth2-test-csrf-secret")),
+        // These routes sign no one in; the account rules only have to exist
+        accounts: common::create_test_server_resources()
+            .await
+            .unwrap()
+            .oauth2_accounts(),
+        google_sign_in: None,
         rate_limiter: Arc::new(OAuth2RateLimiter::new(
             None,
             OAuth2RateLimiter::local_window_store(),

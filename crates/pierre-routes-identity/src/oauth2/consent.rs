@@ -13,7 +13,7 @@ use axum::{
 };
 use chrono::Utc;
 use pierre_auth::oauth2_server::models::OAuth2Error;
-use pierre_core::models::OAuthClientGrant;
+use pierre_core::models::{OAuthClientGrant, User, UserStatus};
 use tracing::{error, warn};
 use uuid::Uuid;
 
@@ -76,6 +76,11 @@ impl OAuth2Routes {
             ));
         }
 
+        // The account may have been suspended since the screen was rendered.
+        if let Err(refused) = Self::account_gate(&context, user_id).await {
+            return *refused;
+        }
+
         // Record the grant; a duplicate active grant is a no-op at the storage layer.
         let scope = request.scope.clone().unwrap_or_default();
         if let Some(tid) = Self::resolve_grant_tenant(&context, user_id, tenant_id.clone()).await {
@@ -94,5 +99,58 @@ impl OAuth2Routes {
         }
 
         Self::mint_authorization_code(&context, request, user_id, tenant_id, redirect_uri).await
+    }
+
+    /// The signed-in account, when it may authorize a client: it exists and
+    /// is active. A pending account is told it awaits approval and a
+    /// suspended one is refused; neither is shown consent nor given a code.
+    pub(super) async fn account_gate(
+        context: &OAuth2Context,
+        user_id: Uuid,
+    ) -> Result<User, Box<Response>> {
+        let refuse = |error: OAuth2Error| Box::new(Self::render_oauth_error_response(&error));
+        let user = Self::signed_in_account(context, user_id)
+            .await
+            .map_err(refuse)?;
+        Self::account_refusal(&user).map_or_else(|| Ok(user), |error| Err(refuse(error)))
+    }
+
+    /// The account a session names.
+    async fn signed_in_account(
+        context: &OAuth2Context,
+        user_id: Uuid,
+    ) -> Result<User, OAuth2Error> {
+        match context.users.get_global(user_id).await {
+            Ok(Some(user)) => Ok(user),
+            Ok(None) => {
+                warn!(user_id = %user_id, "OAuth authorization refused: the session names no account");
+                Err(OAuth2Error::access_denied(
+                    "The account you are signed in as no longer exists; sign in again",
+                ))
+            }
+            Err(e) => {
+                error!(user_id = %user_id, "OAuth authorization could not load the account: {e}");
+                Err(OAuth2Error::server_error("The account could not be loaded"))
+            }
+        }
+    }
+
+    /// Why `user` may not authorize a client, if it may not.
+    fn account_refusal(user: &User) -> Option<OAuth2Error> {
+        match user.user_status {
+            UserStatus::Active => None,
+            UserStatus::Pending => {
+                warn!(user_id = %user.id, "OAuth authorization refused: the account awaits approval");
+                Some(OAuth2Error::access_denied(
+                    "Your Dravr account is waiting for approval. Connect this app again once it is approved.",
+                ))
+            }
+            UserStatus::Suspended => {
+                warn!(user_id = %user.id, "OAuth authorization refused: the account is suspended");
+                Some(OAuth2Error::access_denied(
+                    "Your Dravr account is suspended",
+                ))
+            }
+        }
     }
 }

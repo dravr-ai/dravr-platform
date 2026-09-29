@@ -227,6 +227,24 @@ impl AxumTestResponse {
         self.headers.get(name).and_then(|v| v.to_str().ok())
     }
 
+    /// Every value of a response header, in order — a response may carry
+    /// several `Set-Cookie` headers.
+    #[allow(dead_code)]
+    pub fn header_all(&self, name: &str) -> Vec<&str> {
+        self.headers
+            .get_all(name)
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .collect()
+    }
+
+    /// The response body as text, leaving the response readable — for a test
+    /// that asserts on the page and on the headers of one response.
+    #[allow(dead_code)]
+    pub fn body_text(&self) -> String {
+        String::from_utf8_lossy(&self.body).into_owned()
+    }
+
     /// Get the response body as bytes
     pub fn bytes(self) -> Vec<u8> {
         self.body

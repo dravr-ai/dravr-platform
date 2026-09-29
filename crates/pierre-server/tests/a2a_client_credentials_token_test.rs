@@ -60,6 +60,8 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
         config: Arc::new(resources.common.config.oauth2_server.clone()),
         refresh_token_expiry_days: resources.common.config.auth.refresh_token_expiry_days,
         csrf_manager: resources.auth.csrf_manager.clone(),
+        accounts: resources.oauth2_accounts(),
+        google_sign_in: None,
         rate_limiter: Arc::new(OAuth2RateLimiter::new(
             None,
             OAuth2RateLimiter::local_window_store(),

@@ -43,6 +43,12 @@ pub mod dto;
 /// Firebase Authentication ID-token validation (social login providers via Firebase)
 pub mod firebase;
 
+/// Decoding a JWT signed by one of Google's published keys (Firebase and Google sign-in)
+mod google_jwt;
+
+/// Server-side Google `OpenID` Connect sign-in for the hosted authorization-server login page
+pub mod google_oidc;
+
 /// Two-tier key management system
 pub mod key_management;
 

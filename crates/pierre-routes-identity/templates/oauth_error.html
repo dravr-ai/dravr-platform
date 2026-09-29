@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- ABOUTME: OAuth failure page a browser lands on when an authorization or provider callback fails -->
-<!-- ABOUTME: Styled by the shared Boreal sheet the renderer injects; it names no internal error detail -->
+<!-- ABOUTME: Styled by the shared Boreal sheet; it shows the OAuth error's own description, never an internal detail -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 <!-- Copyright (c) 2026 dravr.ai -->
 <html lang="en">
@@ -18,7 +18,7 @@
         <div class="lockup" role="img" aria-label="Dravr"></div>
         <div class="status-icon status-icon-error" aria-hidden="true">!</div>
         <h1>Connection Failed</h1>
-        <p>Please try again.</p>
+        {{DESCRIPTION}}
     </main>
 </body>
 </html>

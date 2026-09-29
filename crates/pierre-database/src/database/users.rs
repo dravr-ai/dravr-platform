@@ -60,7 +60,7 @@ const UNIQUE_VIOLATION_CODES: [&str; 2] = ["2067", "1555"];
 ///
 /// `users` carries a second unique index besides `email`: `idx_users_firebase_uid`,
 /// partial over non-null `firebase_uid`. Two concurrent Firebase sign-ins for one UID
-/// can both pass `find_or_create_firebase_user`'s "no user for this UID" check and race
+/// can both pass `find_or_create_federated_user`'s "no user for this UID" check and race
 /// the insert, and the loser collides on *that* index — so reporting every duplicate as
 /// an email collision sends whoever reads the log hunting the wrong column.
 fn duplicate_user_error(error: &sqlx::Error) -> Option<AppError> {

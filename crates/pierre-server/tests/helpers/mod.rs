@@ -17,6 +17,8 @@ pub mod command_e2e;
 /// suites that interrupt a live turn (drain, watchdog).
 #[cfg(feature = "client-messaging")]
 pub mod drained_turn;
+/// Google's OpenID Connect token endpoint and signing keys, for the hosted Google sign-in.
+pub mod google_oidc;
 /// A Google-shaped signing identity: openssl key + certificate, tokens minted with it.
 pub mod google_token;
 pub mod messaging_eval;

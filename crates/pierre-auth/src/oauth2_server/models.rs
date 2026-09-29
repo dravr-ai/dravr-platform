@@ -58,7 +58,7 @@ pub struct ClientRegistrationResponse {
 }
 
 /// OAuth 2.0 Authorization Request
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AuthorizeRequest {
     /// Response type (code, token)
     pub response_type: String,

@@ -439,6 +439,21 @@ impl ClientRegistrationManager {
             return false;
         }
 
+        // Reject a backslash, whitespace or a control character: URL parsers
+        // disagree on them (WHATWG reads `\` as `/` in an http(s) URL, and
+        // strips tabs and newlines), so one registered string could name one
+        // host to a reader and send the browser to another.
+        if uri
+            .chars()
+            .any(|c| c == '\\' || c.is_whitespace() || c.is_control())
+        {
+            warn!(
+                "Rejected redirect_uri with a backslash, whitespace or control character: {}",
+                redact_url(uri)
+            );
+            return false;
+        }
+
         true
     }
 
@@ -448,6 +463,13 @@ impl ClientRegistrationManager {
             warn!("Rejected malformed redirect_uri: {}", redact_url(uri));
             return false;
         };
+
+        // A user-info part (`https://trusted.example@evil.example/`) makes the
+        // URI read as naming a host it does not go to.
+        if !parsed_uri.username().is_empty() || parsed_uri.password().is_some() {
+            warn!("Rejected redirect_uri with user info: {}", redact_url(uri));
+            return false;
+        }
 
         let scheme = parsed_uri.scheme();
         let is_localhost = parsed_uri.host_str() == Some("localhost")

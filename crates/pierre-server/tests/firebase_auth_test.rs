@@ -185,7 +185,7 @@ async fn unknown_firebase_key_ids_inside_the_refetch_interval_cost_one_fetch() {
             .await
             .expect_err("an unknown kid is refused");
         assert_eq!(err.code, ErrorCode::AuthInvalid, "attempt {attempt}");
-        assert_eq!(err.message, "Unknown token signing key");
+        assert_eq!(err.message, "Invalid token");
     }
     assert_eq!(jwks.fetches(), 1, "five unknown kids, one fetch");
 

@@ -47,6 +47,8 @@ pub mod delegated_connections;
 pub mod email_verification_tokens;
 /// Repository traits for feature-flag tenant defaults + per-user overrides.
 pub mod feature_flags;
+/// Repository trait, statements and body for the external sign-in identities each account is reached by.
+pub mod federated_identities;
 /// Repository traits for fitness configuration persistence.
 pub mod fitness_config;
 /// Repository trait for Guardian pending actions (Confirm human-in-the-loop).
@@ -197,6 +199,7 @@ pub use commitments::*;
 pub use data_source::*;
 pub use delegated_connections::*;
 pub use feature_flags::*;
+pub use federated_identities::FederatedIdentityRepository;
 pub use fitness_config::*;
 pub use guardian_actions::*;
 pub use harness_memory::*;

@@ -38,6 +38,7 @@ fn test_oauth_login_template_exists() {
         "{{CODE_CHALLENGE_METHOD}}",
         "{{DEFAULT_EMAIL}}",
         "{{DEFAULT_PASSWORD}}",
+        "{{GOOGLE_SIGN_IN}}",
     ];
 
     for placeholder in &required_placeholders {
@@ -106,14 +107,12 @@ fn test_oauth_login_error_template_exists() {
     );
 }
 
-/// A Google-only athlete leaves the password form for the app's own sign-in
-/// and must come back to this exact authorization (carnet#652): the link
-/// carries every request parameter, and only as a path under /oauth2/authorize.
-#[tokio::test]
-async fn test_login_page_links_google_sign_in_back_to_the_authorization() {
-    common::init_server_config();
-
-    let html = OAuth2Routes::generate_login_html(pierre_routes_identity::LoginHtmlParams {
+/// The login page's parameters for one pending request, with the Google
+/// start URL given.
+fn google_login_params(
+    google_start_url: Option<&str>,
+) -> pierre_routes_identity::LoginHtmlParams<'_> {
+    pierre_routes_identity::LoginHtmlParams {
         client_id: "client&id",
         redirect_uri: "https://claude.ai/api/mcp/auth_callback",
         response_type: "code",
@@ -124,23 +123,49 @@ async fn test_login_page_links_google_sign_in_back_to_the_authorization() {
         resource: "https://mcp.example.test",
         default_email: "",
         default_password: "",
-    });
+        google_start_url,
+    }
+}
+
+/// Without Google sign-in configured the page offers no Google button, and
+/// no link into the Google sign-in route (carnet#652: never an advertised
+/// button that cannot work).
+#[tokio::test]
+async fn test_login_page_hides_google_sign_in_when_unconfigured() {
+    common::init_server_config();
+
+    let html = OAuth2Routes::generate_login_html(google_login_params(None));
+
+    assert!(!html.contains("Continue with Google"), "{html}");
+    assert!(!html.contains("/oauth2/login/google"), "{html}");
+    assert!(!html.contains("oauth_return"), "{html}");
+    assert!(!html.contains("{{"), "every placeholder is filled: {html}");
+}
+
+/// With Google sign-in configured, "Continue with Google" goes straight to
+/// the authorization server's Google hop for this exact request (carnet#652):
+/// the href is the start URL, HTML-escaped, carrying every parameter.
+#[tokio::test]
+async fn test_login_page_links_google_sign_in_to_the_google_hop() {
+    common::init_server_config();
+
+    let start = "https://app.example.test/oauth2/login/google?client_id=client%26id&redirect_uri=https%3A%2F%2Fclaude.ai%2Fapi%2Fmcp%2Fauth_callback&response_type=code&state=state%20with%20spaces&scope=fitness%3Aread%20profile%3Aread&code_challenge=challenge_abc&code_challenge_method=S256&resource=https%3A%2F%2Fmcp.example.test";
+    let html = OAuth2Routes::generate_login_html(google_login_params(Some(start)));
 
     assert!(html.contains("Continue with Google"), "{html}");
     let href = html
-        .split("href=\"/?oauth_return=")
-        .nth(1)
-        .and_then(|rest| rest.split('"').next())
-        .unwrap_or_else(|| panic!("the Google link carries the authorization: {html}"));
-    // HTML-attribute unescaping, then the query value's own percent-encoding.
-    let encoded = href.replace("&amp;", "&");
-    let authorize = urlencoding::decode(&encoded).unwrap().into_owned();
-    assert!(
-        authorize.starts_with("/oauth2/authorize?"),
-        "only the authorize endpoint: {authorize}"
+        .split("href=\"")
+        .filter_map(|rest| rest.split('"').next())
+        .find(|href| href.contains("/oauth2/login/google"))
+        .unwrap_or_else(|| panic!("the Google button links to the Google hop: {html}"));
+    assert_eq!(
+        href,
+        start.replace('&', "&amp;"),
+        "the start URL, HTML-escaped"
     );
 
-    let url = url::Url::parse(&format!("https://app.example.test{authorize}")).unwrap();
+    let url = url::Url::parse(&href.replace("&amp;", "&")).unwrap();
+    assert_eq!(url.path(), "/oauth2/login/google");
     let param = |name: &str| {
         url.query_pairs()
             .find(|(key, _)| key == name)
@@ -151,6 +176,7 @@ async fn test_login_page_links_google_sign_in_back_to_the_authorization() {
         param("redirect_uri").as_deref(),
         Some("https://claude.ai/api/mcp/auth_callback")
     );
+    assert_eq!(param("response_type").as_deref(), Some("code"));
     assert_eq!(param("state").as_deref(), Some("state with spaces"));
     assert_eq!(param("scope").as_deref(), Some("fitness:read profile:read"));
     assert_eq!(param("code_challenge").as_deref(), Some("challenge_abc"));
@@ -159,6 +185,89 @@ async fn test_login_page_links_google_sign_in_back_to_the_authorization() {
         param("resource").as_deref(),
         Some("https://mcp.example.test")
     );
+    assert!(!html.contains("{{"), "every placeholder is filled: {html}");
+}
+
+/// A client name is the client's own text: the consent page escapes it.
+#[test]
+fn test_consent_page_escapes_the_client_name_and_names_the_account() {
+    let html = OAuth2Routes::generate_consent_html(pierre_routes_identity::ConsentHtmlParams {
+        client_id: "mcp_client_1",
+        redirect_uri: "https://claude.ai/api/mcp/auth_callback",
+        response_type: "code",
+        state: "s",
+        scope: "fitness:read",
+        code_challenge: "challenge_abc",
+        code_challenge_method: "S256",
+        resource: "",
+        csrf_token: "token",
+        client_label: "<script>alert(1)</script>",
+        account_email: "athlete@example.test",
+        switch_account_url: "/oauth2/login?client_id=mcp_client_1&state=s",
+    });
+
+    assert!(!html.contains("<script>"), "{html}");
+    assert!(
+        html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"),
+        "{html}"
+    );
+    assert!(html.contains("It will return you to claude.ai"), "{html}");
+    assert!(html.contains("Signed in as athlete@example.test"), "{html}");
+    assert!(
+        html.contains(
+            "href=\"/oauth2/login?client_id=mcp_client_1&amp;state=s\">Use another account</a>"
+        ),
+        "{html}"
+    );
+    assert!(!html.contains("{{"), "every placeholder is filled: {html}");
+}
+
+/// The consent page names the host the browser will actually go to, read by
+/// the WHATWG URL rules browsers apply: a backslash is a `/`, and a
+/// user-info part is not the host. A port is shown; a URI without a host is
+/// shown whole.
+#[test]
+fn test_consent_page_names_the_host_the_browser_goes_to() {
+    let consent = |redirect_uri: &str| {
+        OAuth2Routes::generate_consent_html(pierre_routes_identity::ConsentHtmlParams {
+            client_id: "mcp_client_1",
+            redirect_uri,
+            response_type: "code",
+            state: "s",
+            scope: "fitness:read",
+            code_challenge: "challenge_abc",
+            code_challenge_method: "S256",
+            resource: "",
+            csrf_token: "token",
+            client_label: "Claude",
+            account_email: "athlete@example.test",
+            switch_account_url: "/oauth2/login?client_id=mcp_client_1&state=s",
+        })
+    };
+
+    for (redirect_uri, shown) in [
+        (
+            "https://evil.example\\@claude.ai/api/mcp/auth_callback",
+            "evil.example",
+        ),
+        (
+            "https://claude.ai@evil.example/api/mcp/auth_callback",
+            "evil.example",
+        ),
+        ("https://user:pass@evil.example/cb", "evil.example"),
+        ("http://localhost:33418/callback", "localhost:33418"),
+        ("urn:ietf:wg:oauth:2.0:oob", "urn:ietf:wg:oauth:2.0:oob"),
+    ] {
+        let html = consent(redirect_uri);
+        assert!(
+            html.contains(&format!("It will return you to {shown}</p>")),
+            "{redirect_uri} should name {shown}: {html}"
+        );
+        assert!(
+            !html.contains("It will return you to claude.ai"),
+            "{redirect_uri}: {html}"
+        );
+    }
 }
 
 /// Test OAuth login HTML generation with template replacement
@@ -190,6 +299,7 @@ async fn test_generate_login_html() {
         resource: test_resource,
         default_email: test_email,
         default_password: test_password,
+        google_start_url: None,
     });
 
     // Verify all placeholders were replaced with actual values
@@ -305,6 +415,7 @@ async fn test_generate_login_html_empty_scope() {
         resource: "",
         default_email: "test@example.com",
         default_password: "",
+        google_start_url: None,
     });
 
     // An empty request renders the grant it will actually be ISSUED —
@@ -421,6 +532,7 @@ async fn test_templates_use_boreal_design_system() {
         resource: "",
         default_email: "",
         default_password: "",
+        google_start_url: None,
     });
     let dark_at = html
         .find("@media (prefers-color-scheme: dark)")
@@ -580,6 +692,7 @@ async fn test_login_html_escapes_xss_in_state() {
         resource: "",
         default_email: "",
         default_password: "",
+        google_start_url: None,
     });
 
     // The XSS payload should NOT appear unescaped
@@ -611,6 +724,7 @@ async fn test_login_html_escapes_xss_in_redirect_uri() {
         resource: "",
         default_email: "",
         default_password: "",
+        google_start_url: None,
     });
 
     // The attribute breakout should NOT appear unescaped
@@ -641,6 +755,7 @@ async fn test_oauth_login_page_integration() {
         resource: "",
         default_email: "test@pierre.test",
         default_password: "test123",
+        google_start_url: None,
     });
 
     // Verify complete HTML structure

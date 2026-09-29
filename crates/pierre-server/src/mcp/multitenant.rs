@@ -498,6 +498,8 @@ impl ProviderToolRouter {
                 rate_limiter: resources.auth.oauth2_rate_limiter.clone(),
                 refresh_token_expiry_days: resources.common.config.auth.refresh_token_expiry_days,
                 csrf_manager: resources.auth.csrf_manager.clone(),
+                accounts: resources.oauth2_accounts(),
+                google_sign_in: resources.oauth2_google_sign_in(),
             };
             app.merge(OAuth2Routes::routes(oauth2_context))
         };

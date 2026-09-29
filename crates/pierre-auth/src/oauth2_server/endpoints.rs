@@ -56,6 +56,8 @@ pub struct CheckedAuthorization {
     /// The audience the tokens are bound to; `None` when the request named no
     /// resource, which mints the platform audience
     pub resource: Option<String>,
+    /// The name the client registered, shown on the consent screen
+    pub client_name: Option<String>,
 }
 
 /// OAuth 2.0 Authorization Server
@@ -196,7 +198,11 @@ impl OAuth2AuthorizationServer {
             .as_deref()
             .map(|requested| bound_audience(&self.served(), requested))
             .transpose()?;
-        Ok(CheckedAuthorization { scope, resource })
+        Ok(CheckedAuthorization {
+            scope,
+            resource,
+            client_name: client.client_name.clone(),
+        })
     }
 
     /// Handle authorization request (GET /oauth/authorize)

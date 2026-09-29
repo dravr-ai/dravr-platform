@@ -47,8 +47,17 @@ use pierre_messaging::ChannelRegistry;
 use pierre_services::personal_bests::PersonalBests;
 #[cfg(feature = "health-sync")]
 use pierre_services::sync_failure_notice::SyncFailureNotices;
-#[cfg(feature = "health-sync")]
+#[cfg(feature = "protocol-rest")]
 use std::sync::Arc;
+
+#[cfg(feature = "protocol-rest")]
+use pierre_auth::google_oidc::{google_callback_url, GoogleOidcClient};
+#[cfg(feature = "protocol-rest")]
+use pierre_routes_identity::GoogleSignIn;
+#[cfg(feature = "protocol-rest")]
+use pierre_services::auth::AuthService;
+#[cfg(feature = "protocol-rest")]
+use tracing::info;
 
 /// Centralized resource container for dependency injection.
 ///
@@ -243,6 +252,44 @@ impl ServerContext {
             #[cfg(feature = "provider-sciotte")]
             nonce_store: self.auth.nonce_store.clone(),
         }
+    }
+
+    /// The account rules the hosted OAuth 2.0 login page signs athletes in
+    /// through: the same [`AuthService`] the web app's sign-in routes build.
+    #[must_use]
+    pub fn oauth2_accounts(&self) -> AuthService {
+        AuthService::new(
+            self.auth.auth_manager.clone(),
+            self.auth.jwks_manager.clone(),
+            self.common.config.clone(),
+            self.data(),
+        )
+    }
+
+    /// "Continue with Google" on the hosted OAuth 2.0 login page, when
+    /// `GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET` configure it.
+    ///
+    /// Logs, once per router it is built for, whether it is on, and the
+    /// redirect URI to register on the Google client; the secret appears only
+    /// as its length and fingerprint.
+    #[must_use]
+    pub fn oauth2_google_sign_in(&self) -> Option<GoogleSignIn> {
+        let oauth2_server = &self.common.config.oauth2_server;
+        let Some(google) = oauth2_server.google_sign_in.clone() else {
+            info!("Google sign-in on the OAuth login page: disabled (GOOGLE_OAUTH_CLIENT_ID/SECRET unset)");
+            return None;
+        };
+        info!(
+            client_id = %google.client_id,
+            secret_length = google.client_secret.len(),
+            secret_fingerprint = %google.secret_fingerprint(),
+            redirect_uri = %google_callback_url(&oauth2_server.issuer_url),
+            "Google sign-in on the OAuth login page: enabled"
+        );
+        Some(GoogleSignIn {
+            oidc: Arc::new(GoogleOidcClient::new(*google)),
+            security: self.common.repos.security.clone(),
+        })
     }
 
     /// Build a [`pierre_chat_pipeline::ChatPipelineContext`] view over this

@@ -4265,11 +4265,13 @@ dependencies = [
  "pierre-database",
  "pierre-middleware",
  "pierre-runtime-context",
+ "pierre-services",
  "serde",
  "serde_json",
  "sha2",
  "tokio",
  "tracing",
+ "url",
  "urlencoding",
  "uuid",
 ]

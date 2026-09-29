@@ -174,6 +174,15 @@ pub(crate) const REVOKE_OAUTH2_REFRESH_TOKEN_FAMILY_SQL: &str = r"
               )
             ";
 
+/// Revoke every live refresh token one user holds in one tenant, through any client.
+pub(crate) const REVOKE_USER_OAUTH2_REFRESH_TOKENS_SQL: &str = r"
+            UPDATE oauth2_refresh_tokens
+            SET revoked = TRUE
+            WHERE tenant_id = $1
+              AND user_id = $2
+              AND revoked = FALSE
+            ";
+
 /// Mint a CSRF state for one authorization round trip.
 pub(crate) const STORE_OAUTH2_STATE_SQL: &str = r"
             INSERT INTO oauth2_states (state, client_id, user_id, tenant_id, redirect_uri, scope, code_challenge, code_challenge_method, created_at, expires_at, used)
@@ -779,6 +788,25 @@ macro_rules! impl_oauth2_server_repository {
                     .map_err(|e| {
                         AppError::database(format!(
                             "Failed to revoke OAuth2 refresh token family: {e}"
+                        ))
+                    })?;
+
+                Ok(result.rows_affected())
+            }
+
+            async fn revoke_user_refresh_tokens(
+                &self,
+                user_id: &str,
+                tenant_id: &str,
+            ) -> AppResult<u64> {
+                let result = sqlx::query(REVOKE_USER_OAUTH2_REFRESH_TOKENS_SQL)
+                    .bind(tenant_id)
+                    .bind(user_id)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to revoke the user's OAuth2 refresh tokens: {e}"
                         ))
                     })?;
 

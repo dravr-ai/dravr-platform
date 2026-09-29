@@ -195,6 +195,15 @@ export GARMIN_REDIRECT_URI=http://localhost:8081/api/oauth/callback/garmin
 # export FIREBASE_ENABLED="true"         # Default: true (when PROJECT_ID set)
 # export FIREBASE_KEY_CACHE_TTL_SECS="3600"  # Public key cache TTL
 
+# "Continue with Google" on the hosted OAuth login page (/oauth2/login), the
+# page an MCP connector (Claude, ChatGPT) sends the athlete to. The button is
+# shown only when both are set. The Google web client must list
+# {OAUTH2_ISSUER_URL or BASE_URL}/oauth2/login/google/callback as an authorized
+# redirect URI — locally http://localhost:8081/oauth2/login/google/callback
+# (8091 in an isolated worktree). The server logs the exact URI at startup.
+# export GOOGLE_OAUTH_CLIENT_ID="your-google-web-client-id.apps.googleusercontent.com"
+# export GOOGLE_OAUTH_CLIENT_SECRET="your-google-web-client-secret"
+
 # Auto-approve new users (Firebase/Google Sign-In)
 # Set to true to automatically approve ALL new users created via Google Sign-In
 # export AUTO_APPROVE_USERS="false"

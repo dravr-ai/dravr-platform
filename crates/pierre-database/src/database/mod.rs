@@ -40,6 +40,8 @@ pub mod email_verification_tokens;
 pub mod errors;
 /// Tenant defaults + per-user overrides (`SQLite`) backing `FeatureFlagsRepository`.
 pub mod feature_flags;
+/// The external sign-in identities (a Google account id) each account is reached by (`SQLite`)
+pub mod federated_identities;
 /// User fitness configuration storage and retrieval
 pub mod fitness_configurations;
 /// Guardian pending actions (`SQLite`) backing `GuardianPendingActionsRepository`.

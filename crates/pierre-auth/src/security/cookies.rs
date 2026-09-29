@@ -104,6 +104,22 @@ impl SecureCookieConfig {
     }
 }
 
+/// The name a host-only cookie is set and read under.
+///
+/// A `Secure` cookie takes the `__Host-` prefix, which browsers accept only
+/// from a secure origin, with `Path=/` and no `Domain`: a sibling subdomain
+/// can then neither set nor overwrite it (cookie tossing). Over plain HTTP,
+/// in local development, the prefix would make browsers drop the cookie, so
+/// the bare name is kept.
+#[must_use]
+pub fn host_cookie_name(name: &str, secure: bool) -> String {
+    if secure {
+        format!("__Host-{name}")
+    } else {
+        name.to_owned()
+    }
+}
+
 /// Set a secure authentication cookie
 ///
 /// # Arguments

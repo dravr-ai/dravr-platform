@@ -728,6 +728,12 @@ async fn oauth2_routes(limiter: OAuth2RateLimiter) -> (Router, String) {
         config: Arc::new(OAuth2ServerConfig::default()),
         refresh_token_expiry_days: 30,
         csrf_manager: Arc::new(CsrfTokenManager::with_secret(b"oauth2-test-csrf-secret")),
+        // These routes sign no one in; the account rules only have to exist
+        accounts: common::create_test_server_resources()
+            .await
+            .unwrap()
+            .oauth2_accounts(),
+        google_sign_in: None,
         rate_limiter: Arc::new(limiter),
     });
     (routes, client_id)

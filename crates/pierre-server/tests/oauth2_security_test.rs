@@ -157,6 +157,62 @@ async fn test_redirect_uri_wildcard_rejection() {
         .contains("Invalid redirect_uri"));
 }
 
+/// A redirect URI that parsers read two ways is refused: a backslash (WHATWG
+/// reads it as `/`, so `https://evil.example\@claude.ai/cb` goes to
+/// evil.example), a user-info part, and whitespace or control characters the
+/// parser would strip. The same client's plain URI still registers.
+#[tokio::test]
+async fn test_redirect_uri_that_reads_two_ways_is_rejected() {
+    let encryption_key = generate_encryption_key().to_vec();
+
+    let database = Arc::new(create_test_db_with_key(encryption_key).await.unwrap());
+    database.migrate().await.unwrap();
+
+    let repos = database.repositories();
+    let registration_manager = ClientRegistrationManager::new(repos.oauth2_server.clone());
+
+    let registration = |uri: &str| ClientRegistrationRequest {
+        redirect_uris: vec![uri.to_owned()],
+        client_name: Some("Claude".to_owned()),
+        client_uri: None,
+        grant_types: None,
+        response_types: None,
+        scope: None,
+    };
+
+    for uri in [
+        "https://evil.example\\@claude.ai/api/mcp/auth_callback",
+        "https://claude.ai@evil.example/api/mcp/auth_callback",
+        "https://user:pass@claude.ai/api/mcp/auth_callback",
+        "https://claude.ai/api/mcp/auth_callback\t",
+        "https://evil.example\n.claude.ai/cb",
+    ] {
+        let refused = registration_manager
+            .register_client(registration(uri), MAX_PENDING_REGISTRATIONS)
+            .await
+            .expect_err(uri);
+        assert!(
+            refused
+                .error_description
+                .as_deref()
+                .is_some_and(|d| d.contains("Invalid redirect_uri")),
+            "{uri}: {refused:?}"
+        );
+    }
+
+    let accepted = registration_manager
+        .register_client(
+            registration("https://claude.ai/api/mcp/auth_callback"),
+            MAX_PENDING_REGISTRATIONS,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        accepted.redirect_uris,
+        vec!["https://claude.ai/api/mcp/auth_callback".to_owned()]
+    );
+}
+
 /// Test redirect URI validation - out-of-band URN
 #[tokio::test]
 async fn test_redirect_uri_oob_urn() {

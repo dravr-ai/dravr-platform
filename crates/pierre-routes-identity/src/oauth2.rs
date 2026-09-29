@@ -19,6 +19,7 @@ use axum::{
 use pierre_auth::admin::jwks::{JsonWebKeySet, JwksManager};
 use pierre_auth::auth::AuthManager;
 use pierre_auth::config::oauth::OAuth2ServerConfig;
+use pierre_auth::dto::auth::LoginRequest;
 use pierre_auth::oauth2_server::{
     client_registration::ClientRegistrationManager,
     endpoints::OAuth2AuthorizationServer,
@@ -28,14 +29,14 @@ use pierre_auth::oauth2_server::{
     },
     rate_limiting::OAuth2RateLimiter,
 };
-use pierre_auth::password::verify_password;
 use pierre_auth::rate_limiting::OAuth2Endpoint;
+use pierre_auth::security::cookies::{host_cookie_name, SameSitePolicy, SecureCookieConfig};
 use pierre_auth::security::csrf::CsrfTokenManager;
-use pierre_core::errors::{AppError, AppResult};
-use pierre_core::html::with_hosted_page_css;
+use pierre_core::errors::AppError;
 use pierre_database::backends::{factory::Database, OAuth2ServerRepository};
 use pierre_database::database::repositories::{TenantRepository, UserRepository};
 use pierre_middleware::redaction::mask_email;
+use pierre_services::auth::AuthService;
 use sha2::{Digest, Sha256};
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 use tokio::task::spawn_blocking;
@@ -46,12 +47,22 @@ use crate::oauth2_rate_limited::{page_refusal, refusal};
 
 /// The consent form's submission: the user's decision on an authorization
 mod consent;
+/// "Continue with Google": server-side Google sign-in on the hosted login page
+mod google_login;
 /// Server-rendered login, consent and error pages of the authorization flow
 mod pages;
 /// The RFC 8414 and RFC 9728 discovery documents
 mod well_known;
 
+pub use google_login::GoogleSignIn;
 pub use pages::{ConsentHtmlParams, LoginHtmlParams};
+
+/// Name of the authorization server's own session cookie, before the
+/// `__Host-` prefix an HTTPS issuer gives it
+const SESSION_COOKIE: &str = "pierre_session";
+
+/// Lifetime of the session cookie: the 24 hours of the JWT it carries
+const SESSION_COOKIE_MAX_AGE_SECS: i64 = 86_400;
 
 /// OAuth 2.0 server context shared across all handlers
 #[derive(Clone)]
@@ -81,6 +92,12 @@ pub struct OAuth2Context {
     /// plain HTML, so it cannot carry the `X-CSRF-Token` header the API's
     /// cookie sessions use
     pub csrf_manager: Arc<CsrfTokenManager>,
+    /// Account rules shared with the web app's sign-in: both buttons of the
+    /// hosted login page sign athletes in through them
+    pub accounts: AuthService,
+    /// Google sign-in on the hosted login page; `None` when unconfigured,
+    /// which hides the button
+    pub google_sign_in: Option<GoogleSignIn>,
 }
 
 /// OAuth 2.0 routes implementation
@@ -111,6 +128,11 @@ impl OAuth2Routes {
             // Login page and submission
             .route("/oauth2/login", get(Self::handle_oauth_login_page))
             .route("/oauth2/login", post(Self::handle_oauth_login_submit))
+            .route("/oauth2/login/google", get(Self::handle_google_login_start))
+            .route(
+                "/oauth2/login/google/callback",
+                get(Self::handle_google_login_callback),
+            )
             .route("/oauth2/consent", post(Self::handle_consent_submit))
             // Token validation endpoints
             .route(
@@ -167,12 +189,13 @@ impl OAuth2Routes {
 
         // Check the request before the user is asked to log in or consent, so
         // a refusal reaches the client the way RFC 6749 Section 4.1.2.1 sends it.
-        if let Err(rejection) = Self::authorization_server(&context)
+        let checked = match Self::authorization_server(&context)
             .check_authorize_request(&request)
             .await
         {
-            return rejection_response(rejection, &request);
-        }
+            Ok(checked) => checked,
+            Err(rejection) => return rejection_response(rejection, &request),
+        };
 
         let redirect_uri = request.redirect_uri.clone();
 
@@ -192,6 +215,7 @@ impl OAuth2Routes {
             authenticated_user_id,
             tenant_id,
             redirect_uri,
+            checked.client_name.as_deref(),
         )
         .await
     }
@@ -204,7 +228,7 @@ impl OAuth2Routes {
             .get(header::COOKIE)
             .and_then(|cookie_value| {
                 cookie_value.to_str().ok().and_then(|cookie_str| {
-                    Self::extract_session_token(cookie_str)
+                    Self::extract_session_token(cookie_str, &Self::session_cookie_name(context))
                         .and_then(|token| Self::validate_session_token(&token, context))
                 })
             })
@@ -245,7 +269,15 @@ impl OAuth2Routes {
         authenticated_user_id: uuid::Uuid,
         tenant_id: Option<String>,
         redirect_uri: String,
+        client_name: Option<&str>,
     ) -> Response {
+        // Only an active account authorizes a client: a pending one would get
+        // a connector every call of which is refused, a suspended one none.
+        let user = match Self::account_gate(context, authenticated_user_id).await {
+            Ok(user) => user,
+            Err(refused) => return *refused,
+        };
+
         // Skip the consent screen only when the user has already approved this client
         // for the requested scope; otherwise show consent before any code is minted.
         let scope = request.scope.clone().unwrap_or_default();
@@ -283,7 +315,9 @@ impl OAuth2Routes {
         // The consent form's synchronizer token, bound to this user: a page
         // on another origin cannot read it, so it cannot post an approval.
         match context.csrf_manager.generate_token(authenticated_user_id) {
-            Ok(csrf_token) => Self::render_consent_page(&request, &csrf_token),
+            Ok(csrf_token) => {
+                Self::render_consent_page(&request, &csrf_token, client_name, &user.email)
+            }
             Err(e) => {
                 error!("Failed to mint the consent form token: {e}");
                 Self::render_oauth_error_response(&OAuth2Error::server_error(
@@ -608,6 +642,22 @@ impl OAuth2Routes {
             .clone()
             .unwrap_or_default();
 
+        // "Continue with Google", on the issuer's host where Google returns,
+        // for a pending authorization this page can name
+        let google_start_url = context
+            .google_sign_in
+            .as_ref()
+            .and_then(|_| Self::parse_authorize_request(&params).ok())
+            .map(|request| {
+                Self::authorize_params_url(
+                    &format!(
+                        "{}/oauth2/login/google",
+                        context.config.issuer_url.trim_end_matches('/')
+                    ),
+                    &request,
+                )
+            });
+
         // Use spawn_blocking for HTML generation (CPU-bound string formatting)
         let html = spawn_blocking(move || {
             Self::generate_login_html(LoginHtmlParams {
@@ -621,10 +671,11 @@ impl OAuth2Routes {
                 resource: &resource,
                 default_email: &default_email,
                 default_password: &default_password,
+                google_start_url: google_start_url.as_deref(),
             })
         })
         .await
-        .unwrap_or_else(|_| with_hosted_page_css(Self::OAUTH_ERROR_TEMPLATE));
+        .unwrap_or_else(|_| Self::generic_error_html());
 
         Html(html)
     }
@@ -643,17 +694,31 @@ impl OAuth2Routes {
             return (StatusCode::BAD_REQUEST, "Missing password").into_response();
         };
 
-        // Authenticate user using database lookup and password verification
-        match Self::authenticate_user_with_auth_manager(
-            context.users.as_ref(),
-            context.tenants.as_ref(),
-            email,
-            password,
-            &context.auth_manager,
-            &context.jwks_manager,
-        )
-        .await
-        {
+        // The account rules every password login follows: a suspended account
+        // is refused here, and the login is recorded as the web app's is
+        let login = context
+            .accounts
+            .login(LoginRequest {
+                email: email.clone(),
+                password: password.clone(),
+                timezone: None,
+            })
+            .await
+            .and_then(|login| {
+                // Every successful sign-in raises user.login, as the web app's does
+                info!(
+                    target: "notify",
+                    event = "user.login",
+                    user_id = %login.user.user_id,
+                    tenant_id = %login.user.tenant_id.as_deref().unwrap_or_default(),
+                    "user authenticated"
+                );
+                login
+                    .jwt_token
+                    .ok_or_else(|| AppError::internal("Login minted no session token"))
+            });
+
+        match login {
             Ok(token) => {
                 // Continue the authorization flow with the OAuth parameters the
                 // form carried (PKCE and the RFC 8707 resource included)
@@ -664,24 +729,11 @@ impl OAuth2Routes {
                     mask_email(email)
                 );
 
-                // Set session cookie and redirect to authorization endpoint
-                // Cookie security: HttpOnly prevents XSS, Secure enforces HTTPS, SameSite=Lax prevents CSRF
-                // Max-Age matches JWT expiration (24 hours = 86400 seconds)
-                // Only set Secure flag when issuer URL uses HTTPS (allows HTTP in development)
-                let secure_flag = if context.config.issuer_url.starts_with("https://") {
-                    "; Secure"
-                } else {
-                    ""
-                };
-                let cookie_header = format!(
-                    "pierre_session={token}; HttpOnly{secure_flag}; Path=/; SameSite=Lax; Max-Age=86400"
-                );
-
                 (
                     StatusCode::FOUND,
                     [
                         (header::LOCATION, auth_url),
-                        (header::SET_COOKIE, cookie_header),
+                        (header::SET_COOKIE, Self::session_cookie(&context, &token)),
                     ],
                 )
                     .into_response()
@@ -900,102 +952,54 @@ impl OAuth2Routes {
 
     /// Build login URL with OAuth parameters preserved for redirect
     fn build_login_url_with_oauth_params(request: &AuthorizeRequest) -> String {
-        let mut login_url = format!(
-            "/oauth2/login?client_id={}&redirect_uri={}&response_type={}&state={}",
-            urlencoding::encode(&request.client_id),
-            urlencoding::encode(&request.redirect_uri),
-            urlencoding::encode(&request.response_type),
-            urlencoding::encode(request.state.as_deref().unwrap_or(""))
-        );
-
-        if let Some(ref scope) = request.scope {
-            use std::fmt::Write;
-            write!(&mut login_url, "&scope={}", urlencoding::encode(scope)).ok();
-        }
-
-        if let Some(ref code_challenge) = request.code_challenge {
-            use std::fmt::Write;
-            write!(
-                &mut login_url,
-                "&code_challenge={}",
-                urlencoding::encode(code_challenge)
-            )
-            .ok();
-        }
-
-        if let Some(ref code_challenge_method) = request.code_challenge_method {
-            use std::fmt::Write;
-            write!(
-                &mut login_url,
-                "&code_challenge_method={code_challenge_method}"
-            )
-            .ok();
-        }
-
-        if let Some(ref resource) = request.resource {
-            use std::fmt::Write;
-            write!(
-                &mut login_url,
-                "&resource={}",
-                urlencoding::encode(resource)
-            )
-            .ok();
-        }
-
-        login_url
+        Self::authorize_params_url("/oauth2/login", request)
     }
 
     /// Build authorization URL from the login form's fields, with the OAuth
     /// parameters preserved for the redirect
     fn build_authorization_url_from_form(form: &HashMap<String, String>) -> String {
-        let field = |name: &str| form.get(name).map_or("", String::as_str);
-        let client_id = field("client_id");
-        let redirect_uri = field("redirect_uri");
-        let response_type = field("response_type");
-        let state = field("state");
-        let scope = field("scope");
-        let code_challenge = field("code_challenge");
-        let code_challenge_method = field("code_challenge_method");
-        let resource = field("resource");
+        let field = |name: &str| form.get(name).filter(|v| !v.is_empty()).cloned();
+        let request = AuthorizeRequest {
+            response_type: field("response_type").unwrap_or_default(),
+            client_id: field("client_id").unwrap_or_default(),
+            redirect_uri: field("redirect_uri").unwrap_or_default(),
+            scope: field("scope"),
+            state: field("state"),
+            code_challenge: field("code_challenge"),
+            code_challenge_method: field("code_challenge_method"),
+            resource: field("resource"),
+        };
+        Self::authorize_params_url("/oauth2/authorize", &request)
+    }
 
-        let mut auth_url = format!(
-            "/oauth2/authorize?client_id={}&redirect_uri={}&response_type={}&state={}",
-            urlencoding::encode(client_id),
-            urlencoding::encode(redirect_uri),
-            urlencoding::encode(response_type),
-            urlencoding::encode(state)
+    /// `base` carrying the authorization request's parameters, every value
+    /// URL-encoded: `client_id`, `redirect_uri`, `response_type` and `state`
+    /// always, the scope, PKCE challenge and method and the RFC 8707
+    /// resource when present and non-empty. The login page, the Google
+    /// sign-in hop and the return to `/oauth2/authorize` all carry a pending
+    /// request this one way.
+    fn authorize_params_url(base: &str, request: &AuthorizeRequest) -> String {
+        use std::fmt::Write;
+
+        let mut url = format!(
+            "{base}?client_id={}&redirect_uri={}&response_type={}&state={}",
+            urlencoding::encode(&request.client_id),
+            urlencoding::encode(&request.redirect_uri),
+            urlencoding::encode(&request.response_type),
+            urlencoding::encode(request.state.as_deref().unwrap_or(""))
         );
-
-        if !scope.is_empty() {
-            use std::fmt::Write;
-            write!(&mut auth_url, "&scope={}", urlencoding::encode(scope)).ok();
+        let optional = [
+            ("scope", &request.scope),
+            ("code_challenge", &request.code_challenge),
+            ("code_challenge_method", &request.code_challenge_method),
+            ("resource", &request.resource),
+        ];
+        for (name, value) in optional {
+            if let Some(value) = value.as_deref().filter(|v| !v.is_empty()) {
+                write!(&mut url, "&{name}={}", urlencoding::encode(value)).ok();
+            }
         }
-
-        if !code_challenge.is_empty() {
-            use std::fmt::Write;
-            write!(
-                &mut auth_url,
-                "&code_challenge={}",
-                urlencoding::encode(code_challenge)
-            )
-            .ok();
-        }
-
-        if !code_challenge_method.is_empty() {
-            use std::fmt::Write;
-            write!(
-                &mut auth_url,
-                "&code_challenge_method={code_challenge_method}"
-            )
-            .ok();
-        }
-
-        if !resource.is_empty() {
-            use std::fmt::Write;
-            write!(&mut auth_url, "&resource={}", urlencoding::encode(resource)).ok();
-        }
-
-        auth_url
+        url
     }
 
     /// Parse query parameters into `AuthorizeRequest`
@@ -1081,58 +1085,52 @@ impl OAuth2Routes {
         })
     }
 
-    /// Authenticate user credentials using `AuthManager` (proper architecture)
-    async fn authenticate_user_with_auth_manager(
-        users: &dyn UserRepository,
-        tenants_repo: &dyn TenantRepository,
-        email: &str,
-        password: &str,
-        auth_manager: &AuthManager,
-        jwks_manager: &JwksManager,
-    ) -> AppResult<String> {
-        // Look up user by email
-        let user = users
-            .get_by_email(email)
-            .await
-            .map_err(|e| AppError::database(e.to_string()))?
-            .ok_or_else(|| AppError::not_found("User not found"))?;
+    /// Whether this deployment's cookies are `Secure`: its issuer is HTTPS.
+    fn cookies_secure(context: &OAuth2Context) -> bool {
+        context.config.issuer_url.starts_with("https://")
+    }
 
-        // Verify password hash
-        if !verify_password(password.to_owned(), user.password_hash.clone()).await? {
-            return Err(AppError::auth_invalid("Invalid password"));
+    /// The name of the authorization server's session cookie here:
+    /// `__Host-pierre_session` on an HTTPS issuer, so a sibling host cannot
+    /// set one, and `pierre_session` over plain HTTP.
+    fn session_cookie_name(context: &OAuth2Context) -> String {
+        host_cookie_name(SESSION_COOKIE, Self::cookies_secure(context))
+    }
+
+    /// The `Set-Cookie` value carrying a session JWT, the same for the
+    /// password and the Google sign-in: `HttpOnly`, `Secure` on an HTTPS
+    /// issuer, `SameSite=Lax` so the redirect into `/oauth2/authorize` sends
+    /// it, and the JWT's own 24-hour lifetime.
+    fn session_cookie(context: &OAuth2Context, token: &str) -> String {
+        SecureCookieConfig {
+            name: Self::session_cookie_name(context),
+            value: token.to_owned(),
+            max_age_secs: SESSION_COOKIE_MAX_AGE_SECS,
+            http_only: true,
+            secure: Self::cookies_secure(context),
+            same_site: SameSitePolicy::Lax,
+            path: "/".to_owned(),
         }
-
-        // Look up user's default tenant to include in JWT as active_tenant_id
-        let tenants = tenants_repo
-            .list_for_user(user.id)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
-        let active_tenant_id = tenants.first().map(|t| t.id.to_string());
-
-        // Use AuthManager to generate JWT token with RS256 and active_tenant_id
-        // This ensures consistent JWT handling across the entire system
-        let token = auth_manager
-            .generate_token_with_tenant(&user, jwks_manager, active_tenant_id)
-            .map_err(|e| AppError::internal(format!("Token generation failed: {e}")))?;
-
-        Ok(token)
+        .build()
     }
 
     /// Extract session token from cookie header
-    fn extract_session_token(cookie_header: &str) -> Option<String> {
-        // Accept the authorization server's own `pierre_session` cookie and, as a
+    fn extract_session_token(cookie_header: &str, session_cookie: &str) -> Option<String> {
+        // Accept the authorization server's own session cookie and, as a
         // bridge, the first-party web app's `auth_token` cookie — both are the same
         // RS256 JWT type validated by the auth manager. This lets a user already
         // logged into the web app authorize an MCP client without a second login.
-        // `pierre_session` wins when both are present.
+        // The session cookie wins when both are present.
         let mut app_token = None;
         for cookie in cookie_header.split(';') {
-            let cookie = cookie.trim();
-            if let Some(session_token) = cookie.strip_prefix("pierre_session=") {
-                return Some(session_token.to_owned());
+            let Some((name, value)) = cookie.trim().split_once('=') else {
+                continue;
+            };
+            if name == session_cookie {
+                return Some(value.to_owned());
             }
-            if let Some(auth_token) = cookie.strip_prefix("auth_token=") {
-                app_token = Some(auth_token.to_owned());
+            if name == "auth_token" {
+                app_token = Some(value.to_owned());
             }
         }
         app_token

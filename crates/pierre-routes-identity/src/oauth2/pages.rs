@@ -15,6 +15,7 @@ use pierre_auth::oauth2_server::{
     models::{AuthorizeRequest, OAuth2Error},
 };
 use pierre_core::html::{escape_html_attribute, with_hosted_page_css};
+use url::Url;
 
 use super::OAuth2Routes;
 
@@ -41,6 +42,10 @@ pub struct LoginHtmlParams<'a> {
     pub default_email: &'a str,
     /// Default password to pre-fill in login form (dev/test only)
     pub default_password: &'a str,
+    /// Where "Continue with Google" starts the Google sign-in for this
+    /// request; `None` hides the button (Google sign-in is not configured,
+    /// or the page names no request to return to)
+    pub google_start_url: Option<&'a str>,
 }
 
 /// Parameters for rendering the OAuth consent page.
@@ -64,12 +69,28 @@ pub struct ConsentHtmlParams<'a> {
     pub resource: &'a str,
     /// Synchronizer token the consent submission is checked against
     pub csrf_token: &'a str,
+    /// The name the client registered, else its client id
+    pub client_label: &'a str,
+    /// The account the athlete is signed in as
+    pub account_email: &'a str,
+    /// The login page for this request, to sign in as another account
+    pub switch_account_url: &'a str,
 }
 
 impl OAuth2Routes {
     /// OAuth error template embedded at compile-time
-    pub(super) const OAUTH_ERROR_TEMPLATE: &'static str =
-        include_str!("../../templates/oauth_error.html");
+    const OAUTH_ERROR_TEMPLATE: &'static str = include_str!("../../templates/oauth_error.html");
+
+    /// What the error page says when the error carries no description
+    const DEFAULT_ERROR_DESCRIPTION: &'static str = "Please try again.";
+
+    /// The error page with no particular error to name.
+    pub(super) fn generic_error_html() -> String {
+        with_hosted_page_css(Self::OAUTH_ERROR_TEMPLATE).replace(
+            "{{DESCRIPTION}}",
+            &format!("<p>{}</p>", Self::DEFAULT_ERROR_DESCRIPTION),
+        )
+    }
 
     /// OAuth login page template embedded at compile-time
     /// Loaded with `include_str`!() to avoid blocking filesystem IO at runtime
@@ -77,6 +98,11 @@ impl OAuth2Routes {
 
     /// OAuth consent page template embedded at compile-time
     const OAUTH_CONSENT_TEMPLATE: &'static str = include_str!("../../templates/oauth_consent.html");
+
+    /// The "Continue with Google" block of the login page; `{{GOOGLE_START_URL}}`
+    /// is filled with the escaped start URL
+    const GOOGLE_SIGN_IN_BLOCK: &'static str = r#"<p class="fineprint">or</p>
+        <a class="btn btn-secondary btn-block" href="{{GOOGLE_START_URL}}">Continue with Google</a>"#;
 
     /// OAuth login error template embedded at compile-time
     /// Loaded with `include_str`!() to avoid blocking filesystem IO at runtime
@@ -86,41 +112,35 @@ impl OAuth2Routes {
     /// Render HTML error page for OAuth errors shown in browser: 429 for
     /// `too_many_requests`, 503 for `temporarily_unavailable`, else 400
     pub(crate) fn render_oauth_error_response(error: &OAuth2Error) -> Response {
-        let error_title = match error.error.as_str() {
-            "invalid_client" => "✗ Invalid Client",
-            "unauthorized_client" => "✗ Unauthorized Client",
-            "access_denied" => "✗ Access Denied",
-            "unsupported_response_type" => "✗ Unsupported Response Type",
-            "invalid_scope" => "✗ Invalid Scope",
-            "server_error" => "✗ Server Error",
-            "temporarily_unavailable" => "✗ Temporarily Unavailable",
-            _ => "✗ OAuth Error",
-        };
-
-        let default_description =
-            "An error occurred during the OAuth authorization process.".to_owned();
+        // The description an OAuth error carries is written for the person
+        // reading it (RFC 6749 §5.2), never a server's internal detail.
         let error_description = error
             .error_description
-            .as_ref()
-            .unwrap_or(&default_description);
+            .as_deref()
+            .unwrap_or(Self::DEFAULT_ERROR_DESCRIPTION);
 
-        let html = with_hosted_page_css(Self::OAUTH_ERROR_TEMPLATE)
-            .replace("{{error_title}}", &escape_html_attribute(error_title))
-            .replace("{{ERROR}}", &escape_html_attribute(&error.error))
-            .replace("{{PROVIDER}}", "Dravr")
-            .replace(
-                "{{DESCRIPTION}}",
-                &format!(
-                    r#"<div class="description">{}</div>"#,
-                    escape_html_attribute(error_description)
-                ),
-            );
+        let html = with_hosted_page_css(Self::OAUTH_ERROR_TEMPLATE).replace(
+            "{{DESCRIPTION}}",
+            &format!("<p>{}</p>", escape_html_attribute(error_description)),
+        );
 
         (error.http_status(), Html(html)).into_response()
     }
 
-    /// Render the consent screen for a not-yet-granted authorization request.
-    pub(super) fn render_consent_page(request: &AuthorizeRequest, csrf_token: &str) -> Response {
+    /// Render the consent screen for a not-yet-granted authorization request,
+    /// naming the client, where it returns the athlete, and the account the
+    /// athlete is signed in as.
+    pub(super) fn render_consent_page(
+        request: &AuthorizeRequest,
+        csrf_token: &str,
+        client_name: Option<&str>,
+        account_email: &str,
+    ) -> Response {
+        let client_label = client_name
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .unwrap_or(&request.client_id);
+        let switch_account_url = Self::authorize_params_url("/oauth2/login", request);
         let html = Self::generate_consent_html(ConsentHtmlParams {
             client_id: &request.client_id,
             redirect_uri: &request.redirect_uri,
@@ -131,6 +151,9 @@ impl OAuth2Routes {
             code_challenge_method: request.code_challenge_method.as_deref().unwrap_or_default(),
             resource: request.resource.as_deref().unwrap_or_default(),
             csrf_token,
+            client_label,
+            account_email,
+            switch_account_url: &switch_account_url,
         });
         Html(html).into_response()
     }
@@ -144,24 +167,9 @@ impl OAuth2Routes {
         } else {
             params.scope.to_owned()
         };
-        // The pending authorization, for the athlete who signs in through the
-        // app instead (Google): the app sends them back to it once signed in.
-        let oauth_return = Self::build_authorization_url_from_form(&HashMap::from([
-            ("client_id".to_owned(), params.client_id.to_owned()),
-            ("redirect_uri".to_owned(), params.redirect_uri.to_owned()),
-            ("response_type".to_owned(), params.response_type.to_owned()),
-            ("state".to_owned(), params.state.to_owned()),
-            ("scope".to_owned(), params.scope.to_owned()),
-            (
-                "code_challenge".to_owned(),
-                params.code_challenge.to_owned(),
-            ),
-            (
-                "code_challenge_method".to_owned(),
-                params.code_challenge_method.to_owned(),
-            ),
-            ("resource".to_owned(), params.resource.to_owned()),
-        ]));
+        let google_sign_in = params.google_start_url.map_or_else(String::new, |url| {
+            Self::GOOGLE_SIGN_IN_BLOCK.replace("{{GOOGLE_START_URL}}", &escape_html_attribute(url))
+        });
 
         with_hosted_page_css(Self::OAUTH_LOGIN_TEMPLATE)
             .replace("{{CLIENT_ID}}", &escape_html_attribute(params.client_id))
@@ -185,10 +193,6 @@ impl OAuth2Routes {
             )
             .replace("{{RESOURCE}}", &escape_html_attribute(params.resource))
             .replace(
-                "{{OAUTH_RETURN}}",
-                &escape_html_attribute(&urlencoding::encode(&oauth_return)),
-            )
-            .replace(
                 "{{DEFAULT_EMAIL}}",
                 &escape_html_attribute(params.default_email),
             )
@@ -196,6 +200,7 @@ impl OAuth2Routes {
                 "{{DEFAULT_PASSWORD}}",
                 &escape_html_attribute(params.default_password),
             )
+            .replace("{{GOOGLE_SIGN_IN}}", &google_sign_in)
     }
 
     /// Render the OAuth consent page for a client requesting access.
@@ -240,6 +245,22 @@ impl OAuth2Routes {
             )
             .replace("{{RESOURCE}}", &escape_html_attribute(params.resource))
             .replace("{{CSRF_TOKEN}}", &escape_html_attribute(params.csrf_token))
+            .replace(
+                "{{CLIENT_LABEL}}",
+                &escape_html_attribute(params.client_label),
+            )
+            .replace(
+                "{{REDIRECT_HOST}}",
+                &escape_html_attribute(&redirect_host(params.redirect_uri)),
+            )
+            .replace(
+                "{{ACCOUNT_EMAIL}}",
+                &escape_html_attribute(params.account_email),
+            )
+            .replace(
+                "{{SWITCH_ACCOUNT_URL}}",
+                &escape_html_attribute(params.switch_account_url),
+            )
             .replace("{{SCOPE_ITEMS}}", &scope_items)
     }
 
@@ -308,4 +329,22 @@ impl OAuth2Routes {
 
         (StatusCode::UNAUTHORIZED, Html(error_html)).into_response()
     }
+}
+
+/// The host `redirect_uri` returns to, as the consent screen names it: the
+/// host (and port, when one is named) the browser will actually go to, read
+/// by the same WHATWG URL rules browsers apply, so a `\` or a user-info
+/// part cannot make the screen name one host while the browser goes to
+/// another. A URI with no host (`urn:ietf:wg:oauth:2.0:oob`) is shown whole.
+fn redirect_host(redirect_uri: &str) -> String {
+    Url::parse(redirect_uri)
+        .ok()
+        .and_then(|url| {
+            let host = url.host_str()?.to_owned();
+            Some(match url.port() {
+                Some(port) => format!("{host}:{port}"),
+                None => host,
+            })
+        })
+        .unwrap_or_else(|| redirect_uri.to_owned())
 }

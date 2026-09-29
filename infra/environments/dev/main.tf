@@ -682,6 +682,15 @@ module "backend" {
     # Contremaitre prompt hot-reload credentials
     CONTREMAITRE_GITHUB_PAT     = module.secrets.secret_ids["contremaitre_github_pat"]
     CONTREMAITRE_WEBHOOK_SECRET = module.secrets.secret_ids["contremaitre_webhook_secret"]
+
+    # "Continue with Google" on the hosted OAuth login page (carnet#652): the
+    # authorization server signs athletes in with Google directly, through the
+    # same Google web client Firebase's Google provider uses. Its redirect URI,
+    # {issuer}/oauth2/login/google/callback, is registered on that client. The
+    # app service account reads every secret in the project (project-level
+    # secretAccessor), so no binding is added.
+    GOOGLE_OAUTH_CLIENT_ID     = module.firebase.google_oauth_secret_ids["client_id"]
+    GOOGLE_OAUTH_CLIENT_SECRET = module.firebase.google_oauth_secret_ids["client_secret"]
   }
 
   health_check_path           = "/health"

@@ -25,7 +25,6 @@ import { QUERY_KEYS } from './constants/queryKeys';
 import { useOnboardingState } from './hooks/useOnboardingState';
 import { useIdleWatch } from './hooks/useIdleWatch';
 import { useApiRefusalSurface } from './hooks/useApiRefusalSurface';
-import { useOAuthReturn } from './hooks/useOAuthReturn';
 import { useLanguageSwitcher, useTranslation } from '@pierre/i18n';
 import { queryClient } from './services/queryClient';
 import './App.css';
@@ -102,10 +101,6 @@ function AppContent() {
   // is the app's one component inside both AuthProvider and ToastProvider, and
   // because the refusals it answers arrive on tabs that render nothing else.
   useApiRefusalSurface();
-
-  // An athlete who left an MCP connector's OAuth authorization to sign in here
-  // (Google, which the hosted login page lacks) goes back to it once signed in.
-  useOAuthReturn(isAuthenticated);
 
   // Onboarding flow state (server status + per-step flags + transitions). Kept
   // here — above the `oauthCallback` early return — so the status query stays
