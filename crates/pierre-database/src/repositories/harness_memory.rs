@@ -210,6 +210,29 @@ pub trait HarnessMemoryRepository: Send + Sync {
         user_id: &str,
     ) -> AppResult<bool>;
 
+    /// Delete every fact one structured answer produced: this user's rows
+    /// whose `source`, `predicate_code` and `object` all match, except the
+    /// row `keep_id` names.
+    ///
+    /// Backs the PAR-Q re-screen, where a clean answer retires the flag an
+    /// earlier "yes" to the same question raised (`keep_id` `None`), and a
+    /// repeated "yes" replaces it: the new flag is written first and passed
+    /// as `keep_id`, so the athlete is never without the flag between the two
+    /// statements. Requiring all three is what keeps the delete to that
+    /// answer's own rows: a medical fact a coach tool raised carries another
+    /// source and another code, and the answer to another question another
+    /// object. Returns the number of rows deleted — more than one when the
+    /// same answer was recorded more than once. Tenant-scoped.
+    async fn delete_facts_by_claim(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+        source: pierre_memory::FactSource,
+        predicate_code: pierre_memory::PredicateCode,
+        object: &str,
+        keep_id: Option<&str>,
+    ) -> AppResult<u64>;
+
     /// Supersede prior onboarding-captured facts by setting their `valid_until`
     /// to now, so they render stale and demote. Optionally scoped to one pillar,
     /// and optionally to facts created at or after `created_after` and before

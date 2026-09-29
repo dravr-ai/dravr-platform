@@ -108,12 +108,24 @@ pub struct SetGoalParams {
     /// Target value to achieve
     pub target_value: f64,
 
-    /// Timeframe description (week, month, quarter, year)
+    /// Timeframe the target is counted over (week, month, quarter, year).
+    /// A call that names none sets a monthly goal, the window `track_progress`
+    /// already reads a stored goal without one as.
+    #[serde(default = "default_goal_timeframe")]
     pub timeframe: String,
 
     /// Human-readable goal title
     #[serde(default = "default_goal_title")]
     pub title: String,
+
+    /// The sport the goal counts, as the athlete names it (`run`, `ride`,
+    /// `swim`, ...). Absent, every activity counts toward the goal.
+    #[serde(default)]
+    pub sport: Option<String>,
+}
+
+fn default_goal_timeframe() -> String {
+    "month".to_owned()
 }
 
 fn default_goal_title() -> String {

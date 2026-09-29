@@ -5,16 +5,80 @@
 // Copyright (c) 2026 dravr.ai
 
 use pierre_config::constants::time_constants;
-use pierre_core::models::Activity;
+use pierre_core::errors::AppResult;
+use pierre_core::models::{Activity, TenantId};
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
+use pierre_database::RepositoryRegistry;
+use uuid::Uuid;
 
 use crate::implementations::analytics::recommendations_output::{
     ActivitySummary, MacronutrientTargets, MealSuggestion, RecommendationsResult,
 };
+use crate::implementations::nutrition_gate::{
+    athlete_tenants, medical_flag_on_file, FiguresWithheld,
+};
 
 use super::recommendations::base_recommendations;
 
-/// Generate nutrition recommendations based on recent activity
+/// Protein for the meal after a session, grams per kg of body weight: "about
+/// 0.3 g/kg after key sessions" (Thomas, Erdman & Burke 2016). Kerksick et al.
+/// 2017 give 0.25-0.40 g/kg, or 20-40 g, taken from immediately to 2 h after.
+const RECOVERY_PROTEIN_G_PER_KG: f64 = 0.3;
+
+/// Speedy refuelling when fewer than 8 h separate two fuel-demanding sessions:
+/// 1-1.2 g/kg/h of carbohydrate for the first 4 h (Thomas, Erdman & Burke 2016;
+/// Kerksick et al. 2017 name about 1.2 g/kg/h).
+const REFUEL_CARBS_G_PER_KG_PER_H_MIN: f64 = 1.0;
+/// The high end of that range.
+const REFUEL_CARBS_G_PER_KG_PER_H_MAX: f64 = 1.2;
+
+/// What the nutrition arm needs to know about the athlete beyond their sessions.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NutritionAthlete {
+    /// Stored body weight in kilograms, when one is on file. Scales the
+    /// per-kilogram doses into grams.
+    pub weight_kg: Option<f64>,
+    /// Set when a medical flag is on file: the arm then answers without any
+    /// amount, because the athlete's clinician sets them.
+    pub figures_withheld: Option<FiguresWithheld>,
+}
+
+/// Read what [`generate_nutrition_recommendations`] needs about the athlete:
+/// the medical-flag gate first, then the stored body weight.
+///
+/// # Errors
+///
+/// Returns the repository error when the tenants, the flag or the profile
+/// cannot be read. A flag that cannot be read never reads as "no flag".
+pub async fn load_nutrition_athlete(
+    repos: &RepositoryRegistry,
+    tenant_id: Option<TenantId>,
+    user_id: Uuid,
+) -> AppResult<NutritionAthlete> {
+    let tenants = athlete_tenants(repos, tenant_id, user_id).await?;
+    if medical_flag_on_file(repos, &tenants, user_id).await? {
+        return Ok(NutritionAthlete {
+            weight_kg: None,
+            figures_withheld: Some(FiguresWithheld::medical_flag()),
+        });
+    }
+    for tenant in tenants {
+        let weight = repos
+            .user_physiological_profile
+            .get_user_physiological_profile(tenant, user_id)
+            .await?
+            .and_then(|profile| profile.weight)
+            .filter(|kg| kg.is_finite() && *kg > 0.0);
+        if weight.is_some() {
+            return Ok(NutritionAthlete {
+                weight_kg: weight,
+                figures_withheld: None,
+            });
+        }
+    }
+    Ok(NutritionAthlete::default())
+}
+
 /// Calculate activity nutrition metrics (duration, calories, intensity)
 fn calculate_nutrition_metrics(activity: &Activity) -> (f64, f64, &'static str) {
     use time_constants;
@@ -49,21 +113,63 @@ fn calculate_nutrition_metrics(activity: &Activity) -> (f64, f64, &'static str) 
     (duration_hours, calories_burned, intensity)
 }
 
-/// Calculate macronutrient needs based on workout intensity and duration
-fn calculate_macronutrient_needs(intensity: &str, duration_hours: f64) -> (f64, f64, f64) {
-    let protein_g = if intensity == "high" || duration_hours > 1.5 {
-        30.0 + (duration_hours * 5.0).min(20.0)
-    } else {
-        20.0 + (duration_hours * 5.0).min(15.0)
-    };
-
-    let carbs_g = duration_hours * 70.0;
-    let hydration_ml = duration_hours * 750.0;
-
-    (protein_g, carbs_g, hydration_ml)
+/// The recovery-window targets at a stored body weight.
+fn macronutrient_targets(weight_kg: f64) -> MacronutrientTargets {
+    MacronutrientTargets {
+        protein_g: (weight_kg * RECOVERY_PROTEIN_G_PER_KG).round(),
+        protein_g_per_kg: RECOVERY_PROTEIN_G_PER_KG,
+        refuel_carbohydrates_g_per_h_min: (weight_kg * REFUEL_CARBS_G_PER_KG_PER_H_MIN).round(),
+        refuel_carbohydrates_g_per_h_max: (weight_kg * REFUEL_CARBS_G_PER_KG_PER_H_MAX).round(),
+        body_weight_kg: weight_kg,
+    }
 }
 
-/// Build meal suggestions based on workout intensity
+/// The amounts to take after the session, in the athlete's terms: grams at a
+/// stored weight, the per-kilogram dose otherwise.
+fn recovery_recommendations(targets: Option<&MacronutrientTargets>) -> Vec<String> {
+    let (protein, refuel) = targets.map_or_else(
+        || {
+            (
+                "Within about 2 hours of the session: about 0.25-0.3 g of protein per kg of body weight (roughly 20-40 g), in a meal or snack that also carries carbohydrate".to_owned(),
+                "If your next hard or long session is less than 8 hours away, refuel with 1-1.2 g of carbohydrate per kg of body weight per hour for the first 4 hours; otherwise your regular meals refill glycogen".to_owned(),
+            )
+        },
+        |t| {
+            (
+                format!(
+                    "Within about 2 hours of the session: about {:.0} g of protein (0.3 g per kg of body weight), in a meal or snack that also carries carbohydrate",
+                    t.protein_g
+                ),
+                format!(
+                    "If your next hard or long session is less than 8 hours away, refuel with 1-1.2 g of carbohydrate per kg per hour for the first 4 hours (about {:.0}-{:.0} g per hour); otherwise your regular meals refill glycogen",
+                    t.refuel_carbohydrates_g_per_h_min, t.refuel_carbohydrates_g_per_h_max
+                ),
+            )
+        },
+    );
+    vec![
+        protein,
+        refuel,
+        // Replace 125-150% of the fluid actually lost (Thomas, Erdman & Burke
+        // 2016). No sweat loss is measured here, so no volume is prescribed:
+        // the scale weight before and after the session is the measure.
+        "Rehydrate with 1.25-1.5 L of water or electrolyte drink for every kg of body weight lost in the session (weigh before and after); sodium from food or drink helps you keep it"
+            .to_owned(),
+    ]
+}
+
+/// What a flagged athlete is told instead: foods and timing, no amount.
+const WITHHELD_RECOVERY_GUIDANCE: &[&str] = &[
+    "Within about 2 hours of the session: a meal or snack with a protein source and carbohydrate-rich food",
+    "If your next hard or long session is less than 8 hours away, start refuelling with carbohydrate-rich food soon after this one",
+    "Rehydrate by drinking to thirst, within any fluid limit your clinician has set",
+    "Your clinician sets your protein, carbohydrate and fluid amounts; ask what they have advised",
+];
+
+/// Build meal suggestions based on workout intensity. Every option sits in
+/// the same window: protein from immediately to 2 h after the session
+/// stimulates muscle protein synthesis robustly (Kerksick et al. 2017), and
+/// the urgency of a narrower one is not supported (Aragon & Schoenfeld 2013).
 fn build_meal_suggestions(intensity: &str) -> Vec<MealSuggestion> {
     let mut suggestions = vec![
         MealSuggestion {
@@ -71,14 +177,14 @@ fn build_meal_suggestions(intensity: &str) -> Vec<MealSuggestion> {
             description: "Protein shake with banana and honey".to_owned(),
             protein_g: 25,
             carbs_g: 50,
-            timing: "Immediate (0-15 min)".to_owned(),
+            timing: "Within 2 hours — the quickest option".to_owned(),
         },
         MealSuggestion {
             option: "Greek Yogurt Bowl".to_owned(),
             description: "200g Greek yogurt with granola, berries, and honey".to_owned(),
             protein_g: 20,
             carbs_g: 60,
-            timing: "Within 30 minutes".to_owned(),
+            timing: "Within 2 hours".to_owned(),
         },
         MealSuggestion {
             option: "Recovery Meal".to_owned(),
@@ -102,54 +208,17 @@ fn build_meal_suggestions(intensity: &str) -> Vec<MealSuggestion> {
     suggestions
 }
 
-pub(super) fn generate_nutrition_recommendations(activities: &[Activity]) -> RecommendationsResult {
-    // The only caller returns before reaching here when the athlete has no
-    // activity in the last four weeks, so this arm is this function's own
-    // contract for an empty slice rather than a path the tool takes today.
-    let Some(activity) = activities.iter().max_by_key(|a| a.start_date()) else {
-        return base_recommendations(
-            "nutrition",
-            "medium",
-            "No recent activity data available".to_owned(),
-            vec![
-                // 1.2-2.0 g/kg/day is the ACSM/AND/DC range for athletes in
-                // general (Thomas, Erdman & Burke 2016). 1.6-2.2 is Morton
-                // 2018's range for resistance-training gains, not this one.
-                "Maintain balanced nutrition with adequate protein (1.2-2.0g/kg body weight per day), spread across meals"
-                    .to_owned(),
-                "Stay hydrated throughout the day (2-3 liters water)".to_owned(),
-                "Eat regular meals with complex carbohydrates, lean protein, and healthy fats"
-                    .to_owned(),
-            ],
-        );
-    };
-
+/// The `nutrition` mode of `generate_recommendations`, for the athlete's most
+/// recent session.
+///
+/// Public so integration tests can assert the content of what the athlete is
+/// told; its production caller is the tool handler.
+#[must_use]
+pub fn generate_nutrition_recommendations(
+    activity: &Activity,
+    athlete: &NutritionAthlete,
+) -> RecommendationsResult {
     let (duration_hours, calories_burned, intensity) = calculate_nutrition_metrics(activity);
-    let (protein_g, carbs_g, hydration_ml) =
-        calculate_macronutrient_needs(intensity, duration_hours);
-
-    let mut recommendations = vec![
-        format!(
-            "Within 30 minutes: Consume {:.0}g protein and {:.0}g carbohydrates for optimal recovery",
-            protein_g,
-            carbs_g * 0.5
-        ),
-        // Replace 125-150% of the fluid actually lost (Thomas, Erdman & Burke
-        // 2016). `hydration_ml` is a flat 750 ml/h guess at sweat loss that
-        // ignores what was drunk during the session, so scaling it would
-        // prescribe a volume no one measured; the scale weight is the measure.
-        "Rehydrate with 1.25-1.5 L of water or electrolyte drink for every kg of body weight lost in the session (weigh before and after); sodium from food or drink helps you keep it"
-            .to_owned(),
-    ];
-
-    if intensity == "high" || duration_hours > 1.0 {
-        recommendations.push(
-            "Follow up with a complete meal within 2 hours to fully replenish glycogen stores"
-                .to_owned(),
-        );
-    }
-
-    let meal_suggestions = build_meal_suggestions(intensity);
 
     let mut key_insights = vec![
         format!(
@@ -164,15 +233,37 @@ pub(super) fn generate_nutrition_recommendations(activities: &[Activity]) -> Rec
             .push("Extended duration activity - prioritize carbohydrate replenishment".to_owned());
     }
 
+    let (recommendations, meal_suggestions, macronutrient_targets) =
+        if athlete.figures_withheld.is_some() {
+            (
+                WITHHELD_RECOVERY_GUIDANCE
+                    .iter()
+                    .map(|line| (*line).to_owned())
+                    .collect(),
+                Vec::new(),
+                None,
+            )
+        } else {
+            let targets = athlete.weight_kg.map(macronutrient_targets);
+            let mut recommendations = recovery_recommendations(targets.as_ref());
+            if intensity == "high" || duration_hours > 1.0 {
+                recommendations.push(
+                    "After a long or hard session, make that a complete meal rather than a snack"
+                        .to_owned(),
+                );
+            }
+            (recommendations, build_meal_suggestions(intensity), targets)
+        };
+
     RecommendationsResult {
-        recovery_window: Some("Critical recovery period: 0-2 hours post-workout".to_owned()),
+        recovery_window: Some(
+            "Recovery window: about 0-2 hours after the session; total daily intake matters more than the exact timing"
+                .to_owned(),
+        ),
         key_insights,
         meal_suggestions,
-        macronutrient_targets: Some(MacronutrientTargets {
-            protein_g: protein_g.round(),
-            carbohydrates_g: carbs_g.round(),
-            hydration_ml: hydration_ml.round(),
-        }),
+        macronutrient_targets,
+        figures_withheld: athlete.figures_withheld.clone(),
         activity_summary: Some(ActivitySummary {
             name: display_line(activity.name(), ACTIVITY_NAME_MAX_CHARS),
             // The serde spelling, not the Debug one: `SportType` renames its

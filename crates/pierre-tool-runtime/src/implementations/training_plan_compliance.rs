@@ -78,17 +78,17 @@ pub(super) async fn assess_saved_weeks(
         return Vec::new();
     };
 
-    // The plan's agent package first, then the catalogue — the same view
-    // the save resolved through, so a house flavour or a package template
-    // is measured against what it was saved as.
-    let package = match load_agent_package(repos, tenant, user_id, plan.agent_slug.as_deref()).await
-    {
-        Ok(package) => package,
-        Err(e) => {
-            warn!(error = %e, "week compliance: coach package unreadable; catalogue alone");
-            None
-        }
-    };
+    // The package of the agent that laid the outline first, then the
+    // catalogue, so the season's house flavour or a package template is
+    // measured against the package that defined it.
+    let package =
+        match load_agent_package(repos, tenant, user_id, plan.author_agent_id.as_deref()).await {
+            Ok(package) => package,
+            Err(e) => {
+                warn!(error = %e, "week compliance: coach package unreadable; catalogue alone");
+                None
+            }
+        };
     let catalogue = PackagedCatalogue::new(state.training_catalogue(), package);
     let flavour = plan
         .flavour

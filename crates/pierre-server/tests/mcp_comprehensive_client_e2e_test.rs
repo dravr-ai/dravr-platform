@@ -290,7 +290,7 @@ impl McpProtocolTester {
         .await;
         self.test_tool(
             GENERATE_RECOMMENDATIONS,
-            json!({ "provider": "strava", "recommendation_type": "training" }),
+            json!({ "provider": "strava", "recommendation_type": "training_plan" }),
         )
         .await;
         self.test_tool(CALCULATE_FITNESS_SCORE, json!({ "provider": "strava" }))

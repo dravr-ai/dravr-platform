@@ -15,7 +15,6 @@ use pierre_core::models::{
     Activity, ActivityBuilder, GuidedFlow, OnboardingState, Pillar, SportType, TenantId,
 };
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_database::repositories::training_plans::PlanOwner;
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_llm::FunctionDeclaration;
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
@@ -782,6 +781,23 @@ async fn saved_plan_is_injected_into_the_system_prompt() -> Result<()> {
     assert!(prompt.contains("tempo 3x8min"));
     assert!(prompt.contains("Next week (starting 2026-07-20)"));
 
+    // The plan is the athlete's one season: a turn answering as another
+    // agent is shown the same plan, not an empty section.
+    let other_agent = inject_training_plan(
+        PlanPromptSources {
+            repos: executor.resources.repos(),
+            catalogue: &TrainingCatalogueRegistry::new(),
+        },
+        &tenant_id,
+        &user_id.to_string(),
+        Some("taper-builder-agent"),
+        today,
+        false,
+        "BASE PROMPT".to_owned(),
+    )
+    .await;
+    assert!(other_agent.contains("Big Red (gravel) on 2026-08-08 — 25 days out"));
+
     // A user with no plan gets the prompt back untouched — no empty section.
     let other_user = Uuid::new_v4();
     let untouched = inject_training_plan(
@@ -1187,7 +1203,7 @@ async fn save_refuses_while_the_conversation_is_mid_profile_walk() -> Result<()>
     assert!(
         repos
             .training_plans
-            .get_active_plan(&tenant_id, &user_id.to_string(), PlanOwner::agnostic())
+            .get_active_plan(&tenant_id, &user_id.to_string())
             .await?
             .is_none(),
         "the refused save must not have written a plan"
@@ -1885,11 +1901,7 @@ async fn save_refuses_mid_walk_even_with_no_conversation_in_scope() -> Result<()
     assert!(
         repos
             .training_plans
-            .get_active_plan(
-                &tenant_id,
-                &user_id.to_string(),
-                PlanOwner::agent("endurance-coach"),
-            )
+            .get_active_plan(&tenant_id, &user_id.to_string(),)
             .await?
             .is_none(),
         "the refused save must not have written a plan"
@@ -2608,11 +2620,7 @@ async fn stored_race_names(
         .resources
         .repos()
         .training_plans
-        .get_active_plan(
-            tenant_id,
-            &user_id.to_string(),
-            PlanOwner::agent("endurance-coach"),
-        )
+        .get_active_plan(tenant_id, &user_id.to_string())
         .await?
         .expect("an active plan");
     Ok(plan.races.into_iter().map(|race| race.name).collect())

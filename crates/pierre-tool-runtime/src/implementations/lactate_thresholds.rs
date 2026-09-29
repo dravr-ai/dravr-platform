@@ -301,10 +301,10 @@ impl EstimateLactateThresholdsTool {
     fn to_store(unit: LactateIntensityUnit) -> &'static str {
         match unit {
             LactateIntensityUnit::Watts => {
-                "call set_physiology with ftp_watts at the LT2 the athlete confirms; the profile has no field for heart rate at threshold, so that number stays in this reply"
+                "call set_physiology with ftp_watts at the LT2 the athlete confirms, and with threshold_hr at the heart rate of that LT2 when the stages carried heart rate"
             }
             LactateIntensityUnit::SecondsPerKm => {
-                "call set_physiology with threshold_pace_sec_per_km at the LT2 the athlete confirms; the profile has no field for heart rate at threshold, so that number stays in this reply"
+                "call set_physiology with threshold_pace_sec_per_km at the LT2 the athlete confirms, and with threshold_hr at the heart rate of that LT2 when the stages carried heart rate"
             }
         }
     }
@@ -349,6 +349,7 @@ impl EstimateLactateThresholdsTool {
             stored_profile: StoredThresholds {
                 ftp_watts: profile.and_then(|p| p.ftp_watts),
                 threshold_pace_sec_per_km: profile.and_then(|p| p.threshold_pace_sec_per_km),
+                threshold_hr: profile.and_then(|p| p.threshold_hr),
                 max_hr: profile.and_then(|p| p.max_hr),
             },
             framing: "Name the construct with every number: the four do not coincide (Jamnick 2020). 4.0 mmol/L is a convention (Heck 1985; critique Faude 2009), not the athlete's threshold; trained athletes turn at 2.5–4.0 mmol/L (Seiler-Viken 2025).".to_owned(),
@@ -370,7 +371,7 @@ impl McpTool<dyn ToolRuntime> for EstimateLactateThresholdsTool {
         };
         answers_with::<LactateThresholdsResult>(tool_definition(
             "estimate_lactate_thresholds",
-            "Locate the athlete's lactate thresholds from a step test they report — each stage's power in watts or pace in seconds per kilometre, its blood lactate in mmol/L, and heart rate if a strap was worn. Returns LT1 by the log-log breakpoint and LT2 by modified Dmax, Dmax and the 4.0 mmol/L convention, each under its own name with the intensity, lactate and heart rate at that point; the lactate band table from 1.0 to 4.0 mmol/L; and power zones anchored on the modified-Dmax LT2 when the stages are in watts. Call it when the athlete reports a test such as '200 W 1.1, 225 W 1.4, 250 W 2.3, 275 W 4.1 mmol'. Needs at least four stages, each harder than the last. This only estimates: to keep a threshold, call set_physiology with ftp_watts or threshold_pace_sec_per_km after the athlete confirms it.",
+            "Locate the athlete's lactate thresholds from a step test they report — each stage's power in watts or pace in seconds per kilometre, its blood lactate in mmol/L, and heart rate if a strap was worn. Returns LT1 by the log-log breakpoint and LT2 by modified Dmax, Dmax and the 4.0 mmol/L convention, each under its own name with the intensity, lactate and heart rate at that point; the lactate band table from 1.0 to 4.0 mmol/L; and power zones anchored on the modified-Dmax LT2 when the stages are in watts. Call it when the athlete reports a test such as '200 W 1.1, 225 W 1.4, 250 W 2.3, 275 W 4.1 mmol'. Needs at least four stages, each harder than the last. This only estimates: to keep a threshold, call set_physiology with ftp_watts or threshold_pace_sec_per_km, and threshold_hr for its heart rate, after the athlete confirms it.",
             schema,
             Some(read_only_annotations()),
         ))

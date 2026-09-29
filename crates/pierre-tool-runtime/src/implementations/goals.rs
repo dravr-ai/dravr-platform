@@ -35,6 +35,10 @@ use crate::implementations::goals_output::{
     format_goal_suggestions, FeasibilityResponseParams, GoalFeasibilityResult,
     ProgressResponseParams, SetGoalResult, SuggestGoalsResult, TrackProgressResult,
 };
+use crate::implementations::goals_spec::{
+    activities_toward_goal, extract_goal_details, goal_type_vocabulary, validated_new_goal,
+    GoalDetails, GOAL_TIMEFRAMES, GOAL_TYPES,
+};
 use crate::protocol::auth::AuthService;
 use crate::protocol::provider_helpers::resolve_provider_for_tool;
 use crate::runtime::ToolRuntime;
@@ -66,7 +70,7 @@ use pierre_intelligence::physiological_constants::goal_feasibility::{
 };
 use pierre_intelligence::seasonality::build_seasonal_context;
 use pierre_intelligence::{FitnessLevel, TimeAvailability, UserFitnessProfile, UserPreferences};
-use pierre_mcp_schema::json_schemas::{AnalyzeGoalFeasibilityParams, SetGoalParams};
+use pierre_mcp_schema::json_schemas::AnalyzeGoalFeasibilityParams;
 use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
 
@@ -116,7 +120,9 @@ fn extract_feasibility_params(args: &Value) -> AppResult<(String, f64, u32)> {
         timeframe_days
     };
 
-    Ok((params.goal_type, params.target_value, effective_timeframe))
+    // Read the way set_goal reads it, so 'Distance' is the distance goal.
+    let goal_type = params.goal_type.trim().to_ascii_lowercase();
+    Ok((goal_type, params.target_value, effective_timeframe))
 }
 
 /// Calculate feasibility score based on current level vs target.
@@ -175,14 +181,12 @@ fn generate_feasibility_recommendations(
         ));
 
         let safer_target = current_level * (1.0 + (safe_improvement_capacity / 100.0));
+        let unit = GOAL_TYPES
+            .iter()
+            .find(|(kind, _)| *kind == goal_type)
+            .map_or("units", |(_, unit)| unit);
         recommendations.push(format!(
-            "Or reduce target to {safer_target:.1} {} for current timeframe",
-            match goal_type {
-                "distance" => "km",
-                "duration" => "hours",
-                "frequency" => "activities",
-                _ => "units",
-            }
+            "Or reduce target to {safer_target:.1} {unit} for current timeframe"
         ));
     }
 
@@ -192,13 +196,6 @@ fn generate_feasibility_recommendations(
     }
 
     recommendations
-}
-
-/// Extract goal parameters from args.
-fn extract_goal_params(args: &Value) -> AppResult<SetGoalParams> {
-    from_value(args.clone())
-        .json_context("set_goal parameters")
-        .map_err(|e| AppError::invalid_input(e.to_string()))
 }
 
 /// Load user fitness profile from database.
@@ -564,43 +561,6 @@ fn create_fallback_profile(user_id: String, activities: &[Activity]) -> UserFitn
     }
 }
 
-/// Goal details extracted from database.
-pub(crate) struct GoalDetails {
-    pub(crate) goal_type: String,
-    pub(crate) goal_target: f64,
-    pub(crate) timeframe: String,
-    pub(crate) created_at: Option<DateTime<FixedOffset>>,
-}
-
-/// Extract goal details from JSON map.
-fn extract_goal_details(goal: &serde_json::Map<String, Value>) -> Option<GoalDetails> {
-    let goal_type = goal
-        .get("goal_type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("distance")
-        .to_owned();
-
-    let goal_target = goal.get("target_value").and_then(Value::as_f64)?;
-
-    let timeframe = goal
-        .get("timeframe")
-        .and_then(|v| v.as_str())
-        .unwrap_or("month")
-        .to_owned();
-
-    let created_at = goal
-        .get("created_at")
-        .and_then(|v| v.as_str())
-        .and_then(|s| DateTime::parse_from_rfc3339(s).ok());
-
-    Some(GoalDetails {
-        goal_type,
-        goal_target,
-        timeframe,
-        created_at,
-    })
-}
-
 /// Calculate days remaining in goal timeframe.
 fn calculate_days_remaining(created_at: Option<DateTime<FixedOffset>>, timeframe: &str) -> u32 {
     created_at.map_or(DEFAULT_GOAL_TIMEFRAME_DAYS, |created| {
@@ -710,22 +670,6 @@ async fn fetch_and_validate_goal(
     Ok(extract_goal_details(goal_object))
 }
 
-/// Filter activities relevant to goal timeframe.
-fn filter_relevant_activities(
-    activities: &[Activity],
-    created_at: Option<DateTime<FixedOffset>>,
-) -> Vec<&Activity> {
-    created_at.map_or_else(
-        || activities.iter().collect(),
-        |created| {
-            activities
-                .iter()
-                .filter(|a| a.start_date() > created)
-                .collect::<Vec<_>>()
-        },
-    )
-}
-
 /// Calculate progress metrics for goal tracking.
 fn calculate_progress_metrics(
     goal_type: &str,
@@ -759,9 +703,11 @@ impl McpTool<dyn ToolRuntime> for SetGoalTool {
             "goal_type".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some(
-                    "Type of goal: 'distance', 'time', 'frequency', or 'performance'".to_owned(),
-                ),
+                description: Some(format!(
+                    "Type of goal, one of {}. Any other type is refused: progress \
+                     cannot be measured for it.",
+                    goal_type_vocabulary()
+                )),
                 ..Default::default()
             },
         );
@@ -770,7 +716,8 @@ impl McpTool<dyn ToolRuntime> for SetGoalTool {
             PropertySchema {
                 property_type: "number".to_owned(),
                 description: Some(
-                    "Target value for the goal (km for distance, sessions for frequency, etc.)"
+                    "Target total over the timeframe, in the goal type's unit: km, hours or \
+                     activities. Must be greater than zero."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -780,10 +727,10 @@ impl McpTool<dyn ToolRuntime> for SetGoalTool {
             "timeframe".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some(
-                    "Goal timeframe: 'week', 'month', 'quarter', or 'year'. Default: 'month'"
-                        .to_owned(),
-                ),
+                description: Some(format!(
+                    "Window the target is counted over, one of {}. Default: 'month'.",
+                    GOAL_TIMEFRAMES.join(", ")
+                )),
                 ..Default::default()
             },
         );
@@ -800,7 +747,9 @@ impl McpTool<dyn ToolRuntime> for SetGoalTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Sport type for the goal (e.g., 'Running', 'Cycling'). Default: 'Running'"
+                    "Sport the goal counts (e.g. 'run', 'ride', 'swim'): progress then counts \
+                     only that sport's activities, trail and treadmill runs toward a run goal, \
+                     gravel and indoor rides toward a ride goal. Omit to count every activity."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -812,7 +761,10 @@ impl McpTool<dyn ToolRuntime> for SetGoalTool {
         );
         answers_with::<SetGoalResult>(tool_definition(
             "set_goal",
-            "Create a new fitness goal with specified type, target value, and timeframe",
+            "Create a fitness goal: a distance, duration or activity-count target over a week, \
+             month, quarter or year, optionally for one sport. track_progress measures it \
+             against the activities recorded after the goal was created, only the named \
+             sport's when one is given.",
             schema,
             None,
         ))
@@ -830,7 +782,8 @@ impl McpTool<dyn ToolRuntime> for SetGoalTool {
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            let params = extract_goal_params(&args)?;
+            let goal = validated_new_goal(&args)?;
+            let params = &goal.params;
             let user_uuid = context.user_id;
 
             let created_at = Utc::now();
@@ -839,6 +792,7 @@ impl McpTool<dyn ToolRuntime> for SetGoalTool {
                 "target_value": params.target_value,
                 "timeframe": params.timeframe,
                 "title": params.title,
+                "sport": goal.sport_name(),
                 "created_at": created_at.to_rfc3339()
             });
 
@@ -852,14 +806,7 @@ impl McpTool<dyn ToolRuntime> for SetGoalTool {
 
             ok_typed(
                 "set_goal",
-                build_goal_creation_payload(
-                    &goal_id,
-                    &params.goal_type,
-                    params.target_value,
-                    &params.timeframe,
-                    &params.title,
-                    created_at,
-                ),
+                build_goal_creation_payload(&goal_id, &goal, created_at),
             )
         }
         .await;
@@ -891,7 +838,9 @@ impl McpTool<dyn ToolRuntime> for SuggestGoalsTool {
         let schema = object_schema(properties, None);
         answers_with::<SuggestGoalsResult>(task_capable(tool_definition(
             "suggest_goals",
-            "Get AI-suggested fitness goals based on your activity history and fitness level",
+            "Get up to five suggested fitness goals based on your activity history and fitness \
+             level. When the athlete's latitude is known, suggestions for sports out of season \
+             there are dropped rather than replaced.",
             schema,
             None,
         )))
@@ -977,7 +926,10 @@ impl McpTool<dyn ToolRuntime> for TrackProgressTool {
         let schema = object_schema(properties, Some(vec!["goal_id".to_owned()]));
         answers_with::<TrackProgressResult>(task_capable(tool_definition(
             "track_progress",
-            "Track progress toward a specific fitness goal with milestone achievements and projections",
+            "Track progress toward a specific fitness goal: current value against target, \
+             percentage complete, whether it is on track, days remaining and a projected \
+             completion, counted over the activities recorded since the goal was created (only \
+             the goal's sport when it names one).",
             schema,
             None,
         )))
@@ -1023,7 +975,8 @@ impl McpTool<dyn ToolRuntime> for TrackProgressTool {
 
             let activities = fetch_progress_activities(&context, &provider_name, user_uuid).await?;
 
-            let relevant_activities = filter_relevant_activities(&activities, details.created_at);
+            let relevant_activities =
+                activities_toward_goal(&activities, details.created_at, details.sport.as_ref());
             let (current_value, unit, progress_percentage, on_track) = calculate_progress_metrics(
                 &details.goal_type,
                 &relevant_activities,
@@ -1076,9 +1029,10 @@ impl McpTool<dyn ToolRuntime> for AnalyzeGoalFeasibilityTool {
             "goal_type".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some(
-                    "Type of goal: 'distance', 'time', 'frequency', or 'performance'".to_owned(),
-                ),
+                description: Some(format!(
+                    "Type of goal, one of {}. Any other type is answered as unknown.",
+                    goal_type_vocabulary()
+                )),
                 ..Default::default()
             },
         );
@@ -1086,7 +1040,11 @@ impl McpTool<dyn ToolRuntime> for AnalyzeGoalFeasibilityTool {
             "target_value".to_owned(),
             PropertySchema {
                 property_type: "number".to_owned(),
-                description: Some("Target value for the goal".to_owned()),
+                description: Some(
+                    "Target total over the timeframe, in the goal type's unit: km, hours or \
+                     activities."
+                        .to_owned(),
+                ),
                 ..Default::default()
             },
         );
@@ -1094,7 +1052,10 @@ impl McpTool<dyn ToolRuntime> for AnalyzeGoalFeasibilityTool {
             "timeframe_days".to_owned(),
             PropertySchema {
                 property_type: "integer".to_owned(),
-                description: Some("Number of days to achieve the goal. Default: 30.".to_owned()),
+                description: Some(format!(
+                    "Number of days to achieve the goal. Default: {GOAL_DEFAULT_TIMEFRAME_DAYS}, \
+                     capped at {MAX_TIMEFRAME_DAYS}."
+                )),
                 ..Default::default()
             },
         );

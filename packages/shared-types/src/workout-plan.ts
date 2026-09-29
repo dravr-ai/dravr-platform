@@ -74,6 +74,17 @@ export interface PlanFueling {
   carb_source?: string;
 }
 
+/**
+ * In place of `fueling`, for a day that stores a protocol while a medical
+ * flag is on the athlete's file: the athlete's clinician sets these amounts.
+ */
+export interface PlanFuelingWithheld {
+  reason: 'medical_flag';
+  set_by: 'clinician';
+  /** The server's plain-words statement; clients show their own localized line. */
+  note: string;
+}
+
 export interface PlanDay {
   /** `YYYY-MM-DD`. */
   date: string;
@@ -84,6 +95,7 @@ export interface PlanDay {
   rest: boolean;
   steps?: PlanStep[];
   fueling?: PlanFueling;
+  fueling_withheld?: PlanFuelingWithheld;
   template_slug?: string;
   template_source?: PlanTemplateSource;
 }

@@ -11,10 +11,10 @@ use pierre_config::admin_definitions::{
     register_activity_access_quotas, register_algorithm_selection, register_feature_flags,
     register_garmin_provider, register_group_permissions, register_heart_rate_zones,
     register_llm_pricing, register_llm_provider_config, register_mcp_network, register_monitoring,
-    register_nutrition, register_recommendation_engine, register_sleep_recovery,
-    register_sqlx_pool, register_strava_provider, register_strava_seat_reclaim,
-    register_tokio_runtime, register_tool_execution, register_training_stress_balance,
-    register_usage_quotas, register_weather_analysis, ParameterDefinition, ORDERED_PARAMETERS,
+    register_recommendation_engine, register_sleep_recovery, register_sqlx_pool,
+    register_strava_provider, register_strava_seat_reclaim, register_tokio_runtime,
+    register_tool_execution, register_training_stress_balance, register_usage_quotas,
+    register_weather_analysis, ParameterDefinition, ORDERED_PARAMETERS,
 };
 use pierre_config::admin_env::{EnvConfigError, EnvConfigPins};
 use pierre_config::admin_types::{
@@ -22,6 +22,7 @@ use pierre_config::admin_types::{
     ConfigOverride, ConfigScope, ConfigValidationError, ResetConfigRequest, ResetConfigResponse,
     UpdateConfigRequest, UpdateConfigResponse, ValidateConfigRequest, ValidateConfigResponse,
 };
+use pierre_config::nutrition_params::register_nutrition;
 use pierre_config::tid_cuts::register_tid_cuts;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::backends::factory::Database;
@@ -227,7 +228,7 @@ impl AdminConfigService {
         // Weather Analysis — see config::admin::definitions::register_weather_analysis
         register_weather_analysis(&mut defs);
 
-        // Nutrition — see config::admin::definitions::register_nutrition
+        // Nutrition — the athlete protein target calculate_daily_nutrition reads — see pierre_config::nutrition_params
         register_nutrition(&mut defs);
 
         // Tokio Runtime Configuration — see config::admin::definitions::register_tokio_runtime

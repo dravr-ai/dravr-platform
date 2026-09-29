@@ -17,10 +17,13 @@ use pierre_core::models::{
     CalendarEventSource, CalendarKey, PlannedSession, PlannedSessionKind, PrescribedWorkout,
     RelativeIntensity, SportType, WorkoutStep,
 };
-use pierre_memory::training_plans::{PlanWeek, PlannedDay, WeekStatus};
-use pierre_services::plan_calendar_push::{
-    desired_entries, diff_against_ledger, plan_day_session, plan_sport, DesiredEntry,
+use pierre_memory::training_plans::{
+    GoalRace, PlanStatus, PlanWeek, PlannedDay, RacePriority, TrainingPlan, WeekStatus,
 };
+use pierre_services::plan_calendar_push::{
+    desired_entries, diff_against_ledger, entry_author, plan_day_session, plan_sport, DesiredEntry,
+};
+use pierre_services::plan_fueling::FuelingDisclosure;
 use uuid::Uuid;
 
 fn date(s: &str) -> NaiveDate {
@@ -84,6 +87,7 @@ fn week(id: &str, week_start: &str, focus: &str, days: Vec<PlannedDay>) -> PlanW
         status: WeekStatus::Active,
         supersedes_id: None,
         adjustment_reason: String::new(),
+        author_agent_id: None,
         created_at: Utc::now(),
         updated_at: Utc::now(),
         phase_index: None,
@@ -151,6 +155,7 @@ fn a_zoned_day_becomes_one_timed_step_and_a_prose_day_stays_prose() {
             "Z2",
         ),
         0,
+        &FuelingDisclosure::Shown,
     )
     .expect("a training day renders");
     assert_eq!(zoned.kind, PlannedSessionKind::Workout);
@@ -184,6 +189,7 @@ fn a_zoned_day_becomes_one_timed_step_and_a_prose_day_stays_prose() {
             "3x8min @ 88-93% FTP",
         ),
         0,
+        &FuelingDisclosure::Shown,
     )
     .unwrap();
     assert!(prose.steps.is_empty());
@@ -191,11 +197,16 @@ fn a_zoned_day_becomes_one_timed_step_and_a_prose_day_stays_prose() {
     assert_eq!(prose.name, "Intervals", "the title is the first clause");
 
     // No duration means no step even with a zone, and a rest day is nothing.
-    let untimed =
-        plan_day_session(user, &day("2026-09-09", "run", "Easy jog", None, "Z2"), 0).unwrap();
+    let untimed = plan_day_session(
+        user,
+        &day("2026-09-09", "run", "Easy jog", None, "Z2"),
+        0,
+        &FuelingDisclosure::Shown,
+    )
+    .unwrap();
     assert!(untimed.steps.is_empty());
     assert_eq!(untimed.duration_seconds, None);
-    assert!(plan_day_session(user, &rest("2026-09-10"), 0).is_none());
+    assert!(plan_day_session(user, &rest("2026-09-10"), 0, &FuelingDisclosure::Shown).is_none());
 }
 
 #[test]
@@ -206,7 +217,8 @@ fn a_structured_day_renders_its_steps_and_sums_its_duration() {
     structured.steps = threshold_steps();
     assert_eq!(WorkoutStep::total_seconds(&structured.steps), 3660);
 
-    let session = plan_day_session(user, &structured, 0).expect("a structured day renders");
+    let session = plan_day_session(user, &structured, 0, &FuelingDisclosure::Shown)
+        .expect("a structured day renders");
     assert_eq!(
         session.steps.len(),
         4,
@@ -231,8 +243,13 @@ fn a_structured_day_renders_its_steps_and_sums_its_duration() {
     // Structure is content: the same day pushed as prose has a different
     // hash, so a re-push after the agent adds steps updates the entry —
     // and the prose day still gets its single intensity-derived step.
-    let prose =
-        plan_day_session(user, &day("2026-09-08", "vélo", workout, Some(61), "Z4"), 0).unwrap();
+    let prose = plan_day_session(
+        user,
+        &day("2026-09-08", "vélo", workout, Some(61), "Z4"),
+        0,
+        &FuelingDisclosure::Shown,
+    )
+    .unwrap();
     assert_eq!(prose.steps.len(), 1);
     assert_eq!(prose.steps[0].label, SportType::Ride.display_name());
     assert_ne!(
@@ -245,11 +262,22 @@ fn a_structured_day_renders_its_steps_and_sums_its_duration() {
 fn titles_are_bounded_and_fall_back_to_the_sport() {
     let user = Uuid::new_v4();
     let long = "a".repeat(80);
-    let session =
-        plan_day_session(user, &day("2026-09-07", "run", &long, Some(30), ""), 0).unwrap();
+    let session = plan_day_session(
+        user,
+        &day("2026-09-07", "run", &long, Some(30), ""),
+        0,
+        &FuelingDisclosure::Shown,
+    )
+    .unwrap();
     assert_eq!(session.name.chars().count(), 60);
     assert!(session.name.ends_with('…'));
-    let blank = plan_day_session(user, &day("2026-09-07", "swim", "   ", Some(30), ""), 0).unwrap();
+    let blank = plan_day_session(
+        user,
+        &day("2026-09-07", "swim", "   ", Some(30), ""),
+        0,
+        &FuelingDisclosure::Shown,
+    )
+    .unwrap();
     assert_eq!(blank.name, SportType::Swim.display_name());
 }
 
@@ -287,7 +315,7 @@ fn desired_entries_skip_the_past_and_rest_and_key_double_days_by_ordinal() {
             vec![day("2026-09-21", "run", "Long", Some(90), "Z2")],
         ),
     ];
-    let entries = desired_entries(user, &weeks, from);
+    let entries = desired_entries(user, &weeks, from, &FuelingDisclosure::Shown);
     let keys: Vec<&str> = entries
         .iter()
         .map(|e| e.session.external_id.as_str())
@@ -321,6 +349,79 @@ fn desired_entries_skip_the_past_and_rest_and_key_double_days_by_ordinal() {
         .all(|e| e.session.date >= from));
 }
 
+/// A season laid by `author`, with nothing else in it the ledger reads.
+fn season_laid_by(author: Option<&str>) -> TrainingPlan {
+    TrainingPlan {
+        id: "p".to_owned(),
+        tenant_id: "t".to_owned(),
+        user_id: "u".to_owned(),
+        author_agent_id: author.map(str::to_owned),
+        goal_fact_id: None,
+        goal_race: GoalRace {
+            name: "Fall race".to_owned(),
+            date: "2026-11-01".to_owned(),
+            discipline: "run".to_owned(),
+            priority: RacePriority::A,
+        },
+        races: Vec::new(),
+        strategy: "base, then sharpen".to_owned(),
+        flavour: None,
+        season_start: None,
+        season_end: None,
+        phases: Vec::new(),
+        status: PlanStatus::Active,
+        supersedes_id: None,
+        source_conversation_id: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    }
+}
+
+#[test]
+fn a_two_author_season_names_each_weeks_author_on_its_ledger_rows() {
+    let user = Uuid::new_v4();
+    let from = date("2026-09-14");
+    let mut by_taper = week(
+        "w1",
+        "2026-09-14",
+        "Taper opener",
+        vec![day("2026-09-15", "run", "Openers", Some(40), "tempo")],
+    );
+    by_taper.author_agent_id = Some("taper-builder-agent".to_owned());
+    let by_nobody = week(
+        "w2",
+        "2026-09-21",
+        "",
+        vec![day("2026-09-22", "run", "Easy", Some(30), "Z1")],
+    );
+    let weeks = vec![by_taper, by_nobody];
+    let entries = desired_entries(user, &weeks, from, &FuelingDisclosure::Shown);
+    let season = season_laid_by(Some("endurance-agent"));
+
+    let authors: Vec<(&str, Option<&str>)> = entries
+        .iter()
+        .map(|e| (e.plan_week_id.as_str(), entry_author(&season, &weeks, e)))
+        .collect();
+    assert_eq!(
+        authors,
+        [
+            // The week note and the day of the taper's week name the taper.
+            ("w1", Some("taper-builder-agent")),
+            ("w1", Some("taper-builder-agent")),
+            // A week no agent wrote falls back to the agent that laid the season.
+            ("w2", Some("endurance-agent")),
+        ]
+    );
+
+    // A season no agent laid leaves such a row naming nobody.
+    let agnostic = season_laid_by(None);
+    assert_eq!(entry_author(&agnostic, &weeks, &entries[2]), None);
+    assert_eq!(
+        entry_author(&agnostic, &weeks, &entries[0]),
+        Some("taper-builder-agent")
+    );
+}
+
 #[test]
 fn the_ledger_diff_counts_creates_updates_unchanged_and_removals() {
     let user = Uuid::new_v4();
@@ -338,6 +439,7 @@ fn the_ledger_diff_counts_creates_updates_unchanged_and_removals() {
             ],
         )],
         from,
+        &FuelingDisclosure::Shown,
     );
     assert_eq!(first.len(), 3);
     let ledger: Vec<PrescribedWorkout> = first.iter().map(|e| live_row(user, e)).collect();
@@ -365,6 +467,7 @@ fn the_ledger_diff_counts_creates_updates_unchanged_and_removals() {
             ],
         )],
         from,
+        &FuelingDisclosure::Shown,
     );
     let changed = diff_against_ledger(&adjusted, &ledger).unwrap();
     assert_eq!(
@@ -497,18 +600,21 @@ fn the_payload_hash_moves_with_the_content_and_only_the_content() {
         user,
         &day("2026-09-07", "ride", "Endurance", Some(60), "Z2"),
         0,
+        &FuelingDisclosure::Shown,
     )
     .unwrap();
     let b = plan_day_session(
         user,
         &day("2026-09-07", "ride", "Endurance", Some(60), "Z2"),
         0,
+        &FuelingDisclosure::Shown,
     )
     .unwrap();
     let c = plan_day_session(
         user,
         &day("2026-09-07", "ride", "Endurance", Some(90), "Z2"),
         0,
+        &FuelingDisclosure::Shown,
     )
     .unwrap();
     assert_eq!(a.payload_hash().unwrap(), b.payload_hash().unwrap());

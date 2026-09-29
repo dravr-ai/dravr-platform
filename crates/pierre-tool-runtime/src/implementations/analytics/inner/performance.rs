@@ -7,12 +7,14 @@
 use crate::implementations::analytics::output::{
     BestPerformance, NoRacePrediction, RacePrediction, RacePredictionDetail, RacePredictionResult,
 };
+use crate::implementations::stored_physiology::stored_athlete_inputs;
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
-use pierre_core::models::Activity;
+use pierre_core::models::{resolve_sport_type, sport_matches_family, Activity, SportType};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
+use pierre_fitness_compute::AthleteInputs;
 use pierre_intelligence::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
 use pierre_intelligence::{AlgorithmConfig, PerformancePredictor, TrainingLoadCalculator};
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
@@ -25,6 +27,7 @@ use tracing::warn;
 fn predict_race_performance(
     activities: &[Activity],
     target_sport: &str,
+    athlete: &AthleteInputs,
     algorithm_config: &AlgorithmConfig,
 ) -> RacePredictionResult {
     use PerformancePredictor;
@@ -78,6 +81,7 @@ fn predict_race_performance(
             let confidence = calculate_prediction_confidence(
                 &running_activities,
                 &best_activity.start_date(),
+                athlete,
                 algorithm_config,
             );
 
@@ -144,12 +148,14 @@ fn predict_race_performance(
 ///
 /// Confidence factors per B6 roadmap:
 /// - Recency of best performance (< 30 days = high confidence)
-/// - Training volume (high CTL = more confidence)
+/// - Training volume (high CTL = more confidence), each run's stress scored
+///   against `athlete`, the thresholds saved with `set_physiology`
 /// - Number of recent races and consistency
 #[allow(clippy::cast_precision_loss, clippy::bool_to_int_with_if)] // Multi-level threshold scoring, not simple boolean conversion
 fn calculate_prediction_confidence(
     activities: &[&Activity],
     best_activity_date: &chrono::DateTime<chrono::Utc>,
+    athlete: &AthleteInputs,
     algorithm_config: &AlgorithmConfig,
 ) -> String {
     use chrono::Utc;
@@ -171,8 +177,7 @@ fn calculate_prediction_confidence(
     owned_activities.sort_by_key(Activity::start_date);
     let calculator =
         TrainingLoadCalculator::from_config(algorithm_config.clone(), Utc::now().date_naive());
-    let ctl_score = if let Ok(training_load) =
-        calculator.calculate_training_load(&owned_activities, None, None, None, None, None)
+    let ctl_score = if let Ok(training_load) = athlete.training_load(&calculator, &owned_activities)
     {
         if training_load.ctl > 80.0 {
             2 // High training load
@@ -217,6 +222,22 @@ pub fn handle_predict_performance(
         use DEFAULT_ACTIVITY_LIMIT;
 
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
+        let target_sport = request
+            .parameters
+            .get("target_sport")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Run");
+        // VDOT models running and the prediction reads only runs, so another
+        // sport is refused before any provider is read rather than answered
+        // with running times labelled as that sport.
+        if !resolve_sport_type(target_sport)
+            .is_some_and(|sport| sport_matches_family(&sport, &SportType::Run))
+        {
+            return Err(ProtocolError::InvalidParameters(format!(
+                "target_sport '{target_sport}' cannot be predicted: race-time prediction \
+                 (VDOT) models running only; pass 'Run' or leave it out"
+            )));
+        }
         let provider_name = match resolve_provider_for_request(
             &request.parameters,
             executor,
@@ -228,14 +249,20 @@ pub fn handle_predict_performance(
             Ok(p) => p,
             Err(response) => return Ok(*response),
         };
-        let target_sport = request
-            .parameters
-            .get("target_sport")
-            .and_then(|v| v.as_str())
-            .unwrap_or("Run");
 
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);
+
+        // The thresholds set_physiology saved, the ones every training-load
+        // surface scores sessions against.
+        let athlete =
+            stored_athlete_inputs(&executor.resources, request.tenant_id.as_deref(), user_uuid)
+                .await
+                .map_err(|e| {
+                    ProtocolError::InternalError(format!(
+                        "predict_performance: reading the saved thresholds failed: {e}"
+                    ))
+                })?;
 
         match executor
             .auth_service
@@ -258,6 +285,7 @@ pub fn handle_predict_performance(
                         let prediction = predict_race_performance(
                             &activities,
                             target_sport,
+                            &athlete,
                             &executor.cageux_config().algorithms,
                         );
 

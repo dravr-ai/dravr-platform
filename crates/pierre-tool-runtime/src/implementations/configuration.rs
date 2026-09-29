@@ -25,6 +25,7 @@ use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
+use crate::implementations::configuration_document::{configuration_payload, updated_document};
 use crate::implementations::configuration_output::{
     ConfigurationCatalogResult, ConfigurationProfileEntry, ConfigurationProfilesResult,
     HeartRateZone, HeartRateZones, PaceZone, PaceZones, PersonalizedZones, PersonalizedZonesResult,
@@ -36,7 +37,6 @@ use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_config::catalog::CatalogBuilder;
-use pierre_config::constants::configuration_system::AVAILABLE_PARAMETERS_COUNT;
 use pierre_config::environment::TrainingZonesConfig;
 use pierre_core::config::profiles::ProfileTemplates;
 use pierre_core::errors::{AppError, AppResult};
@@ -57,57 +57,6 @@ use pierre_tools_core::ToolResult;
 // ============================================================================
 // Helpers (inlined from former handlers/configuration.rs)
 // ============================================================================
-
-/// Normalize stored configuration structure with defaults
-fn normalize_stored_configuration(stored_config: &Value) -> Value {
-    if stored_config.is_object() {
-        let profile = stored_config.get("profile").cloned().unwrap_or_else(|| {
-            json!({
-                "name": "custom",
-                "sport_type": "general",
-                "training_focus": "custom"
-            })
-        });
-        let session_overrides = stored_config
-            .get("session_overrides")
-            .cloned()
-            .unwrap_or_else(|| json!({}));
-        let last_modified = stored_config
-            .get("last_modified")
-            .cloned()
-            .unwrap_or_else(|| json!(chrono::Utc::now().to_rfc3339()));
-
-        json!({
-            "profile": profile,
-            "session_overrides": session_overrides,
-            "last_modified": last_modified
-        })
-    } else {
-        json!({
-            "profile": {
-                "name": "custom",
-                "sport_type": "general",
-                "training_focus": "custom"
-            },
-            "session_overrides": {},
-            "last_modified": chrono::Utc::now().to_rfc3339()
-        })
-    }
-}
-
-/// Build payload for user configuration response
-fn build_configuration_payload(
-    user_uuid: &uuid::Uuid,
-    configuration: &Value,
-    has_overrides: bool,
-) -> UserConfigurationResult {
-    UserConfigurationResult {
-        user_id: user_uuid.to_string(),
-        active_profile: if has_overrides { "custom" } else { "default" }.to_owned(),
-        configuration: configuration.clone(),
-        available_parameters: AVAILABLE_PARAMETERS_COUNT,
-    }
-}
 
 /// Zone calculation inputs, each carrying whether it is actually known.
 ///
@@ -689,50 +638,27 @@ impl McpTool<dyn ToolRuntime> for GetUserConfigurationTool {
     ) -> ToolResponse {
         let ctx = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-        let user_uuid = ctx.user_id;
-
-        match ctx
-            .resources
-            .repos()
-            .profiles
-            .get_configuration(&user_uuid.to_string())
-            .await
-        {
-            Ok(Some(config_str)) => {
-                let stored_config: Value = serde_json::from_str(&config_str).unwrap_or_else(|e| {
-                    warn!(
-                        user_id = %user_uuid,
-                        error = %e,
-                        "Failed to parse stored fitness configuration JSON, using empty default"
-                    );
-                    json!({})
+            let user_uuid = ctx.user_id;
+            let stored = ctx
+                .resources
+                .repos()
+                .profiles
+                .get_configuration(&user_uuid.to_string())
+                .await?
+                .map(|config_str| {
+                    serde_json::from_str::<Value>(&config_str).unwrap_or_else(|e| {
+                        warn!(
+                            user_id = %user_uuid,
+                            error = %e,
+                            "stored configuration is not JSON; reading it as the default profile"
+                        );
+                        json!({})
+                    })
                 });
-
-                let configuration = normalize_stored_configuration(&stored_config);
-                ok_typed(
-                    "get_user_configuration",
-                    build_configuration_payload(&user_uuid, &configuration, true),
-                )
-            }
-            Ok(None) => {
-                let default_configuration = json!({
-                    "profile": {
-                        "name": "default",
-                        "sport_type": "general",
-                        "training_focus": "recreational"
-                    },
-                    "session_overrides": {},
-                    "last_modified": chrono::Utc::now().to_rfc3339()
-                });
-                ok_typed(
-                    "get_user_configuration",
-                    build_configuration_payload(&user_uuid, &default_configuration, false),
-                )
-            }
-            Err(e) => Ok(ToolResult::error(json!({
-                "error": format!("Failed to get user configuration: {e}")
-            }))),
-        }
+            ok_typed(
+                "get_user_configuration",
+                configuration_payload(&user_uuid, stored.as_ref()),
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -754,7 +680,13 @@ impl McpTool<dyn ToolRuntime> for UpdateUserConfigurationTool {
             "profile".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Profile name to apply".to_owned()),
+                description: Some(
+                    "Profile template to apply, by the name get_configuration_profiles lists \
+                     ('Elite Athlete') or its profile name ('elite'): its values become the \
+                     base parameters, under the overrides. Omit to keep the saved template \
+                     (the default one when none was applied)."
+                        .to_owned(),
+                ),
                 ..Default::default()
             },
         );
@@ -762,7 +694,14 @@ impl McpTool<dyn ToolRuntime> for UpdateUserConfigurationTool {
             "parameters".to_owned(),
             PropertySchema {
                 property_type: "object".to_owned(),
-                description: Some("Configuration parameters to update".to_owned()),
+                description: Some(
+                    "Overrides by catalogue key (get_configuration_catalog), merged into the \
+                     saved ones: a key set to null is removed, a key not named keeps its saved \
+                     value. Physiological measurements (ftp, threshold_hr, max_hr, resting_hr, \
+                     weight, vo2_max...) are refused: set_physiology saves them, and training \
+                     load reads them from there."
+                        .to_owned(),
+                ),
                 ..Default::default()
             },
         );
@@ -770,7 +709,8 @@ impl McpTool<dyn ToolRuntime> for UpdateUserConfigurationTool {
 
         answers_with::<UpdateUserConfigurationResult>(tool_definition(
             "update_user_configuration",
-            "Update your training configuration settings",
+            "Update your training configuration settings: apply a profile template and set \
+             catalogue overrides on top of it",
             schema,
             None,
         ))
@@ -790,50 +730,36 @@ impl McpTool<dyn ToolRuntime> for UpdateUserConfigurationTool {
         let result: AppResult<ToolResult> = async move {
             let user_uuid = ctx.user_id;
 
-            let profile = args
-                .get("profile")
-                .and_then(Value::as_str)
-                .unwrap_or("custom");
-            let parameters = args.get("parameters").cloned().unwrap_or_else(|| json!({}));
-
-            let configuration = json!({
-                "active_profile": profile,
-                "profile": {
-                    "name": profile,
-                    "sport_type": "general",
-                    "training_focus": "custom"
-                },
-                "session_overrides": parameters,
-                "applied_overrides": parameters.as_object().map_or(0, serde_json::Map::len),
-                "last_modified": chrono::Utc::now().to_rfc3339()
-            });
-
-            let config_json = serde_json::to_string(&configuration)
-                .map_err(|e| AppError::internal(format!("Failed to serialize config: {e}")))?;
-
-            match ctx
+            let saved: Option<Value> = ctx
                 .resources
                 .repos()
                 .profiles
+                .get_configuration(&user_uuid.to_string())
+                .await?
+                .and_then(|stored| serde_json::from_str(&stored).ok());
+            let (configuration, changes_applied) = updated_document(
+                saved.as_ref(),
+                args.get("profile").and_then(Value::as_str),
+                args.get("parameters").and_then(Value::as_object),
+            )?;
+
+            let config_json = serde_json::to_string(&configuration)
+                .map_err(|e| AppError::internal(format!("Failed to serialize config: {e}")))?;
+            ctx.resources
+                .repos()
+                .profiles
                 .save_configuration(&user_uuid.to_string(), &config_json)
-                .await
-            {
-                Ok(()) => {
-                    let param_count = parameters.as_object().map_or(0, serde_json::Map::len);
-                    ok_typed(
-                        "update_user_configuration",
-                        UpdateUserConfigurationResult {
-                            user_id: user_uuid.to_string(),
-                            updated_configuration: configuration,
-                            changes_applied: param_count,
-                            message: "Configuration updated successfully".to_owned(),
-                        },
-                    )
-                }
-                Err(e) => Ok(ToolResult::error(json!({
-                    "error": format!("Failed to update configuration: {e}")
-                }))),
-            }
+                .await?;
+
+            ok_typed(
+                "update_user_configuration",
+                UpdateUserConfigurationResult {
+                    user_id: user_uuid.to_string(),
+                    updated_configuration: configuration,
+                    changes_applied,
+                    message: "Configuration updated successfully".to_owned(),
+                },
+            )
         }
         .await;
         tool_result_to_response(result)
@@ -885,7 +811,11 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
             "lactate_threshold".to_owned(),
             PropertySchema {
                 property_type: "number".to_owned(),
-                description: Some("Lactate threshold".to_owned()),
+                description: Some(format!(
+                    "Lactate threshold as a fraction of VO2 max (typically 0.65-0.95), used for \
+                     pace zones. Omit to use the athlete's saved value, else \
+                     {DEFAULT_LACTATE_THRESHOLD}."
+                )),
                 ..Default::default()
             },
         );
@@ -893,7 +823,9 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
             "sport_efficiency".to_owned(),
             PropertySchema {
                 property_type: "number".to_owned(),
-                description: Some("Sport efficiency factor".to_owned()),
+                description: Some(format!(
+                    "Sport efficiency factor for pace zones. Default {DEFAULT_SPORT_EFFICIENCY:.1}."
+                )),
                 ..Default::default()
             },
         );

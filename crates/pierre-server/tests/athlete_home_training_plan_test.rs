@@ -34,7 +34,7 @@ use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAg
 use pierre_core::models::periodization::{FlavourFamily, PhaseKind, Sequencing};
 use pierre_core::models::{Tenant, TenantId, User};
 use pierre_database::backends::factory::Database;
-use pierre_database::repositories::training_plans::PlanOwner;
+use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
@@ -192,8 +192,9 @@ async fn seed_plan(
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant.to_string(),
             user_id: &athlete.user_id.to_string(),
-            owner: PlanOwner::from_slug(agent),
+            author: PlanAuthor::from_agent(agent),
             goal_fact_id: None,
+            replace_season: false,
             outline: Some(PlanOutlineInput {
                 goal_race: &goal,
                 races: Some(&[]),
@@ -405,7 +406,7 @@ async fn a_rest_day_is_a_rest_day_and_an_uncovered_date_is_in_no_week() {
 }
 
 #[tokio::test]
-async fn the_plan_is_the_one_the_selected_agent_holds() {
+async fn the_plan_survives_an_agent_switch() {
     let resources = common::create_test_server_resources().await.unwrap();
     let athlete = seed_athlete(&resources, "plan-agent").await;
     let today = Utc::now().date_naive();
@@ -414,11 +415,13 @@ async fn the_plan_is_the_one_the_selected_agent_holds() {
 
     let body = plan_ok(&resources, &athlete.token, "").await;
     assert_eq!(body["plan"]["goal_race"]["name"], "Harricana 65");
+    let season = body["plan"].clone();
 
-    // Once another agent is selected, the first agent's plan is not theirs.
+    // The plan is the athlete's season, not the selected agent's: selecting
+    // another agent shows the same plan, laid by the first.
     select_agent(&resources, &athlete, "Road Coach").await;
     let body = plan_ok(&resources, &athlete.token, "").await;
-    assert!(body["plan"].is_null());
+    assert_eq!(body["plan"], season, "the same season after the switch");
 }
 
 #[tokio::test]

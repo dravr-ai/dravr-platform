@@ -30,10 +30,18 @@ pub mod recommendations_output;
 // The training-load payload builder is reachable from integration tests: this
 // crate keeps tests external, so content coverage of the JSON the model reads
 // needs the builder public. Its production caller is the tool handler below.
-pub use inner::{analyze_detailed_training_load, UserPhysiologicalParams};
+pub use inner::analyze_detailed_training_load;
 // Its own line: the pre-push moved-symbol check and rustfmt's 100-column wrap
 // both read `pub use` line by line.
 pub use inner::calculate_fitness_metrics;
+// The nutrition mode of `generate_recommendations` and the recovery mode's
+// actions, public for the same reason: tests assert what the athlete is told.
+// Their production caller is the recommendations handler.
+pub use inner::recovery_actions_for;
+pub use inner::{generate_nutrition_recommendations, load_nutrition_athlete, NutritionAthlete};
+// Every mode's answer, for the same reason: the training-load modes' metrics
+// are asserted against the thresholds the athlete saved.
+pub use inner::generate_training_recommendations;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -48,13 +56,13 @@ use crate::conversions::{
     answers_with, object_schema, object_schema_with_format, ok_typed, task_capable,
     tool_definition, tool_result_to_response, Formatted,
 };
+use crate::implementations::analytics::inner::process_activity_analysis;
 use crate::implementations::analytics::output::{
     ActivityIntelligenceResult, ActivityMetricsResult, CompareActivitiesResult, FitnessScoreResult,
     ImperialWeather, MetricWeather, PatternsResult, PerformanceTrendsResult, RacePredictionResult,
     TrainingLoadResult, WeatherImpactAssessment, WeatherImpactResult, WeatherReading,
 };
 use crate::implementations::analytics::recommendations_output::RecommendationsResult;
-use crate::implementations::fitness_support::process_activity_analysis;
 use crate::implementations::handler_bridge;
 use crate::protocol::auth::AuthService;
 use crate::protocol::provider_helpers::resolve_provider_for_tool;
@@ -134,7 +142,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeTrainingLoadTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Optional sleep/recovery provider (e.g., 'whoop', 'garmin'). If specified, factors recovery data into training load analysis.".to_owned(),
+                    "Optional sleep provider (e.g., 'whoop', 'garmin'). When given, last night's sleep score, duration and HRV are returned as recovery context beside the load; the load numbers themselves do not change.".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -142,7 +150,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeTrainingLoadTool {
         let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<TrainingLoadResult>>(task_capable(tool_definition(
             "analyze_training_load",
-            "Analyze training load using CTL (chronic training load), ATL (acute training load), and TSB (training stress balance) metrics to assess fitness, fatigue, and form",
+            "Analyze training load from per-activity TSS (the provider's own figure, else estimated from power against the FTP saved with set_physiology, from heart rate against the threshold heart rate saved there — measured, else estimated from the lactate threshold and max HR — or from pace or duration). Returns CTL (fitness), ATL (fatigue) and TSB (form), form as a percentage of CTL with its band, weekly TSS totals and a taper reading.",
             schema,
             Some(analytics_annotations()),
         )))
@@ -199,11 +207,13 @@ impl McpTool<dyn ToolRuntime> for DetectPatternsTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Which pattern to detect: 'weekly_schedule' (which days they train), \
-                     'training_blocks' (share of hard and easy sessions, and whether \
-                     recovery between hard efforts is adequate), 'progression' \
-                     (how load is trending), or 'overtraining' (overtraining warning \
-                     signs). Defaults to 'weekly_schedule'."
+                    "Which pattern to detect: 'weekly_schedule' (which weekdays they train, \
+                     how consistently, activities per week), 'training_blocks' (share of \
+                     hard and easy sessions, and whether recovery between hard efforts is \
+                     adequate), 'progression' (weekly volume trend and spike weeks), or \
+                     'overtraining' (heart-rate drift, performance decline, short recovery \
+                     between hard efforts). Defaults to 'weekly_schedule'; any other value \
+                     is refused."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -212,7 +222,7 @@ impl McpTool<dyn ToolRuntime> for DetectPatternsTool {
         let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<PatternsResult>>(task_capable(tool_definition(
             "detect_patterns",
-            "Detect training patterns including hard/easy day balance, weekly schedule consistency, volume progression, and overtraining warning signs",
+            "Detect one training pattern per call, chosen with `pattern_type`: the weekly schedule, the hard/easy balance, weekly volume progression, or overtraining warning signs. Needs at least 3 activities.",
             schema,
             Some(analytics_annotations()),
         )))
@@ -269,7 +279,7 @@ impl McpTool<dyn ToolRuntime> for CalculateFitnessScoreTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Optional sleep/recovery provider (e.g., 'whoop', 'garmin'). If specified, factors recovery quality into fitness score.".to_owned(),
+                    "Optional sleep provider (e.g., 'whoop', 'garmin'). When given, last night's sleep quality adjusts the score: up to +5% for excellent recovery, down to -10% for poor.".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -293,7 +303,7 @@ impl McpTool<dyn ToolRuntime> for CalculateFitnessScoreTool {
         let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<FitnessScoreResult>>(task_capable(tool_definition(
             "calculate_fitness_score",
-            "Calculate an overall fitness score (0-100) from training consistency, chronic training load, training volume and recovery balance, over a period chosen with `timeframe`. Omitted, it scores the last 30 days.",
+            "Calculate a fitness score (0-100) from chronic training load (40%), consistency, the share of weeks with three or more activities (30%), and pace improvement (30%), over the period chosen with `timeframe`; omitted, it scores the last 30 days. Chronic training load scores each session against the FTP and threshold heart rate saved with set_physiology, as analyze_training_load does. A named `sleep_provider` adds a sleep-based adjustment.",
             schema,
             Some(analytics_annotations()),
         )))
@@ -573,7 +583,10 @@ impl McpTool<dyn ToolRuntime> for AnalyzeActivityTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider name (e.g., 'strava', 'garmin')".to_owned()),
+                description: Some(
+                    "Fitness provider (e.g., 'strava'). Defaults to configured provider."
+                        .to_owned(),
+                ),
                 ..Default::default()
             },
         );
@@ -585,13 +598,10 @@ impl McpTool<dyn ToolRuntime> for AnalyzeActivityTool {
                 ..Default::default()
             },
         );
-        let schema = object_schema_with_format(
-            properties,
-            Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
-        );
+        let schema = object_schema_with_format(properties, Some(vec!["activity_id".to_owned()]));
         answers_with::<Formatted<ActivityIntelligenceResult>>(task_capable(tool_definition(
             "analyze_activity",
-            "Perform deep analysis of an individual activity including insights, metrics, and anomaly detection",
+            "Analyze a single activity: a short summary with insights and recommendations drawn from its distance, elevation gain, heart rate and calories, plus its performance metrics (distance, duration, elevation, average and peak heart rate, calories). An ID that is not found analyzes the most recent activity instead and says so under `auto_selected`.",
             schema,
             Some(analytics_annotations()),
         )))
@@ -692,13 +702,10 @@ impl McpTool<dyn ToolRuntime> for GetActivityIntelligenceTool {
                 ..Default::default()
             },
         );
-        let schema = object_schema_with_format(
-            properties,
-            Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
-        );
+        let schema = object_schema_with_format(properties, Some(vec!["activity_id".to_owned()]));
         answers_with::<Formatted<ActivityIntelligenceResult>>(task_capable(tool_definition(
             "get_activity_intelligence",
-            "Get AI-powered intelligence insights and recommendations for a specific activity",
+            "Get insights and recommendations for a specific activity, drawn from its distance, elevation gain, heart rate and calories, with its performance metrics (distance, duration, elevation, average and peak heart rate, calories). An ID that is not found analyzes the most recent activity instead and says so under `auto_selected`.",
             schema,
             Some(analytics_annotations()),
         )))
@@ -832,7 +839,9 @@ impl McpTool<dyn ToolRuntime> for AnalyzePerformanceTrendsTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider name".to_owned()),
+                description: Some(
+                    "Fitness provider name. Defaults to configured provider.".to_owned(),
+                ),
                 ..Default::default()
             },
         );
@@ -841,7 +850,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzePerformanceTrendsTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Metric to analyze: 'pace', 'speed', 'heart_rate', 'distance', 'duration', 'elevation', 'power'"
+                    "Metric to analyze: 'pace' (default), 'speed', 'heart_rate', 'distance', 'duration', 'elevation', 'power'"
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -852,15 +861,12 @@ impl McpTool<dyn ToolRuntime> for AnalyzePerformanceTrendsTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Time period: 'week', 'month' (default), 'quarter', 'year'".to_owned(),
+                    "Time period: 'week', 'month' (default), 'quarter', 'year'; any other value reads as 'month'".to_owned(),
                 ),
                 ..Default::default()
             },
         );
-        let schema = object_schema_with_format(
-            properties,
-            Some(vec!["provider".to_owned(), "metric".to_owned()]),
-        );
+        let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<PerformanceTrendsResult>>(task_capable(tool_definition(
             "analyze_performance_trends",
             "Analyze performance trends over time with statistical analysis and insights for a specific metric",
@@ -912,7 +918,9 @@ impl McpTool<dyn ToolRuntime> for CompareActivitiesTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider name".to_owned()),
+                description: Some(
+                    "Fitness provider name. Defaults to configured provider.".to_owned(),
+                ),
                 ..Default::default()
             },
         );
@@ -929,7 +937,7 @@ impl McpTool<dyn ToolRuntime> for CompareActivitiesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Type of comparison: 'similar_activities' (default), 'pr_comparison', 'specific_activity'"
+                    "Type of comparison: 'similar_activities' (default), 'pr_comparison', 'specific_activity'; any other value is refused"
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -940,16 +948,13 @@ impl McpTool<dyn ToolRuntime> for CompareActivitiesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Activity ID to compare against (required for 'specific_activity' type)"
+                    "Activity ID to compare against; required for 'specific_activity', which is refused without it"
                         .to_owned(),
                 ),
                 ..Default::default()
             },
         );
-        let schema = object_schema_with_format(
-            properties,
-            Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
-        );
+        let schema = object_schema_with_format(properties, Some(vec!["activity_id".to_owned()]));
         answers_with::<Formatted<CompareActivitiesResult>>(task_capable(tool_definition(
             "compare_activities",
             "Compare an activity against similar activities, personal bests, or a specific other activity",
@@ -1010,7 +1015,7 @@ impl McpTool<dyn ToolRuntime> for GenerateRecommendationsTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Type of recommendations to generate: 'all' (default), 'training_plan', 'recovery', 'intensity', 'goal_specific', or 'nutrition'.".to_owned(),
+                    "Type of recommendations to generate: 'all' (default), 'training_plan', 'recovery', 'intensity', 'goal_specific', or 'nutrition'; any other value is refused.".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -1018,7 +1023,7 @@ impl McpTool<dyn ToolRuntime> for GenerateRecommendationsTool {
         let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<RecommendationsResult>>(task_capable(tool_definition(
             "generate_recommendations",
-            "Generate personalized training recommendations",
+            "Generate personalized training recommendations. The `training_plan`, `recovery` and `all` modes advise on CTL, ATL and TSB scored against the FTP and threshold heart rate saved with set_physiology, as analyze_training_load reports them. In `nutrition` mode, an athlete with a medical/PAR-Q flag on file gets foods and timing with no amount to eat or drink, and `figures_withheld` saying their clinician sets those; the session itself is still described, calories burned included.",
             schema,
             Some(analytics_annotations()),
         )))
@@ -1076,7 +1081,7 @@ impl McpTool<dyn ToolRuntime> for PredictPerformanceTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Target sport for performance prediction (e.g., 'Run', 'Ride', 'Swim'). Default: 'Run'.".to_owned(),
+                    "Sport to predict race times for. Only running is modelled (VDOT), so 'Run' (the default) or another running label; any other sport is refused.".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -1084,7 +1089,7 @@ impl McpTool<dyn ToolRuntime> for PredictPerformanceTool {
         let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<RacePredictionResult>>(task_capable(tool_definition(
             "predict_performance",
-            "Predict future performance based on training",
+            "Predict 5K, 10K, half-marathon and marathon times (VDOT, Daniels) from the fastest-paced recent run of 3 km or more that took under 2 hours; the run used is returned under `best_performance`. Running only.",
             schema,
             Some(analytics_annotations()),
         )))

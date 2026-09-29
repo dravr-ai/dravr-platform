@@ -19,13 +19,18 @@
 //! is why this is a projection and not the row's own serde shape. A
 //! [`GoalRace`] carries neither, so the card serialises the stored race
 //! itself rather than a same-shaped copy of it.
+//!
+//! A day's fuelling rates are shown only to an athlete with no medical flag
+//! on file. For a flagged athlete a day that stores a protocol carries
+//! `fueling_withheld` in its place — why the rates are absent and that a
+//! clinician sets them — through the same [`FuelingDisclosure`] the prompt
+//! block and the calendar push read.
 
 use chrono::NaiveDate;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::errors::AppResult;
 use pierre_core::models::periodization::{PhaseKind, WorkoutStep};
 use pierre_core::models::{FuelingProtocol, TenantId};
-use pierre_database::repositories::training_plans::PlanOwner;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{
     parse_plan_date, GoalRace, PlanWeek, PlannedDay, SelectedBy, TemplateSource, TrainingPlan,
@@ -34,6 +39,8 @@ use serde::Serialize;
 use tracing::warn;
 use uuid::Uuid;
 
+use crate::medical_flag::FiguresWithheld;
+use crate::plan_fueling::FuelingDisclosure;
 use crate::training_plan_render::{select_active_weeks, ACTIVE_WEEKS};
 use pierre_core::json_value::to_value_as_written;
 
@@ -160,9 +167,13 @@ pub struct DayCard {
     /// The session's structure, when the day carries one.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub steps: Vec<WorkoutStep>,
-    /// What to take in, when prescribed.
+    /// What to take in, when prescribed and this athlete may see the rates.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fueling: Option<FuelingProtocol>,
+    /// In place of `fueling`, for a day that stores a protocol while a
+    /// medical flag is on file: why the rates are absent and who sets them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fueling_withheld: Option<FiguresWithheld>,
     /// The template the day instantiates, when it does.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub template_slug: Option<String>,
@@ -175,7 +186,8 @@ impl PlanCard {
     /// Project a stored plan and its weeks for `today`.
     ///
     /// `registry` and `locale` name the plan's flavour in the athlete's own
-    /// words; they are read only when the plan carries a flavour.
+    /// words; they are read only when the plan carries a flavour. `fueling`
+    /// decides whether a day's stored rates are shown or withheld.
     #[must_use]
     pub fn build(
         plan: &TrainingPlan,
@@ -183,6 +195,7 @@ impl PlanCard {
         today: NaiveDate,
         registry: &MessagingStringsRegistry,
         locale: &str,
+        fueling: &FuelingDisclosure,
     ) -> Self {
         let phases: Vec<PhaseCard> = plan
             .phases
@@ -229,7 +242,7 @@ impl PlanCard {
                     focus: w.week.focus.clone(),
                     phase_index: w.week.phase_index,
                     current: w.is_current,
-                    days: w.week.days.iter().map(day_card).collect(),
+                    days: w.week.days.iter().map(|d| day_card(d, fueling)).collect(),
                 })
                 .collect(),
             weeks_deferred: selection.deferred,
@@ -257,7 +270,8 @@ impl PlanCard {
     }
 }
 
-fn day_card(day: &PlannedDay) -> DayCard {
+fn day_card(day: &PlannedDay, fueling: &FuelingDisclosure) -> DayCard {
+    let (fueling, fueling_withheld) = fueling.day_fueling(day);
     DayCard {
         date: day.date.clone(),
         sport: day.sport.clone(),
@@ -266,7 +280,8 @@ fn day_card(day: &PlannedDay) -> DayCard {
         intensity: day.intensity.clone(),
         rest: day.is_rest(),
         steps: day.steps.clone(),
-        fueling: day.fueling.clone(),
+        fueling,
+        fueling_withheld,
         template_slug: day.template_slug.clone(),
         template_source: day.template_source,
     }
@@ -293,7 +308,8 @@ pub fn flavour_label(registry: &MessagingStringsRegistry, locale: &str, id: &str
     }
 }
 
-/// Load the athlete's active plan under `agent` and project it for the card.
+/// Load the athlete's active plan — their one season, whichever agent laid
+/// it — and project it for the card.
 ///
 /// `None` when there is no active plan or the store cannot be read — a card
 /// is a courtesy on the reply, never a reason to fail the turn.
@@ -301,12 +317,11 @@ pub async fn load_plan_card(
     repos: &RepositoryRegistry,
     tenant: TenantId,
     user_id: Uuid,
-    agent: Option<&str>,
     today: NaiveDate,
     registry: &MessagingStringsRegistry,
     locale: &str,
 ) -> Option<PlanCard> {
-    match try_load_plan_card(repos, tenant, user_id, agent, today, registry, locale).await {
+    match try_load_plan_card(repos, tenant, user_id, today, registry, locale).await {
         Ok(card) => card,
         Err(e) => {
             warn!(error = %e, "plan card: active plan unreadable");
@@ -315,8 +330,8 @@ pub async fn load_plan_card(
     }
 }
 
-/// Load the athlete's active plan under `agent` and project it for the card,
-/// reporting a store that cannot be read.
+/// Load the athlete's active plan and project it for the card, reporting a
+/// store that cannot be read.
 ///
 /// The read behind [`load_plan_card`] for a caller where the plan *is* the
 /// answer rather than a courtesy on one: a page that shows the plan must tell
@@ -325,13 +340,12 @@ pub async fn load_plan_card(
 ///
 /// # Errors
 ///
-/// Returns the repository error when the active plan or its weeks cannot be
-/// read.
+/// Returns the repository error when the active plan, its weeks or the
+/// athlete's medical flag cannot be read.
 pub async fn try_load_plan_card(
     repos: &RepositoryRegistry,
     tenant: TenantId,
     user_id: Uuid,
-    agent: Option<&str>,
     today: NaiveDate,
     registry: &MessagingStringsRegistry,
     locale: &str,
@@ -340,7 +354,7 @@ pub async fn try_load_plan_card(
     let user = user_id.to_string();
     let Some(plan) = repos
         .training_plans
-        .get_active_plan(&tenant_id, &user, PlanOwner::from_slug(agent))
+        .get_active_plan(&tenant_id, &user)
         .await?
     else {
         return Ok(None);
@@ -349,7 +363,8 @@ pub async fn try_load_plan_card(
         .training_plans
         .list_plan_weeks(&tenant_id, &user, &plan.id, false)
         .await?;
+    let fueling = FuelingDisclosure::for_athlete(repos, tenant, user_id).await?;
     Ok(Some(PlanCard::build(
-        &plan, &weeks, today, registry, locale,
+        &plan, &weeks, today, registry, locale, &fueling,
     )))
 }

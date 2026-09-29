@@ -27,16 +27,13 @@ use pierre_contremaitre::messaging_strings::{
     KEY_FORTNIGHT_RECHECK_LANDED, KEY_FORTNIGHT_RECHECK_MISSING, KEY_SEASON_COMPLETE_HEADER,
     KEY_SEASON_COMPLETE_MISSING_GOAL, KEY_SEASON_FOLLOWUP_LAY_OUT,
 };
-use pierre_core::models::{
-    CalibrationTopic, ConversationRecord, Dossier, OnboardingState, SeasonTopic, TenantId,
-};
+use pierre_core::models::{CalibrationTopic, Dossier, OnboardingState, SeasonTopic, TenantId};
 use pierre_memory::{FactSource, UserFact};
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::training_plan_render::fortnight_is_covered;
 
 use super::onboarding::{calibration_conditions, season_conditions};
 use crate::ChatPipelineContext;
-use pierre_database::repositories::training_plans::PlanOwner;
 
 /// Upper bound on facts pulled when counting what the interview landed. An
 /// interview asks at most eight questions, so this leaves generous room for an
@@ -139,7 +136,6 @@ fn assess_season(
 /// and a missing safety answer is named with an instruction to redo it.
 pub async fn render(
     ctx: &ChatPipelineContext,
-    conv: &ConversationRecord,
     state: &OnboardingState,
     facts_tenant: TenantId,
     subject_user_id: &str,
@@ -203,20 +199,12 @@ pub async fn render(
     // when they do not. Both are questions, never actions — the athlete
     // approves the change.
     //
-    // Scoped to this conversation's agent, which is the slug `save_training_plan`
-    // binds a plan to. The lookup falls back to an agent-agnostic plan on its own
-    // (`agent_slug IN (slug, '')`), so passing the agent only widens what counts:
-    // a `None` here matches agnostic plans alone, and calibration runs inside
-    // agent-bound messaging conversations — it would tell the athletes most
-    // likely to hold a plan, the ones who built one with an agent, to build one.
+    // The athlete's one season, whichever agent laid it: an athlete who built
+    // a plan with any agent is offered the rebuild, never told to build one.
     let has_plan = ctx
         .repos
         .training_plans
-        .get_active_plan(
-            &facts_tenant.to_string(),
-            subject_user_id,
-            PlanOwner::from_slug(conv.agent_id.as_deref()),
-        )
+        .get_active_plan(&facts_tenant.to_string(), subject_user_id)
         .await
         .ok()
         .flatten()
@@ -309,7 +297,6 @@ pub async fn render_fortnight(
     ctx: &ChatPipelineContext,
     facts_tenant: TenantId,
     subject_user_id: &str,
-    agent: Option<&str>,
     locale: &str,
 ) -> String {
     let reg = &ctx.messaging_strings_registry;
@@ -318,11 +305,7 @@ pub async fn render_fortnight(
     let covered = match ctx
         .repos
         .training_plans
-        .get_active_plan(
-            &facts_tenant.to_string(),
-            subject_user_id,
-            PlanOwner::from_slug(agent),
-        )
+        .get_active_plan(&facts_tenant.to_string(), subject_user_id)
         .await
     {
         Ok(Some(plan)) => {

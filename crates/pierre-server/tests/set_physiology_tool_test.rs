@@ -538,17 +538,9 @@ async fn a_saved_ftp_changes_the_training_load_the_engine_computes() -> Result<(
         .await?
         .expect("profile exists after the save");
 
-    // Built exactly as `training_history_compute` builds it in production, so
-    // this asserts the loop the write path closes rather than a parallel one.
-    let inputs = AthleteInputs {
-        ftp_watts: profile.ftp_watts.map(f64::from),
-        lthr: profile
-            .lactate_threshold_percentage
-            .and_then(|pct| profile.max_hr.map(|mhr| f64::from(mhr) * pct)),
-        max_hr: profile.max_hr.map(f64::from),
-        resting_hr: profile.resting_hr.map(f64::from),
-        weight_kg: profile.weight,
-    };
+    // The mapping every training-load reader uses in production, so this
+    // asserts the loop the write path closes rather than a parallel one.
+    let inputs = AthleteInputs::from_profile(Some(&profile));
     assert_eq!(
         inputs.ftp_watts,
         Some(250.0),
@@ -781,4 +773,61 @@ fn the_tool_declares_the_profile_access_it_performs() {
         None,
         "the athlete's own grant covers it"
     );
+}
+
+// ============================================================================
+// update_user_configuration merges what it is given into what is saved
+// ============================================================================
+
+/// Two updates naming different overrides keep both.
+///
+/// The tool rebuilt the whole configuration from each call's arguments, so a
+/// second override erased the first, and a call naming no profile reset the
+/// saved one. Overrides are merged now, a null removes one, and the applied
+/// template is kept unless a call names another.
+#[tokio::test]
+async fn update_user_configuration_merges_overrides_into_the_saved_ones() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let update =
+        |params: Value| make_request("update_user_configuration", params, user_id, &tenant_id);
+
+    let first = executor
+        .execute_tool(update(json!({
+            "profile": "Elite Athlete",
+            "parameters": {"heart_rate.anaerobic_threshold": 88.0, "pace.easy_zone_low": 0.6}
+        })))
+        .await?;
+    assert!(first.success, "{:?}", first.error);
+    let second = executor
+        .execute_tool(update(json!({
+            "parameters": {"insights.min_confidence": 0.7, "pace.easy_zone_low": null}
+        })))
+        .await?;
+    assert!(second.success, "{:?}", second.error);
+    assert_eq!(
+        second.result.unwrap()["changes_applied"],
+        2,
+        "the count is of what this call changed"
+    );
+
+    let saved: Value = serde_json::from_str(
+        &executor
+            .resources
+            .repos()
+            .profiles
+            .get_configuration(&user_id.to_string())
+            .await?
+            .expect("the configuration is saved"),
+    )?;
+    assert_eq!(
+        saved["session_overrides"],
+        json!({"heart_rate.anaerobic_threshold": 88.0, "insights.min_confidence": 0.7}),
+        "the first override survives the second update and the nulled one is gone"
+    );
+    assert_eq!(
+        saved["active_profile"], "elite",
+        "no profile named keeps the saved one"
+    );
+    Ok(())
 }

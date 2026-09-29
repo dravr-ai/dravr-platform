@@ -1,5 +1,5 @@
-// ABOUTME: The plan tools' `athlete` argument — a group's human coach acting on a consenting athlete's plan
-// ABOUTME: Asserts the row lands under the ATHLETE's tenant/user/agent, and every refusal by its text
+// ABOUTME: The plan tools' `athlete` argument — a group's human coach acting on a consenting athlete's one season plan
+// ABOUTME: Asserts the rows land on the ATHLETE's season, authored by the coach's agent, and every refusal by its text
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,11 +9,12 @@
 //! named athlete belongs to, the athlete has consented to peer sharing, the
 //! athlete lives in exactly one tenant, and the call comes from a direct chat.
 //!
-//! Every positive assertion reads the athlete's row back through the
-//! repository under the athlete's own `(tenant, user, selected agent)` — a
-//! stub that ignored `athlete` and saved the agent's own plan would pass a
-//! tool-only round trip and fail here. Every refusal is asserted by its text,
-//! because the model relays that text to the agent.
+//! Every positive assertion reads the athlete's season back through the
+//! repository under the athlete's own `(tenant, user)` — a stub that ignored
+//! `athlete` and saved the coach's own plan would pass a tool-only round trip
+//! and fail here — and checks what the coach wrote is authored by the coach's
+//! conversation agent. Every refusal is asserted by its text, because the
+//! model relays that text to the agent.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -34,8 +35,10 @@ use pierre_core::models::{
     Tenant, TenantId, TenantPlan, ToolCatalogEntry, ToolCategory, User, UserStatus,
 };
 use pierre_database::backends::factory::Database;
-use pierre_database::repositories::training_plans::PlanOwner;
+use pierre_database::repositories::training_plans::PlanAuthor;
+use pierre_database::repositories::{PlanOutlineInput, SavePlanBundleParams};
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_memory::training_plans::{GoalRace, RacePriority, TrainingPlan};
 use pierre_tool_runtime::context::CONVERSATION_ID;
 use pierre_tool_runtime::implementations::training_plans::{
     GetTrainingPlanTool, SaveTrainingPlanTool,
@@ -47,6 +50,10 @@ use tokio::task::spawn_blocking;
 use uuid::Uuid;
 
 const COACH_WORKOUT: &str = "coach tempo 3x10min";
+/// The agent the human coach talks to in their own direct chat.
+const COACH_AGENT_TITLE: &str = "Scope Coach";
+/// The agent the athlete selected, which lays their season.
+const ATHLETE_AGENT_TITLE: &str = "Athlete Season Agent";
 
 async fn seed_user(resources: &ServerContext, label: &str, display_name: Option<&str>) -> Uuid {
     let password_hash = spawn_blocking(|| bcrypt::hash("Pass123!", bcrypt::DEFAULT_COST).unwrap())
@@ -89,6 +96,15 @@ async fn create_tenant_owned_by(resources: &ServerContext, owner_id: Uuid) -> Te
 }
 
 async fn seed_coach_persona(resources: &ServerContext, user_id: Uuid, tenant_id: TenantId) -> Uuid {
+    seed_agent_titled(resources, user_id, tenant_id, COACH_AGENT_TITLE).await
+}
+
+async fn seed_agent_titled(
+    resources: &ServerContext,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    title: &str,
+) -> Uuid {
     resources
         .common
         .repos
@@ -97,7 +113,7 @@ async fn seed_coach_persona(resources: &ServerContext, user_id: Uuid, tenant_id:
             user_id,
             tenant_id,
             &CreateSystemAgentRequest {
-                title: "Scope Coach".to_owned(),
+                title: title.to_owned(),
                 description: None,
                 system_prompt: "Test prompt".to_owned(),
                 category: AgentCategory::Training,
@@ -191,17 +207,19 @@ async fn add_member(
 }
 
 /// A human coach with their own tenant, and a consenting athlete in a group
-/// the agent is attached to as `coach_user_id`. The athlete selected an agent
-/// persona in their own tenant, which is where their plan is filed.
+/// the coach is attached to as `coach_user_id`. The athlete selected an agent
+/// persona in their own tenant; the coach talks to their own persona.
 struct Fixture {
     resources: Arc<ServerContext>,
     agent: Uuid,
     coach_tenant: TenantId,
+    /// The persona the coach's direct chat is bound to — the author of what
+    /// the coach saves for the athlete.
+    coach_agent: String,
     athlete: Uuid,
     athlete_tenant: TenantId,
-    /// The agent persona the athlete selected in their own tenant — the slug
-    /// their DM and `/plan` read a plan under. An agent-scoped save must land
-    /// under it, never under the agent's own persona or the agnostic row.
+    /// The agent persona the athlete selected in their own tenant. Selecting
+    /// it no longer picks a plan: the athlete has one season, whoever laid it.
     athlete_coach: String,
     group_id: Uuid,
 }
@@ -214,7 +232,7 @@ async fn coached_athlete(athlete_name: Option<&str>, consent: bool) -> Fixture {
 
     let athlete = seed_user(&resources, "athlete", athlete_name).await;
     let athlete_tenant = create_tenant_owned_by(&resources, athlete).await;
-    let athlete_coach = seed_coach_persona(&resources, athlete, athlete_tenant)
+    let athlete_coach = seed_agent_titled(&resources, athlete, athlete_tenant, ATHLETE_AGENT_TITLE)
         .await
         .to_string();
     resources
@@ -249,6 +267,7 @@ async fn coached_athlete(athlete_name: Option<&str>, consent: bool) -> Fixture {
         resources,
         agent,
         coach_tenant,
+        coach_agent: persona.to_string(),
         athlete,
         athlete_tenant,
         athlete_coach,
@@ -337,8 +356,7 @@ async fn get_as(
 }
 
 /// The athlete's `/plan`, from a DM conversation under their own tenant that
-/// binds no agent — so the selected-agent rung of the ladder is what finds
-/// the plan.
+/// binds no agent — the one season is found whatever the conversation binds.
 async fn athlete_plan_command(fx: &Fixture) -> String {
     let conversation = fx
         .resources
@@ -379,18 +397,101 @@ async fn athlete_plan_command(fx: &Fixture) -> String {
 // The positive path
 // ════════════════════════════════════════════════════════════════════════
 
+/// The coach's direct chat: a conversation under the coach's own tenant,
+/// bound to the coach's persona and to no group.
+async fn coach_dm(fx: &Fixture) -> String {
+    fx.resources
+        .common
+        .repos
+        .chat
+        .create_conversation(
+            &fx.agent.to_string(),
+            fx.coach_tenant,
+            "coach dm",
+            "gemini-2.0-flash",
+            Some(&fx.coach_agent),
+            None,
+        )
+        .await
+        .unwrap()
+        .id
+}
+
+/// A save by the coach from their direct chat.
+async fn coach_saves(fx: &Fixture, args: Value) -> Value {
+    let conversation = coach_dm(fx).await;
+    CONVERSATION_ID
+        .scope(Some(conversation), async {
+            save_as(&fx.resources, fx.agent, fx.coach_tenant, args).await
+        })
+        .await
+}
+
+/// The athlete's season, laid by the agent they selected.
+async fn athlete_agent_lays_the_season(fx: &Fixture) -> String {
+    let race = GoalRace {
+        name: "Athlete Season Race".to_owned(),
+        date: "2026-10-18".to_owned(),
+        discipline: "trail".to_owned(),
+        priority: RacePriority::A,
+    };
+    fx.resources
+        .common
+        .repos
+        .training_plans
+        .save_plan_bundle(&SavePlanBundleParams {
+            tenant_id: &fx.athlete_tenant.to_string(),
+            user_id: &fx.athlete.to_string(),
+            author: PlanAuthor::agent(&fx.athlete_coach),
+            goal_fact_id: None,
+            replace_season: false,
+            outline: Some(PlanOutlineInput {
+                goal_race: &race,
+                races: Some(&[]),
+                strategy: "the season the athlete's own agent laid",
+                flavour: None,
+                season_start: None,
+                season_end: None,
+                phases: &[],
+                source_conversation_id: None,
+            }),
+            weeks: &[],
+        })
+        .await
+        .unwrap()
+        .plan
+        .id
+}
+
+/// The athlete's active season, read under their own tenant.
+async fn athlete_season(fx: &Fixture) -> Option<TrainingPlan> {
+    fx.resources
+        .common
+        .repos
+        .training_plans
+        .get_active_plan(&fx.athlete_tenant.to_string(), &fx.athlete.to_string())
+        .await
+        .unwrap()
+}
+
+/// The `authors` entry for `agent_id` in a `get_training_plan` reply.
+fn author_entry<'a>(fetched: &'a Value, agent_id: &str) -> &'a Value {
+    fetched
+        .get("authors")
+        .and_then(Value::as_array)
+        .and_then(|authors| {
+            authors
+                .iter()
+                .find(|a| a.get("agent_id").and_then(Value::as_str) == Some(agent_id))
+        })
+        .unwrap_or_else(|| panic!("{agent_id} is among the authors: {fetched}"))
+}
+
 #[tokio::test]
-async fn the_coach_saves_a_week_under_the_athletes_own_tenant_user_and_coach() {
+async fn the_coachs_week_lands_on_the_athletes_one_season_authored_by_the_coachs_agent() {
     let fx = coached_athlete(Some("Phil Tremblay"), true).await;
 
-    // A DM-shaped call: no conversation on the tool context at all.
-    let saved = save_as(
-        &fx.resources,
-        fx.agent,
-        fx.coach_tenant,
-        save_payload("phil"),
-    )
-    .await;
+    let saved = coach_saves(&fx, save_payload("phil")).await;
     assert!(
         saved.get("error").is_none(),
         "the attached coach must not be refused, got: {saved}"
@@ -402,20 +503,17 @@ async fn the_coach_saves_a_week_under_the_athletes_own_tenant_user_and_coach() {
     );
     assert_eq!(saved.get("weeks_saved").and_then(Value::as_u64), Some(1));
 
-    // The row is the ATHLETE's: their tenant, their user id, their selected
-    // agent — exactly what their DM reads.
+    // The season is the ATHLETE's, under their tenant and user id — exactly
+    // what their DM reads — and what the coach wrote is authored by the
+    // coach's conversation agent.
     let repos = &fx.resources.common.repos;
-    let plan = repos
-        .training_plans
-        .get_active_plan(
-            &fx.athlete_tenant.to_string(),
-            &fx.athlete.to_string(),
-            PlanOwner::agent(fx.athlete_coach.as_str()),
-        )
+    let plan = athlete_season(&fx)
         .await
-        .unwrap()
-        .expect("the plan lands under the athlete's tenant/user/selected coach");
-    assert_eq!(plan.agent_slug.as_deref(), Some(fx.athlete_coach.as_str()));
+        .expect("the plan lands on the athlete's season");
+    assert_eq!(
+        plan.author_agent_id.as_deref(),
+        Some(fx.coach_agent.as_str())
+    );
     assert_eq!(plan.goal_race.name, "Harricana 80");
     let weeks = repos
         .training_plans
@@ -428,31 +526,30 @@ async fn the_coach_saves_a_week_under_the_athletes_own_tenant_user_and_coach() {
         .await
         .unwrap();
     assert_eq!(weeks.len(), 1, "one coach-written week");
+    assert_eq!(
+        weeks[0].author_agent_id.as_deref(),
+        Some(fx.coach_agent.as_str())
+    );
     assert!(
         weeks[0].days.iter().any(|d| d.workout == COACH_WORKOUT),
         "the coach's session is stored verbatim: {:?}",
         weeks[0].days
     );
 
-    // The agent's own (tenant, user) holds NO plan row — nothing landed on
+    // The coach's own (tenant, user) holds NO plan row — nothing landed on
     // the caller.
-    for agent in [None, Some(fx.athlete_coach.as_str())] {
-        assert!(
-            repos
-                .training_plans
-                .get_active_plan(
-                    &fx.coach_tenant.to_string(),
-                    &fx.agent.to_string(),
-                    PlanOwner::from_slug(agent),
-                )
-                .await
-                .unwrap()
-                .is_none(),
-            "the coach must have no plan of their own after saving for an athlete"
-        );
-    }
+    assert!(
+        repos
+            .training_plans
+            .get_active_plan(&fx.coach_tenant.to_string(), &fx.agent.to_string())
+            .await
+            .unwrap()
+            .is_none(),
+        "the coach must have no plan of their own after saving for an athlete"
+    );
 
-    // The read side follows the same scope.
+    // The read side follows the same scope, and names the coach's agent as
+    // the author the reader is.
     let fetched = get_as(
         &fx.resources,
         fx.agent,
@@ -474,12 +571,124 @@ async fn the_coach_saves_a_week_under_the_athletes_own_tenant_user_and_coach() {
         fetched_weeks[0].to_string().contains(COACH_WORKOUT),
         "get_training_plan athlete= returns the coach-written session: {fetched}"
     );
+    let coach = author_entry(&fetched, &fx.coach_agent);
+    assert_eq!(
+        coach.get("laid_the_season"),
+        Some(&json!(true)),
+        "{fetched}"
+    );
+    assert_eq!(
+        coach.get("name").and_then(Value::as_str),
+        Some(COACH_AGENT_TITLE)
+    );
 
-    // And the athlete's own `/plan` renders the session the agent wrote.
+    // And the athlete's own `/plan` renders the session the coach wrote.
     let text = athlete_plan_command(&fx).await;
     assert!(
         text.contains(COACH_WORKOUT),
         "the athlete's /plan must show the coach-saved session: {text}"
+    );
+}
+
+#[tokio::test]
+async fn the_coachs_weeks_attach_to_the_season_the_athletes_agent_laid() {
+    let fx = coached_athlete(Some("Phil Tremblay"), true).await;
+    let season = athlete_agent_lays_the_season(&fx).await;
+
+    let saved = coach_saves(&fx, json!({ "athlete": "phil", "weeks": [coach_week()] })).await;
+    assert!(saved.get("error").is_none(), "weeks attach, got: {saved}");
+    assert_eq!(
+        saved.get("plan_id").and_then(Value::as_str),
+        Some(season.as_str()),
+        "the coach's weeks land on the season the athlete's agent laid: {saved}"
+    );
+
+    let plan = athlete_season(&fx).await.expect("the one season");
+    assert_eq!(plan.id, season);
+    assert_eq!(
+        plan.author_agent_id.as_deref(),
+        Some(fx.athlete_coach.as_str()),
+        "the outline stays the athlete's agent's"
+    );
+    let weeks = fx
+        .resources
+        .common
+        .repos
+        .training_plans
+        .list_plan_weeks(
+            &fx.athlete_tenant.to_string(),
+            &fx.athlete.to_string(),
+            &season,
+            false,
+        )
+        .await
+        .unwrap();
+    assert_eq!(weeks.len(), 1);
+    assert_eq!(
+        weeks[0].author_agent_id.as_deref(),
+        Some(fx.coach_agent.as_str())
+    );
+
+    let fetched = get_as(
+        &fx.resources,
+        fx.agent,
+        fx.coach_tenant,
+        json!({ "athlete": "Phil" }),
+    )
+    .await;
+    let laid = author_entry(&fetched, &fx.athlete_coach);
+    assert_eq!(laid.get("laid_the_season"), Some(&json!(true)), "{fetched}");
+    assert_eq!(laid.get("is_you"), Some(&json!(false)), "{fetched}");
+    assert_eq!(
+        laid.get("name").and_then(Value::as_str),
+        Some(ATHLETE_AGENT_TITLE)
+    );
+    let wrote = author_entry(&fetched, &fx.coach_agent);
+    assert_eq!(
+        wrote.get("laid_the_season"),
+        Some(&json!(false)),
+        "{fetched}"
+    );
+
+    let text = athlete_plan_command(&fx).await;
+    assert!(
+        text.contains(COACH_WORKOUT),
+        "the athlete's /plan shows the coach's week on their season: {text}"
+    );
+}
+
+#[tokio::test]
+async fn the_coachs_outline_over_the_athletes_agents_season_is_refused_without_the_flag() {
+    let fx = coached_athlete(Some("Phil Tremblay"), true).await;
+    let season = athlete_agent_lays_the_season(&fx).await;
+
+    let refused = coach_saves(&fx, save_payload("phil")).await;
+    let err = error_text(&refused);
+    assert!(
+        err.contains(ATHLETE_AGENT_TITLE)
+            && err.contains("Phil Tremblay's season")
+            && err.contains("replace_season"),
+        "the refusal names who laid the season and the way through, got: {err}"
+    );
+
+    let plan = athlete_season(&fx).await.expect("the season survives");
+    assert_eq!(plan.id, season);
+    assert_eq!(plan.goal_race.name, "Athlete Season Race");
+    assert!(
+        fx.resources
+            .common
+            .repos
+            .training_plans
+            .list_plan_weeks(
+                &fx.athlete_tenant.to_string(),
+                &fx.athlete.to_string(),
+                &season,
+                true,
+            )
+            .await
+            .unwrap()
+            .is_empty(),
+        "a refused save writes no week either"
     );
 }
 
@@ -551,11 +760,7 @@ async fn a_non_consenting_athlete_is_refused() {
             .common
             .repos
             .training_plans
-            .get_active_plan(
-                &fx.athlete_tenant.to_string(),
-                &fx.athlete.to_string(),
-                PlanOwner::agent(fx.athlete_coach.as_str())
-            )
+            .get_active_plan(&fx.athlete_tenant.to_string(), &fx.athlete.to_string())
             .await
             .unwrap()
             .is_none(),
@@ -843,11 +1048,7 @@ async fn a_disabled_tool_in_the_athletes_tenant_refuses_the_cross_tenant_write()
             .common
             .repos
             .training_plans
-            .get_active_plan(
-                &fx.athlete_tenant.to_string(),
-                &fx.athlete.to_string(),
-                PlanOwner::agent(fx.athlete_coach.as_str())
-            )
+            .get_active_plan(&fx.athlete_tenant.to_string(), &fx.athlete.to_string())
             .await
             .unwrap()
             .is_none(),
@@ -970,11 +1171,7 @@ async fn omitting_athlete_keeps_self_scope() {
     assert!(
         repos
             .training_plans
-            .get_active_plan(
-                &fx.coach_tenant.to_string(),
-                &fx.agent.to_string(),
-                PlanOwner::agnostic(),
-            )
+            .get_active_plan(&fx.coach_tenant.to_string(), &fx.agent.to_string(),)
             .await
             .unwrap()
             .is_some(),
@@ -983,11 +1180,7 @@ async fn omitting_athlete_keeps_self_scope() {
     assert!(
         repos
             .training_plans
-            .get_active_plan(
-                &fx.athlete_tenant.to_string(),
-                &fx.athlete.to_string(),
-                PlanOwner::agent(fx.athlete_coach.as_str())
-            )
+            .get_active_plan(&fx.athlete_tenant.to_string(), &fx.athlete.to_string())
             .await
             .unwrap()
             .is_none(),

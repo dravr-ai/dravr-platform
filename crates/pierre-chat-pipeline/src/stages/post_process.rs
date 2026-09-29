@@ -610,7 +610,7 @@ pub(crate) async fn post_process_assistant_reply(
     // plan, the reply carries a `workout_plan` block projected from what the
     // tool stored — never from the reply's text, so nothing above could have
     // rewritten it and no marker positions it: the card sits beside the prose.
-    let content_blocks = match plan_block_for_turn(ctx, input, conv, profile, tools_called).await {
+    let content_blocks = match plan_block_for_turn(ctx, input, profile, tools_called).await {
         Some(block) => append_block(content_blocks, block),
         None => content_blocks,
     };

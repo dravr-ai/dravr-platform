@@ -32,8 +32,8 @@
 //!   the list's `has_gps` reads; a `no_gps` the read could not prove expires
 //!   and is read again. See [`crate::services::activity_route`].
 //! - `GET /api/me/training-plan?locale=xx` — what `/plan` shows, as the
-//!   structured plan card: the active plan under the agent `/plan` reads it
-//!   under, projected on the athlete's own "today".
+//!   structured plan card: the athlete's one active season, whichever agent
+//!   laid it, projected on the athlete's own "today".
 //!
 //! Every JSON key is always present; an absent value is `null`.
 
@@ -59,7 +59,6 @@ use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_services::locale::user_locale;
 use pierre_services::personas::resolve_persona_locale;
 use pierre_services::plan_card::{try_load_plan_card, PlanCard};
-use pierre_services::training_plan_render::resolve_plan_agent_slug;
 use pierre_tool_runtime::activity_fetch::{activity_cache_retention_days, refresh_stale_head};
 use pierre_tool_runtime::reauth_retry::{claim_scrape_session_retry, retries_flagged_session};
 use pierre_tool_runtime::revalidation::{RevalidationRegistry, REVALIDATION_TIMEOUT_SECS};
@@ -588,14 +587,12 @@ async fn get_training_plan(
         resolve_zone(user.as_ref().and_then(|u| u.timezone.as_deref())),
     );
     let locale = resolve_persona_locale(query.locale.as_deref(), Some(&user_locale(user.as_ref())));
-    // No conversation binds the page, so the plan is the one the athlete's
-    // selected agent holds — the rung `/plan` reaches outside a conversation.
-    let agent = resolve_plan_agent_slug(repos, None, tenant_id, user_id).await?;
+    // The athlete's one season, whichever agent laid it — the plan `/plan`
+    // and every conversation read.
     let plan = try_load_plan_card(
         repos,
         tenant_id,
         user_id,
-        agent.as_deref(),
         today,
         &resources.mcp.messaging_strings_registry,
         &locale,

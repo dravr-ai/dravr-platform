@@ -680,7 +680,7 @@ async fn test_set_goal_tool() -> Result<()> {
         parameters: json!({
             "goal_type": "distance",
             "target_value": 1000.0,
-            "timeframe": "2024",
+            "timeframe": "year",
             "title": "Run 1000km this year"
         }),
         user_id: user_id.to_string(),
@@ -695,6 +695,7 @@ async fn test_set_goal_tool() -> Result<()> {
     let result = response.result.unwrap();
     assert!(result["goal_id"].is_string());
     assert_eq!(result["status"], "created");
+    assert_eq!(result["timeframe"], "year");
 
     Ok(())
 }
@@ -870,14 +871,20 @@ async fn test_compare_activities_tool() -> Result<()> {
     Ok(())
 }
 
+/// A `pattern_type` outside the four the detector answers for is refused,
+/// naming the four, before any provider is read. It used to be answered with
+/// the weekly schedule as though that had been asked for. The credential-free
+/// `synthetic` provider keeps the dispatch chokepoint aside, so the handler's
+/// own check is what answers.
 #[tokio::test]
-async fn test_detect_patterns_tool() -> Result<()> {
+async fn test_detect_patterns_refuses_a_pattern_it_does_not_detect() -> Result<()> {
     common::init_server_config();
     let executor = create_test_executor().await?;
 
     let request = UniversalRequest {
         tool_name: "detect_patterns".to_owned(),
         parameters: json!({
+            "provider": "synthetic",
             "pattern_type": "training_consistency"
         }),
         user_id: Uuid::new_v4().to_string(),
@@ -885,20 +892,183 @@ async fn test_detect_patterns_tool() -> Result<()> {
         tenant_id: None,
     };
 
-    let response = executor.execute_tool(request).await?;
-    if response.success {
-        // If it succeeds, verify the response structure
-        // The handler returns "patterns_detected" (not "patterns")
-        assert!(response.result.is_some());
-        let result = response.result.unwrap();
+    let refused = executor
+        .execute_tool(request)
+        .await
+        .expect_err("an unknown pattern_type is refused, not answered as another pattern");
+    let rendered = refused.to_string();
+    assert!(
+        rendered.contains("pattern_type 'training_consistency'"),
+        "the refusal names the value it refused: {rendered}"
+    );
+    for pattern in [
+        "weekly_schedule",
+        "training_blocks",
+        "progression",
+        "overtraining",
+    ] {
         assert!(
-            result["patterns_detected"].is_array(),
-            "Expected 'patterns_detected' field in result: {result}"
+            rendered.contains(pattern),
+            "the refusal lists {pattern}: {rendered}"
         );
-    } else {
-        println!("Error: {:?}", response.error);
-        // For test data, could fail due to authentication or other reasons
-        assert!(response.error.is_some());
+    }
+
+    Ok(())
+}
+
+/// A `recommendation_type` outside the six the tool generates is refused,
+/// naming the six, before any provider is read. It used to be answered with
+/// every mode at once, as though `all` had been asked for.
+#[tokio::test]
+async fn test_generate_recommendations_refuses_a_type_it_does_not_generate() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+
+    let request = UniversalRequest {
+        tool_name: "generate_recommendations".to_owned(),
+        parameters: json!({
+            "provider": "synthetic",
+            "recommendation_type": "training"
+        }),
+        user_id: Uuid::new_v4().to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    let refused = executor
+        .execute_tool(request)
+        .await
+        .expect_err("an unknown recommendation_type is refused, not answered as 'all'");
+    let rendered = refused.to_string();
+    assert!(
+        rendered.contains("recommendation_type 'training'"),
+        "the refusal names the value it refused: {rendered}"
+    );
+    for mode in [
+        "all",
+        "training_plan",
+        "recovery",
+        "intensity",
+        "goal_specific",
+        "nutrition",
+    ] {
+        assert!(
+            rendered.contains(mode),
+            "the refusal lists {mode}: {rendered}"
+        );
+    }
+
+    Ok(())
+}
+
+/// An unknown `comparison_type`, or a `specific_activity` comparison with no
+/// activity to compare against, is refused before any provider is read. Both
+/// used to be answered as a similar-activities comparison.
+#[tokio::test]
+async fn test_compare_activities_refuses_a_comparison_it_cannot_make() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+    let request = |parameters: serde_json::Value| UniversalRequest {
+        tool_name: "compare_activities".to_owned(),
+        parameters,
+        user_id: Uuid::new_v4().to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    let unknown = executor
+        .execute_tool(request(json!({
+            "provider": "synthetic",
+            "activity_id": "a-1",
+            "comparison_type": "best_efforts"
+        })))
+        .await
+        .expect_err("an unknown comparison is refused");
+    let rendered = unknown.to_string();
+    assert!(
+        rendered.contains("comparison_type 'best_efforts'") && rendered.contains("pr_comparison"),
+        "{rendered}"
+    );
+
+    let unanchored = executor
+        .execute_tool(request(json!({
+            "provider": "synthetic",
+            "activity_id": "a-1",
+            "comparison_type": "specific_activity"
+        })))
+        .await
+        .expect_err("a specific comparison needs the activity to compare against");
+    assert!(
+        unanchored.to_string().contains("needs compare_activity_id"),
+        "{unanchored}"
+    );
+
+    Ok(())
+}
+
+/// A `sport_type` that names no sport is refused before Overpass is queried;
+/// it used to be searched as running and answered with running trails.
+#[tokio::test]
+async fn test_discover_routes_refuses_a_sport_it_cannot_name() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+    let request = UniversalRequest {
+        tool_name: "discover_routes".to_owned(),
+        parameters: json!({
+            "latitude": 45.87,
+            "longitude": -74.08,
+            "sport_type": "quidditch"
+        }),
+        user_id: Uuid::new_v4().to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    let refused = executor
+        .execute_tool(request)
+        .await
+        .expect_err("a name that is no sport is refused, not searched as running");
+    let rendered = refused.to_string();
+    assert!(
+        rendered.contains("sport_type 'quidditch'") && rendered.contains("trail_running"),
+        "{rendered}"
+    );
+
+    Ok(())
+}
+
+/// Race-time prediction is VDOT, which models running; a ride or a swim is
+/// refused before any provider is read instead of answered with running times
+/// labelled as that sport. A running label other than `Run` is accepted.
+#[tokio::test]
+async fn test_predict_performance_refuses_a_sport_it_cannot_model() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+    let request = |sport: &str| UniversalRequest {
+        tool_name: "predict_performance".to_owned(),
+        parameters: json!({ "provider": "synthetic", "target_sport": sport }),
+        user_id: Uuid::new_v4().to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    for sport in ["Ride", "swim"] {
+        let refused = executor
+            .execute_tool(request(sport))
+            .await
+            .expect_err("a sport VDOT does not model is refused");
+        assert!(
+            refused.to_string().contains("models running only"),
+            "{sport}: {refused}"
+        );
+    }
+
+    // A running label passes the sport check and goes on to the provider.
+    if let Err(error) = executor.execute_tool(request("trail_running")).await {
+        assert!(
+            !error.to_string().contains("models running only"),
+            "a trail run is a run: {error}"
+        );
     }
 
     Ok(())

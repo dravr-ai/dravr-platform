@@ -39,8 +39,9 @@ use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::error::IntelligenceResult;
 use dravr_cageux::metrics::MetricsCalculator;
 use dravr_cageux::models::activity::Activity;
+use dravr_cageux::training_load::{TrainingLoad, TrainingLoadCalculator};
 use pierre_core::civil_time::{local_date, resolve_zone};
-use pierre_core::models::DailyTrainingState;
+use pierre_core::models::{DailyTrainingState, UserPhysiologicalProfile};
 
 /// Default chronic window (Coggan).
 pub const CTL_WINDOW_DAYS: i64 = 42;
@@ -74,7 +75,14 @@ pub const fn warmup_days(ctl_window_days: i64) -> i64 {
 }
 
 /// Per-user physiology inputs for TSS computation.
-#[derive(Debug, Clone, Copy, Default)]
+///
+/// Every training-load reader — `get_training_history`, `analyze_training_load`,
+/// the recovery tools, `calculate_fitness_score`, `generate_recommendations`,
+/// `predict_performance`, the group snapshot and the athlete snapshot — builds
+/// these with [`Self::from_profile`] from the athlete's stored physiological
+/// profile, the one place their thresholds live, so two surfaces asked about
+/// the same day score each session against the same numbers.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct AthleteInputs {
     /// Functional Threshold Power (watts) for power-based TSS.
     pub ftp_watts: Option<f64>,
@@ -86,6 +94,68 @@ pub struct AthleteInputs {
     pub resting_hr: Option<f64>,
     /// Body weight (kg).
     pub weight_kg: Option<f64>,
+}
+
+impl AthleteInputs {
+    /// The inputs a stored profile gives, each absent where the profile is
+    /// silent.
+    ///
+    /// The LTHR is [`UserPhysiologicalProfile::lactate_threshold_hr`]: the
+    /// measured `threshold_hr` first, else the estimate from the lactate
+    /// threshold (a fraction of `VO2max`) and max HR. No profile gives
+    /// [`Self::default`], and the engine falls back to pace- or
+    /// duration-based stress, which it reports as such.
+    #[must_use]
+    pub fn from_profile(profile: Option<&UserPhysiologicalProfile>) -> Self {
+        profile.map_or_else(Self::default, |p| Self {
+            ftp_watts: p.ftp_watts.map(f64::from),
+            lthr: p.lactate_threshold_hr(),
+            max_hr: p.max_hr.map(f64::from),
+            resting_hr: p.resting_hr.map(f64::from),
+            weight_kg: p.weight,
+        })
+    }
+
+    /// CTL, ATL and TSB of `activities` by `calculator`, each session's stress
+    /// scored against these thresholds.
+    ///
+    /// # Errors
+    /// Returns the calculator's error when the configured training-load
+    /// algorithm refuses its parameters.
+    pub fn training_load(
+        &self,
+        calculator: &TrainingLoadCalculator,
+        activities: &[Activity],
+    ) -> IntelligenceResult<TrainingLoad> {
+        calculator.calculate_training_load(
+            activities,
+            self.ftp_watts,
+            self.lthr,
+            self.max_hr,
+            self.resting_hr,
+            self.weight_kg,
+        )
+    }
+
+    /// One session's training stress by `calculator`, scored against these
+    /// thresholds.
+    ///
+    /// # Errors
+    /// Returns the calculator's error when no estimator can score the session.
+    pub fn tss(
+        &self,
+        calculator: &TrainingLoadCalculator,
+        activity: &Activity,
+    ) -> IntelligenceResult<f64> {
+        calculator.calculate_tss(
+            activity,
+            self.ftp_watts,
+            self.lthr,
+            self.max_hr,
+            self.resting_hr,
+            self.weight_kg,
+        )
+    }
 }
 
 /// Build a dense series of [`DailyTrainingState`] rows for `[from, to]`.

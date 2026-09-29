@@ -228,6 +228,12 @@ export function DayRow({ day }: { day: PlanDay }) {
             {fuelParts(day.fueling, t).join(' · ')}
           </Text>
         ) : null}
+        {day.fueling_withheld ? (
+          <Text className="text-sm text-text-secondary mt-0.5">
+            <Text className="font-semibold text-text-primary">{t('chat.fuelLabel')}</Text>{' '}
+            {t('chat.fuelWithheld')}
+          </Text>
+        ) : null}
       </View>
     </View>
   );

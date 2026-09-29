@@ -15,7 +15,11 @@
 //! Saving also closes the pillar loop: when the outline's goal race has no
 //! linked pillar `Goal` fact, the save upserts one (`FactSource::Coach`,
 //! pillar Training & Movement) so `/pillars` onboarding and conversational
-//! goal-stating converge on one fact row.
+//! goal-stating converge on one fact row — see `training_plan_goal`.
+//!
+//! Fuelling rates are the athlete's clinician's to set when a medical/PAR-Q
+//! flag is on file: the save refuses a payload carrying them and the read
+//! withholds stored ones — see `pierre_services::plan_fueling`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -23,19 +27,15 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::{Datelike, NaiveDate};
 use pierre_core::models::periodization::serde_num::whole_u32_opt;
-use pierre_core::models::{ConversationRecord, Pillar, TenantId, WorkoutStep};
-use pierre_database::repositories::training_plans::PlanOwner;
-use pierre_database::repositories::{
-    PlanOutlineInput, PlanWeekInput, SavePlanBundleParams, UpsertUserFactParams,
-};
-use pierre_database::RepositoryRegistry;
+use pierre_core::models::{TenantId, WorkoutStep};
+use pierre_database::repositories::training_plans::PlanAuthor;
+use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_memory::training_plans::{
-    parse_plan_date, GoalRace, PlanPhase, PlanWeek, PlannedDay, RacePriority, WeekStatus,
-    MAX_DAYS_PER_WEEK,
+    parse_plan_date, GoalRace, PlanPhase, PlanWeek, PlannedDay, WeekStatus, MAX_DAYS_PER_WEEK,
 };
-use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use pierre_services::athlete_clock::athlete_today;
+use pierre_services::plan_fueling::FuelingDisclosure;
 use pierre_services::ramp_check::RampVerdict;
 use pierre_services::training_plan_render::plan_goal_is_stale;
 use serde::Deserialize;
@@ -44,13 +44,19 @@ use tracing::warn;
 
 use super::calendar::{bounded, validate_step, TargetRule, MAX_SESSION_STEPS, MAX_SHORT_TEXT_LEN};
 use super::plan_scope::{resolve_plan_scope, PlanScopeRequest};
+use super::training_plan_authorship::{
+    agent_title, load_conversation, plan_authors, season_held_refusal,
+};
 use super::training_plan_compliance::emit_week_compliance;
+use super::training_plan_goal::{
+    converge_goal_fact, fact_belongs_to_user, retire_superseded_goal_facts,
+};
 use super::training_plan_push::{calendar_block, calendar_preview_after_save};
 use super::training_plan_ramp::{earliest_week, emit_ramp_check};
 use super::training_plan_readiness::{emit_week_readiness, week_is_actionable};
 use super::training_plan_schema::{
-    athlete_prop, outline_schema, parse_payload_part, string_prop, unknown_argument_keys,
-    weeks_schema,
+    athlete_prop, outline_schema, parse_payload_part, replace_season_prop, string_prop,
+    unknown_argument_keys, weeks_schema,
 };
 use super::training_plan_state::plan_state_block;
 use super::training_plan_telemetry::{emit_coverage_check, emit_plan_saved, emit_vision_saved};
@@ -411,181 +417,6 @@ fn validate_week(week: &mut WeekPayload) -> AppResult<()> {
     Ok(())
 }
 
-/// Predicate code the agent-agnostic goal `user_fact` is written under. The
-/// save converges every outline on a single fact with this identity so
-/// `/pillars` and conversational goal-stating never fork into duplicates.
-const GOAL_CODE: PredicateCode = PredicateCode::TargetRace;
-
-/// Render a race priority (`A`/`B`/`C`) as its serialized string.
-fn race_priority_str(priority: RacePriority) -> String {
-    serde_json::to_value(priority)
-        .ok()
-        .and_then(|v| v.as_str().map(str::to_owned))
-        .unwrap_or_default()
-}
-
-/// The `object` phrase stored for a goal-race `user_fact`.
-fn goal_object(race: &GoalRace) -> String {
-    format!(
-        "{} ({}) on {} — priority {}",
-        race.name,
-        race.discipline,
-        race.date,
-        race_priority_str(race.priority)
-    )
-}
-
-/// Resolve the agent the plan is bound to. The conversation's agent is
-/// authoritative when the call originates in a Pierre conversation — the plan
-/// injection (Stage 7f.2) keys on it, so trusting an LLM-supplied `agent_id`
-/// instead would save a plan under a slug the injection never reads (a plan
-/// "saved but not showing"). Only MCP-direct / A2A calls with no conversation
-/// fall back to the argument.
-pub(super) async fn load_conversation(
-    repos: &RepositoryRegistry,
-    conversation_id: Option<&str>,
-    tenant: TenantId,
-    user_id: &str,
-) -> AppResult<Option<ConversationRecord>> {
-    match conversation_id {
-        Some(conv_id) => repos.chat.get_conversation(conv_id, user_id, tenant).await,
-        None => Ok(None),
-    }
-}
-
-/// The agent slug this plan is saved under.
-///
-/// The conversation's agent is authoritative, so save and the Stage 7f.2 plan
-/// injection agree on the slug; a conversation with no agent yields `None`
-/// rather than falling back. The LLM-supplied argument is used only when there
-/// is no conversation at all (a direct MCP call).
-pub(super) fn resolve_agent_slug(
-    conv: Option<&ConversationRecord>,
-    arg_agent: Option<String>,
-) -> Option<String> {
-    conv.map_or(arg_agent, |conv| conv.agent_id.clone())
-}
-
-/// `true` when `fact_id` is a real `Goal` fact of this tenant + user. Guards
-/// against an LLM-supplied `goal_fact_id` that never existed, points at another
-/// athlete's fact, or is a non-`Goal` fact — a plan links only to a Goal fact,
-/// and [`plan_goal_is_stale`] can see only Goal facts, so a non-Goal link would
-/// read stale forever. Such a value is dropped rather than persisted.
-///
-/// A point lookup, not a scan of a capped list: an athlete whose Goal facts
-/// outnumber any list cap would have a legitimate id below the cut treated as
-/// foreign and silently replaced.
-async fn fact_belongs_to_user(
-    repos: &RepositoryRegistry,
-    tenant: TenantId,
-    user_id: &str,
-    fact_id: &str,
-) -> AppResult<bool> {
-    Ok(repos
-        .memory
-        .get_user_fact(fact_id, tenant, user_id)
-        .await?
-        .is_some_and(|fact| fact.kind == FactKind::Goal))
-}
-
-/// The goal fact a plan links to, together with the agent-agnostic goal facts
-/// it replaces.
-///
-/// Two halves because they belong on opposite sides of the plan write: the id
-/// has to exist *before* the save (the plan row stores it), while retiring the
-/// facts it supersedes must wait until the save has committed — a hard delete
-/// before a failed transaction erases the athlete's standing goal for a plan
-/// that was never stored.
-struct GoalFactConvergence {
-    /// The fact the plan links to.
-    fact_id: String,
-    /// Prior agent-agnostic goal facts, to retire once the plan is stored.
-    superseded: Vec<String>,
-}
-
-/// Converge the athlete's agent-agnostic goal `user_fact` on the outline's goal
-/// race: reuse an identical stored goal (no churn on a re-save), otherwise write
-/// the new one. Every *other* agent-agnostic goal fact is reported as
-/// superseded, in both cases, so the pillar view converges on one row even after
-/// a save that failed between the write and the retirement.
-async fn converge_goal_fact(
-    repos: &RepositoryRegistry,
-    tenant: TenantId,
-    user_id: &str,
-    goal_race: &GoalRace,
-) -> AppResult<GoalFactConvergence> {
-    let object = goal_object(goal_race);
-    let facts = repos
-        .memory
-        .list_user_facts(tenant, user_id, None, Some(FactKind::Goal), 200)
-        .await?;
-    let agnostic_targets: Vec<&_> = facts
-        .iter()
-        .filter(|f| f.agent_id.is_none() && f.predicate_code == GOAL_CODE)
-        .collect();
-    let fact_id = match agnostic_targets.iter().find(|f| f.object == object) {
-        Some(existing) => existing.id.clone(),
-        None => {
-            repos
-                .memory
-                .upsert_user_fact(&UpsertUserFactParams {
-                    tenant_id: tenant,
-                    user_id,
-                    agent_id: None,
-                    scope: MemoryScope::User,
-                    kind: FactKind::Goal,
-                    pillar: Some(Pillar::TrainingAndMovement),
-                    predicate_code: GOAL_CODE,
-                    object: &object,
-                    confidence: 0.95,
-                    source: FactSource::Coach,
-                    valid_until: None,
-                    source_msg_id: None,
-                })
-                .await?
-                .id
-        }
-    };
-    // The linked fact is never in the superseded set, so the retirement pass
-    // cannot delete the very row the plan points at.
-    let superseded = agnostic_targets
-        .iter()
-        .map(|f| f.id.clone())
-        .filter(|id| *id != fact_id)
-        .collect();
-    Ok(GoalFactConvergence {
-        fact_id,
-        superseded,
-    })
-}
-
-/// Delete the goal facts a stored plan's goal has replaced.
-///
-/// Runs only after the plan bundle has committed. `delete_user_fact` is the
-/// erase path, so calling it earlier would destroy the athlete's previous goal
-/// on behalf of a plan that may never be stored.
-///
-/// A failure here is logged rather than returned: the plan IS saved, and
-/// answering the agent with an error would have it tell the athlete a save
-/// failed that did not. The leftover fact is retired by the next save, which
-/// reports every non-linked agnostic goal fact as superseded.
-async fn retire_superseded_goal_facts(
-    repos: &RepositoryRegistry,
-    tenant: TenantId,
-    user_id: &str,
-    superseded: &[String],
-) {
-    for fact_id in superseded {
-        if let Err(e) = repos
-            .memory
-            .delete_user_fact(fact_id, tenant, user_id)
-            .await
-        {
-            warn!(error = %e, "save_training_plan: superseded goal fact not retired");
-        }
-    }
-}
-
 // ============================================================================
 // GetTrainingPlanTool
 // ============================================================================
@@ -597,12 +428,6 @@ pub struct GetTrainingPlanTool;
 impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
-        properties.insert(
-            "agent_id".to_owned(),
-            string_prop(
-                "Agent persona slug asking; falls back to the athlete's agent-agnostic plan.",
-            ),
-        );
         properties.insert(
             "include_history".to_owned(),
             PropertySchema {
@@ -620,7 +445,11 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                 description: Some(
                     "Include what the readiness and compliance rails make of the plan as it \
                      stands: the athlete's readiness level and the alerts behind it, the days \
-                     that level no longer allows, how each week measures against its phase, \
+                     that level no longer allows — each with its reason (purpose_closed: the \
+                     level closes the day's purpose; template_above_level: the purpose is \
+                     open but the session needs a higher level) and, for the latter, the \
+                     easier template of that purpose the athlete's bank holds or the phase \
+                     purpose it falls back to — how each week measures against its phase, \
                      and where the stored weeks stop covering the outline. Ask for it before \
                      adjusting or extending a plan; leave it off for 'what am I doing this \
                      week', since it costs roughly a dozen extra reads across the training \
@@ -634,7 +463,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
         let schema = object_schema(properties, None);
         answers_with::<GetTrainingPlanResult>(tool_definition(
             "get_training_plan",
-            "Fetch the athlete's active training plan: goal race, flavour, season phases with their targets, and the day-by-day weeks. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not memory of the conversation, is the source of truth. The calendar block lists what Dravr has on the athlete's Intervals.icu calendar (each entry's prescription_id is what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it. A group's human coach reads a consenting athlete's plan by passing `athlete` from their own direct chat — the athlete shares it into the room with `/plan share`, the coach reads and edits it from their DM.",
+            "Fetch the athlete's active training plan: goal race, flavour, season phases with their targets, and the day-by-day weeks. The plan is the athlete's one season, whichever agent laid it: `authors` names the agent that laid the season and the agents that wrote weeks, and marks which one is you. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not memory of the conversation, is the source of truth. The calendar block lists what Dravr has on the athlete's Intervals.icu calendar (each entry's prescription_id is what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it. A group's human coach reads a consenting athlete's plan by passing `athlete` from their own direct chat — the athlete shares it into the room with `/plan share`, the coach reads and edits it from their DM.",
             schema,
             Some(read_annotations()),
         ))
@@ -660,7 +489,6 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
         let result: AppResult<ToolResult> = async move {
             let requester_tenant = TenantId::from_uuid(context.require_tenant()?);
             let requester = ctx_user_id(&context);
-            let arg_agent = optional_string_field(&args, "agent_id");
             let athlete = optional_string_field(&args, "athlete");
             let include_history = args
                 .get("include_history")
@@ -690,7 +518,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                 context: &context,
                 requester_tenant,
                 conversation: conv.as_ref(),
-                arg_agent,
+                arg_agent: None,
                 athlete: athlete.as_deref(),
                 tool_name: "get_training_plan",
             })
@@ -702,17 +530,18 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
             let tenant = scope.tenant;
             let tenant_id = tenant.to_string();
             let user_id = scope.user_id.to_string();
-            let agent = scope.agent_slug.clone();
             let today = athlete_today(repos, scope.user_id).await;
+            let fueling = FuelingDisclosure::for_athlete(repos, tenant, scope.user_id).await?;
             let Some(plan) = repos
                 .training_plans
-                .get_active_plan(&tenant_id, &user_id, PlanOwner::from_slug(agent.as_deref()))
+                .get_active_plan(&tenant_id, &user_id)
                 .await?
             else {
                 // No plan, but the calendar may still hold single prescriptions
                 // — and plan entries of a plan since abandoned, which the
                 // block's `pending.remove` counts.
-                let calendar = calendar_block(repos, tenant, scope.user_id, &[], today).await?;
+                let calendar =
+                    calendar_block(repos, tenant, scope.user_id, &[], today, &fueling).await?;
                 return ok_typed(
                     "get_training_plan",
                     GetTrainingPlanResult {
@@ -720,16 +549,19 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                         athlete: scope.acting_for.clone(),
                         message: Some("no active training plan — build one with the athlete and persist it via save_training_plan".to_owned()),
                         weeks: None,
+                        fueling_withheld: fueling.redact_weeks(&mut []),
+                        authors: Vec::new(),
                         goal_stale: None,
                         calendar,
                         state: None,
                     },
                 );
             };
-            let weeks = repos
+            let mut weeks = repos
                 .training_plans
                 .list_plan_weeks(&tenant_id, &user_id, &plan.id, include_history)
                 .await?;
+            let authors = plan_authors(repos, &plan, &weeks, &scope.writer).await?;
             // The plan snapshots the goal at save time; flag it stale if the
             // living goal fact has since expired so the agent re-confirms.
             let goal_stale = match plan.goal_fact_id.as_deref() {
@@ -742,7 +574,8 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                 .cloned()
                 .collect();
             let calendar =
-                calendar_block(repos, tenant, scope.user_id, &active_weeks, today).await?;
+                calendar_block(repos, tenant, scope.user_id, &active_weeks, today, &fueling)
+                    .await?;
 
             // Both rails have measured every save since they shipped and
             // reported into a log line no agent reads. Asked for, the same
@@ -756,6 +589,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                 None
             };
 
+            let fueling_withheld = fueling.redact_weeks(&mut weeks);
             ok_typed(
                 "get_training_plan",
                 GetTrainingPlanResult {
@@ -763,6 +597,8 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                     athlete: scope.acting_for.clone(),
                     message: None,
                     weeks: Some(weeks),
+                    fueling_withheld,
+                    authors,
                     goal_stale: Some(goal_stale),
                     calendar,
                     state,
@@ -788,9 +624,13 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
         let mut properties = HashMap::new();
         properties.insert(
             "agent_id".to_owned(),
-            string_prop("Coach persona slug saving the plan."),
+            string_prop(
+                "The agent authoring this save, read only on a call with no conversation (a \
+                 direct MCP call); a chat turn's own agent always wins.",
+            ),
         );
         properties.insert("outline".to_owned(), outline_schema());
+        properties.insert("replace_season".to_owned(), replace_season_prop());
         properties.insert("weeks".to_owned(), weeks_schema());
         properties.insert(
             "goal_fact_id".to_owned(),
@@ -804,7 +644,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
         let schema = object_schema(properties, None);
         answers_with::<SaveTrainingPlanResult>(tool_definition(
             "save_training_plan",
-            "Persist the training plan you agreed with the athlete — the outline (goal race, strategy, the season phases, the flavour and who chose it, the season window) and/or day-by-day weeks (each may name the outline phase it instantiates, and each day the catalogue template it is built from with the values filled in) — in the SAME turn you state it. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable. For a day with interval structure, give steps (same shape as prescribe_workout's session.structure) — that is what puts workout-builder steps and a planned load on the calendar; prose alone reaches it as a timed entry. Saving never writes to the athlete's calendar: when the reply's calendar.stale is true, their Intervals.icu calendar no longer matches the plan — tell them and offer push_training_plan. A group's human coach edits a consenting athlete's plan by passing `athlete` from their own direct chat, never in a room: the athlete shares the plan into the room with `/plan share`, the coach saves the change from their DM, and the athlete's next `/plan` shows it.",
+            "Persist the training plan you agreed with the athlete — the outline (goal race, strategy, the season phases, the flavour and who chose it, the season window) and/or day-by-day weeks (each may name the outline phase it instantiates, and each day the catalogue template it is built from with the values filled in) — in the SAME turn you state it. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or when the athlete asked you to re-lay or change the outline of a season another agent laid — then set replace_season to true. Re-save a week another agent wrote only when the athlete asks for that change. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable. For a day with interval structure, give steps (same shape as prescribe_workout's session.structure) — that is what puts workout-builder steps and a planned load on the calendar; prose alone reaches it as a timed entry. Saving never writes to the athlete's calendar: when the reply's calendar.stale is true, their Intervals.icu calendar no longer matches the plan — tell them and offer push_training_plan. A group's human coach edits a consenting athlete's plan by passing `athlete` from their own direct chat, never in a room: the athlete shares the plan into the room with `/plan share`, the coach saves the change from their DM, and the athlete's next `/plan` shows it.",
             schema,
             Some(write_annotations()),
         ))
@@ -835,6 +675,12 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             let athlete = optional_string_field(&args, "athlete");
             let conversation_id = optional_string_field(&args, "conversation_id");
             let mut goal_fact_id = optional_string_field(&args, "goal_fact_id");
+            // Read only with an outline: a weeks-only save attaches to the
+            // season whoever laid it and has nothing to replace.
+            let replace_season = args
+                .get("replace_season")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
 
             // Both halves are parsed before either can reject, so a payload
             // that got outline *and* weeks wrong — which is what a model
@@ -936,33 +782,59 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 ));
             }
 
-            let agent = scope.agent_slug.clone();
+            // The athlete's one season, read once: whether this writer may lay
+            // an outline over it, and the phases a weeks-only save indexes.
+            let writer = &scope.writer;
+            let active = repos
+                .training_plans
+                .get_active_plan(&tenant_id, &user_id)
+                .await?;
+            let season_author = active.as_ref().and_then(|p| p.author_agent_id.as_deref());
+            let author = PlanAuthor::from_agent(writer.agent_id.as_deref());
+            // Another agent's season is not re-laid by accident. Refused
+            // before anything is written — the goal fact included — and
+            // enforced again inside the save's transaction.
+            if outline.is_some() && !replace_season && !author.may_resave_outline(season_author) {
+                let title = match season_author {
+                    Some(id) => agent_title(repos, id, writer.tenant, writer.user_id).await?,
+                    None => None,
+                };
+                return Err(season_held_refusal(
+                    title.as_deref(),
+                    scope.acting_for.as_deref(),
+                ));
+            }
 
             // The vision's catalogue references are checked through the
-            // agent's package over the live registry before anything is
-            // written: a flavour id names a flavour the package or the
+            // writing agent's package over the live registry before anything
+            // is written: a flavour id names a flavour the package or the
             // catalogue carries (its family, sequencing and modifiers are
             // copied from it — provenance, never trusted from the payload), a
             // week's phase_index names a phase the plan will have, and a day's
             // template_slug names a template the agent can actually see; the
-            // tier that answered is stamped on the day.
-            let package =
-                load_agent_package(repos, tenant, scope.user_id, agent.as_deref()).await?;
+            // tier that answered is stamped on the day. The package is the
+            // writer's, resolved as the requester.
+            let package = load_agent_package(
+                repos,
+                writer.tenant,
+                writer.user_id,
+                writer.agent_id.as_deref(),
+            )
+            .await?;
             let catalogue = PackagedCatalogue::new(state.training_catalogue(), package);
             let flavour_selection = match outline.as_ref().and_then(|o| o.flavour.as_ref()) {
                 Some(payload) => Some(resolve_flavour(&catalogue, payload)?),
                 None => None,
             };
-            let phase_count = match outline.as_ref() {
-                Some(o) => o.phases.len(),
-                None => repos
-                    .training_plans
-                    .get_active_plan(&tenant_id, &user_id, PlanOwner::from_slug(agent.as_deref()))
-                    .await?
-                    .map_or(0, |plan| plan.phases.len()),
-            };
+            let phase_count = outline
+                .as_ref()
+                .map(|o| &o.phases)
+                .or_else(|| active.as_ref().map(|plan| &plan.phases))
+                .map_or(0, Vec::len);
             check_phase_indexes(&weeks, phase_count)?;
             check_template_slugs(&catalogue, repos, tenant, scope.user_id, &mut weeks).await?;
+            let fueling = FuelingDisclosure::for_athlete(repos, tenant, scope.user_id).await?;
+            fueling.refuse_figures(weeks.iter().flat_map(|week| &week.days))?;
 
             // Don't trust an LLM-supplied goal_fact_id that isn't a real fact of
             // this athlete — drop it and let the outline path mint/reuse one.
@@ -1025,10 +897,11 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 .save_plan_bundle(&SavePlanBundleParams {
                     tenant_id: &tenant_id,
                     user_id: &user_id,
-                    owner: PlanOwner::from_slug(agent.as_deref()),
+                    author,
                     goal_fact_id: goal_fact_id.as_deref(),
                     outline: outline_input,
                     weeks: &week_inputs,
+                    replace_season,
                 })
                 .await?;
 
@@ -1128,9 +1001,15 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             // The save is committed; if the calendar already carries this
             // plan, say what a push would now change so the athlete learns
             // the calendar is behind — without pushing on anyone's behalf.
-            let calendar =
-                calendar_preview_after_save(repos, tenant, scope.user_id, &bundle.plan.id, today)
-                    .await;
+            let calendar = calendar_preview_after_save(
+                repos,
+                tenant,
+                scope.user_id,
+                &bundle.plan.id,
+                today,
+                &fueling,
+            )
+            .await;
 
             let race_summary = format!(
                 "{} on {}",

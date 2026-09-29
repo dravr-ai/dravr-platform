@@ -8,8 +8,9 @@
 //!
 //! Shared types and helper functions extracted from the (now-decomposed)
 //! `protocol/handlers/fitness_api.rs` so that the `McpTool::execute` bodies
-//! for `get_activities`, `get_athlete`, `get_stats`, and `analyze_activity`
-//! can share them without forcing a single 2k-line file.
+//! for `get_activities` and `analyze_activity` can share them without forcing
+//! a single 2k-line file. The athlete and stats reads live with their two
+//! tools in `athlete_stats`, which is compiled only under `tools-data`.
 //!
 //! Exposed types — `TokenEstimate`, `AnalysisType`, `ActivityRetrievalContext`,
 //! `PaginationInfo`, and their sub-types — are
@@ -22,34 +23,27 @@
 use crate::implementations::activities_output::ActivitiesPayload;
 use crate::implementations::activity_list_render::format_activities_as_list;
 use crate::implementations::activity_summary::{detail_json, summary_json, ActivitySummary};
-use crate::implementations::athlete_stats::{GetAthleteResult, GetStatsResult};
 use crate::implementations::data_helpers::activity_coverage_note;
 use crate::implementations::session_merge_summary::FragmentDedupSummary;
-use crate::protocol::format::formatted_response;
-use crate::protocol::types::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
+use crate::protocol::types::UniversalResponse;
 use pierre_cache::{Cache, CacheKey, CacheResource};
 use pierre_core::civil_time::parse_zone;
-use pierre_core::errors::protocol::ProtocolError;
 use pierre_core::json_value::to_value_as_written;
-use pierre_core::models::{
-    resolve_sport_type, sport_matches_family, Activity, Athlete, SportType, Stats, TenantId,
-};
+use pierre_core::models::{resolve_sport_type, sport_matches_family, Activity, SportType};
 use pierre_formatters::{format_output, OutputFormat};
 use pierre_intelligence::physiological_constants::api_limits::{
     CLAUDE_CONTEXT_TOKENS, CONTEXT_WARNING_THRESHOLD_PERCENT, TOKENS_PER_ACTIVITY_DETAILED,
     TOKENS_PER_ACTIVITY_SUMMARY, USABLE_CONTEXT_TOKENS,
 };
-use pierre_providers::core::FitnessProvider;
 use pierre_providers::deduplication::FragmentReport;
 use pierre_services::weather_backfill;
 use pierre_weather::WeatherProvider;
 use serde::Serialize;
-use serde_json::{json, to_value, Value};
+use serde_json::{to_value, Value};
 use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 use uuid::Uuid;
 
 /// Pagination metadata for list responses
@@ -437,27 +431,6 @@ pub(crate) struct CachedActivitiesParams<'a> {
     /// User's BCP-47 locale, threaded to [`ActivitiesResponseParams::locale`]
     /// for localized sport-type labels. Defaults to "en".
     pub locale: String,
-}
-
-/// Create metadata for activity analysis responses
-pub(crate) fn create_activity_metadata(
-    activity_id: &str,
-    user_uuid: Uuid,
-    tenant_id: Option<&String>,
-) -> HashMap<String, Value> {
-    let mut map = HashMap::new();
-    map.insert(
-        "activity_id".to_owned(),
-        Value::String(activity_id.to_owned()),
-    );
-    map.insert("user_id".to_owned(), Value::String(user_uuid.to_string()));
-    map.insert(
-        "tenant_id".to_owned(),
-        tenant_id.map_or(Value::Null, |id| {
-            Value::String(id.clone()) // Safe: String ownership for JSON value
-        }),
-    );
-    map
 }
 
 /// Try to get activities from cache
@@ -903,257 +876,4 @@ pub(crate) fn build_activities_success_response(
         error: None,
         metadata: Some(metadata),
     }
-}
-
-/// Try to get athlete from cache
-pub(crate) async fn try_get_cached_athlete(
-    cache: &Arc<Cache>,
-    cache_key: &CacheKey,
-    user_uuid: Uuid,
-    tenant_id: Option<&String>,
-    output_format: OutputFormat,
-) -> Result<Option<UniversalResponse>, ProtocolError> {
-    if let Ok(Some(cached_athlete)) = cache.get::<Athlete>(cache_key).await {
-        info!("Cache hit for athlete profile");
-        let mut metadata = HashMap::new();
-        metadata.insert("user_id".to_owned(), Value::String(user_uuid.to_string()));
-        metadata.insert(
-            "tenant_id".to_owned(),
-            tenant_id.map_or(Value::Null, |id| Value::String(id.clone())),
-        );
-        metadata.insert("cached".to_owned(), Value::Bool(true));
-
-        let payload = GetAthleteResult {
-            athlete: cached_athlete,
-        };
-        return Ok(Some(formatted_response(&payload, output_format, metadata)?));
-    }
-    info!("Cache miss for athlete profile");
-    Ok(None)
-}
-
-/// Cache athlete profile after fetching from API
-async fn cache_athlete_result(cache: &Arc<Cache>, cache_key: &CacheKey, athlete: &Athlete) {
-    let ttl = CacheResource::AthleteProfile.recommended_ttl();
-    if let Err(e) = cache.set(cache_key, athlete, ttl).await {
-        warn!("Failed to cache athlete profile: {}", e);
-    } else {
-        info!("Cached athlete profile with TTL {:?}", ttl);
-    }
-}
-
-/// Fetch athlete from API and cache result
-pub(crate) async fn fetch_and_cache_athlete(
-    provider: &dyn FitnessProvider,
-    cache: &Arc<Cache>,
-    cache_key: &CacheKey,
-    user_uuid: Uuid,
-    tenant_id: Option<String>,
-    output_format: OutputFormat,
-) -> Result<UniversalResponse, ProtocolError> {
-    match provider.get_athlete().await {
-        Ok(athlete) => {
-            cache_athlete_result(cache, cache_key, &athlete).await;
-
-            let mut metadata = HashMap::new();
-            metadata.insert("user_id".to_owned(), Value::String(user_uuid.to_string()));
-            metadata.insert(
-                "tenant_id".to_owned(),
-                tenant_id.map_or(Value::Null, Value::String),
-            );
-            metadata.insert("cached".to_owned(), Value::Bool(false));
-
-            formatted_response(&GetAthleteResult { athlete }, output_format, metadata)
-        }
-        Err(e) => Ok(UniversalResponse {
-            success: false,
-            result: None,
-            error: Some(format!("Failed to fetch athlete profile: {e}")),
-            metadata: None,
-        }),
-    }
-}
-
-/// Process activity analysis when activity is found
-///
-/// Dispatches into the `get_activity_intelligence` tool through the shared
-/// registry (`UniversalToolExecutor::execute_tool`) rather than calling the
-/// analytics handler function directly. This keeps this handler in
-/// pierre-tool-runtime while the analytics handler can live anywhere as long
-/// as its `McpTool` impl is registered.
-pub(crate) async fn process_activity_analysis(
-    executor: &UniversalToolExecutor,
-    mut request: UniversalRequest,
-    activity_id: &str,
-    user_uuid: Uuid,
-) -> Result<UniversalResponse, ProtocolError> {
-    "get_activity_intelligence".clone_into(&mut request.tool_name);
-    let analysis_response = executor.execute_tool(request).await?;
-    let metadata = Some(create_activity_metadata(
-        activity_id,
-        user_uuid,
-        analysis_response
-            .metadata
-            .as_ref()
-            .and_then(|m| m.get("tenant_id").and_then(Value::as_str).map(String::from))
-            .as_ref(),
-    ));
-
-    // Propagate the inner verdict — hardcoding `success: true` here reported
-    // every downstream failure as a successful call with an error payload.
-    Ok(UniversalResponse {
-        success: analysis_response.success,
-        result: analysis_response.result.or_else(|| Some(json!({}))),
-        error: analysis_response.error,
-        metadata,
-    })
-}
-
-/// Try to get athlete ID from cached athlete profile
-pub(crate) async fn try_get_athlete_id_from_cache(
-    cache: &Arc<Cache>,
-    athlete_cache_key: &CacheKey,
-) -> Option<u64> {
-    if let Ok(Some(athlete)) = cache.get::<Athlete>(athlete_cache_key).await {
-        return athlete
-            .id
-            .parse::<u64>()
-            .inspect_err(|e| {
-                debug!(
-                    athlete_id_str = %athlete.id,
-                    error = %e,
-                    "Failed to parse athlete ID from cache as u64"
-                );
-            })
-            .ok();
-    }
-    None
-}
-
-/// Try to get stats from cache
-pub(crate) async fn try_get_cached_stats(
-    cache: &Arc<Cache>,
-    stats_cache_key: &CacheKey,
-    user_uuid: Uuid,
-    tenant_id: Option<&String>,
-    output_format: OutputFormat,
-) -> Result<Option<UniversalResponse>, ProtocolError> {
-    if let Ok(Some(cached_stats)) = cache.get::<Stats>(stats_cache_key).await {
-        info!("Cache hit for stats");
-        let mut metadata = HashMap::new();
-        metadata.insert("user_id".to_owned(), Value::String(user_uuid.to_string()));
-        metadata.insert(
-            "tenant_id".to_owned(),
-            tenant_id.map_or(Value::Null, |id| Value::String(id.clone())),
-        );
-        metadata.insert("cached".to_owned(), Value::Bool(true));
-
-        let payload = GetStatsResult {
-            stats: cached_stats,
-        };
-        return Ok(Some(formatted_response(&payload, output_format, metadata)?));
-    }
-    info!("Cache miss for stats");
-    Ok(None)
-}
-
-/// Create metadata for stats responses
-fn create_stats_metadata(
-    user_uuid: Uuid,
-    tenant_id: TenantId,
-    cached: bool,
-) -> HashMap<String, Value> {
-    let mut map = HashMap::new();
-    map.insert("user_id".to_owned(), Value::String(user_uuid.to_string()));
-    map.insert("tenant_id".to_owned(), Value::String(tenant_id.to_string()));
-    map.insert("cached".to_owned(), Value::Bool(cached));
-    map
-}
-
-/// Cache a single item with TTL, logging errors
-async fn cache_item<T: serde::Serialize + Send + Sync>(
-    cache: &Arc<Cache>,
-    key: &CacheKey,
-    item: &T,
-    ttl: Duration,
-    item_name: &str,
-) {
-    if let Err(e) = cache.set(key, item, ttl).await {
-        warn!("Failed to cache {}: {}", item_name, e);
-    }
-}
-
-/// Cache athlete and stats data
-async fn cache_athlete_and_stats(
-    cache: &Arc<Cache>,
-    athlete_cache_key: &CacheKey,
-    athlete: &Athlete,
-    stats: &Stats,
-    tenant_id: TenantId,
-    user_uuid: Uuid,
-    provider_name: &str,
-) {
-    let Some(athlete_id) = athlete
-        .id
-        .parse::<u64>()
-        .inspect_err(|e| debug!("Failed to parse athlete ID: {e}"))
-        .ok()
-    else {
-        return;
-    };
-
-    // Cache athlete
-    let athlete_ttl = CacheResource::AthleteProfile.recommended_ttl();
-    cache_item(cache, athlete_cache_key, athlete, athlete_ttl, "athlete").await;
-
-    // Cache stats
-    let stats_cache_key = CacheKey::new(
-        tenant_id,
-        user_uuid,
-        provider_name.to_owned(),
-        CacheResource::Stats { athlete_id },
-    );
-    let stats_ttl = CacheResource::Stats { athlete_id }.recommended_ttl();
-    cache_item(cache, &stats_cache_key, stats, stats_ttl, "stats").await;
-    info!("Cached stats with TTL {:?}", stats_ttl);
-}
-
-/// Fetch stats from API and cache both athlete and stats
-pub(crate) async fn fetch_and_cache_stats(
-    provider: &dyn FitnessProvider,
-    cache: &Arc<Cache>,
-    athlete_cache_key: &CacheKey,
-    tenant_id: TenantId,
-    user_uuid: Uuid,
-    provider_name: &str,
-    output_format: OutputFormat,
-) -> Result<UniversalResponse, ProtocolError> {
-    let stats = match provider.get_stats().await {
-        Ok(stats) => stats,
-        Err(e) => {
-            return Ok(UniversalResponse {
-                success: false,
-                result: None,
-                error: Some(format!("Failed to fetch stats: {e}")),
-                metadata: None,
-            });
-        }
-    };
-
-    // Get athlete to extract athlete_id for caching
-    if let Ok(athlete) = provider.get_athlete().await {
-        cache_athlete_and_stats(
-            cache,
-            athlete_cache_key,
-            &athlete,
-            &stats,
-            tenant_id,
-            user_uuid,
-            provider_name,
-        )
-        .await;
-    }
-
-    let metadata = create_stats_metadata(user_uuid, tenant_id, false);
-    formatted_response(&GetStatsResult { stats }, output_format, metadata)
 }

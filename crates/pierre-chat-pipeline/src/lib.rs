@@ -577,6 +577,8 @@ struct DispatchStageArgs<'a> {
     guided_flow: Option<GuidedFlow>,
     /// Group roster (empty outside a group conversation) for peer grounding.
     peer_roster: &'a [MemberFitnessSnapshot],
+    /// The agent the turn answers as, bound on the tool executor.
+    turn_agent_id: Option<&'a str>,
 }
 
 /// Run the dispatch stage with AG-UI step emissions.
@@ -598,6 +600,7 @@ async fn dispatch_stage(
             source_ids: args.source_ids,
             guided_flow: args.guided_flow,
             peer_roster: args.peer_roster,
+            turn_agent_id: args.turn_agent_id,
         },
         llm_messages,
         max_iterations,
@@ -873,6 +876,7 @@ async fn run_turn(
             source_ids: &source_ids,
             guided_flow: onboarding_turn.as_ref().map(|turn| turn.state.flow),
             peer_roster: &group_roster,
+            turn_agent_id: input.turn_agent_id(&conv),
         },
         &mut llm_messages,
     )

@@ -950,6 +950,7 @@
     "fuelFluid": "{{value}} ml/h de líquido",
     "fuelLabel": "Avituallamiento",
     "fuelSodiumLoss": "~{{value}} mg/h de sodio perdido",
+    "fuelWithheld": "cantidades ocultas: hay un aviso médico en tu ficha, así que las fija tu profesional sanitario",
     "generateInsight": "Generar análisis",
     "goToGroups": "Ir a Grupos",
     "groupChatBadge": "Chat de grupo",

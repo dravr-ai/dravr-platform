@@ -155,6 +155,29 @@ describe('WorkoutPlanCard', () => {
     expect(screen.getByText('Rest')).toBeInTheDocument();
   });
 
+  it("tells a flagged athlete why a day's fuelling amounts are withheld, and shows no rate", () => {
+    const flagged = plan();
+    flagged.weeks[0].days[0] = {
+      date: '2026-09-15',
+      sport: 'run',
+      workout: '4 x 8 min at threshold',
+      duration_min: 65,
+      intensity: 'threshold',
+      rest: false,
+      fueling_withheld: {
+        reason: 'medical_flag',
+        set_by: 'clinician',
+        note: 'A medical/PAR-Q flag is on file for this athlete.',
+      },
+    };
+    render(<WorkoutPlanCard plan={flagged} />);
+
+    expect(
+      screen.getByText(/amounts withheld: a medical flag is on file, so your clinician sets them/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/g\/h/)).not.toBeInTheDocument();
+  });
+
   it('shows the other races the athlete named', () => {
     render(<WorkoutPlanCard plan={plan()} />);
     expect(screen.getByText(/Also racing/)).toBeInTheDocument();

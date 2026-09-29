@@ -623,6 +623,25 @@ impl User {
     }
 }
 
+/// Slope of Swain et al. 1994's regression of percent of maximum heart rate
+/// on percent of `VO2max` (Med Sci Sports Exerc 26:112-116):
+/// `%HRmax = 0.6463 × %VO2max + 37.182`.
+pub const SWAIN_HRMAX_PER_VO2MAX_SLOPE: f64 = 0.6463;
+
+/// Intercept of the same regression, in percent of maximum heart rate.
+pub const SWAIN_HRMAX_INTERCEPT_PERCENT: f64 = 37.182;
+
+/// The fraction of maximum heart rate reached at a fraction of `VO2max`, by
+/// Swain et al. 1994. At 0.85 of `VO2max` that is 0.921 of maximum heart rate;
+/// at 0.65, 0.792.
+///
+/// A population regression: an individual's measured LTHR beats it, which is
+/// why [`UserPhysiologicalProfile::threshold_hr`] takes precedence.
+#[must_use]
+pub fn max_hr_fraction_at_vo2max_fraction(vo2max_fraction: f64) -> f64 {
+    SWAIN_HRMAX_PER_VO2MAX_SLOPE.mul_add(vo2max_fraction, SWAIN_HRMAX_INTERCEPT_PERCENT / 100.0)
+}
+
 /// User physiological profile for personalized analysis
 ///
 /// Contains physiological data used for calculating personalized heart rate zones,
@@ -637,8 +656,18 @@ pub struct UserPhysiologicalProfile {
     pub resting_hr: Option<u16>,
     /// Maximum heart rate in bpm
     pub max_hr: Option<u16>,
-    /// Lactate threshold as percentage of VO2 max (0.65-0.95)
+    /// Lactate threshold as a fraction of `VO2max`, 0.65-0.95: the share of
+    /// aerobic capacity the athlete sustains at threshold (fractional
+    /// utilisation — about 0.60 untrained, 0.75-0.90 trained, Joyner & Coyle
+    /// 2008). Places threshold pace in the VDOT pace zones and, when no
+    /// [`Self::threshold_hr`] is measured, estimates the LTHR
+    /// ([`Self::lactate_threshold_hr`]).
     pub lactate_threshold_percentage: Option<f64>,
+    /// Lactate threshold heart rate (LTHR) in bpm, as measured — a 30-minute
+    /// field test, a ramp test or a lab report. Heart-rate-based training
+    /// stress is scored against it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub threshold_hr: Option<u16>,
     /// Age in years
     pub age: Option<u16>,
     /// Weight in kg
@@ -689,6 +718,7 @@ impl UserPhysiologicalProfile {
             resting_hr: None,
             max_hr: None,
             lactate_threshold_percentage: None,
+            threshold_hr: None,
             age: None,
             weight: None,
             fitness_level: FitnessLevel::Recreational,
@@ -715,6 +745,33 @@ impl UserPhysiologicalProfile {
                     .map_or_else(|| 220_u16.saturating_sub(age), |hr| hr.round() as u16)
             })
         })
+    }
+
+    /// The lactate threshold heart rate training stress is scored against, in
+    /// bpm.
+    ///
+    /// The measured [`Self::threshold_hr`] when there is one; otherwise the
+    /// estimate [`Self::estimated_lactate_threshold_hr`] gives. `None` when
+    /// neither is available — heart-rate stress then has no threshold to be
+    /// scored against, which is not the same as a threshold of zero.
+    #[must_use]
+    pub fn lactate_threshold_hr(&self) -> Option<f64> {
+        self.threshold_hr
+            .map(f64::from)
+            .or_else(|| self.estimated_lactate_threshold_hr())
+    }
+
+    /// The LTHR the stored lactate threshold implies, in bpm: the measured
+    /// maximum heart rate times the share of it the athlete reaches at that
+    /// fraction of `VO2max` ([`max_hr_fraction_at_vo2max_fraction`]).
+    ///
+    /// Needs a measured `max_hr`; an age-predicted one would stack a second
+    /// population estimate on the first.
+    #[must_use]
+    pub fn estimated_lactate_threshold_hr(&self) -> Option<f64> {
+        let fraction = self.lactate_threshold_percentage?;
+        let max_hr = self.max_hr?;
+        Some(f64::from(max_hr) * max_hr_fraction_at_vo2max_fraction(fraction))
     }
 
     /// Check if profile has sufficient data for VO2 max calculations

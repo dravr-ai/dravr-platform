@@ -251,7 +251,7 @@ impl McpTool<dyn ToolRuntime> for SetFitnessConfigTool {
             PropertySchema {
                 property_type: "boolean".to_owned(),
                 description: Some(
-                    "If true, save as user-specific config. If false, save as tenant default (requires admin)".to_owned()
+                    "If true (the default), save as user-specific config. If false, save as tenant default (requires admin)".to_owned()
                 ),
                 ..Default::default()
             },
@@ -451,7 +451,7 @@ impl McpTool<dyn ToolRuntime> for DeleteFitnessConfigTool {
             PropertySchema {
                 property_type: "boolean".to_owned(),
                 description: Some(
-                    "If true, delete user-specific config. If false, delete tenant config (requires admin)".to_owned()
+                    "If true (the default), delete user-specific config. If false, delete tenant config (requires admin)".to_owned()
                 ),
                 ..Default::default()
             },

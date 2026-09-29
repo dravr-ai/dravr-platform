@@ -45,6 +45,8 @@ pub mod logging;
 pub mod mcp;
 /// Network configuration (HTTP client, SSE, CORS, TLS, timeouts)
 pub mod network;
+/// The nutrition admin parameters (`nutrition.*`) and the athlete protein override reader
+pub mod nutrition_params;
 /// Runtime configuration management with session-scoped overrides
 pub mod runtime;
 /// Security configuration (auth, headers, monitoring)

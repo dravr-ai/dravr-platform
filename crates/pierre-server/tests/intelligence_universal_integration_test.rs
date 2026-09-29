@@ -518,6 +518,170 @@ async fn test_track_progress_finds_a_goal_created_by_set_goal() -> Result<()> {
     Ok(())
 }
 
+/// `set_goal` sets what its schema says it sets, and refuses what the tracker
+/// cannot measure.
+///
+/// The schema requires only `goal_type` and `target_value` and promises a
+/// monthly default, but the handler used to fail every call that named no
+/// timeframe. It advertised 'time' and 'performance' goals it saved and could
+/// never track, and a `sport` it never stored. A timeframe now defaults to a
+/// month, the sport is stored under its canonical name and echoed by
+/// `track_progress`, and a type, window, target or sport outside what progress
+/// can be measured for is refused before anything is written.
+#[tokio::test]
+async fn test_set_goal_defaults_its_timeframe_and_refuses_what_it_cannot_measure() -> Result<()> {
+    // track_progress builds a real Strava provider after the goal lookup;
+    // pointing it at a closed port makes that fetch fail at once.
+    env::set_var("PIERRE_STRAVA_API_BASE_URL", "http://127.0.0.1:1/api/v3");
+    common::init_server_config();
+    common::init_test_http_clients();
+
+    let resources = common::create_test_server_resources().await?;
+    let database = resources.agent.database.clone();
+    let (user_id, _user, tenant_id) =
+        common::create_test_user_with_plan(&database, "goal-defaults@example.com", "starter")
+            .await?;
+    let now = Utc::now();
+    database
+        .repositories()
+        .oauth_tokens
+        .upsert_token(&UserOAuthToken {
+            id: Uuid::new_v4().to_string(),
+            user_id,
+            tenant_id: tenant_id.to_string(),
+            provider: "strava".to_owned(),
+            access_token: "test_access_token".to_owned(),
+            refresh_token: Some("test_refresh_token".to_owned()),
+            token_type: "Bearer".to_owned(),
+            expires_at: Some(now + chrono::Duration::hours(6)),
+            scope: Some("activity:read_all".to_owned()),
+            provider_user_id: None,
+            oauth_app_client_id: None,
+            created_at: now,
+            updated_at: now,
+        })
+        .await?;
+
+    let executor = UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant());
+    let call = |tool: &str, parameters: serde_json::Value| UniversalRequest {
+        tool_name: tool.to_owned(),
+        parameters,
+        user_id: user_id.to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: Some(tenant_id.to_string()),
+    };
+
+    let created = executor
+        .execute_tool(call(
+            "set_goal",
+            json!({"goal_type": "distance", "target_value": 80.0, "sport": "Running"}),
+        ))
+        .await?;
+    assert!(
+        created.success,
+        "no timeframe is needed: {:?}",
+        created.error
+    );
+    let created = created.result.unwrap();
+    assert_eq!(created["timeframe"].as_str(), Some("month"));
+    assert_eq!(
+        created["sport"].as_str(),
+        Some("run"),
+        "the sport is stored under its canonical name"
+    );
+    let goal_id = created["goal_id"].as_str().unwrap().to_owned();
+
+    let stored = database.repositories().profiles.get_goals(user_id).await?;
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0]["timeframe"].as_str(), Some("month"));
+    assert_eq!(stored[0]["sport"].as_str(), Some("run"));
+
+    // The adjective and any case read as the window they name, and are stored
+    // under it, so the tracker counts the right number of days.
+    let quarterly = executor
+        .execute_tool(call(
+            "set_goal",
+            json!({"goal_type": "Frequency", "target_value": 36.0, "timeframe": "Quarterly"}),
+        ))
+        .await?;
+    assert!(quarterly.success, "{:?}", quarterly.error);
+    let quarterly = quarterly.result.unwrap();
+    assert_eq!(quarterly["goal_type"].as_str(), Some("frequency"));
+    assert_eq!(quarterly["timeframe"].as_str(), Some("quarter"));
+    assert!(
+        quarterly["sport"].is_null(),
+        "no sport counts every activity"
+    );
+
+    let tracked = executor
+        .execute_tool(call(
+            "track_progress",
+            json!({"goal_id": goal_id, "provider": "strava"}),
+        ))
+        .await?;
+    assert!(tracked.success, "{:?}", tracked.error);
+    let progress = tracked.result.unwrap();
+    assert_eq!(progress["sport"].as_str(), Some("run"));
+    assert_eq!(progress["timeframe"].as_str(), Some("month"));
+    assert_eq!(progress["days_remaining"].as_u64(), Some(30));
+
+    for (arguments, named) in [
+        (
+            json!({"goal_type": "time", "target_value": 20.0}),
+            "goal_type 'time'",
+        ),
+        (
+            json!({"goal_type": "performance", "target_value": 5.0}),
+            "goal_type 'performance'",
+        ),
+        (
+            json!({"goal_type": "distance", "target_value": 80.0, "timeframe": "fortnight"}),
+            "timeframe 'fortnight'",
+        ),
+        (
+            json!({"goal_type": "frequency", "target_value": 0.0}),
+            "target_value must be a positive number",
+        ),
+        (
+            json!({"goal_type": "distance", "target_value": 80.0, "sport": "quidditch"}),
+            "sport 'quidditch'",
+        ),
+    ] {
+        let refused = executor
+            .execute_tool(call("set_goal", arguments.clone()))
+            .await
+            .expect_err("a goal the tracker cannot measure is refused");
+        assert!(
+            refused.to_string().contains(named),
+            "{arguments}: the refusal names what was wrong, got: {refused}"
+        );
+    }
+    assert!(
+        executor
+            .execute_tool(call(
+                "set_goal",
+                json!({"goal_type": "time", "target_value": 1.0})
+            ))
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("'duration' (hours)"),
+        "the refusal lists the goal types progress can be measured for"
+    );
+    assert_eq!(
+        database
+            .repositories()
+            .profiles
+            .get_goals(user_id)
+            .await?
+            .len(),
+        2,
+        "nothing refused was written"
+    );
+
+    Ok(())
+}
+
 /// The exact backfill statement each backend ships, so the test exercises the
 /// migration rather than a paraphrase that could drift from it.
 const SQLITE_GOAL_ID_BACKFILL_SQL: &str =

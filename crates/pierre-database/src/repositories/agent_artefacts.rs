@@ -1,5 +1,5 @@
 // ABOUTME: Repository trait for agent package artefacts — the flavour, skeleton and workout files stored per agent
-// ABOUTME: The seeder replaces an agent's set wholesale; the resolver and the admin review read it back
+// ABOUTME: The seeder replaces an agent's set wholesale; the resolver and the admin review read it back; a boot repair rewrites one in place
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -38,6 +38,29 @@ pub trait AgentArtefactRepository: Send + Sync {
         tenant_id: &str,
         agent_id: &str,
     ) -> AppResult<Vec<AgentArtefact>>;
+
+    /// Every artefact of `kind` any agent in the tenant carries, ordered by
+    /// `(agent_id, slug)` — what a repair of stored text walks.
+    async fn list_tenant_artefacts(
+        &self,
+        tenant_id: &str,
+        kind: ArtefactKind,
+    ) -> AppResult<Vec<AgentArtefact>>;
+
+    /// Rewrite one stored artefact's text in place: the row keeps its id,
+    /// agent, kind and slug, and takes `content`, its `sha256` and a fresh
+    /// `updated_at`. Returns `false` when no row of the tenant has that id.
+    ///
+    /// For a repair of text a stricter kernel refuses, never for a package
+    /// change — a package is written as a set by
+    /// [`Self::replace_agent_artefacts`].
+    async fn rewrite_agent_artefact(
+        &self,
+        tenant_id: &str,
+        id: &str,
+        content: &str,
+        sha256: &str,
+    ) -> AppResult<bool>;
 }
 
 /// Clear the agent's current set before the replacement is written.
@@ -66,6 +89,22 @@ pub(crate) const LIST_AGENT_ARTEFACTS_SQL: &str = r"
             FROM agent_artefacts
             WHERE tenant_id = $1 AND agent_id = $2
             ORDER BY kind, slug
+            ";
+
+/// One tenant's artefacts of one kind, across its agents.
+pub(crate) const LIST_TENANT_ARTEFACTS_SQL: &str = r"
+            SELECT id, agent_id, tenant_id, kind, slug, content, sha256, created_at, updated_at
+            FROM agent_artefacts
+            WHERE tenant_id = $1 AND kind = $2
+            ORDER BY agent_id, slug
+            ";
+
+/// Rewrite one artefact's text; `$3` binds `updated_at` the way the insert
+/// binds its timestamps.
+pub(crate) const REWRITE_AGENT_ARTEFACT_SQL: &str = r"
+            UPDATE agent_artefacts
+            SET content = $1, sha256 = $2, updated_at = $3
+            WHERE tenant_id = $4 AND id = $5
             ";
 
 /// Extract an [`AgentArtefact`] from a row of either backend via `try_get`
@@ -166,6 +205,39 @@ macro_rules! impl_agent_artefact_repository {
                     .await
                     .map_err(|e| AppError::database(format!("list coach_artefacts: {e}")))?;
                 rows.iter().map(artefact_from_row).collect()
+            }
+
+            async fn list_tenant_artefacts(
+                &self,
+                tenant_id: &str,
+                kind: ArtefactKind,
+            ) -> AppResult<Vec<AgentArtefact>> {
+                let rows = sqlx::query(LIST_TENANT_ARTEFACTS_SQL)
+                    .bind(tenant_id)
+                    .bind(kind.as_str())
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("list tenant artefacts: {e}")))?;
+                rows.iter().map(artefact_from_row).collect()
+            }
+
+            async fn rewrite_agent_artefact(
+                &self,
+                tenant_id: &str,
+                id: &str,
+                content: &str,
+                sha256: &str,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(REWRITE_AGENT_ARTEFACT_SQL)
+                    .bind(content)
+                    .bind(sha256)
+                    .bind(Utc::now())
+                    .bind(tenant_id)
+                    .bind(id)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("rewrite agent artefact: {e}")))?;
+                Ok(result.rows_affected() > 0)
             }
         }
     };

@@ -214,7 +214,7 @@ fi
 # workflow step in .github/workflows/ci-backend.yml — extend both together.
 SHELL_LINT_PATTERNS='^bin/[^/]+\.sh$|^scripts/ci/[^/]+\.test\.sh$|^scripts/ci/mobile-e2e-batch\.sh$|^scripts/setup/setup-claude-code-mcp\.sh$|^scripts/setup/check-gh-cli\.sh$|^scripts/sciotte-local\.sh$'
 SHELL_LINT_FILES=$(echo "$CHANGED_FILES" | grep -E "$SHELL_LINT_PATTERNS" || true)
-SHELL_LINT_FILES=$(for f in $SHELL_LINT_FILES; do [[ -f "$PROJECT_ROOT/$f" ]] && echo "$f"; done)
+SHELL_LINT_FILES=$(for f in $SHELL_LINT_FILES; do if [[ -f "$PROJECT_ROOT/$f" ]]; then echo "$f"; fi; done)
 if [[ -n "$SHELL_LINT_FILES" ]]; then
     echo "Tier 0c: Shell Lint"
     echo "-------------------"

@@ -22,6 +22,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::implementations::nutrition_gate::FiguresWithheld;
+
 /// What `generate_recommendations` answers with.
 #[derive(Debug, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct RecommendationsResult {
@@ -88,6 +90,11 @@ pub struct RecommendationsResult {
     /// The session the nutrition advice is about.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub activity_summary: Option<ActivitySummary>,
+    /// Present when the athlete has a medical flag on file: the `nutrition`
+    /// mode then answers without `macronutrient_targets`, `meal_suggestions`
+    /// or any amount in `recommendations`, because their clinician sets those.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub figures_withheld: Option<FiguresWithheld>,
 
     // comprehensive
     /// The training picture the holistic read is built on.
@@ -148,15 +155,30 @@ pub struct MealSuggestion {
     pub timing: String,
 }
 
-/// Macro targets for the recovery window.
+/// Recovery-window targets, scaled to the athlete's stored body weight.
+///
+/// Present only when a body weight is on file: every figure here is per
+/// kilogram in the evidence, so without a weight the recommendations state the
+/// per-kilogram dose instead of inventing a gram count. There is no fluid
+/// target — how much to drink afterwards depends on what the session cost, which
+/// only a before-and-after weigh measures (see the recommendations).
 #[derive(Debug, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct MacronutrientTargets {
-    /// Protein in grams.
+    /// Protein for the meal or snack after the session, grams: 0.3 g per kg of
+    /// body weight (Thomas, Erdman & Burke 2016; Kerksick et al. 2017 give
+    /// 0.25-0.40 g/kg, or 20-40 g), within about 2 hours.
     pub protein_g: f64,
-    /// Carbohydrate in grams.
-    pub carbohydrates_g: f64,
-    /// Fluid in millilitres.
-    pub hydration_ml: f64,
+    /// The per-kilogram protein dose `protein_g` was scaled from.
+    pub protein_g_per_kg: f64,
+    /// Carbohydrate per hour for the first 4 hours, low end, grams: 1.0 g per
+    /// kg per hour. Only when the next fuel-demanding session is less than
+    /// 8 hours away (Thomas, Erdman & Burke 2016); otherwise regular meals
+    /// refill glycogen and no hourly target applies.
+    pub refuel_carbohydrates_g_per_h_min: f64,
+    /// The high end of that hourly range: 1.2 g per kg per hour.
+    pub refuel_carbohydrates_g_per_h_max: f64,
+    /// The stored body weight these were scaled from, kilograms.
+    pub body_weight_kg: f64,
 }
 
 /// The session the nutrition advice is about.

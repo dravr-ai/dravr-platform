@@ -163,6 +163,10 @@ required-features = [
 ]
 
 [[test]]
+name = "goal_activities_test"
+required-features = ["tools-goals"]
+
+[[test]]
 name = "group_fitness_weekly_metrics_test"
 required-features = ["tools-groups"]
 
@@ -199,6 +203,19 @@ required-features = [
     "tools-recipes",
     "tools-sleep",
     "tools-verification",
+]
+
+[[test]]
+name = "tool_schema_truth_test"
+required-features = [
+    "tools-admin",
+    "tools-agents",
+    "tools-analytics",
+    "tools-config",
+    "tools-connection",
+    "tools-goals",
+    "tools-recipes",
+    "tools-sleep",
 ]
 
 [[test]]

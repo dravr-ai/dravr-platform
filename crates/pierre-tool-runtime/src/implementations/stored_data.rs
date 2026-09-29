@@ -57,7 +57,11 @@ const DEFAULT_LOOKBACK_DAYS: i64 = 30;
 /// between a read and the whole table.
 const MAX_RANGE_DAYS: i64 = 366;
 
-/// Parse `start`/`end` RFC3339 args, defaulting to (now - 30d, now).
+/// Parse `start`/`end` RFC3339 args, defaulting to (end - 30d, now).
+///
+/// An omitted `start` is measured back from `end`, so a caller that names
+/// only the end of a past window gets the 30 days before it rather than a
+/// start after its own end.
 ///
 /// An inverted range is refused; a span wider than [`MAX_RANGE_DAYS`] is
 /// clipped to the most recent year (the payload echoes the effective
@@ -78,7 +82,7 @@ pub fn parse_date_range(args: &Value) -> AppResult<(DateTime<Utc>, DateTime<Utc>
         .and_then(Value::as_str)
         .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
         .map_or_else(
-            || Utc::now() - Duration::days(DEFAULT_LOOKBACK_DAYS),
+            || end - Duration::days(DEFAULT_LOOKBACK_DAYS),
             |dt| dt.with_timezone(&Utc),
         );
     if start > end {
@@ -101,9 +105,11 @@ fn date_range_properties() -> BTreeMap<String, PropertySchema> {
         "start".to_owned(),
         PropertySchema {
             property_type: "string".to_owned(),
-            description: Some(
-                "Start of the date range as RFC3339 timestamp. Defaults to 30 days ago.".to_owned(),
-            ),
+            description: Some(format!(
+                "Start of the date range as RFC3339 timestamp. Defaults to \
+                 {DEFAULT_LOOKBACK_DAYS} days before `end`; a range longer than \
+                 {MAX_RANGE_DAYS} days keeps its most recent {MAX_RANGE_DAYS}."
+            )),
             ..Default::default()
         },
     );

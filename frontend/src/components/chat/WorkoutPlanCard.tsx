@@ -173,6 +173,12 @@ export function DayRow({ day }: { day: PlanDay }) {
             {fuelParts(day.fueling, t).join(' · ')}
           </div>
         )}
+        {day.fueling_withheld && (
+          <div className="mt-0.5 text-xs text-on-surface-variant">
+            <span className="font-medium text-on-surface">{t('chat.fuelLabel')}</span>{' '}
+            {t('chat.fuelWithheld')}
+          </div>
+        )}
       </td>
     </tr>
   );

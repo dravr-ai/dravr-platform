@@ -8,8 +8,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
 use pierre_core::models::agents::{
-    Agent, AgentAssignment, AgentHandle, AgentListItem, AgentVersion, CreateAgentRequest,
-    CreateSystemAgentRequest, ListAgentsFilter, UpdateAgentRequest,
+    Agent, AgentAssignment, AgentCategory, AgentHandle, AgentListItem, AgentVersion,
+    CreateAgentRequest, CreateSystemAgentRequest, ListAgentsFilter, UpdateAgentRequest,
 };
 use pierre_core::models::groups::{
     CoachingGroup, GroupInvite, GroupMember, GroupRole, GroupSummary, GroupTranscriptEntry,
@@ -115,12 +115,14 @@ pub trait AgentsRepository: Send + Sync {
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> AppResult<Option<bool>>;
-    /// Search coachs by text query
+    /// Search the user's own agents by text query, within one category when
+    /// `category` names one
     async fn search(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
         query: &str,
+        category: Option<AgentCategory>,
         limit: Option<u32>,
         offset: Option<u32>,
     ) -> AppResult<Vec<Agent>>;
@@ -750,7 +752,8 @@ pub(crate) const FAVORITE_STATUS_SQL: &str =
 pub(crate) const SET_FAVORITE_SQL: &str =
     "UPDATE agent_assignments SET is_favorite = $1 WHERE agent_id = $2 AND user_id = $3";
 
-/// Search a user's own agents by title, description or tags, ignoring case.
+/// Search a user's own agents by title, description or tags, ignoring case,
+/// restricted to one category when `$6` is not NULL.
 /// `LOWER` on both sides rather than Postgres's `ILIKE`, which `SQLite` lacks;
 /// `SQLite`'s `LOWER` folds ASCII letters only, as its `LIKE` does.
 pub(crate) const SEARCH_AGENTS_SQL: &str = concat!(
@@ -759,6 +762,7 @@ pub(crate) const SEARCH_AGENTS_SQL: &str = concat!(
     " FROM agents WHERE user_id = $1 AND tenant_id = $2 AND (
         LOWER(title) LIKE LOWER($3) OR LOWER(description) LIKE LOWER($3)
         OR LOWER(tags) LIKE LOWER($3))
+    AND ($6 IS NULL OR category = $6)
     ORDER BY updated_at DESC LIMIT $4 OFFSET $5"
 );
 

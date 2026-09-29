@@ -30,8 +30,8 @@ use super::calendar::{
     calendar_provider, destructive_annotations, required_text, step_schema, validate_step,
     TargetRule, MAX_SESSION_STEPS,
 };
+use super::training_plan_authorship::{load_conversation, resolve_turn_agent};
 use super::training_plan_telemetry::{emit_calendar_sync_completed, emit_calendar_sync_failed};
-use super::training_plans::{load_conversation, resolve_agent_slug};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
@@ -232,9 +232,9 @@ async fn store_session(
     Ok(template)
 }
 
-/// The agent this call runs under: the conversation's, else the `agent_id`
-/// argument on a direct MCP call. What decides which package lays over the
-/// catalogue for the athlete.
+/// The agent this call runs under: the turn's, else the conversation's, else
+/// the `agent_id` argument on a direct MCP call. What decides which package
+/// lays over the catalogue for the athlete.
 async fn turn_agent(
     context: &ToolExecutionContext,
     tenant_id: TenantId,
@@ -247,7 +247,11 @@ async fn turn_agent(
         &context.user_id.to_string(),
     )
     .await?;
-    Ok(resolve_agent_slug(conversation.as_ref(), arg_agent))
+    Ok(resolve_turn_agent(
+        context,
+        conversation.as_ref(),
+        arg_agent,
+    ))
 }
 
 /// The catalogue as this athlete's agent lays it out: the agent's package
@@ -551,13 +555,11 @@ impl McpTool<dyn ToolRuntime> for ListWorkoutTemplatesTool {
             },
         );
         let schema = object_schema(properties, Some(Vec::new()));
-        answers_with::<WorkoutTemplatesResult>(tool_definition(
-            "list_workout_templates",
+        // The purpose list is the kernel's vocabulary, never a copy of it: a
+        // purpose the kernel gains reaches the description the build it lands.
+        let description = format!(
             "List the workout template bank by what a session is for. Every \
-             template carries a purpose (recovery, endurance, endurance_long, \
-             tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, \
-             neuromuscular, race_specific, brick, strength_aa, strength_max, \
-             strength_maint, plyometric, mobility), the season phases it fits, \
+             template carries a purpose ({}), the season phases it fits, \
              the readiness level it needs, the sports it is written for, its \
              evidence tier, and parameter ranges (reps, work and rest seconds, \
              duration, RPE, intensity per sport) with a default the agent fills \
@@ -565,6 +567,11 @@ impl McpTool<dyn ToolRuntime> for ListWorkoutTemplatesTool {
              lists the athlete's own saved sessions after the bank. Pass detail = \
              full for the structured steps and target zones prescribe_workout \
              pushes to the athlete's Intervals.icu calendar.",
+            vocabulary(WorkoutPurpose::ALL, WorkoutPurpose::as_str)
+        );
+        answers_with::<WorkoutTemplatesResult>(tool_definition(
+            "list_workout_templates",
+            &description,
             schema,
             Some(read_only_annotations()),
         ))
@@ -753,7 +760,12 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
             "agent_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Optional agent id stamped onto the audit row.".to_owned()),
+                description: Some(
+                    "The agent prescribing this, read only on a call with no conversation (a \
+                     direct MCP call); a chat turn's own agent always wins. Its package resolves \
+                     the template, and the ledger row names it."
+                        .to_owned(),
+                ),
                 ..Default::default()
             },
         );
@@ -813,14 +825,19 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                 .ok_or_else(|| AppError::invalid_input("date is required"))?;
             let date = NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
                 .map_err(|e| AppError::invalid_input(format!("date must be YYYY-MM-DD: {e}")))?;
-            let agent_id = args
+            let arg_agent = args
                 .get("agent_id")
                 .and_then(Value::as_str)
                 .map(str::to_owned);
 
             let replaces = optional_prescription_id(&args, "replaces")?;
 
-            let agent = turn_agent(&context, tenant_id, agent_id.clone()).await?;
+            // The agent this prescription runs under — the turn's, else the
+            // conversation's, else the argument on a direct call. It picks the
+            // package the template resolves through and is the agent the
+            // ledger row names, the way a pushed plan day names its week's
+            // author.
+            let agent = turn_agent(&context, tenant_id, arg_agent).await?;
             let template =
                 resolve_template(&context, tenant_id, user_id, agent.as_deref(), &args).await?;
             // The previous entry is resolved before the provider is built, so a
@@ -899,7 +916,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                 id: prescription_id,
                 tenant_id: tenant_id.as_uuid(),
                 user_id,
-                agent_id,
+                agent_id: agent,
                 template_slug: Some(template.slug.clone()),
                 sport: template.sport.clone(),
                 prescribed_for_date: date,

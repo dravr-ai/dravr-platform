@@ -25,7 +25,7 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::TenantId;
-use pierre_database::repositories::training_plans::PlanOwner;
+use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
@@ -110,12 +110,11 @@ async fn seed_plan(resources: &Arc<ServerContext>, user_id: Uuid, tenant: Tenant
     seed_plan_with(resources, user_id, tenant, None, &[], &[]).await
 }
 
-/// The same plan, filed under a specific agent persona slug.
+/// The same plan, laid by a specific agent persona.
 ///
-/// An agent-agnostic plan renders under ANY agent lookup (`get_active_plan`
-/// falls back to the agnostic row), so it cannot tell whether the handler
-/// resolved the right agent. A plan under a slug only the athlete's selected
-/// agent (or the conversation's) resolves can.
+/// Which agent laid the season never decides which surface finds it: the
+/// athlete has one season, so a plan an agent other than the conversation's
+/// or the selected one laid is the plan every surface must still render.
 async fn seed_plan_under_coach(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
@@ -201,8 +200,9 @@ async fn seed_plan_with(
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant.to_string(),
             user_id: &user_id.to_string(),
-            owner: PlanOwner::from_slug(agent_slug),
+            author: PlanAuthor::from_agent(agent_slug),
             goal_fact_id: None,
+            replace_season: false,
             outline: Some(PlanOutlineInput {
                 goal_race: &goal,
                 races: Some(&[]),
@@ -715,8 +715,9 @@ async fn seed_future_only_plan(
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant.to_string(),
             user_id: &user_id.to_string(),
-            owner: PlanOwner::agnostic(),
+            author: PlanAuthor::none(),
             goal_fact_id: None,
+            replace_season: false,
             outline: Some(PlanOutlineInput {
                 goal_race: &goal,
                 races: Some(&[]),
@@ -795,8 +796,9 @@ async fn seed_week_missing_today(
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant.to_string(),
             user_id: &user_id.to_string(),
-            owner: PlanOwner::agnostic(),
+            author: PlanAuthor::none(),
             goal_fact_id: None,
+            replace_season: false,
             outline: Some(PlanOutlineInput {
                 goal_race: &goal,
                 races: Some(&[]),
@@ -947,8 +949,9 @@ async fn seed_expired_plan(
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant.to_string(),
             user_id: &user_id.to_string(),
-            owner: PlanOwner::agnostic(),
+            author: PlanAuthor::none(),
             goal_fact_id: None,
+            replace_season: false,
             outline: Some(PlanOutlineInput {
                 goal_race: &goal,
                 races: Some(&[]),
@@ -1311,12 +1314,11 @@ async fn plan_share_in_a_dm_renders_exactly_like_plan() -> Result<()> {
     Ok(())
 }
 
-/// Regression: `/plan` in a room looked the conversation up under the
-/// caller's tenant, missed the bot-tenant row, and fell back to the
-/// agent-agnostic plan — an athlete whose plan lived under their selected
-/// agent read "No plan saved yet" in the room.
+/// Regression: an athlete whose plan was laid by their selected agent read
+/// "No plan saved yet" in a room whose conversation binds no agent. The room
+/// reads the athlete's one season, whoever laid it.
 #[tokio::test]
-async fn plan_in_a_room_finds_the_plan_built_under_the_selected_coach() -> Result<()> {
+async fn plan_in_a_room_finds_the_season_the_selected_agent_laid() -> Result<()> {
     let (resources, user_id, tenant, _dm) = setup().await?;
     athlete_with_a_coached_plan(&resources, user_id, tenant, "Phil Tremblay").await?;
     let (bot_tenant, room) = room_conversation(&resources, user_id, None).await?;
@@ -1343,28 +1345,27 @@ async fn plan_in_a_room_finds_the_plan_built_under_the_selected_coach() -> Resul
     );
     assert!(
         !text.contains("No plan saved yet"),
-        "the selected-coach rung of the ladder must find the plan: {text}"
+        "the room must find the athlete's season: {text}"
     );
     Ok(())
 }
 
-/// A room conversation that DOES bind an agent — read under the tenant that
-/// owns the row — wins over the athlete's selection, matching how the plan
-/// injection keys on the conversation's agent.
+/// The room finds the athlete's one season whatever agent the room binds and
+/// whatever agent the athlete selected — here a third agent laid it, so no
+/// lookup keyed on either agent could reach it.
 #[tokio::test]
-async fn a_room_conversation_bound_to_a_coach_reads_that_coachs_plan() -> Result<()> {
+async fn the_room_finds_the_one_season_whatever_it_binds_or_the_athlete_selects() -> Result<()> {
     let (resources, user_id, tenant, _dm) = setup().await?;
-    // The selection points at an agent with no plan; only the conversation's
-    // agent has one, so a ladder in the wrong order renders the empty state.
     let other_coach = seed_persona(&resources, user_id, tenant, "Other Coach").await?;
     let room_coach = seed_persona(&resources, user_id, tenant, "Room Coach").await?;
+    let season_coach = seed_persona(&resources, user_id, tenant, "Season Coach").await?;
     resources
         .common
         .repos
         .tenants
         .set_selected_agent(tenant, user_id, Some(&other_coach))
         .await?;
-    seed_plan_under_coach(&resources, user_id, tenant, &room_coach).await?;
+    seed_plan_under_coach(&resources, user_id, tenant, &season_coach).await?;
     let (bot_tenant, room) = room_conversation(&resources, user_id, Some(&room_coach)).await?;
 
     let text = PlanShowHandler
@@ -1385,7 +1386,7 @@ async fn a_room_conversation_bound_to_a_coach_reads_that_coachs_plan() -> Result
 
     assert!(
         text.contains("endurance ride"),
-        "the conversation's coach must be honoured from the bot tenant: {text}"
+        "the season renders in a room bound to another agent: {text}"
     );
     assert!(!text.contains("No plan saved yet"), "{text}");
     Ok(())

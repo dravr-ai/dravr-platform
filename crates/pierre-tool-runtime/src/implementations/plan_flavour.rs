@@ -31,7 +31,7 @@ use tracing::info;
 
 use super::data_helpers::read_only_annotations;
 use super::plan_scope::{resolve_plan_scope, PlanScopeRequest};
-use super::training_plans::load_conversation;
+use super::training_plan_authorship::load_conversation;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
@@ -52,7 +52,6 @@ use pierre_core::models::periodization::{
     SeasonPhase, SkeletonTemplate, SportMix, TrainingAge,
 };
 use pierre_core::models::{SportFamily, SportType, TenantId, UserPhysiologicalProfile};
-use pierre_database::repositories::training_plans::PlanOwner;
 use pierre_mcp_schema::PropertySchema;
 use pierre_memory::training_plans::{parse_plan_date, RacePriority, TrainingPlan};
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
@@ -762,19 +761,16 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
             };
             let tenant_id = scope.tenant;
             let user_id = scope.user_id;
-            let agent = scope.agent_slug.as_deref();
 
             let profile = repos
                 .user_physiological_profile
                 .get_user_physiological_profile(tenant_id, user_id)
                 .await?;
+            // The athlete's one season, whichever agent laid it: a taper or
+            // heat agent recommending for a season agent's plan sees its goal.
             let plan = repos
                 .training_plans
-                .get_active_plan(
-                    &tenant_id.to_string(),
-                    &user_id.to_string(),
-                    PlanOwner::from_slug(agent),
-                )
+                .get_active_plan(&tenant_id.to_string(), &user_id.to_string())
                 .await?;
             let goal = plan.as_ref().and_then(|p| {
                 let ec = event_class_from_discipline(&p.goal_race.discipline)?;
@@ -785,9 +781,17 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
             let today = athlete_today(repos, user_id).await;
             let mut resolved = Self::resolve(&payload, profile.as_ref(), goal, today);
 
-            // The agent's package over the catalogue: its house flavour is
-            // pinned, its flavours and skeleton offered beside the catalogue's.
-            let package = load_agent_package(repos, tenant_id, user_id, agent).await?;
+            // The asking agent's package over the catalogue, resolved as the
+            // requester: its house flavour is pinned, its flavours and
+            // skeleton offered beside the catalogue's.
+            let writer = &scope.writer;
+            let package = load_agent_package(
+                repos,
+                writer.tenant,
+                writer.user_id,
+                writer.agent_id.as_deref(),
+            )
+            .await?;
             let catalogue = PackagedCatalogue::new(state.training_catalogue(), package);
             Self::pin_house_flavour(&mut resolved, catalogue.house_flavour());
             let table = catalogue.selection().ok_or_else(|| {

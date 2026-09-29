@@ -114,6 +114,9 @@ async fn execute_activity_comparison(
     }
 }
 
+/// The comparisons `compare_activities` makes, the default first.
+const COMPARISON_TYPES: [&str; 3] = ["similar_activities", "pr_comparison", "specific_activity"];
+
 /// Compare an activity using different comparison strategies
 fn compare_activity_logic(
     target: &Activity,
@@ -123,10 +126,12 @@ fn compare_activity_logic(
 ) -> CompareActivitiesResult {
     match comparison_type {
         "pr_comparison" => compare_with_personal_records(target, all_activities),
+        // The handler admits `specific_activity` only with an id to compare.
         "specific_activity" => compare_activity_id.map_or_else(
             || compare_with_similar_activities(target, all_activities),
             |compare_id| compare_with_specific_activity(target, all_activities, compare_id),
         ),
+        // similar_activities: the handler admits no other value.
         _ => compare_with_similar_activities(target, all_activities),
     }
 }
@@ -618,6 +623,32 @@ pub fn handle_compare_activities(
         use parse_user_id_for_protocol;
 
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
+        let comparison_type = request
+            .parameters
+            .get("comparison_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("similar_activities");
+        let compare_activity_id = request
+            .parameters
+            .get("compare_activity_id")
+            .and_then(|v| v.as_str());
+        // Refused before any provider is read: an unknown comparison, or a
+        // specific one with nothing to compare against, used to be answered
+        // as a similar-activities comparison nobody asked for.
+        if !COMPARISON_TYPES.contains(&comparison_type) {
+            return Err(ProtocolError::InvalidParameters(format!(
+                "comparison_type '{comparison_type}' is not a comparison this tool makes; use \
+                 one of {}",
+                COMPARISON_TYPES.join(", ")
+            )));
+        }
+        if comparison_type == "specific_activity" && compare_activity_id.is_none() {
+            return Err(ProtocolError::InvalidParameters(
+                "comparison_type 'specific_activity' needs compare_activity_id, the activity \
+                 to compare against"
+                    .to_owned(),
+            ));
+        }
         let provider_name = match resolve_provider_for_request(
             &request.parameters,
             executor,
@@ -636,15 +667,6 @@ pub fn handle_compare_activities(
             .ok_or_else(|| {
                 ProtocolError::InvalidRequest("Missing required parameter: activity_id".to_owned())
             })?;
-        let comparison_type = request
-            .parameters
-            .get("comparison_type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("similar_activities");
-        let compare_activity_id = request
-            .parameters
-            .get("compare_activity_id")
-            .and_then(|v| v.as_str());
 
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);

@@ -144,6 +144,16 @@ pub(crate) const DELETE_USER_FACT_SQL: &str = r"
             WHERE id = $1 AND tenant_id = $2 AND user_id = $3
             ";
 
+/// Delete a user's facts carrying one exact claim: source, predicate code and
+/// object all equal, other than the row `$6` names (`NULL` keeps none; no
+/// fact id is empty).
+pub(crate) const DELETE_FACTS_BY_CLAIM_SQL: &str = r"
+            DELETE FROM user_facts
+            WHERE tenant_id = $1 AND user_id = $2
+              AND source = $3 AND predicate_code = $4 AND object = $5
+              AND id <> COALESCE($6, '')
+            ";
+
 /// Expire a user's still-valid onboarding facts, narrowed by any of pillar,
 /// creation window and predicate code. `$1` is both the new `valid_until`
 /// and the new `updated_at`.
@@ -779,6 +789,30 @@ macro_rules! impl_harness_memory_repository {
                     .await
                     .map_err(|e| AppError::database(format!("Failed to delete user fact: {e}")))?;
                 Ok(result.rows_affected() > 0)
+            }
+
+            async fn delete_facts_by_claim(
+                &self,
+                tenant_id: TenantId,
+                user_id: &str,
+                source: FactSource,
+                predicate_code: PredicateCode,
+                object: &str,
+                keep_id: Option<&str>,
+            ) -> AppResult<u64> {
+                let result = sqlx::query(DELETE_FACTS_BY_CLAIM_SQL)
+                    .bind(tenant_id.to_string())
+                    .bind(user_id)
+                    .bind(source.as_str())
+                    .bind(predicate_code.as_str())
+                    .bind(object)
+                    .bind(keep_id)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to delete facts by claim: {e}"))
+                    })?;
+                Ok(result.rows_affected())
             }
 
             async fn expire_onboarding_facts(

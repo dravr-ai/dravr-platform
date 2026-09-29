@@ -12,14 +12,13 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::errors::AppError;
 use pierre_core::models::onboarding::{GuidedFlow, OnboardingState};
-use pierre_database::repositories::training_plans::PlanOwner;
 use pierre_messaging::commands::CommandResponse;
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::fortnight::{
     decide_fortnight, CoverageReading, DeclineReason, FortnightInputs, FortnightVerdict,
     WalkReading,
 };
-use pierre_services::training_plan_render::{fortnight_is_covered, resolve_plan_agent_slug};
+use pierre_services::training_plan_render::fortnight_is_covered;
 use tracing::{info, warn};
 
 use crate::{CommandHandler, PlatformCommandContext};
@@ -57,9 +56,9 @@ impl CommandHandler for FortnightHandler {
         let repos = ctx.ctx.repos();
         let today = athlete_today(repos, ctx.user_id).await;
 
-        // One read of the conversation answers both questions: whose plan
-        // this is, and whether a guided walk already owns the turn after this
-        // one — the turn this command's go-ahead is written for.
+        // The conversation answers whether a guided walk already owns the
+        // turn after this one — the turn this command's go-ahead is written
+        // for.
         let conversation = match ctx.conversation_id.as_deref() {
             Some(cid) => repos
                 .chat
@@ -71,25 +70,17 @@ impl CommandHandler for FortnightHandler {
                 }),
             None => None,
         };
-        let onboarding_state = conversation
-            .as_ref()
-            .and_then(|c| c.onboarding_state.clone());
+        let onboarding_state = conversation.and_then(|c| c.onboarding_state);
         let walk = if OnboardingState::from_column(onboarding_state.as_deref()).is_some() {
             WalkReading::Running
         } else {
             WalkReading::Idle
         };
-        let conversation_agent = conversation.and_then(|c| c.agent_id);
-        let agent =
-            resolve_plan_agent_slug(repos, conversation_agent, ctx.tenant_id, ctx.user_id).await?;
 
+        // The athlete's one season, whichever agent laid it.
         let plan = repos
             .training_plans
-            .get_active_plan(
-                &ctx.tenant_id.to_string(),
-                &ctx.user_id.to_string(),
-                PlanOwner::from_slug(agent.as_deref()),
-            )
+            .get_active_plan(&ctx.tenant_id.to_string(), &ctx.user_id.to_string())
             .await
             .unwrap_or_else(|e| {
                 // An unreadable plan is not an absent one, but the athlete

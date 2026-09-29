@@ -35,7 +35,8 @@ use std::future::{ready, Ready};
 use std::sync::Arc;
 
 use chrono::{Duration, NaiveDate, TimeZone, Utc};
-use tracing::info;
+use serde::Serialize;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use pierre_config::environment::default_provider;
@@ -453,27 +454,18 @@ async fn read_cached_window(
         .await
 }
 
-/// Per-user physiology, defaulted where the profile is silent.
+/// Per-user physiology, absent where the profile is silent.
 async fn athlete_inputs(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
 ) -> AppResult<AthleteInputs> {
-    Ok(resources
+    let profile = resources
         .repos()
         .user_physiological_profile
         .get_user_physiological_profile(tenant_id, user_id)
-        .await?
-        .as_ref()
-        .map_or_else(AthleteInputs::default, |p| AthleteInputs {
-            ftp_watts: p.ftp_watts.map(f64::from),
-            lthr: p
-                .lactate_threshold_percentage
-                .and_then(|pct| p.max_hr.map(|mhr| f64::from(mhr) * pct)),
-            max_hr: p.max_hr.map(f64::from),
-            resting_hr: p.resting_hr.map(f64::from),
-            weight_kg: p.weight,
-        }))
+        .await?;
+    Ok(AthleteInputs::from_profile(profile.as_ref()))
 }
 
 /// Ask the capture rail to page the provider back to `floor`.
@@ -556,4 +548,84 @@ pub async fn fetch_history_rows(
         .training_history
         .get_training_history(tenant_id, user_id, from, to)
         .await
+}
+
+/// What happened to the athlete's stored daily rollup when the thresholds it
+/// is scored against changed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, schemars::JsonSchema)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum HistoryRefresh {
+    /// The change moved no number training load is scored against.
+    Unaffected,
+    /// No daily rows were stored, so none could be stale.
+    NothingStored,
+    /// The stored days were recomputed against the saved thresholds.
+    Recomputed {
+        /// First day recomputed, `YYYY-MM-DD`.
+        from: String,
+        /// Last day recomputed, `YYYY-MM-DD`.
+        to: String,
+        /// Daily rows written.
+        rows_upserted: usize,
+    },
+    /// Recomputing failed. `get_training_history` reads rows scored against
+    /// the previous thresholds until `compute_training_history` runs.
+    Failed {
+        /// Why, safe to relay to the athlete.
+        reason: String,
+    },
+}
+
+/// Recompute every stored daily row of the athlete, from the oldest one a
+/// read can reach to their civil today, against the thresholds now saved.
+///
+/// The rollup is scored when it is computed, not when it is read, so a row
+/// written before a threshold changed would otherwise keep the previous
+/// scoring while every tool that computes load live used the new one. Days the
+/// stored activities can no longer stand behind are cleared, as every compute
+/// run clears them.
+pub async fn recompute_stored_history(
+    resources: &Arc<dyn ToolRuntime>,
+    tenant_id: TenantId,
+    user_id: Uuid,
+) -> HistoryRefresh {
+    let outcome = async {
+        let (_, to) = default_window(resources, user_id).await?;
+        let stored = resources
+            .repos()
+            .training_history
+            .get_training_history(
+                tenant_id,
+                user_id,
+                to - Duration::days(MAX_BACKFILL_DAYS),
+                to,
+            )
+            .await?;
+        let Some(oldest) = stored.first() else {
+            return Ok(None);
+        };
+        compute_and_persist_history(resources, tenant_id, user_id, oldest.date, to)
+            .await
+            .map(Some)
+    }
+    .await;
+    match outcome {
+        Ok(None) => HistoryRefresh::NothingStored,
+        Ok(Some(computed)) => HistoryRefresh::Recomputed {
+            from: computed.from.format("%Y-%m-%d").to_string(),
+            to: computed.to.format("%Y-%m-%d").to_string(),
+            rows_upserted: computed.rows_upserted,
+        },
+        Err(e) => {
+            warn!(
+                user_id = %user_id,
+                tenant_id = %tenant_id,
+                error = %e,
+                "recomputing the stored training history after a threshold change failed"
+            );
+            HistoryRefresh::Failed {
+                reason: e.sanitized_message(),
+            }
+        }
+    }
 }

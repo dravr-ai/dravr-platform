@@ -21,6 +21,7 @@ use pierre_core::models::groups::{MemberFitnessSnapshot, OvertrainingRiskLevel, 
 use pierre_core::models::FormBand;
 use pierre_core::models::{Activity, ProviderConnection, TenantId};
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
+use pierre_fitness_compute::AthleteInputs;
 use pierre_intelligence::{AlgorithmConfig, TrainingLoad, TrainingLoadCalculator};
 use pierre_providers::core::ActivityQueryParams;
 use tracing::{debug, info, warn};
@@ -28,6 +29,7 @@ use uuid::Uuid;
 
 use crate::activity_fetch::{activity_cache_retention_days, write_through_activity_cache};
 use crate::group_activity_cache::fetch_member_activities;
+use crate::implementations::stored_physiology::member_athlete_inputs;
 use crate::protocol::AuthService;
 use crate::runtime::ToolRuntime;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
@@ -220,13 +222,15 @@ pub async fn fetch_member_snapshots(
 // tools' `athlete=` resolution all render a member by that one function.
 use crate::athlete_display_name::fetch_athlete_identity;
 
-/// Compute the training load as of `as_of` from a list of activities.
+/// Compute the training load as of `as_of` from a list of activities, each
+/// session scored against the member's saved thresholds.
 ///
 /// Uses `TrainingLoadCalculator`: CTL and ATL at the end of `as_of`, form
 /// (`tsb` over `form_ctl`) from the end of the day before. Returns `None` if
 /// the calculation fails.
 fn compute_training_metrics(
     activities: &[Activity],
+    athlete: &AthleteInputs,
     algorithm_config: &AlgorithmConfig,
     as_of: NaiveDate,
 ) -> Option<TrainingLoad> {
@@ -235,15 +239,9 @@ fn compute_training_metrics(
     sorted.sort_by_key(Activity::start_date);
 
     let calculator = TrainingLoadCalculator::from_config(algorithm_config.clone(), as_of);
-    log_per_activity_tss(&calculator, &sorted);
+    log_per_activity_tss(&calculator, &sorted, athlete);
 
-    match calculator.calculate_training_load(
-        &sorted, None, // FTP
-        None, // LTHR
-        None, // max_hr
-        None, // resting_hr
-        None, // weight_kg
-    ) {
+    match athlete.training_load(&calculator, &sorted) {
         Ok(load) => Some(load),
         Err(e) => {
             debug!(error = ?e, "Training load calculation failed");
@@ -257,13 +255,18 @@ fn compute_training_metrics(
 /// at unexpectedly low CTL/ATL (e.g. WHOOP entries with no distance/HR
 /// falling through to the duration-only fallback). Extracted from
 /// `compute_training_metrics` to keep that fn under the cognitive
-/// complexity budget.
-fn log_per_activity_tss(calculator: &TrainingLoadCalculator, sorted: &[Activity]) {
+/// complexity budget. Each TSS is the one the load sums: scored against the
+/// member's saved thresholds.
+fn log_per_activity_tss(
+    calculator: &TrainingLoadCalculator,
+    sorted: &[Activity],
+    athlete: &AthleteInputs,
+) {
     let mut total_tss = 0.0_f64;
     let mut tss_some = 0_usize;
     let mut tss_none = 0_usize;
     for a in sorted {
-        if let Ok(v) = calculator.calculate_tss(a, None, None, None, None, None) {
+        if let Ok(v) = athlete.tss(calculator, a) {
             total_tss += v;
             tss_some += 1;
             debug!(
@@ -492,8 +495,9 @@ async fn fetch_member_activities_across_tenants(
 ///
 /// Resolves the member's connections across all their tenants, fetches and
 /// merges activities under each connection's own tenant, and computes training
-/// load. Returns a snapshot with `None` metrics if no provider is connected or
-/// if the fetch fails.
+/// load against the thresholds the member saved with `set_physiology`. Returns
+/// a snapshot with `None` metrics if no provider is connected, if the fetch
+/// fails, or if those thresholds cannot be read.
 async fn fetch_single_member_snapshot(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -546,12 +550,27 @@ async fn fetch_single_member_snapshot(
     let mut snapshot = if activities.is_empty() {
         empty_snapshot(user_id, display_name, timezone, now)
     } else {
+        // The thresholds the member saved with set_physiology, looked for in
+        // the tenants their sessions came from. A profile that cannot be read
+        // leaves the load unread rather than scoring their sessions as though
+        // they had saved nothing.
+        let athlete = member_athlete_inputs(runtime, &tenants, user_id)
+            .await
+            .inspect_err(|e| {
+                warn!(
+                    user_id = %user_id,
+                    error = %e,
+                    "Snapshot: reading the member's saved thresholds failed; training load left unread"
+                );
+            })
+            .ok();
         build_snapshot_from_activities(
             user_id,
             display_name,
             timezone,
             &activities,
             now,
+            athlete.as_ref(),
             &runtime.cageux_config().algorithms,
         )
     };
@@ -571,17 +590,23 @@ async fn fetch_single_member_snapshot(
 }
 
 /// Compute all fitness metrics from activities and assemble the snapshot.
+///
+/// `athlete` is the member's saved thresholds; `None` when they could not be
+/// read, and the snapshot then carries no training load.
 fn build_snapshot_from_activities(
     user_id: Uuid,
     display_name: String,
     timezone: Option<String>,
     activities: &[Activity],
     now: DateTime<Utc>,
+    athlete: Option<&AthleteInputs>,
     algorithm_config: &AlgorithmConfig,
 ) -> MemberFitnessSnapshot {
     // As of the snapshot's own day, so `computed_at` names the day its form
     // reading describes.
-    let load = compute_training_metrics(activities, algorithm_config, now.date_naive());
+    let load = athlete.and_then(|athlete| {
+        compute_training_metrics(activities, athlete, algorithm_config, now.date_naive())
+    });
     let weekly = compute_weekly_metrics(activities, now);
     let primary_sport = determine_primary_sport(activities);
     let overtraining_risk = assess_overtraining_risk(load.as_ref());

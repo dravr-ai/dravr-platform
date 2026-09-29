@@ -45,12 +45,13 @@ use pierre_core::models::{
     CalendarEventRef, CalendarEventSource, CalendarKey, PlannedSession, PlannedSessionKind,
     PrescribedWorkout, RelativeIntensity, SportType, TenantId, WorkoutStep,
 };
-use pierre_database::repositories::training_plans::PlanOwner;
 use pierre_database::RepositoryRegistry;
-use pierre_memory::training_plans::{parse_plan_date, PlanWeek, PlannedDay};
+use pierre_memory::training_plans::{parse_plan_date, PlanWeek, PlannedDay, TrainingPlan};
 use pierre_providers::core::FitnessProvider;
 use serde::Serialize;
 use uuid::Uuid;
+
+use crate::plan_fueling::FuelingDisclosure;
 
 /// The provider whose calendar plans and prescriptions are written to.
 ///
@@ -134,8 +135,16 @@ fn day_title(workout: &str, sport: &SportType) -> String {
 /// Dravr can express as a target; the sport name is the cue because a cue
 /// drawn from the prose could carry a "2h" the provider's parser would read
 /// as a duration.
+///
+/// `fueling` decides whether the note carries the day's fuelling rates or the
+/// statement that a clinician sets them.
 #[must_use]
-pub fn plan_day_session(user_id: Uuid, day: &PlannedDay, ordinal: usize) -> Option<PlannedSession> {
+pub fn plan_day_session(
+    user_id: Uuid,
+    day: &PlannedDay,
+    ordinal: usize,
+    fueling: &FuelingDisclosure,
+) -> Option<PlannedSession> {
     if day.is_rest() {
         return None;
     }
@@ -152,12 +161,14 @@ pub fn plan_day_session(user_id: Uuid, day: &PlannedDay, ordinal: usize) -> Opti
     }
     // The fuelling line rides the note because that is the field every
     // provider calendar renders. A protocol the agent prescribed and the
-    // athlete cannot see on the day is the same as no protocol at all.
-    if let Some(fueling) = day.fueling.as_ref() {
+    // athlete cannot see on the day is the same as no protocol at all — and
+    // for an athlete whose clinician sets the amounts, the line says so in
+    // place of the rates.
+    if let Some(protocol) = day.fueling.as_ref() {
         if !notes.is_empty() {
             notes.push('\n');
         }
-        notes.push_str(&fueling.summary());
+        notes.push_str(&fueling.clause(protocol));
     }
     let (duration_seconds, steps) = if day.steps.is_empty() {
         let duration_seconds = day
@@ -241,9 +252,15 @@ pub struct DesiredEntry {
 /// Two sessions on one date get ordinals 0 and 1 in the week's own order, so
 /// a brick day is two entries with two stable keys. A week note is wanted only
 /// for weeks starting on or after `from`: a week already under way is partly
-/// past, and the past is not rewritten.
+/// past, and the past is not rewritten. `fueling` is the athlete's fuelling
+/// disclosure, applied to every day's note.
 #[must_use]
-pub fn desired_entries(user_id: Uuid, weeks: &[PlanWeek], from: NaiveDate) -> Vec<DesiredEntry> {
+pub fn desired_entries(
+    user_id: Uuid,
+    weeks: &[PlanWeek],
+    from: NaiveDate,
+    fueling: &FuelingDisclosure,
+) -> Vec<DesiredEntry> {
     let mut out = Vec::new();
     for week in weeks {
         let Some(week_start) = parse_plan_date(&week.week_start) else {
@@ -272,7 +289,7 @@ pub fn desired_entries(user_id: Uuid, weeks: &[PlanWeek], from: NaiveDate) -> Ve
             if date < from {
                 continue;
             }
-            if let Some(session) = plan_day_session(user_id, day, this_ordinal) {
+            if let Some(session) = plan_day_session(user_id, day, this_ordinal, fueling) {
                 out.push(DesiredEntry {
                     session,
                     plan_week_id: week.id.clone(),
@@ -417,10 +434,8 @@ pub struct PushReport {
 pub struct PushPlanParams<'a> {
     /// Owning tenant.
     pub tenant: TenantId,
-    /// Athlete whose plan is pushed.
+    /// Athlete whose plan is pushed — their one season, whichever agent laid it.
     pub user_id: Uuid,
-    /// Agent persona whose plan to resolve; `None` for the agent-agnostic one.
-    pub agent_slug: Option<&'a str>,
     /// Provider name the ledger rows are filed under.
     pub provider: &'a str,
     /// First date to consider — today in the athlete's calendar. Nothing
@@ -449,9 +464,10 @@ fn cancel_requested(params: &PushPlanParams<'_>) -> bool {
 ///
 /// # Errors
 ///
-/// Returns an error when the athlete has no active plan, or when the ledger or
-/// the provider's calendar cannot be read at all. Per-entry write failures
-/// are reported in [`PushReport::failed`], not raised.
+/// Returns an error when the athlete has no active plan, or when the ledger,
+/// the athlete's medical flag or the provider's calendar cannot be read at
+/// all. Per-entry write failures are reported in [`PushReport::failed`], not
+/// raised.
 pub async fn push_active_plan(
     repos: &RepositoryRegistry,
     calendar: &dyn FitnessProvider,
@@ -461,11 +477,7 @@ pub async fn push_active_plan(
     let user_str = params.user_id.to_string();
     let plan = repos
         .training_plans
-        .get_active_plan(
-            &tenant_str,
-            &user_str,
-            PlanOwner::from_slug(params.agent_slug),
-        )
+        .get_active_plan(&tenant_str, &user_str)
         .await?
         .ok_or_else(|| {
             AppError::not_found(
@@ -477,7 +489,8 @@ pub async fn push_active_plan(
         .training_plans
         .list_plan_weeks(&tenant_str, &user_str, &plan.id, false)
         .await?;
-    let desired = desired_entries(params.user_id, &weeks, params.from);
+    let fueling = FuelingDisclosure::for_athlete(repos, params.tenant, params.user_id).await?;
+    let desired = desired_entries(params.user_id, &weeks, params.from, &fueling);
     let live_rows: Vec<PrescribedWorkout> = repos
         .prescribed_workouts
         .list_live_calendar_events(
@@ -531,7 +544,6 @@ pub async fn push_active_plan(
         })
         .collect();
     let edit_slack = Duration::seconds(PROVIDER_EDIT_SLACK_SECONDS);
-    let agent = plan.agent_slug.as_deref();
 
     let mut wanted: HashSet<String> = HashSet::new();
     for entry in &desired {
@@ -547,6 +559,7 @@ pub async fn push_active_plan(
         let key = entry.session.external_id.clone();
         wanted.insert(key.clone());
         let hash = session_hash(&entry.session)?;
+        let agent = entry_author(&plan, &weeks, entry);
         let write = LedgerWrite {
             repos,
             params,
@@ -661,6 +674,22 @@ pub async fn push_active_plan(
     }
 
     Ok(report)
+}
+
+/// The agent a ledger row names for `entry`: the one that wrote the plan week
+/// the entry comes from — a season carries weeks written by several agents —
+/// else the agent that laid the outline.
+#[must_use]
+pub fn entry_author<'a>(
+    plan: &'a TrainingPlan,
+    weeks: &'a [PlanWeek],
+    entry: &DesiredEntry,
+) -> Option<&'a str> {
+    weeks
+        .iter()
+        .find(|week| week.id == entry.plan_week_id)
+        .and_then(|week| week.author_agent_id.as_deref())
+        .or(plan.author_agent_id.as_deref())
 }
 
 /// One entry's write, with everything needed to record its outcome.

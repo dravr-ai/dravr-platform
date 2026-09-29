@@ -73,6 +73,7 @@ async fn a_spent_tool_budget_fires_its_own_catalogued_event() {
         tenant,
         "conv-under-test",
         ConversationTurnId(Uuid::new_v4()),
+        None,
         BUDGET_OF_ONE,
     );
 

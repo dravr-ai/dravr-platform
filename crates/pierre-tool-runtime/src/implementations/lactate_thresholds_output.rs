@@ -161,6 +161,8 @@ pub struct StoredThresholds {
     pub ftp_watts: Option<u32>,
     /// Stored threshold pace, when one is set.
     pub threshold_pace_sec_per_km: Option<f64>,
+    /// Stored lactate threshold heart rate, when one is set.
+    pub threshold_hr: Option<u16>,
     /// Stored maximum heart rate, when one is set.
     pub max_hr: Option<u16>,
 }

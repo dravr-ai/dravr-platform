@@ -114,6 +114,7 @@ fn test_vo2_max_requirement() {
         resting_hr: Some(60),
         max_hr: Some(180),
         lactate_threshold_percentage: Some(0.85),
+        threshold_hr: None,
         age: Some(30),
         weight: Some(70.0),
         fitness_level: FitnessLevel::Intermediate,
@@ -127,4 +128,43 @@ fn test_vo2_max_requirement() {
 
     let result = validator.validate(&changes, Some(&profile));
     assert!(result.is_valid);
+}
+
+/// The lactate threshold is a percentage of `VO2max` and the anaerobic
+/// threshold a percentage of max HR; the consistency rule reads the first on
+/// the second's scale (Swain et al. 1994) before comparing them.
+#[test]
+fn lactate_and_anaerobic_thresholds_are_compared_on_the_max_hr_scale() {
+    let validator = ConfigValidator::new();
+    let mut profile = UserPhysiologicalProfile::new(Uuid::new_v4(), SportType::Run);
+    profile.vo2_max = Some(55.0);
+    let pair = |lactate: f64, anaerobic: f64| {
+        let mut changes = HashMap::new();
+        changes.insert(
+            "lactate.threshold_percentage".into(),
+            ConfigValue::Float(lactate),
+        );
+        changes.insert(
+            "heart_rate.anaerobic_threshold".into(),
+            ConfigValue::Float(anaerobic),
+        );
+        validator.validate(&changes, Some(&profile))
+    };
+
+    // 70% of VO2max is about 82% of max HR: consistent with 88% of max HR,
+    // though the raw numbers sit 18 points apart.
+    let consistent = pair(70.0, 88.0);
+    assert!(consistent.is_valid, "{:?}", consistent.errors);
+
+    // 85% of VO2max is about 92% of max HR, 17 points above 75% of max HR,
+    // though the raw numbers sit only 10 apart.
+    let inconsistent = pair(85.0, 75.0);
+    assert!(!inconsistent.is_valid);
+    assert!(
+        inconsistent.errors.iter().any(|e| e.contains(
+            "Lactate threshold (85% of VO2max, about 92% of max HR) and HR anaerobic threshold (75% of max HR)"
+        )),
+        "{:?}",
+        inconsistent.errors
+    );
 }

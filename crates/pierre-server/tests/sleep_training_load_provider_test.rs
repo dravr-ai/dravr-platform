@@ -16,11 +16,14 @@
 //! does.
 
 use anyhow::Result;
-use pierre_core::models::{ConnectionType, TenantId};
+use chrono::{Duration, Utc};
+use pierre_core::models::{ActivityBuilder, ConnectionType, SportType, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
+use pierre_intelligence::TrainingLoadCalculator;
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::slice;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -135,5 +138,83 @@ async fn the_athletes_own_provider_is_elected_whatever_its_name() -> Result<()> 
             "{tool}: no Strava fallback: {error}"
         );
     }
+    Ok(())
+}
+
+/// The recovery tools score each session against the thresholds saved with
+/// `set_physiology`, the reading `analyze_training_load` gives.
+///
+/// They used to read an undeclared `user_config` argument that no
+/// schema-following caller could send, and then the configuration's session
+/// overrides, which `set_physiology` never writes — so an FTP the athlete
+/// saved never reached their TSB: a power-only ride scored the same with and
+/// without one. The session here is served from the activity cache (the
+/// connection has no credential, so the live read fails and the cached rows
+/// are served), and the tool's CTL must be the calculator's own for that ride
+/// at the saved FTP.
+#[tokio::test]
+async fn the_recovery_tools_score_sessions_against_the_saved_thresholds() -> Result<()> {
+    let executor = executor().await?;
+    let (user_id, tenant) = user_with_tenant(&executor).await?;
+    let repos = executor.resources.repos();
+    repos
+        .provider_connections
+        .register_connection(user_id, tenant, "strava", &ConnectionType::OAuth, None)
+        .await?;
+    let ride = ActivityBuilder::new(
+        "threshold-ride".to_owned(),
+        "Threshold ride".to_owned(),
+        SportType::Ride,
+        Utc::now() - Duration::days(1),
+        3_600,
+        "strava".to_owned(),
+    )
+    .distance_meters(36_000.0)
+    .average_power(250)
+    .build();
+    repos
+        .activity_cache
+        .upsert_activities(user_id, &tenant, "strava", slice::from_ref(&ride))
+        .await?;
+
+    let ctl_of = |response: UniversalResponse| -> f64 {
+        assert!(response.success, "{:?}", response.error);
+        response.result.unwrap()["training_load"]["ctl"]
+            .as_f64()
+            .expect("the recovery score carries the CTL behind it")
+    };
+    let without_thresholds = ctl_of(
+        executor
+            .execute_tool(request("calculate_recovery_score", user_id, &tenant))
+            .await?,
+    );
+
+    let saved = executor
+        .execute_tool(UniversalRequest {
+            parameters: json!({"ftp_watts": 250}),
+            ..request("set_physiology", user_id, &tenant)
+        })
+        .await?;
+    assert!(saved.success, "set_physiology: {:?}", saved.error);
+    let with_ftp = ctl_of(
+        executor
+            .execute_tool(request("calculate_recovery_score", user_id, &tenant))
+            .await?,
+    );
+
+    let expected = TrainingLoadCalculator::from_config(
+        executor.cageux_config().algorithms.clone(),
+        Utc::now().date_naive(),
+    )
+    .calculate_training_load(&[ride], Some(250.0), None, None, None, None)?;
+    assert!(
+        (with_ftp - expected.ctl).abs() < 1e-9,
+        "the ride is scored at the saved FTP: tool {with_ftp}, calculator {}",
+        expected.ctl
+    );
+    assert!(
+        (with_ftp - without_thresholds).abs() > 1e-6,
+        "saving an FTP changes the score of a power-only ride ({without_thresholds} both ways)"
+    );
     Ok(())
 }

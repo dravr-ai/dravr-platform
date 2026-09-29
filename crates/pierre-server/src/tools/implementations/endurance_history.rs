@@ -316,8 +316,11 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
              per the Endurance deterministic-output rule. Interpret TSB relative \
              to CTL (form as % of fitness), and report `acwr` strictly as the \
              magnitude of 7-day load against the 28-day baseline — a \
-             descriptive ratio, not a predictor of harm. Default window is the \
-             last 90 days.",
+             descriptive ratio, not a predictor of harm. Every session is \
+             scored against the FTP and threshold heart rate saved with \
+             set_physiology, as analyze_training_load does; a set_physiology \
+             save that changes one recomputes the stored rows. Default window \
+             is the last 90 days.",
             schema,
             Some(read_only_annotations()),
         ))

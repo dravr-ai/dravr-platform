@@ -81,6 +81,11 @@ pub(crate) struct DispatchLlmInputs<'a> {
     /// activities injected before dispatch — the deterministic half of the
     /// fabrication gate (see `peer_grounding`).
     pub peer_roster: &'a [MemberFitnessSnapshot],
+    /// The agent the turn answers as (`TurnInput::turn_agent_id`): the
+    /// mentioned agent on a `@handle` turn, otherwise the conversation's.
+    /// Bound on the executor so a tool that records authorship — a plan week,
+    /// an outline — names the agent the athlete was talking to.
+    pub turn_agent_id: Option<&'a str>,
 }
 
 /// What the dispatch stage hands back to the pipeline.
@@ -126,6 +131,7 @@ pub(crate) async fn dispatch_llm_with_tools(
         source_ids,
         guided_flow,
         peer_roster,
+        turn_agent_id,
     } = inputs;
     // Stage 9: MCP executor for tool calls. Bind the originating conversation id
     // so a tool that spawns detached work (e.g. a historical activity backfill)
@@ -138,6 +144,7 @@ pub(crate) async fn dispatch_llm_with_tools(
             .with_scopes(OAuthScope::self_grant())
             .with_conversation_id(input.conversation_id.clone())
             .with_conversation_tenant(input.conversation_tenant_id.as_uuid())
+            .with_turn_agent(turn_agent_id.map(ToOwned::to_owned))
             // Guardian turn key = the per-utterance turn_id, so taint/budget
             // accumulate across THIS message's ReAct loop and reset next message
             // (not across the whole conversation). conversation_id stays above,
@@ -292,6 +299,7 @@ pub(crate) async fn dispatch_llm_with_tools(
                         // above, so the agent's loopback calls land in this
                         // utterance's bucket instead of one bucket each.
                         input.turn_id,
+                        turn_agent_id,
                         max_iterations,
                     )
                     .await

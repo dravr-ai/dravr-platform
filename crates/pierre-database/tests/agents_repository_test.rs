@@ -16,7 +16,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use pierre_core::field_update::FieldUpdate;
-use pierre_core::models::agents::{ListAgentsFilter, UpdateAgentRequest};
+use pierre_core::models::agents::{Agent, ListAgentsFilter, UpdateAgentRequest};
 use pierre_core::models::{AgentCategory, CreateAgentRequest, Tenant, TenantId, User};
 use pierre_database::backends::factory::Database;
 use pierre_database::database::test_utils::create_test_db;
@@ -328,14 +328,88 @@ async fn search_ignores_case() {
 
     let found = repos
         .agents
-        .search(owner, tenant, "MARATHON", None, None)
+        .search(owner, tenant, "MARATHON", None, None, None)
         .await
         .unwrap();
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].id, agent.id);
     assert!(repos
         .agents
-        .search(owner, tenant, "triathlon", None, None)
+        .search(owner, tenant, "triathlon", None, None, None)
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+/// A category narrows a search to the agents filed under it; none searches all.
+#[tokio::test]
+async fn search_narrows_to_a_category() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let owner = seed_user(&repos, "search-category").await;
+    let tenant = seed_tenant(&repos, owner).await;
+    let training = repos
+        .agents
+        .create(
+            owner,
+            tenant,
+            &request("Marathon Builder", AgentCategory::Training),
+        )
+        .await
+        .unwrap();
+    let nutrition = repos
+        .agents
+        .create(
+            owner,
+            tenant,
+            &request("Marathon Fueling", AgentCategory::Nutrition),
+        )
+        .await
+        .unwrap();
+
+    let ids = |agents: Vec<Agent>| agents.into_iter().map(|a| a.id).collect::<Vec<_>>();
+    let everything = repos
+        .agents
+        .search(owner, tenant, "marathon", None, None, None)
+        .await
+        .unwrap();
+    assert_eq!(everything.len(), 2, "no category searches every category");
+    let fueling = repos
+        .agents
+        .search(
+            owner,
+            tenant,
+            "marathon",
+            Some(AgentCategory::Nutrition),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(ids(fueling), vec![nutrition.id]);
+    let building = repos
+        .agents
+        .search(
+            owner,
+            tenant,
+            "marathon",
+            Some(AgentCategory::Training),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(ids(building), vec![training.id]);
+    assert!(repos
+        .agents
+        .search(
+            owner,
+            tenant,
+            "marathon",
+            Some(AgentCategory::Recovery),
+            None,
+            None
+        )
         .await
         .unwrap()
         .is_empty());

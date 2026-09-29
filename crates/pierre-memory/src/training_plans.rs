@@ -14,7 +14,8 @@
 //!   ordered [`PlanPhase`]s (prep/base/build/specialty/peak/taper/race/
 //!   transition/recovery — the kernel's [`PhaseKind`]) each carrying the
 //!   purpose, volume and intensity targets the fortnight is written against,
-//!   and a prose strategy. One `active` outline per (tenant, user, agent).
+//!   and a prose strategy. One `active` outline per (tenant, user): the
+//!   athlete's season, which every agent they use reads and adds weeks to.
 //! - [`PlanWeek`] — one **microcycle**: seven [`PlannedDay`] rows with
 //!   intensity expressed *relative to thresholds* (zones, %FTP) so an FTP
 //!   retest never invalidates a stored plan, and — when the agent states
@@ -451,7 +452,10 @@ impl PlannedDay {
 }
 
 /// The plan outline (macrocycle): goal-race snapshot, block structure, and
-/// strategy. Tenant-scoped; at most one `active` per (tenant, user, agent).
+/// strategy.
+///
+/// Tenant-scoped; at most one `active` per (tenant, user) — the athlete's
+/// season, which every agent they use reads and adds weeks to.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TrainingPlan {
     /// Stable identifier.
@@ -460,8 +464,9 @@ pub struct TrainingPlan {
     pub tenant_id: String,
     /// Athlete the plan is for.
     pub user_id: String,
-    /// Agent persona slug that authored it, or `None` for agent-agnostic.
-    pub agent_slug: Option<String>,
+    /// The agent that laid this outline, or `None` when no agent did. It
+    /// records authorship only: which plan an agent reads never depends on it.
+    pub author_agent_id: Option<String>,
     /// Pillar `Goal` user-fact this plan serves, when linked. The fact is the
     /// living goal; this plan snapshots it. A superseded fact flags the plan
     /// stale on read.
@@ -535,6 +540,10 @@ pub struct PlanWeek {
     /// Why the agent re-saved this week ("legs heavy after Buckland, moved
     /// tempo to Wednesday"). Empty on first save.
     pub adjustment_reason: String,
+    /// The agent that wrote this version of the week, or `None` when no agent
+    /// did. A week carried onto a new outline keeps its author.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author_agent_id: Option<String>,
     /// When this week row was created.
     pub created_at: DateTime<Utc>,
     /// When this week row last changed status.

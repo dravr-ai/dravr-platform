@@ -20,10 +20,10 @@ use pierre_core::models::{
     SportType, TenantId,
 };
 use pierre_database::repositories::training_plans::{
-    PlanOutlineInput, PlanOwner, SavePlanBundleParams,
+    PlanAuthor, PlanOutlineInput, PlanWeekInput, SavePlanBundleParams,
 };
 use pierre_database::RepositoryRegistry;
-use pierre_memory::training_plans::{GoalRace, RacePriority};
+use pierre_memory::training_plans::{GoalRace, PlannedDay, RacePriority};
 use pierre_seeders::agents::{self, SeedArgs};
 use pierre_seeders::bootstrap::{self, SeedArgs as BootstrapArgs};
 use tempfile::TempDir;
@@ -195,17 +195,35 @@ fn goal_race() -> GoalRace {
     }
 }
 
-/// Save an active outline owned by `slug` — a row keyed by the agent's *slug*,
-/// not its id, which is what makes it invisible to the id-keyed hand-over.
-async fn plan_owned_by(repos: &RepositoryRegistry, user: Uuid, tenant: TenantId, slug: &str) {
+/// The athlete's season, laid by agent `author` (its id, as a chat turn
+/// records it) with one week of its own.
+async fn season_authored_by(
+    repos: &RepositoryRegistry,
+    user: Uuid,
+    tenant: TenantId,
+    author: &str,
+) {
     let race = goal_race();
+    let days = vec![PlannedDay {
+        date: "2027-04-05".to_owned(),
+        sport: "run".to_owned(),
+        workout: "long trail run".to_owned(),
+        duration_min: Some(120),
+        intensity: "Z2".to_owned(),
+        steps: Vec::new(),
+        fueling: None,
+        template_slug: None,
+        template_params: None,
+        template_source: None,
+    }];
     repos
         .training_plans
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant.to_string(),
             user_id: &user.to_string(),
-            owner: PlanOwner::agent(slug),
+            author: PlanAuthor::agent(author),
             goal_fact_id: None,
+            replace_season: false,
             outline: Some(PlanOutlineInput {
                 goal_race: &race,
                 races: Some(&[]),
@@ -216,29 +234,39 @@ async fn plan_owned_by(repos: &RepositoryRegistry, user: Uuid, tenant: TenantId,
                 phases: &[],
                 source_conversation_id: None,
             }),
-            weeks: &[],
+            weeks: &[PlanWeekInput {
+                week_start: "2027-04-05",
+                focus: "long runs",
+                days: &days,
+                adjustment_reason: "",
+                phase_index: None,
+            }],
         })
         .await
         .unwrap();
 }
 
-/// The athlete's active outline for `slug`, by the strategy it carries.
-async fn plan_strategy(
+/// The athlete's active season: its strategy, its outline's author and the
+/// author of each active week.
+async fn season_authors(
     repos: &RepositoryRegistry,
     user: Uuid,
     tenant: TenantId,
-    slug: &str,
-) -> Option<String> {
-    repos
+) -> Option<(String, Option<String>, Vec<Option<String>>)> {
+    let plan = repos
         .training_plans
-        .get_active_plan(
-            &tenant.to_string(),
-            &user.to_string(),
-            PlanOwner::agent(slug),
-        )
+        .get_active_plan(&tenant.to_string(), &user.to_string())
+        .await
+        .unwrap()?;
+    let weeks = repos
+        .training_plans
+        .list_plan_weeks(&tenant.to_string(), &user.to_string(), &plan.id, false)
         .await
         .unwrap()
-        .map(|plan| plan.strategy)
+        .into_iter()
+        .map(|week| week.author_agent_id)
+        .collect();
+    Some((plan.strategy, plan.author_agent_id, weeks))
 }
 
 /// The successor's published install counter, as the store screen prints it.
@@ -466,11 +494,10 @@ async fn a_merged_agent_hands_its_conversation_and_group_to_its_successor() {
     );
 }
 
-/// A workout this agent already pushed to the athlete's calendar.
-///
-/// `prescribed_workouts.agent_id` is spelled like an id and holds a slug —
-/// both production writers pass one — so the hand-over reaches it through the
-/// slug rewrites, not the id-keyed ones.
+/// A workout already on the athlete's calendar, its ledger row naming
+/// `agent` — the agent id a chat turn resolved, or a slug a direct MCP call
+/// passed. The hand-over reaches the first through the id-keyed rewrites and
+/// the second through the slug rewrites.
 async fn workout_pushed_by(
     repos: &RepositoryRegistry,
     user: Uuid,
@@ -701,22 +728,28 @@ async fn an_athlete_holding_both_agents_keeps_a_single_install() {
     );
 }
 
-/// `training_plans` names its agent by slug and carries no foreign key, so
-/// nothing cascades and nothing errors — an un-handed plan simply stops being
-/// found, and the athlete's season is gone from every read.
+/// A season's outline and weeks name the agent that wrote them by id, as does
+/// the calendar ledger; none carries a foreign key, so nothing cascades and
+/// nothing errors. The merge hands every one of them to the successor.
 #[tokio::test]
-async fn a_merged_agent_hands_its_slug_keyed_plan_to_its_successor() {
+async fn a_merged_agent_hands_the_season_it_wrote_to_its_successor() {
     let (repos, admin, tenant) = seeded_repos().await;
     let checkout = TempDir::new().unwrap();
     write_agent(checkout.path(), KEPT, None);
     write_agent(checkout.path(), RETIRED, None);
     assert!(seed(&repos, checkout.path(), false).await);
-    plan_owned_by(&repos, admin, tenant, RETIRED).await;
+    let kept = agent_id(&repos, KEPT, tenant).await.unwrap();
+    let retired = agent_id(&repos, RETIRED, tenant).await.unwrap();
+    season_authored_by(&repos, admin, tenant, &retired).await;
+    let pushed = workout_pushed_by(&repos, admin, tenant, &retired).await;
     assert_eq!(
-        plan_strategy(&repos, admin, tenant, RETIRED)
-            .await
-            .as_deref(),
-        Some("Build, then taper.")
+        season_authors(&repos, admin, tenant).await,
+        Some((
+            "Build, then taper.".to_owned(),
+            Some(retired.clone()),
+            vec![Some(retired.clone())]
+        )),
+        "the fixture is written by the agent about to retire"
     );
 
     write_agent(checkout.path(), KEPT, Some(RETIRED));
@@ -725,9 +758,47 @@ async fn a_merged_agent_hands_its_slug_keyed_plan_to_its_successor() {
 
     assert_eq!(agent_id(&repos, RETIRED, tenant).await, None);
     assert_eq!(
-        plan_strategy(&repos, admin, tenant, KEPT).await.as_deref(),
-        Some("Build, then taper."),
-        "the athlete's season follows the successor"
+        season_authors(&repos, admin, tenant).await,
+        Some((
+            "Build, then taper.".to_owned(),
+            Some(kept.clone()),
+            vec![Some(kept.clone())]
+        )),
+        "the outline's author and the week's follow the successor"
+    );
+    assert_eq!(
+        workout_agent(&repos, tenant, admin, pushed)
+            .await
+            .as_deref(),
+        Some(kept.as_str()),
+        "the ledger row pushed from the season names the successor"
+    );
+}
+
+/// With no successor the season is still the athlete's: every read finds it,
+/// and only its author names an agent that is gone.
+#[tokio::test]
+async fn a_season_whose_author_retires_without_a_successor_is_still_read() {
+    let (repos, admin, tenant) = seeded_repos().await;
+    let checkout = TempDir::new().unwrap();
+    write_agent(checkout.path(), KEPT, None);
+    write_agent(checkout.path(), RETIRED, None);
+    assert!(seed(&repos, checkout.path(), false).await);
+    let retired = agent_id(&repos, RETIRED, tenant).await.unwrap();
+    season_authored_by(&repos, admin, tenant, &retired).await;
+
+    remove_agent(checkout.path(), RETIRED);
+    assert!(seed(&repos, checkout.path(), false).await);
+
+    assert_eq!(agent_id(&repos, RETIRED, tenant).await, None);
+    assert_eq!(
+        season_authors(&repos, admin, tenant).await,
+        Some((
+            "Build, then taper.".to_owned(),
+            Some(retired.clone()),
+            vec![Some(retired)]
+        )),
+        "the season survives its author"
     );
 }
 

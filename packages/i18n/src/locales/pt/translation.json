@@ -950,6 +950,7 @@
     "fuelFluid": "{{value}} ml/h de líquido",
     "fuelLabel": "Abastecimento",
     "fuelSodiumLoss": "~{{value}} mg/h de sódio perdido",
+    "fuelWithheld": "quantidades ocultas: há um alerta médico no teu perfil, por isso é o teu profissional de saúde que as define",
     "generateInsight": "Gerar análise",
     "goToGroups": "Ir para Grupos",
     "groupChatBadge": "Conversa de grupo",

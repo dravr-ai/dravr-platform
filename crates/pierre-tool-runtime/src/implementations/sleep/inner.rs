@@ -12,7 +12,7 @@ use std::pin::Pin;
 use chrono::Utc;
 use tracing::{debug, warn};
 
-use super::activity_source::training_load_activities;
+use super::activity_source::{training_load_activities, training_load_of};
 #[cfg(feature = "client-notifications")]
 use super::recovery_notice::fire_low_recovery_notification;
 use crate::protocol::sleep_helpers::{latest_sleep_data, sleep_history_data};
@@ -21,7 +21,7 @@ use crate::protocols::ProtocolError;
 use pierre_core::models::FormBand;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_intelligence::algorithms::RecoveryAggregationAlgorithm;
-use pierre_intelligence::{RecoveryCalculator, SleepAnalyzer, SleepData, TrainingLoadCalculator};
+use pierre_intelligence::{IntelligenceConfig, RecoveryCalculator, SleepAnalyzer, SleepData};
 
 use crate::implementations::sleep::output::{
     payload_value, recovery_score_payload, rest_day_payload, sleep_schedule_payload,
@@ -30,11 +30,30 @@ use crate::implementations::sleep::output::{
 };
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 
+/// The recovery aggregation the tenant configured.
+///
+/// Weighted-average with its recovery-scoring weights unless another
+/// algorithm is selected.
+fn configured_recovery_algorithm(
+    cageux: &IntelligenceConfig<true>,
+) -> RecoveryAggregationAlgorithm {
+    let scoring = &cageux.sleep_recovery.recovery_scoring;
+    cageux
+        .algorithms
+        .recovery_algorithm(RecoveryAggregationAlgorithm::WeightedAverage {
+            tsb_weight_full: scoring.tsb_weight_full,
+            sleep_weight_full: scoring.sleep_weight_full,
+            hrv_weight_full: scoring.hrv_weight_full,
+            tsb_weight_no_hrv: scoring.tsb_weight_no_hrv,
+            sleep_weight_no_hrv: scoring.sleep_weight_no_hrv,
+        })
+}
+
 /// Nights `track_sleep_trends` reads when the caller names no window.
-const DEFAULT_TREND_DAYS: u32 = 14;
+pub(super) const DEFAULT_TREND_DAYS: u32 = 14;
 
 /// Longest window `track_sleep_trends` reads: a year of nights.
-const MAX_TREND_DAYS: u32 = 366;
+pub(super) const MAX_TREND_DAYS: u32 = 366;
 
 /// Handle `analyze_sleep_quality` tool - analyze the most recent synced night
 ///
@@ -191,10 +210,8 @@ pub fn handle_analyze_sleep_quality(
 /// - `activity_provider` (optional): Provider for activities (default: the athlete's elected provider)
 /// - `sleep_provider` (optional): Read only this source's synced sleep (e.g., "whoop", "garmin")
 /// - `sleep_data` (optional): Manual sleep data JSON (used if `sleep_provider` not specified)
-/// - `user_config` (optional): User physiological parameters (FTP, LTHR, max HR, etc.)
 /// - `recent_hrv_values` (optional): Array of recent HRV values
 /// - `baseline_hrv` (optional): User's baseline HRV
-/// - `algorithm` (optional): Recovery aggregation algorithm to use
 ///
 /// # Errors
 /// Returns `ProtocolError` if required data is missing or calculation fails
@@ -226,39 +243,14 @@ pub fn handle_calculate_recovery_score(
             Err(response) => return Ok(*response),
         };
 
-        // Get user configuration for physiological parameters
-        let user_config = request
-            .parameters
-            .get("user_config")
-            .and_then(|v| {
-                serde_json::from_value::<HashMap<String, serde_json::Value>>(v.clone()).ok()
-            })
-            .unwrap_or_default();
-
-        let ftp = user_config.get("ftp").and_then(serde_json::Value::as_f64);
-        let lthr = user_config.get("lthr").and_then(serde_json::Value::as_f64);
-        let max_hr = user_config
-            .get("max_hr")
-            .and_then(serde_json::Value::as_f64);
-        let resting_hr = user_config
-            .get("resting_hr")
-            .and_then(serde_json::Value::as_f64);
-        let weight_kg = user_config
-            .get("weight_kg")
-            .and_then(serde_json::Value::as_f64);
-
-        // Calculate training load (TSB)
-        let training_load_calculator = TrainingLoadCalculator::from_config(
-            executor.cageux_config().algorithms.clone(),
-            Utc::now().date_naive(),
-        );
-        let training_load = training_load_calculator
-            .calculate_training_load(&activities, ftp, lthr, max_hr, resting_hr, weight_kg)
-            .map_err(|e| {
-                ProtocolError::InternalError(format!(
-                    "sleep_analyzer: Training load calculation failed: {e}"
-                ))
-            })?;
+        // CTL, ATL and TSB scored against the athlete's saved thresholds.
+        let training_load = training_load_of(
+            executor,
+            user_uuid,
+            request.tenant_id.as_deref(),
+            &activities,
+        )
+        .await?;
 
         // Sleep is optional here (a TSB-only score stands without it): manual
         // `sleep_data` wins, a named `sleep_provider` must have synced a night,
@@ -344,27 +336,7 @@ pub fn handle_calculate_recovery_score(
                     None
                 };
 
-                // Get recovery aggregation algorithm (default to WeightedAverage with config weights)
-                let algorithm = request
-                    .parameters
-                    .get("algorithm")
-                    .and_then(|v| {
-                        serde_json::from_value::<RecoveryAggregationAlgorithm>(v.clone()).ok()
-                    })
-                    .unwrap_or_else(|| {
-                        // No per-call override: honor the configured recovery
-                        // selection, defaulting to weighted-average with the
-                        // tenant's configured recovery-scoring weights.
-                        executor.cageux_config().algorithms.recovery_algorithm(
-                            RecoveryAggregationAlgorithm::WeightedAverage {
-                                tsb_weight_full: config.recovery_scoring.tsb_weight_full,
-                                sleep_weight_full: config.recovery_scoring.sleep_weight_full,
-                                hrv_weight_full: config.recovery_scoring.hrv_weight_full,
-                                tsb_weight_no_hrv: config.recovery_scoring.tsb_weight_no_hrv,
-                                sleep_weight_no_hrv: config.recovery_scoring.sleep_weight_no_hrv,
-                            },
-                        )
-                    });
+                let algorithm = configured_recovery_algorithm(&executor.cageux_config());
 
                 // Calculate holistic recovery score
                 let score = RecoveryCalculator::calculate_recovery_score(
@@ -475,7 +447,6 @@ pub fn handle_calculate_recovery_score(
 /// - `activity_provider` (optional): Provider for activities (default: the athlete's elected provider)
 /// - `sleep_provider` (optional): Read only this source's synced sleep
 /// - `sleep_data` (optional): Manual sleep data JSON (used if `sleep_provider` not specified)
-/// - `user_config` (optional): User physiological parameters
 ///
 /// # Errors
 /// Returns `ProtocolError` if required data is missing or analysis fails
@@ -504,39 +475,14 @@ pub fn handle_suggest_rest_day(
             Err(response) => return Ok(*response),
         };
 
-        // Get user configuration
-        let user_config = request
-            .parameters
-            .get("user_config")
-            .and_then(|v| {
-                serde_json::from_value::<HashMap<String, serde_json::Value>>(v.clone()).ok()
-            })
-            .unwrap_or_default();
-
-        let ftp = user_config.get("ftp").and_then(serde_json::Value::as_f64);
-        let lthr = user_config.get("lthr").and_then(serde_json::Value::as_f64);
-        let max_hr = user_config
-            .get("max_hr")
-            .and_then(serde_json::Value::as_f64);
-        let resting_hr = user_config
-            .get("resting_hr")
-            .and_then(serde_json::Value::as_f64);
-        let weight_kg = user_config
-            .get("weight_kg")
-            .and_then(serde_json::Value::as_f64);
-
-        // Calculate training load
-        let training_load_calculator = TrainingLoadCalculator::from_config(
-            executor.cageux_config().algorithms.clone(),
-            Utc::now().date_naive(),
-        );
-        let training_load = training_load_calculator
-            .calculate_training_load(&activities, ftp, lthr, max_hr, resting_hr, weight_kg)
-            .map_err(|e| {
-                ProtocolError::InternalError(format!(
-                    "sleep_analyzer: Training load calculation failed: {e}"
-                ))
-            })?;
+        // CTL, ATL and TSB scored against the athlete's saved thresholds.
+        let training_load = training_load_of(
+            executor,
+            user_uuid,
+            request.tenant_id.as_deref(),
+            &activities,
+        )
+        .await?;
 
         // Sleep is optional here (TSB-only advice stands without it): manual
         // `sleep_data` wins, a named `sleep_provider` must have synced a night,
@@ -620,27 +566,7 @@ pub fn handle_suggest_rest_day(
                     None
                 };
 
-                // Get recovery aggregation algorithm
-                let algorithm = request
-                    .parameters
-                    .get("algorithm")
-                    .and_then(|v| {
-                        serde_json::from_value::<RecoveryAggregationAlgorithm>(v.clone()).ok()
-                    })
-                    .unwrap_or_else(|| {
-                        // No per-call override: honor the configured recovery
-                        // selection, defaulting to weighted-average with the
-                        // tenant's configured recovery-scoring weights.
-                        executor.cageux_config().algorithms.recovery_algorithm(
-                            RecoveryAggregationAlgorithm::WeightedAverage {
-                                tsb_weight_full: config.recovery_scoring.tsb_weight_full,
-                                sleep_weight_full: config.recovery_scoring.sleep_weight_full,
-                                hrv_weight_full: config.recovery_scoring.hrv_weight_full,
-                                tsb_weight_no_hrv: config.recovery_scoring.tsb_weight_no_hrv,
-                                sleep_weight_no_hrv: config.recovery_scoring.sleep_weight_no_hrv,
-                            },
-                        )
-                    });
+                let algorithm = configured_recovery_algorithm(&executor.cageux_config());
 
                 // Calculate recovery score
                 let score = RecoveryCalculator::calculate_recovery_score(
@@ -962,7 +888,6 @@ pub fn handle_track_sleep_trends(
 ///
 /// # Parameters
 /// - `activity_provider` (optional): Provider for activities (default: the athlete's elected provider)
-/// - `user_config` (optional): User physiological parameters
 /// - `upcoming_workout_intensity` (optional): "low", "moderate", or "high"
 /// - `typical_wake_time` (optional): Wake time in "HH:MM" format (default: "06:00")
 ///
@@ -993,39 +918,14 @@ pub fn handle_optimize_sleep_schedule(
             Err(response) => return Ok(*response),
         };
 
-        // Get user configuration
-        let user_config = request
-            .parameters
-            .get("user_config")
-            .and_then(|v| {
-                serde_json::from_value::<HashMap<String, serde_json::Value>>(v.clone()).ok()
-            })
-            .unwrap_or_default();
-
-        let ftp = user_config.get("ftp").and_then(serde_json::Value::as_f64);
-        let lthr = user_config.get("lthr").and_then(serde_json::Value::as_f64);
-        let max_hr = user_config
-            .get("max_hr")
-            .and_then(serde_json::Value::as_f64);
-        let resting_hr = user_config
-            .get("resting_hr")
-            .and_then(serde_json::Value::as_f64);
-        let weight_kg = user_config
-            .get("weight_kg")
-            .and_then(serde_json::Value::as_f64);
-
-        // Calculate training load
-        let training_load_calculator = TrainingLoadCalculator::from_config(
-            executor.cageux_config().algorithms.clone(),
-            Utc::now().date_naive(),
-        );
-        let training_load = training_load_calculator
-            .calculate_training_load(&activities, ftp, lthr, max_hr, resting_hr, weight_kg)
-            .map_err(|e| {
-                ProtocolError::InternalError(format!(
-                    "sleep_analyzer: Training load calculation failed: {e}"
-                ))
-            })?;
+        // CTL, ATL and TSB scored against the athlete's saved thresholds.
+        let training_load = training_load_of(
+            executor,
+            user_uuid,
+            request.tenant_id.as_deref(),
+            &activities,
+        )
+        .await?;
 
         // Get sleep/recovery config
         let cageux_config = executor.cageux_config();

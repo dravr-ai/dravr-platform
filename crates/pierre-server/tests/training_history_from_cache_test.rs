@@ -100,6 +100,7 @@ async fn fixture() -> Fixture {
         resting_hr: Some(50),
         max_hr: Some(190),
         lactate_threshold_percentage: Some(0.85),
+        threshold_hr: None,
         age: Some(34),
         weight: Some(72.0),
         fitness_level: FitnessLevel::Advanced,

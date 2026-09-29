@@ -27,9 +27,9 @@ use pierre_memory::training_plans::{
 };
 use pierre_memory::FactKind;
 use std::fmt::Write as _;
-use uuid::Uuid;
 
 use crate::agent_package::PackagedCatalogue;
+use crate::plan_fueling::FuelingDisclosure;
 
 /// Weeks [`select_active_weeks`] may return: the current one and the next —
 /// the fortnight the athlete acts on, and the unit `save_training_plan`
@@ -238,12 +238,16 @@ fn step_extent(step: &WorkoutStep) -> String {
 ///
 /// `today` is the current civil date in the athlete's timezone — it selects
 /// which weeks count as "current/next" and computes the race countdown.
+/// `fueling` decides whether a day's stored fuelling rates are rendered or
+/// withheld; withheld, the block also says so up front, so the agent writes
+/// the next save's fuelling in words rather than having it refused.
 #[must_use]
 pub fn render_training_plan_block(
     plan: &TrainingPlan,
     weeks: &[PlanWeek],
     today: NaiveDate,
     catalogue: &PackagedCatalogue<'_>,
+    fueling: &FuelingDisclosure,
 ) -> Option<String> {
     let mut out = String::with_capacity(1_024);
     out.push_str("\n\n## Current training plan (persisted)\n\n");
@@ -256,6 +260,14 @@ pub fn render_training_plan_block(
          athlete's activities before saying whether that session happened, and \
          never report a prescribed session as completed.\n\n",
     );
+    if fueling.withheld().is_some() {
+        out.push_str(
+            "Fuelling amounts: a medical/PAR-Q flag is on file, so this athlete's clinician \
+             sets their carbohydrate, fluid and sodium amounts. Describe fuelling in words — \
+             what to take and when, never a rate — and leave `fueling` off every saved day: \
+             a save carrying it is refused, and stored rates show here as withheld.\n\n",
+        );
+    }
 
     // Goal line with countdown when the race date parses.
     let countdown = parse_plan_date(&plan.goal_race.date)
@@ -421,7 +433,7 @@ pub fn render_training_plan_block(
                 let fuel = day.fueling.as_ref().map_or_else(String::new, |f| {
                     format!(
                         " · fuel: {}",
-                        sanitize_prompt_field(&f.summary(), MAX_FIELD_LEN)
+                        sanitize_prompt_field(&fueling.clause(f), MAX_FIELD_LEN)
                     )
                 });
                 let _ = writeln!(
@@ -647,30 +659,4 @@ pub async fn plan_goal_is_stale(
         .iter()
         .find(|f| f.id == goal_fact_id)
         .is_none_or(|fact| fact.valid_until.is_some_and(|until| until < now)))
-}
-
-/// The agent persona slug an athlete's plan is read under, resolved the way
-/// their own DM resolves it.
-///
-/// The conversation's agent wins when the conversation has one — that is how
-/// the plan was saved. A conversation that binds no agent (a shared room, a
-/// agent-less thread) falls back to the agent the athlete selected in their
-/// own tenant, which is the agent their DM is bound to on every turn; only an
-/// athlete who selected nobody reads the agent-agnostic plan alone. One ladder
-/// for `/plan`, `/plan share` and the tools' coached-athlete scope, so a plan
-/// built in a DM under agent X is the plan the room and the agent see.
-///
-/// # Errors
-///
-/// Propagates the repository error from the selected-agent lookup.
-pub async fn resolve_plan_agent_slug(
-    repos: &RepositoryRegistry,
-    conversation_agent: Option<String>,
-    tenant: TenantId,
-    user: Uuid,
-) -> AppResult<Option<String>> {
-    if conversation_agent.is_some() {
-        return Ok(conversation_agent);
-    }
-    repos.tenants.get_selected_agent(tenant, user).await
 }

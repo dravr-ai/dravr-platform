@@ -25,6 +25,8 @@ use pierre_intelligence::physiological_constants::business_thresholds::{
 };
 use pierre_intelligence::physiological_constants::heart_rate::HIGH_INTENSITY_HR_THRESHOLD;
 use pierre_providers::core::FitnessProvider;
+use serde_json::{json, Value};
+use uuid::Uuid;
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -346,5 +348,60 @@ pub fn handle_get_activity_intelligence(
                 )
             }
         }
+    })
+}
+
+/// Create metadata for activity analysis responses
+fn create_activity_metadata(
+    activity_id: &str,
+    user_uuid: Uuid,
+    tenant_id: Option<&String>,
+) -> HashMap<String, Value> {
+    let mut map = HashMap::new();
+    map.insert(
+        "activity_id".to_owned(),
+        Value::String(activity_id.to_owned()),
+    );
+    map.insert("user_id".to_owned(), Value::String(user_uuid.to_string()));
+    map.insert(
+        "tenant_id".to_owned(),
+        tenant_id.map_or(Value::Null, |id| {
+            Value::String(id.clone()) // Safe: String ownership for JSON value
+        }),
+    );
+    map
+}
+
+/// Process activity analysis when activity is found
+///
+/// Dispatches into the `get_activity_intelligence` tool through the shared
+/// registry (`UniversalToolExecutor::execute_tool`) rather than calling the
+/// analytics handler function directly, so `analyze_activity` reaches the
+/// handler through whatever `McpTool` impl is registered for it.
+pub async fn process_activity_analysis(
+    executor: &UniversalToolExecutor,
+    mut request: UniversalRequest,
+    activity_id: &str,
+    user_uuid: Uuid,
+) -> Result<UniversalResponse, ProtocolError> {
+    "get_activity_intelligence".clone_into(&mut request.tool_name);
+    let analysis_response = executor.execute_tool(request).await?;
+    let metadata = Some(create_activity_metadata(
+        activity_id,
+        user_uuid,
+        analysis_response
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("tenant_id").and_then(Value::as_str).map(String::from))
+            .as_ref(),
+    ));
+
+    // Propagate the inner verdict — hardcoding `success: true` here reported
+    // every downstream failure as a successful call with an error payload.
+    Ok(UniversalResponse {
+        success: analysis_response.success,
+        result: analysis_response.result.or_else(|| Some(json!({}))),
+        error: analysis_response.error,
+        metadata,
     })
 }

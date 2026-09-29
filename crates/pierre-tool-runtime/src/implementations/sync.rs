@@ -124,8 +124,8 @@ impl McpTool<dyn ToolRuntime> for RefreshProviderDataTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Provider to refresh: 'strava', 'garmin', 'whoop', or 'all' \
-                     to refresh all connected providers."
+                    "Provider to refresh: 'strava', 'garmin', 'whoop', or 'all' (the \
+                     default) to refresh all connected providers."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -159,7 +159,7 @@ impl McpTool<dyn ToolRuntime> for RefreshProviderDataTool {
             },
         );
 
-        let schema = object_schema(properties, Some(vec!["provider".to_owned()]));
+        let schema = object_schema(properties, None);
         answers_with::<RefreshProviderDataResult>(tool_definition(
             "refresh_provider_data",
             "Trigger a data refresh from a connected fitness provider. Use when the user's data \

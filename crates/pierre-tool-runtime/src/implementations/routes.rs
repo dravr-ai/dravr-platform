@@ -20,8 +20,8 @@ use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
-use pierre_core::errors::AppResult;
 use pierre_core::errors::ErrorCode;
+use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{resolve_sport_type, SportType};
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
@@ -166,7 +166,7 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
                     "What kind of route to look for. One of: 'run', 'trail_running', \
                      'ride', 'mountain_bike', 'gravel_ride', 'ebike_ride', 'hike', 'walk', \
                      'cross_country_skiing', 'alpine_skiing', 'backcountry_skiing', \
-                     'snowshoe'. Defaults to 'run'."
+                     'snowshoe'. Defaults to 'run'; a name that is no sport is refused."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -235,11 +235,18 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
                 Err(err) => return Ok(ToolResult::error(err)),
             };
 
-            let sport = args
-                .get("sport_type")
-                .and_then(Value::as_str)
-                .and_then(parse_sport_type)
-                .unwrap_or(SportType::Run);
+            // An omitted sport searches running routes; a name that resolves to
+            // no sport is refused rather than searched as running.
+            let sport = match args.get("sport_type").and_then(Value::as_str) {
+                None => SportType::Run,
+                Some(raw) => parse_sport_type(raw).ok_or_else(|| {
+                    AppError::invalid_input(format!(
+                        "sport_type '{raw}' is not a sport name; use one of run, trail_running, \
+                         ride, mountain_bike, gravel_ride, ebike_ride, hike, walk, \
+                         cross_country_skiing, alpine_skiing, backcountry_skiing, snowshoe"
+                    ))
+                })?,
+            };
 
             // Clamp radius into the allowed window without surfacing the clamp to
             // the caller — the LLM should not have to know the magic numbers, and

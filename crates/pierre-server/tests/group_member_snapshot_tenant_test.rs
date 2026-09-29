@@ -24,8 +24,11 @@ mod snapshot_tenant_tests {
     use crate::common::create_test_server_resources;
     use chrono::{Duration, Utc};
     use pierre_core::models::{
-        Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserStatus,
+        Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User,
+        UserPhysiologicalProfile, UserStatus,
     };
+    use pierre_fitness_compute::AthleteInputs;
+    use pierre_intelligence::TrainingLoadCalculator;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_tool_runtime::group_fitness::fetch_member_snapshots;
     use pierre_tool_runtime::runtime::ToolRuntime;
@@ -281,6 +284,87 @@ mod snapshot_tenant_tests {
         assert!(
             snapshots[0].weekly_activity_count >= 1,
             "the fresh ride must be served"
+        );
+    }
+
+    /// Hour-long power-only rides over the last two weeks, scored against the
+    /// FTP when there is one.
+    fn power_rides() -> Vec<Activity> {
+        (1..=14)
+            .map(|day| {
+                ActivityBuilder::new(
+                    format!("power-snap-{day}"),
+                    format!("ride {day}"),
+                    SportType::Ride,
+                    Utc::now() - Duration::days(day),
+                    3_600,
+                    "strava".to_owned(),
+                )
+                .distance_meters(32_000.0)
+                .average_power(230)
+                .build()
+            })
+            .collect()
+    }
+
+    /// A member's load is scored against the FTP they saved with
+    /// `set_physiology`, found in the tenant their sessions come from — the
+    /// load their own `analyze_training_load` reports, not a pace estimate.
+    #[tokio::test]
+    async fn member_load_is_scored_against_their_saved_thresholds() {
+        let resources = create_test_server_resources().await.unwrap();
+        let member = seed_user(&resources, "ftpsnap").await;
+        let tenant_a = create_tenant_owned_by(&resources, member).await;
+        resources
+            .common
+            .repos
+            .provider_connections
+            .register_connection(member, tenant_a, "strava", &ConnectionType::OAuth, None)
+            .await
+            .unwrap();
+        let rides = power_rides();
+        resources
+            .common
+            .repos
+            .activity_cache
+            .upsert_activities(member, &tenant_a, "strava", &rides)
+            .await
+            .unwrap();
+        let fallback_tenant = TenantId::generate();
+        let runtime: Arc<dyn ToolRuntime> = resources.clone();
+
+        let before = fetch_member_snapshots(&runtime, &[member], fallback_tenant).await[0]
+            .ctl
+            .expect("fourteen rides carry a load");
+
+        let mut profile = UserPhysiologicalProfile::new(member, SportType::Ride);
+        profile.ftp_watts = Some(250);
+        resources
+            .common
+            .repos
+            .user_physiological_profile
+            .upsert_user_physiological_profile(tenant_a, member, &profile)
+            .await
+            .unwrap();
+        let after = fetch_member_snapshots(&runtime, &[member], fallback_tenant).await[0]
+            .ctl
+            .expect("fourteen rides carry a load");
+
+        let calculator = TrainingLoadCalculator::from_config(
+            runtime.cageux_config().algorithms.clone(),
+            Utc::now().date_naive(),
+        );
+        let expected = AthleteInputs::from_profile(Some(&profile))
+            .training_load(&calculator, &rides)
+            .unwrap()
+            .ctl;
+        assert!(
+            (after - expected).abs() < 1e-9,
+            "the snapshot scores the rides against the saved FTP: {after} vs {expected}"
+        );
+        assert!(
+            (after - before).abs() >= 1.0,
+            "saving an FTP changes a power-only member's load: {before} both ways"
         );
     }
 }

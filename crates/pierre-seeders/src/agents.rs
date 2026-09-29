@@ -686,8 +686,10 @@ async fn retire_agent(
 /// Re-point the retired agent's athlete-side references at the successor, or
 /// detach its conversations when there is none.
 ///
-/// Both keys are re-pointed: the tables that name the agent by id, and the
-/// playbooks, pending advice and training plans that name it by slug.
+/// Both keys are re-pointed: the tables that name the agent by id — the
+/// training plan's outline and week authors and the calendar ledger among
+/// them — and the playbooks and pending advice that name it by slug, plus any
+/// author a direct MCP call stored as a slug.
 async fn hand_over_references(
     repos: &RepositoryRegistry,
     agent_id: &str,

@@ -588,7 +588,14 @@ pub(super) async fn handle_search<C: AgentsCtx + MiddlewareCtx>(
 
     let manager = super::get_agents_manager(&ctx);
     let agents = manager
-        .search(auth.user_id, tenant_id, &query.q, query.limit, query.offset)
+        .search(
+            auth.user_id,
+            tenant_id,
+            &query.q,
+            None,
+            query.limit,
+            query.offset,
+        )
         .await?;
 
     let response = ListAgentsResponse {

@@ -43,6 +43,7 @@ use pierre_mcp_server::{
     },
     utils::{http_client::initialize_http_clients, route_timeout::initialize_route_timeouts},
 };
+use pierre_services::agent_package_repair::repair_stored_flavours;
 use pierre_services::chat_provider_factory::spawn_llm_health_probe;
 use pierre_services::server_lifecycle;
 use pierre_tool_runtime::guardian;
@@ -595,10 +596,32 @@ async fn initialize_core_systems(config: &ServerConfig) -> Result<(Database, Aut
     info!("Two-tier key management system fully initialized");
 
     let repos = database.repositories();
+    repair_package_flavours(&repos).await;
     let jwt_secret_string = initialize_jwt_secret(&database, &repos, config).await?;
     let auth_manager = create_auth_manager(config);
 
     Ok((database, auth_manager, jwt_secret_string))
+}
+
+/// Rewrite the stored package flavours the kernel refuses for a ladder level
+/// that allows no hard session yet opens a quality purpose, before any plan
+/// reads them.
+///
+/// Never fatal: a flavour this cannot rewrite stays what it already was to
+/// the resolver — a row it logs and skips.
+async fn repair_package_flavours(repos: &RepositoryRegistry) {
+    match repair_stored_flavours(repos).await {
+        Ok(report) => info!(
+            flavours_read = report.flavours_read,
+            repaired = report.repaired.len(),
+            unrepaired = report.unrepaired.len(),
+            "Stored package flavours checked against the kernel"
+        ),
+        Err(e) => error!(
+            error = %e,
+            "Stored package flavour repair failed; a refused flavour stays skipped by the resolver"
+        ),
+    }
 }
 
 fn bootstrap_key_management() -> Result<(KeyManager, [u8; 32])> {

@@ -300,9 +300,10 @@ fn threshold_inputs_from_profile(profile: Option<&UserPhysiologicalProfile>) -> 
     ThresholdInputs {
         max_hr: profile.and_then(|p| p.max_hr).map(f64::from),
         resting_hr: profile.and_then(|p| p.resting_hr).map(f64::from),
-        // The profile stores a lactate-threshold *percentage*, not an absolute
-        // LT HR in bpm; the estimator derives LT2 HR from max HR instead.
-        lthr: None,
+        // LT2 heart rate is the LTHR training load scores against — the
+        // measured one, else the estimate from the lactate threshold and max
+        // HR — so the dossier and the load cannot name two thresholds.
+        lthr: profile.and_then(UserPhysiologicalProfile::lactate_threshold_hr),
         ftp_watts: profile.and_then(|p| p.ftp_watts).map(f64::from),
         threshold_pace_sec_per_km: profile.and_then(|p| p.threshold_pace_sec_per_km),
     }

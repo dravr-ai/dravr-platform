@@ -27,18 +27,6 @@ use crate::{CommandHandler, PlatformCommandContext};
 /// 64-byte callback limit (`/discover install @` plus a 40-character handle).
 const PAGE_SIZE: u32 = 8;
 
-/// The seven categories the Store files agents under — the same set the web
-/// Discover tab offers as filters.
-const STORE_CATEGORIES: [AgentCategory; 7] = [
-    AgentCategory::Training,
-    AgentCategory::Nutrition,
-    AgentCategory::Recovery,
-    AgentCategory::Recipes,
-    AgentCategory::Mobility,
-    AgentCategory::Analysis,
-    AgentCategory::Custom,
-];
-
 /// What the words after `/discover` ask for.
 enum Scope {
     /// Bare `/discover`: the newest published agents.
@@ -60,7 +48,7 @@ impl Scope {
         if text.is_empty() {
             return Self::All;
         }
-        STORE_CATEGORIES
+        AgentCategory::ALL
             .iter()
             .copied()
             .find(|category| category.as_str().eq_ignore_ascii_case(text))

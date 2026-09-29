@@ -1,4 +1,4 @@
-// ABOUTME: TrainingPlanRepository trait — persistence for agent-authored training plans
+// ABOUTME: TrainingPlanRepository trait — persistence for the athlete's one training plan, authored by agents
 // ABOUTME: One implementation, emitted per backend by impl_training_plan_repository!. Tenant-scoped throughout.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -13,15 +13,15 @@ use pierre_memory::training_plans::{
 };
 
 /// A new plan outline to persist. Saving supersedes the athlete's current
-/// active outline for the same agent (whole-row supersession, never
-/// mutation), so there is no separate "update" call.
+/// active outline (whole-row supersession, never mutation), so there is no
+/// separate "update" call.
 pub struct SaveTrainingPlanParams<'a> {
     /// Owning tenant.
     pub tenant_id: &'a str,
     /// Athlete the plan is for.
     pub user_id: &'a str,
-    /// Whose plan this is.
-    pub owner: PlanOwner<'a>,
+    /// The agent laying this outline.
+    pub author: PlanAuthor<'a>,
     /// Pillar `Goal` user-fact this plan serves, when linked.
     pub goal_fact_id: Option<&'a str>,
     /// Snapshot of the goal race at plan time.
@@ -51,8 +51,8 @@ pub struct SaveTrainingPlanParams<'a> {
 /// The outline half of a [`SavePlanBundleParams`].
 ///
 /// Mirrors [`SaveTrainingPlanParams`] minus the identity fields the bundle
-/// already carries — the bundle applies one tenant/user/agent to outline and
-/// weeks alike.
+/// already carries — the bundle applies one tenant, user and author to outline
+/// and weeks alike.
 pub struct PlanOutlineInput<'a> {
     /// Snapshot of the goal race at plan time.
     pub goal_race: &'a GoalRace,
@@ -106,13 +106,21 @@ pub struct SavePlanBundleParams<'a> {
     pub tenant_id: &'a str,
     /// Athlete the plan is for.
     pub user_id: &'a str,
-    /// Whose plan this is.
-    pub owner: PlanOwner<'a>,
+    /// The agent writing this save: recorded on the outline it lays and on
+    /// every week it writes.
+    pub author: PlanAuthor<'a>,
     /// Pillar `Goal` user-fact this plan serves, when linked.
     pub goal_fact_id: Option<&'a str>,
     /// New outline to create (superseding the current active one), or `None`
     /// to attach the weeks to the athlete's existing active plan.
     pub outline: Option<PlanOutlineInput<'a>>,
+    /// Whether an outline may supersede a season another agent laid.
+    ///
+    /// Without it an outline supersedes only a season this author laid or an
+    /// agent-agnostic one (`SUPERSEDE_OWN_ACTIVE_PLAN_SQL`); over anyone
+    /// else's the insert meets the one-season index and the save is refused.
+    /// Read only with an outline.
+    pub replace_season: bool,
     /// Weeks to save, each superseding the plan's current active row for its
     /// `week_start`.
     pub weeks: &'a [PlanWeekInput<'a>],
@@ -130,82 +138,83 @@ pub struct SavedPlanBundle {
     pub superseded_plan_id: Option<String>,
 }
 
-/// The stored `agent_slug` of a plan that belongs to no agent.
+/// The stored `author_agent_id` of an outline or week no agent wrote.
 ///
-/// One place, deliberately. This value is load-bearing in a way nothing about
-/// `""` announces: it is what the one-active-per-agent uniqueness key
-/// constrains agnostic rows by, and it is what [`PlanOwner`]'s fallback reads.
-/// Spelling it into a second query is how the two halves stop agreeing.
-pub const AGNOSTIC_PLAN_SLUG: &str = "";
+/// One place, deliberately: it is what [`PlanAuthor::stored`] binds for a
+/// writer with no agent and what `SUPERSEDE_OWN_ACTIVE_PLAN_SQL` reads as a
+/// season anyone may re-lay. Spelling it into a second query is how the two
+/// halves stop agreeing.
+pub const NO_AUTHOR_AGENT: &str = "";
 
-/// Whose plan a read or write is for: the agent this athlete has selected, if
-/// they have selected one.
+/// The agent writing to the athlete's plan, if the write comes from one.
 ///
-/// **One question, not two.** Every caller asks the same thing — "this
-/// athlete's coach, if any" — which is why this is a newtype rather than an
-/// enum with an `AgnosticOnly` variant. All ten production call sites pass a
-/// resolved `Option`; none asks for the agnostic plan *in preference to* a
-/// agent's own, so that variant would have no caller outside its own tests.
-///
-/// What it is NOT is "any plan". A read for agent A never returns agent B's:
-/// the fallback reaches only [`AGNOSTIC_PLAN_SLUG`] rows, which is where an
-/// athlete with no selected agent has their plan stored.
-///
-/// This type exists because `Option<&str>` said none of that. `Some(slug)`
-/// meant "that coach's plan, else the agnostic one" and `None` meant "the
-/// agnostic one only" — two different questions in one shape, and the second
-/// reads like "any". `.unwrap_or_default()` then collapsed `None` and `""`
-/// into the same bound value on both the read and the write, so a caller that
-/// meant "this athlete has no coach" and a row that meant "this plan has no
-/// coach" were indistinguishable by construction.
+/// Authorship never selects a plan — the athlete has one active season,
+/// whoever laid it. It records who laid the outline and who wrote each week,
+/// and decides whether an outline save may replace the season unasked
+/// ([`Self::may_resave_outline`]). [`Self::stored`] is the only place the
+/// stored form of "no agent", [`NO_AUTHOR_AGENT`], is spelled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct PlanOwner<'a>(Option<&'a str>);
+pub struct PlanAuthor<'a>(Option<&'a str>);
 
-impl<'a> PlanOwner<'a> {
-    /// The plan this agent owns, falling back to the agnostic plan when they
-    /// own none.
+impl<'a> PlanAuthor<'a> {
+    /// A write by this agent.
     #[must_use]
-    pub const fn agent(slug: &'a str) -> Self {
-        Self(Some(slug))
+    pub const fn agent(agent_id: &'a str) -> Self {
+        Self(Some(agent_id))
     }
 
-    /// An athlete with no selected agent: only the agnostic plan.
+    /// A write no agent made: a direct call with no agent named.
     #[must_use]
-    pub const fn agnostic() -> Self {
+    pub const fn none() -> Self {
         Self(None)
     }
 
-    /// From a resolved slug, which is the shape every call site already has.
+    /// From a resolved agent id, which is the shape every call site has. An
+    /// empty id is no agent: it is what "no agent" is stored as.
     #[must_use]
-    pub const fn from_slug(slug: Option<&'a str>) -> Self {
-        Self(slug)
-    }
-
-    /// The value to bind: the agent's slug, or the agnostic sentinel.
-    ///
-    /// The only place either half of the mapping is spelled.
-    #[must_use]
-    pub const fn stored_slug(self) -> &'a str {
-        match self.0 {
-            Some(slug) => slug,
-            None => AGNOSTIC_PLAN_SLUG,
+    pub const fn from_agent(agent_id: Option<&'a str>) -> Self {
+        match agent_id {
+            Some(id) if !id.is_empty() => Self(Some(id)),
+            _ => Self(None),
         }
     }
 
-    /// The agent's own slug, or `None` for an athlete with no selected agent.
+    /// The value to bind: the agent's id, or [`NO_AUTHOR_AGENT`].
     #[must_use]
-    pub const fn agent_slug(self) -> Option<&'a str> {
+    pub const fn stored(self) -> &'a str {
+        match self.0 {
+            Some(agent_id) => agent_id,
+            None => NO_AUTHOR_AGENT,
+        }
+    }
+
+    /// The agent's id, or `None` for a write no agent made.
+    #[must_use]
+    pub const fn agent_id(self) -> Option<&'a str> {
         self.0
+    }
+
+    /// Whether this writer may lay a new outline over a season laid by
+    /// `season_author` without being told to replace it.
+    ///
+    /// Yes over an agent-agnostic season (`None`) and over a season this same
+    /// agent laid; no over another agent's, and no for a writer with no agent
+    /// over any agent's season. `SUPERSEDE_OWN_ACTIVE_PLAN_SQL` spells the
+    /// same rule in SQL, inside the save's transaction.
+    #[must_use]
+    pub fn may_resave_outline(self, season_author: Option<&str>) -> bool {
+        season_author.is_none_or(|author| Some(author) == self.agent_id())
     }
 }
 
-/// Persistence for agent-authored training plans.
+/// Persistence for the athlete's training plan.
 ///
 /// Plans are **tenant-scoped**: every query carries `tenant_id` in its
-/// `WHERE` clause. Who a plan belongs to is [`PlanOwner`], and
-/// [`AGNOSTIC_PLAN_SLUG`] is the stored value for a plan that belongs to no
-/// agent — so the one-active-per-agent uniqueness key constrains those rows
-/// too (mirrors [`super::playbooks::PlaybookRepository`]).
+/// `WHERE` clause. An athlete holds at most one active outline per tenant —
+/// the season — which a unique index enforces; every agent reads that one
+/// and adds its weeks to it. [`PlanAuthor`] records who laid the outline and
+/// who wrote each week, and [`NO_AUTHOR_AGENT`] is the stored value when no
+/// agent did.
 #[async_trait]
 pub trait TrainingPlanRepository: Send + Sync {
     /// Atomically persist an optional outline plus zero or more weeks in a
@@ -214,26 +223,29 @@ pub trait TrainingPlanRepository: Send + Sync {
     /// is the only write path: one week is a bundle of one ("move Tuesday to
     /// Wednesday" is a whole-week re-save superseding that `week_start`).
     ///
-    /// With an outline: supersedes the current active plan, inserts the new
-    /// one, carries the superseded outline's surviving weeks onto it, then
-    /// attaches every week in the payload. Without an outline: resolves the
-    /// athlete's existing active plan (erroring if none) and attaches the
-    /// weeks. Either way the whole set commits or none of it does.
+    /// With an outline: supersedes the current active plan — any author's
+    /// when [`SavePlanBundleParams::replace_season`] is set, otherwise only
+    /// this author's or an agnostic one — inserts the new one, carries the
+    /// superseded outline's surviving weeks onto it with their authors, then
+    /// attaches every week in the payload. Without an outline: claims the
+    /// athlete's existing active plan with a row-locking write (erroring if
+    /// none) and attaches the weeks. Either way the whole set commits or none
+    /// of it does.
+    ///
+    /// An outline that finds a season it may not supersede — another
+    /// author's, or one a concurrent save laid while this one ran — meets the
+    /// one-season index and fails as `ResourceAlreadyExists`, writing nothing.
     async fn save_plan_bundle(
         &self,
         params: &SavePlanBundleParams<'_>,
     ) -> AppResult<SavedPlanBundle>;
 
-    /// Fetch the athlete's active outline for `owner`. Returns `None` when
-    /// they have no active plan.
-    ///
-    /// [`PlanOwner`] states the preference the old `Option<&str>` left to a
-    /// sort direction: an agent's own plan wins over the agnostic fallback.
+    /// Fetch the athlete's active outline — their one season, whichever
+    /// agent laid it. Returns `None` when they have no active plan.
     async fn get_active_plan(
         &self,
         tenant_id: &str,
         user_id: &str,
-        owner: PlanOwner<'_>,
     ) -> AppResult<Option<TrainingPlan>>;
 
     /// List a plan's weeks in calendar order (`week_start` ascending).
@@ -260,8 +272,9 @@ pub struct TrainingPlanRow {
     pub tenant_id: String,
     /// `user_id` column.
     pub user_id: String,
-    /// `agent_slug` column (`''` = agent-agnostic).
-    pub agent_slug: String,
+    /// `author_agent_id` column: the agent that laid the outline (`''` = no
+    /// agent).
+    pub author_agent_id: String,
     /// `goal_fact_id` column.
     pub goal_fact_id: Option<String>,
     /// `goal_race_json` column.
@@ -312,6 +325,9 @@ pub struct PlanWeekRow {
     pub supersedes_id: Option<String>,
     /// `adjustment_reason` column.
     pub adjustment_reason: String,
+    /// `author_agent_id` column: the agent that wrote the week (`''` = no
+    /// agent).
+    pub author_agent_id: String,
     /// `phase_index` column; `None` when the week names no phase. Read as
     /// the `i32` the column is declared as (`INTEGER` on `SQLite`, `int4` on
     /// Postgres), so a stored value past that width fails the read as a
@@ -353,7 +369,7 @@ pub(crate) fn training_plan_from_row(row: TrainingPlanRow) -> AppResult<Training
         id: row.id,
         tenant_id: row.tenant_id,
         user_id: row.user_id,
-        agent_slug: (!row.agent_slug.is_empty()).then_some(row.agent_slug),
+        author_agent_id: (!row.author_agent_id.is_empty()).then_some(row.author_agent_id),
         goal_fact_id: row.goal_fact_id,
         goal_race,
         races,
@@ -398,6 +414,7 @@ pub(crate) fn plan_week_from_row(row: PlanWeekRow) -> AppResult<PlanWeek> {
         status,
         supersedes_id: row.supersedes_id,
         adjustment_reason: row.adjustment_reason,
+        author_agent_id: (!row.author_agent_id.is_empty()).then_some(row.author_agent_id),
         created_at: epoch_to_datetime(row.created_at, "created_at")?,
         updated_at: epoch_to_datetime(row.updated_at, "updated_at")?,
     })
@@ -408,8 +425,8 @@ pub(crate) fn plan_week_from_row(row: PlanWeekRow) -> AppResult<PlanWeek> {
 pub(crate) struct PlanInsertValues {
     /// New row id.
     pub id: String,
-    /// `''`-normalized agent slug.
-    pub agent_slug: String,
+    /// The outline's author as stored (`''` for no agent).
+    pub author_agent_id: String,
     /// Serialized goal-race snapshot.
     pub goal_race_json: String,
     /// Serialized race calendar, or `None` to carry the superseded row's
@@ -443,7 +460,7 @@ pub(crate) fn plan_insert_values(
         .map_err(|e| AppError::internal(format!("serialize flavour: {e}")))?;
     Ok(PlanInsertValues {
         id: uuid::Uuid::new_v4().to_string(),
-        agent_slug: params.owner.stored_slug().to_owned(),
+        author_agent_id: params.author.stored().to_owned(),
         goal_race_json,
         races_json,
         phases_json,
@@ -497,8 +514,8 @@ pub(crate) struct BuiltPlan<'a> {
     pub tenant_id: &'a str,
     /// Athlete the plan is for.
     pub user_id: &'a str,
-    /// Agent slug (`None` = agent-agnostic).
-    pub agent_slug: Option<&'a str>,
+    /// The agent that laid the outline (`None` = no agent).
+    pub author_agent_id: Option<&'a str>,
     /// Linked pillar Goal fact, if any.
     pub goal_fact_id: Option<&'a str>,
     /// Goal-race snapshot.
@@ -531,7 +548,7 @@ pub(crate) fn built_training_plan(b: BuiltPlan<'_>) -> AppResult<TrainingPlan> {
         id: b.id,
         tenant_id: b.tenant_id.to_owned(),
         user_id: b.user_id.to_owned(),
-        agent_slug: b.agent_slug.map(str::to_owned),
+        author_agent_id: b.author_agent_id.map(str::to_owned),
         goal_fact_id: b.goal_fact_id.map(str::to_owned),
         goal_race: b.goal_race.clone(),
         races: b.races.to_vec(),
@@ -570,6 +587,8 @@ pub(crate) struct BuiltWeek<'a> {
     pub adjustment_reason: &'a str,
     /// Phase the week instantiates, when stated.
     pub phase_index: Option<u32>,
+    /// The agent that wrote the week (`None` = no agent).
+    pub author_agent_id: Option<&'a str>,
     /// Insert timestamp (epoch seconds).
     pub now: i64,
 }
@@ -589,33 +608,37 @@ pub(crate) fn built_plan_week(b: BuiltWeek<'_>) -> AppResult<PlanWeek> {
         status: WeekStatus::Active,
         supersedes_id: b.superseded,
         adjustment_reason: b.adjustment_reason.to_owned(),
+        author_agent_id: b.author_agent_id.map(str::to_owned),
         created_at: created,
         updated_at: created,
     })
 }
 
 /// The seventeen columns every outline read returns, in the order
-/// [`plan_row`] reads them. One list after `SELECT` and inside `INSERT (...)`,
-/// so a column added to [`TrainingPlanRow`] reaches every statement at once.
+/// [`plan_row`] reads them. One list after `SELECT`, inside `INSERT (...)`
+/// and after `RETURNING`, so a column added to [`TrainingPlanRow`] reaches
+/// every statement at once.
 macro_rules! plan_columns {
     () => {
-        "id, tenant_id, user_id, agent_slug, goal_fact_id, goal_race_json, \
+        "id, tenant_id, user_id, author_agent_id, goal_fact_id, goal_race_json, \
          races_json, strategy, phases_json, status, supersedes_id, source_conversation_id, \
          created_at, updated_at, flavour_json, season_start, season_end"
     };
 }
 
-/// The thirteen columns every week read returns, in the order [`week_row`]
+/// The fourteen columns every week read returns, in the order [`week_row`]
 /// reads them.
 macro_rules! week_columns {
     () => {
         "id, tenant_id, user_id, plan_id, week_start, focus, days_json, \
-         status, supersedes_id, adjustment_reason, created_at, updated_at, phase_index"
+         status, supersedes_id, adjustment_reason, created_at, updated_at, phase_index, \
+         author_agent_id"
     };
 }
 
-/// Mark the athlete's current active outline for this agent superseded,
-/// returning its id and the calendar the replacement inherits.
+/// Mark the athlete's active outline superseded, whoever laid it, returning
+/// its id and the calendar the replacement inherits. The statement for a save
+/// that set [`SavePlanBundleParams::replace_season`].
 ///
 /// `$n` placeholders throughout this module: sqlx accepts them on `SQLite` as
 /// well as Postgres, and every bind on these two tables is a plain
@@ -623,7 +646,19 @@ macro_rules! week_columns {
 /// serves both backends and cannot drift between them.
 pub(crate) const SUPERSEDE_ACTIVE_PLAN_SQL: &str = "UPDATE training_plans \
      SET status = 'superseded', updated_at = $1 \
-     WHERE tenant_id = $2 AND user_id = $3 AND agent_slug = $4 AND status = 'active' \
+     WHERE tenant_id = $2 AND user_id = $3 AND status = 'active' \
+     RETURNING id, races_json";
+
+/// [`SUPERSEDE_ACTIVE_PLAN_SQL`] restricted to a season the writer (`$4`, as
+/// [`PlanAuthor::stored`] binds it) may re-lay unasked: one it laid, or one no
+/// agent laid ([`NO_AUTHOR_AGENT`]). The SQL half of
+/// [`PlanAuthor::may_resave_outline`], evaluated inside the save's
+/// transaction: over another author's season it supersedes nothing, and the
+/// insert that follows meets the one-season index.
+pub(crate) const SUPERSEDE_OWN_ACTIVE_PLAN_SQL: &str = "UPDATE training_plans \
+     SET status = 'superseded', updated_at = $1 \
+     WHERE tenant_id = $2 AND user_id = $3 AND status = 'active' \
+     AND author_agent_id IN ($4, '') \
      RETURNING id, races_json";
 
 /// Insert a new active outline.
@@ -644,7 +679,7 @@ pub(crate) const SUPERSEDE_ACTIVE_WEEK_SQL: &str = "UPDATE training_plan_weeks \
 pub(crate) const INSERT_WEEK_SQL: &str = concat!(
     "INSERT INTO training_plan_weeks (",
     week_columns!(),
-    ") VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, $10, $10, $11)"
+    ") VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, $10, $10, $11, $12)"
 );
 
 /// Flip every active week of a superseded outline to `'superseded'`,
@@ -656,17 +691,26 @@ pub(crate) const SUPERSEDE_CARRIED_WEEKS_SQL: &str = concat!(
     week_columns!()
 );
 
-/// The athlete's active outline: the owner's own plan first, the agnostic
-/// fallback second. The `CASE` says so; it replaced `ORDER BY agent_slug
-/// DESC`, which got the same answer only because any real slug happens to
-/// sort above the empty-string sentinel — true, undocumented, and silently
-/// dependent on collation.
+/// The athlete's active outline: their one season, whichever agent laid it.
+/// The one-season index guarantees at most one row.
 pub(crate) const ACTIVE_PLAN_SQL: &str = concat!(
     "SELECT ",
     plan_columns!(),
     " FROM training_plans \
-     WHERE tenant_id = $1 AND user_id = $2 AND agent_slug IN ($3, $4) AND status = 'active' \
-     ORDER BY CASE WHEN agent_slug = $3 THEN 0 ELSE 1 END LIMIT 1"
+     WHERE tenant_id = $1 AND user_id = $2 AND status = 'active'"
+);
+
+/// The athlete's active outline, read by writing it: the status is set to the
+/// value it already holds, so the "rows change only by a status flip" rule
+/// holds while the statement takes the row lock on Postgres and the write lock
+/// on `SQLite`. A weeks-only save claims the season this way so an outline
+/// save cannot supersede it between the read and the week inserts — the weeks
+/// land on the season that is active when the save commits.
+pub(crate) const CLAIM_ACTIVE_PLAN_SQL: &str = concat!(
+    "UPDATE training_plans SET status = 'active' \
+     WHERE tenant_id = $1 AND user_id = $2 AND status = 'active' \
+     RETURNING ",
+    plan_columns!()
 );
 
 /// Every week of one outline, superseded rows included, in supersession order.
@@ -719,7 +763,7 @@ where
         id: col("id")?,
         tenant_id: col("tenant_id")?,
         user_id: col("user_id")?,
-        agent_slug: col("agent_slug")?,
+        author_agent_id: col("author_agent_id")?,
         goal_fact_id: opt("goal_fact_id")?,
         goal_race_json: col("goal_race_json")?,
         races_json: col("races_json")?,
@@ -770,6 +814,7 @@ where
         status: col("status")?,
         supersedes_id: opt("supersedes_id")?,
         adjustment_reason: col("adjustment_reason")?,
+        author_agent_id: col("author_agent_id")?,
         created_at: epoch("created_at")?,
         updated_at: epoch("updated_at")?,
         phase_index: row
@@ -794,9 +839,10 @@ macro_rules! impl_training_plan_repository {
         /// against the new plan id with `supersedes_id` pointing back at it. Weeks are
         /// keyed by `plan_id` and every read surface lists the *active* plan's weeks,
         /// so a week left behind is a schedule the athlete can no longer see. Row
-        /// content is carried verbatim — `days_json` is never re-parsed — so only
-        /// identity changes and the migration's "new row with `supersedes_id` set, old
-        /// row `status='superseded'`" model holds across the plan boundary too.
+        /// content is carried verbatim — `days_json` is never re-parsed, and the week
+        /// keeps the author that wrote it — so only identity changes and the
+        /// migration's "new row with `supersedes_id` set, old row
+        /// `status='superseded'`" model holds across the plan boundary too.
         async fn carry_forward_active_weeks(
             conn: &mut <$db as sqlx::Database>::Connection,
             tenant_id: &str,
@@ -827,6 +873,7 @@ macro_rules! impl_training_plan_repository {
                     .bind(&old.adjustment_reason)
                     .bind(now)
                     .bind(old.phase_index)
+                    .bind(&old.author_agent_id)
                     .execute(&mut *conn)
                     .await
                     .map_err(|e| AppError::database(format!("carry forward plan week: {e}")))?;
@@ -836,16 +883,31 @@ macro_rules! impl_training_plan_repository {
 
         /// Supersede the current active outline and insert the new one, on an
         /// in-transaction connection. The caller owns the transaction envelope.
+        ///
+        /// `replace_season` picks the supersede: any author's season, or only one
+        /// this author may re-lay unasked. When the supersede matched nothing while
+        /// a season is active — another author's without the flag, or one a
+        /// concurrent save laid — the insert meets the one-season index and the save
+        /// is refused as `ResourceAlreadyExists`.
         async fn supersede_and_insert_plan(
             conn: &mut <$db as sqlx::Database>::Connection,
             params: &SaveTrainingPlanParams<'_>,
+            replace_season: bool,
         ) -> AppResult<TrainingPlan> {
             let v = plan_insert_values(params)?;
-            let replaced = sqlx::query(SUPERSEDE_ACTIVE_PLAN_SQL)
-                .bind(v.now)
-                .bind(params.tenant_id)
-                .bind(params.user_id)
-                .bind(&v.agent_slug)
+            let supersede = if replace_season {
+                sqlx::query(SUPERSEDE_ACTIVE_PLAN_SQL)
+                    .bind(v.now)
+                    .bind(params.tenant_id)
+                    .bind(params.user_id)
+            } else {
+                sqlx::query(SUPERSEDE_OWN_ACTIVE_PLAN_SQL)
+                    .bind(v.now)
+                    .bind(params.tenant_id)
+                    .bind(params.user_id)
+                    .bind(&v.author_agent_id)
+            };
+            let replaced = supersede
                 .fetch_optional(&mut *conn)
                 .await
                 .map_err(|e| AppError::database(format!("supersede active plan: {e}")))?;
@@ -883,7 +945,7 @@ macro_rules! impl_training_plan_repository {
                 .bind(&v.id)
                 .bind(params.tenant_id)
                 .bind(params.user_id)
-                .bind(&v.agent_slug)
+                .bind(&v.author_agent_id)
                 .bind(params.goal_fact_id)
                 .bind(&v.goal_race_json)
                 .bind(&races_json)
@@ -897,7 +959,24 @@ macro_rules! impl_training_plan_repository {
                 .bind(params.season_end)
                 .execute(&mut *conn)
                 .await
-                .map_err(|e| AppError::database(format!("insert training plan: {e}")))?;
+                .map_err(|e| {
+                    // The one-season index: a season this save may not supersede
+                    // is still active. The tool checks authorship before writing,
+                    // so reaching this means the season changed while the save
+                    // ran — the transaction rolls back and nothing is written.
+                    if e.as_database_error()
+                        .is_some_and(|db| db.is_unique_violation())
+                    {
+                        AppError::new(
+                            ErrorCode::ResourceAlreadyExists,
+                            "The athlete's training plan changed while this save ran, so \
+                             nothing was saved — read it again with get_training_plan and \
+                             save again.",
+                        )
+                    } else {
+                        AppError::database(format!("insert training plan: {e}"))
+                    }
+                })?;
             // The new outline carries a new id, so the replaced outline's weeks move
             // with it in this same transaction — otherwise the athlete's schedule
             // stays on a plan no read surface fetches.
@@ -916,7 +995,7 @@ macro_rules! impl_training_plan_repository {
                 id: v.id,
                 tenant_id: params.tenant_id,
                 user_id: params.user_id,
-                agent_slug: params.owner.agent_slug(),
+                author_agent_id: params.author.agent_id(),
                 goal_fact_id: params.goal_fact_id,
                 goal_race: params.goal_race,
                 races: &written_races,
@@ -933,15 +1012,18 @@ macro_rules! impl_training_plan_repository {
 
         /// Supersede the active row for this `week_start` and insert the new week, on
         /// an in-transaction connection. The caller resolves `plan_id` from a plan it
-        /// created or read for this tenant + user in the same transaction, so the week
-        /// can never attach to another athlete's (or tenant's) plan.
+        /// created or claimed for this tenant + user in the same transaction, so the
+        /// week can never attach to another athlete's (or tenant's) plan. The week is
+        /// authored by this save's writer; the row it supersedes keeps its own author
+        /// in the history.
         async fn supersede_and_insert_week(
             conn: &mut <$db as sqlx::Database>::Connection,
-            tenant_id: &str,
-            user_id: &str,
+            params: &SavePlanBundleParams<'_>,
             plan_id: &str,
             week: &PlanWeekInput<'_>,
         ) -> AppResult<PlanWeek> {
+            let tenant_id = params.tenant_id;
+            let user_id = params.user_id;
             let v = week_insert_values(week.days)?;
             let superseded: Option<String> = sqlx::query_scalar(SUPERSEDE_ACTIVE_WEEK_SQL)
                 .bind(v.now)
@@ -964,6 +1046,7 @@ macro_rules! impl_training_plan_repository {
                 .bind(week.adjustment_reason)
                 .bind(v.now)
                 .bind(phase_index_column(week.phase_index)?)
+                .bind(params.author.stored())
                 .execute(&mut *conn)
                 .await
                 .map_err(|e| AppError::database(format!("insert plan week: {e}")))?;
@@ -978,27 +1061,34 @@ macro_rules! impl_training_plan_repository {
                 superseded,
                 adjustment_reason: week.adjustment_reason,
                 phase_index: week.phase_index,
+                author_agent_id: params.author.agent_id(),
                 now: v.now,
             })
         }
 
-        /// Read the athlete's active outline on an in-transaction connection.
-        async fn resolve_active_plan(
+        /// Claim the athlete's active outline on an in-transaction connection
+        /// ([`CLAIM_ACTIVE_PLAN_SQL`]), a second time when the first finds nothing:
+        /// on Postgres (READ COMMITTED) a claim that waited on an outline save's
+        /// lock re-checks its row, finds it superseded and matches nothing, and the
+        /// second statement's fresh snapshot claims the outline that save
+        /// committed. Nothing both times means the athlete has no season.
+        async fn claim_active_plan(
             conn: &mut <$db as sqlx::Database>::Connection,
             tenant_id: &str,
             user_id: &str,
-            owner: PlanOwner<'_>,
         ) -> AppResult<Option<TrainingPlan>> {
-            let row = sqlx::query(ACTIVE_PLAN_SQL)
-                .bind(tenant_id)
-                .bind(user_id)
-                .bind(owner.stored_slug())
-                .bind(AGNOSTIC_PLAN_SLUG)
-                .fetch_optional(&mut *conn)
-                .await
-                .map_err(|e| AppError::database(format!("get active plan: {e}")))?;
-            row.map(|r| plan_row(&r).and_then(training_plan_from_row))
-                .transpose()
+            for _ in 0..2 {
+                let row = sqlx::query(CLAIM_ACTIVE_PLAN_SQL)
+                    .bind(tenant_id)
+                    .bind(user_id)
+                    .fetch_optional(&mut *conn)
+                    .await
+                    .map_err(|e| AppError::database(format!("claim active plan: {e}")))?;
+                if let Some(row) = row {
+                    return plan_row(&row).and_then(training_plan_from_row).map(Some);
+                }
+            }
+            Ok(None)
         }
 
         #[async_trait::async_trait]
@@ -1014,14 +1104,14 @@ macro_rules! impl_training_plan_repository {
                     .map_err(|e| AppError::database(format!("begin bundle tx: {e}")))?;
 
                 // Resolve the plan the weeks attach to — a fresh outline (superseding
-                // the current active one) or the existing active plan — inside the
-                // transaction so the outline supersession and every week either all
+                // the current active one) or the existing active plan, claimed — inside
+                // the transaction so the outline supersession and every week either all
                 // commit or all roll back.
                 let (plan, superseded_plan_id) = if let Some(o) = &params.outline {
                     let stp = SaveTrainingPlanParams {
                         tenant_id: params.tenant_id,
                         user_id: params.user_id,
-                        owner: params.owner,
+                        author: params.author,
                         goal_fact_id: params.goal_fact_id,
                         goal_race: o.goal_race,
                         races: o.races,
@@ -1032,37 +1122,24 @@ macro_rules! impl_training_plan_repository {
                         phases: o.phases,
                         source_conversation_id: o.source_conversation_id,
                     };
-                    let plan = supersede_and_insert_plan(&mut tx, &stp).await?;
+                    let plan =
+                        supersede_and_insert_plan(&mut tx, &stp, params.replace_season).await?;
                     let superseded = plan.supersedes_id.clone();
                     (plan, superseded)
                 } else {
-                    let plan = resolve_active_plan(
-                        &mut tx,
-                        params.tenant_id,
-                        params.user_id,
-                        params.owner,
-                    )
-                    .await?
-                    .ok_or_else(|| {
-                        AppError::invalid_input(
-                            "no active plan to attach weeks to — save an outline first",
-                        )
-                    })?;
+                    let plan = claim_active_plan(&mut tx, params.tenant_id, params.user_id)
+                        .await?
+                        .ok_or_else(|| {
+                            AppError::invalid_input(
+                                "no active plan to attach weeks to — save an outline first",
+                            )
+                        })?;
                     (plan, None)
                 };
 
                 let mut weeks = Vec::with_capacity(params.weeks.len());
                 for w in params.weeks {
-                    weeks.push(
-                        supersede_and_insert_week(
-                            &mut tx,
-                            params.tenant_id,
-                            params.user_id,
-                            &plan.id,
-                            w,
-                        )
-                        .await?,
-                    );
+                    weeks.push(supersede_and_insert_week(&mut tx, params, &plan.id, w).await?);
                 }
 
                 tx.commit()
@@ -1079,14 +1156,15 @@ macro_rules! impl_training_plan_repository {
                 &self,
                 tenant_id: &str,
                 user_id: &str,
-                owner: PlanOwner<'_>,
             ) -> AppResult<Option<TrainingPlan>> {
-                // Specific agent first, agent-agnostic ('') as fallback — shares the
-                // in-transaction resolver so the SELECT lives in one place.
-                let mut conn = self.pool().acquire().await.map_err(|e| {
-                    AppError::database(format!("acquire conn for get active plan: {e}"))
-                })?;
-                resolve_active_plan(&mut conn, tenant_id, user_id, owner).await
+                let row = sqlx::query(ACTIVE_PLAN_SQL)
+                    .bind(tenant_id)
+                    .bind(user_id)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("get active plan: {e}")))?;
+                row.map(|r| plan_row(&r).and_then(training_plan_from_row))
+                    .transpose()
             }
 
             async fn list_plan_weeks(

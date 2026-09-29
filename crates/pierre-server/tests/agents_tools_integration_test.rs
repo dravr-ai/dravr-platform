@@ -25,7 +25,7 @@ use anyhow::Result;
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use serde_json::json;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -976,6 +976,80 @@ async fn test_search_agents_by_tag() -> Result<()> {
     let result = response.result.unwrap();
 
     assert_eq!(result["returned_count"].as_u64().unwrap(), 1);
+
+    Ok(())
+}
+
+/// `category` was declared on `search_agents` and never applied, so a search
+/// for nutrition agents returned the training ones too. It narrows now, and a
+/// search without it still covers every category.
+#[tokio::test]
+async fn test_search_agents_within_a_category() -> Result<()> {
+    let executor = create_agent_test_executor().await?;
+    let (user_id, tenant_id) = create_test_user_for_agents(&executor).await?;
+
+    for (title, category) in [
+        ("Marathon Builder", "training"),
+        ("Marathon Fueling", "nutrition"),
+    ] {
+        let created = executor
+            .execute_tool(create_test_request(
+                "create_agent",
+                json!({
+                    "title": title,
+                    "system_prompt": format!("You coach {title}."),
+                    "category": category
+                }),
+                user_id,
+                &tenant_id,
+            ))
+            .await?;
+        assert!(created.success, "{:?}", created.error);
+    }
+
+    let titles = |response: UniversalResponse| -> Vec<String> {
+        response.result.unwrap()["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|agent| agent["title"].as_str().unwrap().to_owned())
+            .collect()
+    };
+
+    let nutrition = executor
+        .execute_tool(create_test_request(
+            "search_agents",
+            json!({"query": "marathon", "category": "nutrition"}),
+            user_id,
+            &tenant_id,
+        ))
+        .await?;
+    assert!(nutrition.success, "{:?}", nutrition.error);
+    assert_eq!(titles(nutrition), vec!["Marathon Fueling"]);
+
+    let training = executor
+        .execute_tool(create_test_request(
+            "search_agents",
+            json!({"query": "marathon", "category": "Training"}),
+            user_id,
+            &tenant_id,
+        ))
+        .await?;
+    assert_eq!(
+        titles(training),
+        vec!["Marathon Builder"],
+        "the category name is read case-insensitively, as list_agents reads it"
+    );
+
+    let everything = executor
+        .execute_tool(create_test_request(
+            "search_agents",
+            json!({"query": "marathon"}),
+            user_id,
+            &tenant_id,
+        ))
+        .await?;
+    assert_eq!(titles(everything).len(), 2);
 
     Ok(())
 }

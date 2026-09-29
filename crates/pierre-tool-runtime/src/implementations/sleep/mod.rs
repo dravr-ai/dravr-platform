@@ -38,6 +38,7 @@ use crate::conversions::{
     tool_result_to_response, Formatted,
 };
 use crate::implementations::handler_bridge;
+use crate::implementations::sleep::inner::{DEFAULT_TREND_DAYS, MAX_TREND_DAYS};
 use crate::implementations::sleep::output::{
     RecoveryScoreResult, RestDayResult, SleepQualityResult, SleepScheduleResult, SleepTrendsResult,
 };
@@ -49,6 +50,13 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::AppResult;
 use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
+
+/// The fields a manual `sleep_data` object carries, the required two first.
+///
+/// The handlers deserialize it straight into `SleepData`.
+const SLEEP_DATA_FIELDS: &str = "Fields: date (YYYY-MM-DD or RFC 3339) and duration_hours \
+     (required), deep_sleep_hours, rem_sleep_hours, light_sleep_hours, awake_hours, \
+     efficiency_percent, hrv_rmssd_ms, resting_hr_bpm, provider_score";
 
 // ============================================================================
 // AnalyzeSleepQualityTool
@@ -77,12 +85,10 @@ impl McpTool<dyn ToolRuntime> for AnalyzeSleepQualityTool {
             "sleep_data".to_owned(),
             PropertySchema {
                 property_type: "object".to_owned(),
-                description: Some(
-                    "Manual sleep data (used instead of a provider fetch) with fields: \
-                     duration_hours, deep_sleep_hours, rem_sleep_hours, \
-                     light_sleep_hours, awake_hours, efficiency_percent, hrv_rmssd_ms"
-                        .to_owned(),
-                ),
+                description: Some(format!(
+                    "Manual sleep data, used instead of a provider fetch when no \
+                     sleep_provider is named. {SLEEP_DATA_FIELDS}"
+                )),
                 ..Default::default()
             },
         );
@@ -90,7 +96,9 @@ impl McpTool<dyn ToolRuntime> for AnalyzeSleepQualityTool {
             "recent_hrv_values".to_owned(),
             PropertySchema {
                 property_type: "array".to_owned(),
-                description: Some("Array of recent HRV values for trend analysis".to_owned()),
+                description: Some(
+                    "Array of recent HRV values (RMSSD, ms) for trend analysis".to_owned(),
+                ),
                 items: Some(Box::new(PropertySchema {
                     property_type: "number".to_owned(),
                     description: Some("HRV RMSSD value in milliseconds".to_owned()),
@@ -103,7 +111,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeSleepQualityTool {
             "baseline_hrv".to_owned(),
             PropertySchema {
                 property_type: "number".to_owned(),
-                description: Some("User's baseline HRV for comparison".to_owned()),
+                description: Some("User's baseline HRV (RMSSD, ms) for comparison".to_owned()),
                 ..Default::default()
             },
         );
@@ -111,7 +119,8 @@ impl McpTool<dyn ToolRuntime> for AnalyzeSleepQualityTool {
         answers_with::<Formatted<SleepQualityResult>>(tool_definition(
             "analyze_sleep_quality",
             "Analyze last night's sleep to generate quality scores and insights. \
-             Reads the nights synced from connected sources (WHOOP, Garmin, intervals.icu)",
+             Reads the nights synced from connected sources (WHOOP, Garmin, intervals.icu); \
+             manual `sleep_data` replaces that fetch only when no `sleep_provider` is named.",
             schema,
             None,
         ))
@@ -181,20 +190,10 @@ impl McpTool<dyn ToolRuntime> for CalculateRecoveryScoreTool {
             "sleep_data".to_owned(),
             PropertySchema {
                 property_type: "object".to_owned(),
-                description: Some(
-                    "Manual sleep data for recovery calculation (used instead of a provider fetch)"
-                        .to_owned(),
-                ),
-                ..Default::default()
-            },
-        );
-        properties.insert(
-            "training_load".to_owned(),
-            PropertySchema {
-                property_type: "object".to_owned(),
-                description: Some(
-                    "Training load data with ctl, atl, tsb values (optional)".to_owned(),
-                ),
+                description: Some(format!(
+                    "Manual sleep data, used instead of a provider fetch when no \
+                     sleep_provider is named. {SLEEP_DATA_FIELDS}"
+                )),
                 ..Default::default()
             },
         );
@@ -202,7 +201,7 @@ impl McpTool<dyn ToolRuntime> for CalculateRecoveryScoreTool {
             "recent_hrv_values".to_owned(),
             PropertySchema {
                 property_type: "array".to_owned(),
-                description: Some("Array of recent HRV values".to_owned()),
+                description: Some("Array of recent HRV values (RMSSD, ms)".to_owned()),
                 items: Some(Box::new(PropertySchema {
                     property_type: "number".to_owned(),
                     description: Some("HRV RMSSD value in milliseconds".to_owned()),
@@ -215,15 +214,17 @@ impl McpTool<dyn ToolRuntime> for CalculateRecoveryScoreTool {
             "baseline_hrv".to_owned(),
             PropertySchema {
                 property_type: "number".to_owned(),
-                description: Some("User's baseline HRV".to_owned()),
+                description: Some("User's baseline HRV (RMSSD, ms)".to_owned()),
                 ..Default::default()
             },
         );
         let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<RecoveryScoreResult>>(task_capable(tool_definition(
             "calculate_recovery_score",
-            "Calculate holistic recovery score combining training stress, sleep, and HRV. \
-             Fetches sleep and activity data from connected providers automatically",
+            "Calculate a holistic recovery score combining training stress, sleep and HRV. \
+             Fetches sleep and activities from connected providers automatically and computes \
+             CTL, ATL and TSB from those activities against the thresholds saved with \
+             set_physiology (FTP, threshold heart rate, max and resting heart rate, weight).",
             schema,
             None,
         )))
@@ -293,17 +294,10 @@ impl McpTool<dyn ToolRuntime> for SuggestRestDayTool {
             "sleep_data".to_owned(),
             PropertySchema {
                 property_type: "object".to_owned(),
-                description: Some(
-                    "Manual sleep data (used instead of a provider fetch)".to_owned(),
-                ),
-                ..Default::default()
-            },
-        );
-        properties.insert(
-            "training_load".to_owned(),
-            PropertySchema {
-                property_type: "object".to_owned(),
-                description: Some("Training load data (ctl, atl, tsb)".to_owned()),
+                description: Some(format!(
+                    "Manual data for last night's sleep, used instead of a provider fetch when \
+                     no sleep_provider is named. {SLEEP_DATA_FIELDS}"
+                )),
                 ..Default::default()
             },
         );
@@ -311,7 +305,7 @@ impl McpTool<dyn ToolRuntime> for SuggestRestDayTool {
             "recent_hrv_values".to_owned(),
             PropertySchema {
                 property_type: "array".to_owned(),
-                description: Some("Recent HRV values for trend analysis".to_owned()),
+                description: Some("Recent HRV values (RMSSD, ms) for trend analysis".to_owned()),
                 items: Some(Box::new(PropertySchema {
                     property_type: "number".to_owned(),
                     description: Some("HRV RMSSD value in milliseconds".to_owned()),
@@ -324,15 +318,17 @@ impl McpTool<dyn ToolRuntime> for SuggestRestDayTool {
             "baseline_hrv".to_owned(),
             PropertySchema {
                 property_type: "number".to_owned(),
-                description: Some("User's baseline HRV".to_owned()),
+                description: Some("User's baseline HRV (RMSSD, ms)".to_owned()),
                 ..Default::default()
             },
         );
         let schema = object_schema(properties, None);
         answers_with::<RestDayResult>(task_capable(tool_definition(
             "suggest_rest_day",
-            "Get AI-powered recommendation on whether to rest or train. \
-             Fetches sleep and activity data from connected providers automatically",
+            "Get a recommendation on whether to rest or train. Fetches sleep and activities \
+             from connected providers automatically and computes CTL, ATL and TSB from those \
+             activities against the thresholds saved with set_physiology (FTP, threshold heart \
+             rate, max and resting heart rate, weight).",
             schema,
             None,
         )))
@@ -377,7 +373,11 @@ impl McpTool<dyn ToolRuntime> for TrackSleepTrendsTool {
             "sleep_history".to_owned(),
             PropertySchema {
                 property_type: "array".to_owned(),
-                description: Some("Array of sleep data objects (minimum 7 days)".to_owned()),
+                description: Some(
+                    "Manual array of sleep data objects, used instead of a provider fetch when \
+                     no sleep_provider is named; at least 7 nights (the server's trend minimum)"
+                        .to_owned(),
+                ),
                 items: Some(Box::new(PropertySchema {
                     property_type: "object".to_owned(),
                     properties: Some(BTreeMap::from([
@@ -419,18 +419,20 @@ impl McpTool<dyn ToolRuntime> for TrackSleepTrendsTool {
         properties.insert(
             "days".to_owned(),
             PropertySchema {
-                property_type: "number".to_owned(),
-                description: Some(
-                    "Days of sleep history to fetch from the provider (default 7)".to_owned(),
-                ),
+                property_type: "integer".to_owned(),
+                description: Some(format!(
+                    "Days of sleep history to fetch from the provider (default \
+                     {DEFAULT_TREND_DAYS}, max {MAX_TREND_DAYS})"
+                )),
                 ..Default::default()
             },
         );
         let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<SleepTrendsResult>>(tool_definition(
             "track_sleep_trends",
-            "Analyze sleep patterns over time to identify trends and insights. \
-             Reads the nights synced from connected sources (WHOOP, Garmin, intervals.icu)",
+            "Analyze sleep patterns over time to identify trends and insights. Reads the \
+             nights synced from connected sources (WHOOP, Garmin, intervals.icu) over `days`; \
+             manual `sleep_history` replaces that fetch only when no `sleep_provider` is named.",
             schema,
             None,
         ))
@@ -472,10 +474,14 @@ impl McpTool<dyn ToolRuntime> for OptimizeSleepScheduleTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
-            "training_load".to_owned(),
+            "activity_provider".to_owned(),
             PropertySchema {
-                property_type: "object".to_owned(),
-                description: Some("Training load data (ctl, atl, tsb)".to_owned()),
+                property_type: "string".to_owned(),
+                description: Some(
+                    "Provider to fetch activities for training load (strava, garmin, coros, \
+                     whoop, intervals_icu, terra). Omit to auto-select"
+                        .to_owned(),
+                ),
                 ..Default::default()
             },
         );
@@ -483,7 +489,11 @@ impl McpTool<dyn ToolRuntime> for OptimizeSleepScheduleTool {
             "upcoming_workout_intensity".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("low, moderate, or high".to_owned()),
+                description: Some(
+                    "Tomorrow's session: 'low', 'moderate' (default) or 'high'. 'high' adds a \
+                     sleep-quality recommendation; the target hours follow training load."
+                        .to_owned(),
+                ),
                 ..Default::default()
             },
         );
@@ -498,7 +508,9 @@ impl McpTool<dyn ToolRuntime> for OptimizeSleepScheduleTool {
         let schema = object_schema(properties, None);
         answers_with::<SleepScheduleResult>(task_capable(tool_definition(
             "optimize_sleep_schedule",
-            "Get personalized sleep schedule recommendations based on training and recovery needs",
+            "Get personalized sleep schedule recommendations based on training and recovery \
+             needs. The training load is computed from the athlete's synced activities against \
+             the thresholds saved with set_physiology.",
             schema,
             None,
         )))

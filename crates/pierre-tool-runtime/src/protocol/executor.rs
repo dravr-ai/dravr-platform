@@ -7,6 +7,7 @@
 use super::auth::AuthService;
 use crate::context::{
     AuthMethod, CONVERSATION_ID, CONVERSATION_TENANT, GRANTED_SCOPES, GUARDIAN_TURN_TOKEN,
+    TURN_AGENT_ID,
 };
 use crate::conversions::RAISED_ERROR_CODE_KEY;
 use crate::guardian::{self, DenyReason, GateOutcome, HeadlessBlock, TurnKey};
@@ -176,6 +177,10 @@ pub struct UniversalExecutor {
     /// [`crate::context::CONVERSATION_TENANT`] alongside it. `None` outside a
     /// chat turn; differs from the call's own tenant on shared-room turns.
     conversation_tenant_id: Option<uuid::Uuid>,
+    /// The agent the turn answers as, scoped into
+    /// [`crate::context::TURN_AGENT_ID`] alongside the conversation. `None`
+    /// outside a chat turn and on a turn that answers as no agent.
+    turn_agent_id: Option<String>,
     /// Per-**utterance** token used solely as the Guardian's turn key so taint
     /// and per-turn budgets accumulate over one user message's `ReAct` loop and
     /// reset on the next. Distinct from `conversation_id` (the persistent thread
@@ -210,6 +215,8 @@ impl UniversalExecutor {
             resources,
             conversation_id: None,
             conversation_tenant_id: CONVERSATION_TENANT.try_with(Clone::clone).ok().flatten(),
+            // A nested dispatch writes on behalf of the same agent as its caller.
+            turn_agent_id: TURN_AGENT_ID.try_with(Clone::clone).ok().flatten(),
             // Inherit the caller's turn token when this executor is built inside
             // a tool body (nested dispatch), so a nested UNTRUSTED_OUTPUT read
             // taints the SAME turn as its caller. Absent outside any tool scope
@@ -270,6 +277,17 @@ impl UniversalExecutor {
     #[must_use]
     pub const fn with_conversation_tenant(mut self, tenant: uuid::Uuid) -> Self {
         self.conversation_tenant_id = Some(tenant);
+        self
+    }
+
+    /// Bind the agent the turn answers as — the mentioned agent on a
+    /// `@handle` turn, otherwise the conversation's. The chat pipeline and the
+    /// headless tool surface call this beside [`Self::with_conversation_id`],
+    /// so a tool that records authorship names the agent the athlete was
+    /// talking to rather than the conversation's default.
+    #[must_use]
+    pub fn with_turn_agent(mut self, agent_id: Option<String>) -> Self {
+        self.turn_agent_id = agent_id;
         self
     }
 
@@ -623,14 +641,17 @@ impl UniversalExecutor {
                 self.conversation_id.clone(),
                 CONVERSATION_TENANT.scope(
                     self.conversation_tenant_id,
-                    GUARDIAN_TURN_TOKEN.scope(
-                        Some(resolved_turn_token.clone()),
-                        // The grant travels with the turn token for the same
-                        // reason: a nested dispatch must run under exactly what
-                        // authorized this call, never wider.
-                        GRANTED_SCOPES.scope(
-                            self.scopes.clone(),
-                            tool.execute(&self.resources, &ctx, args),
+                    TURN_AGENT_ID.scope(
+                        self.turn_agent_id.clone(),
+                        GUARDIAN_TURN_TOKEN.scope(
+                            Some(resolved_turn_token.clone()),
+                            // The grant travels with the turn token for the same
+                            // reason: a nested dispatch must run under exactly
+                            // what authorized this call, never wider.
+                            GRANTED_SCOPES.scope(
+                                self.scopes.clone(),
+                                tool.execute(&self.resources, &ctx, args),
+                            ),
                         ),
                     ),
                 ),

@@ -33,15 +33,17 @@ use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc, Weekday};
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::{
-    CalendarEventSource, CalendarKey, ConnectionType, PrescribedWorkout, SportType, TenantId,
-    UserId, UserOAuthToken, WorkoutStep,
+    CalendarEventSource, CalendarKey, ConnectionType, FuelingProtocol, PrescribedWorkout,
+    SportType, TenantId, UserId, UserOAuthToken, WorkoutStep,
 };
 use pierre_database::backends::factory::Database;
-use pierre_database::repositories::training_plans::PlanOwner;
+use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
 use pierre_providers::intervals_icu_provider::default_config;
 use pierre_providers::ProviderRegistry;
+use pierre_services::parq;
+use pierre_services::plan_fueling::FUELING_WITHHELD_CLAUSE;
 use pierre_tool_runtime::implementations::endurance_workouts::PrescribeWorkoutTool;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -429,6 +431,17 @@ impl Fixture {
     /// Persist plan weeks the way `save_training_plan` does, with an outline
     /// on the first call so the athlete has an active plan to attach to.
     async fn save_weeks(&self, with_outline: bool, weeks: &[(NaiveDate, &str, Vec<PlannedDay>)]) {
+        self.save_weeks_by(PlanAuthor::none(), with_outline, weeks)
+            .await;
+    }
+
+    /// [`Self::save_weeks`], written by `author`.
+    async fn save_weeks_by(
+        &self,
+        author: PlanAuthor<'_>,
+        with_outline: bool,
+        weeks: &[(NaiveDate, &str, Vec<PlannedDay>)],
+    ) {
         let goal = GoalRace {
             name: "Fall race".to_owned(),
             date: (weeks[0].0 + Duration::days(70))
@@ -484,8 +497,9 @@ impl Fixture {
             .save_plan_bundle(&SavePlanBundleParams {
                 tenant_id: &self.tenant_str(),
                 user_id: &self.user_id.to_string(),
-                owner: PlanOwner::agnostic(),
+                author,
                 goal_fact_id: None,
+                replace_season: false,
                 outline,
                 weeks: &inputs,
             })
@@ -708,6 +722,70 @@ async fn prescribing_a_cornerstone_creates_the_calendar_event_and_records_its_id
     assert!(
         request.contains("Z2 Pace"),
         "a run's zone step must resolve against pace; got: {request}"
+    );
+    Ok(())
+}
+
+/// A single prescription's ledger row names the agent it ran under, the way a
+/// pushed plan day names its week's author: in a chat turn that is the turn's
+/// agent, whatever `agent_id` the model passed; on a direct call with no turn
+/// and no conversation it is the agent the argument names.
+#[tokio::test]
+async fn a_single_prescription_names_the_agent_it_ran_under() -> Result<()> {
+    let stub = stub_live(4_100).await;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
+    let turn_agent = Uuid::new_v4().to_string();
+    let direct_agent = Uuid::new_v4().to_string();
+
+    let turn = UniversalToolExecutor::new(Arc::clone(&fixture.executor.resources))
+        .with_scopes(OAuthScope::self_grant())
+        .with_turn_agent(Some(turn_agent.clone()));
+    let in_turn = turn
+        .execute_tool(UniversalRequest {
+            tool_name: "prescribe_workout".to_owned(),
+            parameters: json!({
+                "template_slug": "long_run_z2",
+                "date": "2026-09-15",
+                "agent_id": Uuid::new_v4().to_string(),
+            }),
+            user_id: fixture.user_id.to_string(),
+            protocol: "test".to_owned(),
+            tenant_id: Some(fixture.tenant_str()),
+        })
+        .await?;
+    assert!(
+        in_turn.success,
+        "prescribe must succeed: {:?}",
+        in_turn.error
+    );
+
+    let direct = fixture
+        .prescribe(json!({
+            "template_slug": "long_run_z2",
+            "date": "2026-09-16",
+            "agent_id": direct_agent,
+        }))
+        .await?;
+    assert!(direct.success, "prescribe must succeed: {:?}", direct.error);
+
+    let named: Vec<(NaiveDate, Option<String>)> = fixture
+        .live()
+        .await
+        .into_iter()
+        .map(|row| (row.prescribed_for_date, row.agent_id))
+        .collect();
+    assert_eq!(
+        named,
+        vec![
+            (
+                NaiveDate::from_ymd_opt(2026, 9, 15).expect("valid date"),
+                Some(turn_agent)
+            ),
+            (
+                NaiveDate::from_ymd_opt(2026, 9, 16).expect("valid date"),
+                Some(direct_agent)
+            ),
+        ]
     );
     Ok(())
 }
@@ -1554,6 +1632,68 @@ async fn pushing_a_plan_puts_every_future_session_on_the_calendar_and_reconciles
     Ok(())
 }
 
+/// A season carries weeks written by several agents: each ledger row names
+/// the agent that wrote the week it came from, else the one that laid the
+/// season.
+#[tokio::test]
+async fn each_pushed_plan_day_names_the_agent_that_wrote_its_week() -> Result<()> {
+    let stub = stub_live(3000).await;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
+    let monday = next_plan_monday();
+    let d = |offset: i64| monday + Duration::days(offset);
+    fixture
+        .save_weeks_by(
+            PlanAuthor::agent("endurance-agent"),
+            true,
+            &[(
+                d(0),
+                "",
+                vec![planned(d(0), "run", "Long run", Some(90), "Z2")],
+            )],
+        )
+        .await;
+    fixture
+        .save_weeks_by(
+            PlanAuthor::agent("taper-builder-agent"),
+            false,
+            &[(
+                d(7),
+                "",
+                vec![planned(d(7), "run", "Openers", Some(40), "tempo")],
+            )],
+        )
+        .await;
+    fixture
+        .save_weeks_by(
+            PlanAuthor::none(),
+            false,
+            &[(
+                d(14),
+                "",
+                vec![planned(d(14), "run", "Race-week jog", Some(30), "Z1")],
+            )],
+        )
+        .await;
+
+    let report = fixture.ok("push_training_plan", json!({})).await?;
+    assert_eq!(report["created"].as_u64(), Some(3), "got: {report}");
+    let named: Vec<(NaiveDate, Option<String>)> = fixture
+        .live()
+        .await
+        .into_iter()
+        .map(|row| (row.prescribed_for_date, row.agent_id))
+        .collect();
+    assert_eq!(
+        named,
+        vec![
+            (d(0), Some("endurance-agent".to_owned())),
+            (d(7), Some("taper-builder-agent".to_owned())),
+            (d(14), Some("endurance-agent".to_owned())),
+        ]
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn a_structured_plan_day_reaches_the_calendar_as_repeat_blocks() -> Result<()> {
     // carnet#125: Phil's first real push landed four days with the right sport
@@ -1638,6 +1778,87 @@ async fn a_structured_plan_day_reaches_the_calendar_as_repeat_blocks() -> Result
         text.ends_with(&format!("\n\n- {} 61m Z4", SportType::Ride.display_name())),
         "back to the single intensity step, cued by the sport; got: {text}"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_flagged_athletes_calendar_note_loses_its_fuelling_rates_on_the_next_push() -> Result<()>
+{
+    // A protocol pushed before a medical flag was raised is still on the
+    // athlete's calendar. Once a clinician sets their amounts, the next push
+    // rewrites that note with the statement in place of the rates — and the
+    // plan read's preview says so before the push, so the two agree.
+    let stub = stub_live(4000).await;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
+    let user = fixture.user_id;
+    let monday = next_plan_monday();
+    let d = |offset: i64| monday + Duration::days(offset);
+    let mut ride = planned(d(5), "mtb", "Long ride, eat early", Some(150), "Z2");
+    ride.fueling = Some(FuelingProtocol {
+        carbs_g_per_h: 90.0,
+        fluid_ml_per_h: 700.0,
+        sodium_mg_per_h: Some(600.0),
+        carb_source: Some("glucose:fructose 1:0.8".to_owned()),
+    });
+    fixture.save_weeks(true, &[(d(0), "", vec![ride])]).await;
+
+    let report = fixture.ok("push_training_plan", json!({})).await?;
+    assert_eq!(report["created"].as_u64(), Some(1), "got: {report}");
+    let key = CalendarKey::plan_day(user, d(5), 0);
+    let text = |event: FakeEvent| {
+        event.body["description"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let before = text(
+        stub.event_by_key(&key)
+            .await
+            .expect("the ride is on the calendar"),
+    );
+    assert!(
+        before.contains("90 g/h carbs · 700 ml/h fluid"),
+        "got: {before}"
+    );
+
+    parq::persist_parq_flags(
+        fixture.executor.resources.repos().memory.as_ref(),
+        fixture.tenant,
+        &user.to_string(),
+        &["heart_condition".to_owned()],
+    )
+    .await?;
+
+    let preview = fixture.ok("get_training_plan", json!({})).await?;
+    assert_eq!(
+        preview["calendar"]["pending"]["update"].as_u64(),
+        Some(1),
+        "the preview renders the ride the way the push will: {}",
+        preview["calendar"]
+    );
+
+    let again = fixture.ok("push_training_plan", json!({})).await?;
+    assert_eq!(again["updated"].as_u64(), Some(1), "got: {again}");
+    let after = text(
+        stub.event_by_key(&key)
+            .await
+            .expect("still on the calendar"),
+    );
+    assert!(after.contains(FUELING_WITHHELD_CLAUSE), "got: {after}");
+    assert!(
+        !after.contains("g/h"),
+        "no rate stays on the calendar: {after}"
+    );
+    assert!(after.starts_with("Long ride, eat early"), "got: {after}");
+
+    let settled = fixture.ok("get_training_plan", json!({})).await?;
+    assert_eq!(
+        settled["calendar"]["pending"]["unchanged"].as_u64(),
+        Some(1),
+        "{}",
+        settled["calendar"]
+    );
+    assert_eq!(settled["calendar"]["stale"].as_bool(), Some(false));
     Ok(())
 }
 

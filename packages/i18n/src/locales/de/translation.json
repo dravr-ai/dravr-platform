@@ -950,6 +950,7 @@
     "fuelFluid": "{{value}} ml/h Flüssigkeit",
     "fuelLabel": "Verpflegung",
     "fuelSodiumLoss": "~{{value}} mg/h Natriumverlust",
+    "fuelWithheld": "Mengen ausgeblendet: In deinem Profil ist ein medizinischer Hinweis hinterlegt, deshalb legt deine behandelnde Fachperson sie fest",
     "generateInsight": "Auswertung erstellen",
     "goToGroups": "Zu den Gruppen",
     "groupChatBadge": "Gruppenchat",

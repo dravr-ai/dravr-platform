@@ -43,6 +43,20 @@ pub(super) fn athlete_prop() -> PropertySchema {
     )
 }
 
+/// The `replace_season` property of `save_training_plan`: the athlete's
+/// go-ahead to re-lay a season another agent laid.
+pub(super) fn replace_season_prop() -> PropertySchema {
+    PropertySchema {
+        property_type: "boolean".to_owned(),
+        description: Some(
+            "True only when the athlete asked you to re-lay or change the outline of a season \
+             another agent laid; read only with an outline."
+                .to_owned(),
+        ),
+        ..Default::default()
+    }
+}
+
 /// Number schema property with a description.
 fn number_prop(description: &str) -> PropertySchema {
     PropertySchema {
@@ -291,7 +305,10 @@ fn template_params_schema() -> PropertySchema {
 /// Schema for a day's fuelling prescription.
 ///
 /// Sodium is optional: an agent with no sweat estimate should omit it rather
-/// than invent one, and the athlete reads it as an estimated loss.
+/// than invent one, and the athlete reads it as an estimated loss. The whole
+/// object is refused for an athlete with a medical flag on file
+/// (`pierre_services::plan_fueling`), and the description says so, so the
+/// agent writes that athlete's fuelling in words the first time.
 fn fueling_schema() -> PropertySchema {
     let mut p = HashMap::new();
     p.insert(
@@ -317,7 +334,7 @@ fn fueling_schema() -> PropertySchema {
         ),
     );
     object_prop(
-        "What to take in during the session. Give it for any session long enough to need fuelling.",
+        "What to take in during the session. Give it for any session long enough to need fuelling — except for an athlete with a medical/PAR-Q flag on file: their clinician sets these amounts, so omit it and describe fuelling in the day's workout in words (what to take and when, no amounts); a save carrying it for that athlete is refused.",
         p,
         vec!["carbs_g_per_h".to_owned(), "fluid_ml_per_h".to_owned()],
     )

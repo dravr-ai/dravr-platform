@@ -227,6 +227,17 @@ pub enum AgentCategory {
 }
 
 impl AgentCategory {
+    /// Every category, in the order the Store and the tool schemas list them.
+    pub const ALL: [Self; 7] = [
+        Self::Training,
+        Self::Nutrition,
+        Self::Recovery,
+        Self::Recipes,
+        Self::Mobility,
+        Self::Analysis,
+        Self::Custom,
+    ];
+
     /// Convert to database string representation
     #[must_use]
     pub const fn as_str(&self) -> &'static str {

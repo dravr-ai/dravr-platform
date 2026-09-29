@@ -13,16 +13,15 @@ use pierre_core::models::groups::{FlagEvidence, HealthFlagSeverity, MemberFlag};
 use pierre_core::models::groups::{MemberFitnessSnapshot, OvertrainingRiskLevel};
 use pierre_core::models::{Activity, SportType};
 use pierre_core::models::{ActivityBuilder, FormBand, FormReading};
+use pierre_fitness_compute::AthleteInputs;
 use pierre_groups::strategies::summarization::{
     GroupSummarizationStrategy, RosterCardSummarizer, WeeklyDigestSummarizer,
 };
 use pierre_groups::GroupService;
 use pierre_intelligence::algorithms::training_load::DailyTrainingLoad;
 use pierre_intelligence::{TrainingLoad, TrainingLoadCalculator};
+use pierre_tool_runtime::implementations::analytics::analyze_detailed_training_load;
 use pierre_tool_runtime::implementations::analytics::output::ProvidersUsed;
-use pierre_tool_runtime::implementations::analytics::{
-    analyze_detailed_training_load, UserPhysiologicalParams,
-};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -325,13 +324,7 @@ fn daily_rider(todays_ride_landed: bool) -> Vec<Activity> {
 fn load_payload(activities: &[Activity]) -> serde_json::Value {
     serde_json::to_value(analyze_detailed_training_load(
         activities,
-        &UserPhysiologicalParams {
-            ftp: None,
-            lthr: None,
-            max_hr: None,
-            resting_hr: None,
-            weight_kg: None,
-        },
+        &AthleteInputs::default(),
         &pierre_intelligence::AlgorithmConfig::default(),
         ProvidersUsed {
             activity_provider: "strava".to_owned(),
@@ -522,13 +515,7 @@ fn training_load_payload_reports_form_pct_and_band() {
     // would understate the chronic load it exists to report (registre#415).
     let payload = serde_json::to_value(analyze_detailed_training_load(
         &elite_block_activities(),
-        &UserPhysiologicalParams {
-            ftp: None,
-            lthr: None,
-            max_hr: None,
-            resting_hr: None,
-            weight_kg: None,
-        },
+        &AthleteInputs::default(),
         &pierre_intelligence::AlgorithmConfig::default(),
         ProvidersUsed {
             activity_provider: "strava".to_owned(),

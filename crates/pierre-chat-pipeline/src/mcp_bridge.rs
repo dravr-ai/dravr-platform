@@ -45,12 +45,17 @@ pub trait McpBridgeProvider: Send + Sync {
     /// the task-local inherit cannot supply it; passing it here is what makes
     /// taint and the per-turn blast-radius budgets accumulate across the
     /// loopback calls of one message instead of resetting on every call.
+    ///
+    /// `turn_agent_id` is the agent the turn answers as, passed for the same
+    /// reason: the loopback executor cannot inherit it, and a tool that
+    /// records authorship must name the agent the athlete was talking to.
     async fn open_tool_session(
         &self,
         user_id: &str,
         tenant_id: TenantId,
         conversation_id: &str,
         turn_id: ConversationTurnId,
+        turn_agent_id: Option<&str>,
         budget: usize,
     ) -> Option<ToolSession>;
 }

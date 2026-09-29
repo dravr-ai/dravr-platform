@@ -950,6 +950,7 @@
     "fuelFluid": "{{value}} ml/h fluid",
     "fuelLabel": "Fuel",
     "fuelSodiumLoss": "~{{value}} mg/h sodium lost",
+    "fuelWithheld": "amounts withheld: a medical flag is on file, so your clinician sets them",
     "generateInsight": "Generate insight",
     "goToGroups": "Go to Groups",
     "groupChatBadge": "Group chat",

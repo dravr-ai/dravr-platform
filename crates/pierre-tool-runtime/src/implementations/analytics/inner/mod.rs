@@ -26,14 +26,18 @@ mod training_load;
 mod trends;
 
 pub use activity::handle_get_activity_intelligence;
+pub use activity::process_activity_analysis;
 pub use compare::handle_compare_activities;
 pub use fitness_score::calculate_fitness_metrics;
 pub use fitness_score::handle_calculate_fitness_score;
 pub use metrics::handle_calculate_metrics;
 pub use patterns::handle_detect_patterns;
 pub use performance::handle_predict_performance;
-pub use recommendations::handle_generate_recommendations;
-pub use training_load::{
-    analyze_detailed_training_load, handle_analyze_training_load, UserPhysiologicalParams,
+pub use recommendations::{
+    generate_training_recommendations, handle_generate_recommendations, recovery_actions_for,
 };
+pub use recommendations_nutrition::{
+    generate_nutrition_recommendations, load_nutrition_athlete, NutritionAthlete,
+};
+pub use training_load::{analyze_detailed_training_load, handle_analyze_training_load};
 pub use trends::handle_analyze_performance_trends;

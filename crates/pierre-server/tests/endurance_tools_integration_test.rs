@@ -31,10 +31,12 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use dravr_tronc::mcp::tool::McpTool;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::periodization::{ReadinessLevel, WorkoutPurpose};
 use pierre_core::models::{ConnectionType, SportType, TenantId, UserPhysiologicalProfile};
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_tool_runtime::implementations::endurance_workouts::ListWorkoutTemplatesTool;
 use pierre_tool_runtime::protocols::ProtocolError;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use serde_json::{json, Value};
@@ -157,6 +159,7 @@ async fn seed_physiology(
         resting_hr: Some(50),
         max_hr: Some(190),
         lactate_threshold_percentage: Some(0.85),
+        threshold_hr: None,
         age: Some(34),
         weight: Some(72.0),
         fitness_level: FitnessLevel::Advanced,
@@ -873,6 +876,51 @@ async fn test_list_workout_templates_filters_by_sport() -> Result<()> {
     }
     let slugs: Vec<&str> = rows.iter().filter_map(|r| r["slug"].as_str()).collect();
     assert!(slugs.contains(&"swim_css"), "{slugs:?}");
+    Ok(())
+}
+
+#[test]
+fn test_list_workout_templates_speaks_every_purpose_the_kernel_has() {
+    // The purpose list the description and the filter quote is the kernel's
+    // vocabulary, in its order — a purpose the kernel gains reaches both.
+    let names: Vec<&str> = WorkoutPurpose::ALL.iter().map(|p| p.as_str()).collect();
+    let listed = names.join(", ");
+    assert!(names.contains(&"uphill") && names.contains(&"downhill"));
+
+    let definition = ListWorkoutTemplatesTool.definition();
+    assert!(
+        definition.description.contains(&format!("({listed})")),
+        "the description lists every purpose: {}",
+        definition.description
+    );
+    let filter = definition.input_schema["properties"]["purpose"]["description"]
+        .as_str()
+        .expect("the purpose filter is described");
+    assert!(
+        filter.contains(&listed),
+        "the filter lists every purpose: {filter}"
+    );
+}
+
+#[tokio::test]
+async fn test_list_workout_templates_filters_the_trail_purposes() -> Result<()> {
+    let executor = create_endurance_test_executor().await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
+
+    for (purpose, slug) in [
+        ("uphill", "uphill_power_hike"),
+        ("downhill", "downhill_repeats"),
+    ] {
+        let rows =
+            list_templates(&executor, user_id, &tenant, json!({ "purpose": purpose })).await?;
+        let slugs: Vec<&str> = rows.iter().filter_map(|r| r["slug"].as_str()).collect();
+        assert_eq!(
+            slugs,
+            vec![slug],
+            "the bank's one {purpose} session answers the filter"
+        );
+        assert_eq!(rows[0]["purpose"].as_str(), Some(purpose));
+    }
     Ok(())
 }
 

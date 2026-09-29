@@ -6,11 +6,18 @@
 
 //! # Plan scope
 //!
-//! Both plan tools used to act on the caller alone. A group's human coach —
-//! the Dravr user attached through a coach invite, `coaching_groups.
-//! coach_user_id` — can now name a roster athlete with `athlete=` and read or
-//! write *that* athlete's plan, under the athlete's own tenant and selected
-//! agent, which is where the athlete's DM and `/plan` read it.
+//! The plan a tool reads or writes is an athlete's one season plan, under the
+//! athlete's own tenant — the plan their DM, `/plan` and home screen read,
+//! whichever agent laid it. By default that athlete is the caller. A group's
+//! human coach — the Dravr user attached through a coach invite,
+//! `coaching_groups.coach_user_id` — can name a roster athlete with
+//! `athlete=` and read or write *that* athlete's season instead.
+//!
+//! Who writes is separate from whose plan it is. [`PlanWriter`] is the
+//! requester — their tenant and user, where their agent is visible — and the
+//! agent their turn answers as. What a coach saves for an athlete records the
+//! coach's conversation agent as its author, and is validated against that
+//! agent's package, resolved as the coach.
 //!
 //! Four gates, all required, each answered with the tool's own error text so
 //! the model can say plainly why it could not act:
@@ -43,7 +50,7 @@ use serde_json::json;
 use tracing::info;
 use uuid::Uuid;
 
-use super::training_plans::resolve_agent_slug;
+use super::training_plan_authorship::resolve_turn_agent;
 use crate::athlete_display_name::fetch_user_display_name;
 use crate::context::ToolExecutionContext;
 use crate::guardian::{
@@ -51,17 +58,32 @@ use crate::guardian::{
     TENANT_DISABLED_REASON,
 };
 
-/// Whose plan a training-plan tool reads or writes.
+/// Whose plan a training-plan tool reads or writes, and who is writing.
 pub struct PlanScope {
     /// Tenant the plan lives under.
     pub tenant: TenantId,
     /// Athlete the plan belongs to.
     pub user_id: Uuid,
-    /// Agent persona slug the plan is filed under.
-    pub agent_slug: Option<String>,
+    /// The requester and the agent their turn answers as.
+    pub writer: PlanWriter,
     /// Roster display name of the athlete when the caller acts for someone
     /// else; `None` in self scope.
     pub acting_for: Option<String>,
+}
+
+/// Who writes to the plan: the requester and the agent their turn answers as.
+///
+/// The tenant and user are the requester's own, not the athlete's, because
+/// they are where the writer's agent is visible: its package, its title, and
+/// whether an author named on the plan is this writer.
+pub struct PlanWriter {
+    /// The agent the requester's turn answers as; `None` for a direct call
+    /// that names none, or a conversation bound to no agent.
+    pub agent_id: Option<String>,
+    /// The requester's own tenant.
+    pub tenant: TenantId,
+    /// The requester.
+    pub user_id: Uuid,
 }
 
 /// What a plan tool knows about the call before it resolves whose plan it is.
@@ -73,7 +95,8 @@ pub struct PlanScopeRequest<'a> {
     /// The originating conversation, when it resolved under the requester's
     /// own tenant.
     pub conversation: Option<&'a ConversationRecord>,
-    /// The `agent_id` argument, used only for a conversation-less call.
+    /// The `agent_id` argument, used only for a call with no conversation and
+    /// no turn agent.
     pub arg_agent: Option<String>,
     /// The `athlete` argument: a roster display name, or `None` for self scope.
     pub athlete: Option<&'a str>,
@@ -108,11 +131,16 @@ fn refusal(message: &str) -> ToolResult {
 pub async fn resolve_plan_scope(
     request: PlanScopeRequest<'_>,
 ) -> AppResult<Result<PlanScope, ToolResult>> {
+    let writer = PlanWriter {
+        agent_id: resolve_turn_agent(request.context, request.conversation, request.arg_agent),
+        tenant: request.requester_tenant,
+        user_id: request.context.user_id,
+    };
     let Some(query) = request.athlete.map(str::trim).filter(|q| !q.is_empty()) else {
         return Ok(Ok(PlanScope {
             tenant: request.requester_tenant,
             user_id: request.context.user_id,
-            agent_slug: resolve_agent_slug(request.conversation, request.arg_agent),
+            writer,
             acting_for: None,
         }));
     };
@@ -248,21 +276,18 @@ pub async fn resolve_plan_scope(
         }))));
     }
 
-    let agent_slug = repos
-        .tenants
-        .get_selected_agent(athlete_tenant, athlete)
-        .await?;
     info!(
         requester = %requester,
         athlete = %athlete,
         group_id = %resolved.group_id,
         tool = %request.tool_name,
+        writer_agent = writer.agent_id.as_deref().unwrap_or("none"),
         "coach acting on a coached athlete's training plan"
     );
     Ok(Ok(PlanScope {
         tenant: athlete_tenant,
         user_id: athlete,
-        agent_slug,
+        writer,
         acting_for: Some(resolved.display_name.clone()),
     }))
 }

@@ -18,13 +18,13 @@ use pierre_services::plan_calendar_push::{
     desired_entries, diff_against_ledger, push_active_plan, PushPlanParams, PushReport,
     CALENDAR_PROVIDER,
 };
+use pierre_services::plan_fueling::FuelingDisclosure;
 use serde_json::Value;
 use tracing::warn;
 use uuid::Uuid;
 
 use super::calendar::{calendar_provider, destructive_annotations};
 use super::training_plan_telemetry::{emit_calendar_sync_completed, emit_calendar_sync_failed};
-use super::training_plans::{load_conversation, resolve_agent_slug};
 use super::training_plans_output::{CalendarBlock, CalendarEntry, CalendarPreview};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
@@ -47,6 +47,8 @@ const PUSH_TOOL: &str = "push_training_plan";
 /// Each entry carries its `prescription_id` so a later turn can name it to
 /// `prescribe_workout`'s `replaces` or to `withdraw_prescribed_workout`, and
 /// its `source` so the model knows which entries belong to the plan instead.
+/// `fueling` is the disclosure a push would render the days with, so the
+/// pending counts match what the push would write.
 ///
 /// # Errors
 ///
@@ -57,12 +59,13 @@ pub(super) async fn calendar_block(
     user_id: Uuid,
     active_weeks: &[PlanWeek],
     today: NaiveDate,
+    fueling: &FuelingDisclosure,
 ) -> AppResult<CalendarBlock> {
     let live = repos
         .prescribed_workouts
         .list_live_calendar_events(tenant, user_id, CALENDAR_PROVIDER, Some(today))
         .await?;
-    let desired = desired_entries(user_id, active_weeks, today);
+    let desired = desired_entries(user_id, active_weeks, today, fueling);
     let pending = diff_against_ledger(&desired, &live)?;
     let entries: Vec<CalendarEntry> = live
         .iter()
@@ -123,12 +126,14 @@ pub(super) async fn calendar_block(
 ///
 /// Best-effort like the ramp check: the plan is already committed, so an
 /// unreadable ledger degrades to `None` rather than failing the save.
+/// `fueling` is the disclosure a push would render the days with.
 pub(super) async fn calendar_preview_after_save(
     repos: &RepositoryRegistry,
     tenant: TenantId,
     user_id: Uuid,
     plan_id: &str,
     today: NaiveDate,
+    fueling: &FuelingDisclosure,
 ) -> Option<CalendarPreview> {
     let live = best_effort(
         repos
@@ -147,7 +152,7 @@ pub(super) async fn calendar_preview_after_save(
             .await,
         "plan weeks unreadable for the calendar preview",
     )?;
-    let desired = desired_entries(user_id, &weeks, today);
+    let desired = desired_entries(user_id, &weeks, today, fueling);
     let pending = best_effort(
         diff_against_ledger(&desired, &live),
         "calendar preview could not be computed",
@@ -179,18 +184,6 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
-            "agent_id".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some(
-                    "Agent persona slug whose plan to push; falls back to the athlete's \
-                     agent-agnostic plan."
-                        .to_owned(),
-                ),
-                ..Default::default()
-            },
-        );
-        properties.insert(
             "from_date".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
@@ -213,8 +206,7 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
              touches dates before today. Call it when the athlete or coach asks to put or \
              update the plan on their calendar — not on your own initiative after a save; \
              save_training_plan's reply says when the calendar is behind. Requires a saved \
-             plan and a connected Intervals.icu account. Args: optional agent_id, optional \
-             from_date.",
+             plan and a connected Intervals.icu account. Args: optional from_date.",
             schema,
             Some(destructive_annotations()),
         )))
@@ -237,12 +229,6 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
         let result: AppResult<ToolResult> = async move {
             let tenant = TenantId::from_uuid(context.require_tenant()?);
             let user_id = context.user_id;
-            let user_str = user_id.to_string();
-            let arg_agent = args
-                .get("agent_id")
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-                .filter(|s| !s.trim().is_empty());
             let repos = context.resources.repos();
             let today = athlete_today(repos, user_id).await;
             let from = match args.get("from_date").and_then(Value::as_str) {
@@ -255,10 +241,6 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
                     .max(today),
                 None => today,
             };
-            let conv =
-                load_conversation(repos, context.conversation_id.as_deref(), tenant, &user_str)
-                    .await?;
-            let agent = resolve_agent_slug(conv.as_ref(), arg_agent);
             let provider = calendar_provider(&context, tenant, user_id).await?;
 
             // When this call runs behind an MCP task handle the dispatcher
@@ -272,7 +254,6 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
                 &PushPlanParams {
                     tenant,
                     user_id,
-                    agent_slug: agent.as_deref(),
                     provider: CALENDAR_PROVIDER,
                     from,
                     cancel: cancel_flag.as_deref(),

@@ -4,11 +4,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 //
-// file-size-ok: parameter catalog, not logic — 94 `ParameterDefinition` entries
-// across 24 `register_*` builders, each a flat literal of key, display name,
+// file-size-ok: parameter catalog, not logic — `ParameterDefinition` entries
+// across the `register_*` builders, each a flat literal of key, display name,
 // description, category, data type, default, and range. Every knob an operator
 // can turn costs its fixed block of lines here, so the length measures how much
-// of the platform is admin-configurable, not how complex this module is.
+// of the platform is admin-configurable, not how complex this module is. A
+// domain whose knobs have a consumer-side reader registers them in its own
+// module instead (`tid_cuts`, `nutrition_params`).
 
 use std::collections::HashMap;
 use std::hash::BuildHasher;
@@ -834,33 +836,6 @@ pub fn register_weather_analysis<S: BuildHasher>(
             enum_options: None,
             units: Some("°C".to_owned()),
             scientific_basis: None,
-            env: None,
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-}
-
-/// Register the `Nutrition` catalog entries.
-pub fn register_nutrition<S: BuildHasher>(defs: &mut HashMap<String, ParameterDefinition, S>) {
-    // Nutrition
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "nutrition.protein_athlete_g_per_kg".to_owned(),
-            display_name: "Athlete Protein Target".to_owned(),
-            description: "Recommended protein intake for athletes per kg body weight".to_owned(),
-            category: "nutrition".to_owned(),
-            data_type: ConfigDataType::Float,
-            default_value: serde_json::json!(1.8),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(1.4),
-                max: serde_json::json!(2.5),
-                step: Some(0.1),
-            }),
-            enum_options: None,
-            units: Some("g/kg".to_owned()),
-            scientific_basis: Some("Phillips 2011, ISSN Position Stand".to_owned()),
             env: None,
             is_runtime_configurable: true,
             requires_restart: false,

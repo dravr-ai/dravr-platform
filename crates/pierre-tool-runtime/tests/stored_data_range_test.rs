@@ -42,3 +42,14 @@ fn a_span_wider_than_a_year_is_clipped_to_the_most_recent_year() {
     assert_eq!(end.to_rfc3339(), "2026-01-01T00:00:00+00:00");
     assert_eq!(end - start, Duration::days(366), "clipped to the cap");
 }
+
+/// Naming only the end of a past window reads the 30 days before it. The
+/// start used to default to 30 days before now, which put it after any end
+/// more than a month back and refused the call as an inverted range.
+#[test]
+fn an_end_alone_reads_the_thirty_days_before_it() {
+    let args = json!({ "end": "2026-01-31T00:00:00Z" });
+    let (start, end) = parse_date_range(&args).unwrap();
+    assert_eq!(end.to_rfc3339(), "2026-01-31T00:00:00+00:00");
+    assert_eq!(start.to_rfc3339(), "2026-01-01T00:00:00+00:00");
+}

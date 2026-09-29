@@ -229,6 +229,17 @@ impl HarnessMemoryRepository for RecordingFacts {
     ) -> AppResult<bool> {
         Err(off_path("delete_user_fact"))
     }
+    async fn delete_facts_by_claim(
+        &self,
+        _tenant_id: TenantId,
+        _user_id: &str,
+        _source: FactSource,
+        _predicate_code: PredicateCode,
+        _object: &str,
+        _keep_id: Option<&str>,
+    ) -> AppResult<u64> {
+        Err(off_path("delete_facts_by_claim"))
+    }
     async fn expire_onboarding_facts(
         &self,
         _tenant_id: TenantId,

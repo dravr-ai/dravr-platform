@@ -1,18 +1,22 @@
 // ABOUTME: Where the recovery and sleep tools read training load from: the athlete's activity provider
-// ABOUTME: Elects the provider the way every activity tool does, fetches through the shared path, merges sessions
+// ABOUTME: Elects the provider like every activity tool, merges sessions, scores them on the saved thresholds
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use chrono::Utc;
 use pierre_core::models::Activity;
+use pierre_intelligence::{TrainingLoad, TrainingLoadCalculator};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use serde_json::Value;
 use uuid::Uuid;
 
 use crate::activity_fetch::fetch_provider_activities;
+use crate::implementations::stored_physiology::stored_athlete_inputs;
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalResponse, UniversalToolExecutor};
+use crate::protocols::ProtocolError;
 
 /// The provider the recovery and sleep tools compute training load from, and
 /// its activities, oldest first.
@@ -80,6 +84,41 @@ pub(super) async fn training_load_activities(
     // chronological order.
     activities.sort_by_key(Activity::start_date);
     Ok((provider, activities))
+}
+
+/// CTL, ATL and TSB from `activities`, scored against the saved thresholds.
+///
+/// Each session is scored against the FTP, threshold heart rate, max and
+/// resting heart rate and weight on the athlete's physiological profile in
+/// `tenant_id` — the numbers `set_physiology` saves and `analyze_training_load`
+/// reads for the same sessions, so the recovery tools and it never disagree
+/// about form.
+///
+/// # Errors
+/// Returns `ProtocolError::InternalError` when the profile cannot be read or
+/// the calculator refuses the series.
+pub(super) async fn training_load_of(
+    executor: &UniversalToolExecutor,
+    user_uuid: Uuid,
+    tenant_id: Option<&str>,
+    activities: &[Activity],
+) -> Result<TrainingLoad, ProtocolError> {
+    let physio = stored_athlete_inputs(&executor.resources, tenant_id, user_uuid)
+        .await
+        .map_err(|e| {
+            ProtocolError::InternalError(format!(
+                "sleep_analyzer: reading the saved thresholds failed: {e}"
+            ))
+        })?;
+    let calculator = TrainingLoadCalculator::from_config(
+        executor.cageux_config().algorithms.clone(),
+        Utc::now().date_naive(),
+    );
+    physio.training_load(&calculator, activities).map_err(|e| {
+        ProtocolError::InternalError(format!(
+            "sleep_analyzer: Training load calculation failed: {e}"
+        ))
+    })
 }
 
 fn failure(error: String) -> UniversalResponse {

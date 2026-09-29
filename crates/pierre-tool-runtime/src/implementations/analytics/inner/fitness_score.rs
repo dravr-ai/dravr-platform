@@ -8,6 +8,7 @@ use crate::implementations::analytics::output::{
     FitnessComponents, FitnessInterpretation, FitnessLoadMetrics, FitnessScoreDetail,
     FitnessScoreResult, NoFitnessScore, ProvidersUsed, RecoveryAdjustment,
 };
+use crate::implementations::stored_physiology::stored_athlete_inputs;
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
@@ -15,6 +16,7 @@ use crate::protocols::ProtocolError;
 use chrono::{DateTime, Utc};
 use pierre_core::models::{Activity, FormReading};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
+use pierre_fitness_compute::AthleteInputs;
 use pierre_intelligence::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
 use pierre_intelligence::{AlgorithmConfig, SleepAnalyzer, TrainingLoadCalculator};
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
@@ -111,11 +113,13 @@ async fn fetch_and_calculate_recovery_adjustment(
     })
 }
 
-/// Calculate fitness metrics using CTL/ATL/TSS methodology
-/// Calculate fitness metrics using proper 3-component formula with `TrainingLoadCalculator`
+/// Calculate fitness metrics using the 3-component formula with
+/// `TrainingLoadCalculator`, each session's stress scored against `athlete`,
+/// the thresholds saved with `set_physiology`.
 pub fn calculate_fitness_metrics(
     activities: &[Activity],
     timeframe: &str,
+    athlete: &AthleteInputs,
     algorithm_config: &AlgorithmConfig,
     providers_used: ProvidersUsed,
 ) -> FitnessScoreResult {
@@ -191,9 +195,7 @@ pub fn calculate_fitness_metrics(
     // understates it (registre#415).
     let calculator =
         TrainingLoadCalculator::from_config(algorithm_config.clone(), Utc::now().date_naive());
-    let training_load = calculator
-        .calculate_training_load(&chronological, None, None, None, None, None)
-        .ok();
+    let training_load = athlete.training_load(&calculator, &chronological).ok();
 
     let ctl = training_load.as_ref().map_or(0.0, |l| l.ctl);
     let atl = training_load.as_ref().map_or(0.0, |l| l.atl);
@@ -441,7 +443,7 @@ fn calculate_trend(activities: &[Activity]) -> &'static str {
 /// # Parameters
 /// - `provider` (optional): Activity provider (default: configured default)
 /// - `sleep_provider` (optional): Sleep/recovery provider for cross-provider analysis
-/// - `timeframe` (optional): `month`, `last_90_days`, or `all_time`
+/// - `timeframe` (optional): `month` (default), `quarter`, `year`, or `all_time`
 #[must_use]
 pub fn handle_calculate_fitness_score(
     executor: &UniversalToolExecutor,
@@ -478,6 +480,17 @@ pub fn handle_calculate_fitness_score(
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);
 
+        // The thresholds set_physiology saved, the ones every training-load
+        // surface scores sessions against.
+        let athlete =
+            stored_athlete_inputs(&executor.resources, request.tenant_id.as_deref(), user_uuid)
+                .await
+                .map_err(|e| {
+                    ProtocolError::InternalError(format!(
+                        "calculate_fitness_score: reading the saved thresholds failed: {e}"
+                    ))
+                })?;
+
         match executor
             .auth_service
             .create_authenticated_provider(&provider_name, user_uuid, request.tenant_id.as_deref())
@@ -498,6 +511,7 @@ pub fn handle_calculate_fitness_score(
                         let mut analysis = calculate_fitness_metrics(
                             &activities,
                             timeframe,
+                            &athlete,
                             &executor.cageux_config().algorithms,
                             ProvidersUsed {
                                 activity_provider: provider_name.clone(),

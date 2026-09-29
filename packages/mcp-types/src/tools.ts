@@ -41,11 +41,14 @@ export interface AdminAssignAgentParams {
  */
 export interface AdminCreateSystemAgentParams {
 
-  /** Category: 'training', 'nutrition', 'recovery', 'recipes', 'custom' */
+  /** Category. Default: custom. One of: training, nutrition, recovery, recipes, mobility, analysis, custom; any other name reads as custom. */
   category?: string;
 
   /** Description explaining the agent's purpose */
   description?: string;
+
+  /** Example prompts to show users */
+  sample_prompts?: string[];
 
   /** System prompt that shapes AI responses */
   system_prompt: string;
@@ -56,7 +59,7 @@ export interface AdminCreateSystemAgentParams {
   /** Display title for the agent */
   title: string;
 
-  /** Visibility: 'tenant' (default) or 'global' */
+  /** Visibility: 'tenant' (default) or 'global'; any other value keeps the agent private to its author */
   visibility?: string;
 }
 
@@ -102,7 +105,7 @@ export interface AdminListSystemAgentsParams {
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
 
-  /** Maximum number of agents to return. Default: 50 */
+  /** Maximum number of agents to return. Default: 50, max: 100 */
   limit?: number;
 
   /** Pagination offset. Default: 0 */
@@ -131,16 +134,19 @@ export interface AdminUpdateSystemAgentParams {
   /** ID of the system agent to update */
   agent_id: string;
 
-  /** New category */
+  /** New category. One of: training, nutrition, recovery, recipes, mobility, analysis, custom; any other name reads as custom. */
   category?: string;
 
   /** New description */
   description?: string;
 
+  /** New example prompts, replacing the current ones */
+  sample_prompts?: string[];
+
   /** New system prompt */
   system_prompt?: string;
 
-  /** New tags */
+  /** New tags, replacing the current ones */
   tags?: string[];
 
   /** New display title */
@@ -184,7 +190,7 @@ export interface AgentNoteAddParams {
 
 
 /**
- * Perform deep analysis of an individual activity including insights, metrics, and anomaly detection
+ * Analyze a single activity: a short summary with insights and recommendations drawn from its distance, elevation gain, heart rate and calories, plus its performance metrics (distance, duration, elevation, average and peak heart rate, calories). An ID that is not found analyzes the most recent activity instead and says so under `auto_selected`.
  */
 export interface AnalyzeActivityParams {
 
@@ -194,8 +200,8 @@ export interface AnalyzeActivityParams {
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
 
-  /** Fitness provider name (e.g., 'strava', 'garmin') */
-  provider: string;
+  /** Fitness provider (e.g., 'strava'). Defaults to configured provider. */
+  provider?: string;
 }
 
 
@@ -204,16 +210,16 @@ export interface AnalyzeActivityParams {
  */
 export interface AnalyzeGoalFeasibilityParams {
 
-  /** Type of goal: 'distance', 'time', 'frequency', or 'performance' */
+  /** Type of goal, one of 'distance' (km), 'duration' (hours), 'frequency' (activities). Any other type is answered as unknown. */
   goal_type: string;
 
   /** Fitness provider to analyze. Defaults to configured provider. */
   provider?: string;
 
-  /** Target value for the goal */
+  /** Target total over the timeframe, in the goal type's unit: km, hours or activities. */
   target_value: number;
 
-  /** Number of days to achieve the goal. Default: 30. */
+  /** Number of days to achieve the goal. Default: 90, capped at 365. */
   timeframe_days?: number;
 }
 
@@ -243,32 +249,32 @@ export interface AnalyzePerformanceTrendsParams {
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
 
-  /** Metric to analyze: 'pace', 'speed', 'heart_rate', 'distance', 'duration', 'elevation', 'power' */
-  metric: string;
+  /** Metric to analyze: 'pace' (default), 'speed', 'heart_rate', 'distance', 'duration', 'elevation', 'power' */
+  metric?: string;
 
-  /** Fitness provider name */
-  provider: string;
+  /** Fitness provider name. Defaults to configured provider. */
+  provider?: string;
 
-  /** Time period: 'week', 'month' (default), 'quarter', 'year' */
+  /** Time period: 'week', 'month' (default), 'quarter', 'year'; any other value reads as 'month' */
   timeframe?: string;
 }
 
 
 /**
- * Analyze last night's sleep to generate quality scores and insights. Reads the nights synced from connected sources (WHOOP, Garmin, intervals.icu)
+ * Analyze last night's sleep to generate quality scores and insights. Reads the nights synced from connected sources (WHOOP, Garmin, intervals.icu); manual `sleep_data` replaces that fetch only when no `sleep_provider` is named.
  */
 export interface AnalyzeSleepQualityParams {
 
-  /** User's baseline HRV for comparison */
+  /** User's baseline HRV (RMSSD, ms) for comparison */
   baseline_hrv?: number;
 
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
 
-  /** Array of recent HRV values for trend analysis */
+  /** Array of recent HRV values (RMSSD, ms) for trend analysis */
   recent_hrv_values?: number[];
 
-  /** Manual sleep data (used instead of a provider fetch) with fields: duration_hours, deep_sleep_hours, rem_sleep_hours, light_sleep_hours, awake_hours, efficiency_percent, hrv_rmssd_ms */
+  /** Manual sleep data, used instead of a provider fetch when no sleep_provider is named. Fields: date (YYYY-MM-DD or RFC 3339) and duration_hours (required), deep_sleep_hours, rem_sleep_hours, light_sleep_hours, awake_hours, efficiency_percent, hrv_rmssd_ms, resting_hr_bpm, provider_score */
   sleep_data?: Record<string, any>;
 
   /** Read only this source's synced sleep (whoop, garmin, intervals_icu). Omit to merge every connected source's sleep per night */
@@ -277,7 +283,7 @@ export interface AnalyzeSleepQualityParams {
 
 
 /**
- * Analyze training load using CTL (chronic training load), ATL (acute training load), and TSB (training stress balance) metrics to assess fitness, fatigue, and form
+ * Analyze training load from per-activity TSS (the provider's own figure, else estimated from power against the FTP saved with set_physiology, from heart rate against the threshold heart rate saved there — measured, else estimated from the lactate threshold and max HR — or from pace or duration). Returns CTL (fitness), ATL (fatigue) and TSB (form), form as a percentage of CTL with its band, weekly TSS totals and a taper reading.
  */
 export interface AnalyzeTrainingLoadParams {
 
@@ -287,7 +293,7 @@ export interface AnalyzeTrainingLoadParams {
   /** Fitness provider to query (e.g., 'strava'). Defaults to configured provider. */
   provider?: string;
 
-  /** Optional sleep/recovery provider (e.g., 'whoop', 'garmin'). If specified, factors recovery data into training load analysis. */
+  /** Optional sleep provider (e.g., 'whoop', 'garmin'). When given, last night's sleep score, duration and HRV are returned as recovery context beside the load; the load numbers themselves do not change. */
   sleep_provider?: string;
 }
 
@@ -331,7 +337,7 @@ export interface BrowseAgentStoreParams {
 
 
 /**
- * Calculate daily calorie and macronutrient needs based on biometrics and goals
+ * Calculate daily calorie and macronutrient needs based on biometrics and goals. For an athlete with a medical/PAR-Q flag on file it returns qualitative `guidance` and `figures_withheld` instead of any amount, because their clinician sets those.
  */
 export interface CalculateDailyNutritionParams {
 
@@ -356,7 +362,7 @@ export interface CalculateDailyNutritionParams {
 
 
 /**
- * Calculate an overall fitness score (0-100) from training consistency, chronic training load, training volume and recovery balance, over a period chosen with `timeframe`. Omitted, it scores the last 30 days.
+ * Calculate a fitness score (0-100) from chronic training load (40%), consistency, the share of weeks with three or more activities (30%), and pace improvement (30%), over the period chosen with `timeframe`; omitted, it scores the last 30 days. Chronic training load scores each session against the FTP and threshold heart rate saved with set_physiology, as analyze_training_load does. A named `sleep_provider` adds a sleep-based adjustment.
  */
 export interface CalculateFitnessScoreParams {
 
@@ -366,7 +372,7 @@ export interface CalculateFitnessScoreParams {
   /** Fitness provider to query. Defaults to configured provider. */
   provider?: string;
 
-  /** Optional sleep/recovery provider (e.g., 'whoop', 'garmin'). If specified, factors recovery quality into fitness score. */
+  /** Optional sleep provider (e.g., 'whoop', 'garmin'). When given, last night's sleep quality adjusts the score: up to +5% for excellent recovery, down to -10% for poor. */
   sleep_provider?: string;
 
   /** How far back to score consistency and pace progression: 'month' (the last 30 days), 'quarter' (90), 'year' (365), or 'all_time' (every activity fetched). Set it to the period the athlete named — omitted, this scores 30 days and cannot answer a question about three months or a season. Chronic training load is a current-state number and is computed from the full fetched history regardless of this setting. */
@@ -404,7 +410,7 @@ export interface CalculatePersonalizedZonesParams {
   /** Functional Threshold Power in watts. Omit to use the athlete's saved value; power zones are omitted when neither exists. */
   ftp?: number;
 
-  /** Lactate threshold */
+  /** Lactate threshold as a fraction of VO2 max (typically 0.65-0.95), used for pace zones. Omit to use the athlete's saved value, else 0.85. */
   lactate_threshold?: number;
 
   /** Maximum heart rate in bpm. Omit to use the athlete's saved value, or the Tanaka estimate from their saved age. */
@@ -413,7 +419,7 @@ export interface CalculatePersonalizedZonesParams {
   /** Resting heart rate in bpm. Omit to use the athlete's saved value. */
   resting_hr?: number;
 
-  /** Sport efficiency factor */
+  /** Sport efficiency factor for pace zones. Default 1.0. */
   sport_efficiency?: number;
 
   /** VO2 max in ml/kg/min. Omit to use the athlete's saved value; pace zones are omitted when neither exists. */
@@ -422,30 +428,27 @@ export interface CalculatePersonalizedZonesParams {
 
 
 /**
- * Calculate holistic recovery score combining training stress, sleep, and HRV. Fetches sleep and activity data from connected providers automatically
+ * Calculate a holistic recovery score combining training stress, sleep and HRV. Fetches sleep and activities from connected providers automatically and computes CTL, ATL and TSB from those activities against the thresholds saved with set_physiology (FTP, threshold heart rate, max and resting heart rate, weight).
  */
 export interface CalculateRecoveryScoreParams {
 
   /** Provider to fetch activities for training load (strava, garmin, coros, whoop, intervals_icu, terra). Omit to auto-select */
   activity_provider?: string;
 
-  /** User's baseline HRV */
+  /** User's baseline HRV (RMSSD, ms) */
   baseline_hrv?: number;
 
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
 
-  /** Array of recent HRV values */
+  /** Array of recent HRV values (RMSSD, ms) */
   recent_hrv_values?: number[];
 
-  /** Manual sleep data for recovery calculation (used instead of a provider fetch) */
+  /** Manual sleep data, used instead of a provider fetch when no sleep_provider is named. Fields: date (YYYY-MM-DD or RFC 3339) and duration_hours (required), deep_sleep_hours, rem_sleep_hours, light_sleep_hours, awake_hours, efficiency_percent, hrv_rmssd_ms, resting_hr_bpm, provider_score */
   sleep_data?: Record<string, any>;
 
   /** Read only this source's synced sleep (whoop, garmin, intervals_icu). Omit to merge every connected source's sleep per night */
   sleep_provider?: string;
-
-  /** Training load data with ctl, atl, tsb values (optional) */
-  training_load?: Record<string, any>;
 }
 
 
@@ -489,17 +492,17 @@ export interface CompareActivitiesParams {
   /** Primary activity to compare */
   activity_id: string;
 
-  /** Activity ID to compare against (required for 'specific_activity' type) */
+  /** Activity ID to compare against; required for 'specific_activity', which is refused without it */
   compare_activity_id?: string;
 
-  /** Type of comparison: 'similar_activities' (default), 'pr_comparison', 'specific_activity' */
+  /** Type of comparison: 'similar_activities' (default), 'pr_comparison', 'specific_activity'; any other value is refused */
   comparison_type?: string;
 
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
 
-  /** Fitness provider name */
-  provider: string;
+  /** Fitness provider name. Defaults to configured provider. */
+  provider?: string;
 }
 
 
@@ -534,7 +537,7 @@ export interface ConnectProviderParams {
  */
 export interface CreateAgentParams {
 
-  /** Category: training, nutrition, recovery, recipes, custom */
+  /** Category. Default: custom. One of: training, nutrition, recovery, recipes, mobility, analysis, custom; any other name reads as custom. */
   category?: string;
 
   /** Description of the agent */
@@ -578,7 +581,7 @@ export interface DeleteFitnessConfigParams {
   /** Name of the configuration to delete */
   configuration_name: string;
 
-  /** If true, delete user-specific config. If false, delete tenant config (requires admin) */
+  /** If true (the default), delete user-specific config. If false, delete tenant config (requires admin) */
   user_level?: boolean;
 }
 
@@ -594,14 +597,14 @@ export interface DeleteRecipeParams {
 
 
 /**
- * Detect training patterns including hard/easy day balance, weekly schedule consistency, volume progression, and overtraining warning signs
+ * Detect one training pattern per call, chosen with `pattern_type`: the weekly schedule, the hard/easy balance, weekly volume progression, or overtraining warning signs. Needs at least 3 activities.
  */
 export interface DetectPatternsParams {
 
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
 
-  /** Which pattern to detect: 'weekly_schedule' (which days they train), 'training_blocks' (share of hard and easy sessions, and whether recovery between hard efforts is adequate), 'progression' (how load is trending), or 'overtraining' (overtraining warning signs). Defaults to 'weekly_schedule'. */
+  /** Which pattern to detect: 'weekly_schedule' (which weekdays they train, how consistently, activities per week), 'training_blocks' (share of hard and easy sessions, and whether recovery between hard efforts is adequate), 'progression' (weekly volume trend and spike weeks), or 'overtraining' (heart-rate drift, performance decline, short recovery between hard efforts). Defaults to 'weekly_schedule'; any other value is refused. */
   pattern_type?: string;
 
   /** Fitness provider to query. Defaults to configured provider. */
@@ -636,13 +639,13 @@ export interface DiscoverRoutesParams {
   /** Search radius around the resolved center, in meters. Clamped between 500 and 50000. Defaults to 10000 (10 km). */
   radius_meters?: number;
 
-  /** What kind of route to look for. One of: 'run', 'trail_running', 'ride', 'mountain_bike', 'gravel_ride', 'ebike_ride', 'hike', 'walk', 'cross_country_skiing', 'alpine_skiing', 'backcountry_skiing', 'snowshoe'. Defaults to 'run'. */
+  /** What kind of route to look for. One of: 'run', 'trail_running', 'ride', 'mountain_bike', 'gravel_ride', 'ebike_ride', 'hike', 'walk', 'cross_country_skiing', 'alpine_skiing', 'backcountry_skiing', 'snowshoe'. Defaults to 'run'; a name that is no sport is refused. */
   sport_type?: string;
 }
 
 
 /**
- * Locate the athlete's lactate thresholds from a step test they report — each stage's power in watts or pace in seconds per kilometre, its blood lactate in mmol/L, and heart rate if a strap was worn. Returns LT1 by the log-log breakpoint and LT2 by modified Dmax, Dmax and the 4.0 mmol/L convention, each under its own name with the intensity, lactate and heart rate at that point; the lactate band table from 1.0 to 4.0 mmol/L; and power zones anchored on the modified-Dmax LT2 when the stages are in watts. Call it when the athlete reports a test such as '200 W 1.1, 225 W 1.4, 250 W 2.3, 275 W 4.1 mmol'. Needs at least four stages, each harder than the last. This only estimates: to keep a threshold, call set_physiology with ftp_watts or threshold_pace_sec_per_km after the athlete confirms it.
+ * Locate the athlete's lactate thresholds from a step test they report — each stage's power in watts or pace in seconds per kilometre, its blood lactate in mmol/L, and heart rate if a strap was worn. Returns LT1 by the log-log breakpoint and LT2 by modified Dmax, Dmax and the 4.0 mmol/L convention, each under its own name with the intensity, lactate and heart rate at that point; the lactate band table from 1.0 to 4.0 mmol/L; and power zones anchored on the modified-Dmax LT2 when the stages are in watts. Call it when the athlete reports a test such as '200 W 1.1, 225 W 1.4, 250 W 2.3, 275 W 4.1 mmol'. Needs at least four stages, each harder than the last. This only estimates: to keep a threshold, call set_physiology with ftp_watts or threshold_pace_sec_per_km, and threshold_hr for its heart rate, after the athlete confirms it.
  */
 export interface EstimateLactateThresholdsParams {
 
@@ -665,7 +668,7 @@ export interface EstimateLactateThresholdsParams {
 
 
 /**
- * Estimate the athlete's VO2max in ml/kg/min from a field test they describe — a Cooper 12-minute run distance, a Rockport timed mile walk with finishing heart rate, an Astrand-Ryhming steady-state ride at a known power, a hard-versus-easy pace ratio, or a VDOT they already know. Call it when the athlete reports a test result such as 'I ran 2.8 km in 12 minutes' or 'I walked a mile in 13 minutes and my heart rate was 140'. Body weight and age come from the stored profile when not restated, and the result says which inputs were defaulted. This only estimates: to keep the number, call set_physiology with vo2_max after the athlete confirms it.
+ * Estimate the athlete's VO2max in ml/kg/min from a field test they describe — a Cooper 12-minute run distance, a Rockport timed mile walk with finishing heart rate, an Astrand-Ryhming steady-state ride at a known power, a hard-versus-easy pace ratio, a VDOT they already know, or a race or time trial they ran (its distance and time). Call it when the athlete reports a test result such as 'I ran 2.8 km in 12 minutes' or 'I walked a mile in 13 minutes and my heart rate was 140'. Body weight and age come from the stored profile when not restated, and the result says which inputs were defaulted. This only estimates: to keep the number, call set_physiology with vo2_max after the athlete confirms it.
  */
 export interface EstimateVo2maxParams {
 
@@ -684,7 +687,7 @@ export interface EstimateVo2maxParams {
   /** from_pace: the fastest speed in metres per second the athlete can hold for 3–8 minutes. */
   max_speed_ms?: number;
 
-  /** Which field test the athlete did — one of cooper_test, rockport_walk, astrand_ryhming, from_pace, from_vdot. cooper_test: distance run in 12 minutes. rockport_walk: a timed one-mile walk with heart rate at the finish. astrand_ryhming: steady-state cycling at a known power with heart rate. from_pace: a hard 3–8 minute speed and an easy speed. from_vdot: a VDOT the athlete already knows. race_result: a race or time trial the athlete ran — its distance and its time. */
+  /** Which field test the athlete did — one of cooper_test, rockport_walk, astrand_ryhming, from_pace, from_vdot, race_result. cooper_test: distance run in 12 minutes. rockport_walk: a timed one-mile walk with heart rate at the finish. astrand_ryhming: steady-state cycling at a known power with heart rate. from_pace: a hard 3–8 minute speed and an easy speed. from_vdot: a VDOT the athlete already knows. race_result: a race or time trial the athlete ran — its distance and its time. */
   method: string;
 
   /** astrand_ryhming: the steady power held on the ergometer, in watts. */
@@ -761,7 +764,7 @@ export interface ForgetPlaybookParams {
 
 
 /**
- * Generate personalized training recommendations
+ * Generate personalized training recommendations. The `training_plan`, `recovery` and `all` modes advise on CTL, ATL and TSB scored against the FTP and threshold heart rate saved with set_physiology, as analyze_training_load reports them. In `nutrition` mode, an athlete with a medical/PAR-Q flag on file gets foods and timing with no amount to eat or drink, and `figures_withheld` saying their clinician sets those; the session itself is still described, calories burned included.
  */
 export interface GenerateRecommendationsParams {
 
@@ -771,7 +774,7 @@ export interface GenerateRecommendationsParams {
   /** Fitness provider to query (e.g., 'strava'). Defaults to configured provider. */
   provider?: string;
 
-  /** Type of recommendations to generate: 'all' (default), 'training_plan', 'recovery', 'intensity', 'goal_specific', or 'nutrition'. */
+  /** Type of recommendations to generate: 'all' (default), 'training_plan', 'recovery', 'intensity', 'goal_specific', or 'nutrition'; any other value is refused. */
   recommendation_type?: string;
 }
 
@@ -824,7 +827,7 @@ export interface GetActivitiesParams {
 
 
 /**
- * Get AI-powered intelligence insights and recommendations for a specific activity
+ * Get insights and recommendations for a specific activity, drawn from its distance, elevation gain, heart rate and calories, with its performance metrics (distance, duration, elevation, average and peak heart rate, calories). An ID that is not found analyzes the most recent activity instead and says so under `auto_selected`.
  */
 export interface GetActivityIntelligenceParams {
 
@@ -835,7 +838,7 @@ export interface GetActivityIntelligenceParams {
   format?: string;
 
   /** Fitness provider name (e.g., 'strava'). Defaults to configured provider. */
-  provider: string;
+  provider?: string;
 }
 
 
@@ -949,13 +952,13 @@ export interface GetHealthSnapshotsParams {
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
 
-  /** Start of the date range as RFC3339 timestamp. Defaults to 30 days ago. */
+  /** Start of the date range as RFC3339 timestamp. Defaults to 30 days before `end`; a range longer than 366 days keeps its most recent 366. */
   start?: string;
 }
 
 
 /**
- * Get optimal nutrient timing recommendations around workouts
+ * Get optimal nutrient timing recommendations around workouts. For an athlete with a medical/PAR-Q flag on file it returns qualitative `guidance` and `figures_withheld` instead of any amount, because their clinician sets those.
  */
 export interface GetNutrientTimingParams {
 
@@ -1000,7 +1003,7 @@ export interface GetRecipeParams {
 
 
 /**
- * Get macro targets and constraints for LLM recipe generation
+ * Get macro targets and constraints for LLM recipe generation. For an athlete with a medical/PAR-Q flag on file it returns qualitative `guidance` (meal purpose, restrictions, time limits) and `figures_withheld` instead of any kcal or gram target, because their clinician sets those.
  */
 export interface GetRecipeConstraintsParams {
 
@@ -1016,7 +1019,7 @@ export interface GetRecipeConstraintsParams {
   /** Maximum preparation time */
   max_prep_time_mins?: number;
 
-  /** pre_training, post_training, rest_day, or general */
+  /** pre_training, post_training, rest_day, or general (default) */
   meal_timing?: string;
 
   /** User's Total Daily Energy Expenditure */
@@ -1035,7 +1038,7 @@ export interface GetRecoveryMetricsParams {
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
 
-  /** Start of the date range as RFC3339 timestamp. Defaults to 30 days ago. */
+  /** Start of the date range as RFC3339 timestamp. Defaults to 30 days before `end`; a range longer than 366 days keeps its most recent 366. */
   start?: string;
 }
 
@@ -1051,7 +1054,7 @@ export interface GetSleepSessionsParams {
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
 
-  /** Start of the date range as RFC3339 timestamp. Defaults to 30 days ago. */
+  /** Start of the date range as RFC3339 timestamp. Defaults to 30 days before `end`; a range longer than 366 days keeps its most recent 366. */
   start?: string;
 }
 
@@ -1080,7 +1083,7 @@ export interface GetStretchingExerciseParams {
 
 
 /**
- * Fetch persisted Endurance daily training-state rollups for the authenticated user across the requested window. Returns chronological CTL/ATL/TSB/ACWR/monotony/strain/ramp_rate/daily_load rows. Use this BEFORE prescribing new load so coaching advice can cite the framework values (Coggan / Foster) on every numeric claim per the Endurance deterministic-output rule. Interpret TSB relative to CTL (form as % of fitness), and report `acwr` strictly as the magnitude of 7-day load against the 28-day baseline — a descriptive ratio, not a predictor of harm. Default window is the last 90 days.
+ * Fetch persisted Endurance daily training-state rollups for the authenticated user across the requested window. Returns chronological CTL/ATL/TSB/ACWR/monotony/strain/ramp_rate/daily_load rows. Use this BEFORE prescribing new load so coaching advice can cite the framework values (Coggan / Foster) on every numeric claim per the Endurance deterministic-output rule. Interpret TSB relative to CTL (form as % of fitness), and report `acwr` strictly as the magnitude of 7-day load against the 28-day baseline — a descriptive ratio, not a predictor of harm. Every session is scored against the FTP and threshold heart rate saved with set_physiology, as analyze_training_load does; a set_physiology save that changes one recomputes the stored rows. Default window is the last 90 days.
  */
 export interface GetTrainingHistoryParams {
 
@@ -1093,12 +1096,9 @@ export interface GetTrainingHistoryParams {
 
 
 /**
- * Fetch the athlete's active training plan: goal race, flavour, season phases with their targets, and the day-by-day weeks. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not memory of the conversation, is the source of truth. The calendar block lists what Dravr has on the athlete's Intervals.icu calendar (each entry's prescription_id is what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it. A group's human coach reads a consenting athlete's plan by passing `athlete` from their own direct chat — the athlete shares it into the room with `/plan share`, the coach reads and edits it from their DM.
+ * Fetch the athlete's active training plan: goal race, flavour, season phases with their targets, and the day-by-day weeks. The plan is the athlete's one season, whichever agent laid it: `authors` names the agent that laid the season and the agents that wrote weeks, and marks which one is you. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not memory of the conversation, is the source of truth. The calendar block lists what Dravr has on the athlete's Intervals.icu calendar (each entry's prescription_id is what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it. A group's human coach reads a consenting athlete's plan by passing `athlete` from their own direct chat — the athlete shares it into the room with `/plan share`, the coach reads and edits it from their DM.
  */
 export interface GetTrainingPlanParams {
-
-  /** Agent persona slug asking; falls back to the athlete's agent-agnostic plan. */
-  agent_id?: string;
 
   /** Roster display name of the athlete whose plan this is. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach, and only from a direct chat — never in a room. Omit to act on your own plan. */
   athlete?: string;
@@ -1106,7 +1106,7 @@ export interface GetTrainingPlanParams {
   /** Include superseded week versions (the adjustment audit trail). */
   include_history?: boolean;
 
-  /** Include what the readiness and compliance rails make of the plan as it stands: the athlete's readiness level and the alerts behind it, the days that level no longer allows, how each week measures against its phase, and where the stored weeks stop covering the outline. Ask for it before adjusting or extending a plan; leave it off for 'what am I doing this week', since it costs roughly a dozen extra reads across the training history, recovery, sleep and template stores. */
+  /** Include what the readiness and compliance rails make of the plan as it stands: the athlete's readiness level and the alerts behind it, the days that level no longer allows — each with its reason (purpose_closed: the level closes the day's purpose; template_above_level: the purpose is open but the session needs a higher level) and, for the latter, the easier template of that purpose the athlete's bank holds or the phase purpose it falls back to — how each week measures against its phase, and where the stored weeks stop covering the outline. Ask for it before adjusting or extending a plan; leave it off for 'what am I doing this week', since it costs roughly a dozen extra reads across the training history, recovery, sleep and template stores. */
   include_state?: boolean;
 }
 
@@ -1177,7 +1177,7 @@ export interface InstallAgentFromStoreParams {
  */
 export interface ListAgentsParams {
 
-  /** Filter by category */
+  /** Only agents in this category. One of: training, nutrition, recovery, recipes, mobility, analysis, custom; any other name reads as custom. */
   category?: string;
 
   /** Only show favorites. Default: false */
@@ -1186,10 +1186,13 @@ export interface ListAgentsParams {
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
 
+  /** Include agents you hid. Default: false */
+  include_hidden?: boolean;
+
   /** Include system agents. Default: true */
   include_system?: boolean;
 
-  /** Max results. Default: 50 */
+  /** Max results. Default: 50, max: 100 */
   limit?: number;
 
   /** Pagination offset. Default: 0 */
@@ -1245,10 +1248,10 @@ export interface ListRecipesParams {
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
 
-  /** Maximum results (default: 20) */
+  /** Maximum results (default: 20, max: 100) */
   limit?: number;
 
-  /** Filter by meal timing */
+  /** Filter by meal timing: pre_training, post_training, rest_day or general */
   meal_timing?: string;
 
   /** Pagination offset */
@@ -1279,7 +1282,7 @@ export interface ListStretchingExercisesParams {
 
 
 /**
- * List the workout template bank by what a session is for. Every template carries a purpose (recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility), the season phases it fits, the readiness level it needs, the sports it is written for, its evidence tier, and parameter ranges (reps, work and rest seconds, duration, RPE, intensity per sport) with a default the agent fills in for the athlete. Filter with purpose, phase and sport; the reply lists the athlete's own saved sessions after the bank. Pass detail = full for the structured steps and target zones prescribe_workout pushes to the athlete's Intervals.icu calendar.
+ * List the workout template bank by what a session is for. Every template carries a purpose (recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility, uphill, downhill), the season phases it fits, the readiness level it needs, the sports it is written for, its evidence tier, and parameter ranges (reps, work and rest seconds, duration, RPE, intensity per sport) with a default the agent fills in for the athlete. Filter with purpose, phase and sport; the reply lists the athlete's own saved sessions after the bank. Pass detail = full for the structured steps and target zones prescribe_workout pushes to the athlete's Intervals.icu calendar.
  */
 export interface ListWorkoutTemplatesParams {
 
@@ -1289,7 +1292,7 @@ export interface ListWorkoutTemplatesParams {
   /** Only templates that fit this season phase; a template written for any phase always matches. One of: prep, base, build, specialty, peak, taper, race, transition, recovery. */
   phase?: string;
 
-  /** Only templates with this purpose. One of: recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility. */
+  /** Only templates with this purpose. One of: recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility, uphill, downhill. */
   purpose?: string;
 
   /** Only templates written for this sport, as the primary sport or a variant. A snake_case sport name: run, ride, swim, strength_training, … */
@@ -1323,23 +1326,23 @@ export interface ListYogaPosesParams {
 
 
 /**
- * Get personalized sleep schedule recommendations based on training and recovery needs
+ * Get personalized sleep schedule recommendations based on training and recovery needs. The training load is computed from the athlete's synced activities against the thresholds saved with set_physiology.
  */
 export interface OptimizeSleepScheduleParams {
 
-  /** Training load data (ctl, atl, tsb) */
-  training_load?: Record<string, any>;
+  /** Provider to fetch activities for training load (strava, garmin, coros, whoop, intervals_icu, terra). Omit to auto-select */
+  activity_provider?: string;
 
   /** Wake time in HH:MM format (default: 06:00) */
   typical_wake_time?: string;
 
-  /** low, moderate, or high */
+  /** Tomorrow's session: 'low', 'moderate' (default) or 'high'. 'high' adds a sleep-quality recommendation; the target hours follow training load. */
   upcoming_workout_intensity?: string;
 }
 
 
 /**
- * Predict future performance based on training
+ * Predict 5K, 10K, half-marathon and marathon times (VDOT, Daniels) from the fastest-paced recent run of 3 km or more that took under 2 hours; the run used is returned under `best_performance`. Running only.
  */
 export interface PredictPerformanceParams {
 
@@ -1349,7 +1352,7 @@ export interface PredictPerformanceParams {
   /** Fitness provider to query (e.g., 'strava'). Defaults to configured provider. */
   provider?: string;
 
-  /** Target sport for performance prediction (e.g., 'Run', 'Ride', 'Swim'). Default: 'Run'. */
+  /** Sport to predict race times for. Only running is modelled (VDOT), so 'Run' (the default) or another running label; any other sport is refused. */
   target_sport?: string;
 }
 
@@ -1359,7 +1362,7 @@ export interface PredictPerformanceParams {
  */
 export interface PrescribeWorkoutParams {
 
-  /** Optional agent id stamped onto the audit row. */
+  /** The agent prescribing this, read only on a call with no conversation (a direct MCP call); a chat turn's own agent always wins. Its package resolves the template, and the ledger row names it. */
   agent_id?: string;
 
   /** Calendar date the workout is scheduled for (YYYY-MM-DD). */
@@ -1377,7 +1380,7 @@ export interface PrescribeWorkoutParams {
   /** Session name as you state it to the athlete. */
   name: string;
 
-  /** Optional: what the session is for, one of: recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility. Omitted, it follows from intensity_distribution. */
+  /** Optional: what the session is for, one of: recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility, uphill, downhill. Omitted, it follows from intensity_distribution. */
   purpose?: string;
 
   /** Sport: run, ride, swim, walk, hike, ski, yoga, … */
@@ -1415,12 +1418,9 @@ export interface PrescribeWorkoutParams {
 
 
 /**
- * Put the athlete's active training plan on their Intervals.icu calendar, or bring the calendar up to date after the plan changed: creates the days that are missing, updates the ones that changed, removes the ones the plan no longer has, and leaves alone any the athlete edited on Intervals.icu. Never touches dates before today. Call it when the athlete or coach asks to put or update the plan on their calendar — not on your own initiative after a save; save_training_plan's reply says when the calendar is behind. Requires a saved plan and a connected Intervals.icu account. Args: optional agent_id, optional from_date.
+ * Put the athlete's active training plan on their Intervals.icu calendar, or bring the calendar up to date after the plan changed: creates the days that are missing, updates the ones that changed, removes the ones the plan no longer has, and leaves alone any the athlete edited on Intervals.icu. Never touches dates before today. Call it when the athlete or coach asks to put or update the plan on their calendar — not on your own initiative after a save; save_training_plan's reply says when the calendar is behind. Requires a saved plan and a connected Intervals.icu account. Args: optional from_date.
  */
 export interface PushTrainingPlanParams {
-
-  /** Agent persona slug whose plan to push; falls back to the athlete's agent-agnostic plan. */
-  agent_id?: string;
 
   /** First date to push (YYYY-MM-DD). Defaults to today in the athlete's calendar, and is never earlier than that: dates already past are not rewritten. */
   from_date?: string;
@@ -1491,8 +1491,8 @@ export interface RecommendPlanFlavourParams {
  */
 export interface RefreshProviderDataParams {
 
-  /** Provider to refresh: 'strava', 'garmin', 'whoop', or 'all' to refresh all connected providers. */
-  provider: string;
+  /** Provider to refresh: 'strava', 'garmin', 'whoop', or 'all' (the default) to refresh all connected providers. */
+  provider?: string;
 
   /** Why the refresh is needed (for logging). E.g., 'user asked about today's run but latest activity is from 3 days ago'. */
   reason?: string;
@@ -1529,6 +1529,9 @@ export interface RememberFactParams {
  */
 export interface SaveRecipeParams {
 
+  /** Cooking time in minutes */
+  cook_time_mins?: number;
+
   /** Recipe description */
   description?: string;
 
@@ -1541,18 +1544,24 @@ export interface SaveRecipeParams {
   /** Ingredient name */
   name: string;
 
-  /** Unit of measurement */
+  /** How the ingredient is prepared (e.g. 'diced') */
+  preparation?: string;
+
+  /** Unit of measurement, one of grams, kilograms, milliliters, cups, tablespoons, teaspoons, pieces, ounces, pounds; an unrecognised unit reads as grams */
   unit: string;
 }[];
 
   /** Array of instruction steps */
   instructions: string[];
 
-  /** pre_training, post_training, rest_day, or general */
+  /** pre_training, post_training, rest_day, or general (default) */
   meal_timing?: string;
 
   /** Recipe name */
   name: string;
+
+  /** Preparation time in minutes */
+  prep_time_mins?: number;
 
   /** Number of servings */
   servings: number;
@@ -1563,11 +1572,11 @@ export interface SaveRecipeParams {
 
 
 /**
- * Persist the training plan you agreed with the athlete — the outline (goal race, strategy, the season phases, the flavour and who chose it, the season window) and/or day-by-day weeks (each may name the outline phase it instantiates, and each day the catalogue template it is built from with the values filled in) — in the SAME turn you state it. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable. For a day with interval structure, give steps (same shape as prescribe_workout's session.structure) — that is what puts workout-builder steps and a planned load on the calendar; prose alone reaches it as a timed entry. Saving never writes to the athlete's calendar: when the reply's calendar.stale is true, their Intervals.icu calendar no longer matches the plan — tell them and offer push_training_plan. A group's human coach edits a consenting athlete's plan by passing `athlete` from their own direct chat, never in a room: the athlete shares the plan into the room with `/plan share`, the coach saves the change from their DM, and the athlete's next `/plan` shows it.
+ * Persist the training plan you agreed with the athlete — the outline (goal race, strategy, the season phases, the flavour and who chose it, the season window) and/or day-by-day weeks (each may name the outline phase it instantiates, and each day the catalogue template it is built from with the values filled in) — in the SAME turn you state it. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or when the athlete asked you to re-lay or change the outline of a season another agent laid — then set replace_season to true. Re-save a week another agent wrote only when the athlete asks for that change. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable. For a day with interval structure, give steps (same shape as prescribe_workout's session.structure) — that is what puts workout-builder steps and a planned load on the calendar; prose alone reaches it as a timed entry. Saving never writes to the athlete's calendar: when the reply's calendar.stale is true, their Intervals.icu calendar no longer matches the plan — tell them and offer push_training_plan. A group's human coach edits a consenting athlete's plan by passing `athlete` from their own direct chat, never in a room: the athlete shares the plan into the room with `/plan share`, the coach saves the change from their DM, and the athlete's next `/plan` shows it.
  */
 export interface SaveTrainingPlanParams {
 
-  /** Coach persona slug saving the plan. */
+  /** The agent authoring this save, read only on a call with no conversation (a direct MCP call); a chat turn's own agent always wins. */
   agent_id?: string;
 
   /** Roster display name of the athlete whose plan this is. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach, and only from a direct chat — never in a room. Omit to act on your own plan. */
@@ -1638,7 +1647,7 @@ export interface SaveTrainingPlanParams {
   /** What the phase is for, one sentence (the skeleton's text when laid out from one). */
   purpose?: string;
 
-  /** Weights over the workout purposes this phase draws its sessions from, as {purpose: weight}. Purposes: recovery | endurance | endurance_long | tempo | sweet_spot | threshold | vo2max_long | vo2max_short | sprint | neuromuscular | race_specific | brick | strength_aa | strength_max | strength_maint | plyometric | mobility. */
+  /** Weights over the workout purposes this phase draws its sessions from, as {purpose: weight}. Purposes: recovery | endurance | endurance_long | tempo | sweet_spot | threshold | vo2max_long | vo2max_short | sprint | neuromuscular | race_specific | brick | strength_aa | strength_max | strength_maint | plyometric | mobility | uphill | downhill. */
   session_mix?: Record<string, any>;
 
   /** The catalogue skeleton this phase was laid out from, when one was. */
@@ -1724,6 +1733,9 @@ export interface SaveTrainingPlanParams {
   strategy: string;
 };
 
+  /** True only when the athlete asked you to re-lay or change the outline of a season another agent laid; read only with an outline. */
+  replace_season?: boolean;
+
   /** Day-by-day weeks to save. Send the full multi-week detail when the athlete asks to see the whole plan; send a single adjusted week for 'move Tuesday to Wednesday' changes. */
   weeks?: {
 
@@ -1739,7 +1751,7 @@ export interface SaveTrainingPlanParams {
   /** Planned duration in minutes; omit for rest days, and omit when steps are given — it is summed from them. */
   duration_min?: number;
 
-  /** What to take in during the session. Give it for any session long enough to need fuelling. */
+  /** What to take in during the session. Give it for any session long enough to need fuelling — except for an athlete with a medical/PAR-Q flag on file: their clinician sets these amounts, so omit it and describe fuelling in the day's workout in words (what to take and when, no amounts); a save carrying it for that athlete is refused. */
   fueling?: {
 
   /** Carbohydrate source when the rate depends on it — 'glucose:fructose 1:0.8'. Required in practice for any rate above 60 g/h. */
@@ -1841,11 +1853,11 @@ export interface SearchAgentStoreParams {
 
 
 /**
- * Search for agents by query. Returns up to 20 results by default. Check the `has_more` field before requesting additional results with offset.
+ * Search the agents you created by title, description or tags, optionally within one category. Returns up to 20 results by default. Check the `has_more` field before requesting additional results with offset.
  */
 export interface SearchAgentsParams {
 
-  /** Filter by category */
+  /** Only matches in this category. One of: training, nutrition, recovery, recipes, mobility, analysis, custom; any other name reads as custom. */
   category?: string;
 
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
@@ -1886,7 +1898,7 @@ export interface SearchRecipesParams {
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
 
-  /** Maximum results (default: 10) */
+  /** Maximum results (default: 10, max: 100) */
   limit?: number;
 
   /** Pagination offset */
@@ -1908,26 +1920,26 @@ export interface SetFitnessConfigParams {
   /** Name for this configuration (default: 'default') */
   configuration_name?: string;
 
-  /** If true, save as user-specific config. If false, save as tenant default (requires admin) */
+  /** If true (the default), save as user-specific config. If false, save as tenant default (requires admin) */
   user_level?: boolean;
 }
 
 
 /**
- * Create a new fitness goal with specified type, target value, and timeframe
+ * Create a fitness goal: a distance, duration or activity-count target over a week, month, quarter or year, optionally for one sport. track_progress measures it against the activities recorded after the goal was created, only the named sport's when one is given.
  */
 export interface SetGoalParams {
 
-  /** Type of goal: 'distance', 'time', 'frequency', or 'performance' */
+  /** Type of goal, one of 'distance' (km), 'duration' (hours), 'frequency' (activities). Any other type is refused: progress cannot be measured for it. */
   goal_type: string;
 
-  /** Sport type for the goal (e.g., 'Running', 'Cycling'). Default: 'Running' */
+  /** Sport the goal counts (e.g. 'run', 'ride', 'swim'): progress then counts only that sport's activities, trail and treadmill runs toward a run goal, gravel and indoor rides toward a ride goal. Omit to count every activity. */
   sport?: string;
 
-  /** Target value for the goal (km for distance, sessions for frequency, etc.) */
+  /** Target total over the timeframe, in the goal type's unit: km, hours or activities. Must be greater than zero. */
   target_value: number;
 
-  /** Goal timeframe: 'week', 'month', 'quarter', or 'year'. Default: 'month' */
+  /** Window the target is counted over, one of week, month, quarter, year. Default: 'month'. */
   timeframe?: string;
 
   /** Title or description for the goal */
@@ -1936,7 +1948,7 @@ export interface SetGoalParams {
 
 
 /**
- * Save the athlete's physiological measurements — FTP, threshold pace, max and resting heart rate, lactate threshold, VO2 max, weight, age — so training load, zones and every personalised calculation use their real numbers instead of generic per-sport estimates. Call this whenever the athlete states one of these values, for example 'my FTP is 285' or 'my max HR is 190'. Pass only the fields they actually gave you; everything else keeps its stored value. The result is the profile re-read from storage after the write, so report back only what it contains.
+ * Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, weight, age — so training load, zones and every personalised calculation use their real numbers instead of generic per-sport estimates. Training load is scored against what is saved here and nowhere else — power against the FTP, heart rate against the threshold heart rate (estimated from the lactate threshold and max HR when none is saved) — in analyze_training_load, get_training_history, calculate_fitness_score, generate_recommendations and the recovery tools. Call this whenever the athlete states one of these values, for example 'my FTP is 285' or 'my max HR is 190'. Pass only the fields they actually gave you; everything else keeps its stored value. The result is the profile re-read from storage after the write, so report back only what it contains.
  */
 export interface SetPhysiologyParams {
 
@@ -1949,7 +1961,7 @@ export interface SetPhysiologyParams {
   /** Functional Threshold Power in watts. Saving it also derives and stores the athlete's power zones. */
   ftp_watts?: number;
 
-  /** Lactate threshold as a fraction of maximum heart rate, between 0.65 and 0.95. Combined with max_hr this gives the LTHR that heart-rate-based training load uses. */
+  /** Lactate threshold as a fraction of VO2 max, between 0.65 and 0.95 (about 0.75-0.90 for a trained athlete), as a lab test reports it. It places threshold pace in the pace zones, and with max_hr estimates the LTHR when no threshold_hr is saved. */
   lactate_threshold_percentage?: number;
 
   /** Maximum heart rate in bpm. Saving it together with resting_hr derives and stores the athlete's heart-rate zones. */
@@ -1960,6 +1972,9 @@ export interface SetPhysiologyParams {
 
   /** Resting heart rate in bpm. */
   resting_hr?: number;
+
+  /** Lactate threshold heart rate (LTHR) in bpm, from a 30-minute field test, a ramp test or a lab report. Heart-rate-based training load is scored against it. */
+  threshold_hr?: number;
 
   /** Threshold pace in seconds per kilometre — the running equivalent of FTP. A 4:10/km threshold is 250. */
   threshold_pace_sec_per_km?: number;
@@ -1986,7 +2001,7 @@ export interface ShowAgentParams {
 
 
 /**
- * Get AI-suggested fitness goals based on your activity history and fitness level
+ * Get up to five suggested fitness goals based on your activity history and fitness level. When the athlete's latitude is known, suggestions for sports out of season there are dropped rather than replaced.
  */
 export interface SuggestGoalsParams {
 
@@ -1996,27 +2011,24 @@ export interface SuggestGoalsParams {
 
 
 /**
- * Get AI-powered recommendation on whether to rest or train. Fetches sleep and activity data from connected providers automatically
+ * Get a recommendation on whether to rest or train. Fetches sleep and activities from connected providers automatically and computes CTL, ATL and TSB from those activities against the thresholds saved with set_physiology (FTP, threshold heart rate, max and resting heart rate, weight).
  */
 export interface SuggestRestDayParams {
 
   /** Provider to fetch activities for training load (strava, garmin, coros, whoop, intervals_icu, terra). Omit to auto-select */
   activity_provider?: string;
 
-  /** User's baseline HRV */
+  /** User's baseline HRV (RMSSD, ms) */
   baseline_hrv?: number;
 
-  /** Recent HRV values for trend analysis */
+  /** Recent HRV values (RMSSD, ms) for trend analysis */
   recent_hrv_values?: number[];
 
-  /** Manual sleep data (used instead of a provider fetch) */
+  /** Manual data for last night's sleep, used instead of a provider fetch when no sleep_provider is named. Fields: date (YYYY-MM-DD or RFC 3339) and duration_hours (required), deep_sleep_hours, rem_sleep_hours, light_sleep_hours, awake_hours, efficiency_percent, hrv_rmssd_ms, resting_hr_bpm, provider_score */
   sleep_data?: Record<string, any>;
 
   /** Read only this source's synced sleep (whoop, garmin, intervals_icu). Omit to merge every connected source's sleep per night */
   sleep_provider?: string;
-
-  /** Training load data (ctl, atl, tsb) */
-  training_load?: Record<string, any>;
 }
 
 
@@ -2066,7 +2078,7 @@ export interface ToggleAgentFavoriteParams {
 
 
 /**
- * Track progress toward a specific fitness goal with milestone achievements and projections
+ * Track progress toward a specific fitness goal: current value against target, percentage complete, whether it is on track, days remaining and a projected completion, counted over the activities recorded since the goal was created (only the goal's sport when it names one).
  */
 export interface TrackProgressParams {
 
@@ -2079,17 +2091,17 @@ export interface TrackProgressParams {
 
 
 /**
- * Analyze sleep patterns over time to identify trends and insights. Reads the nights synced from connected sources (WHOOP, Garmin, intervals.icu)
+ * Analyze sleep patterns over time to identify trends and insights. Reads the nights synced from connected sources (WHOOP, Garmin, intervals.icu) over `days`; manual `sleep_history` replaces that fetch only when no `sleep_provider` is named.
  */
 export interface TrackSleepTrendsParams {
 
-  /** Days of sleep history to fetch from the provider (default 7) */
+  /** Days of sleep history to fetch from the provider (default 14, max 366) */
   days?: number;
 
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
 
-  /** Array of sleep data objects (minimum 7 days) */
+  /** Manual array of sleep data objects, used instead of a provider fetch when no sleep_provider is named; at least 7 nights (the server's trend minimum) */
   sleep_history?: {
 
   /** Date of sleep record */
@@ -2112,16 +2124,19 @@ export interface UpdateAgentParams {
   /** ID of the agent to update */
   agent_id: string;
 
-  /** New category */
+  /** New category. One of: training, nutrition, recovery, recipes, mobility, analysis, custom; any other name reads as custom. */
   category?: string;
 
   /** New description */
   description?: string;
 
+  /** New example prompts, replacing the current ones */
+  sample_prompts?: string[];
+
   /** New system prompt */
   system_prompt?: string;
 
-  /** New tags */
+  /** New tags, replacing the current ones */
   tags?: string[];
 
   /** New title */
@@ -2130,14 +2145,14 @@ export interface UpdateAgentParams {
 
 
 /**
- * Update your training configuration settings
+ * Update your training configuration settings: apply a profile template and set catalogue overrides on top of it
  */
 export interface UpdateUserConfigurationParams {
 
-  /** Configuration parameters to update */
+  /** Overrides by catalogue key (get_configuration_catalog), merged into the saved ones: a key set to null is removed, a key not named keeps its saved value. Physiological measurements (ftp, threshold_hr, max_hr, resting_hr, weight, vo2_max...) are refused: set_physiology saves them, and training load reads them from there. */
   parameters?: Record<string, any>;
 
-  /** Profile name to apply */
+  /** Profile template to apply, by the name get_configuration_profiles lists ('Elite Athlete') or its profile name ('elite'): its values become the base parameters, under the overrides. Omit to keep the saved template (the default one when none was applied). */
   profile?: string;
 }
 
@@ -2157,7 +2172,7 @@ export interface ValidateConfigurationParams {
  */
 export interface ValidateRecipeParams {
 
-  /** Array of {name, amount, unit} */
+  /** Array of {name, amount, unit}; each name is matched against USDA FoodData Central */
   ingredients: {
 
   /** Quantity */
@@ -2166,14 +2181,11 @@ export interface ValidateRecipeParams {
   /** Ingredient name */
   name: string;
 
-  /** Unit of measurement */
-  unit: string;
+  /** Unit of measurement, one of grams, kilograms, milliliters, cups, tablespoons, teaspoons, pieces, ounces, pounds. Omitted or unrecognised, the amount reads as grams */
+  unit?: string;
 }[];
 
-  /** Recipe name */
-  name?: string;
-
-  /** Number of servings */
+  /** Number of servings the totals are divided by (at least 1) */
   servings: number;
 }
 

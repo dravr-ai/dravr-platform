@@ -24,6 +24,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 use crate::mcp::resources::ServerContext;
 use pierre_core::errors::AppError;
@@ -257,32 +258,40 @@ pub async fn handle_parq_get(
     Ok((StatusCode::OK, Json(ParqQuestionsResponse { questions })).into_response())
 }
 
-/// `POST /api/me/parq` — submit PAR-Q answers; each "yes" raises an agent-visible
-/// medical flag. A "yes" never blocks sign-up.
+/// `POST /api/me/parq` — submit PAR-Q answers.
+///
+/// Each "yes" raises an agent-visible medical flag, and each "no" retires the
+/// flag an earlier "yes" to that same question raised. A "yes" never blocks
+/// sign-up.
+///
+/// A re-screen may answer only some questions: a question the submission does
+/// not mention keeps whatever is on file, and a medical flag a coach tool
+/// raised is never touched here.
 ///
 /// # Errors
 ///
 /// Returns `AppError` when authentication fails, no active tenant is present, or
-/// persisting a flag fails.
+/// persisting or retiring a flag fails.
 pub async fn handle_parq_post(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Json(req): Json<ParqAnswersRequest>,
 ) -> Result<Response, AppError> {
     let tenant_id = active_tenant(&auth)?;
-    let yes_ids: Vec<String> = req
-        .answers
-        .into_iter()
-        .filter(|a| a.yes)
-        .map(|a| a.id)
-        .collect();
-    let flags_raised = parq::persist_parq_flags(
-        resources.common.repos.memory.as_ref(),
-        tenant_id,
-        &auth.user_id.to_string(),
-        &yes_ids,
-    )
-    .await?;
+    let (yes, no): (Vec<ParqAnswer>, Vec<ParqAnswer>) =
+        req.answers.into_iter().partition(|a| a.yes);
+    let yes_ids: Vec<String> = yes.into_iter().map(|a| a.id).collect();
+    let cleared_ids: Vec<String> = no.into_iter().map(|a| a.id).collect();
+    let memory = resources.common.repos.memory.as_ref();
+    let user_id = auth.user_id.to_string();
+    let flags_raised = parq::persist_parq_flags(memory, tenant_id, &user_id, &yes_ids).await?;
+    let retired = parq::retire_parq_flags(memory, tenant_id, &user_id, &cleared_ids).await?;
+    if retired > 0 {
+        info!(
+            retired,
+            "PAR-Q re-screen retired flags its clean answers cleared"
+        );
+    }
     Ok((StatusCode::OK, Json(ParqSubmitResponse { flags_raised })).into_response())
 }
 

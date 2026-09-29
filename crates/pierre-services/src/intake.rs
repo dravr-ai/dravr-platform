@@ -37,7 +37,8 @@
 //! `profile_type` and `parq` — so answering on any surface counts everywhere,
 //! exactly as pillar coverage already does. That is also the only way to tell
 //! "screened, all clear" from "never asked": a clean PAR-Q writes no facts at
-//! all, since only a "Yes" raises a flag.
+//! all, since only a "Yes" raises a flag — a clean answer only ever removes
+//! the flag an earlier "Yes" to the same question left.
 
 use pierre_contremaitre::messaging_strings::{
     KEY_INTAKE_PARQ_CHEST_PAIN, KEY_INTAKE_PARQ_CHRONIC_CONDITION, KEY_INTAKE_PARQ_DIZZINESS,
@@ -50,7 +51,7 @@ use pierre_database::repositories::{
     HarnessMemoryRepository, OnboardingStepRecord, UserOnboardingRepository,
 };
 
-use crate::parq::persist_parq_flags;
+use crate::parq::{persist_parq_flags, retire_parq_flags};
 
 /// How many times one question may be put to the athlete.
 ///
@@ -271,9 +272,10 @@ pub fn parse_persona(text: &str) -> Option<PersonaAnswer> {
 
 /// Persist a "Yes" to one PAR-Q question as an agent-visible medical flag.
 ///
-/// A "No" writes nothing, which is what the API path does too — only a raised
-/// flag is a fact. Whether the screen happened at all is carried by the step
-/// row, not by the absence of flags.
+/// A "No" raises nothing, which is what the API path does too — only a raised
+/// flag is a fact — and retires the flag an earlier "Yes" left on that
+/// question ([`record_parq_no`]). Whether the screen happened at all is
+/// carried by the step row, not by the absence of flags.
 ///
 /// # Errors
 ///
@@ -291,6 +293,32 @@ where
         return Ok(0);
     };
     persist_parq_flags(repo, tenant_id, user_id, &[id.to_owned()]).await
+}
+
+/// Record a "No" to one PAR-Q question: the flag an earlier "Yes" to it
+/// raised is retired, exactly as a clean answer on the API path retires it.
+///
+/// Only that question's PAR-Q flag goes. A medical fact a coach tool raised,
+/// and the flag on any question this answer does not address, stay on file.
+/// Returns the number of flag rows retired — zero for an athlete with no flag
+/// on the question, and for the profile-type topic.
+///
+/// # Errors
+///
+/// Returns the repository error if the fact delete fails.
+pub async fn record_parq_no<R>(
+    repo: &R,
+    tenant_id: TenantId,
+    user_id: &str,
+    topic: IntakeTopic,
+) -> AppResult<u64>
+where
+    R: HarnessMemoryRepository + ?Sized,
+{
+    let Some(id) = topic.parq_id() else {
+        return Ok(0);
+    };
+    retire_parq_flags(repo, tenant_id, user_id, &[id.to_owned()]).await
 }
 
 /// The persona to store for an answer, or `None` when there is nothing to store.

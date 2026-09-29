@@ -549,6 +549,7 @@ macro_rules! impl_agents_repository {
                 user_id: Uuid,
                 tenant_id: TenantId,
                 query: &str,
+                category: Option<AgentCategory>,
                 limit: Option<u32>,
                 offset: Option<u32>,
             ) -> AppResult<Vec<Agent>> {
@@ -558,6 +559,7 @@ macro_rules! impl_agents_repository {
                     .bind(format!("%{query}%"))
                     .bind(i32::try_from(limit.unwrap_or(20)).unwrap_or(20))
                     .bind(i32::try_from(offset.unwrap_or(0)).unwrap_or(0))
+                    .bind(category.as_ref().map(AgentCategory::as_str))
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to search coaches: {e}")))?;

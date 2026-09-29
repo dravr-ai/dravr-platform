@@ -171,6 +171,24 @@ To switch between SQLite and PostgreSQL:
    sqlx migrate run
    ```
 
+## Data Repairs SQL Cannot Express
+
+Some stored rows are documents a kernel parses, and a stricter kernel can refuse
+text an older one accepted. SQL cannot edit such a document safely, so the repair
+runs in Rust at server boot, right after the migrations, instead of as a file here.
+
+| Repair | What it rewrites | Where |
+|--------|------------------|-------|
+| Closed-ladder flavours | `agent_artefacts` rows of kind `flavour` whose readiness ladder opens a quality purpose (`tempo`, `threshold`, `uphill`, …) at p0 or at a level with `max_hard_sessions_per_week: 0`. dravr-cageux 0.26 refuses that ladder; the repair takes out exactly those purposes. | `pierre_services::agent_package_repair`, called from `pierre-mcp-server`'s `initialize_core_systems` |
+
+Every repair here follows the same contract:
+
+- **Idempotent.** A row the kernel accepts is never touched, so every boot after the first finds nothing to do.
+- **Tenant-scoped.** It walks tenant by tenant; every read and write carries the tenant id.
+- **Only what the kernel forbids.** The rewrite is written back only when the kernel accepts it. A row refused for any other reason is left as stored and named in the boot log (`unrepaired`).
+- **The author's text where possible.** A one-line `purposes: [..]` list is edited in place and kept only when it reads back as exactly the structural edit; any other layout is re-serialised, which drops its comments.
+- **Never fatal.** A failed repair is logged; a refused row stays what it already was to the resolver, a row it skips.
+
 ## CI/CD Integration
 
 ### GitHub Actions Example

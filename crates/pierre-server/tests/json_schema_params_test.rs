@@ -29,3 +29,22 @@ fn test_goals_params_deserialization() {
     assert_eq!(params.timeframe, "week");
     assert_eq!(params.title, "Fitness Goal"); // default
 }
+
+/// `set_goal` declares only `goal_type` and `target_value` required, so a call
+/// naming no timeframe has to deserialize: it sets a monthly goal. It used to
+/// fail with "missing field `timeframe`" while the schema promised a default.
+#[test]
+fn set_goal_params_default_to_a_monthly_goal_counting_every_sport() {
+    let params: SetGoalParams =
+        serde_json::from_value(json!({"goal_type": "frequency", "target_value": 12.0})).unwrap();
+    assert_eq!(params.timeframe, "month");
+    assert_eq!(params.sport, None);
+
+    let params: SetGoalParams = serde_json::from_value(json!({
+        "goal_type": "distance",
+        "target_value": 200.0,
+        "sport": "ride"
+    }))
+    .unwrap();
+    assert_eq!(params.sport.as_deref(), Some("ride"));
+}

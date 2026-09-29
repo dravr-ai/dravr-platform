@@ -26,7 +26,7 @@ members = ["crates/*"]
 dravr-tronc = "3.2.0"
 
 # Sports science engine -- VDOT, TSS, TRIMP, FTP, VO2max, recovery, nutrition.
-dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.25.0" }
+dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.26.0" }
 
 # Messaging types and channel adapters.
 dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.6.0" }
@@ -36,7 +36,7 @@ dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", tag = "
 
 # Coach catalogue, locale strings and notify-event catalogue. Pinned by rev
 # rather than tag; contremaitre-bump.yml advances it.
-dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "e766281d7f6126431796b733e6a88cab266b795d" }
+dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "3f149f5cd190d12d1dd7977dd8df0b12a4263b43" }
 
 # Health provider sync. default-features off so pierre-enforme's own
 # provider-* features select the backends.

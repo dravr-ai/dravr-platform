@@ -8,6 +8,7 @@ use crate::implementations::analytics::recommendations_output::{
     CorePrinciples, RacePredictionSummary, RecommendationMetrics, RecommendationsResult,
     TrainingSummary, WeekStructure,
 };
+use crate::implementations::stored_physiology::stored_athlete_inputs;
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
@@ -15,8 +16,9 @@ use crate::protocols::ProtocolError;
 use chrono::{Duration, Utc};
 use pierre_config::constants::limits::METERS_PER_KILOMETER;
 use pierre_core::civil_time::resolve_zone;
-use pierre_core::models::Activity;
+use pierre_core::models::{Activity, TenantId};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
+use pierre_fitness_compute::AthleteInputs;
 use pierre_intelligence::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
 use pierre_intelligence::training_load::TrainingLoad;
 use pierre_intelligence::{
@@ -25,10 +27,24 @@ use pierre_intelligence::{
 };
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 
+use super::recommendations_nutrition::{
+    generate_nutrition_recommendations, load_nutrition_athlete, NutritionAthlete,
+};
+
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+
+/// The modes `generate_recommendations` answers in, the default first.
+const RECOMMENDATION_TYPES: [&str; 6] = [
+    "all",
+    "training_plan",
+    "recovery",
+    "intensity",
+    "goal_specific",
+    "nutrition",
+];
 
 /// A metrics block with nothing measured, for a mode to fill the fields it
 /// does measure and leave the rest absent.
@@ -75,18 +91,28 @@ pub(super) fn base_recommendations(
         meal_suggestions: Vec::new(),
         macronutrient_targets: None,
         activity_summary: None,
+        figures_withheld: None,
         training_summary: None,
         core_principles: None,
         metrics: None,
     }
 }
 
-/// Generate personalized training recommendations
-fn generate_training_recommendations(
+/// Generate personalized training recommendations.
+///
+/// The `training_plan`, `recovery` and `all` modes read CTL, ATL and TSB off
+/// `athlete`, the thresholds saved with `set_physiology`, so the form they
+/// advise on is the form `analyze_training_load` reports for the same
+/// sessions. Public so the metrics each mode reports have content coverage;
+/// the production caller is [`handle_generate_recommendations`].
+#[must_use]
+pub fn generate_training_recommendations(
     activities: &[Activity],
     recommendation_type: &str,
+    athlete: &AthleteInputs,
     algorithm_config: &AlgorithmConfig,
     user_timezone: Option<&str>,
+    nutrition_athlete: &NutritionAthlete,
 ) -> RecommendationsResult {
     if activities.is_empty() {
         return base_recommendations(
@@ -105,36 +131,43 @@ fn generate_training_recommendations(
         .cloned()
         .collect();
 
-    if recent_activities.is_empty() {
+    // The latest session is what the nutrition mode advises on; binding it
+    // here is also the emptiness check, so that mode cannot be reached
+    // without one.
+    let Some(latest) = recent_activities.iter().max_by_key(|a| a.start_date()) else {
         return base_recommendations(
             recommendation_type,
             "high",
             "No training activity in the last 4 weeks".to_owned(),
             vec!["Resume training gradually - start with 2-3 easy sessions per week".to_owned()],
         );
-    }
+    };
 
     match recommendation_type {
         "training_plan" => generate_training_plan_recommendations(
             &recent_activities,
+            athlete,
             algorithm_config,
             user_timezone,
         ),
-        "recovery" => generate_recovery_recommendations(&recent_activities, algorithm_config),
+        "recovery" => {
+            generate_recovery_recommendations(&recent_activities, athlete, algorithm_config)
+        }
         "intensity" => generate_intensity_recommendations(&recent_activities),
         "goal_specific" => {
             generate_goal_specific_recommendations(&recent_activities, algorithm_config)
         }
-        "nutrition" => {
-            super::recommendations_nutrition::generate_nutrition_recommendations(&recent_activities)
-        }
-        _ => generate_comprehensive_recommendations(&recent_activities, algorithm_config),
+        "nutrition" => generate_nutrition_recommendations(latest, nutrition_athlete),
+        // `all`: the handler refuses any type outside `RECOMMENDATION_TYPES`
+        // before a provider is read, so nothing else reaches this arm.
+        _ => generate_comprehensive_recommendations(&recent_activities, athlete, algorithm_config),
     }
 }
 
 /// Generate weekly training plan recommendations using training load analysis
 fn generate_training_plan_recommendations(
     activities: &[Activity],
+    athlete: &AthleteInputs,
     algorithm_config: &AlgorithmConfig,
     user_timezone: Option<&str>,
 ) -> RecommendationsResult {
@@ -154,9 +187,7 @@ fn generate_training_plan_recommendations(
     // Calculate training load metrics
     let calculator =
         TrainingLoadCalculator::from_config(algorithm_config.clone(), Utc::now().date_naive());
-    let training_load = calculator
-        .calculate_training_load(&sorted, None, None, None, None, None)
-        .ok();
+    let training_load = athlete.training_load(&calculator, &sorted).ok();
 
     let mut recommendations = Vec::new();
     let mut priority = "medium";
@@ -333,9 +364,10 @@ fn process_tsb_recommendations(
 ///
 /// Keyed on [`FormBand`] rather than the `recovery_status` string so the two
 /// cannot drift: a status this function does not recognise used to fall through
-/// to the generic "stay hydrated" list, which is how deep-fatigue athletes were
+/// to the generic maintenance list, which is how deep-fatigue athletes were
 /// handed maintenance advice next to `priority: "high"`.
-const fn recovery_actions_for(band: FormBand) -> &'static [&'static str] {
+#[must_use]
+pub const fn recovery_actions_for(band: FormBand) -> &'static [&'static str] {
     match band {
         FormBand::DeepFatigue => &[
             "Take complete rest days",
@@ -353,10 +385,13 @@ const fn recovery_actions_for(band: FormBand) -> &'static [&'static str] {
             "Maintain 7-8 hours of sleep",
             "Active recovery (easy swimming/walking)",
         ],
+        // Fluid is advised by thirst, not a daily volume: no universal drinking
+        // rate fits, because sweat and renal water loss vary widely between
+        // athletes (Hew-Butler et al. 2008).
         FormBand::Fresh | FormBand::Detraining | FormBand::InsufficientHistory => &[
             "Maintain current recovery routine",
             "7-9 hours of sleep per night",
-            "Stay hydrated (2-3L water daily)",
+            "Drink to thirst through the day",
         ],
     }
 }
@@ -364,6 +399,7 @@ const fn recovery_actions_for(band: FormBand) -> &'static [&'static str] {
 /// Generate recovery recommendations using TSB and overtraining signals
 fn generate_recovery_recommendations(
     activities: &[Activity],
+    athlete: &AthleteInputs,
     algorithm_config: &AlgorithmConfig,
 ) -> RecommendationsResult {
     // Sort oldest-first — EMA calculation requires chronological order
@@ -373,9 +409,7 @@ fn generate_recovery_recommendations(
     // Calculate TSB (Training Stress Balance)
     let calculator =
         TrainingLoadCalculator::from_config(algorithm_config.clone(), Utc::now().date_naive());
-    let training_load = calculator
-        .calculate_training_load(&sorted, None, None, None, None, None)
-        .ok();
+    let training_load = athlete.training_load(&calculator, &sorted).ok();
 
     // Detect overtraining signals
     let overtraining_signals = PatternDetector::detect_overtraining_signals(activities);
@@ -647,6 +681,7 @@ fn generate_goal_specific_recommendations(
 /// Generate comprehensive recommendations combining all analyses
 fn generate_comprehensive_recommendations(
     activities: &[Activity],
+    athlete: &AthleteInputs,
     algorithm_config: &AlgorithmConfig,
 ) -> RecommendationsResult {
     // Sort oldest-first — EMA calculation requires chronological order
@@ -656,9 +691,7 @@ fn generate_comprehensive_recommendations(
     // Comprehensive analysis using all available modules
     let calculator =
         TrainingLoadCalculator::from_config(algorithm_config.clone(), Utc::now().date_naive());
-    let training_load = calculator
-        .calculate_training_load(&sorted, None, None, None, None, None)
-        .ok();
+    let training_load = athlete.training_load(&calculator, &sorted).ok();
 
     let volume_pattern = PatternDetector::detect_volume_progression(activities);
     let intensity_pattern = PatternDetector::detect_hard_easy_pattern(activities);
@@ -778,6 +811,21 @@ pub fn handle_generate_recommendations(
         use DEFAULT_ACTIVITY_LIMIT;
 
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
+        // An omitted type is `all`. A type outside the vocabulary is refused,
+        // before any provider is read, instead of being answered with every
+        // mode as though `all` had been asked for.
+        let recommendation_type = request
+            .parameters
+            .get("recommendation_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("all");
+        if !RECOMMENDATION_TYPES.contains(&recommendation_type) {
+            return Err(ProtocolError::InvalidParameters(format!(
+                "recommendation_type '{recommendation_type}' is not a mode this tool generates; \
+                 use one of {}",
+                RECOMMENDATION_TYPES.join(", ")
+            )));
+        }
         let provider_name = match resolve_provider_for_request(
             &request.parameters,
             executor,
@@ -789,14 +837,45 @@ pub fn handle_generate_recommendations(
             Ok(p) => p,
             Err(response) => return Ok(*response),
         };
-        let recommendation_type = request
-            .parameters
-            .get("recommendation_type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("all");
 
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);
+
+        // Only the nutrition mode prescribes amounts, so only it reads the
+        // medical-flag gate and the stored weight. A flag that cannot be read
+        // fails the call rather than releasing the figures.
+        let nutrition_athlete = if recommendation_type == "nutrition" {
+            let tenant = request
+                .tenant_id
+                .as_deref()
+                .and_then(|t| TenantId::parse_str(t).ok());
+            match load_nutrition_athlete(executor.resources.repos(), tenant, user_uuid).await {
+                Ok(athlete) => athlete,
+                Err(e) => {
+                    return Ok(UniversalResponse {
+                        success: false,
+                        result: None,
+                        error: Some(format!(
+                            "Failed to read the athlete's nutrition profile: {e}"
+                        )),
+                        metadata: None,
+                    })
+                }
+            }
+        } else {
+            NutritionAthlete::default()
+        };
+
+        // The thresholds set_physiology saved, the ones every training-load
+        // surface scores sessions against.
+        let athlete =
+            stored_athlete_inputs(&executor.resources, request.tenant_id.as_deref(), user_uuid)
+                .await
+                .map_err(|e| {
+                    ProtocolError::InternalError(format!(
+                        "generate_recommendations: reading the saved thresholds failed: {e}"
+                    ))
+                })?;
 
         match executor
             .auth_service
@@ -830,8 +909,10 @@ pub fn handle_generate_recommendations(
                         let analysis = generate_training_recommendations(
                             &activities,
                             recommendation_type,
+                            &athlete,
                             &executor.cageux_config().algorithms,
                             user_timezone.as_deref(),
+                            &nutrition_athlete,
                         );
 
                         let result = UniversalResponse {

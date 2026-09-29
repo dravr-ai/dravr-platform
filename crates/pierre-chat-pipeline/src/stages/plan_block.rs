@@ -11,13 +11,12 @@
 //! same card serves both: a plan just agreed to and a plan asked about are
 //! one object, and the season timeline is what the athlete wants to see
 //! either way. The block is
-//! [`pierre_services::plan_card::PlanCard`] — the active plan under the
-//! turn's agent, projected for the athlete's civil date — so what the card
+//! [`pierre_services::plan_card::PlanCard`] — the athlete's one active
+//! season, projected for their civil date — so what the card
 //! shows is what the tool stored, in the one session vocabulary the prompt
 //! and the calendar push also read. A surface that cannot lay a plan card
 //! out gets no block; the egress on a messaging channel discards it anyway.
 
-use pierre_database::database::ConversationRecord;
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::plan_card::{
     load_plan_card, turn_shows_the_plan, PLAN_CARD_READ_TOOL, PLAN_CARD_SOURCE_TOOL,
@@ -35,7 +34,6 @@ use crate::ChatPipelineContext;
 pub(super) async fn plan_block_for_turn(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
-    conv: &ConversationRecord,
     profile: &SurfaceProfile,
     tools_called: &[String],
 ) -> Option<Value> {
@@ -50,7 +48,6 @@ pub(super) async fn plan_block_for_turn(
         &ctx.repos,
         input.tool_tenant_id,
         user_id,
-        input.turn_agent_id(conv),
         today,
         &ctx.messaging_strings_registry,
         &profile.locale,

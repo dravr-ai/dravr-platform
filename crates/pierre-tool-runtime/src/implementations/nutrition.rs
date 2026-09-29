@@ -27,11 +27,13 @@ use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
+use crate::implementations::nutrition_gate::{gate_for_call, NutritionAnswer};
 use crate::implementations::usda_shared::{check_ingredient_count, shared_usda_client};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
+use pierre_config::nutrition_params::{athlete_protein_g_per_kg, PROTEIN_ATHLETE_G_PER_KG_KEY};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_external::{FoodSearchResult, UsdaClient};
 use pierre_intelligence::{
@@ -39,6 +41,7 @@ use pierre_intelligence::{
     DailyNutritionParams, Gender, TrainingGoal, WorkoutIntensity,
 };
 use pierre_mcp_schema::PropertySchema;
+use pierre_runtime_context::ConfigLookupScope;
 use pierre_tools_core::ToolResult;
 
 // ============================================================================
@@ -152,6 +155,34 @@ fn parse_nutrition_params(args: &Value) -> AppResult<DailyNutritionParams> {
     })
 }
 
+/// The operator's athlete protein target for this call's athlete, when one is
+/// set: the per-user row, then the tenant's, then the fleet's.
+///
+/// Only an explicit override is read. With none, the kernel's configured
+/// `protein_athlete_g_per_kg` stands, so the catalogue's displayed default
+/// never shadows it; with no admin config wired there is nothing to override.
+///
+/// # Errors
+///
+/// Returns the repository error when the override cannot be read, and a
+/// config error when a stored override is not a target inside 1.2-2.0 g/kg/day.
+async fn athlete_protein_override(context: &ToolExecutionContext) -> AppResult<Option<f64>> {
+    let Some(config) = context.resources.admin_config() else {
+        return Ok(None);
+    };
+    let user = context.user_id.to_string();
+    let tenant = context.tenant_id.map(|tenant| tenant.to_string());
+    let scope = ConfigLookupScope {
+        user_id: Some(&user),
+        tenant_id: tenant.as_deref(),
+    };
+    config
+        .get_override_value(PROTEIN_ATHLETE_G_PER_KG_KEY, scope)
+        .await?
+        .map(|value| athlete_protein_g_per_kg(&value))
+        .transpose()
+}
+
 /// Resolve the process-wide `UsdaClient`, returning an error `ToolResult` if
 /// the API key is missing. Shared so its 24h caches and rate limiter span
 /// calls instead of dying with each one.
@@ -171,6 +202,26 @@ fn build_usda_client(context: &ToolExecutionContext) -> Result<Arc<UsdaClient>, 
 
     Ok(shared_usda_client(api_key))
 }
+
+/// What `calculate_daily_nutrition` says instead of targets when a clinician
+/// sets them. Foods and patterns only (Thomas, Erdman & Burke 2016: fuel for
+/// the work of the day, protein spread across it) — no amount.
+const DAILY_NUTRITION_GUIDANCE: &[&str] = &[
+    "Build each meal around a protein source, carbohydrate-rich foods and vegetables or fruit.",
+    "Eat more carbohydrate on long or hard training days and less on rest days.",
+    "Spread protein across the day's meals rather than loading it into one.",
+    "Daily energy and macronutrient targets come from your clinician; bring them to any nutrition conversation.",
+];
+
+/// What `get_nutrient_timing` says instead of amounts when a clinician sets
+/// them. Timing and food choice only (Kerksick et al. 2017; Aragon & Schoenfeld
+/// 2013: the window is flexible and total daily intake matters most).
+const NUTRIENT_TIMING_GUIDANCE: &[&str] = &[
+    "Before the session: an easily digested, carbohydrate-based meal or snack 1-3 hours beforehand (banana, oatmeal, toast).",
+    "After the session: a meal with protein and carbohydrate within about 2 hours; total daily intake matters more than the exact minute.",
+    "Spread protein across 3-4 meals through the day.",
+    "How much of each to take is for your clinician to set.",
+];
 
 /// What `calculate_daily_nutrition` answers with.
 #[derive(Debug, Serialize, JsonSchema)]
@@ -400,9 +451,9 @@ impl McpTool<dyn ToolRuntime> for CalculateDailyNutritionTool {
                 "training_goal".to_owned(),
             ]),
         );
-        answers_with::<DailyNutritionResult>(tool_definition(
+        answers_with::<NutritionAnswer<DailyNutritionResult>>(tool_definition(
             "calculate_daily_nutrition",
-            "Calculate daily calorie and macronutrient needs based on biometrics and goals",
+            "Calculate daily calorie and macronutrient needs based on biometrics and goals. For an athlete with a medical/PAR-Q flag on file it returns qualitative `guidance` and `figures_withheld` instead of any amount, because their clinician sets those.",
             schema,
             None,
         ))
@@ -422,18 +473,34 @@ impl McpTool<dyn ToolRuntime> for CalculateDailyNutritionTool {
         let result: AppResult<ToolResult> = async move {
             let params = parse_nutrition_params(&args)?;
 
+            if let Some(withheld) = gate_for_call(&context).await? {
+                return ok_typed(
+                    "calculate_daily_nutrition",
+                    NutritionAnswer::<DailyNutritionResult>::withheld(
+                        withheld,
+                        DAILY_NUTRITION_GUIDANCE,
+                    ),
+                );
+            }
+
             let cageux_config = context.cageux_config();
             let nutrition_config = &cageux_config.nutrition;
+            // The kernel's macronutrient factors, with the operator's athlete
+            // protein target in place of the compiled one when an admin set it.
+            let mut macronutrients = nutrition_config.macronutrients.clone();
+            if let Some(g_per_kg) = athlete_protein_override(&context).await? {
+                macronutrients.protein_athlete_g_per_kg = g_per_kg;
+            }
 
             match calculate_daily_nutrition_needs(
                 &params,
                 &nutrition_config.bmr,
                 &nutrition_config.activity_factors,
-                &nutrition_config.macronutrients,
+                &macronutrients,
             ) {
                 Ok(nutrition) => ok_typed(
                     "calculate_daily_nutrition",
-                    DailyNutritionResult {
+                    NutritionAnswer::Figures(DailyNutritionResult {
                         bmr: nutrition.bmr,
                         tdee: nutrition.tdee,
                         protein_g: nutrition.protein_g,
@@ -443,7 +510,7 @@ impl McpTool<dyn ToolRuntime> for CalculateDailyNutritionTool {
                         carbs_percent: nutrition.macro_percentages.carbs_percent,
                         fat_percent: nutrition.macro_percentages.fat_percent,
                         goal: format!("{:?}", params.training_goal),
-                    },
+                    }),
                 ),
                 Err(e) => Ok(ToolResult::error(json!({
                     "error": format!("Calculation error: {e}")
@@ -498,9 +565,9 @@ impl McpTool<dyn ToolRuntime> for GetNutrientTimingTool {
                 "daily_protein_g".to_owned(),
             ]),
         );
-        answers_with::<NutrientTimingResult>(tool_definition(
+        answers_with::<NutritionAnswer<NutrientTimingResult>>(tool_definition(
             "get_nutrient_timing",
-            "Get optimal nutrient timing recommendations around workouts",
+            "Get optimal nutrient timing recommendations around workouts. For an athlete with a medical/PAR-Q flag on file it returns qualitative `guidance` and `figures_withheld` instead of any amount, because their clinician sets those.",
             schema,
             None,
         ))
@@ -551,6 +618,16 @@ impl McpTool<dyn ToolRuntime> for GetNutrientTimingTool {
             let (workout_intensity, intensity_source) =
                 (parse_workout_intensity(intensity_str)?, "explicit");
 
+            if let Some(withheld) = gate_for_call(&context).await? {
+                return ok_typed(
+                    "get_nutrient_timing",
+                    NutritionAnswer::<NutrientTimingResult>::withheld(
+                        withheld,
+                        NUTRIENT_TIMING_GUIDANCE,
+                    ),
+                );
+            }
+
             let cageux_config = context.cageux_config();
             let config = &cageux_config.nutrition;
 
@@ -562,7 +639,7 @@ impl McpTool<dyn ToolRuntime> for GetNutrientTimingTool {
             ) {
                 Ok(timing) => ok_typed(
                     "get_nutrient_timing",
-                    NutrientTimingResult {
+                    NutritionAnswer::Figures(NutrientTimingResult {
                         pre_workout: PreWorkoutTiming {
                             timing_hours_before: timing.pre_workout.timing_hours_before,
                             carbs_g: timing.pre_workout.carbs_g,
@@ -582,7 +659,7 @@ impl McpTool<dyn ToolRuntime> for GetNutrientTimingTool {
                             strategy: timing.daily_protein_distribution.strategy,
                         },
                         intensity_source: intensity_source.to_owned(),
-                    },
+                    }),
                 ),
                 Err(e) => Ok(ToolResult::error(json!({
                     "error": format!("Calculation error: {e}")

@@ -15,14 +15,19 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
+use pierre_core::errors::protocol::ProtocolError;
 use pierre_core::models::TenantId;
 use pierre_core::models::{Athlete, Stats};
+use pierre_formatters::OutputFormat;
+use pierre_providers::core::FitnessProvider;
 use serde::Serialize;
 use serde_json::{json, Value};
+use tracing::{debug, info, warn};
 
-use pierre_cache::{CacheKey, CacheResource};
+use pierre_cache::{Cache, CacheKey, CacheResource};
 use uuid::Uuid;
 
 use crate::capabilities::PROVIDER_READ;
@@ -32,12 +37,10 @@ use crate::conversions::{
     tool_result_to_response, Formatted,
 };
 use crate::implementations::data_helpers::{parse_output_format, read_only_annotations};
-use crate::implementations::fitness_support::{
-    fetch_and_cache_athlete, fetch_and_cache_stats, try_get_athlete_id_from_cache,
-    try_get_cached_athlete, try_get_cached_stats,
-};
 use crate::implementations::handler_bridge;
+use crate::protocol::format::formatted_response;
 use crate::protocol::provider_helpers::resolve_provider_for_tool;
+use crate::protocol::types::UniversalResponse;
 use crate::protocol::UniversalExecutor;
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -369,3 +372,225 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
 crate::declare_security!(GetAthleteTool => UNTRUSTED_OUTPUT);
 crate::declare_security!(GetStatsTool => empty);
+
+// ============================================================================
+// Provider reads and their cache, shared by the two tools
+// ============================================================================
+
+/// Try to get athlete from cache
+async fn try_get_cached_athlete(
+    cache: &Arc<Cache>,
+    cache_key: &CacheKey,
+    user_uuid: Uuid,
+    tenant_id: Option<&String>,
+    output_format: OutputFormat,
+) -> Result<Option<UniversalResponse>, ProtocolError> {
+    if let Ok(Some(cached_athlete)) = cache.get::<Athlete>(cache_key).await {
+        info!("Cache hit for athlete profile");
+        let mut metadata = HashMap::new();
+        metadata.insert("user_id".to_owned(), Value::String(user_uuid.to_string()));
+        metadata.insert(
+            "tenant_id".to_owned(),
+            tenant_id.map_or(Value::Null, |id| Value::String(id.clone())),
+        );
+        metadata.insert("cached".to_owned(), Value::Bool(true));
+
+        let payload = GetAthleteResult {
+            athlete: cached_athlete,
+        };
+        return Ok(Some(formatted_response(&payload, output_format, metadata)?));
+    }
+    info!("Cache miss for athlete profile");
+    Ok(None)
+}
+
+/// Cache athlete profile after fetching from API
+async fn cache_athlete_result(cache: &Arc<Cache>, cache_key: &CacheKey, athlete: &Athlete) {
+    let ttl = CacheResource::AthleteProfile.recommended_ttl();
+    if let Err(e) = cache.set(cache_key, athlete, ttl).await {
+        warn!("Failed to cache athlete profile: {}", e);
+    } else {
+        info!("Cached athlete profile with TTL {:?}", ttl);
+    }
+}
+
+/// Fetch athlete from API and cache result
+async fn fetch_and_cache_athlete(
+    provider: &dyn FitnessProvider,
+    cache: &Arc<Cache>,
+    cache_key: &CacheKey,
+    user_uuid: Uuid,
+    tenant_id: Option<String>,
+    output_format: OutputFormat,
+) -> Result<UniversalResponse, ProtocolError> {
+    match provider.get_athlete().await {
+        Ok(athlete) => {
+            cache_athlete_result(cache, cache_key, &athlete).await;
+
+            let mut metadata = HashMap::new();
+            metadata.insert("user_id".to_owned(), Value::String(user_uuid.to_string()));
+            metadata.insert(
+                "tenant_id".to_owned(),
+                tenant_id.map_or(Value::Null, Value::String),
+            );
+            metadata.insert("cached".to_owned(), Value::Bool(false));
+
+            formatted_response(&GetAthleteResult { athlete }, output_format, metadata)
+        }
+        Err(e) => Ok(UniversalResponse {
+            success: false,
+            result: None,
+            error: Some(format!("Failed to fetch athlete profile: {e}")),
+            metadata: None,
+        }),
+    }
+}
+
+/// Try to get athlete ID from cached athlete profile
+async fn try_get_athlete_id_from_cache(
+    cache: &Arc<Cache>,
+    athlete_cache_key: &CacheKey,
+) -> Option<u64> {
+    if let Ok(Some(athlete)) = cache.get::<Athlete>(athlete_cache_key).await {
+        return athlete
+            .id
+            .parse::<u64>()
+            .inspect_err(|e| {
+                debug!(
+                    athlete_id_str = %athlete.id,
+                    error = %e,
+                    "Failed to parse athlete ID from cache as u64"
+                );
+            })
+            .ok();
+    }
+    None
+}
+
+/// Try to get stats from cache
+async fn try_get_cached_stats(
+    cache: &Arc<Cache>,
+    stats_cache_key: &CacheKey,
+    user_uuid: Uuid,
+    tenant_id: Option<&String>,
+    output_format: OutputFormat,
+) -> Result<Option<UniversalResponse>, ProtocolError> {
+    if let Ok(Some(cached_stats)) = cache.get::<Stats>(stats_cache_key).await {
+        info!("Cache hit for stats");
+        let mut metadata = HashMap::new();
+        metadata.insert("user_id".to_owned(), Value::String(user_uuid.to_string()));
+        metadata.insert(
+            "tenant_id".to_owned(),
+            tenant_id.map_or(Value::Null, |id| Value::String(id.clone())),
+        );
+        metadata.insert("cached".to_owned(), Value::Bool(true));
+
+        let payload = GetStatsResult {
+            stats: cached_stats,
+        };
+        return Ok(Some(formatted_response(&payload, output_format, metadata)?));
+    }
+    info!("Cache miss for stats");
+    Ok(None)
+}
+
+/// Create metadata for stats responses
+fn create_stats_metadata(
+    user_uuid: Uuid,
+    tenant_id: TenantId,
+    cached: bool,
+) -> HashMap<String, Value> {
+    let mut map = HashMap::new();
+    map.insert("user_id".to_owned(), Value::String(user_uuid.to_string()));
+    map.insert("tenant_id".to_owned(), Value::String(tenant_id.to_string()));
+    map.insert("cached".to_owned(), Value::Bool(cached));
+    map
+}
+
+/// Cache a single item with TTL, logging errors
+async fn cache_item<T: serde::Serialize + Send + Sync>(
+    cache: &Arc<Cache>,
+    key: &CacheKey,
+    item: &T,
+    ttl: Duration,
+    item_name: &str,
+) {
+    if let Err(e) = cache.set(key, item, ttl).await {
+        warn!("Failed to cache {}: {}", item_name, e);
+    }
+}
+
+/// Cache athlete and stats data
+async fn cache_athlete_and_stats(
+    cache: &Arc<Cache>,
+    athlete_cache_key: &CacheKey,
+    athlete: &Athlete,
+    stats: &Stats,
+    tenant_id: TenantId,
+    user_uuid: Uuid,
+    provider_name: &str,
+) {
+    let Some(athlete_id) = athlete
+        .id
+        .parse::<u64>()
+        .inspect_err(|e| debug!("Failed to parse athlete ID: {e}"))
+        .ok()
+    else {
+        return;
+    };
+
+    // Cache athlete
+    let athlete_ttl = CacheResource::AthleteProfile.recommended_ttl();
+    cache_item(cache, athlete_cache_key, athlete, athlete_ttl, "athlete").await;
+
+    // Cache stats
+    let stats_cache_key = CacheKey::new(
+        tenant_id,
+        user_uuid,
+        provider_name.to_owned(),
+        CacheResource::Stats { athlete_id },
+    );
+    let stats_ttl = CacheResource::Stats { athlete_id }.recommended_ttl();
+    cache_item(cache, &stats_cache_key, stats, stats_ttl, "stats").await;
+    info!("Cached stats with TTL {:?}", stats_ttl);
+}
+
+/// Fetch stats from API and cache both athlete and stats
+async fn fetch_and_cache_stats(
+    provider: &dyn FitnessProvider,
+    cache: &Arc<Cache>,
+    athlete_cache_key: &CacheKey,
+    tenant_id: TenantId,
+    user_uuid: Uuid,
+    provider_name: &str,
+    output_format: OutputFormat,
+) -> Result<UniversalResponse, ProtocolError> {
+    let stats = match provider.get_stats().await {
+        Ok(stats) => stats,
+        Err(e) => {
+            return Ok(UniversalResponse {
+                success: false,
+                result: None,
+                error: Some(format!("Failed to fetch stats: {e}")),
+                metadata: None,
+            });
+        }
+    };
+
+    // Get athlete to extract athlete_id for caching
+    if let Ok(athlete) = provider.get_athlete().await {
+        cache_athlete_and_stats(
+            cache,
+            athlete_cache_key,
+            &athlete,
+            &stats,
+            tenant_id,
+            user_uuid,
+            provider_name,
+        )
+        .await;
+    }
+
+    let metadata = create_stats_metadata(user_uuid, tenant_id, false);
+    formatted_response(&GetStatsResult { stats }, output_format, metadata)
+}

@@ -81,10 +81,10 @@ pub(crate) const UPSERT_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                 lactate_threshold_percentage, age, weight, fitness_level,
                 primary_sport, training_experience_years, ftp_watts,
                 threshold_pace_sec_per_km, hr_zones_json, power_zones_json,
-                created_at, updated_at
+                threshold_hr, created_at, updated_at
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    $16, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ON CONFLICT (tenant_id, user_id) DO UPDATE SET
                 vo2_max = EXCLUDED.vo2_max,
                 resting_hr = EXCLUDED.resting_hr,
@@ -99,6 +99,7 @@ pub(crate) const UPSERT_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                 threshold_pace_sec_per_km = EXCLUDED.threshold_pace_sec_per_km,
                 hr_zones_json = EXCLUDED.hr_zones_json,
                 power_zones_json = EXCLUDED.power_zones_json,
+                threshold_hr = EXCLUDED.threshold_hr,
                 updated_at = CURRENT_TIMESTAMP
             ";
 
@@ -107,7 +108,8 @@ pub(crate) const GET_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
             SELECT vo2_max, resting_hr, max_hr, lactate_threshold_percentage,
                    age, weight, fitness_level, primary_sport,
                    training_experience_years, ftp_watts,
-                   threshold_pace_sec_per_km, hr_zones_json, power_zones_json
+                   threshold_pace_sec_per_km, hr_zones_json, power_zones_json,
+                   threshold_hr
             FROM user_physiological_profiles
             WHERE tenant_id = $1 AND user_id = $2
             LIMIT 1
@@ -208,6 +210,7 @@ where
         .ok()
         .flatten();
     let ftp_watts_db = row.try_get::<Option<i32>, _>("ftp_watts").ok().flatten();
+    let threshold_hr = row.try_get::<Option<i32>, _>("threshold_hr").ok().flatten();
 
     let hr_zones_json: Option<Value> = row
         .try_get("hr_zones_json")
@@ -233,6 +236,7 @@ where
             .try_get::<Option<f64>, _>("lactate_threshold_percentage")
             .ok()
             .flatten(),
+        threshold_hr: threshold_hr.and_then(|v| u16::try_from(v).ok()),
         age: age.and_then(|v| u16::try_from(v).ok()),
         weight: row.try_get::<Option<f64>, _>("weight").ok().flatten(),
         fitness_level,
@@ -286,6 +290,7 @@ macro_rules! impl_user_physiological_profile_repository {
                     .bind(profile.threshold_pace_sec_per_km)
                     .bind(binds.hr_zones)
                     .bind(binds.power_zones)
+                    .bind(profile.threshold_hr.map(i32::from))
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

@@ -43,7 +43,8 @@ const ACTIVITY_READ_LIMIT: i64 = 500;
 const DEFAULT_RESTING_HR: u16 = 60;
 /// Max-HR anchor for the pace math when the profile omits it.
 const DEFAULT_MAX_HR: u16 = 190;
-/// Lactate-threshold fraction when the profile omits it (Daniels default ~0.85).
+/// Lactate threshold, as a fraction of `VO2max`, when the profile omits it —
+/// the pace-zone default cageux states.
 const DEFAULT_LACTATE_THRESHOLD: f64 = 0.85;
 /// Sport-efficiency factor (1.0 = running baseline).
 const DEFAULT_SPORT_EFFICIENCY: f64 = 1.0;
@@ -172,17 +173,7 @@ fn recent_tsb(
     today: NaiveDate,
     user_timezone: Option<&str>,
 ) -> Option<f64> {
-    let inputs = AthleteInputs {
-        ftp_watts: profile.and_then(|p| p.ftp_watts.map(f64::from)),
-        lthr: profile.and_then(|p| {
-            p.lactate_threshold_percentage
-                .zip(p.max_hr)
-                .map(|(pct, mhr)| f64::from(mhr) * pct)
-        }),
-        max_hr: profile.and_then(|p| p.max_hr.map(f64::from)),
-        resting_hr: profile.and_then(|p| p.resting_hr.map(f64::from)),
-        weight_kg: profile.and_then(|p| p.weight),
-    };
+    let inputs = AthleteInputs::from_profile(profile);
     // The window's end is the athlete's civil day, because the rollup
     // buckets each activity on theirs. Bounding it with the server's put
     // the current local day past `to` for every zone ahead of UTC, and the

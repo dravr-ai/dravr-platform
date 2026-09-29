@@ -333,13 +333,21 @@ macro_rules! catalogue_source_filter {
 /// with the row. `athlete_commitments.agent_id` carries no foreign key, so
 /// nothing would cascade and nothing would error; an untouched row would
 /// simply point at an id no row has any more.
-pub const AGENT_POINTER_REWRITES: [&str; 6] = [
+///
+/// A training plan's outline and weeks record the agent id of the turn that
+/// wrote them, and the calendar ledger records the author of the plan week
+/// it pushed (or the agent a single prescription ran under). Authorship sits
+/// outside every unique key on those tables, so a rewrite cannot collide.
+pub const AGENT_POINTER_REWRITES: [&str; 9] = [
     "UPDATE chat_conversations SET agent_id = $1 WHERE agent_id = $2",
     "UPDATE coaching_groups SET agent_id = $1 WHERE agent_id = $2",
     "UPDATE tenant_users SET selected_agent_id = $1 WHERE selected_agent_id = $2",
     "UPDATE user_facts SET agent_id = $1 WHERE agent_id = $2",
     "UPDATE claim_verdicts SET agent_id = $1 WHERE agent_id = $2",
     "UPDATE athlete_commitments SET agent_id = $1 WHERE agent_id = $2",
+    "UPDATE training_plans SET author_agent_id = $1 WHERE author_agent_id = $2",
+    "UPDATE training_plan_weeks SET author_agent_id = $1 WHERE author_agent_id = $2",
+    "UPDATE prescribed_workouts SET agent_id = $1 WHERE agent_id = $2",
 ];
 
 /// The same rewrite for the two tables that hold one row per (athlete, agent).
@@ -376,24 +384,22 @@ pub const AGENT_POINTER_MERGES: [&str; 2] = [
 pub const AGENT_INSTALL_COUNT_RESYNC: &str = "UPDATE store_listings SET install_count = \
      (SELECT COUNT(*) FROM agent_assignments WHERE agent_id = $1) WHERE agent_id = $1";
 
-/// One `UPDATE` per athlete-side pointer that names the agent by *slug*.
+/// One `UPDATE` per athlete-side pointer that may name the agent by *slug*.
 ///
-/// These predate the id-keyed pointers and none of them carries a foreign
-/// key, so a retired slug leaves them pointing at a name the catalogue no
-/// longer knows: the athlete's learned playbooks, the advice waiting to be
-/// delivered, the training plan that was built for them, and the workouts
-/// already pushed to their calendar. `$1` is the successor's slug, `$2` the
-/// retired one.
+/// None of them carries a foreign key, so a retired slug leaves them pointing
+/// at a name the catalogue no longer knows: the athlete's learned playbooks
+/// and the advice waiting to be delivered, which are keyed by slug. `$1` is
+/// the successor's slug, `$2` the retired one.
 ///
-/// `prescribed_workouts.agent_id` is spelled `agent_id` but holds a slug:
-/// both writers pass one (`plan_calendar_push` the plan's `agent_slug`,
-/// `endurance_workouts` the turn's resolved slug) into a `TEXT` column. It
-/// belongs here rather than with the id-keyed rewrites, where `$2` is a
-/// `Uuid` and would match nothing.
-pub const AGENT_SLUG_REWRITES: [&str; 4] = [
+/// The plan authors and the calendar ledger's `agent_id` hold the agent id a
+/// chat turn resolved, which [`AGENT_POINTER_REWRITES`] moves. They are listed
+/// here too because a direct MCP call names its agent in an argument, and a
+/// caller that passed a slug stored the slug.
+pub const AGENT_SLUG_REWRITES: [&str; 5] = [
     "UPDATE coaching_playbooks SET agent_slug = $1 WHERE agent_slug = $2",
     "UPDATE pending_advice SET agent_slug = $1 WHERE agent_slug = $2",
-    "UPDATE training_plans SET agent_slug = $1 WHERE agent_slug = $2",
+    "UPDATE training_plans SET author_agent_id = $1 WHERE author_agent_id = $2",
+    "UPDATE training_plan_weeks SET author_agent_id = $1 WHERE author_agent_id = $2",
     "UPDATE prescribed_workouts SET agent_id = $1 WHERE agent_id = $2",
 ];
 

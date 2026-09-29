@@ -45,7 +45,6 @@ mod common;
 mod helpers;
 
 use helpers::agent_fixtures::publish_catalogue_agent_tagged;
-use pierre_database::repositories::training_plans::PlanOwner;
 
 /// One file of the pinned contremaitre training catalogue, by table and key.
 fn catalogue_file(table: &[(&str, &'static str)], key: &str) -> &'static str {
@@ -523,11 +522,7 @@ async fn a_saved_day_records_the_tier_its_template_came_from() -> Result<()> {
 
     let plan = repos
         .training_plans
-        .get_active_plan(
-            &tenant.to_string(),
-            &user_id.to_string(),
-            PlanOwner::agent(&id),
-        )
+        .get_active_plan(&tenant.to_string(), &user_id.to_string())
         .await?
         .expect("plan saved under the coach");
     assert_eq!(

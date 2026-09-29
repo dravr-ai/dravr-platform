@@ -950,6 +950,7 @@
     "fuelFluid": "{{value}} ml/h de liquide",
     "fuelLabel": "Ravitaillement",
     "fuelSodiumLoss": "~{{value}} mg/h de sodium perdu",
+    "fuelWithheld": "quantités masquées : un signalement médical figure à ton dossier, c’est ton professionnel de santé qui les fixe",
     "generateInsight": "Générer une analyse",
     "goToGroups": "Aller aux groupes",
     "groupChatBadge": "Discussion de groupe",

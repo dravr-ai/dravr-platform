@@ -17,6 +17,7 @@ use pierre_intelligence::recipes::{
 
 use crate::context::ToolExecutionContext;
 use crate::conversions::{apply_format, ok_typed};
+use crate::implementations::nutrition_gate::{FiguresWithheld, NutritionAnswer, WithheldFigures};
 use crate::implementations::usda_shared::{check_ingredient_count, shared_usda_client};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_formatters::OutputFormat;
@@ -403,7 +404,7 @@ pub fn handle_get_recipe_constraints(
     let result =
         build_constraints_response(&constraints, calories, meal_timing, &prompt_hint, &tdee_ctx);
 
-    ok_typed("get_recipe_constraints", result)
+    ok_typed("get_recipe_constraints", NutritionAnswer::Figures(result))
 }
 
 fn build_recipe_prompt_hint(
@@ -493,6 +494,57 @@ fn build_constraints_response(
             .tdee
             .map(|_| tdee_ctx.proportions.proportion_for_timing(meal_timing)),
     }
+}
+
+/// `get_recipe_constraints` for an athlete whose clinician sets their amounts:
+/// the meal's purpose, restrictions and time limits, with no kcal or grams.
+///
+/// # Errors
+///
+/// Returns [`AppError::internal`] when the answer does not serialize.
+pub fn withheld_recipe_constraints(
+    withheld: FiguresWithheld,
+    args: &Value,
+) -> AppResult<ToolResult> {
+    let meal_timing = args
+        .get("meal_timing")
+        .and_then(Value::as_str)
+        .map_or(MealTiming::General, parse_meal_timing);
+
+    let mut guidance = vec![format!(
+        "Create a recipe for this meal — {} — built around a protein source and a carbohydrate source, with vegetables or fruit.",
+        meal_timing.description()
+    )];
+    let restrictions: Vec<String> =
+        parse_dietary_restrictions(args.get("dietary_restrictions").and_then(Value::as_array))
+            .iter()
+            .filter_map(|r| serde_json::to_value(r).ok())
+            .filter_map(|v| v.as_str().map(str::to_owned))
+            .collect();
+    if !restrictions.is_empty() {
+        guidance.push(format!(
+            "Respect these dietary restrictions: {}.",
+            restrictions.join(", ")
+        ));
+    }
+    if let Some(mins) = parse_time_mins(args, "max_prep_time_mins") {
+        guidance.push(format!("Keep preparation within {mins} minutes."));
+    }
+    if let Some(mins) = parse_time_mins(args, "max_cook_time_mins") {
+        guidance.push(format!("Keep cooking within {mins} minutes."));
+    }
+    guidance.push(
+        "Leave portion sizes, energy and macronutrient amounts to the athlete's clinician."
+            .to_owned(),
+    );
+
+    ok_typed(
+        "get_recipe_constraints",
+        NutritionAnswer::<RecipeConstraintsResult>::Withheld(WithheldFigures {
+            figures_withheld: withheld,
+            guidance,
+        }),
+    )
 }
 
 // ---------------------------------------------------------------------------

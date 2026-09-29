@@ -47,6 +47,7 @@ mod intake_tests {
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use pierre_services::intake::{parse_persona, parse_yes_no, PersonaAnswer};
+    use pierre_services::parq;
     use serde_json::json;
     use serial_test::serial;
     use std::env;
@@ -709,6 +710,59 @@ mod intake_tests {
         assert!(
             wait_for_flow(&resources, user_id, "pillars").await,
             "the pillar walk must take over once the intake retires, on the same conversation"
+        );
+    }
+
+    /// A clean chat answer retires the flag an earlier "yes" to the same
+    /// question left on file, exactly as the API re-screen does, and a "yes"
+    /// still raises its own.
+    #[tokio::test]
+    #[serial]
+    async fn a_clean_chat_answer_retires_the_flag_an_earlier_yes_raised() {
+        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        let mock = MockLlm::new();
+        let calls = mock.counter();
+        let resources = create_test_server_resources_with_llm(Arc::new(mock))
+            .await
+            .unwrap();
+
+        let (user_id, tenant_id) =
+            create_user_with_own_tenant(&resources, "intake_rescreen@example.com").await;
+        // A heart-condition flag from an earlier screen.
+        parq::persist_parq_flags(
+            resources.common.repos.memory.as_ref(),
+            tenant_id,
+            &user_id.to_string(),
+            &["heart_condition".to_owned()],
+        )
+        .await
+        .unwrap();
+        link_channel(&resources, tenant_id, user_id, "86").await;
+
+        send_turn(&resources, 8601, 86, "Salut", false).await;
+        assert!(wait_for_turns(&calls, 1).await, "the coach answers first");
+        assert!(
+            wait_for_probes(&resources, user_id, 1).await,
+            "the intake opens behind the served turn"
+        );
+
+        // Profile type, then heart condition "no", chest pain "yes", the rest "no".
+        let answers = ["1", "2", "1", "2", "2", "2", "2", "2"];
+        for (i, answer) in answers.iter().enumerate() {
+            send_turn(&resources, 8602 + i as u64, 86, answer, false).await;
+            if i + 2 <= answers.len() {
+                assert!(
+                    wait_for_probes(&resources, user_id, i + 2).await,
+                    "answer {} must be followed by the next question",
+                    i + 1
+                );
+            }
+        }
+
+        assert_eq!(
+            medical_facts(&resources, user_id).await,
+            vec!["chest_pain".to_owned()],
+            "the heart-condition flag is retired by its clean answer; chest pain raises its own"
         );
     }
 

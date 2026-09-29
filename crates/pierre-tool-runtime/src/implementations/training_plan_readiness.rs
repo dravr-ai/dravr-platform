@@ -1,5 +1,5 @@
 // ABOUTME: The readiness rail — an athlete's alerts and load read into a ladder level, and the week measured against it
-// ABOUTME: Gathers the series the nine alerts are derived from, then reports which saved days the level no longer allows
+// ABOUTME: Gathers the series the nine alerts are derived from, reports the days the level moves, and what the bank offers instead
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,38 +12,39 @@
 //! this week built to its phase*, but *can this athlete run it today*.
 //!
 //! The kernel owns both halves of the decision — which alerts the athlete's
-//! series raise, and which ladder level those alerts clear. This gathers the
-//! series and reports the verdict; it decides nothing itself, so the
-//! thresholds cannot drift from the ones the agent bodies publish.
+//! series raise, and which ladder level those alerts clear — and names why
+//! each day moves. This gathers the series, hands the kernel each day's
+//! purpose and template floor, and answers the one thing the kernel cannot
+//! see: which templates the athlete's bank holds. It decides nothing about
+//! readiness itself, so the thresholds cannot drift from the ones the agent
+//! bodies publish.
 //!
 //! Advisory, like the compliance rail: it reports and never refuses. A
 //! substitution the athlete disagrees with is a conversation, not a rejected
 //! save.
 
-use std::collections::{BTreeSet, HashMap};
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 use chrono::{DateTime, Duration, NaiveDate, Utc};
+use pierre_core::models::periodization::alerts::BASELINE_DAYS;
 use pierre_core::models::periodization::{
-    alerts, readiness_level, substitute, AlertInput, DayReadinessInput, Flavour, LoadDay,
-    PhaseKind, ReadinessInput, ReadinessLevel, RecoveryDay, SubstitutionVerdict, TrainingAlert,
-    WorkoutPurpose,
+    alerts, ladder, readiness_level, substitute, AlertInput, DayReadinessInput, DaySubstitution,
+    Flavour, LoadDay, PhaseKind, ReadinessInput, ReadinessLevel, RecoveryDay, StrainDay,
+    SubstitutionReason, TrainingAlert, WorkoutFilter, WorkoutPurpose, WorkoutTemplate,
 };
-use pierre_core::models::{merge_recovery_metrics, merge_sleep_sessions, TenantId};
+use pierre_core::models::{merge_recovery_metrics, merge_sleep_sessions, SportType, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek, TrainingPlan};
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::implementations::training_plans_output::{
+    DayReplacement, ReadinessSubstitution, ReplacementBasis, WeekReadiness,
+};
 use crate::runtime::ToolRuntime;
-
-/// Days of history the alert baselines are drawn from.
-///
-/// The taxonomy names a 28-day baseline for the load signals; the recovery
-/// signals read a shorter window, and taking one span for both keeps this to
-/// a single query per source.
-const BASELINE_DAYS: i64 = 28;
 
 /// Seconds in an hour, for the nightly sleep total.
 const SECONDS_PER_HOUR: f64 = 3600.0;
@@ -60,8 +61,8 @@ pub struct ReadinessReading {
     pub level: ReadinessLevel,
     /// The alert labels the athlete's series raised.
     pub alerts: BTreeSet<TrainingAlert>,
-    /// One verdict per week read, in the order they were given.
-    pub weeks: Vec<(String, SubstitutionVerdict)>,
+    /// One reading per week read, in the order they were given.
+    pub weeks: Vec<WeekReadiness>,
 }
 
 /// Read the ladder for one athlete and measure some weeks against it.
@@ -81,14 +82,14 @@ pub(super) async fn read_ladder(
 ) -> Option<ReadinessReading> {
     let selection = plan.flavour.as_ref()?;
 
-    let package = match load_agent_package(repos, tenant, user_id, plan.agent_slug.as_deref()).await
-    {
-        Ok(package) => package,
-        Err(e) => {
-            warn!(error = %e, "week readiness: coach package unreadable; catalogue alone");
-            None
-        }
-    };
+    let package =
+        match load_agent_package(repos, tenant, user_id, plan.author_agent_id.as_deref()).await {
+            Ok(package) => package,
+            Err(e) => {
+                warn!(error = %e, "week readiness: coach package unreadable; catalogue alone");
+                None
+            }
+        };
     let catalogue = PackagedCatalogue::new(state.training_catalogue(), package);
     let Some((flavour, _)) = catalogue.flavour(&selection.id) else {
         warn!(
@@ -111,6 +112,13 @@ pub(super) async fn read_ladder(
         // athlete telling the agent, not through a series.
         injury: false,
     });
+    let bank = Bank {
+        catalogue: &catalogue,
+        level,
+        allowed: ladder(&flavour)
+            .get(&level)
+            .map_or(&[], |rule| rule.purposes.as_slice()),
+    };
 
     Some(ReadinessReading {
         level,
@@ -125,17 +133,31 @@ pub(super) async fn read_ladder(
                 // span a boundary — the same mistake the prompt's phase
                 // header made until it was fixed to render every phase the
                 // fortnight touches.
-                let preferred = week
+                let phase = week
                     .phase_index
                     .and_then(|i| usize::try_from(i).ok())
                     .and_then(|i| plan.phases.get(i))
-                    .map(|phase| phase_purposes(&flavour, phase.kind))
+                    .map(|phase| phase.kind);
+                let preferred = phase
+                    .map(|kind| phase_purposes(&flavour, kind))
                     .unwrap_or_default();
-                let days = week_days(&catalogue, week);
-                (
-                    week.week_start.clone(),
-                    substitute(&flavour, level, &days, &preferred),
-                )
+                let (days, templates): (Vec<_>, Vec<_>) =
+                    week_days(&catalogue, week).into_iter().unzip();
+                let verdict = substitute(&flavour, level, &days, &preferred);
+                WeekReadiness {
+                    week_start: week.week_start.clone(),
+                    level: verdict.level,
+                    substitutions: bank.answer(
+                        verdict.substitutions,
+                        &days,
+                        &templates,
+                        phase,
+                        &preferred,
+                    ),
+                    hard_sessions: verdict.hard_sessions,
+                    hard_sessions_allowed: verdict.hard_sessions_allowed,
+                    unclassified_days: verdict.unclassified_days,
+                }
             })
             .collect(),
     })
@@ -153,8 +175,8 @@ pub(super) async fn emit_week_readiness(
     let Some(reading) = read_ladder(state, repos, tenant, user_id, plan, saved).await else {
         return;
     };
-    for (week_start, verdict) in &reading.weeks {
-        report(week_start, verdict, &reading.alerts);
+    for week in &reading.weeks {
+        report(week, &reading.alerts);
     }
 }
 
@@ -168,20 +190,134 @@ fn phase_purposes(flavour: &Flavour, kind: PhaseKind) -> Vec<WorkoutPurpose> {
     weighted.into_iter().map(|(purpose, _)| *purpose).collect()
 }
 
-/// One week's days as the ladder reads them.
-fn week_days(catalogue: &PackagedCatalogue<'_>, week: &PlanWeek) -> Vec<DayReadinessInput> {
+/// One week's days as the ladder reads them, each beside the template it
+/// resolved to in the athlete's bank.
+///
+/// The kernel reads a day's purpose and its template's floor; the template
+/// itself stays here, because what an easier session looks like — which
+/// sport it is written for — is the bank's question, not the ladder's.
+fn week_days(
+    catalogue: &PackagedCatalogue<'_>,
+    week: &PlanWeek,
+) -> Vec<(DayReadinessInput, Option<WorkoutTemplate>)> {
     week.days
         .iter()
         .filter(|day| !day.is_rest())
-        .map(|day| DayReadinessInput {
-            date: day.date.clone(),
-            purpose: day
+        .map(|day| {
+            let template = day
                 .template_slug
                 .as_ref()
                 .and_then(|slug| catalogue.workout(slug))
-                .map(|(template, _)| template.purpose),
+                .map(|(template, _)| template);
+            let input = DayReadinessInput {
+                date: day.date.clone(),
+                purpose: template.as_ref().map(|t| t.purpose),
+                readiness_min: template.as_ref().map(|t| t.fit.readiness_min),
+            };
+            (input, template)
         })
         .collect()
+}
+
+/// The athlete's template bank — the agent's package over the catalogue —
+/// read against the level the athlete cleared today.
+struct Bank<'a> {
+    catalogue: &'a PackagedCatalogue<'a>,
+    level: ReadinessLevel,
+    /// The purposes the flavour's ladder opens at `level`.
+    allowed: &'a [WorkoutPurpose],
+}
+
+impl Bank<'_> {
+    /// Each substitution the kernel made, with what the bank offers in its
+    /// place.
+    ///
+    /// The kernel keeps the week's order and skips only days no template
+    /// resolved for, so one walk over the days pairs each substitution with
+    /// the template its day resolved to — by position, which still holds on a
+    /// date that carries two sessions.
+    fn answer(
+        &self,
+        substitutions: Vec<DaySubstitution>,
+        days: &[DayReadinessInput],
+        templates: &[Option<WorkoutTemplate>],
+        phase: Option<PhaseKind>,
+        preferred: &[WorkoutPurpose],
+    ) -> Vec<ReadinessSubstitution> {
+        let mut walk = days.iter().zip(templates);
+        substitutions
+            .into_iter()
+            .map(|day| {
+                let template = walk
+                    .find(|(input, _)| input.date == day.date && input.purpose == Some(day.from))
+                    .and_then(|(_, template)| template.as_ref());
+                let replacement = match (day.reason, template) {
+                    (SubstitutionReason::TemplateAboveLevel, Some(template)) => {
+                        Some(self.replacement(template, phase, preferred))
+                    }
+                    _ => None,
+                };
+                ReadinessSubstitution { day, replacement }
+            })
+            .collect()
+    }
+
+    /// What to run on a day whose template sits above today's level.
+    ///
+    /// An easier template of the same purpose when the bank holds one; when
+    /// it holds none, the substitution the level allows for a closed purpose
+    /// — the phase's heaviest purpose the level opens, other than the day's
+    /// own — with a template of it when the bank holds one.
+    fn replacement(
+        &self,
+        template: &WorkoutTemplate,
+        phase: Option<PhaseKind>,
+        preferred: &[WorkoutPurpose],
+    ) -> DayReplacement {
+        if let Some(easier) = self.fitting(template.purpose, &template.sport, phase, &template.slug)
+        {
+            return DayReplacement {
+                basis: ReplacementBasis::EasierTemplate,
+                purpose: Some(template.purpose),
+                template: Some(easier),
+            };
+        }
+        let purpose = preferred
+            .iter()
+            .copied()
+            .find(|candidate| *candidate != template.purpose && self.allowed.contains(candidate));
+        DayReplacement {
+            basis: ReplacementBasis::PurposeFallback,
+            purpose,
+            template: purpose.and_then(|p| self.fitting(p, &template.sport, phase, &template.slug)),
+        }
+    }
+
+    /// The bank's closest template of `purpose` that today's level clears.
+    ///
+    /// Written for `sport` as its primary sport or a variant, and fitting
+    /// `phase`. A template whose primary sport is `sport` comes before one
+    /// that only lists it as a variant; then the highest floor at or below
+    /// the level — the smallest step down from what the week asked for; then
+    /// the bank's own order, package first.
+    fn fitting(
+        &self,
+        purpose: WorkoutPurpose,
+        sport: &SportType,
+        phase: Option<PhaseKind>,
+        other_than: &str,
+    ) -> Option<String> {
+        self.catalogue
+            .workouts_matching(&WorkoutFilter {
+                purpose: Some(purpose),
+                phase,
+                sport: Some(sport.clone()),
+            })
+            .into_iter()
+            .filter(|t| t.slug != other_than && t.fit.readiness_min <= self.level)
+            .min_by_key(|t| (t.sport != *sport, Reverse(t.fit.readiness_min)))
+            .map(|t| t.slug)
+    }
 }
 
 /// What the alerts and the ladder are read from.
@@ -191,13 +327,18 @@ struct Gathered {
 }
 
 /// Read every series the nine alerts are derived from.
+///
+/// One span of history per source — the kernel's baseline, the longest
+/// window any alert reads. The kernel windows each alert by `days_ago`
+/// itself, so the week-long recovery alerts read their own seven days out of
+/// the same span the 28-day baselines read.
 async fn gather(
     repos: &RepositoryRegistry,
     tenant: TenantId,
     user_id: Uuid,
     today: NaiveDate,
 ) -> Gathered {
-    let from = today - Duration::days(BASELINE_DAYS);
+    let from = today - Duration::days(i64::from(BASELINE_DAYS));
     let history = repos
         .training_history
         .get_training_history(tenant, user_id, from, today)
@@ -215,13 +356,19 @@ async fn gather(
         strain: day.strain,
         ramp_rate: day.ramp_rate,
     });
-    // The baseline excludes the day it judges, or today drags the mean toward
-    // itself and blunts the very breach the alert exists to catch.
-    let strain_baseline: Vec<f64> = latest.map_or_else(Vec::new, |newest| {
+    // Dated from the day judged — the newest row, whose strain is `load`'s.
+    // The kernel reads the baseline from the days before it and leaves that
+    // day's own entry out, so today never drags the mean toward itself and
+    // blunts the very breach the alert exists to catch.
+    let strain_baseline: Vec<StrainDay> = latest.map_or_else(Vec::new, |judged| {
         history
             .iter()
-            .filter(|day| day.date != newest.date)
-            .filter_map(|day| day.strain)
+            .filter_map(|day| {
+                Some(StrainDay {
+                    days_ago: days_ago(judged.date, day.date)?,
+                    strain: day.strain?,
+                })
+            })
             .collect()
     });
 
@@ -243,7 +390,13 @@ async fn gather(
     }
 }
 
-/// The recovery readings behind the three corroborating signals.
+/// Whole days from `date` to `judged`; `None` for a date after it.
+fn days_ago(judged: NaiveDate, date: NaiveDate) -> Option<u32> {
+    u32::try_from(judged.signed_duration_since(date).num_days()).ok()
+}
+
+/// The recovery readings behind the three corroborating signals, one per
+/// date.
 async fn recovery_series(
     repos: &RepositoryRegistry,
     tenant: TenantId,
@@ -268,19 +421,34 @@ async fn recovery_series(
         });
     // One day per date: two providers reporting the same morning are one
     // reading, not two days of evidence.
-    merge_recovery_metrics(metrics)
-        .iter()
-        .map(|merged| &merged.record)
-        .filter_map(|m| {
-            let days_ago = today.signed_duration_since(m.date).num_days();
-            u32::try_from(days_ago).ok().map(|days_ago| RecoveryDay {
-                days_ago,
-                hrv_rmssd: m.hrv_rmssd,
-                resting_heart_rate: m.resting_heart_rate.map(f64::from),
-                sleep_hours: sleep.get(&m.date).copied(),
-            })
-        })
-        .collect()
+    let mut days: BTreeMap<NaiveDate, RecoveryDay> = BTreeMap::new();
+    for merged in merge_recovery_metrics(metrics) {
+        let m = merged.record;
+        if let Some(days_ago) = days_ago(today, m.date) {
+            days.insert(
+                m.date,
+                RecoveryDay {
+                    days_ago,
+                    hrv_rmssd: m.hrv_rmssd,
+                    resting_heart_rate: m.resting_heart_rate.map(f64::from),
+                    sleep_hours: None,
+                },
+            );
+        }
+    }
+    // A night with no morning metrics beside it is still a night: a wearable
+    // that records sleep alone feeds the sleep alert on its own.
+    for (night, hours) in sleep {
+        if let Some(days_ago) = days_ago(today, night) {
+            days.entry(night)
+                .or_insert_with(|| RecoveryDay {
+                    days_ago,
+                    ..RecoveryDay::default()
+                })
+                .sleep_hours = Some(hours);
+        }
+    }
+    days.into_values().collect()
 }
 
 /// Hours slept per night, keyed by the night's own date.
@@ -328,22 +496,28 @@ async fn sleep_by_night(
 /// Log-only for the same reason the compliance rail is: the rule has never
 /// run against real traffic, and a rail that refuses before anyone has read
 /// what it would have refused is a rail nobody can argue with.
-fn report(week_start: &str, verdict: &SubstitutionVerdict, raised: &BTreeSet<TrainingAlert>) {
+fn report(week: &WeekReadiness, raised: &BTreeSet<TrainingAlert>) {
     let labels: Vec<&str> = raised.iter().map(|a| a.as_str()).collect();
-    let swapped: Vec<&str> = verdict
+    let swapped: Vec<&str> = week
         .substitutions
         .iter()
-        .map(|s| s.date.as_str())
+        .map(|s| s.day.date.as_str())
+        .collect();
+    let reasons: Vec<&str> = week
+        .substitutions
+        .iter()
+        .map(|s| s.day.reason.as_str())
         .collect();
     info!(
-        week_start = %week_start,
-        readiness = verdict.level.as_str(),
+        week_start = %week.week_start,
+        readiness = week.level.as_str(),
         alerts = ?labels,
         substitutions = ?swapped,
-        hard_sessions = verdict.hard_sessions,
-        hard_sessions_allowed = verdict.hard_sessions_allowed,
-        unclassified_days = verdict.unclassified_days,
-        clear = verdict.is_clear(),
+        reasons = ?reasons,
+        hard_sessions = week.hard_sessions,
+        hard_sessions_allowed = week.hard_sessions_allowed,
+        unclassified_days = week.unclassified_days,
+        clear = week.is_clear(),
         "week readiness assessed"
     );
 }

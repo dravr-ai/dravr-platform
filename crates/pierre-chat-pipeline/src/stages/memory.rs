@@ -30,14 +30,15 @@ use pierre_database::repositories::{
 };
 use pierre_database::RepositoryRegistry;
 use pierre_memory::playbooks::{ArchetypePrior, Playbook};
+use pierre_memory::training_plans::{PlanWeek, TrainingPlan};
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use pierre_services::memory_facts::SentenceRenderer;
 use pierre_services::okf::render_okf_bundle_default;
+use pierre_services::plan_fueling::FuelingDisclosure;
 use pierre_services::playbook_render::{render_archetype_block, render_playbooks_block};
 use pierre_services::training_plan_render::render_training_plan_block;
 
 use crate::ChatPipelineContext;
-use pierre_database::repositories::training_plans::PlanOwner;
 
 /// What the plan block is rendered from: the stored plan, the agent's
 /// package, and the catalogue whose templates the phase header names.
@@ -88,69 +89,98 @@ pub async fn inject_okf_bundle(
 ///
 /// Renders the persisted plan (goal race, blocks, current + next week) as a
 /// trusted unfenced section so "what's my plan" is answered from storage,
-/// not conversation memory. Best-effort like the OKF bundle and playbooks:
-/// errors and "no active plan" both pass through silently. `tenant_id` is
-/// the stringified TOOL tenant — the tenant `save_training_plan` writes
-/// under. `today` is the current civil date in the athlete's timezone so
-/// week selection and the race countdown match the athlete's calendar.
+/// not conversation memory. The plan is the athlete's one season, whichever
+/// agent laid it. Best-effort like the OKF bundle and playbooks: errors and
+/// "no active plan" both pass through silently. `tenant_id` is the
+/// stringified TOOL tenant — the tenant `save_training_plan` writes under.
+/// `turn_agent_id` is the agent the turn answers as, whose package names the
+/// templates the phase header lists beside the catalogue's. `today` is the
+/// current civil date in the athlete's timezone so week selection and the
+/// race countdown match the athlete's calendar.
 ///
-/// `onboarding_active` suppresses the section entirely: the guided pillar
-/// walk's directive says "do not deliver a full coaching plan yet", and a
-/// trailing plan block overrides it — observed live 2026-07-12 (a plan saved
-/// mid-walk pivoted the agent to plan talk every turn and the remaining
-/// pillars were never probed). The block returns once coverage completes and
-/// onboarding mode clears.
+/// `withheld` suppresses the section entirely, for two reasons:
+///
+/// - An interview owns the turn. The guided pillar walk's directive says "do
+///   not deliver a full coaching plan yet", and a trailing plan block
+///   overrides it — observed live 2026-07-12 (a plan saved mid-walk pivoted
+///   the agent to plan talk every turn and the remaining pillars were never
+///   probed). The block returns once coverage completes and onboarding mode
+///   clears.
+/// - The turn is in a shared room. The reply is posted to every member, and
+///   the plan is the speaker's own; it reaches the room only when the athlete
+///   posts it with `/plan share`, or when the speaker's own explicit tool call
+///   reads it.
 pub async fn inject_training_plan(
     sources: PlanPromptSources<'_>,
     tenant_id: &str,
     user_id: &str,
-    agent_slug: Option<&str>,
+    turn_agent_id: Option<&str>,
     today: chrono::NaiveDate,
-    onboarding_active: bool,
+    withheld: bool,
     base_prompt: String,
 ) -> String {
-    if onboarding_active {
+    if withheld {
         return base_prompt;
     }
     let PlanPromptSources { repos, catalogue } = sources;
-    let plans = repos.training_plans.as_ref();
-    let plan = match plans
-        .get_active_plan(tenant_id, user_id, PlanOwner::from_slug(agent_slug))
-        .await
-    {
-        Ok(Some(plan)) => plan,
-        Ok(None) => return base_prompt,
-        Err(e) => {
-            tracing::warn!(error = %e, "training plan read failed; continuing without plan");
-            return base_prompt;
-        }
+    let Some((plan, weeks)) = active_plan_with_weeks(repos, tenant_id, user_id).await else {
+        return base_prompt;
     };
-    let weeks = match plans
-        .list_plan_weeks(tenant_id, user_id, &plan.id, false)
-        .await
-    {
-        Ok(w) => w,
+    let (Ok(tenant), Ok(user)) = (TenantId::parse_str(tenant_id), Uuid::parse_str(user_id)) else {
+        tracing::warn!("plan block: tenant or user id does not parse; continuing without plan");
+        return base_prompt;
+    };
+    // Whether the days' stored fuelling rates may reach the prompt. A flag
+    // that cannot be read drops the block like any other failed read, so no
+    // rate is rendered on a flag nobody could see.
+    let fueling = match FuelingDisclosure::for_athlete(repos, tenant, user).await {
+        Ok(fueling) => fueling,
         Err(e) => {
-            tracing::warn!(error = %e, "plan weeks read failed; continuing without plan");
+            tracing::warn!(error = %e, "medical flag read failed; continuing without plan");
             return base_prompt;
         }
     };
     // The agent's package over the catalogue, so the phase header names the
     // package's templates beside the catalogue's. An unreadable package
     // renders the catalogue alone rather than dropping the plan.
-    let package = match (TenantId::parse_str(tenant_id), Uuid::parse_str(user_id)) {
-        (Ok(tenant), Ok(user)) => load_agent_package(repos, tenant, user, agent_slug)
-            .await
-            .unwrap_or_else(|e| {
-                tracing::warn!(error = %e, "coach package read failed; rendering the catalogue alone");
-                None
-            }),
-        _ => None,
-    };
+    let package = load_agent_package(repos, tenant, user, turn_agent_id)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "coach package read failed; rendering the catalogue alone");
+            None
+        });
     let catalogue = PackagedCatalogue::new(catalogue, package);
-    match render_training_plan_block(&plan, &weeks, today, &catalogue) {
+    match render_training_plan_block(&plan, &weeks, today, &catalogue, &fueling) {
         Some(block) => format!("{base_prompt}{block}"),
         None => base_prompt,
+    }
+}
+
+/// The athlete's active plan and its active weeks, or `None` when there is no
+/// plan or either read fails — a failed read is logged and the turn goes on
+/// without the plan block.
+async fn active_plan_with_weeks(
+    repos: &RepositoryRegistry,
+    tenant_id: &str,
+    user_id: &str,
+) -> Option<(TrainingPlan, Vec<PlanWeek>)> {
+    let plans = repos.training_plans.as_ref();
+    let plan = match plans.get_active_plan(tenant_id, user_id).await {
+        Ok(plan) => plan?,
+        Err(e) => {
+            tracing::warn!(error = %e, "training plan read failed; continuing without plan");
+            return None;
+        }
+    };
+    match plans
+        .list_plan_weeks(tenant_id, user_id, &plan.id, false)
+        .await
+    {
+        Ok(weeks) => Some((plan, weeks)),
+        Err(e) => {
+            tracing::warn!(error = %e, "plan weeks read failed; continuing without plan");
+            None
+        }
     }
 }
 

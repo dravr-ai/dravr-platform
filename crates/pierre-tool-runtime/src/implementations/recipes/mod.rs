@@ -26,6 +26,7 @@ use crate::conversions::{
     answers_with, object_schema, object_schema_with_format, tool_definition,
     tool_result_to_response, Formatted,
 };
+use crate::implementations::nutrition_gate::{gate_for_call, NutritionAnswer};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -47,6 +48,10 @@ pub use inner::{
     SaveRecipeResult, SearchRecipesResult, ServingNutrition, ValidateRecipeResult,
     ValidatedIngredient,
 };
+
+/// The ingredient units the recipe tools convert to grams.
+const INGREDIENT_UNITS: &str =
+    "grams, kilograms, milliliters, cups, tablespoons, teaspoons, pieces, ounces, pounds";
 
 // ============================================================================
 // GetRecipeConstraintsTool
@@ -79,7 +84,9 @@ impl McpTool<dyn ToolRuntime> for GetRecipeConstraintsTool {
             "meal_timing".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("pre_training, post_training, rest_day, or general".to_owned()),
+                description: Some(
+                    "pre_training, post_training, rest_day, or general (default)".to_owned(),
+                ),
                 ..Default::default()
             },
         );
@@ -113,9 +120,9 @@ impl McpTool<dyn ToolRuntime> for GetRecipeConstraintsTool {
             },
         );
         let schema = object_schema(properties, None);
-        answers_with::<RecipeConstraintsResult>(tool_definition(
+        answers_with::<NutritionAnswer<RecipeConstraintsResult>>(tool_definition(
             "get_recipe_constraints",
-            "Get macro targets and constraints for LLM recipe generation",
+            "Get macro targets and constraints for LLM recipe generation. For an athlete with a medical/PAR-Q flag on file it returns qualitative `guidance` (meal purpose, restrictions, time limits) and `figures_withheld` instead of any kcal or gram target, because their clinician sets those.",
             schema,
             None,
         ))
@@ -132,8 +139,13 @@ impl McpTool<dyn ToolRuntime> for GetRecipeConstraintsTool {
         args: Value,
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
-        let result: AppResult<ToolResult> =
-            async move { inner::handle_get_recipe_constraints(&context, &args) }.await;
+        let result: AppResult<ToolResult> = async move {
+            if let Some(withheld) = gate_for_call(&context).await? {
+                return inner::withheld_recipe_constraints(withheld, &args);
+            }
+            inner::handle_get_recipe_constraints(&context, &args)
+        }
+        .await;
         tool_result_to_response(result)
     }
 }
@@ -150,18 +162,12 @@ impl McpTool<dyn ToolRuntime> for ValidateRecipeTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
-            "name".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some("Recipe name".to_owned()),
-                ..Default::default()
-            },
-        );
-        properties.insert(
             "servings".to_owned(),
             PropertySchema {
                 property_type: "integer".to_owned(),
-                description: Some("Number of servings".to_owned()),
+                description: Some(
+                    "Number of servings the totals are divided by (at least 1)".to_owned(),
+                ),
                 ..Default::default()
             },
         );
@@ -169,7 +175,11 @@ impl McpTool<dyn ToolRuntime> for ValidateRecipeTool {
             "ingredients".to_owned(),
             PropertySchema {
                 property_type: "array".to_owned(),
-                description: Some("Array of {name, amount, unit}".to_owned()),
+                description: Some(
+                    "Array of {name, amount, unit}; each name is matched against USDA \
+                     FoodData Central"
+                        .to_owned(),
+                ),
                 items: Some(Box::new(PropertySchema {
                     property_type: "object".to_owned(),
                     properties: Some(BTreeMap::from([
@@ -193,16 +203,15 @@ impl McpTool<dyn ToolRuntime> for ValidateRecipeTool {
                             "unit".to_owned(),
                             PropertySchema {
                                 property_type: "string".to_owned(),
-                                description: Some("Unit of measurement".to_owned()),
+                                description: Some(format!(
+                                    "Unit of measurement, one of {INGREDIENT_UNITS}. \
+                                     Omitted or unrecognised, the amount reads as grams"
+                                )),
                                 ..Default::default()
                             },
                         ),
                     ])),
-                    required: Some(vec![
-                        "name".to_owned(),
-                        "amount".to_owned(),
-                        "unit".to_owned(),
-                    ]),
+                    required: Some(vec!["name".to_owned(), "amount".to_owned()]),
                     ..Default::default()
                 })),
                 ..Default::default()
@@ -305,7 +314,20 @@ impl McpTool<dyn ToolRuntime> for SaveRecipeTool {
                             "unit".to_owned(),
                             PropertySchema {
                                 property_type: "string".to_owned(),
-                                description: Some("Unit of measurement".to_owned()),
+                                description: Some(format!(
+                                    "Unit of measurement, one of {INGREDIENT_UNITS}; an \
+                                     unrecognised unit reads as grams"
+                                )),
+                                ..Default::default()
+                            },
+                        ),
+                        (
+                            "preparation".to_owned(),
+                            PropertySchema {
+                                property_type: "string".to_owned(),
+                                description: Some(
+                                    "How the ingredient is prepared (e.g. 'diced')".to_owned(),
+                                ),
                                 ..Default::default()
                             },
                         ),
@@ -329,10 +351,28 @@ impl McpTool<dyn ToolRuntime> for SaveRecipeTool {
             },
         );
         properties.insert(
+            "prep_time_mins".to_owned(),
+            PropertySchema {
+                property_type: "integer".to_owned(),
+                description: Some("Preparation time in minutes".to_owned()),
+                ..Default::default()
+            },
+        );
+        properties.insert(
+            "cook_time_mins".to_owned(),
+            PropertySchema {
+                property_type: "integer".to_owned(),
+                description: Some("Cooking time in minutes".to_owned()),
+                ..Default::default()
+            },
+        );
+        properties.insert(
             "meal_timing".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("pre_training, post_training, rest_day, or general".to_owned()),
+                description: Some(
+                    "pre_training, post_training, rest_day, or general (default)".to_owned(),
+                ),
                 ..Default::default()
             },
         );
@@ -398,7 +438,10 @@ impl McpTool<dyn ToolRuntime> for ListRecipesTool {
             "meal_timing".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Filter by meal timing".to_owned()),
+                description: Some(
+                    "Filter by meal timing: pre_training, post_training, rest_day or general"
+                        .to_owned(),
+                ),
                 ..Default::default()
             },
         );
@@ -406,7 +449,7 @@ impl McpTool<dyn ToolRuntime> for ListRecipesTool {
             "limit".to_owned(),
             PropertySchema {
                 property_type: "integer".to_owned(),
-                description: Some("Maximum results (default: 20)".to_owned()),
+                description: Some("Maximum results (default: 20, max: 100)".to_owned()),
                 ..Default::default()
             },
         );
@@ -557,7 +600,7 @@ impl McpTool<dyn ToolRuntime> for SearchRecipesTool {
             "limit".to_owned(),
             PropertySchema {
                 property_type: "integer".to_owned(),
-                description: Some("Maximum results (default: 10)".to_owned()),
+                description: Some("Maximum results (default: 10, max: 100)".to_owned()),
                 ..Default::default()
             },
         );

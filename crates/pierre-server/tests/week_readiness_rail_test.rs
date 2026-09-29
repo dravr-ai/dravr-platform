@@ -18,7 +18,13 @@
 //! allows. So the shipped catalogue, unaided, produces a real substitution.
 
 use anyhow::Result;
+use dravr_contremaitre::training;
+use dravr_tronc::mcp::tool::McpTool;
+use pierre_core::models::agents::AgentCategory;
+use pierre_core::models::periodization::{Flavour, ReadinessLevel, WorkoutPurpose};
+use pierre_core::models::{ArtefactKind, PackageArtefact, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_tool_runtime::implementations::training_plans::GetTrainingPlanTool;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -34,6 +40,9 @@ use tracing_subscriber::Layer;
 use uuid::Uuid;
 
 mod common;
+mod helpers;
+
+use helpers::agent_fixtures::publish_catalogue_agent_tagged;
 
 #[derive(Clone, Debug)]
 struct CapturedEvent {
@@ -181,12 +190,18 @@ fn prose_day(date: &str) -> Value {
 }
 
 fn plan_with(week: &str, days: &[Value]) -> Value {
+    plan_under("polarized-classic", week, days)
+}
+
+/// A one-week build plan under `flavour`, saved by the catalogue's endurance
+/// coach.
+fn plan_under(flavour: &str, week: &str, days: &[Value]) -> Value {
     json!({
         "coach_id": "endurance-coach",
         "outline": {
             "goal_race": { "name": "Parkrun PB", "date": "2027-03-14", "discipline": "run_5k", "priority": "A" },
             "strategy": "polarised build, two hard days",
-            "flavour": { "id": "polarized-classic", "selected_by": "coach", "override_reason": "house style" },
+            "flavour": { "id": flavour, "selected_by": "coach", "override_reason": "house style" },
             "phases": [
                 { "kind": "build", "start": week, "weeks": 6, "intent": "two hard days, the rest easy",
                   "target_hours": 8.0, "hard_sessions_max": 2 }
@@ -430,6 +445,14 @@ async fn the_rails_verdict_reaches_the_agent_when_it_asks_for_it() -> Result<()>
         subs[0]["to"], "endurance",
         "replaced by the purpose this phase most wants that the level allows: {state}"
     );
+    assert_eq!(
+        subs[0]["reason"], "purpose_closed",
+        "maintain closes threshold in this flavour, so the purpose is the reason: {state}"
+    );
+    assert!(
+        subs[0].get("replacement").is_none(),
+        "a closed purpose's `to` already names what to run: {state}"
+    );
 
     // The compliance rail's verdict rides the same block.
     let compliance = &state["compliance_weeks"][0];
@@ -475,6 +498,195 @@ async fn a_plan_that_stops_covering_the_athlete_says_so() -> Result<()> {
         gaps.contains(&"uncovered_today"),
         "the plan runs a phase today and no week covers today — that is the \
          signal a fortnight needs writing: {state}"
+    );
+    Ok(())
+}
+
+/// A run day that instantiates `slug`, whatever its purpose.
+fn templated_day(date: &str, slug: &str) -> Value {
+    json!({
+        "date": date, "sport": "run", "workout": slug, "duration_min": 90,
+        "intensity": "threshold", "template_slug": slug
+    })
+}
+
+/// The plan's readiness state, as `get_training_plan` hands it to the agent.
+async fn plan_state(
+    executor: &UniversalToolExecutor,
+    user_id: Uuid,
+    tenant_id: &str,
+) -> Result<Value> {
+    let asked = executor
+        .execute_tool(request(
+            "get_training_plan",
+            json!({"coach_id": "endurance-coach", "include_state": true}),
+            user_id,
+            tenant_id,
+        ))
+        .await?;
+    Ok(asked.result.expect("a plan")["state"].clone())
+}
+
+#[tokio::test]
+async fn a_template_above_the_level_is_answered_with_an_easier_template_of_its_purpose(
+) -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let week = week_start();
+    let tuesday = day_in(&week, 1);
+
+    // Maintain opens threshold under the Norwegian singles ladder, but the
+    // double threshold day stacks two quality blocks and floors at build.
+    // The purpose is open; only the template is above the level.
+    let (events, guard) = setup_capture();
+    save(
+        &executor,
+        user_id,
+        &tenant_id,
+        plan_under(
+            "norwegian-singles-subthreshold",
+            &week,
+            &[
+                templated_day(&tuesday, "double_threshold_day"),
+                easy_day(&day_in(&week, 3)),
+            ],
+        ),
+    )
+    .await?;
+    drop(guard);
+
+    let captured = events
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    let logged = readiness_of(&captured, &week);
+    assert!(
+        logged.field("reasons").contains("template_above_level"),
+        "the log names why the day moved: {}",
+        logged.field("reasons")
+    );
+
+    let state = plan_state(&executor, user_id, &tenant_id).await?;
+    assert_eq!(state["readiness"], "p2", "{state}");
+    let subs = state["readiness_weeks"][0]["substitutions"]
+        .as_array()
+        .unwrap_or_else(|| panic!("the week names what moves: {state}"));
+    assert_eq!(subs.len(), 1, "only the stacked day moves: {state}");
+    let day = &subs[0];
+    assert_eq!(day["date"], tuesday.as_str(), "{state}");
+    assert_eq!(day["from"], "threshold", "{state}");
+    assert_eq!(
+        day["to"], "threshold",
+        "the purpose is open, so the kernel keeps it: {state}"
+    );
+    assert_eq!(day["reason"], "template_above_level", "{state}");
+    assert_eq!(
+        day["replacement"],
+        json!({
+            "basis": "easier_template",
+            "purpose": "threshold",
+            "template": "threshold_4x8",
+        }),
+        "the bank's threshold session that maintain clears, written for the \
+         day's own sport before one that only lists it as a variant: {state}"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_state_parameter_tells_the_agent_why_a_day_moves_and_what_replaces_it() {
+    // The agent reads what `include_state` returns from this description
+    // alone, so it names both reasons the kernel gives and the bank's answer.
+    let definition = GetTrainingPlanTool.definition();
+    let described = definition.input_schema["properties"]["include_state"]["description"]
+        .as_str()
+        .expect("include_state is described");
+    for term in [
+        "purpose_closed",
+        "template_above_level",
+        "easier template",
+        "falls back to",
+    ] {
+        assert!(described.contains(term), "{term}: {described}");
+    }
+}
+
+/// The catalogue's polarized flavour under a house id, with a ladder that
+/// opens downhill work at maintain — a purpose whose only template in the
+/// bank floors at build.
+fn house_downhill_flavour() -> String {
+    let (_, text) = training::FLAVOURS
+        .iter()
+        .find(|(stem, _)| *stem == "polarized-classic")
+        .expect("the pinned catalogue carries polarized-classic");
+    let mut flavour = Flavour::from_yaml(text).expect("the pinned flavour parses");
+    "house-downhill".clone_into(&mut flavour.id);
+    for level in [ReadinessLevel::P2, ReadinessLevel::P3] {
+        flavour
+            .readiness_substitution
+            .get_mut(&level)
+            .expect("the ladder has every level")
+            .purposes
+            .push(WorkoutPurpose::Downhill);
+    }
+    serde_yaml::to_string(&flavour).expect("a flavour serialises")
+}
+
+#[tokio::test]
+async fn a_template_above_the_level_with_no_easier_one_falls_back_to_the_phase_purpose(
+) -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let tenant = TenantId::parse_str(&tenant_id)?;
+    let repos = executor.resources.repos();
+    let agent_id = publish_catalogue_agent_tagged(
+        repos,
+        user_id,
+        tenant,
+        "House Downhill",
+        "You coach the house way.",
+        AgentCategory::Training,
+        vec!["trail".to_owned()],
+    )
+    .await;
+    let flavour = PackageArtefact::parse(ArtefactKind::Flavour, &house_downhill_flavour())
+        .expect("the house flavour is a flavour the kernel accepts");
+    repos
+        .agent_artefacts
+        .replace_agent_artefacts(&tenant_id, &agent_id.to_string(), &[flavour])
+        .await?;
+
+    let week = week_start();
+    let tuesday = day_in(&week, 1);
+    let mut payload = plan_under(
+        "house-downhill",
+        &week,
+        &[
+            templated_day(&tuesday, "downhill_repeats"),
+            easy_day(&day_in(&week, 3)),
+        ],
+    );
+    payload["agent_id"] = json!(agent_id.to_string());
+    save(&executor, user_id, &tenant_id, payload).await?;
+
+    let state = plan_state(&executor, user_id, &tenant_id).await?;
+    assert_eq!(state["readiness"], "p2", "{state}");
+    let day = &state["readiness_weeks"][0]["substitutions"][0];
+    assert_eq!(day["date"], tuesday.as_str(), "{state}");
+    assert_eq!(
+        day["reason"], "template_above_level",
+        "the house ladder opens downhill at maintain; the template floors at build: {state}"
+    );
+    assert_eq!(
+        day["replacement"],
+        json!({
+            "basis": "purpose_fallback",
+            "purpose": "endurance",
+            "template": "endurance",
+        }),
+        "no downhill session in the bank clears maintain, so the day falls \
+         back to the build phase's heaviest purpose the level opens, with the \
+         bank's template of it: {state}"
     );
     Ok(())
 }

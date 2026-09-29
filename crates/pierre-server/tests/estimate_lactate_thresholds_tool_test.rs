@@ -178,6 +178,14 @@ async fn obla_is_the_exact_interpolated_crossing_of_four_mmol() -> Result<()> {
         result["to_store"]
     );
     assert!(result["to_store"].as_str().unwrap().contains("ftp_watts"));
+    assert!(
+        result["to_store"]
+            .as_str()
+            .unwrap()
+            .contains("threshold_hr at the heart rate of that LT2"),
+        "the profile holds a threshold heart rate: {}",
+        result["to_store"]
+    );
     Ok(())
 }
 
@@ -436,7 +444,7 @@ async fn the_stored_profile_is_echoed_beside_the_estimate() -> Result<()> {
     let saved = executor
         .execute_tool(make_request(
             "set_physiology",
-            json!({ "ftp_watts": 240, "max_hr": 185 }),
+            json!({ "ftp_watts": 240, "max_hr": 185, "threshold_hr": 168 }),
             user_id,
             &tenant_id,
         ))
@@ -453,6 +461,7 @@ async fn the_stored_profile_is_echoed_beside_the_estimate() -> Result<()> {
 
     assert_eq!(result["stored_profile"]["ftp_watts"], json!(240));
     assert_eq!(result["stored_profile"]["max_hr"], json!(185));
+    assert_eq!(result["stored_profile"]["threshold_hr"], json!(168));
     assert_eq!(
         result["stored_profile"]["threshold_pace_sec_per_km"],
         Value::Null

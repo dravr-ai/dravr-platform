@@ -374,7 +374,7 @@ impl HostedToolBridge {
     }
 
     /// The surface one turn calls through, with its executor bound to that
-    /// turn's conversation and Guardian turn token.
+    /// turn's conversation, Guardian turn token and answering agent.
     ///
     /// Separate from [`McpBridgeProvider::open_tool_session`] because that one
     /// hands the surface to embacle's host and returns only a session guard,
@@ -388,6 +388,7 @@ impl HostedToolBridge {
         tenant_id: TenantId,
         conversation_id: &str,
         turn_id: ConversationTurnId,
+        turn_agent_id: Option<&str>,
         budget: usize,
     ) -> TurnToolSurface {
         // The turn's own executor, carrying its conversation and Guardian turn
@@ -410,7 +411,10 @@ impl HostedToolBridge {
             UniversalToolExecutor::new(self.tool_runtime.clone())
                 .with_scopes(OAuthScope::self_grant())
                 .with_conversation_id(conversation_id.to_owned())
-                .with_turn_token(turn_id.0.to_string()),
+                .with_turn_token(turn_id.0.to_string())
+                // The agent the turn answers as, bound for the reason the
+                // turn token is: no tool-body task-local to inherit it from.
+                .with_turn_agent(turn_agent_id.map(ToOwned::to_owned)),
         );
         TurnToolSurface::new(
             self.tool_registry.clone(),
@@ -431,6 +435,7 @@ impl McpBridgeProvider for HostedToolBridge {
         tenant_id: TenantId,
         conversation_id: &str,
         turn_id: ConversationTurnId,
+        turn_agent_id: Option<&str>,
         budget: usize,
     ) -> Option<ToolSession> {
         if !self.enabled {
@@ -438,8 +443,14 @@ impl McpBridgeProvider for HostedToolBridge {
         }
         let host = self.host().await?;
 
-        let surface =
-            Arc::new(self.turn_surface(user_id, tenant_id, conversation_id, turn_id, budget));
+        let surface = Arc::new(self.turn_surface(
+            user_id,
+            tenant_id,
+            conversation_id,
+            turn_id,
+            turn_agent_id,
+            budget,
+        ));
         Some(host.open_session(surface))
     }
 }

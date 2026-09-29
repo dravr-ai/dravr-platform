@@ -22,6 +22,7 @@ use pierre_memory::training_plans::{
 };
 use pierre_services::agent_package::PackagedCatalogue;
 use pierre_services::plan_calendar_push::plan_day_session;
+use pierre_services::plan_fueling::FuelingDisclosure;
 use pierre_services::training_plan_render::render_training_plan_block;
 use uuid::Uuid;
 
@@ -55,7 +56,7 @@ fn plan() -> TrainingPlan {
         id: "plan-1".to_owned(),
         tenant_id: "t".to_owned(),
         user_id: "u".to_owned(),
-        agent_slug: None,
+        author_agent_id: None,
         goal_fact_id: None,
         goal_race: GoalRace {
             name: "Harricana".to_owned(),
@@ -89,6 +90,7 @@ fn week_with(days: Vec<PlannedDay>) -> PlanWeek {
         status: WeekStatus::Active,
         supersedes_id: None,
         adjustment_reason: String::new(),
+        author_agent_id: None,
         created_at: Utc::now(),
         updated_at: Utc::now(),
         phase_index: None,
@@ -162,7 +164,7 @@ fn a_day_without_fuelling_writes_no_fuelling_key() {
 /// reaches the athlete on the day, off their phone, mid-ride.
 #[test]
 fn the_calendar_note_carries_the_fuelling_line() {
-    let session = plan_day_session(Uuid::new_v4(), &fuelled_day(), 0)
+    let session = plan_day_session(Uuid::new_v4(), &fuelled_day(), 0, &FuelingDisclosure::Shown)
         .expect("a fuelled training day is not a rest day");
 
     assert!(
@@ -197,7 +199,7 @@ fn a_rest_day_produces_no_session_to_fuel() {
         template_params: None,
         template_source: None,
     };
-    assert!(plan_day_session(Uuid::new_v4(), &rest, 0).is_none());
+    assert!(plan_day_session(Uuid::new_v4(), &rest, 0, &FuelingDisclosure::Shown).is_none());
 }
 
 /// The agent reads its own prescription back on the next turn.
@@ -212,6 +214,7 @@ fn the_prompt_renders_the_fuelling_clause() {
         &[week],
         date("2026-09-03"),
         &PackagedCatalogue::catalogue_only(&TrainingCatalogueRegistry::new()),
+        &FuelingDisclosure::Shown,
     )
     .expect("an active plan renders a block");
 
@@ -236,6 +239,7 @@ fn a_day_without_fuelling_renders_no_clause() {
         &[week_with(vec![day])],
         date("2026-09-03"),
         &PackagedCatalogue::catalogue_only(&TrainingCatalogueRegistry::new()),
+        &FuelingDisclosure::Shown,
     )
     .expect("an active plan renders a block");
 

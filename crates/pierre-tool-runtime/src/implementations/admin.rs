@@ -37,6 +37,7 @@ use super::admin_output::{
     AdminGetSystemAgentResult, AdminListAgentAssignmentsResult, AdminListSystemAgentsResult,
     AdminUnassignAgentResult, AdminUpdateSystemAgentResult, AgentAssignmentEntry, SystemAgentEntry,
 };
+use super::agents_tool_shape::{category_property, string_list_property};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, apply_format, object_schema, object_schema_with_format, ok_typed,
@@ -140,7 +141,9 @@ impl McpTool<dyn ToolRuntime> for AdminListSystemAgentsTool {
             "limit".to_owned(),
             PropertySchema {
                 property_type: "integer".to_owned(),
-                description: Some("Maximum number of agents to return. Default: 50".to_owned()),
+                description: Some(
+                    "Maximum number of agents to return. Default: 50, max: 100".to_owned(),
+                ),
                 ..Default::default()
             },
         );
@@ -273,32 +276,25 @@ impl McpTool<dyn ToolRuntime> for AdminCreateSystemAgentTool {
         );
         properties.insert(
             "category".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some(
-                    "Category: 'training', 'nutrition', 'recovery', 'recipes', 'custom'".to_owned(),
-                ),
-                ..Default::default()
-            },
+            category_property("Category. Default: custom."),
         );
         properties.insert(
             "tags".to_owned(),
-            PropertySchema {
-                property_type: "array".to_owned(),
-                description: Some("Tags for filtering and organization".to_owned()),
-                items: Some(Box::new(PropertySchema {
-                    property_type: "string".to_owned(),
-                    description: Some("Tag label".to_owned()),
-                    ..Default::default()
-                })),
-                ..Default::default()
-            },
+            string_list_property("Tags for filtering and organization", "Tag label"),
+        );
+        properties.insert(
+            "sample_prompts".to_owned(),
+            string_list_property("Example prompts to show users", "Sample prompt text"),
         );
         properties.insert(
             "visibility".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Visibility: 'tenant' (default) or 'global'".to_owned()),
+                description: Some(
+                    "Visibility: 'tenant' (default) or 'global'; any other value keeps the \
+                     agent private to its author"
+                        .to_owned(),
+                ),
                 ..Default::default()
             },
         );
@@ -510,26 +506,17 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemAgentTool {
                 ..Default::default()
             },
         );
-        properties.insert(
-            "category".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some("New category".to_owned()),
-                ..Default::default()
-            },
-        );
+        properties.insert("category".to_owned(), category_property("New category."));
         properties.insert(
             "tags".to_owned(),
-            PropertySchema {
-                property_type: "array".to_owned(),
-                description: Some("New tags".to_owned()),
-                items: Some(Box::new(PropertySchema {
-                    property_type: "string".to_owned(),
-                    description: Some("Tag label".to_owned()),
-                    ..Default::default()
-                })),
-                ..Default::default()
-            },
+            string_list_property("New tags, replacing the current ones", "Tag label"),
+        );
+        properties.insert(
+            "sample_prompts".to_owned(),
+            string_list_property(
+                "New example prompts, replacing the current ones",
+                "Sample prompt text",
+            ),
         );
         let schema = object_schema(properties, Some(vec!["agent_id".to_owned()]));
         answers_with::<AdminUpdateSystemAgentResult>(tool_definition(

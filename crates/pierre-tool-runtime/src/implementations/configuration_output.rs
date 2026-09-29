@@ -6,16 +6,18 @@
 
 //! Result types for the six configuration tools.
 //!
-//! Two of these carry `serde_json::Value` fields, which the derived schema
+//! A few of these carry `serde_json::Value` fields, which the derived schema
 //! states as "any". That is honest here rather than lazy: a session override
 //! map is whatever parameters the caller passed, and its keys are the
 //! catalogue's, not a fixed set this type could name. Everything with a fixed
 //! shape is typed.
 
+use std::collections::BTreeMap;
+
 use pierre_config::catalog::ConfigCatalog;
 use pierre_core::config::profiles::ConfigProfile;
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 /// What `get_configuration_catalog` answers with.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -28,7 +30,8 @@ pub struct ConfigurationCatalogResult {
 /// One named configuration profile.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct ConfigurationProfileEntry {
-    /// The profile's name, which is what `update_user_configuration` takes.
+    /// The name the profile is listed under. `update_user_configuration`
+    /// takes it, or the profile's own name (`elite`, `sport_cycling`).
     pub name: String,
     /// The profile itself.
     pub profile: ConfigProfile,
@@ -45,17 +48,44 @@ pub struct ConfigurationProfilesResult {
     pub total_count: usize,
 }
 
+/// A saved training configuration: the profile template applied, the
+/// athlete's own overrides on top, and what the two amount to.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ConfigurationDocument {
+    /// The profile template in effect, with its values.
+    pub profile: ConfigProfile,
+    /// The parameter values the template applies, by name.
+    pub profile_parameters: BTreeMap<String, f64>,
+    /// The athlete's own overrides, by catalogue key. Open-ended: the keys
+    /// are the catalogue's, not a fixed set this type could name.
+    pub session_overrides: Map<String, Value>,
+    /// The template's values with the overrides on top — what the
+    /// configuration amounts to.
+    pub effective_parameters: Map<String, Value>,
+    /// When the configuration was last written, RFC 3339.
+    pub last_modified: String,
+}
+
+impl ConfigurationDocument {
+    /// The name the applied template's profile answers to (`default`,
+    /// `elite`, `sport_cycling`), which is what `active_profile` reports.
+    #[must_use]
+    pub fn active_profile(&self) -> String {
+        self.profile.name()
+    }
+}
+
 /// What `get_user_configuration` answers with.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct UserConfigurationResult {
     /// The athlete this belongs to.
     pub user_id: String,
-    /// `custom` when the athlete has overrides, `default` when they do not.
+    /// The profile name of the template in effect: the one last applied with
+    /// `update_user_configuration`, `default` when none was.
     pub active_profile: String,
-    /// The stored configuration document: a profile, the session overrides
-    /// on top of it, and when it was last written. Its override keys are the
-    /// catalogue's, so the schema states it as an open object.
-    pub configuration: Value,
+    /// The template's values, the athlete's overrides and what they amount
+    /// to.
+    pub configuration: ConfigurationDocument,
     /// How many parameters the catalogue offers, so a client can show
     /// "3 of 47 overridden" without a second call.
     pub available_parameters: usize,
@@ -66,10 +96,13 @@ pub struct UserConfigurationResult {
 pub struct UpdateUserConfigurationResult {
     /// The athlete whose configuration was written.
     pub user_id: String,
-    /// The document as it now stands, echoed so the caller need not read it
-    /// back to see what took effect.
+    /// The document as stored — `active_profile`, the template's `profile`
+    /// and `profile_parameters`, the `session_overrides`, the
+    /// `effective_parameters` they amount to, `applied_overrides` and
+    /// `last_modified` — echoed so the caller need not read it back.
     pub updated_configuration: Value,
-    /// How many parameters this call set.
+    /// How many changes this call made: one per override set or removed, plus
+    /// one when it named a profile.
     pub changes_applied: usize,
     /// What to tell the athlete, already written.
     pub message: String,
@@ -113,7 +146,8 @@ pub struct ZoneInputProfile {
     pub max_hr: Option<u16>,
     /// Functional threshold power in watts — what the power zones need.
     pub ftp: Option<u32>,
-    /// Lactate threshold as a share of the heart-rate reserve.
+    /// Lactate threshold as a fraction of `VO2max` — what places threshold
+    /// pace in the pace zones.
     pub lactate_threshold: f64,
     /// Sport efficiency factor used in the pace and power formulas.
     pub sport_efficiency: f64,
@@ -219,7 +253,10 @@ pub struct PersonalizedZones {
 pub struct ZoneCalculations {
     /// Always `heart_rate_reserve` — the Karvonen method.
     pub method: String,
-    /// Lactate threshold heart rate in bpm.
+    /// The lactate threshold heart rate the heart-rate-reserve model places
+    /// (85% of the reserve), in bpm — the reference of these zones. Training
+    /// load scores against the athlete's own `threshold_hr`, saved with
+    /// `set_physiology`.
     pub lactate_threshold_hr: u64,
     /// Aerobic threshold heart rate in bpm.
     pub aerobic_threshold_hr: u64,

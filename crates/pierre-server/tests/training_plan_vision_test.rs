@@ -20,13 +20,14 @@ use pierre_core::models::periodization::{
     FlavourFamily, LoadingPattern, PhaseKind, Sequencing, Share, TidTarget, WorkoutPurpose,
 };
 use pierre_database::database::test_utils::create_test_db;
-use pierre_database::repositories::training_plans::PlanOwner;
+use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_memory::training_plans::{
     FlavourSelection, GoalRace, PlanPhase, PlanStatus, PlanWeek, PlannedDay, RacePriority,
     SelectedBy, TemplateParams, TrainingPlan, WeekStatus,
 };
 use pierre_services::agent_package::PackagedCatalogue;
+use pierre_services::plan_fueling::FuelingDisclosure;
 use pierre_services::training_plan_render::render_training_plan_block;
 
 fn d(s: &str) -> NaiveDate {
@@ -165,8 +166,9 @@ async fn the_vision_round_trips_through_storage() -> Result<()> {
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: "tenant-v",
             user_id: "user-v",
-            owner: PlanOwner::agent("endurance-coach"),
+            author: PlanAuthor::agent("endurance-coach"),
             goal_fact_id: None,
+            replace_season: false,
             outline: Some(PlanOutlineInput {
                 goal_race: &goal(),
                 races: Some(&[]),
@@ -188,7 +190,7 @@ async fn the_vision_round_trips_through_storage() -> Result<()> {
         .await?;
 
     let fetched = plans
-        .get_active_plan("tenant-v", "user-v", PlanOwner::agent("endurance-coach"))
+        .get_active_plan("tenant-v", "user-v")
         .await?
         .expect("the outline just saved is the active plan");
     assert_eq!(fetched.id, bundle.plan.id);
@@ -228,8 +230,9 @@ async fn the_vision_round_trips_through_storage() -> Result<()> {
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: "tenant-v",
             user_id: "user-v",
-            owner: PlanOwner::agent("endurance-coach"),
+            author: PlanAuthor::agent("endurance-coach"),
             goal_fact_id: None,
+            replace_season: false,
             outline: Some(PlanOutlineInput {
                 goal_race: &goal(),
                 races: Some(&[]),
@@ -267,7 +270,7 @@ async fn the_prompt_carries_the_current_phase_header() -> Result<()> {
         id: "plan-v".to_owned(),
         tenant_id: "t".to_owned(),
         user_id: "u".to_owned(),
-        agent_slug: Some("endurance-coach".to_owned()),
+        author_agent_id: Some("endurance-coach".to_owned()),
         goal_fact_id: None,
         goal_race: goal(),
         races: Vec::new(),
@@ -282,8 +285,14 @@ async fn the_prompt_carries_the_current_phase_header() -> Result<()> {
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    let block = render_training_plan_block(&plan, &[], d("2026-09-02"), &catalogue)
-        .expect("a plan renders");
+    let block = render_training_plan_block(
+        &plan,
+        &[],
+        d("2026-09-02"),
+        &catalogue,
+        &FuelingDisclosure::Shown,
+    )
+    .expect("a plan renders");
 
     assert!(
         block.contains("Flavour: polarized-classic (polarized · linear), chosen by the coach — she wants the two hard days she is used to"),
@@ -338,7 +347,7 @@ async fn a_phase_without_a_mix_lists_every_template_that_fits_it() -> Result<()>
         id: "plan-t".to_owned(),
         tenant_id: "t".to_owned(),
         user_id: "u".to_owned(),
-        agent_slug: None,
+        author_agent_id: None,
         goal_fact_id: None,
         goal_race: goal(),
         races: Vec::new(),
@@ -354,8 +363,14 @@ async fn a_phase_without_a_mix_lists_every_template_that_fits_it() -> Result<()>
         updated_at: chrono::Utc::now(),
     };
     plan.phases.remove(0);
-    let block = render_training_plan_block(&plan, &[], d("2026-09-29"), &catalogue)
-        .expect("a plan renders");
+    let block = render_training_plan_block(
+        &plan,
+        &[],
+        d("2026-09-29"),
+        &catalogue,
+        &FuelingDisclosure::Shown,
+    )
+    .expect("a plan renders");
     assert!(
         block.contains("Current phase: taper (1 of 1), 2 week(s) left"),
         "header without a purpose: {block}"
@@ -390,6 +405,7 @@ fn empty_week(week_start: &str, phase_index: u32) -> PlanWeek {
         status: WeekStatus::Active,
         supersedes_id: None,
         adjustment_reason: String::new(),
+        author_agent_id: None,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     }
@@ -403,7 +419,7 @@ async fn a_fortnight_crossing_a_phase_boundary_carries_both_headers() -> Result<
         id: "plan-v".to_owned(),
         tenant_id: "t".to_owned(),
         user_id: "u".to_owned(),
-        agent_slug: Some("endurance-coach".to_owned()),
+        author_agent_id: Some("endurance-coach".to_owned()),
         goal_fact_id: None,
         goal_race: goal(),
         races: Vec::new(),
@@ -423,8 +439,14 @@ async fn a_fortnight_crossing_a_phase_boundary_carries_both_headers() -> Result<
     // taper week — it straddles the boundary exactly.
     let weeks = vec![empty_week("2026-09-21", 0), empty_week("2026-09-28", 1)];
 
-    let block = render_training_plan_block(&plan, &weeks, d("2026-09-21"), &catalogue)
-        .expect("a plan renders");
+    let block = render_training_plan_block(
+        &plan,
+        &weeks,
+        d("2026-09-21"),
+        &catalogue,
+        &FuelingDisclosure::Shown,
+    )
+    .expect("a plan renders");
 
     assert!(
         block.contains("Current phase: build"),
@@ -447,7 +469,7 @@ async fn a_fortnight_inside_one_phase_carries_that_phase_alone() -> Result<()> {
         id: "plan-v".to_owned(),
         tenant_id: "t".to_owned(),
         user_id: "u".to_owned(),
-        agent_slug: Some("endurance-coach".to_owned()),
+        author_agent_id: Some("endurance-coach".to_owned()),
         goal_fact_id: None,
         goal_race: goal(),
         races: Vec::new(),
@@ -465,8 +487,14 @@ async fn a_fortnight_inside_one_phase_carries_that_phase_alone() -> Result<()> {
     // Both weeks sit inside build; the taper is a fortnight away.
     let weeks = vec![empty_week("2026-08-31", 0), empty_week("2026-09-07", 0)];
 
-    let block = render_training_plan_block(&plan, &weeks, d("2026-08-31"), &catalogue)
-        .expect("a plan renders");
+    let block = render_training_plan_block(
+        &plan,
+        &weeks,
+        d("2026-08-31"),
+        &catalogue,
+        &FuelingDisclosure::Shown,
+    )
+    .expect("a plan renders");
 
     assert!(block.contains("Current phase: build"), "{block}");
     assert!(

@@ -15,14 +15,13 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::errors::AppError;
 use pierre_core::models::User;
-use pierre_database::repositories::training_plans::PlanOwner;
 use pierre_memory::training_plans::{
     parse_plan_date, PlanPhase, PlanWeek, PlannedDay, TrainingPlan,
 };
 use pierre_messaging::commands::CommandResponse;
 use pierre_messaging::rich_text::escape_markdown;
 use pierre_services::training_plan_render::{
-    plan_goal_is_stale, resolve_plan_agent_slug, select_active_weeks, SelectedWeek, ACTIVE_WEEKS,
+    plan_goal_is_stale, select_active_weeks, SelectedWeek, ACTIVE_WEEKS,
 };
 use std::fmt::Write as _;
 
@@ -330,13 +329,9 @@ fn caller_display_name(user: Option<&User>) -> String {
 /// nothing is saved. Shared by `/plan` and `/plan share`: one body, two
 /// deliveries.
 ///
-/// The agent the plan is read under follows the same ladder on every
-/// surface: the conversation's agent, read under the tenant that owns the
-/// conversation row (a shared room files it under the bot tenant, where the
-/// caller's own tenant never finds it); else the agent the athlete selected in
-/// their own tenant, which is what their DM binds; else the agent-agnostic
-/// plan. Without the second rung, an athlete whose plan was built in their DM
-/// under agent X read "no plan saved yet" in the room.
+/// The plan is the athlete's one season under their own tenant, whichever
+/// agent laid it, so a DM, a room and the home screen all read the same plan
+/// whatever agent the conversation binds or the athlete has selected.
 async fn render_plan_reply(
     ctx: &PlatformCommandContext,
     view: PlanView,
@@ -347,22 +342,7 @@ async fn render_plan_reply(
     let user = ctx.user_id.to_string();
     let tenant = ctx.tenant_id.to_string();
 
-    let conversation_agent = match ctx.conversation_id.as_deref() {
-        Some(cid) => repos
-            .chat
-            .get_conversation(cid, &user, ctx.conversation_tenant_id)
-            .await?
-            .and_then(|c| c.agent_id),
-        None => None,
-    };
-    let agent =
-        resolve_plan_agent_slug(repos, conversation_agent, ctx.tenant_id, ctx.user_id).await?;
-
-    let Some(plan) = repos
-        .training_plans
-        .get_active_plan(&tenant, &user, PlanOwner::from_slug(agent.as_deref()))
-        .await?
-    else {
+    let Some(plan) = repos.training_plans.get_active_plan(&tenant, &user).await? else {
         return Ok(None);
     };
 

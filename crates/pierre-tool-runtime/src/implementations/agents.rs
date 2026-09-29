@@ -36,7 +36,8 @@ use super::agents_output::{
     UpdateAgentResult,
 };
 use super::agents_tool_shape::{
-    destructive_annotations, extract_format, read_only_annotations, write_annotations,
+    category_property, destructive_annotations, extract_format, read_only_annotations,
+    string_list_property, write_annotations,
 };
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
@@ -69,9 +70,13 @@ impl McpTool<dyn ToolRuntime> for ListAgentsTool {
         let mut properties = HashMap::new();
         properties.insert(
             "category".to_owned(),
+            category_property("Only agents in this category."),
+        );
+        properties.insert(
+            "include_hidden".to_owned(),
             PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some("Filter by category".to_owned()),
+                property_type: "boolean".to_owned(),
+                description: Some("Include agents you hid. Default: false".to_owned()),
                 ..Default::default()
             },
         );
@@ -95,7 +100,7 @@ impl McpTool<dyn ToolRuntime> for ListAgentsTool {
             "limit".to_owned(),
             PropertySchema {
                 property_type: "integer".to_owned(),
-                description: Some("Max results. Default: 50".to_owned()),
+                description: Some("Max results. Default: 50, max: 100".to_owned()),
                 ..Default::default()
             },
         );
@@ -225,39 +230,15 @@ impl McpTool<dyn ToolRuntime> for CreateAgentTool {
         );
         properties.insert(
             "category".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some(
-                    "Category: training, nutrition, recovery, recipes, custom".to_owned(),
-                ),
-                ..Default::default()
-            },
+            category_property("Category. Default: custom."),
         );
         properties.insert(
             "tags".to_owned(),
-            PropertySchema {
-                property_type: "array".to_owned(),
-                description: Some("Tags for organization".to_owned()),
-                items: Some(Box::new(PropertySchema {
-                    property_type: "string".to_owned(),
-                    description: Some("Tag label".to_owned()),
-                    ..Default::default()
-                })),
-                ..Default::default()
-            },
+            string_list_property("Tags for organization", "Tag label"),
         );
         properties.insert(
             "sample_prompts".to_owned(),
-            PropertySchema {
-                property_type: "array".to_owned(),
-                description: Some("Example prompts to show users".to_owned()),
-                items: Some(Box::new(PropertySchema {
-                    property_type: "string".to_owned(),
-                    description: Some("Sample prompt text".to_owned()),
-                    ..Default::default()
-                })),
-                ..Default::default()
-            },
+            string_list_property("Example prompts to show users", "Sample prompt text"),
         );
         let schema = object_schema(
             properties,
@@ -473,26 +454,17 @@ impl McpTool<dyn ToolRuntime> for UpdateAgentTool {
                 ..Default::default()
             },
         );
-        properties.insert(
-            "category".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some("New category".to_owned()),
-                ..Default::default()
-            },
-        );
+        properties.insert("category".to_owned(), category_property("New category."));
         properties.insert(
             "tags".to_owned(),
-            PropertySchema {
-                property_type: "array".to_owned(),
-                description: Some("New tags".to_owned()),
-                items: Some(Box::new(PropertySchema {
-                    property_type: "string".to_owned(),
-                    description: Some("Tag label".to_owned()),
-                    ..Default::default()
-                })),
-                ..Default::default()
-            },
+            string_list_property("New tags, replacing the current ones", "Tag label"),
+        );
+        properties.insert(
+            "sample_prompts".to_owned(),
+            string_list_property(
+                "New example prompts, replacing the current ones",
+                "Sample prompt text",
+            ),
         );
         let schema = object_schema(properties, Some(vec!["agent_id".to_owned()]));
 
@@ -759,11 +731,7 @@ impl McpTool<dyn ToolRuntime> for SearchAgentsTool {
         );
         properties.insert(
             "category".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some("Filter by category".to_owned()),
-                ..Default::default()
-            },
+            category_property("Only matches in this category."),
         );
         properties.insert(
             "limit".to_owned(),
@@ -785,7 +753,7 @@ impl McpTool<dyn ToolRuntime> for SearchAgentsTool {
 
         answers_with::<Formatted<SearchAgentsResult>>(tool_definition(
             "search_agents",
-            "Search for agents by query. Returns up to 20 results by default. Check the `has_more` field before requesting additional results with offset.",
+            "Search the agents you created by title, description or tags, optionally within one category. Returns up to 20 results by default. Check the `has_more` field before requesting additional results with offset.",
             schema,
             Some(read_only_annotations()),
         ))
@@ -811,6 +779,10 @@ impl McpTool<dyn ToolRuntime> for SearchAgentsTool {
                 .get("query")
                 .and_then(Value::as_str)
                 .ok_or_else(|| AppError::invalid_input("Missing required parameter: query"))?;
+            let category = args
+                .get("category")
+                .and_then(Value::as_str)
+                .map(AgentCategory::parse);
 
             #[allow(clippy::cast_possible_truncation)]
             let limit = args
@@ -826,7 +798,7 @@ impl McpTool<dyn ToolRuntime> for SearchAgentsTool {
 
             let manager = ctx.resources.agents_manager();
             let agents = manager
-                .search(user_id, tenant_id, query, limit, offset)
+                .search(user_id, tenant_id, query, category, limit, offset)
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to search coaches: {e}")))?;
 

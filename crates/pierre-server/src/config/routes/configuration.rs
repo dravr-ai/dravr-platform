@@ -56,7 +56,7 @@ pub struct PersonalizedZonesRequest {
     pub resting_hr: Option<u16>,
     /// Maximum heart rate in bpm (optional, defaults to 190)
     pub max_hr: Option<u16>,
-    /// Lactate threshold as percentage of VO2 max (optional, defaults to 0.85)
+    /// Lactate threshold as a fraction of `VO2max` (optional, defaults to 0.85)
     pub lactate_threshold: Option<f64>,
     /// Sport efficiency factor (optional, defaults to 1.0)
     pub sport_efficiency: Option<f64>,
@@ -174,7 +174,7 @@ pub struct UserProfileParameters {
     pub resting_hr: u16,
     /// Maximum heart rate
     pub max_hr: u16,
-    /// Lactate threshold percentage
+    /// Lactate threshold as a fraction of `VO2max`
     pub lactate_threshold: f64,
     /// Sport efficiency factor
     pub sport_efficiency: f64,

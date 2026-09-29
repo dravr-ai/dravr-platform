@@ -864,10 +864,11 @@ pub(crate) async fn assemble_prompt_and_messages(
     // flow that exists to write a plan gets all of it.
     let interview_owns_turn = onboarding.is_some_and(|turn| turn.state.flow.is_interview());
 
-    // Suppressed while an INTERVIEW owns the turn (see `inject_training_plan`
-    // for the rationale and live incident). A flow that exists to write a plan
-    // needs the block it is writing against, which is why the test is the
-    // flow's own nature rather than "a guided flow is active".
+    // Suppressed while an INTERVIEW owns the turn, and on a room turn, whose
+    // reply the whole room reads (see `inject_training_plan`). A flow that
+    // exists to write a plan needs the block it is writing against, which is
+    // why the test is the flow's own nature rather than "a guided flow is
+    // active".
     let athlete_today = clock_date(chrono::Utc::now(), resolve_zone(user_timezone.as_deref()));
     let base_prompt = inject_training_plan(
         ctx.plan_prompt_sources(),
@@ -875,7 +876,7 @@ pub(crate) async fn assemble_prompt_and_messages(
         &input.user_id,
         turn_agent_id,
         athlete_today,
-        interview_owns_turn,
+        interview_owns_turn || !input.is_direct_message,
         base_prompt,
     )
     .await;

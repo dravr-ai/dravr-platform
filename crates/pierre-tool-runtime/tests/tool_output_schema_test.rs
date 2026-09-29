@@ -73,6 +73,7 @@ use pierre_tool_runtime::implementations::configuration::{
     CalculatePersonalizedZonesTool, GetConfigurationCatalogTool, GetConfigurationProfilesTool,
     GetUserConfigurationTool, UpdateUserConfigurationTool, ValidateConfigurationTool,
 };
+use pierre_tool_runtime::implementations::configuration_document::configuration_payload;
 use pierre_tool_runtime::implementations::configuration_output::{
     ConfigurationCatalogResult, ConfigurationProfilesResult, PersonalizedZonesResult,
     UpdateUserConfigurationResult, UserConfigurationResult, ValidateConfigurationResult,
@@ -123,6 +124,7 @@ use pierre_tool_runtime::implementations::nutrition::{
     GetNutrientTimingTool, MealFoodEntry, NutrientTimingResult, PostWorkoutTiming,
     PreWorkoutTiming, ProteinDistribution, SearchFoodResult, SearchFoodTool,
 };
+use pierre_tool_runtime::implementations::nutrition_gate::{FiguresWithheld, NutritionAnswer};
 use pierre_tool_runtime::implementations::physiology::{
     EstimateVo2maxResult, EstimateVo2maxTool, PhysiologyProfile, SetPhysiologyResult,
     SetPhysiologyTool,
@@ -176,6 +178,7 @@ use pierre_tool_runtime::implementations::weather_forecast::{
     forecast, GetWeatherForecastTool, WeatherForecastResult,
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::training_history_compute::HistoryRefresh;
 use pierre_weather::{
     DummyWeatherProvider, GeocodeError, Geocoded, Geocoder, Place, PlaceQuery, WeatherError,
     WeatherProvider, WeatherQuery, WeatherSample,
@@ -184,6 +187,7 @@ use serde_json::json;
 use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
+use uuid::Uuid;
 
 /// The schema a conforming client would validate `verify_claim` against.
 fn declared_schema() -> serde_json::Value {
@@ -389,8 +393,9 @@ fn set_goal_declares_a_schema_that_accepts_its_payload() {
         goal_id: "goal-1".to_owned(),
         goal_type: "distance".to_owned(),
         target_value: 42.2,
-        timeframe: "12 weeks".to_owned(),
+        timeframe: "quarter".to_owned(),
         title: "First marathon".to_owned(),
+        sport: Some("run".to_owned()),
         created_at: "2026-09-05T09:00:00+00:00".to_owned(),
         status: "created".to_owned(),
     };
@@ -437,7 +442,8 @@ fn track_progress_declares_a_schema_that_accepts_its_payload() {
         on_track: true,
         days_remaining: 61,
         projected_completion_days: None,
-        timeframe: "12 weeks".to_owned(),
+        timeframe: "quarter".to_owned(),
+        sport: None,
         summary: ProgressSummary {
             total_activities: 9,
             total_distance_km: 78.5,
@@ -596,9 +602,22 @@ fn calculate_daily_nutrition_declares_a_schema_that_accepts_its_payload() {
             &CalculateDailyNutritionTool,
         )
         .output_schema,
-        &output_schema_for::<DailyNutritionResult>(),
-        &sample,
+        &output_schema_for::<NutritionAnswer<DailyNutritionResult>>(),
+        &NutritionAnswer::Figures(sample),
         "calculate_daily_nutrition",
+    );
+    // The withheld arm is the same declared schema's other answer.
+    assert_declares_and_accepts(
+        <CalculateDailyNutritionTool as McpTool<dyn ToolRuntime>>::definition(
+            &CalculateDailyNutritionTool,
+        )
+        .output_schema,
+        &output_schema_for::<NutritionAnswer<DailyNutritionResult>>(),
+        &NutritionAnswer::<DailyNutritionResult>::withheld(
+            FiguresWithheld::medical_flag(),
+            &["Build each meal around a protein source"],
+        ),
+        "calculate_daily_nutrition (withheld)",
     );
 }
 
@@ -626,9 +645,72 @@ fn get_nutrient_timing_declares_a_schema_that_accepts_its_payload() {
     assert_declares_and_accepts(
         <GetNutrientTimingTool as McpTool<dyn ToolRuntime>>::definition(&GetNutrientTimingTool)
             .output_schema,
-        &output_schema_for::<NutrientTimingResult>(),
-        &sample,
+        &output_schema_for::<NutritionAnswer<NutrientTimingResult>>(),
+        &NutritionAnswer::Figures(sample),
         "get_nutrient_timing",
+    );
+    assert_declares_and_accepts(
+        <GetNutrientTimingTool as McpTool<dyn ToolRuntime>>::definition(&GetNutrientTimingTool)
+            .output_schema,
+        &output_schema_for::<NutritionAnswer<NutrientTimingResult>>(),
+        &NutritionAnswer::<NutrientTimingResult>::withheld(
+            FiguresWithheld::medical_flag(),
+            &["After the session: a meal with protein and carbohydrate"],
+        ),
+        "get_nutrient_timing (withheld)",
+    );
+}
+
+/// Each arm of a gated nutrition answer matches exactly one arm of its schema:
+/// the figures never validate as withheld, and the withheld answer never
+/// validates as figures — `figures_withheld` is what tells them apart.
+#[test]
+fn a_gated_nutrition_answer_is_one_arm_or_the_other() {
+    let schema = output_schema_for::<NutritionAnswer<DailyNutritionResult>>();
+    let arms = schema["anyOf"]
+        .as_array()
+        .expect("an untagged answer derives to anyOf")
+        .iter()
+        .map(|arm| {
+            let mut arm = arm.clone();
+            if let Some(defs) = schema.get("$defs") {
+                arm["$defs"] = defs.clone();
+            }
+            jsonschema::validator_for(&arm).expect("arm compiles")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(arms.len(), 2, "figures and withheld: {schema:#}");
+
+    let figures = serde_json::to_value(NutritionAnswer::Figures(DailyNutritionResult {
+        bmr: 1680.0,
+        tdee: 2740.0,
+        protein_g: 150.0,
+        carbs_g: 340.0,
+        fat_g: 85.0,
+        protein_percent: 22.0,
+        carbs_percent: 50.0,
+        fat_percent: 28.0,
+        goal: "Endurance".to_owned(),
+    }))
+    .expect("serializes");
+    let withheld = serde_json::to_value(NutritionAnswer::<DailyNutritionResult>::withheld(
+        FiguresWithheld::medical_flag(),
+        &["Spread protein across the day"],
+    ))
+    .expect("serializes");
+
+    for (label, value) in [("figures", &figures), ("withheld", &withheld)] {
+        let matching = arms.iter().filter(|arm| arm.is_valid(value)).count();
+        assert_eq!(
+            matching, 1,
+            "the {label} answer must match one arm:\n{value:#}"
+        );
+    }
+    assert_eq!(withheld["figures_withheld"]["reason"], "medical_flag");
+    assert_eq!(withheld["figures_withheld"]["set_by"], "clinician");
+    assert!(
+        figures.get("figures_withheld").is_none(),
+        "an athlete without a flag gets the tool's own shape, untouched"
     );
 }
 
@@ -3816,7 +3898,7 @@ fn each_remaining_recipe_schema_is_attached_to_the_tool_it_names() {
             <GetRecipeConstraintsTool as McpTool<dyn ToolRuntime>>::definition(
                 &GetRecipeConstraintsTool,
             ),
-            output_schema_for::<RecipeConstraintsResult>(),
+            output_schema_for::<NutritionAnswer<RecipeConstraintsResult>>(),
         ),
         (
             "validate_recipe",
@@ -4168,6 +4250,7 @@ fn an_almost_empty_physiology_profile_still_validates() {
             threshold_pace_sec_per_km: None,
             max_hr: None,
             resting_hr: Some(48),
+            threshold_hr: None,
             lactate_threshold_percentage: None,
             vo2_max: None,
             weight: None,
@@ -4178,6 +4261,7 @@ fn an_almost_empty_physiology_profile_still_validates() {
             hr_zones: None,
             power_zones: None,
         },
+        training_history: HistoryRefresh::Unaffected,
     })
     .expect("serializes");
 
@@ -4504,6 +4588,39 @@ fn a_zone_family_with_missing_inputs_is_null_and_says_what_is_missing() {
         "and where each input came from — an athlete should be able to tell a \
          measured number from an estimated one"
     );
+}
+
+#[test]
+fn an_applied_template_and_its_overrides_satisfy_the_configuration_schema() {
+    // The document names the template by its profile name; the payload carries
+    // the template itself, the values it applies, the athlete's overrides and
+    // what the two amount to — every one of them declared.
+    let validator = jsonschema::validator_for(&output_schema_for::<UserConfigurationResult>())
+        .expect("compiles");
+    let stored = json!({
+        "active_profile": "elite",
+        "session_overrides": {"threshold_multiplier": 1.3, "pace.easy_zone_low": 0.6},
+        "last_modified": "2026-09-29T00:00:00+00:00"
+    });
+    let value = serde_json::to_value(configuration_payload(&Uuid::nil(), Some(&stored)))
+        .expect("serializes");
+
+    assert!(validator.is_valid(&value), "{value:#}");
+    assert_eq!(value["active_profile"], json!("elite"));
+    assert_eq!(
+        value["configuration"]["effective_parameters"]["threshold_multiplier"],
+        json!(1.3),
+        "the override sits on top of the template's 1.15"
+    );
+    assert_eq!(
+        value["configuration"]["profile_parameters"]["threshold_multiplier"],
+        json!(1.15)
+    );
+
+    let nothing_saved =
+        serde_json::to_value(configuration_payload(&Uuid::nil(), None)).expect("serializes");
+    assert!(validator.is_valid(&nothing_saved), "{nothing_saved:#}");
+    assert_eq!(nothing_saved["active_profile"], json!("default"));
 }
 
 #[test]

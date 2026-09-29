@@ -23,8 +23,11 @@
 
 use serde_json::{json, Value};
 
+#[cfg(any(feature = "tools-sleep", feature = "tools-analytics"))]
 use crate::context::ToolExecutionContext;
-use crate::protocol::{UniversalRequest, UniversalResponse};
+#[cfg(any(feature = "tools-sleep", feature = "tools-analytics"))]
+use crate::protocol::UniversalRequest;
+use crate::protocol::UniversalResponse;
 use crate::protocols::ProtocolError;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_tools_core::ToolResult;
@@ -34,6 +37,7 @@ use pierre_tools_core::ToolResult;
 /// All `McpTool::execute` invocations originate from the chat protocol path,
 /// so `protocol` is hard-coded to `"chat"` and the progress/cancellation
 /// fields are left unset.
+#[cfg(any(feature = "tools-sleep", feature = "tools-analytics"))]
 pub(super) fn build_universal_request(
     ctx: &ToolExecutionContext,
     args: Value,
@@ -56,6 +60,7 @@ pub(super) fn build_universal_request(
 /// code through the canonical conversion, since a nested dispatch the
 /// caller's grant does not cover is a refusal, not a server fault; everything
 /// else maps to `AppError::internal`.
+#[cfg(feature = "tools-data")]
 pub(super) fn map_protocol_result<T>(
     tool_name: &str,
     result: Result<T, ProtocolError>,

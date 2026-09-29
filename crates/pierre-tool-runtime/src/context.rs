@@ -61,6 +61,17 @@ tokio::task_local! {
     /// tenant on DM and web turns.
     pub static CONVERSATION_TENANT: Option<uuid::Uuid>;
 
+    /// The agent the in-flight tool call's turn answers as.
+    ///
+    /// Scoped alongside [`CONVERSATION_ID`] and read back the same way. A
+    /// turn can answer as an agent other than the one its conversation is
+    /// bound to — the mentioned agent on a `@handle` turn, the room's agent on
+    /// a shared-room turn — and a tool that records who wrote something (a
+    /// plan week, an outline) must name the agent the athlete was talking to,
+    /// not the conversation's default. Absent for MCP-direct / A2A / SSE
+    /// calls, and for a chat turn that answers as no agent.
+    pub static TURN_AGENT_ID: Option<String>;
+
     /// Guardian turn token for the in-flight tool call.
     ///
     /// Scoped by the executor
@@ -188,6 +199,9 @@ pub struct ToolExecutionContext {
     /// tenant while [`Self::tenant_id`] is the athlete's own; see
     /// [`CONVERSATION_TENANT`].
     pub conversation_tenant_id: Option<Uuid>,
+    /// The agent the originating chat turn answers as, when the call was
+    /// surfaced from one that answers as an agent; see [`TURN_AGENT_ID`].
+    pub turn_agent_id: Option<String>,
     /// Whether the user has admin privileges (cached to avoid repeated DB queries)
     is_admin: Option<bool>,
 }
@@ -216,6 +230,7 @@ impl ToolExecutionContext {
             auth_method,
             conversation_id: None,
             conversation_tenant_id: None,
+            turn_agent_id: None,
             is_admin: None,
         }
     }
@@ -256,6 +271,7 @@ impl ToolExecutionContext {
             auth_method,
             conversation_id: scoped_conversation_id(),
             conversation_tenant_id: CONVERSATION_TENANT.try_with(Clone::clone).ok().flatten(),
+            turn_agent_id: TURN_AGENT_ID.try_with(Clone::clone).ok().flatten(),
             is_admin: Some(ctx.is_admin),
         }
     }
@@ -418,6 +434,7 @@ impl ToolExecutionContext {
             auth_method: self.auth_method,
             conversation_id: self.conversation_id.clone(),
             conversation_tenant_id: self.conversation_tenant_id,
+            turn_agent_id: self.turn_agent_id.clone(),
             is_admin: None, // Reset admin cache for new user
         }
     }
@@ -451,6 +468,7 @@ impl fmt::Debug for ToolExecutionContext {
             .field("auth_method", &self.auth_method)
             .field("conversation_id", &self.conversation_id)
             .field("conversation_tenant_id", &self.conversation_tenant_id)
+            .field("turn_agent_id", &self.turn_agent_id)
             .field("is_admin", &self.is_admin)
             .field("resources", &"<dyn ToolRuntime>")
             .finish()

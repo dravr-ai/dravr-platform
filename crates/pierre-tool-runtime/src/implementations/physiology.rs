@@ -47,12 +47,14 @@ use crate::implementations::lactate_thresholds::EstimateLactateThresholdsTool;
 use crate::implementations::plan_flavour::RecommendPlanFlavourTool;
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
+use crate::training_history_compute::{recompute_stored_history, HistoryRefresh};
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_config::environment::TrainingZonesConfig;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{HrZoneSet, PowerZoneSet, SportType, TenantId, UserPhysiologicalProfile};
+use pierre_fitness_compute::AthleteInputs;
 use pierre_intelligence::algorithms::{VdotAlgorithm, Vo2maxAlgorithm};
 use pierre_intelligence::config::intelligence::VO2MaxCalculator;
 use pierre_intelligence::physiological_constants::physiological_defaults::DEFAULT_LACTATE_THRESHOLD;
@@ -87,12 +89,13 @@ const THRESHOLD_PACE_SEC_PER_KM_MIN: f64 = 120.0;
 /// slower than a walk, which is no longer a threshold effort.
 const THRESHOLD_PACE_SEC_PER_KM_MAX: f64 = 900.0;
 
-/// Lowest lactate threshold accepted, as a fraction of max HR. Matches the
+/// Lowest lactate threshold accepted, as a fraction of `VO2max`. Matches the
 /// 0.65-0.95 range documented on
-/// [`UserPhysiologicalProfile::lactate_threshold_percentage`].
+/// [`UserPhysiologicalProfile::lactate_threshold_percentage`] and the clamp
+/// cageux's pace-zone calculator applies.
 const LACTATE_THRESHOLD_PCT_MIN: f64 = 0.65;
 
-/// Highest lactate threshold accepted, as a fraction of max HR.
+/// Highest lactate threshold accepted, as a fraction of `VO2max`.
 const LACTATE_THRESHOLD_PCT_MAX: f64 = 0.95;
 
 /// Annotation set for the physiology write.
@@ -163,6 +166,7 @@ struct PhysiologyUpdate {
     threshold_pace_sec_per_km: Option<f64>,
     max_hr: Option<u16>,
     resting_hr: Option<u16>,
+    threshold_hr: Option<u16>,
     lactate_threshold_percentage: Option<f64>,
     vo2_max: Option<f64>,
     weight: Option<f64>,
@@ -193,6 +197,13 @@ impl PhysiologyUpdate {
             .map(|v| {
                 u16::try_from(v).map_err(|_| {
                     AppError::invalid_input(format!("resting_hr is out of range: {v}"))
+                })
+            })
+            .transpose()?;
+        let threshold_hr = optional_whole_number(args, "threshold_hr")?
+            .map(|v| {
+                u16::try_from(v).map_err(|_| {
+                    AppError::invalid_input(format!("threshold_hr is out of range: {v}"))
                 })
             })
             .transpose()?;
@@ -231,6 +242,7 @@ impl PhysiologyUpdate {
             threshold_pace_sec_per_km: optional_number(args, "threshold_pace_sec_per_km")?,
             max_hr,
             resting_hr,
+            threshold_hr,
             lactate_threshold_percentage: optional_number(args, "lactate_threshold_percentage")?,
             vo2_max: optional_number(args, "vo2_max")?,
             weight: optional_number(args, "weight")?,
@@ -258,6 +270,9 @@ impl PhysiologyUpdate {
         }
         if self.resting_hr.is_some() {
             names.push("resting_hr");
+        }
+        if self.threshold_hr.is_some() {
+            names.push("threshold_hr");
         }
         if self.lactate_threshold_percentage.is_some() {
             names.push("lactate_threshold_percentage");
@@ -297,6 +312,9 @@ impl PhysiologyUpdate {
         }
         if let Some(v) = self.resting_hr {
             profile.resting_hr = Some(v);
+        }
+        if let Some(v) = self.threshold_hr {
+            profile.threshold_hr = Some(v);
         }
         if let Some(v) = self.lactate_threshold_percentage {
             profile.lactate_threshold_percentage = Some(v);
@@ -360,7 +378,7 @@ fn validate_uncovered_ranges(profile: &UserPhysiologicalProfile, errors: &mut Ve
     if let Some(pct) = profile.lactate_threshold_percentage {
         if !(LACTATE_THRESHOLD_PCT_MIN..=LACTATE_THRESHOLD_PCT_MAX).contains(&pct) {
             errors.push(format!(
-                "lactate_threshold_percentage must be between {LACTATE_THRESHOLD_PCT_MIN} and {LACTATE_THRESHOLD_PCT_MAX} (fraction of max HR), got {pct:.2}"
+                "lactate_threshold_percentage must be between {LACTATE_THRESHOLD_PCT_MIN} and {LACTATE_THRESHOLD_PCT_MAX} (fraction of VO2max), got {pct:.2}"
             ));
         }
     }
@@ -395,6 +413,9 @@ fn validate_merged(profile: &UserPhysiologicalProfile) -> AppResult<()> {
     if let Some(v) = profile.ftp_watts {
         ranges.insert("ftp".to_owned(), json!(v));
     }
+    if let Some(v) = profile.threshold_hr {
+        ranges.insert("threshold_hr".to_owned(), json!(v));
+    }
 
     let mut errors = Vec::new();
     validate_parameter_ranges(&ranges, &mut errors);
@@ -407,16 +428,19 @@ fn validate_merged(profile: &UserPhysiologicalProfile) -> AppResult<()> {
     }
 
     let mut relationships = ranges;
-    // Lactate threshold in bpm, derived the same way `training_history_compute`
-    // derives the LTHR it feeds the TSS engine. Checking that number keeps the
-    // relationship test honest about the value the engine will consume.
+    // The LTHR the TSS engine will score against — the measured one, else the
+    // estimate from the lactate threshold and max HR — through the same
+    // `lactate_threshold_hr` every training-load reader uses. Checking that
+    // number keeps the relationship test honest about the value the engine
+    // will consume.
     //
-    // It is deliberately absent from the range map above: `THRESHOLD_HR_MIN`
-    // is 100 bpm, which a legitimate 150 bpm max HR at the 0.65 floor falls
-    // under, and rejecting that profile would be wrong.
-    if let (Some(pct), Some(max_hr)) = (profile.lactate_threshold_percentage, profile.max_hr) {
-        let lthr = f64::from(max_hr) * pct;
-        // Bounded by the cleared ranges: max HR <= 220 and pct <= 0.95.
+    // An estimate is deliberately kept out of the range map above:
+    // `THRESHOLD_HR_MIN` is 100 bpm, which the estimate for a legitimate
+    // 100-125 bpm max HR at the 0.65 floor falls under, and rejecting that
+    // profile would be wrong. A measured value was range-checked there.
+    if let Some(lthr) = profile.lactate_threshold_hr() {
+        // Bounded by the cleared ranges: threshold HR <= 200, or max HR <= 220
+        // times a fraction below one.
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let lthr_bpm = lthr.round() as u64;
         relationships.insert("threshold_hr".to_owned(), json!(lthr_bpm));
@@ -434,6 +458,7 @@ fn profile_payload(profile: &UserPhysiologicalProfile) -> PhysiologyProfile {
         threshold_pace_sec_per_km: profile.threshold_pace_sec_per_km,
         max_hr: profile.max_hr,
         resting_hr: profile.resting_hr,
+        threshold_hr: profile.threshold_hr,
         lactate_threshold_percentage: profile.lactate_threshold_percentage,
         vo2_max: profile.vo2_max,
         weight: profile.weight,
@@ -465,7 +490,11 @@ pub struct PhysiologyProfile {
     pub max_hr: Option<u16>,
     /// Resting heart rate, in bpm.
     pub resting_hr: Option<u16>,
-    /// Lactate threshold as a percentage of maximum heart rate.
+    /// Measured lactate threshold heart rate, in bpm — what heart-rate
+    /// training stress is scored against.
+    pub threshold_hr: Option<u16>,
+    /// Lactate threshold as a fraction of `VO2max`. Sets threshold pace, and
+    /// estimates the LTHR when none is measured.
     pub lactate_threshold_percentage: Option<f64>,
     /// `VO2max`, in ml/kg/min.
     pub vo2_max: Option<f64>,
@@ -500,6 +529,10 @@ pub struct SetPhysiologyResult {
     pub updated_fields: Vec<&'static str>,
     /// The profile as it now stands, so the agent need not read it back.
     pub profile: PhysiologyProfile,
+    /// What the save did to the stored daily training history
+    /// (`get_training_history`): recomputed when it moved a number training
+    /// load is scored against.
+    pub training_history: HistoryRefresh,
 }
 
 /// What `estimate_vo2max` answers with.
@@ -563,9 +596,14 @@ impl SetPhysiologyTool {
             ),
             ("resting_hr", "integer", "Resting heart rate in bpm."),
             (
+                "threshold_hr",
+                "integer",
+                "Lactate threshold heart rate (LTHR) in bpm, from a 30-minute field test, a ramp test or a lab report. Heart-rate-based training load is scored against it.",
+            ),
+            (
                 "lactate_threshold_percentage",
                 "number",
-                "Lactate threshold as a fraction of maximum heart rate, between 0.65 and 0.95. Combined with max_hr this gives the LTHR that heart-rate-based training load uses.",
+                "Lactate threshold as a fraction of VO2 max, between 0.65 and 0.95 (about 0.75-0.90 for a trained athlete), as a lab test reports it. It places threshold pace in the pace zones, and with max_hr estimates the LTHR when no threshold_hr is saved.",
             ),
             ("vo2_max", "number", "VO2 max in ml/kg/min."),
             ("weight", "number", "Body weight in kilograms."),
@@ -612,7 +650,7 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
         };
         answers_with::<SetPhysiologyResult>(tool_definition(
             "set_physiology",
-            "Save the athlete's physiological measurements — FTP, threshold pace, max and resting heart rate, lactate threshold, VO2 max, weight, age — so training load, zones and every personalised calculation use their real numbers instead of generic per-sport estimates. Call this whenever the athlete states one of these values, for example 'my FTP is 285' or 'my max HR is 190'. Pass only the fields they actually gave you; everything else keeps its stored value. The result is the profile re-read from storage after the write, so report back only what it contains.",
+            "Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, weight, age — so training load, zones and every personalised calculation use their real numbers instead of generic per-sport estimates. Training load is scored against what is saved here and nowhere else — power against the FTP, heart rate against the threshold heart rate (estimated from the lactate threshold and max HR when none is saved) — in analyze_training_load, get_training_history, calculate_fitness_score, generate_recommendations and the recovery tools. Call this whenever the athlete states one of these values, for example 'my FTP is 285' or 'my max HR is 190'. Pass only the fields they actually gave you; everything else keeps its stored value. The result is the profile re-read from storage after the write, so report back only what it contains.",
             schema,
             Some(write_annotations()),
         ))
@@ -645,7 +683,7 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
             let updated_fields = update.field_names();
             if updated_fields.is_empty() {
                 return Err(AppError::invalid_input(
-                    "set_physiology needs at least one measurement: ftp_watts, threshold_pace_sec_per_km, max_hr, resting_hr, lactate_threshold_percentage, vo2_max, weight, age, fitness_level, primary_sport or training_experience_years",
+                    "set_physiology needs at least one measurement: ftp_watts, threshold_pace_sec_per_km, max_hr, resting_hr, threshold_hr, lactate_threshold_percentage, vo2_max, weight, age, fitness_level, primary_sport or training_experience_years",
                 ));
             }
 
@@ -655,6 +693,7 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
                 .get_user_physiological_profile(tenant_id, user_id)
                 .await?;
             let created = existing.is_none();
+            let load_inputs_before = AthleteInputs::from_profile(existing.as_ref());
             // A first save has no stored sport to keep. `Run` matches the
             // column's own schema default, so code and table agree rather than
             // offering a third answer; `primary_sport` is settable here, so the
@@ -707,6 +746,16 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
                 "saved athlete physiology"
             );
 
+            // The stored daily rollup was scored against the thresholds it
+            // was computed with; a save that moved one recomputes it, so
+            // get_training_history agrees with every tool computing load live.
+            let training_history =
+                if AthleteInputs::from_profile(Some(&stored)) == load_inputs_before {
+                    HistoryRefresh::Unaffected
+                } else {
+                    recompute_stored_history(&context.resources, tenant_id, user_id).await
+                };
+
             ok_typed(
                 "set_physiology",
                 SetPhysiologyResult {
@@ -714,6 +763,7 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
                     created,
                     updated_fields,
                     profile: profile_payload(&stored),
+                    training_history,
                 },
             )
         }
@@ -762,7 +812,7 @@ impl EstimateVo2maxTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Which field test the athlete did — one of cooper_test, rockport_walk, astrand_ryhming, from_pace, from_vdot. cooper_test: distance run in 12 minutes. \
+                    "Which field test the athlete did — one of cooper_test, rockport_walk, astrand_ryhming, from_pace, from_vdot, race_result. cooper_test: distance run in 12 minutes. \
                      rockport_walk: a timed one-mile walk with heart rate at the finish. \
                      astrand_ryhming: steady-state cycling at a known power with heart rate. \
                      from_pace: a hard 3–8 minute speed and an easy speed. \
@@ -988,7 +1038,7 @@ impl McpTool<dyn ToolRuntime> for EstimateVo2maxTool {
         };
         answers_with::<EstimateVo2maxResult>(tool_definition(
             "estimate_vo2max",
-            "Estimate the athlete's VO2max in ml/kg/min from a field test they describe — a Cooper 12-minute run distance, a Rockport timed mile walk with finishing heart rate, an Astrand-Ryhming steady-state ride at a known power, a hard-versus-easy pace ratio, or a VDOT they already know. Call it when the athlete reports a test result such as 'I ran 2.8 km in 12 minutes' or 'I walked a mile in 13 minutes and my heart rate was 140'. Body weight and age come from the stored profile when not restated, and the result says which inputs were defaulted. This only estimates: to keep the number, call set_physiology with vo2_max after the athlete confirms it.",
+            "Estimate the athlete's VO2max in ml/kg/min from a field test they describe — a Cooper 12-minute run distance, a Rockport timed mile walk with finishing heart rate, an Astrand-Ryhming steady-state ride at a known power, a hard-versus-easy pace ratio, a VDOT they already know, or a race or time trial they ran (its distance and time). Call it when the athlete reports a test result such as 'I ran 2.8 km in 12 minutes' or 'I walked a mile in 13 minutes and my heart rate was 140'. Body weight and age come from the stored profile when not restated, and the result says which inputs were defaulted. This only estimates: to keep the number, call set_physiology with vo2_max after the athlete confirms it.",
             schema,
             Some(read_only_annotations()),
         ))

@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use super::catalog::{CatalogBuilder, ParameterType};
 use super::runtime::ConfigValue;
 use pierre_core::intelligence::algorithms::maxhr::MaxHrAlgorithm;
-use pierre_core::models::UserPhysiologicalProfile;
+use pierre_core::models::{max_hr_fraction_at_vo2max_fraction, UserPhysiologicalProfile};
 
 /// Configuration validator
 pub struct ConfigValidator {
@@ -407,12 +407,18 @@ impl ConfigValidator {
                         params.get("lactate.threshold_percentage"),
                         params.get("heart_rate.anaerobic_threshold"),
                     ) {
-                        // Lactate threshold and anaerobic threshold should be similar
-                        if (lactate_pct - hr_pct).abs() > 10.0 {
-                            return Err(
-                                "Lactate threshold and HR anaerobic threshold should be within 10%"
-                                    .to_owned(),
-                            );
+                        // The lactate threshold is a percentage of VO2max and the
+                        // anaerobic threshold a percentage of max HR, so the first
+                        // is read on the second's scale (Swain et al. 1994) before
+                        // the two are compared.
+                        let lactate_pct_of_max_hr =
+                            max_hr_fraction_at_vo2max_fraction(lactate_pct / 100.0) * 100.0;
+                        if (lactate_pct_of_max_hr - hr_pct).abs() > 10.0 {
+                            return Err(format!(
+                                "Lactate threshold ({lactate_pct:.0}% of VO2max, about \
+                                 {lactate_pct_of_max_hr:.0}% of max HR) and HR anaerobic \
+                                 threshold ({hr_pct:.0}% of max HR) should be within 10 points"
+                            ));
                         }
                     }
                     Ok(())

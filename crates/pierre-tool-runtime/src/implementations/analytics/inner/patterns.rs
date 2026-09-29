@@ -27,6 +27,14 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 
+/// The patterns `detect_patterns` answers for, the default first.
+const PATTERN_TYPES: [&str; 4] = [
+    "weekly_schedule",
+    "training_blocks",
+    "progression",
+    "overtraining",
+];
+
 /// Fetch activities and detect patterns
 ///
 /// Retrieves recent activities from provider and performs pattern detection
@@ -120,7 +128,7 @@ fn detect_activity_patterns(
         _ => format_weekly_schedule(&PatternDetector::detect_weekly_schedule(
             activities,
             resolve_zone(user_timezone),
-        )), // default: weekly_schedule
+        )), // weekly_schedule: the handler admits no other value
     }
 }
 
@@ -344,6 +352,23 @@ pub fn handle_detect_patterns(
         use parse_user_id_for_protocol;
 
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
+        // An omitted value takes the detector's own default rather than
+        // refusing: this parameter once went undeclared while the handler
+        // hard-required it, so every schema-following caller failed on every
+        // call (registre#415). A value outside the vocabulary is refused, before
+        // any provider is read, instead of being answered with the weekly
+        // schedule as though it had been asked for.
+        let pattern_type = request
+            .parameters
+            .get("pattern_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("weekly_schedule");
+        if !PATTERN_TYPES.contains(&pattern_type) {
+            return Err(ProtocolError::InvalidParameters(format!(
+                "pattern_type '{pattern_type}' is not a pattern this tool detects; use one of {}",
+                PATTERN_TYPES.join(", ")
+            )));
+        }
         let provider_name = match resolve_provider_for_request(
             &request.parameters,
             executor,
@@ -355,16 +380,6 @@ pub fn handle_detect_patterns(
             Ok(p) => p,
             Err(response) => return Ok(*response),
         };
-        // Defaults rather than refusing. This parameter went undeclared while the
-        // handler hard-required it, so every schema-following caller — which is
-        // every model — got InvalidRequest on every call (registre#415). It is
-        // declared now, and an omitted value takes the detector's own default
-        // instead of failing.
-        let pattern_type = request
-            .parameters
-            .get("pattern_type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("weekly_schedule");
 
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);

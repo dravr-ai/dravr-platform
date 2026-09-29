@@ -46,8 +46,8 @@ use pierre_database::repositories::{ChatRepository, HarnessMemoryRepository};
 use pierre_memory::PredicateCode;
 use pierre_memory::{FactKind, FactSource};
 use pierre_services::intake::{
-    parse_persona, parse_yes_no, persona_to_store, record_parq_yes, record_steps, IntakeTopic,
-    PersonaAnswer, MAX_ANSWER_ATTEMPTS, STATUS_COMPLETE, STATUS_SKIPPED,
+    parse_persona, parse_yes_no, persona_to_store, record_parq_no, record_parq_yes, record_steps,
+    IntakeTopic, PersonaAnswer, MAX_ANSWER_ATTEMPTS, STATUS_COMPLETE, STATUS_SKIPPED,
 };
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -254,11 +254,13 @@ async fn persist_answer(
     match answer {
         Answer::Coaches(true) => persist_coach_persona(resources, user_id).await,
         Answer::Parq(true) => persist_parq_flag(resources, tenant_id, user_id, topic).await,
-        // Neither writes anything. "I'm an athlete" has no user-row value to
-        // store — `coaching_persona` has no athlete variant, Casual *is* the
-        // default — and a clean PAR-Q answer raises no flag by definition. That
-        // the athlete answered at all is carried by the step row.
-        Answer::Coaches(false) | Answer::Parq(false) => {}
+        // A clean answer raises no flag by definition; it retires the one an
+        // earlier "yes" to the same question left, as the API path does.
+        Answer::Parq(false) => retire_parq_flag(resources, tenant_id, user_id, topic).await,
+        // "I'm an athlete" has no user-row value to store — `coaching_persona`
+        // has no athlete variant, Casual *is* the default. That the athlete
+        // answered at all is carried by the step row.
+        Answer::Coaches(false) => {}
     }
 }
 
@@ -297,6 +299,28 @@ async fn persist_parq_flag(
             raised, "intake: PAR-Q flag raised from a chat answer"
         ),
         Err(e) => warn!(error = %e, "intake: failed to persist a PAR-Q flag"),
+    }
+}
+
+/// Retire the medical flag an earlier "yes" to this question raised.
+///
+/// Best-effort like the "yes" path: a failed delete leaves the flag on file,
+/// which withholds nutrition figures the athlete could have had — the safe
+/// direction to fail in — and is logged for the next re-screen to repair.
+async fn retire_parq_flag(
+    resources: &ServerContext,
+    tenant_id: TenantId,
+    user_id: &str,
+    topic: IntakeTopic,
+) {
+    let memory: &dyn HarnessMemoryRepository = resources.common.repos.memory.as_ref();
+    match record_parq_no(memory, tenant_id, user_id, topic).await {
+        Ok(0) => {}
+        Ok(retired) => info!(
+            parq_question = topic.parq_id().unwrap_or_default(),
+            retired, "intake: PAR-Q flag retired by a clean chat answer"
+        ),
+        Err(e) => warn!(error = %e, "intake: failed to retire a PAR-Q flag"),
     }
 }
 

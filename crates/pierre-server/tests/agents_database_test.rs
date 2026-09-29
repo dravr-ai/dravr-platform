@@ -1474,7 +1474,7 @@ async fn test_search_agents() {
 
     // Search by title
     let results = manager
-        .search(test_user_id(), test_tenant(), "Marathon", None, None)
+        .search(test_user_id(), test_tenant(), "Marathon", None, None, None)
         .await
         .unwrap();
     assert_eq!(results.len(), 1);
@@ -1482,7 +1482,7 @@ async fn test_search_agents() {
 
     // Search by description
     let results = manager
-        .search(test_user_id(), test_tenant(), "nutrition", None, None)
+        .search(test_user_id(), test_tenant(), "nutrition", None, None, None)
         .await
         .unwrap();
     assert_eq!(results.len(), 1);
@@ -1490,7 +1490,7 @@ async fn test_search_agents() {
 
     // Search by tags
     let results = manager
-        .search(test_user_id(), test_tenant(), "running", None, None)
+        .search(test_user_id(), test_tenant(), "running", None, None, None)
         .await
         .unwrap();
     assert_eq!(results.len(), 1);
@@ -1498,7 +1498,7 @@ async fn test_search_agents() {
 
     // Search with no results
     let results = manager
-        .search(test_user_id(), test_tenant(), "swimming", None, None)
+        .search(test_user_id(), test_tenant(), "swimming", None, None, None)
         .await
         .unwrap();
     assert!(results.is_empty());
@@ -1536,7 +1536,7 @@ async fn test_search_agents_with_limit() {
 
     // Search with limit
     let results = manager
-        .search(test_user_id(), test_tenant(), "Coach", Some(2), None)
+        .search(test_user_id(), test_tenant(), "Coach", None, Some(2), None)
         .await
         .unwrap();
     assert_eq!(results.len(), 2);

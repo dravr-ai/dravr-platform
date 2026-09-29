@@ -17,11 +17,12 @@
 use std::collections::BTreeSet;
 
 use pierre_core::models::periodization::{
-    ReadinessLevel, SpacingCheck, SubstitutionVerdict, TrainingAlert,
+    DaySubstitution, ReadinessLevel, SpacingCheck, TrainingAlert, WorkoutPurpose,
 };
 use pierre_core::models::CalendarEventSource;
 use pierre_memory::training_plans::{PlanWeek, TrainingPlan};
 use pierre_services::plan_calendar_push::PushPreview;
+use pierre_services::plan_fueling::WithheldFueling;
 use pierre_services::ramp_check::RampVerdict;
 use serde::Serialize;
 use uuid::Uuid;
@@ -43,6 +44,17 @@ pub struct GetTrainingPlanResult {
     /// The weeks, day by day. Absent when there is no plan.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub weeks: Option<Vec<PlanWeek>>,
+    /// Present when a medical/PAR-Q flag is on file: the athlete's clinician
+    /// sets their fuelling amounts, so no day in `weeks` carries `fueling`
+    /// rates, `dates` names the days whose stored rates were withheld, and a
+    /// save carrying `fueling` is refused. Describe fuelling in words.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fueling_withheld: Option<WithheldFueling>,
+    /// The agents that wrote this season: the one that laid it, and each one
+    /// that wrote a returned week, with which of them is the reader. Absent
+    /// when there is no plan or no agent wrote any of it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub authors: Vec<PlanAuthorView>,
     /// Whether the goal the plan snapshotted has since expired, so the agent
     /// re-confirms it rather than planning toward a race that moved. Absent
     /// when there is no plan.
@@ -54,6 +66,24 @@ pub struct GetTrainingPlanResult {
     /// the caller asked for it — reading it costs three history queries.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<PlanStateBlock>,
+}
+
+/// One agent that wrote part of the athlete's season.
+///
+/// The plan is the athlete's one season, shared by every agent they use, so
+/// the reply says who laid it and who wrote which weeks — and which of them
+/// is the agent reading it. An agent laying out a taper over a season another
+/// agent laid reads here that the outline is not its to re-lay.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct PlanAuthorView {
+    /// The agent's id, as the outline and weeks record it.
+    pub agent_id: String,
+    /// The agent's title, or null when the reader cannot see that agent.
+    pub name: Option<String>,
+    /// Whether this author is the agent reading the plan.
+    pub is_you: bool,
+    /// Whether this author laid the season's outline.
+    pub laid_the_season: bool,
 }
 
 /// What the readiness and compliance rails say about the plan as it stands.
@@ -88,19 +118,83 @@ pub struct PlanStateBlock {
     pub coverage_gaps: Vec<String>,
 }
 
-/// The kernel's readiness verdict for one week, with the week named.
+/// The kernel's readiness verdict for one week, with the week named and each
+/// moved day answered from the athlete's template bank.
 ///
 /// A pair would serialise positionally — `["2026-09-16", {...}]` — and an
-/// agent reading that has to know which slot is which. The verdict is
-/// flattened rather than copied field by field, so the kernel stays the one
-/// definition of what a substitution is.
+/// agent reading that has to know which slot is which. Each substitution is
+/// the kernel's, flattened rather than copied field by field, so the kernel
+/// stays the one definition of what a substitution is and why it happened;
+/// the platform adds only what the kernel cannot see — which templates the
+/// athlete's package and the catalogue hold.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct WeekReadiness {
     /// Monday, `YYYY-MM-DD`.
     pub week_start: String,
-    /// What the level allows and what it refuses, from the kernel.
+    /// The level the athlete's signals cleared.
+    pub level: ReadinessLevel,
+    /// Days the level no longer allows, in the order the week gives them.
+    pub substitutions: Vec<ReadinessSubstitution>,
+    /// Hard sessions the week asks for.
+    pub hard_sessions: u8,
+    /// Hard sessions the level allows.
+    pub hard_sessions_allowed: u8,
+    /// Days no template resolved for. Reported, never substituted.
+    pub unclassified_days: u8,
+}
+
+impl WeekReadiness {
+    /// Nothing in the week needs changing — the kernel's own rule.
+    #[must_use]
+    pub fn is_clear(&self) -> bool {
+        self.substitutions.is_empty() && self.hard_sessions <= self.hard_sessions_allowed
+    }
+}
+
+/// One day the readiness ladder moved, and what to run in its place.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ReadinessSubstitution {
+    /// The kernel's reading of the day: its `date`, the purpose it was `from`,
+    /// the purpose to run instead (`to`), and the `reason` —
+    /// `purpose_closed` when the level no longer opens the day's purpose (then
+    /// `to` is the phase's heaviest purpose the level opens, or null), or
+    /// `template_above_level` when the purpose is open but the day's template
+    /// needs a higher level than today's (then `to` is the same purpose).
     #[serde(flatten)]
-    pub verdict: SubstitutionVerdict,
+    pub day: DaySubstitution,
+    /// On a `template_above_level` day, what the athlete's bank offers in its
+    /// place. Absent on a `purpose_closed` day, whose `to` already names it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replacement: Option<DayReplacement>,
+}
+
+/// What the athlete's bank — the agent's package, then the catalogue — offers
+/// for a day whose template sits above today's readiness level.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, schemars::JsonSchema)]
+pub struct DayReplacement {
+    /// How the replacement was found: `easier_template` when the bank holds a
+    /// template of the day's own purpose that today's level clears, or
+    /// `purpose_fallback` when it holds none and the day falls back to the
+    /// phase's heaviest purpose the level opens.
+    pub basis: ReplacementBasis,
+    /// The purpose to run. Null only on a `purpose_fallback` whose level opens
+    /// nothing else the phase asks for — the day does not fit today.
+    pub purpose: Option<WorkoutPurpose>,
+    /// The template to run: of that purpose, written for the day's sport,
+    /// fitting the week's phase, and with a floor today's level clears. Null
+    /// when the bank holds no such template.
+    pub template: Option<String>,
+}
+
+/// How a [`DayReplacement`] was found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ReplacementBasis {
+    /// A template of the day's own purpose whose floor today's level clears.
+    EasierTemplate,
+    /// No template of the day's purpose fits today; the phase's heaviest
+    /// purpose the level opens, other than the day's own.
+    PurposeFallback,
 }
 
 /// One week whose hard sessions sit closer together than its flavour allows.

@@ -112,6 +112,7 @@ async fn loopback_calls_in_one_turn_share_a_guardian_turn_key() {
         tenant,
         "conv-under-test",
         turn,
+        None,
         AMPLE_BUDGET,
     );
 
@@ -166,6 +167,7 @@ async fn loopback_calls_in_one_turn_share_a_guardian_turn_key() {
         tenant,
         "conv-under-test",
         ConversationTurnId(Uuid::new_v4()),
+        None,
         AMPLE_BUDGET,
     );
     let fresh = next_turn

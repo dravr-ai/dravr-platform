@@ -85,6 +85,9 @@ pub mod agent_import;
 /// Package-over-catalogue resolution of flavours, skeletons and workout templates for a plan's agent
 pub mod agent_package;
 
+/// Boot repair of stored package flavours a stricter kernel refuses: quality purposes closed at cap-0 ladder levels
+pub mod agent_package_repair;
+
 /// The workout_plan block's payload — the saved plan projected for a card
 pub mod fortnight;
 pub mod plan_card;
@@ -147,6 +150,12 @@ pub mod okf;
 
 /// PAR-Q+ pre-participation medical-safety gate (structured Y/N → medical flags)
 pub mod parq;
+
+/// The athlete's medical/PAR-Q flag read and the figures-withheld statement every surface carries
+pub mod medical_flag;
+
+/// Plan fuelling under a medical flag: rates refused on save, withheld on every read surface
+pub mod plan_fueling;
 
 /// « Style de coaching » persona cards rendered from the live persona-contract registry
 pub mod personas;

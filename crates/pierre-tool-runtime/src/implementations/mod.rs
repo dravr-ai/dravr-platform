@@ -46,6 +46,15 @@
 ))]
 pub(crate) mod handler_bridge;
 
+/// The athlete's saved thresholds (`tools-analytics`, `tools-sleep`,
+/// `tools-groups`).
+#[cfg(any(
+    feature = "tools-sleep",
+    feature = "tools-analytics",
+    feature = "tools-groups"
+))]
+pub mod stored_physiology;
+
 /// Admin-only tools (`tools-admin` feature).
 #[cfg(feature = "tools-admin")]
 pub mod admin;
@@ -77,6 +86,10 @@ pub mod configuration;
 
 /// Answer shapes for the configuration tools, and their derived schemas.
 pub mod configuration_output;
+
+/// The saved training configuration (`tools-config` feature).
+#[cfg(feature = "tools-config")]
+pub mod configuration_document;
 
 /// Provider connection tools: `connect_provider`, `get_connection_status`,
 /// `disconnect_provider` (`tools-connection` feature).
@@ -133,23 +146,27 @@ pub mod lactate_thresholds;
 /// What `estimate_lactate_thresholds` answers with
 pub mod lactate_thresholds_output;
 
-/// The agent-facing per-activity DTO rendered by `mode=summary`.
-#[cfg(any(feature = "tools-data", feature = "tools-analytics"))]
-/// What `get_activities` answers with — its own envelope, not a `Formatted<T>`.
+/// What `get_activities` answers with — its own envelope, not a
+/// `Formatted<T>` (`tools-data` feature).
+#[cfg(feature = "tools-data")]
 pub mod activities_output;
+/// The agent-facing per-activity DTO rendered by `mode=summary`.
 pub mod activity_summary;
 
-/// Shared support for the fitness-provider API tools.
 /// Renders the activity window as the prose list the agent reads and cites
-#[cfg(any(feature = "tools-data", feature = "tools-analytics"))]
+/// (`tools-data` feature).
+#[cfg(feature = "tools-data")]
 pub mod activity_list_render;
 /// Localized sport nouns and self-report words for the activity rows, five-locale tables.
 pub mod sport_labels;
 
-#[cfg(any(feature = "tools-data", feature = "tools-analytics"))]
+/// Shared support for `get_activities` and the athlete and stats tools
+/// (`tools-data` feature).
+#[cfg(feature = "tools-data")]
 pub mod fitness_support;
-/// The `fragment_dedup` sidecar: what the session merge behind a list combined.
-#[cfg(any(feature = "tools-data", feature = "tools-analytics"))]
+/// The `fragment_dedup` sidecar: what the session merge behind a list
+/// combined (`tools-data` feature).
+#[cfg(feature = "tools-data")]
 pub mod session_merge_summary;
 
 /// Goal management tools: `set_goal`, `track_progress`, `suggest_goals`,
@@ -161,6 +178,9 @@ pub mod goals;
 /// ceiling (`tools-goals` feature).
 #[cfg(feature = "tools-goals")]
 pub mod goals_output;
+/// What a goal is to the goal tools (`tools-goals` feature).
+#[cfg(feature = "tools-goals")]
+pub mod goals_spec;
 
 /// Group tools: consent-gated peer activity fetch (`tools-groups` feature).
 #[cfg(feature = "tools-groups")]
@@ -185,8 +205,12 @@ pub mod plan_scope;
 /// Coaching playbook GDPR/transparency tools: list_coaching_playbooks, forget_playbook (`tools-memory`).
 #[cfg(feature = "tools-memory")]
 pub mod playbooks;
+/// Who writes to the athlete's one season plan, and who wrote what is already there.
+pub mod training_plan_authorship;
 /// The compliance rail — a saved week measured against its phase and flavour, Log-only.
 pub mod training_plan_compliance;
+/// The goal-race fact a saved plan converges on, and the superseded ones it retires.
+pub mod training_plan_goal;
 /// `push_training_plan` — the athlete's active plan onto their provider calendar, reconciled.
 pub mod training_plan_push;
 /// The opening week's ramp against the athlete's recent load, on the save path.
@@ -211,6 +235,15 @@ pub mod mobility;
 /// `get_nutrient_timing`, `search_food`, etc. (`tools-nutrition` feature).
 #[cfg(feature = "tools-nutrition")]
 pub mod nutrition;
+
+/// The medical-flag gate on prescriptive nutrition figures, shared by the
+/// nutrition, recipe and recommendation tools.
+#[cfg(any(
+    feature = "tools-nutrition",
+    feature = "tools-recipes",
+    feature = "tools-analytics"
+))]
+pub mod nutrition_gate;
 
 /// Recipe management tools: get/validate/save/list/get/delete/search
 /// (`tools-recipes` feature).

@@ -22,7 +22,8 @@ use pierre_intelligence::physiological_constants::goal_feasibility::{
 };
 use tracing::warn;
 
-use super::goals::{safe_f64_to_u32, GoalDetails};
+use super::goals::safe_f64_to_u32;
+use super::goals_spec::{GoalDetails, NewGoal};
 use pierre_intelligence::goal_engine::GoalSuggestion;
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -40,6 +41,9 @@ pub struct SetGoalResult {
     pub timeframe: String,
     /// Athlete-facing name.
     pub title: String,
+    /// The sport the goal counts, as a canonical sport name; absent when
+    /// every activity counts.
+    pub sport: Option<String>,
     /// RFC 3339 creation timestamp.
     pub created_at: String,
     /// Always `created` here; the field exists so a client reads state from a
@@ -112,6 +116,8 @@ pub struct TrackProgressResult {
     pub projected_completion_days: Option<f64>,
     /// The window the goal was set over.
     pub timeframe: String,
+    /// The sport whose activities count; absent when every activity counts.
+    pub sport: Option<String>,
     /// The training the reading is drawn from.
     pub summary: ProgressSummary,
 }
@@ -170,18 +176,16 @@ pub struct GoalFeasibilityResult {
 
 pub(crate) fn build_goal_creation_payload(
     goal_id: &str,
-    goal_type: &str,
-    target_value: f64,
-    timeframe: &str,
-    title: &str,
+    goal: &NewGoal,
     created_at: chrono::DateTime<Utc>,
 ) -> SetGoalResult {
     SetGoalResult {
         goal_id: goal_id.to_owned(),
-        goal_type: goal_type.to_owned(),
-        target_value,
-        timeframe: timeframe.to_owned(),
-        title: title.to_owned(),
+        goal_type: goal.params.goal_type.clone(),
+        target_value: goal.params.target_value,
+        timeframe: goal.params.timeframe.clone(),
+        title: goal.params.title.clone(),
+        sport: goal.sport_name(),
         created_at: created_at.to_rfc3339(),
         status: "created".to_owned(),
     }
@@ -315,6 +319,7 @@ pub(crate) fn build_progress_payload(params: &ProgressResponseParams) -> TrackPr
         days_remaining: params.days_remaining,
         projected_completion_days: params.projected_completion,
         timeframe: params.details.timeframe.clone(),
+        sport: params.details.sport_name(),
         summary: ProgressSummary {
             total_activities: params.relevant_activities.len(),
             total_distance_km,

@@ -139,9 +139,11 @@ pub use delegated_connection::{
 
 // User domain
 pub use user::{
-    default_locale, normalize_email, CoachingPersona, ColorScheme, OperatorRosterGrant,
-    PreApprovedEmail, User, UserDeletion, UserId, UserPhysiologicalProfile, UserReference,
-    UserReferenceKind, UserStatus, UserTier, FEDERATED_ONLY_PASSWORD_HASH, SUPPORTED_LOCALES,
+    default_locale, max_hr_fraction_at_vo2max_fraction, normalize_email, CoachingPersona,
+    ColorScheme, OperatorRosterGrant, PreApprovedEmail, User, UserDeletion, UserId,
+    UserPhysiologicalProfile, UserReference, UserReferenceKind, UserStatus, UserTier,
+    FEDERATED_ONLY_PASSWORD_HASH, SUPPORTED_LOCALES, SWAIN_HRMAX_INTERCEPT_PERCENT,
+    SWAIN_HRMAX_PER_VO2MAX_SLOPE,
 };
 
 // Endurance zones + dossier + training-history + workout-template domain

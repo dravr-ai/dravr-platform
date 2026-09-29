@@ -31,8 +31,8 @@ use pierre_contremaitre::messaging_strings::{
     KEY_SEASON_FOLLOWUP_LAY_OUT,
 };
 use pierre_core::models::{
-    CalibrationTopic, ConversationRecord, Dossier, DossierFact, GuidedFlow, OnboardingState,
-    Pillar, SeasonTopic, TenantId,
+    CalibrationTopic, Dossier, DossierFact, GuidedFlow, OnboardingState, Pillar, SeasonTopic,
+    TenantId,
 };
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -96,7 +96,6 @@ impl Athlete {
         let state = OnboardingState::start(started_at, GuidedFlow::Calibration);
         completion::render(
             &self.ctx,
-            &conversation(self.user_id),
             &state,
             self.tenant_id,
             &self.user_id.to_string(),
@@ -150,25 +149,6 @@ impl Athlete {
         .collect();
         named.sort_by_key(|(at, _)| *at);
         named.into_iter().map(|(_, topic)| topic).collect()
-    }
-}
-
-fn conversation(user_id: Uuid) -> ConversationRecord {
-    let now = Utc::now().to_rfc3339();
-    ConversationRecord {
-        id: Uuid::new_v4().to_string(),
-        user_id: user_id.to_string(),
-        tenant_id: Uuid::nil().to_string(),
-        title: "calibration".to_owned(),
-        model: "test".to_owned(),
-        agent_id: None,
-        session_id: None,
-        total_tokens: 0,
-        created_at: now.clone(),
-        updated_at: now,
-        group_id: None,
-        channel_type: "web".to_owned(),
-        onboarding_state: None,
     }
 }
 

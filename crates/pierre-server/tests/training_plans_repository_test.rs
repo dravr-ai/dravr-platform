@@ -13,7 +13,7 @@ use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::WorkoutStep;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::test_utils::create_test_db;
-use pierre_database::repositories::training_plans::PlanOwner;
+use pierre_database::repositories::training_plans::{PlanAuthor, NO_AUTHOR_AGENT};
 use pierre_database::repositories::{
     PlanOutlineInput, PlanWeekInput, SavePlanBundleParams, SaveTrainingPlanParams,
     TrainingPlanRepository,
@@ -21,7 +21,10 @@ use pierre_database::repositories::{
 use pierre_memory::training_plans::{
     GoalRace, PlanPhase, PlanStatus, PlannedDay, RacePriority, TrainingPlan, WeekStatus,
 };
+use sqlx::{Connection, SqliteConnection};
 use std::collections::BTreeMap;
+use std::time::Duration;
+use tokio::time::sleep;
 use uuid::Uuid;
 
 /// Open the backend under test.
@@ -129,7 +132,7 @@ fn plan_params<'a>(
     SaveTrainingPlanParams {
         tenant_id: tenant,
         user_id: user,
-        owner: PlanOwner::agent("endurance-coach"),
+        author: PlanAuthor::agent("endurance-coach"),
         goal_fact_id: Some("fact-goal-1"),
         goal_race: race,
         races: Some(&[]),
@@ -151,8 +154,9 @@ async fn save_outline(
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: params.tenant_id,
             user_id: params.user_id,
-            owner: params.owner,
+            author: params.author,
             goal_fact_id: params.goal_fact_id,
+            replace_season: false,
             outline: Some(PlanOutlineInput {
                 goal_race: params.goal_race,
                 races: params.races,
@@ -190,8 +194,9 @@ async fn save_and_get_roundtrip_preserves_content() -> Result<()> {
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant,
             user_id: &user,
-            owner: PlanOwner::agent("endurance-coach"),
+            author: PlanAuthor::agent("endurance-coach"),
             goal_fact_id: None,
+            replace_season: false,
             outline: None,
             weeks: &[PlanWeekInput {
                 week_start: "2026-07-13",
@@ -209,7 +214,7 @@ async fn save_and_get_roundtrip_preserves_content() -> Result<()> {
 
     let fetched = repos
         .training_plans
-        .get_active_plan(&tenant, &user, PlanOwner::agent("endurance-coach"))
+        .get_active_plan(&tenant, &user)
         .await?
         .expect("active plan");
     assert_eq!(fetched.id, plan.id);
@@ -277,8 +282,9 @@ async fn a_structured_day_round_trips_and_a_prose_row_reads_as_no_steps() -> Res
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant,
             user_id: &user,
-            owner: PlanOwner::agent("endurance-coach"),
+            author: PlanAuthor::agent("endurance-coach"),
             goal_fact_id: None,
+            replace_season: false,
             outline: None,
             weeks: &[PlanWeekInput {
                 week_start: "2026-07-13",
@@ -343,7 +349,7 @@ async fn outline_resave_supersedes_previous() -> Result<()> {
     assert_eq!(second.supersedes_id.as_deref(), Some(first.id.as_str()));
     let active = repos
         .training_plans
-        .get_active_plan(&tenant, &user, PlanOwner::agent("endurance-coach"))
+        .get_active_plan(&tenant, &user)
         .await?
         .expect("active plan");
     assert_eq!(active.id, second.id);
@@ -373,8 +379,9 @@ async fn week_resave_supersedes_that_week_only() -> Result<()> {
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant,
             user_id: &user,
-            owner: PlanOwner::agent("endurance-coach"),
+            author: PlanAuthor::agent("endurance-coach"),
             goal_fact_id: None,
+            replace_season: false,
             outline: None,
             weeks: &[
                 PlanWeekInput {
@@ -406,8 +413,9 @@ async fn week_resave_supersedes_that_week_only() -> Result<()> {
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant,
             user_id: &user,
-            owner: PlanOwner::agent("endurance-coach"),
+            author: PlanAuthor::agent("endurance-coach"),
             goal_fact_id: None,
+            replace_season: false,
             outline: None,
             weeks: &[PlanWeekInput {
                 week_start: "2026-07-13",
@@ -467,7 +475,7 @@ async fn tenant_and_user_isolation_enforced() -> Result<()> {
     // Another tenant must see nothing, even for the same user id.
     assert!(repos
         .training_plans
-        .get_active_plan(&tenant_b, &user, PlanOwner::agent("endurance-coach"))
+        .get_active_plan(&tenant_b, &user)
         .await?
         .is_none());
 
@@ -479,8 +487,9 @@ async fn tenant_and_user_isolation_enforced() -> Result<()> {
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant_b,
             user_id: &user,
-            owner: PlanOwner::agent("endurance-coach"),
+            author: PlanAuthor::agent("endurance-coach"),
             goal_fact_id: None,
+            replace_season: false,
             outline: None,
             weeks: &[PlanWeekInput {
                 week_start: "2026-07-13",
@@ -508,81 +517,526 @@ async fn tenant_and_user_isolation_enforced() -> Result<()> {
     Ok(())
 }
 
+/// A weeks-only bundle for one author.
+fn weeks_by<'a>(
+    tenant: &'a str,
+    user: &'a str,
+    author: PlanAuthor<'a>,
+    weeks: &'a [PlanWeekInput<'a>],
+) -> SavePlanBundleParams<'a> {
+    SavePlanBundleParams {
+        tenant_id: tenant,
+        user_id: user,
+        author,
+        goal_fact_id: None,
+        replace_season: false,
+        outline: None,
+        weeks,
+    }
+}
+
+/// One week input with a recognisable focus.
+fn week_input<'a>(
+    week_start: &'a str,
+    focus: &'a str,
+    days: &'a [PlannedDay],
+) -> PlanWeekInput<'a> {
+    PlanWeekInput {
+        week_start,
+        focus,
+        days,
+        adjustment_reason: "",
+        phase_index: None,
+    }
+}
+
+/// Who wrote each active week, by `week_start`.
+async fn week_authors(
+    plans: &dyn TrainingPlanRepository,
+    tenant: &str,
+    user: &str,
+    plan_id: &str,
+) -> Result<Vec<(String, Option<String>)>> {
+    Ok(plans
+        .list_plan_weeks(tenant, user, plan_id, false)
+        .await?
+        .into_iter()
+        .map(|w| (w.week_start, w.author_agent_id))
+        .collect())
+}
+
+#[test]
+fn only_the_author_or_anyone_over_an_agnostic_season_may_re_lay_it_unasked() {
+    let endurance = PlanAuthor::agent("endurance-agent");
+    assert!(endurance.may_resave_outline(None), "an agnostic season");
+    assert!(
+        endurance.may_resave_outline(Some("endurance-agent")),
+        "its own season"
+    );
+    assert!(
+        !endurance.may_resave_outline(Some("taper-builder-agent")),
+        "another agent's"
+    );
+    assert!(PlanAuthor::none().may_resave_outline(None));
+    assert!(
+        !PlanAuthor::none().may_resave_outline(Some("endurance-agent")),
+        "a writer with no agent may not re-lay an agent's season"
+    );
+    assert_eq!(PlanAuthor::none().stored(), NO_AUTHOR_AGENT);
+    assert_eq!(endurance.stored(), "endurance-agent");
+    assert_eq!(PlanAuthor::from_agent(None), PlanAuthor::none());
+}
+
 #[tokio::test]
-async fn coach_scoped_plan_prefers_specific_over_agnostic() -> Result<()> {
+async fn a_plan_saved_under_one_agent_is_the_plan_every_read_returns() -> Result<()> {
     let db = open_test_db().await?;
     let repos = db.repositories();
+    let plans = repos.training_plans.as_ref();
     let tenant = Uuid::new_v4().to_string();
     let user = Uuid::new_v4().to_string();
-
     let race = big_red();
     let blks = phases();
-    let mut agnostic = plan_params(&tenant, &user, &race, &blks);
-    agnostic.owner = PlanOwner::agnostic();
-    save_outline(repos.training_plans.as_ref(), &agnostic).await?;
 
-    // An agent without their own plan falls back to the agnostic one.
-    let seen = repos
-        .training_plans
-        .get_active_plan(&tenant, &user, PlanOwner::agent("endurance-coach"))
-        .await?
-        .expect("agnostic fallback");
-    assert_eq!(seen.agent_slug, None);
+    let season = save_outline(plans, &plan_params(&tenant, &user, &race, &blks)).await?;
+    assert_eq!(season.author_agent_id.as_deref(), Some("endurance-coach"));
 
-    // Once the agent saves their own, it wins.
-    let specific = save_outline(
-        repos.training_plans.as_ref(),
-        &plan_params(&tenant, &user, &race, &blks),
-    )
-    .await?;
-    let seen = repos
-        .training_plans
-        .get_active_plan(&tenant, &user, PlanOwner::agent("endurance-coach"))
+    let read = plans
+        .get_active_plan(&tenant, &user)
         .await?
-        .expect("coach-specific plan");
-    assert_eq!(seen.id, specific.id);
-    assert_eq!(seen.agent_slug.as_deref(), Some("endurance-coach"));
+        .expect("the athlete's season");
+    assert_eq!(read.id, season.id);
+    assert_eq!(read.author_agent_id.as_deref(), Some("endurance-coach"));
+    assert_eq!(read.goal_race.name, "Big Red");
+
+    // Weeks written by another agent, and by a call with no agent at all,
+    // land on that same season rather than opening a plan of their own.
+    let d1 = week_days("2026-07-13");
+    let d2 = week_days("2026-07-20");
+    let taper_week = [week_input("2026-07-13", "taper-written", &d1)];
+    let direct_week = [week_input("2026-07-20", "direct call", &d2)];
+    let by_taper = plans
+        .save_plan_bundle(&weeks_by(
+            &tenant,
+            &user,
+            PlanAuthor::agent("taper-builder-agent"),
+            &taper_week,
+        ))
+        .await?;
+    let by_nobody = plans
+        .save_plan_bundle(&weeks_by(&tenant, &user, PlanAuthor::none(), &direct_week))
+        .await?;
+    assert_eq!(by_taper.plan.id, season.id);
+    assert_eq!(by_nobody.plan.id, season.id);
+    assert_eq!(
+        week_authors(plans, &tenant, &user, &season.id).await?,
+        vec![
+            (
+                "2026-07-13".to_owned(),
+                Some("taper-builder-agent".to_owned())
+            ),
+            ("2026-07-20".to_owned(), None),
+        ]
+    );
     Ok(())
 }
 
 #[tokio::test]
-async fn a_coach_bound_plan_is_invisible_to_a_coachless_lookup() -> Result<()> {
-    // The fallback runs one way only: `agent_slug IN (?3, '')` with no agent
-    // binds `?3` to `''`, so it matches agent-agnostic plans alone. Every plan
-    // `save_plan_bundle` writes from a conversation carries that
-    // conversation's agent, so a caller that asks without one sees nothing and
-    // concludes the athlete has no plan — which is what told the athletes most
-    // likely to hold one, at the end of a calibration interview, to go build it.
+async fn a_same_author_outline_supersedes_and_carries_weeks_with_their_authors() -> Result<()> {
     let db = open_test_db().await?;
     let repos = db.repositories();
+    let plans = repos.training_plans.as_ref();
     let tenant = Uuid::new_v4().to_string();
     let user = Uuid::new_v4().to_string();
-
     let race = big_red();
     let blks = phases();
-    let coach_bound = save_outline(
-        repos.training_plans.as_ref(),
-        &plan_params(&tenant, &user, &race, &blks),
-    )
-    .await?;
-    assert_eq!(coach_bound.agent_slug.as_deref(), Some("endurance-coach"));
 
-    assert!(
-        repos
-            .training_plans
-            .get_active_plan(&tenant, &user, PlanOwner::agnostic())
+    let d1 = week_days("2026-07-13");
+    let d2 = week_days("2026-07-20");
+    let first = plans
+        .save_plan_bundle(&SavePlanBundleParams {
+            tenant_id: &tenant,
+            user_id: &user,
+            author: PlanAuthor::agent("endurance-coach"),
+            goal_fact_id: None,
+            replace_season: false,
+            outline: Some(outline_input(&race, &blks)),
+            weeks: &[week_input("2026-07-13", "season week", &d1)],
+        })
+        .await?;
+    plans
+        .save_plan_bundle(&weeks_by(
+            &tenant,
+            &user,
+            PlanAuthor::agent("taper-builder-agent"),
+            &[week_input("2026-07-20", "taper week", &d2)],
+        ))
+        .await?;
+
+    // The season's author re-lays its outline unasked.
+    let moved = GoalRace {
+        date: "2026-08-15".to_owned(),
+        ..big_red()
+    };
+    let second = save_outline(plans, &plan_params(&tenant, &user, &moved, &blks)).await?;
+    assert_eq!(
+        second.supersedes_id.as_deref(),
+        Some(first.plan.id.as_str())
+    );
+    assert_eq!(second.author_agent_id.as_deref(), Some("endurance-coach"));
+    assert_eq!(
+        week_authors(plans, &tenant, &user, &second.id).await?,
+        vec![
+            ("2026-07-13".to_owned(), Some("endurance-coach".to_owned())),
+            (
+                "2026-07-20".to_owned(),
+                Some("taper-builder-agent".to_owned())
+            ),
+        ],
+        "every carried week keeps the agent that wrote it"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_outline_over_another_authors_season_is_refused_already_exists_and_changes_nothing(
+) -> Result<()> {
+    let db = open_test_db().await?;
+    let repos = db.repositories();
+    let plans = repos.training_plans.as_ref();
+    let tenant = Uuid::new_v4().to_string();
+    let user = Uuid::new_v4().to_string();
+    let race = big_red();
+    let blks = phases();
+    let days = week_days("2026-07-13");
+
+    let season = plans
+        .save_plan_bundle(&SavePlanBundleParams {
+            tenant_id: &tenant,
+            user_id: &user,
+            author: PlanAuthor::agent("endurance-coach"),
+            goal_fact_id: None,
+            replace_season: false,
+            outline: Some(outline_input(&race, &blks)),
+            weeks: &[week_input("2026-07-13", "season week", &days)],
+        })
+        .await?;
+
+    let taper_race = GoalRace {
+        name: "Taper Race".to_owned(),
+        ..big_red()
+    };
+    let taper_days = week_days("2026-07-20");
+    for author in [PlanAuthor::agent("taper-builder-agent"), PlanAuthor::none()] {
+        let refused = plans
+            .save_plan_bundle(&SavePlanBundleParams {
+                tenant_id: &tenant,
+                user_id: &user,
+                author,
+                goal_fact_id: None,
+                replace_season: false,
+                outline: Some(outline_input(&taper_race, &blks)),
+                weeks: &[week_input("2026-07-20", "taper week", &taper_days)],
+            })
+            .await;
+        let Err(err) = refused else {
+            panic!("an outline over another author's season must be refused ({author:?})");
+        };
+        assert_eq!(err.code, ErrorCode::ResourceAlreadyExists, "{err}");
+        assert!(
+            err.message.contains("changed while this save ran")
+                && err.message.contains("get_training_plan"),
+            "{err}"
+        );
+    }
+
+    // Nothing moved: the same season, its one week, no taper week, no history.
+    let active = plans
+        .get_active_plan(&tenant, &user)
+        .await?
+        .expect("the season survives");
+    assert_eq!(active.id, season.plan.id);
+    assert_eq!(active.goal_race.name, "Big Red");
+    assert_eq!(
+        week_authors(plans, &tenant, &user, &season.plan.id).await?,
+        vec![("2026-07-13".to_owned(), Some("endurance-coach".to_owned()))]
+    );
+    assert_eq!(
+        plans
+            .list_plan_weeks(&tenant, &user, &season.plan.id, true)
             .await?
-            .is_none(),
-        "a coachless lookup must not be relied on to find a coach-bound plan"
+            .len(),
+        1,
+        "no week was superseded"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn replace_season_supersedes_another_authors_outline() -> Result<()> {
+    let db = open_test_db().await?;
+    let repos = db.repositories();
+    let plans = repos.training_plans.as_ref();
+    let tenant = Uuid::new_v4().to_string();
+    let user = Uuid::new_v4().to_string();
+    let race = big_red();
+    let blks = phases();
+    let days = week_days("2026-07-13");
+
+    let season = plans
+        .save_plan_bundle(&SavePlanBundleParams {
+            tenant_id: &tenant,
+            user_id: &user,
+            author: PlanAuthor::agent("endurance-coach"),
+            goal_fact_id: None,
+            replace_season: false,
+            outline: Some(outline_input(&race, &blks)),
+            weeks: &[week_input("2026-07-13", "season week", &days)],
+        })
+        .await?;
+
+    let taper_race = GoalRace {
+        name: "Taper Race".to_owned(),
+        ..big_red()
+    };
+    let relaid = plans
+        .save_plan_bundle(&SavePlanBundleParams {
+            tenant_id: &tenant,
+            user_id: &user,
+            author: PlanAuthor::agent("taper-builder-agent"),
+            goal_fact_id: None,
+            replace_season: true,
+            outline: Some(outline_input(&taper_race, &blks)),
+            weeks: &[],
+        })
+        .await?;
+    assert_eq!(
+        relaid.superseded_plan_id.as_deref(),
+        Some(season.plan.id.as_str())
+    );
+    assert_eq!(
+        relaid.plan.author_agent_id.as_deref(),
+        Some("taper-builder-agent")
     );
 
-    let seen = repos
-        .training_plans
-        .get_active_plan(&tenant, &user, PlanOwner::agent("endurance-coach"))
+    let active = plans
+        .get_active_plan(&tenant, &user)
         .await?
-        .expect("the conversation's own coach finds it");
-    assert_eq!(seen.id, coach_bound.id);
-    assert_eq!(seen.goal_race.name, "Big Red");
+        .expect("the re-laid season");
+    assert_eq!(active.id, relaid.plan.id);
+    assert_eq!(active.goal_race.name, "Taper Race");
+    assert_eq!(
+        active.author_agent_id.as_deref(),
+        Some("taper-builder-agent")
+    );
+    assert_eq!(
+        week_authors(plans, &tenant, &user, &relaid.plan.id).await?,
+        vec![("2026-07-13".to_owned(), Some("endurance-coach".to_owned()))],
+        "the carried week keeps its author"
+    );
+
+    // An agnostic season is anyone's to re-lay, no flag needed.
+    let other = Uuid::new_v4().to_string();
+    let mut agnostic = plan_params(&tenant, &other, &race, &blks);
+    agnostic.author = PlanAuthor::none();
+    let agnostic = save_outline(plans, &agnostic).await?;
+    assert_eq!(agnostic.author_agent_id, None);
+    let mut by_taper = plan_params(&tenant, &other, &taper_race, &blks);
+    by_taper.author = PlanAuthor::agent("taper-builder-agent");
+    let taken = save_outline(plans, &by_taper).await?;
+    assert_eq!(taken.supersedes_id.as_deref(), Some(agnostic.id.as_str()));
+    assert_eq!(
+        taken.author_agent_id.as_deref(),
+        Some("taper-builder-agent")
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_weeks_only_save_by_a_second_author_stamps_only_its_weeks() -> Result<()> {
+    let db = open_test_db().await?;
+    let repos = db.repositories();
+    let plans = repos.training_plans.as_ref();
+    let tenant = Uuid::new_v4().to_string();
+    let user = Uuid::new_v4().to_string();
+    let race = big_red();
+    let blks = phases();
+    let d1 = week_days("2026-07-13");
+    let d2 = week_days("2026-07-20");
+    let d3 = week_days("2026-07-27");
+
+    let season = plans
+        .save_plan_bundle(&SavePlanBundleParams {
+            tenant_id: &tenant,
+            user_id: &user,
+            author: PlanAuthor::agent("endurance-coach"),
+            goal_fact_id: None,
+            replace_season: false,
+            outline: Some(outline_input(&race, &blks)),
+            weeks: &[
+                week_input("2026-07-13", "season week one", &d1),
+                week_input("2026-07-20", "season week two", &d2),
+            ],
+        })
+        .await?;
+    let original_week_two = season.weeks[1].id.clone();
+
+    // The taper agent re-saves week two and adds week three, no outline.
+    let taper = plans
+        .save_plan_bundle(&weeks_by(
+            &tenant,
+            &user,
+            PlanAuthor::agent("taper-builder-agent"),
+            &[
+                week_input("2026-07-20", "taper week two", &d2),
+                week_input("2026-07-27", "taper week three", &d3),
+            ],
+        ))
+        .await?;
+    assert_eq!(taper.plan.id, season.plan.id);
+    assert_eq!(
+        taper.plan.author_agent_id.as_deref(),
+        Some("endurance-coach"),
+        "a weeks-only save leaves the outline's author alone"
+    );
+    assert!(taper
+        .weeks
+        .iter()
+        .all(|w| w.author_agent_id.as_deref() == Some("taper-builder-agent")));
+    assert_eq!(
+        week_authors(plans, &tenant, &user, &season.plan.id).await?,
+        vec![
+            ("2026-07-13".to_owned(), Some("endurance-coach".to_owned())),
+            (
+                "2026-07-20".to_owned(),
+                Some("taper-builder-agent".to_owned())
+            ),
+            (
+                "2026-07-27".to_owned(),
+                Some("taper-builder-agent".to_owned())
+            ),
+        ]
+    );
+
+    // The week it replaced keeps its own author in the history.
+    let history = plans
+        .list_plan_weeks(&tenant, &user, &season.plan.id, true)
+        .await?;
+    let replaced = history
+        .iter()
+        .find(|w| w.id == original_week_two)
+        .expect("the replaced week stays as history");
+    assert_eq!(replaced.status, WeekStatus::Superseded);
+    assert_eq!(replaced.author_agent_id.as_deref(), Some("endurance-coach"));
+    assert_eq!(replaced.focus, "season week two");
+    Ok(())
+}
+
+/// A weeks-only save that starts while an outline save holds the season
+/// lands on the outline that save commits, never on the one it superseded.
+///
+/// The held transaction is the outline save's own shape — the season row
+/// flipped to `superseded`, a new active row inserted — on a second
+/// connection, committed while the weeks-only save waits on it. On Postgres
+/// the weeks save's claim waits on the row lock, finds its row superseded and
+/// claims again; on SQLite it waits on the write lock and claims the new row.
+#[tokio::test]
+async fn a_weeks_only_save_waiting_on_an_outline_supersede_lands_on_the_new_outline() -> Result<()>
+{
+    let db = open_test_db().await?;
+    let repos = db.repositories();
+    let plans = repos.training_plans.as_ref();
+    let tenant = Uuid::new_v4().to_string();
+    let user = Uuid::new_v4().to_string();
+    let race = big_red();
+    let blks = phases();
+    let season = save_outline(plans, &plan_params(&tenant, &user, &race, &blks)).await?;
+    let relaid = Uuid::new_v4().to_string();
+
+    let supersede = "UPDATE training_plans SET status = 'superseded', updated_at = $1 \
+                     WHERE id = $2";
+    let insert = "INSERT INTO training_plans (id, tenant_id, user_id, author_agent_id, \
+                  goal_race_json, races_json, strategy, phases_json, status, supersedes_id, \
+                  created_at, updated_at) \
+                  SELECT $1, tenant_id, user_id, author_agent_id, goal_race_json, races_json, \
+                  'the re-laid season', phases_json, 'active', id, created_at, updated_at \
+                  FROM training_plans WHERE id = $2";
+    let now = chrono::Utc::now().timestamp();
+    let days = week_days("2026-07-13");
+    let week = [week_input(
+        "2026-07-13",
+        "written while the season moved",
+        &days,
+    )];
+    let weeks_save = weeks_by(
+        &tenant,
+        &user,
+        PlanAuthor::agent("taper-builder-agent"),
+        &week,
+    );
+
+    let saved = match &db {
+        Database::SQLite(sqlite) => {
+            let options = sqlite.pool().connect_options();
+            let mut conn = SqliteConnection::connect_with(&options).await?;
+            let mut held = conn.begin().await?;
+            sqlx::query(supersede)
+                .bind(now)
+                .bind(&season.id)
+                .execute(&mut *held)
+                .await?;
+            sqlx::query(insert)
+                .bind(&relaid)
+                .bind(&season.id)
+                .execute(&mut *held)
+                .await?;
+            let (saved, committed) = tokio::join!(plans.save_plan_bundle(&weeks_save), async {
+                sleep(Duration::from_millis(300)).await;
+                held.commit().await
+            });
+            committed?;
+            saved?
+        }
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(pg) => {
+            let mut held = pg.pool().begin().await?;
+            sqlx::query(supersede)
+                .bind(now)
+                .bind(&season.id)
+                .execute(&mut *held)
+                .await?;
+            sqlx::query(insert)
+                .bind(&relaid)
+                .bind(&season.id)
+                .execute(&mut *held)
+                .await?;
+            let (saved, committed) = tokio::join!(plans.save_plan_bundle(&weeks_save), async {
+                sleep(Duration::from_millis(300)).await;
+                held.commit().await
+            });
+            committed?;
+            saved?
+        }
+    };
+
+    assert_eq!(
+        saved.plan.id, relaid,
+        "the week lands on the outline that won"
+    );
+    assert_eq!(saved.plan.strategy, "the re-laid season");
+    assert_eq!(
+        week_authors(plans, &tenant, &user, &relaid).await?,
+        vec![(
+            "2026-07-13".to_owned(),
+            Some("taper-builder-agent".to_owned())
+        )]
+    );
+    assert!(
+        plans
+            .list_plan_weeks(&tenant, &user, &season.id, true)
+            .await?
+            .is_empty(),
+        "nothing was written onto the superseded outline"
+    );
     Ok(())
 }
 
@@ -614,8 +1068,9 @@ async fn bundle_saves_outline_and_weeks_in_one_call() -> Result<()> {
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant,
             user_id: &user,
-            owner: PlanOwner::agent("endurance-coach"),
+            author: PlanAuthor::agent("endurance-coach"),
             goal_fact_id: Some("fact-goal-1"),
+            replace_season: false,
             outline: Some(outline_input(&race, &blks)),
             weeks: &[PlanWeekInput {
                 week_start: "2026-07-13",
@@ -633,7 +1088,7 @@ async fn bundle_saves_outline_and_weeks_in_one_call() -> Result<()> {
     // Both the outline and the week are durably present.
     let got = repos
         .training_plans
-        .get_active_plan(&tenant, &user, PlanOwner::agent("endurance-coach"))
+        .get_active_plan(&tenant, &user)
         .await?
         .expect("plan present");
     assert_eq!(got.id, saved.plan.id);
@@ -666,8 +1121,9 @@ async fn a_phase_index_past_the_column_is_refused_as_input_and_writes_nothing() 
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant,
             user_id: &user,
-            owner: PlanOwner::agent("endurance-coach"),
+            author: PlanAuthor::agent("endurance-coach"),
             goal_fact_id: None,
+            replace_season: false,
             outline: Some(outline_input(&race, &blks)),
             weeks: &[PlanWeekInput {
                 week_start: "2026-07-13",
@@ -687,7 +1143,7 @@ async fn a_phase_index_past_the_column_is_refused_as_input_and_writes_nothing() 
     // One transaction: the outline that was to carry the week rolled back too.
     assert!(repos
         .training_plans
-        .get_active_plan(&tenant, &user, PlanOwner::agent("endurance-coach"))
+        .get_active_plan(&tenant, &user)
         .await?
         .is_none());
     Ok(())
@@ -711,8 +1167,9 @@ async fn a_phase_index_round_trips_through_a_supersede() -> Result<()> {
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant,
             user_id: &user,
-            owner: PlanOwner::agent("endurance-coach"),
+            author: PlanAuthor::agent("endurance-coach"),
             goal_fact_id: None,
+            replace_season: false,
             outline: Some(outline_input(&race, &blks)),
             weeks: &[PlanWeekInput {
                 week_start: "2026-07-13",
@@ -768,8 +1225,9 @@ async fn bundle_weeks_only_attaches_to_active_plan() -> Result<()> {
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant,
             user_id: &user,
-            owner: PlanOwner::agent("endurance-coach"),
+            author: PlanAuthor::agent("endurance-coach"),
             goal_fact_id: None,
+            replace_season: false,
             outline: None,
             weeks: &[PlanWeekInput {
                 week_start: "2026-07-13",
@@ -798,8 +1256,9 @@ async fn bundle_weeks_only_with_no_plan_errors_and_writes_nothing() -> Result<()
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant,
             user_id: &user,
-            owner: PlanOwner::agent("endurance-coach"),
+            author: PlanAuthor::agent("endurance-coach"),
             goal_fact_id: None,
+            replace_season: false,
             outline: None,
             weeks: &[PlanWeekInput {
                 week_start: "2026-07-13",
@@ -815,7 +1274,7 @@ async fn bundle_weeks_only_with_no_plan_errors_and_writes_nothing() -> Result<()
     // The transaction rolled back: no plan, no orphan week.
     assert!(repos
         .training_plans
-        .get_active_plan(&tenant, &user, PlanOwner::agent("endurance-coach"))
+        .get_active_plan(&tenant, &user)
         .await?
         .is_none());
     Ok(())
@@ -838,8 +1297,9 @@ async fn outline_resave_carries_the_active_weeks_onto_the_new_plan() -> Result<(
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant,
             user_id: &user,
-            owner: PlanOwner::agent("endurance-coach"),
+            author: PlanAuthor::agent("endurance-coach"),
             goal_fact_id: None,
+            replace_season: false,
             outline: Some(outline_input(&race, &blks)),
             weeks: &[
                 PlanWeekInput {
@@ -879,8 +1339,9 @@ async fn outline_resave_carries_the_active_weeks_onto_the_new_plan() -> Result<(
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant,
             user_id: &user,
-            owner: PlanOwner::agent("endurance-coach"),
+            author: PlanAuthor::agent("endurance-coach"),
             goal_fact_id: None,
+            replace_season: false,
             outline: Some(outline_input(&moved, &blks)),
             weeks: &[],
         })
@@ -962,8 +1423,9 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant,
             user_id: &user,
-            owner: PlanOwner::agent("endurance-coach"),
+            author: PlanAuthor::agent("endurance-coach"),
             goal_fact_id: None,
+            replace_season: false,
             outline: Some(outline_input(&race_a, &blks)),
             weeks: &[
                 PlanWeekInput {
@@ -1040,8 +1502,9 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant,
             user_id: &user,
-            owner: PlanOwner::agent("endurance-coach"),
+            author: PlanAuthor::agent("endurance-coach"),
             goal_fact_id: None,
+            replace_season: false,
             outline: Some(outline_input(&race_b, &blks)),
             weeks: &[
                 PlanWeekInput {
@@ -1079,8 +1542,9 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant,
             user_id: &user,
-            owner: PlanOwner::agent("endurance-coach"),
+            author: PlanAuthor::agent("endurance-coach"),
             goal_fact_id: None,
+            replace_season: false,
             outline: Some(outline_input(&race_b, &blks)),
             weeks: &[
                 PlanWeekInput {
@@ -1190,8 +1654,9 @@ async fn outline_resave_with_weeks_keeps_one_active_row_per_week() -> Result<()>
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant,
             user_id: &user,
-            owner: PlanOwner::agent("endurance-coach"),
+            author: PlanAuthor::agent("endurance-coach"),
             goal_fact_id: None,
+            replace_season: false,
             outline: Some(outline_input(&race, &blks)),
             weeks: &[
                 PlanWeekInput {
@@ -1220,8 +1685,9 @@ async fn outline_resave_with_weeks_keeps_one_active_row_per_week() -> Result<()>
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant,
             user_id: &user,
-            owner: PlanOwner::agent("endurance-coach"),
+            author: PlanAuthor::agent("endurance-coach"),
             goal_fact_id: None,
+            replace_season: false,
             outline: Some(outline_input(&race, &blks)),
             weeks: &[PlanWeekInput {
                 week_start: "2026-07-13",
@@ -1259,8 +1725,9 @@ async fn bundle_resaving_outline_supersedes_the_previous_plan() -> Result<()> {
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant,
             user_id: &user,
-            owner: PlanOwner::agent("endurance-coach"),
+            author: PlanAuthor::agent("endurance-coach"),
             goal_fact_id: None,
+            replace_season: false,
             outline: Some(outline_input(&race, &blks)),
             weeks: &[],
         })
@@ -1271,8 +1738,9 @@ async fn bundle_resaving_outline_supersedes_the_previous_plan() -> Result<()> {
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant,
             user_id: &user,
-            owner: PlanOwner::agent("endurance-coach"),
+            author: PlanAuthor::agent("endurance-coach"),
             goal_fact_id: None,
+            replace_season: false,
             outline: Some(outline_input(&race, &blks)),
             weeks: &[],
         })
@@ -1287,7 +1755,7 @@ async fn bundle_resaving_outline_supersedes_the_previous_plan() -> Result<()> {
     // Exactly one active plan remains.
     let active = repos
         .training_plans
-        .get_active_plan(&tenant, &user, PlanOwner::agent("endurance-coach"))
+        .get_active_plan(&tenant, &user)
         .await?
         .expect("active plan");
     assert_eq!(active.id, second.plan.id);

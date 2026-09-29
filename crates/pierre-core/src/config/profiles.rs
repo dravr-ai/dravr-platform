@@ -369,12 +369,18 @@ impl ProfileTemplates {
         ]
     }
 
-    /// Get a profile template by name
+    /// Get a profile template by name, case-insensitively.
+    ///
+    /// Either name a template answers to: the one [`Self::all`] lists it
+    /// under (`"Elite Athlete"`) or its profile's own [`ConfigProfile::name`]
+    /// (`"elite"`), which is what a saved configuration records.
     #[must_use]
     pub fn get(name: &str) -> Option<ConfigProfile> {
         Self::all()
             .into_iter()
-            .find(|(n, _)| n.eq_ignore_ascii_case(name))
+            .find(|(listed, profile)| {
+                listed.eq_ignore_ascii_case(name) || profile.name().eq_ignore_ascii_case(name)
+            })
             .map(|(_, profile)| profile)
     }
 }

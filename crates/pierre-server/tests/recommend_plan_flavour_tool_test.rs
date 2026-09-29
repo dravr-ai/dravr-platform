@@ -14,11 +14,12 @@
 
 use anyhow::Result;
 use chrono::Utc;
+use dravr_contremaitre::training;
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::groups::{
     CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
-use pierre_core::models::{Tenant, TenantId, User, UserStatus};
+use pierre_core::models::{ArtefactKind, PackageArtefact, Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
@@ -934,6 +935,105 @@ async fn a_coach_reads_the_consenting_athletes_thresholds_not_their_own() -> Res
         payload["inputs"]["training_age"], "trained",
         "advanced is trained"
     );
+    Ok(())
+}
+
+/// A published agent of the coach's own, carrying a house flavour — the
+/// catalogue's polarized flavour under an id no selection row names.
+async fn coach_agent_with_a_house_flavour(
+    executor: &UniversalToolExecutor,
+    coach: Uuid,
+    coach_tenant: TenantId,
+) -> Result<String> {
+    let repos = executor.resources.repos();
+    let agent = repos
+        .agents
+        .create_system_agent(
+            coach,
+            coach_tenant,
+            &CreateSystemAgentRequest {
+                title: "House Polarized".to_owned(),
+                description: Some("The coach's own agent".to_owned()),
+                system_prompt: "You coach the house way.".to_owned(),
+                category: AgentCategory::Training,
+                tags: vec![],
+                sample_prompts: vec![],
+                visibility: AgentVisibility::Tenant,
+            },
+        )
+        .await?
+        .id
+        .to_string();
+    repos
+        .store_listings
+        .submit_for_review(&agent, coach, coach_tenant)
+        .await?;
+    repos
+        .store_listings
+        .approve_agent(&agent, coach_tenant, Some(coach))
+        .await?;
+    let polarized = training::FLAVOURS
+        .iter()
+        .find(|(id, _)| *id == "polarized-classic")
+        .map(|(_, text)| *text)
+        .expect("the pinned catalogue carries polarized-classic");
+    let house = polarized.replace("id: polarized-classic", "id: house-polarized");
+    repos
+        .agent_artefacts
+        .replace_agent_artefacts(
+            &coach_tenant.to_string(),
+            &agent,
+            &[PackageArtefact::parse(ArtefactKind::Flavour, &house)?],
+        )
+        .await?;
+    Ok(agent)
+}
+
+/// On the coach path the recommendation is made through the COACH's agent's
+/// package, resolved as the coach — the agent their turn answers as — never
+/// through whatever agent the athlete selected.
+#[tokio::test]
+async fn on_the_coach_path_the_coachs_agent_package_pins_its_house_flavour() -> Result<()> {
+    let executor = create_executor().await?;
+    let (coach, coach_tenant) = seed_named_user(&executor, "Coach Karine").await?;
+    let (athlete, athlete_tenant) = seed_named_user(&executor, "Phil Tremblay").await?;
+    attach_as_coach(&executor, coach, coach_tenant, athlete, athlete_tenant).await?;
+    let house_agent = coach_agent_with_a_house_flavour(&executor, coach, coach_tenant).await?;
+    let args = json!({
+        "hours_per_week": 8.0,
+        "sessions_per_week": 5,
+        "training_age": "trained",
+        "interval_experience": "two_seasons",
+        "measurements": ["hr"],
+        "athlete": "phil"
+    });
+
+    // The coach's turn answers as their house agent.
+    let coach_turn = UniversalToolExecutor::new(executor.resources.clone())
+        .with_scopes(OAuthScope::self_grant())
+        .with_turn_agent(Some(house_agent));
+    let response = coach_turn
+        .execute_tool(request(
+            "recommend_plan_flavour",
+            args.clone(),
+            coach,
+            &coach_tenant.to_string(),
+        ))
+        .await?;
+    assert!(response.success, "{:?}", response.error);
+    let payload = response.result.expect("a payload");
+    assert_eq!(payload["athlete"], "Phil Tremblay", "{payload}");
+    assert_eq!(
+        payload["verdict"]["coach_pinned"],
+        json!("house-polarized"),
+        "the coach's agent's house flavour is pinned: {}",
+        payload["verdict"]
+    );
+    assert_eq!(top_id(&payload), "house-polarized");
+
+    // The same call with no agent behind it pins nothing.
+    let bare = recommend(&executor, coach, &coach_tenant.to_string(), args).await?;
+    assert_ne!(bare["verdict"]["coach_pinned"], json!("house-polarized"));
     Ok(())
 }
 

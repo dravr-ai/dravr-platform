@@ -8,14 +8,31 @@
 # `git worktree list` says where and which branch; it cannot say whose. With
 # several sessions each driving lanes in their own trees, "whose is this?" is
 # the question the operator actually has. The answer is the stamp the creating
-# session wrote (see claim_worktree in .claude/skills/lib/worktree.sh); a tree
+# session wrote (see claim_worktree in .build/skills/lib/worktree.sh); a tree
 # made by hand, without the helper, prints "-" and `claim` fixes that:
 #
 #   bin/worktrees.sh            list every worktree with its owner
 #   bin/worktrees.sh claim [p]  stamp the worktree at p (default: the current one) as this session's
 set -euo pipefail
 
-source "$(dirname "${BASH_SOURCE[0]}")/../.claude/skills/lib/worktree.sh"
+# The library ships in .build (dravr-build-config). Prefer this tree's copy; a
+# worktree made by hand has an empty .build, so fall back to the main
+# worktree's, which bootstrap keeps initialised.
+worktree_lib=""
+here="$(dirname "${BASH_SOURCE[0]}")"
+for root in "$(git -C "$here" rev-parse --show-toplevel)" \
+            "$(git -C "$here" worktree list --porcelain | sed -n 's/^worktree //p' | head -1)"; do
+    if [[ -f "$root/.build/skills/lib/worktree.sh" ]]; then
+        worktree_lib="$root/.build/skills/lib/worktree.sh"
+        break
+    fi
+done
+if [[ -z "$worktree_lib" ]]; then
+    echo "bin/worktrees.sh: .build/skills/lib/worktree.sh is missing; run bash .build/ci/bootstrap-repo.sh" >&2
+    exit 1
+fi
+# shellcheck source=/dev/null
+source "$worktree_lib"
 
 case "${1:-list}" in
     claim)

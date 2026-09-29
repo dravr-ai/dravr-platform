@@ -53,6 +53,7 @@ fn profile(user_id: Uuid) -> UserPhysiologicalProfile {
         resting_hr: Some(48),
         max_hr: Some(192),
         lactate_threshold_percentage: Some(0.85),
+        threshold_hr: None,
         age: Some(35),
         weight: Some(70.0),
         fitness_level: FitnessLevel::Intermediate,

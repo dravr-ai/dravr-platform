@@ -22,9 +22,7 @@ use uuid::Uuid;
 use super::training_plan_compliance::assess_saved_weeks;
 use super::training_plan_readiness::read_ladder;
 use super::training_plan_telemetry::coverage_gaps;
-use crate::implementations::training_plans_output::{
-    PlanStateBlock, WeekComplianceBlock, WeekReadiness,
-};
+use crate::implementations::training_plans_output::{PlanStateBlock, WeekComplianceBlock};
 use crate::runtime::ToolRuntime;
 
 /// What the two rails make of a plan, for a caller that asked for it.
@@ -51,15 +49,7 @@ pub(super) async fn plan_state_block(
             .as_ref()
             .map(|r| r.alerts.clone())
             .unwrap_or_default(),
-        readiness_weeks: reading.map_or_else(Vec::new, |r| {
-            r.weeks
-                .into_iter()
-                .map(|(week_start, verdict)| WeekReadiness {
-                    week_start,
-                    verdict,
-                })
-                .collect()
-        }),
+        readiness_weeks: reading.map_or_else(Vec::new, |r| r.weeks),
         compliance_weeks: compliance
             .iter()
             .map(|(week_start, verdict)| WeekComplianceBlock {

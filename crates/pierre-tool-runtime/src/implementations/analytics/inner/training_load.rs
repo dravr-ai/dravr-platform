@@ -10,6 +10,7 @@ use crate::implementations::analytics::output::{
     LoadMetrics, LoadRecoveryContext, NoTrainingLoad, ProvidersUsed, TrainingLoadDetail,
     TrainingLoadResult, TrainingZone, WeeklyTss,
 };
+use crate::implementations::stored_physiology::stored_athlete_inputs;
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
@@ -20,6 +21,7 @@ use chrono::Utc;
 use pierre_core::models::Activity;
 use pierre_core::models::{FormBand, FormReading};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
+use pierre_fitness_compute::AthleteInputs;
 use pierre_intelligence::{AlgorithmConfig, SleepAnalyzer, TrainingLoadCalculator, TssDataPoint};
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::triggers as notification_triggers;
@@ -34,70 +36,6 @@ use std::sync::Arc;
 use tracing::{debug, warn};
 #[cfg(feature = "client-notifications")]
 use uuid::Uuid;
-
-/// User physiological parameters for personalized TSS calculation
-pub struct UserPhysiologicalParams {
-    /// Functional Threshold Power, watts
-    pub ftp: Option<f64>,
-    /// Lactate Threshold Heart Rate, bpm
-    pub lthr: Option<f64>,
-    /// Maximum heart rate, bpm
-    pub max_hr: Option<f64>,
-    /// Resting heart rate, bpm
-    pub resting_hr: Option<f64>,
-    /// Body mass, kilograms
-    pub weight_kg: Option<f64>,
-}
-
-/// Fetch user physiological parameters from stored configuration.
-///
-/// Returns params with whatever the user has configured; missing values stay None
-/// and the TSS calculator falls back to pace-based estimation.
-async fn fetch_user_physiological_params(
-    executor: &UniversalToolExecutor,
-    user_uuid: uuid::Uuid,
-) -> UserPhysiologicalParams {
-    let config_json = executor
-        .resources
-        .repos()
-        .profiles
-        .get_configuration(&user_uuid.to_string())
-        .await
-        .ok()
-        .flatten();
-
-    let Some(config_str) = config_json else {
-        return UserPhysiologicalParams {
-            ftp: None,
-            lthr: None,
-            max_hr: None,
-            resting_hr: None,
-            weight_kg: None,
-        };
-    };
-
-    let config: serde_json::Value = serde_json::from_str(&config_str).unwrap_or_default();
-
-    // Configuration is stored as: { "profile": { ... }, "session_overrides": { ... } }
-    // Physiological data lives in session_overrides or at the top level.
-    let overrides = config.get("session_overrides").unwrap_or(&config);
-
-    UserPhysiologicalParams {
-        ftp: overrides.get("ftp").and_then(serde_json::Value::as_f64),
-        lthr: overrides
-            .get("lactate_threshold_hr")
-            .or_else(|| overrides.get("threshold_hr"))
-            .and_then(serde_json::Value::as_f64),
-        max_hr: overrides.get("max_hr").and_then(serde_json::Value::as_f64),
-        resting_hr: overrides
-            .get("resting_hr")
-            .and_then(serde_json::Value::as_f64),
-        weight_kg: overrides
-            .get("weight_kg")
-            .or_else(|| overrides.get("weight"))
-            .and_then(serde_json::Value::as_f64),
-    }
-}
 
 /// Recovery context from sleep/HRV data for training load interpretation
 struct RecoveryContextInfo {
@@ -157,7 +95,8 @@ async fn fetch_recovery_context_for_training_load(
     })
 }
 
-/// Analyze detailed training load from activities using user-specific physiological data.
+/// Analyze detailed training load from activities, scoring each session
+/// against the thresholds on the athlete's physiological profile.
 ///
 /// Public so the payload it builds — `form_band`, `form_assessment`,
 /// `tsb_pct_of_ctl` and the banded `taper_status` — has content coverage. The
@@ -166,7 +105,7 @@ async fn fetch_recovery_context_for_training_load(
 /// error arm and asserts nothing about these fields.
 pub fn analyze_detailed_training_load(
     activities: &[Activity],
-    params: &UserPhysiologicalParams,
+    params: &AthleteInputs,
     algorithm_config: &AlgorithmConfig,
     providers_used: ProvidersUsed,
 ) -> TrainingLoadResult {
@@ -188,17 +127,9 @@ pub fn analyze_detailed_training_load(
     let calculator =
         TrainingLoadCalculator::from_config(algorithm_config.clone(), Utc::now().date_naive());
 
-    // Pass user physiological data for accurate TSS calculation.
-    // When present, enables power-based (FTP) or HR-based (LTHR) TSS
-    // instead of the less accurate pace-based fallback.
-    let Ok(training_load) = calculator.calculate_training_load(
-        &sorted_activities,
-        params.ftp,
-        params.lthr,
-        params.max_hr,
-        params.resting_hr,
-        params.weight_kg,
-    ) else {
+    // The saved thresholds: when present, they enable power-based (FTP) or
+    // HR-based (LTHR) TSS instead of the less accurate pace-based fallback.
+    let Ok(training_load) = params.training_load(&calculator, &sorted_activities) else {
         return TrainingLoadResult::NoData(NoTrainingLoad {
             message: "Unable to calculate training load - insufficient activity data".to_owned(),
             providers_used,
@@ -453,9 +384,19 @@ pub fn handle_analyze_training_load(
                             );
                         }
 
-                        // Fetch user physiological data for accurate TSS
-                        let physio_params =
-                            fetch_user_physiological_params(executor, user_uuid).await;
+                        // The thresholds set_physiology saved, the ones every
+                        // training-load surface scores sessions against.
+                        let physio_params = stored_athlete_inputs(
+                            &executor.resources,
+                            request.tenant_id.as_deref(),
+                            user_uuid,
+                        )
+                        .await
+                        .map_err(|e| {
+                            ProtocolError::InternalError(format!(
+                                "analyze_training_load: reading the saved thresholds failed: {e}"
+                            ))
+                        })?;
 
                         let mut analysis = analyze_detailed_training_load(
                             &activities,

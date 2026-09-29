@@ -34,6 +34,7 @@ use std::cmp::Reverse;
 
 use chrono::{Duration, Utc};
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
+use pierre_fitness_compute::AthleteInputs;
 use pierre_intelligence::AlgorithmConfig;
 use pierre_tool_runtime::implementations::analytics::calculate_fitness_metrics;
 use pierre_tool_runtime::implementations::analytics::output::{FitnessScoreResult, ProvidersUsed};
@@ -90,6 +91,7 @@ fn an_improving_athlete_does_not_score_zero_for_performance() {
     let result = calculate_fitness_metrics(
         &activities,
         "quarter",
+        &AthleteInputs::default(),
         &AlgorithmConfig::default(),
         providers(),
     );
@@ -118,8 +120,9 @@ fn the_scoring_window_does_not_truncate_chronic_load() {
     let activities = newest_first((0..40).map(|i| run(120 - i * 3, 3600)).collect());
     let config = AlgorithmConfig::default();
 
-    let wide = calculate_fitness_metrics(&activities, "all_time", &config, providers());
-    let narrow = calculate_fitness_metrics(&activities, "month", &config, providers());
+    let athlete = AthleteInputs::default();
+    let wide = calculate_fitness_metrics(&activities, "all_time", &athlete, &config, providers());
+    let narrow = calculate_fitness_metrics(&activities, "month", &athlete, &config, providers());
 
     let (FitnessScoreResult::Scored(wide), FitnessScoreResult::Scored(narrow)) = (wide, narrow)
     else {
@@ -158,7 +161,13 @@ fn the_ctl_sentence_comes_from_config_not_a_hardcoded_42() {
     let mut config = AlgorithmConfig::default();
     config.params.training_load_ctl_days = 28;
 
-    let result = calculate_fitness_metrics(&activities, "quarter", &config, providers());
+    let result = calculate_fitness_metrics(
+        &activities,
+        "quarter",
+        &AthleteInputs::default(),
+        &config,
+        providers(),
+    );
     let FitnessScoreResult::Scored(detail) = result else {
         panic!("expected a score");
     };

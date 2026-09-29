@@ -386,14 +386,7 @@ async fn finish_fortnight(
         clear_marker(ctx, conv, tenant_id).await;
         return GuidedResolution::Inactive;
     };
-    let summary = completion::render_fortnight(
-        ctx,
-        facts_tenant,
-        &subject,
-        conv.agent_id.as_deref(),
-        locale,
-    )
-    .await;
+    let summary = completion::render_fortnight(ctx, facts_tenant, &subject, locale).await;
     clear_marker(ctx, conv, tenant_id).await;
     GuidedResolution::WalkComplete {
         summary,
@@ -444,16 +437,7 @@ async fn leave_guided_mode(inputs: LeaveGuidedMode<'_>) -> GuidedResolution {
     // under.
     let summary = match state.flow {
         GuidedFlow::Calibration => Some(
-            completion::render(
-                ctx,
-                conv,
-                &state,
-                facts_tenant,
-                subject_user_id,
-                dossier,
-                locale,
-            )
-            .await,
+            completion::render(ctx, &state, facts_tenant, subject_user_id, dossier, locale).await,
         ),
         GuidedFlow::Season => Some(
             completion::render_season(ctx, &state, facts_tenant, subject_user_id, locale).await,
