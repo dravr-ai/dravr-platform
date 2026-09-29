@@ -553,6 +553,24 @@ check "and the ledger is left intact when it cannot be checked" 1 \
     "$(grep -c '"issue":236' "$sweep_ledger")"
 rm -f "$sweep_ledger"
 
+# ---- the sweep must only judge its own register's claims. The ledger directory is shared by
+# every repo on the machine, so a dead session's ledger can hold another tracker's claim on the
+# same number. The sweep asked THIS tracker, found its #12 closed, and deleted both lines — the
+# other register's claim vanished while its issue kept the in-progress label and assignee.
+cat > "$sweep_ledger" <<LEDGER
+{"v":1,"session":"11111111-1111-1111-1111-111111111111","name":"Dead","user":"t","host":"h","pid":999999,"repo":"r","branch":"main","at":"2026-09-03T11:07:02Z","kind":"identity"}
+{"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":12,"at":"2026-09-03T11:07:02Z"}
+{"kind":"claim","tracker":"Other/other-carnet","issue":12,"at":"2026-09-03T11:07:02Z"}
+LEDGER
+xstub=$(mktemp -d "${TMPDIR:-/tmp}/bilan-gh-closed.XXXXXX") || die "mktemp -d failed for the closed-issue gh stub"
+printf '#!/bin/sh\necho CLOSED\n' > "$xstub/gh"; chmod +x "$xstub/gh"
+sweep_out=$( ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" REGISTRE_TRACKER=dravr-ai/dravr-carnet PATH="$xstub:/usr/bin:/bin" bash "$BILAN" sweep 2>/dev/null ) )
+check "this register's closed claim is cleared from the dead ledger" 0 \
+    "$(grep -c '"tracker":"dravr-ai/dravr-carnet"' "$sweep_ledger" 2>/dev/null || true)"
+check "another register's claim on the same number is left in place" 1 \
+    "$(grep -c '"tracker":"Other/other-carnet"' "$sweep_ledger" 2>/dev/null || true)"
+rm -rf "${xstub:?}"; rm -f "$sweep_ledger"
+
 # ---------------------------------------------------------------- portability
 # These pin the two spellings that made every Linux run useless, because both failed in ways
 # that did NOT look like failure.

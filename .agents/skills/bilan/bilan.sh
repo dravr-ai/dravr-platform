@@ -1046,11 +1046,15 @@ cmd_sweep() {
             # drop what has been resolved: SessionEnd would have cleaned this ledger up, and it
             # is only here because the session was killed before it could.
             issues=""
-            for n in $(jq -r 'select(.kind == "claim") | .issue' "$f" 2>/dev/null); do
+            # Only this register's claims. The ledger directory is shared by every repo on the
+            # machine, so a dead session's ledger can hold another tracker's claim on the same
+            # number; asking THIS tracker about it and deleting on its answer erased claims this
+            # sweep does not own. A line without a tracker predates the field and is ours.
+            for n in $(jq -r --arg t "$TRACKER" 'select(.kind == "claim" and (.tracker // $t) == $t) | .issue' "$f" 2>/dev/null); do
                 if [ -n "$TRACKER" ] && command -v gh >/dev/null 2>&1 \
                    && [ "$(gh issue view "$n" -R "$TRACKER" --json state -q .state 2>/dev/null)" = CLOSED ]; then
                     tmp=$(mktemp)
-                    jq -c --argjson n "$n" 'select((.kind == "claim" and .issue == $n) | not)' "$f" > "$tmp" \
+                    jq -c --argjson n "$n" --arg t "$TRACKER" 'select((.kind == "claim" and .issue == $n and (.tracker // $t) == $t) | not)' "$f" > "$tmp" \
                         && mv "$tmp" "$f"
                     healed="$healed carnet#$n"
                     continue
