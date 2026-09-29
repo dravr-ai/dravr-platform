@@ -959,7 +959,7 @@ report() {
     local ask latest; ask=$(opening_ask); latest=$(latest_ask)
     [ -n "$latest" ] || latest=$ask
     [ -z "$latest" ] || say "asked: $latest"
-    [ -z "$ask" ] || [ "$ask" = "$latest" ] || say "opened: $ask"
+    [ -z "$ask" ] || [ "$ask" = "$latest" ] || say "first ask: $ask"
     say ""
     if [ ! -s "$CAPS" ]; then
         say "  ✅ nothing outstanding — tree clean, nothing unpushed, no issue held"

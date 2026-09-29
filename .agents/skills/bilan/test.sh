@@ -498,7 +498,7 @@ printf '%s\n' '{"type":"user","promptSource":"system","isMeta":true,"scheduledTa
 report=$( ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SID" bash "$BILAN" --cheap 2>/dev/null ) )
 check "asked names the latest typed prompt" 1 "$(printf '%s\n' "$report" | grep -c 'asked: Now publish the report')"
 check "a wakeup the session wrote is not an ask" 0 "$(printf '%s\n' "$report" | grep -c 'Check CI again')"
-check "the opening ask is kept beside it" 1 "$(printf '%s\n' "$report" | grep -c 'opened: Build the thing')"
+check "the opening ask is kept beside it" 1 "$(printf '%s\n' "$report" | grep -c 'first ask: Build the thing')"
 rm -rf "$CFG/projects"
 
 # ---- a peer's dev stack in the shared checkout is not this session's to stop. Third instance
