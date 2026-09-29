@@ -61,6 +61,10 @@ const ACTIVITY_LIST: &str =
     "Your Activities:\n\n1. [Run] Tempo - 2026-08-01 - 10.00 km - 0:45:00\n\
      2. [Ride] Endurance - 2026-08-03 - 60.00 km - 2:10:00";
 
+/// The agent the turn ran as — not the conversation's title, which keeps
+/// whatever the thread was created under.
+const AGENT_TITLE: &str = "Marathon Agent";
+
 /// A stored chart spec plus a stored plan, on the one `content_blocks` rail.
 const STORED_BLOCKS: &str = r#"[{"type":"chart","source_tool":"get_activities","title":"Charge"},
      {"type":"workout_plan","source_tool":"save_training_plan","plan":{"weeks":3}}]"#;
@@ -147,6 +151,7 @@ fn turn_state() -> TurnState {
         scene_images: Vec::new(),
         actions: Vec::new(),
         actions_title: None,
+        answered_by: Some(AGENT_TITLE.to_owned()),
     }
 }
 
@@ -167,6 +172,15 @@ fn prose_of(blocks: &[ReplyBlock]) -> &str {
 /// The in-app surface draws the list, the plan and the chart itself, so each
 /// leaves the pipeline as its own block and the prose is the agent's sentences
 /// and nothing else.
+/// The agent the reply spoke as travels on the envelope untouched, so the reply
+/// notification names that agent rather than the conversation's title.
+#[test]
+fn the_envelope_names_the_agent_the_reply_spoke_as() {
+    let envelope = build_envelope(&in_app_profile(), turn_state());
+    assert_eq!(envelope.answered_by.as_deref(), Some(AGENT_TITLE));
+    assert_ne!(envelope.conversation.title, AGENT_TITLE);
+}
+
 #[test]
 fn in_app_surface_gets_a_block_per_affordance() {
     let envelope = build_envelope(&in_app_profile(), turn_state());

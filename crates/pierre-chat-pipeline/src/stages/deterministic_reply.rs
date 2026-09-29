@@ -157,6 +157,8 @@ pub async fn deliver(
             scene_images: Vec::new(),
             actions: Vec::new(),
             actions_title: None,
+            // The platform wrote this reply, not the agent.
+            answered_by: None,
         },
     ))
 }

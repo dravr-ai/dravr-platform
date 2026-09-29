@@ -70,6 +70,13 @@ pub struct TurnEnvelope {
     /// fallback, a split-message footer — reads it here so its language cannot
     /// disagree with the sentences the agent wrote.
     pub locale: String,
+    /// Title of the agent the reply speaks as: the conversation's bound agent,
+    /// or the one the athlete's message mentioned. `None` when no agent
+    /// answered — a thread with none bound, or a reply the platform wrote
+    /// itself. The canonical title, as the conversation list shows it; the
+    /// conversation's own title is not this, since it keeps whatever the
+    /// thread was created under.
+    pub answered_by: Option<String>,
 }
 
 /// The assistant side of a turn: the durable record plus the ordered blocks a
@@ -486,6 +493,8 @@ pub struct TurnState {
     pub actions: Vec<TurnAction>,
     /// Label for [`Self::actions`], e.g. a picker's card title.
     pub actions_title: Option<String>,
+    /// Title of the agent the reply speaks as; see [`TurnEnvelope::answered_by`].
+    pub answered_by: Option<String>,
 }
 
 /// One published chart, ready for a surface that fetches pixels.
@@ -554,6 +563,7 @@ pub fn build_envelope(profile: &SurfaceProfile, state: TurnState) -> TurnEnvelop
         scene_images,
         actions,
         actions_title,
+        answered_by,
     } = state;
 
     let (plan_specs, scene_specs) =
@@ -633,6 +643,7 @@ pub fn build_envelope(profile: &SurfaceProfile, state: TurnState) -> TurnEnvelop
         telemetry,
         quota,
         locale: profile.locale.clone(),
+        answered_by,
     }
 }
 

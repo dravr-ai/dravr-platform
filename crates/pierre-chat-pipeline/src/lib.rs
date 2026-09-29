@@ -1043,6 +1043,7 @@ async fn run_turn(
             scene_images,
             actions: Vec::new(),
             actions_title: None,
+            answered_by: agent_ctx.as_ref().map(|agent| agent.title.clone()),
         },
     ))
 }

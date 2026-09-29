@@ -301,14 +301,15 @@ async fn persisted_user_rows(
         .collect()
 }
 
-/// Run one web turn through the ladder every surface uses.
+/// Run one web turn through the ladder every surface uses, and return the
+/// title of the agent the envelope says answered it.
 async fn web_turn(
     resources: &Arc<ServerContext>,
     conversation_id: &str,
     user_id: Uuid,
     tenant_id: TenantId,
     content: &str,
-) {
+) -> Option<String> {
     let profile = SurfaceProfile::resolve(&SurfaceRequest {
         surface: SurfaceId::Web,
         locale: "fr".to_owned(),
@@ -338,10 +339,10 @@ async fn web_turn(
     )
     .await
     .expect("the turn must be admitted and served");
-    assert!(
-        matches!(served, ServedTurn::Pipeline(_)),
-        "a plain-prose turn must run the pipeline"
-    );
+    let ServedTurn::Pipeline(envelope) = served else {
+        panic!("a plain-prose turn must run the pipeline");
+    };
+    envelope.answered_by
 }
 
 /// The grammar is `AgentHandle::parse`, opened by a `@` at a token boundary.
@@ -453,7 +454,7 @@ async fn a_mention_routes_that_turn_only_and_the_next_turn_reverts() {
         .unwrap();
 
     // Turn 1 — addressed to the installed recovery agent.
-    web_turn(
+    let answered_by = web_turn(
         &resources,
         &conversation.id,
         athlete_id,
@@ -461,6 +462,11 @@ async fn a_mention_routes_that_turn_only_and_the_next_turn_reverts() {
         MENTION_TURN,
     )
     .await;
+    assert_eq!(
+        answered_by.as_deref(),
+        Some(installed.title.as_str()),
+        "the envelope names the mentioned agent, which is who the reply notification names"
+    );
     let request = coaching_request(&log, MENTION_TURN_FOR_MODEL)
         .expect("the mentioned turn reaches the model with the token stripped");
     let prompt = system_prompt(&request);
@@ -494,7 +500,7 @@ async fn a_mention_routes_that_turn_only_and_the_next_turn_reverts() {
     );
 
     // Turn 2 — plain: the conversation's own agent is back.
-    web_turn(
+    let answered_by = web_turn(
         &resources,
         &conversation.id,
         athlete_id,
@@ -502,6 +508,18 @@ async fn a_mention_routes_that_turn_only_and_the_next_turn_reverts() {
         PLAIN_TURN,
     )
     .await;
+    let tempo_title = repos
+        .agents
+        .get_by_id(&tempo_id, athlete_id, athlete_tenant)
+        .await
+        .unwrap()
+        .expect("the athlete's own agent reads back")
+        .title;
+    assert_eq!(
+        answered_by.as_deref(),
+        Some(tempo_title.as_str()),
+        "the envelope names the conversation's own agent again, not its title"
+    );
     let request = coaching_request(&log, PLAIN_TURN).expect("the plain turn reaches the model");
     let prompt = system_prompt(&request);
     assert!(

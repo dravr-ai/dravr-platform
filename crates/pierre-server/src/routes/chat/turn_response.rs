@@ -196,6 +196,7 @@ impl TurnResponse {
             telemetry,
             quota: _,
             locale,
+            answered_by: _,
         } = envelope;
 
         Self {

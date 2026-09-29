@@ -307,7 +307,7 @@ impl TurnEgress {
                 #[cfg(feature = "client-notifications")]
                 notify_agent_response(
                     &self.resources,
-                    &envelope.conversation,
+                    envelope.answered_by.as_deref(),
                     self.user_id,
                     self.tenant_id,
                     &self.conversation.id,
@@ -632,27 +632,26 @@ fn terminal_events(outcome: Result<TurnResponse, AppError>) -> Vec<pipeline::Tur
     events
 }
 
-/// Fire-and-forget notification when an agent conversation produces a
-/// response. Only sends if the conversation has a `agent_id`
-/// (indicates agent persona).
+/// Fire-and-forget notification when an agent answers a turn, naming that
+/// agent. Sends nothing when no agent answered — a thread with none bound, or
+/// a reply the platform wrote itself.
 #[cfg(feature = "client-notifications")]
 fn notify_agent_response(
     resources: &Arc<ServerContext>,
-    conv: &ConversationRecord,
+    answered_by: Option<&str>,
     user_id: Uuid,
     tenant_id: TenantId,
     conversation_id: &str,
 ) {
-    if conv.agent_id.is_some() {
-        if let Some(service) = &resources.common.notification_service {
-            let agent_title = conv.title.clone();
-            notification_triggers::trigger_agent_message(
-                service,
-                user_id,
-                pierre_notifications::TenantId(tenant_id.as_uuid()),
-                conversation_id,
-                &agent_title,
-            );
-        }
-    }
+    let (Some(agent_name), Some(service)) = (answered_by, &resources.common.notification_service)
+    else {
+        return;
+    };
+    notification_triggers::trigger_agent_message(
+        service,
+        user_id,
+        pierre_notifications::TenantId(tenant_id.as_uuid()),
+        conversation_id,
+        agent_name,
+    );
 }
