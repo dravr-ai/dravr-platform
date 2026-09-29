@@ -35,13 +35,12 @@ describe('mobileNotificationTarget', () => {
     expect(mobileNotificationTarget({ screen: 'coach', id: 42 })).toBeNull();
   });
 
-  it('opens Home for a personal record, a weekly summary and a plan update', () => {
+  it('opens Home for a personal record and a weekly summary', () => {
     // The `id` on a personal record is the activity, so no param rides along.
     expect(mobileNotificationTarget({ screen: 'activity', id: 'act-1' })).toEqual({
       pathname: HOME_ROUTE,
     });
     expect(mobileNotificationTarget({ screen: 'activities' })).toEqual({ pathname: HOME_ROUTE });
-    expect(mobileNotificationTarget({ screen: 'plan' })).toEqual({ pathname: HOME_ROUTE });
   });
 
   it('routes a provider notification to the connections screen', () => {
@@ -55,6 +54,8 @@ describe('mobileNotificationTarget', () => {
     expect(mobileNotificationTarget({ screen: 'stats' })).toBeNull();
     expect(mobileNotificationTarget({ screen: 'recovery' })).toBeNull();
     expect(mobileNotificationTarget({ screen: 'settings', action: 'reconnect' })).toBeNull();
+    // A plan update claimed a change nobody made; the token went with it.
+    expect(mobileNotificationTarget({ screen: 'plan' })).toBeNull();
     expect(
       mobileNotificationTarget({ screen: 'social', action: 'friend_request', id: 'req-1' }),
     ).toBeNull();

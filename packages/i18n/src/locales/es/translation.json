@@ -2130,9 +2130,17 @@
       "title": "Tu resumen semanal de notificaciones"
     },
     "event": {
+      "agent_assigned": {
+        "body": "Un administrador ha añadido {0} a tus agentes.",
+        "title": "Nuevo agente"
+      },
       "agent_message": {
         "body": "{0} te ha enviado un mensaje",
         "title": "Mensaje de tu agente"
+      },
+      "agent_updated": {
+        "body": "Un administrador ha actualizado {0}.",
+        "title": "Agente actualizado"
       },
       "delegation_confirmed": {
         "body": "{0} ha confirmado tu vínculo con TrainingPeaks en {1}. Sus entrenamientos se leen ahora a través de tu cuenta.",
@@ -2169,10 +2177,6 @@
       "personal_record": {
         "body": "Nuevo récord en {0}: {1}",
         "title": "¡Nuevo récord personal!"
-      },
-      "plan_updated": {
-        "body": "{0} ha actualizado tu plan de entrenamiento",
-        "title": "Plan de entrenamiento actualizado"
       },
       "seat_release_warning": {
         "body": "Hace {0} día(s) que no usas Dravr. Strava limita cuántos atletas podemos conectar, así que tu conexión con {1} se liberará en {2} día(s) para dejar el sitio a otro atleta. Envía un mensaje o abre la app para conservarla; puedes volver a conectarte cuando quieras.",

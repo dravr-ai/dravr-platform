@@ -1120,10 +1120,14 @@ pub const KEY_NOTIFICATION_FITNESS_IMPROVEMENT_BODY: &str =
 pub const KEY_NOTIFICATION_AGENT_MESSAGE_TITLE: &str = "notifications.event.agent_message.title";
 /// Key: who wrote. `{0}` = the agent's name.
 pub const KEY_NOTIFICATION_AGENT_MESSAGE_BODY: &str = "notifications.event.agent_message.body";
-/// Key: an agent revised the training plan. No format placeholders.
-pub const KEY_NOTIFICATION_PLAN_UPDATED_TITLE: &str = "notifications.event.plan_updated.title";
-/// Key: who revised it. `{0}` = the agent's name.
-pub const KEY_NOTIFICATION_PLAN_UPDATED_BODY: &str = "notifications.event.plan_updated.body";
+/// Key: an administrator edited the athlete's agent. No format placeholders.
+pub const KEY_NOTIFICATION_AGENT_UPDATED_TITLE: &str = "notifications.event.agent_updated.title";
+/// Key: which agent changed. `{0}` = the agent's name.
+pub const KEY_NOTIFICATION_AGENT_UPDATED_BODY: &str = "notifications.event.agent_updated.body";
+/// Key: an administrator assigned the athlete an agent. No format placeholders.
+pub const KEY_NOTIFICATION_AGENT_ASSIGNED_TITLE: &str = "notifications.event.agent_assigned.title";
+/// Key: which agent was added. `{0}` = the agent's name.
+pub const KEY_NOTIFICATION_AGENT_ASSIGNED_BODY: &str = "notifications.event.agent_assigned.body";
 /// Key: a provider sync failed. `{0}` = the provider's name.
 pub const KEY_NOTIFICATION_SYNC_FAILURE_TITLE: &str = "notifications.event.sync_failure.title";
 /// Key: what happened and what to do. `{0}` = the provider's name.

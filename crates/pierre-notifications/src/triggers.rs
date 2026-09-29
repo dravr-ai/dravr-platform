@@ -226,8 +226,18 @@ pub fn trigger_agent_message(
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P1);
 }
 
-/// Trigger notification when an agent updates an athlete's training plan.
-pub fn trigger_plan_updated(
+// ============================================================================
+// Agent Administration Triggers
+// ============================================================================
+//
+// An administrator editing a system agent or assigning one reaches every
+// athlete it concerns. Neither is a message: they keep the daily cap, and they
+// carry no destination — no screen shows an agent's definition, and no thread
+// with a newly assigned agent exists yet.
+
+/// Trigger notification when an administrator edits a system agent the
+/// athlete is assigned.
+pub fn trigger_agent_updated(
     service: &Arc<NotificationService>,
     athlete_id: Uuid,
     tenant_id: TenantId,
@@ -237,13 +247,34 @@ pub fn trigger_plan_updated(
         user_id: athlete_id,
         tenant_id,
         category: NotificationCategory::Coach,
-        event: NotificationEvent::PlanUpdated,
+        event: NotificationEvent::AgentUpdated,
         params: json!({ "agent_name": agent_name }),
-        route: json!({ "screen": NotificationScreen::Plan.as_str() }),
+        route: json!({}),
         actions: None,
-        bypass_frequency_cap: true,
+        bypass_frequency_cap: false,
     };
-    spawn_dispatch(Arc::clone(service), dispatch, PushTier::P1);
+    spawn_dispatch(Arc::clone(service), dispatch, PushTier::P3);
+}
+
+/// Trigger notification when an administrator assigns the athlete a system
+/// agent.
+pub fn trigger_agent_assigned(
+    service: &Arc<NotificationService>,
+    athlete_id: Uuid,
+    tenant_id: TenantId,
+    agent_name: &str,
+) {
+    let dispatch = EventDispatch {
+        user_id: athlete_id,
+        tenant_id,
+        category: NotificationCategory::Coach,
+        event: NotificationEvent::AgentAssigned,
+        params: json!({ "agent_name": agent_name }),
+        route: json!({}),
+        actions: None,
+        bypass_frequency_cap: false,
+    };
+    spawn_dispatch(Arc::clone(service), dispatch, PushTier::P2);
 }
 
 // ============================================================================

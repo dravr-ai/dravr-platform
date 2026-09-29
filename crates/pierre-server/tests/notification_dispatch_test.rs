@@ -938,12 +938,10 @@ mod dispatch_tests {
         assert_eq!(data_str(&notifications[0], "id"), Some("conv-001"));
     }
 
-    #[tokio::test]
-    async fn test_trigger_plan_updated() {
+    /// The recipient's tenant, and a notification service over the test database.
+    async fn agent_admin_setup(email: &str) -> (Arc<NotificationService>, Uuid, TenantId) {
         let resources = create_test_server_resources().await.unwrap();
-        let (user, _token) = create_test_tenant(&resources, "plan_update@example.com")
-            .await
-            .unwrap();
+        let (user, _token) = create_test_tenant(&resources, email).await.unwrap();
         let tenants = resources
             .common
             .repos
@@ -952,12 +950,22 @@ mod dispatch_tests {
             .await
             .unwrap();
         let tenant_id = TenantId(tenants[0].id.as_uuid());
-
-        let service = Arc::new(notification_service(&resources));
-
-        notification_triggers::trigger_plan_updated(
-            &service,
+        (
+            Arc::new(notification_service(&resources)),
             user.id,
+            tenant_id,
+        )
+    }
+
+    /// An administrator editing a system agent tells its athletes that, in
+    /// those words: no plan changed, so none is claimed.
+    #[tokio::test]
+    async fn test_trigger_agent_updated() {
+        let (service, user_id, tenant_id) = agent_admin_setup("agent_updated@example.com").await;
+
+        notification_triggers::trigger_agent_updated(
+            &service,
+            user_id,
             tenant_id,
             "Endurance Agent",
         );
@@ -965,20 +973,50 @@ mod dispatch_tests {
         sleep(Duration::from_millis(200)).await;
 
         let (notifications, _total, _unread) = service
-            .list_notifications(user.id, tenant_id, 10, 0, Some("coach"), false)
+            .list_notifications(user_id, tenant_id, 10, 0, Some("coach"), false)
             .await
             .unwrap();
 
-        assert!(
-            !notifications.is_empty(),
-            "Plan updated trigger should create notification"
+        assert_eq!(notifications.len(), 1);
+        assert_eq!(notifications[0].notification_type, "agent_updated");
+        assert_eq!(notifications[0].title, "Agent mis à jour");
+        assert_eq!(
+            notifications[0].body,
+            "Un administrateur a mis à jour Endurance Agent."
         );
-        assert_eq!(notifications[0].notification_type, "plan_updated");
-        assert_eq!(notifications[0].title, "Plan d'entraînement mis à jour");
-        assert!(notifications[0].body.contains("Endurance Agent"));
-        // The plan, which Home shows — not a conversation it names none of.
-        assert_eq!(data_str(&notifications[0], "screen"), Some("plan"));
-        assert!(!data_has(&notifications[0], "id"));
+        // No screen shows an agent's definition, so it opens nothing.
+        assert!(!data_has(&notifications[0], "screen"));
+    }
+
+    /// An administrator assigning a system agent tells the athlete it was
+    /// added to their agents.
+    #[tokio::test]
+    async fn test_trigger_agent_assigned() {
+        let (service, user_id, tenant_id) = agent_admin_setup("agent_assigned@example.com").await;
+
+        notification_triggers::trigger_agent_assigned(
+            &service,
+            user_id,
+            tenant_id,
+            "Recovery Agent",
+        );
+
+        sleep(Duration::from_millis(200)).await;
+
+        let (notifications, _total, _unread) = service
+            .list_notifications(user_id, tenant_id, 10, 0, Some("coach"), false)
+            .await
+            .unwrap();
+
+        assert_eq!(notifications.len(), 1);
+        assert_eq!(notifications[0].notification_type, "agent_assigned");
+        assert_eq!(notifications[0].title, "Nouvel agent");
+        assert_eq!(
+            notifications[0].body,
+            "Un administrateur a ajouté Recovery Agent à tes agents."
+        );
+        // No thread with the agent exists yet, so it opens nothing.
+        assert!(!data_has(&notifications[0], "screen"));
     }
 
     // ════════════════════════════════════════════════════════════════

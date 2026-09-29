@@ -36,8 +36,6 @@ pub enum NotificationScreen {
     Activity,
     /// The athlete's recent training — a weekly summary or a workout reminder.
     Activities,
-    /// The athlete's training plan.
-    Plan,
     /// A conversation with the agent, named by the notification's `id`: an
     /// agent message, or an insight the agent computed while answering in it.
     Coach,
@@ -52,7 +50,6 @@ impl NotificationScreen {
         &[
             Self::Activity,
             Self::Activities,
-            Self::Plan,
             Self::Coach,
             Self::Connections,
         ]
@@ -64,7 +61,6 @@ impl NotificationScreen {
         match self {
             Self::Activity => "activity",
             Self::Activities => "activities",
-            Self::Plan => "plan",
             Self::Coach => "coach",
             Self::Connections => "connections",
         }
@@ -79,9 +75,9 @@ impl NotificationScreen {
     #[must_use]
     pub const fn surface(self) -> &'static str {
         match self {
-            // Home carries today's session, the plan's week around it and the
-            // latest activities with their routes.
-            Self::Activity | Self::Activities | Self::Plan => "home",
+            // Home carries the week's sessions and the latest activities with
+            // their routes.
+            Self::Activity | Self::Activities => "home",
             // The chat is a list of threads, so it is a destination only for a
             // notification that names one: the clients open nothing for a
             // `coach` payload without an `id`.

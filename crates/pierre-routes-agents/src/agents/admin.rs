@@ -108,14 +108,14 @@ pub(super) async fn handle_admin_update<C: AgentsCtx + MiddlewareCtx>(
         .await?
         .ok_or_else(|| AppError::not_found(format!("System coach {id}")))?;
 
-    // Notify users assigned to this agent that their training plan was updated
+    // Tell the athletes assigned to this agent that an administrator changed it
     #[cfg(feature = "client-notifications")]
     if let Some(service) = ctx.notification_service() {
         let agent_name = agent.title.clone();
         if let Ok(assignments) = manager.list_assignments_for_tenant(&id, tenant_id).await {
             for assignment in assignments {
                 if let Ok(user_uuid) = assignment.user_id.parse::<uuid::Uuid>() {
-                    notification_triggers::trigger_plan_updated(
+                    notification_triggers::trigger_agent_updated(
                         service,
                         user_uuid,
                         pierre_notifications::TenantId(tenant_id.as_uuid()),
@@ -182,19 +182,17 @@ pub(super) async fn handle_admin_assign<C: AgentsCtx + MiddlewareCtx>(
     )
     .await?;
 
-    // Notify each assigned user about the new agent assignment
+    // Tell each athlete this call assigned the agent to; one who already had
+    // it is told nothing, since nothing changed for them.
     #[cfg(feature = "client-notifications")]
     if let Some(service) = ctx.notification_service() {
-        let agent_name = agent.title.clone();
-        for user_id_str in &body.user_ids {
-            if let Ok(user_uuid) = user_id_str.parse::<uuid::Uuid>() {
-                notification_triggers::trigger_plan_updated(
-                    service,
-                    user_uuid,
-                    pierre_notifications::TenantId(tenant_id.as_uuid()),
-                    &agent_name,
-                );
-            }
+        for &user_id in &result.affected_users {
+            notification_triggers::trigger_agent_assigned(
+                service,
+                user_id,
+                pierre_notifications::TenantId(tenant_id.as_uuid()),
+                &agent.title,
+            );
         }
     }
 
@@ -205,7 +203,7 @@ pub(super) async fn handle_admin_assign<C: AgentsCtx + MiddlewareCtx>(
 
     let response = AssignAgentResponse {
         agent_id: id,
-        assigned_count: result.affected_count,
+        assigned_count: result.affected_users.len(),
         total_requested: result.total_requested,
     };
     Ok((StatusCode::OK, Json(response)).into_response())
@@ -244,7 +242,7 @@ pub(super) async fn handle_admin_unassign<C: AgentsCtx + MiddlewareCtx>(
 
     let response = UnassignAgentResponse {
         agent_id: id,
-        removed_count: result.affected_count,
+        removed_count: result.affected_users.len(),
         total_requested: result.total_requested,
     };
     Ok((StatusCode::OK, Json(response)).into_response())

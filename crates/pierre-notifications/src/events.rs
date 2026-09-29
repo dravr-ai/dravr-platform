@@ -51,8 +51,10 @@ pub enum NotificationEvent {
     FitnessImprovement,
     /// An agent sent the athlete a message.
     AgentMessage,
-    /// An agent updated the athlete's training plan.
-    PlanUpdated,
+    /// An administrator edited a system agent the athlete is assigned.
+    AgentUpdated,
+    /// An administrator assigned the athlete a system agent.
+    AgentAssigned,
     /// A provider sync failed.
     SyncFailure,
     /// The athlete's shared Strava seat will be released unless they come
@@ -101,7 +103,8 @@ impl NotificationEvent {
             Self::PersonalRecord => "personal_record",
             Self::FitnessImprovement => "fitness_improvement",
             Self::AgentMessage => "coach_message",
-            Self::PlanUpdated => "plan_updated",
+            Self::AgentUpdated => "agent_updated",
+            Self::AgentAssigned => "agent_assigned",
             Self::SyncFailure => "sync_failure",
             Self::SeatReleaseWarning => "seat_release_warning",
             Self::DelegationProposed => "delegation_proposed",
@@ -128,7 +131,8 @@ impl NotificationEvent {
             Self::PersonalRecord,
             Self::FitnessImprovement,
             Self::AgentMessage,
-            Self::PlanUpdated,
+            Self::AgentUpdated,
+            Self::AgentAssigned,
             Self::SyncFailure,
             Self::SeatReleaseWarning,
             Self::DelegationProposed,
@@ -156,7 +160,8 @@ impl NotificationEvent {
             Self::PersonalRecord => "notifications.event.personal_record.title",
             Self::FitnessImprovement => "notifications.event.fitness_improvement.title",
             Self::AgentMessage => "notifications.event.agent_message.title",
-            Self::PlanUpdated => "notifications.event.plan_updated.title",
+            Self::AgentUpdated => "notifications.event.agent_updated.title",
+            Self::AgentAssigned => "notifications.event.agent_assigned.title",
             Self::SyncFailure => "notifications.event.sync_failure.title",
             Self::SeatReleaseWarning => "notifications.event.seat_release_warning.title",
             Self::DelegationProposed => "notifications.event.delegation_proposed.title",
@@ -184,7 +189,8 @@ impl NotificationEvent {
             Self::PersonalRecord => "notifications.event.personal_record.body",
             Self::FitnessImprovement => "notifications.event.fitness_improvement.body",
             Self::AgentMessage => "notifications.event.agent_message.body",
-            Self::PlanUpdated => "notifications.event.plan_updated.body",
+            Self::AgentUpdated => "notifications.event.agent_updated.body",
+            Self::AgentAssigned => "notifications.event.agent_assigned.body",
             Self::SyncFailure => "notifications.event.sync_failure.body",
             Self::SeatReleaseWarning => "notifications.event.seat_release_warning.body",
             Self::DelegationProposed => "notifications.event.delegation_proposed.body",
@@ -222,7 +228,7 @@ impl NotificationEvent {
             Self::OvertrainingWarning => &[],
             Self::PersonalRecord => &["distance", "time_display"],
             Self::FitnessImprovement => &["metric_name", "value_display"],
-            Self::AgentMessage | Self::PlanUpdated => &["agent_name"],
+            Self::AgentMessage | Self::AgentUpdated | Self::AgentAssigned => &["agent_name"],
             Self::SyncFailure => &["provider_name"],
             Self::SeatReleaseWarning => &["idle_days", "provider_name", "days_left"],
             Self::DelegationProposed | Self::DelegationOffCoachRoster => {

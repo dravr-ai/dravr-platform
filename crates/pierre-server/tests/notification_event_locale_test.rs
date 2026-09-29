@@ -239,7 +239,8 @@ mod notification_event_locale_tests {
         notification_triggers::trigger_fitness_improvement(
             &service, user.id, tenant, "FTP", "265 W", None,
         );
-        notification_triggers::trigger_plan_updated(&service, user.id, tenant, "Coach Alice");
+        notification_triggers::trigger_agent_updated(&service, user.id, tenant, "Marathon Agent");
+        notification_triggers::trigger_agent_assigned(&service, user.id, tenant, "Recovery Agent");
         notification_triggers::trigger_sync_failure(&service, user.id, tenant, "Strava");
         sleep(Duration::from_millis(600)).await;
 
@@ -247,7 +248,7 @@ mod notification_event_locale_tests {
             .list_notifications(user.id, tenant, 50, 0, None, false)
             .await
             .unwrap();
-        assert_eq!(rows.len(), 7, "every trigger persists exactly one row");
+        assert_eq!(rows.len(), 8, "every trigger persists exactly one row");
 
         let expected = [
             (
@@ -275,10 +276,16 @@ mod notification_event_locale_tests {
                 "Progrès de forme détecté",
                 "Ton FTP est passé à 265 W",
             ),
+            // What an administrator did, never a plan change nobody made.
             (
-                "plan_updated",
-                "Plan d'entraînement mis à jour",
-                "Coach Alice a mis à jour ton plan d'entraînement",
+                "agent_updated",
+                "Agent mis à jour",
+                "Un administrateur a mis à jour Marathon Agent.",
+            ),
+            (
+                "agent_assigned",
+                "Nouvel agent",
+                "Un administrateur a ajouté Recovery Agent à tes agents.",
             ),
             // The body names the provider and what to do, never the
             // provider's own error.
@@ -314,7 +321,8 @@ mod notification_event_locale_tests {
             NotificationEvent::PersonalRecord,
             NotificationEvent::FitnessImprovement,
             NotificationEvent::AgentMessage,
-            NotificationEvent::PlanUpdated,
+            NotificationEvent::AgentUpdated,
+            NotificationEvent::AgentAssigned,
             NotificationEvent::SyncFailure,
             NotificationEvent::SeatReleaseWarning,
             NotificationEvent::DelegationProposed,

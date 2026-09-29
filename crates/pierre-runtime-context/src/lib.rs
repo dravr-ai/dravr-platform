@@ -425,8 +425,8 @@ pub trait AgentsCtx: MiddlewareCtx {
     /// not stored as a trait object; the upcast happens here.
     fn admin_config(&self) -> Option<Arc<dyn AdminConfigLookup>>;
 
-    /// Notification dispatch service — used by admin agent update and
-    /// assign handlers to fire `plan_updated` push notifications.
+    /// Notification dispatch service — used by the admin agent update and
+    /// assign handlers to tell athletes an agent changed or was assigned.
     /// `None` when notifications are not wired.
     #[cfg(feature = "client-notifications")]
     fn notification_service(&self) -> Option<&Arc<pierre_notifications::NotificationService>>;

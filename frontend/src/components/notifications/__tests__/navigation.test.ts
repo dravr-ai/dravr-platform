@@ -33,11 +33,10 @@ describe('webNotificationRoute', () => {
     expect(webNotificationRoute({ screen: 'coach', id: 42 })).toBeNull();
   });
 
-  it('opens Home for a personal record, a weekly summary and a plan update', () => {
-    // Home carries the latest activities with their routes and the plan's week.
+  it('opens Home for a personal record and a weekly summary', () => {
+    // Home carries the latest activities with their routes and the week's sessions.
     expect(webNotificationRoute({ screen: 'activity', id: 'act-1' })).toBe('home');
     expect(webNotificationRoute({ screen: 'activities' })).toBe('home');
-    expect(webNotificationRoute({ screen: 'plan' })).toBe('home');
   });
 
   it('never reads an activity id as a conversation', () => {
@@ -59,6 +58,8 @@ describe('webNotificationRoute', () => {
     expect(webNotificationRoute({ screen: 'stats' })).toBeNull();
     expect(webNotificationRoute({ screen: 'recovery' })).toBeNull();
     expect(webNotificationRoute({ screen: 'settings', action: 'reconnect' })).toBeNull();
+    // A plan update claimed a change nobody made; the token went with it.
+    expect(webNotificationRoute({ screen: 'plan' })).toBeNull();
     expect(webNotificationRoute({ screen: 'social', id: 'req-1' })).toBeNull();
   });
 

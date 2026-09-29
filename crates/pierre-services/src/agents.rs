@@ -383,8 +383,10 @@ pub fn format_rejection_reason(reason: &str, notes: Option<&str>) -> String {
 /// Result of a bulk agent assignment operation
 #[derive(Debug)]
 pub struct BulkAssignmentResult {
-    /// Number of users successfully assigned/unassigned
-    pub affected_count: usize,
+    /// The users whose assignment this call changed, in request order: newly
+    /// assigned, or newly unassigned. A user who already had the agent (or
+    /// already did not) is not among them, since nothing happened to them.
+    pub affected_users: Vec<Uuid>,
     /// Total number of users requested
     pub total_requested: usize,
 }
@@ -406,7 +408,7 @@ pub async fn bulk_assign_agent<DB: TenantRepository + ?Sized>(
     admin_user_id: Uuid,
     user_ids: &[String],
 ) -> AppResult<BulkAssignmentResult> {
-    let mut assigned_count = 0;
+    let mut assigned = Vec::new();
 
     for user_id_str in user_ids {
         let user_id = Uuid::parse_str(user_id_str)
@@ -418,12 +420,12 @@ pub async fn bulk_assign_agent<DB: TenantRepository + ?Sized>(
             .assign_agent(agent_id, user_id, admin_user_id)
             .await?
         {
-            assigned_count += 1;
+            assigned.push(user_id);
         }
     }
 
     Ok(BulkAssignmentResult {
-        affected_count: assigned_count,
+        affected_users: assigned,
         total_requested: user_ids.len(),
     })
 }
@@ -444,7 +446,7 @@ pub async fn bulk_unassign_agent<DB: TenantRepository + ?Sized>(
     tenant_id: TenantId,
     user_ids: &[String],
 ) -> AppResult<BulkAssignmentResult> {
-    let mut removed_count = 0;
+    let mut removed = Vec::new();
 
     for user_id_str in user_ids {
         let user_id = Uuid::parse_str(user_id_str)
@@ -453,12 +455,12 @@ pub async fn bulk_unassign_agent<DB: TenantRepository + ?Sized>(
         verify_tenant_membership(database, user_id, tenant_id).await?;
 
         if manager.unassign_agent(agent_id, user_id).await? {
-            removed_count += 1;
+            removed.push(user_id);
         }
     }
 
     Ok(BulkAssignmentResult {
-        affected_count: removed_count,
+        affected_users: removed,
         total_requested: user_ids.len(),
     })
 }
