@@ -1051,7 +1051,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         )}
         {activeTab === 'notifications' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <NotificationsPanel onNavigate={applyRoute} />
+            <NotificationsPanel onNavigate={applyRoute} onOpenChatDraft={openChatDraft} />
           </Suspense>
         )}
         {activeTab === 'admin-tokens' && (

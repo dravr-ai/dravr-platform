@@ -37,6 +37,16 @@ export interface NotificationDestination {
    * open instead of the thread they were replying to.
    */
   conversationId?: string;
+  /**
+   * The notification opens the chat surface without naming a thread.
+   *
+   * A fitness improvement, a recovery score or a sync names a training screen,
+   * and every one of those is served by the chat now. Opened bare, the chat
+   * says nothing about the event the athlete tapped, so both clients open a
+   * fresh thread instead, its composer holding a question that quotes the
+   * notification (`notifications.askDraft`).
+   */
+  asksInChat: boolean;
 }
 
 /** Read a value as a screen name the server declares, or null. */
@@ -62,7 +72,8 @@ export function resolveNotificationDestination(
   const screen = asScreen(data?.screen) ?? asScreen(actionId);
   if (!screen) return null;
 
-  const routes = destinationRoutes(NOTIFICATION_SCREEN_SURFACES[screen]);
+  const surface = NOTIFICATION_SCREEN_SURFACES[screen];
+  const routes = destinationRoutes(surface);
   if (!routes) return null;
 
   // Only the coach screen names a conversation in `id`. Every training screen
@@ -70,9 +81,9 @@ export function resolveNotificationDestination(
   // Insights tab is gone, but their `id` is the activity or alert itself —
   // reading it as a thread would open a conversation that does not exist.
   if (screen === 'coach' && typeof data?.id === 'string') {
-    return { routes, conversationId: data.id };
+    return { routes, conversationId: data.id, asksInChat: false };
   }
-  return { routes };
+  return { routes, asksInChat: surface === 'chat' };
 }
 
 /**

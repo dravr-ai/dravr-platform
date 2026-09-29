@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tests the notification center — the unread dot, a category's own hue, mono time, day grouping, the EmptyState and delete by swipe or long-press
-// ABOUTME: Mocks the notification hooks and the platform menu; pins the noCategoryNotifications bug fix (a translated label, never the raw category key)
+// ABOUTME: Mocks the notification hooks and the platform menu; pins the translated empty-state label and the fresh-thread draft a threadless notification opens
 
 import React from 'react';
 import { ActionSheetIOS, Alert } from 'react-native';
@@ -15,9 +15,11 @@ import {
 } from '@pierre/shared-constants';
 import type { NotificationItem } from '@pierre/shared-types';
 
+const mockPush = jest.fn();
+
 jest.mock('expo-router', () =>
   require('../jest.expo-router').createExpoRouterMock({
-    useRouter: () => ({ push: jest.fn(), back: jest.fn(), replace: jest.fn(), canGoBack: () => true }),
+    useRouter: () => ({ push: mockPush, back: jest.fn(), replace: jest.fn(), canGoBack: () => true }),
   }),
 );
 
@@ -288,5 +290,57 @@ describe('NotificationCenterScreen', () => {
     presentedSheet().pick(0);
 
     await waitFor(() => expect(mockDeleteNotification).toHaveBeenCalledWith('notif-1'));
+  });
+
+  it('opens a fitness improvement in a fresh thread whose composer quotes it, not on the bare chat list', async () => {
+    // Every training screen is served by the chat. Opened bare, the list said
+    // nothing about the Fitness Score the athlete tapped — a dead end.
+    const item = createNotification({
+      id: 'fitness-1',
+      category: 'achievement',
+      notification_type: 'fitness_improvement',
+      title: 'Fitness improvement detected',
+      body: 'Your Fitness Score rose to 48',
+      data: { screen: 'stats' },
+    });
+    mockUseNotificationFeed.mockReturnValue(loadedFeed([item]));
+
+    const { getByTestId } = renderScreen();
+    await waitFor(() => expect(getByTestId('notification-row-fitness-1')).toBeTruthy());
+    fireEvent.press(getByTestId('notification-row-fitness-1'));
+    fireEvent.press(getByTestId('notification-detail-navigate'));
+
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/(app)/chat/[conversationId]',
+      params: {
+        conversationId: 'new',
+        draft: i18n.t('notifications.askDraft', {
+          title: 'Fitness improvement detected',
+          body: 'Your Fitness Score rose to 48',
+        }),
+      },
+    });
+    expect(mockPush.mock.calls[0][0].params.draft).toContain('Your Fitness Score rose to 48');
+  });
+
+  it('still opens an agent message on its own thread, with no draft', async () => {
+    const item = createNotification({
+      id: 'agent-1',
+      category: 'coach',
+      data: { screen: 'coach', action: 'chat', id: 'conv-abc-123' },
+    });
+    mockUseNotificationFeed.mockReturnValue(loadedFeed([item]));
+
+    const { getByTestId } = renderScreen();
+    await waitFor(() => expect(getByTestId('notification-row-agent-1')).toBeTruthy());
+    fireEvent.press(getByTestId('notification-row-agent-1'));
+    fireEvent.press(getByTestId('notification-detail-navigate'));
+
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/(app)/chat/[conversationId]',
+      params: { conversationId: 'conv-abc-123' },
+    });
   });
 });

@@ -5,7 +5,7 @@
 // ABOUTME: Regression coverage for the 2026-05-09 web sweep where Recovery rows didn't navigate
 
 import { describe, it, expect } from 'vitest';
-import { webNotificationRoute } from '@pierre/shared-constants';
+import { resolveNotificationDestination, webNotificationRoute } from '@pierre/shared-constants';
 
 describe('webNotificationRoute', () => {
   // The Insights surface was retired by the Chat-First Cutover. Every training
@@ -88,5 +88,27 @@ describe('webNotificationRoute', () => {
     expect(webNotificationRoute({ screen: 'unknown_screen' }, 'reply')).toBeNull();
     // The legacy `route` key is not honoured — only `screen` routes.
     expect(webNotificationRoute({ route: '/somewhere' })).toBeNull();
+  });
+});
+
+describe('resolveNotificationDestination asksInChat', () => {
+  // A training screen opens the chat with no thread; opened bare it says
+  // nothing about the event, so the clients ask about it in a fresh thread.
+  it.each(['activity', 'activities', 'recovery', 'stats'])('asks in chat for %s', (screen) => {
+    expect(resolveNotificationDestination({ screen, id: 'subject-1' })?.asksInChat).toBe(true);
+  });
+
+  it('asks in chat for a coach payload that names no thread', () => {
+    expect(resolveNotificationDestination({ screen: 'coach', action: 'plan' })?.asksInChat).toBe(true);
+  });
+
+  it('opens a named coach thread as it is, with nothing to ask', () => {
+    const destination = resolveNotificationDestination({ screen: 'coach', id: 'conv-1' });
+    expect(destination).toMatchObject({ conversationId: 'conv-1', asksInChat: false });
+  });
+
+  it('never asks for a settings pane', () => {
+    expect(resolveNotificationDestination({ screen: 'settings' })?.asksInChat).toBe(false);
+    expect(resolveNotificationDestination({ screen: 'connections' })?.asksInChat).toBe(false);
   });
 });

@@ -18,6 +18,7 @@ import {
   NOTIFICATION_CATEGORIES,
   formatNotificationTime,
   formatCollapsedCount,
+  resolveNotificationDestination,
   webNotificationRoute,
 } from '@pierre/shared-constants';
 import type { NotificationCategory, NotificationItem, NotificationAction } from '@pierre/shared-types';
@@ -27,9 +28,11 @@ import { useTheme } from '../../hooks/useTheme';
 interface NotificationsPanelProps {
   /** Callback when a notification with route data is clicked */
   onNavigate?: (route: string) => void;
+  /** Opens a fresh thread whose composer holds `text`, for the athlete to finish and send */
+  onOpenChatDraft?: (text: string) => void;
 }
 
-export default function NotificationsPanel({ onNavigate }: NotificationsPanelProps) {
+export default function NotificationsPanel({ onNavigate, onOpenChatDraft }: NotificationsPanelProps) {
   const { t } = useTranslation();
   // The dot takes the hue paired with the athlete's scheme: the panel follows
   // the theme like every surface around it, and the map is total, so a
@@ -44,41 +47,33 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
   const { notifications, total, unreadCount, isLoading } = useNotificationFeed(feedParams);
   const { markAsRead, markAllAsRead, deleteNotification, isMarkingAllRead } = useNotificationActions();
 
-  const handleNotificationClick = useCallback(
-    (item: NotificationItem) => {
-      if (!item.read_at) {
-        markAsRead(item.id);
-      }
-      // Backend triggers (dravr-commere) emit `data.screen` as the
-      // routing hint; the legacy `data.route` key was never wired on
-      // the server side, so reading it left every Recovery / activity
-      // notification stranded with no destination (web QA 2026-05-09).
-      // Resolved from the server's own screen vocabulary against the shared
-      // surface registry, so this panel, the mobile centre and any future
-      // surface land in the same place. Agent messages carry the conversation
-      // id on `data.id` and resolve to `chat/<id>`, which opens the thread
-      // rather than the empty picker.
-      const data = item.data as Record<string, unknown> | undefined;
-      const route = webNotificationRoute(data);
-      if (route && onNavigate) {
-        onNavigate(route);
-      }
-    },
-    [markAsRead, onNavigate],
-  );
-
-  const handleActionClick = useCallback(
-    (item: NotificationItem, action: NotificationAction) => {
+  // Backend triggers emit `data.screen` as the routing hint; the legacy
+  // `data.route` key was never wired on the server side, so reading it left
+  // every Recovery / activity notification stranded with no destination (web
+  // QA 2026-05-09). Resolved from the server's own screen vocabulary against
+  // the shared surface registry, so this panel, the mobile centre and any
+  // future surface land in the same place. Agent messages carry the
+  // conversation id on `data.id` and resolve to `chat/<id>`, which opens the
+  // thread rather than the empty picker. A notification that lands on the chat
+  // without a thread — a fitness improvement, a recovery score — opens a fresh
+  // one whose composer quotes it, so the tap asks about the event instead of
+  // dropping the athlete on a chat that says nothing about it.
+  const openNotification = useCallback(
+    (item: NotificationItem, actionId?: string) => {
       if (!item.read_at) {
         markAsRead(item.id);
       }
       const data = item.data as Record<string, unknown> | undefined;
-      const route = webNotificationRoute(data, action.id);
+      if (resolveNotificationDestination(data, actionId)?.asksInChat && onOpenChatDraft) {
+        onOpenChatDraft(t('notifications.askDraft', { title: item.title, body: item.body }));
+        return;
+      }
+      const route = webNotificationRoute(data, actionId);
       if (route && onNavigate) {
         onNavigate(route);
       }
     },
-    [markAsRead, onNavigate],
+    [markAsRead, onNavigate, onOpenChatDraft, t],
   );
 
   /** Category filter list: 'all' + each category from shared constants */
@@ -162,7 +157,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
                 <div
                   key={item.id}
                   className="group flex min-h-[48px] cursor-pointer items-start gap-3 border-t ghost-border-faint px-4 py-2.5 transition-colors first:border-t-0 hover:bg-surface-container-low/60 sm:gap-4 sm:px-6"
-                  onClick={() => handleNotificationClick(item)}
+                  onClick={() => openNotification(item)}
                 >
                   {/* Unread indicator — the primary dot, the same mark the chat list uses */}
                   <div className="w-2 pt-2 flex-shrink-0">
@@ -209,7 +204,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
                             key={action.id}
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleActionClick(item, action);
+                              openNotification(item, action.id);
                             }}
                             className="text-xs font-medium px-1 py-1 text-primary hover:text-primary-hover transition-colors"
                           >

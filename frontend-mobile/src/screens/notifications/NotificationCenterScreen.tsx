@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 import { NotificationDetailModal } from '../../components/notifications/NotificationDetailModal';
-import { mobileNotificationTarget } from '@pierre/shared-constants';
+import { mobileNotificationTarget, resolveNotificationDestination } from '@pierre/shared-constants';
 import { dayLabelFor, localDayKey } from '@pierre/chat-utils';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, useRouter } from 'expo-router';
@@ -27,6 +27,7 @@ import {
   Clock,
 } from 'lucide-react-native';
 import { useThemeColors } from '../../constants/theme';
+import { threadHref } from '../../navigation/routes';
 import {
   useNotificationFeed,
   useNotificationActions,
@@ -97,28 +98,35 @@ export function NotificationCenterScreen() {
     setDetailNotification(item);
   }, [markAsRead]);
 
-  const handleDetailNavigate = useCallback((item: NotificationItem) => {
-    // Resolve `data.screen` (coach messages carry the conversation id on
-    // `data.id`) to a grouped expo-router target, through the same shared
-    // resolver the web panel uses. The legacy `data.route` key this once read
-    // was never wired server-side.
-    const target = mobileNotificationTarget(item.data);
+  // Resolve `data.screen` (coach messages carry the conversation id on
+  // `data.id`) to a grouped expo-router target, through the same shared
+  // resolver the web panel uses. The legacy `data.route` key this once read
+  // was never wired server-side. A notification that lands on the chat
+  // without a thread — a fitness improvement, a recovery score — opens a fresh
+  // one whose composer quotes it, so the tap asks about the event instead of
+  // dropping the athlete on a list that says nothing about it.
+  const openNotification = useCallback((item: NotificationItem, actionId?: string) => {
+    if (resolveNotificationDestination(item.data, actionId)?.asksInChat) {
+      const draft = t('notifications.askDraft', { title: item.title, body: item.body });
+      router.push(threadHref(undefined, { draft }));
+      return;
+    }
+    const target = mobileNotificationTarget(item.data, actionId);
     if (target) {
       router.push(target as never);
     }
-  }, [router]);
+  }, [router, t]);
+
+  const handleDetailNavigate = useCallback((item: NotificationItem) => {
+    openNotification(item);
+  }, [openNotification]);
 
   const handleAction = useCallback((item: NotificationItem, actionId: string) => {
     if (!item.read_at) {
       markAsRead(item.id);
     }
-    // Route to the screen specified in data with the action context. Coach
-    // "Reply" resolves to the chat tab with the conversation preselected.
-    const target = mobileNotificationTarget(item.data, actionId);
-    if (target) {
-      router.push(target as never);
-    }
-  }, [markAsRead, router]);
+    openNotification(item, actionId);
+  }, [markAsRead, openNotification]);
 
   /**
    * The confirm both the swipe action and the long-press menu land on —
