@@ -209,7 +209,7 @@ personas:
                     notification_type: notification_type.to_owned(),
                     title: "Training load elevated".to_owned(),
                     body: "held for the digest".to_owned(),
-                    data: Some(json!({ "screen": "recovery" })),
+                    data: Some(json!({ "screen": "coach", "action": "chat", "id": "conv-load-1" })),
                     image_url: None,
                     actions: None,
                     bypass_frequency_cap: false,

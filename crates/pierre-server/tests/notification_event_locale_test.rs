@@ -225,9 +225,9 @@ mod notification_event_locale_tests {
         let tenant = tenant_of(&resources, user.id).await;
         let service = Arc::new(notification_service(&resources));
 
-        notification_triggers::trigger_training_load_alert(&service, user.id, tenant, 85.0);
-        notification_triggers::trigger_low_recovery_score(&service, user.id, tenant, 32.0);
-        notification_triggers::trigger_overtraining_warning(&service, user.id, tenant);
+        notification_triggers::trigger_training_load_alert(&service, user.id, tenant, 85.0, None);
+        notification_triggers::trigger_low_recovery_score(&service, user.id, tenant, 32.0, None);
+        notification_triggers::trigger_overtraining_warning(&service, user.id, tenant, None);
         notification_triggers::trigger_personal_record(
             &service,
             user.id,
@@ -237,7 +237,7 @@ mod notification_event_locale_tests {
             "1:32:14",
         );
         notification_triggers::trigger_fitness_improvement(
-            &service, user.id, tenant, "FTP", "265 W",
+            &service, user.id, tenant, "FTP", "265 W", None,
         );
         notification_triggers::trigger_plan_updated(&service, user.id, tenant, "Coach Alice");
         notification_triggers::trigger_sync_failure(&service, user.id, tenant, "Strava");

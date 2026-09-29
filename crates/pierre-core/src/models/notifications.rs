@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 /// One vocabulary, declared once. The value travels on a notification's
 /// `data.screen` field, and every client has to turn it into a destination —
 /// which web and mobile each did with a hand-written switch of their own,
-/// over the same seven strings, with nothing checking that the two agreed or
+/// over the same strings, with nothing checking that the two agreed or
 /// that either covered what the server actually emits. They did not: the
 /// provider-reauth notification emits [`Self::Connections`], which neither
 /// map handled, so tapping it navigated nowhere on both platforms.
@@ -25,21 +25,22 @@ use serde::{Deserialize, Serialize};
 /// `USER_SURFACES` registry, which already knows each platform's own route
 /// for that surface. The clients read the pairing out of the generated
 /// capability catalogue instead of restating it.
+///
+/// Every token names a destination that shows the notification's subject. A
+/// notification with nothing to show carries no screen at all, and the clients
+/// render it as information rather than as a link.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NotificationScreen {
     /// One activity — a sync or a personal record.
     Activity,
-    /// The athlete's activity list.
+    /// The athlete's recent training — a weekly summary or a workout reminder.
     Activities,
-    /// Recovery, sleep and overtraining alerts.
-    Recovery,
-    /// Training statistics and load trends.
-    Stats,
-    /// An agent message or plan update.
+    /// The athlete's training plan.
+    Plan,
+    /// A conversation with the agent, named by the notification's `id`: an
+    /// agent message, or an insight the agent computed while answering in it.
     Coach,
-    /// Account settings.
-    Settings,
     /// The athlete's connected data providers.
     Connections,
 }
@@ -51,10 +52,8 @@ impl NotificationScreen {
         &[
             Self::Activity,
             Self::Activities,
-            Self::Recovery,
-            Self::Stats,
+            Self::Plan,
             Self::Coach,
-            Self::Settings,
             Self::Connections,
         ]
     }
@@ -65,10 +64,8 @@ impl NotificationScreen {
         match self {
             Self::Activity => "activity",
             Self::Activities => "activities",
-            Self::Recovery => "recovery",
-            Self::Stats => "stats",
+            Self::Plan => "plan",
             Self::Coach => "coach",
-            Self::Settings => "settings",
             Self::Connections => "connections",
         }
     }
@@ -82,14 +79,13 @@ impl NotificationScreen {
     #[must_use]
     pub const fn surface(self) -> &'static str {
         match self {
-            // There is no activity, load or recovery dashboard: the agent reads
-            // those numbers to the athlete in the conversation, so a sync, a
-            // load alert or a recovery score opens the chat where the question
-            // can be asked.
-            Self::Activity | Self::Activities | Self::Recovery | Self::Stats | Self::Coach => {
-                "chat"
-            }
-            Self::Settings => "profile",
+            // Home carries today's session, the plan's week around it and the
+            // latest activities with their routes.
+            Self::Activity | Self::Activities | Self::Plan => "home",
+            // The chat is a list of threads, so it is a destination only for a
+            // notification that names one: the clients open nothing for a
+            // `coach` payload without an `id`.
+            Self::Coach => "chat",
             Self::Connections => "connections",
         }
     }

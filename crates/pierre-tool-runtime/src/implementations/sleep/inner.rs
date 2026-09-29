@@ -11,9 +11,10 @@ use std::pin::Pin;
 
 use chrono::Utc;
 use tracing::{debug, warn};
-use uuid::Uuid;
 
 use super::activity_source::training_load_activities;
+#[cfg(feature = "client-notifications")]
+use super::recovery_notice::fire_low_recovery_notification;
 use crate::protocol::sleep_helpers::{latest_sleep_data, sleep_history_data};
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
@@ -402,26 +403,12 @@ pub fn handle_calculate_recovery_score(
 
         // Fire low recovery score notification if below threshold
         #[cfg(feature = "client-notifications")]
-        {
-            use pierre_notifications::triggers as notification_triggers;
-            use pierre_notifications::TenantId;
-
-            const LOW_RECOVERY_THRESHOLD: f64 = 40.0;
-            if recovery_score.overall_score < LOW_RECOVERY_THRESHOLD {
-                if let Some(service) = &executor.resources.notification_service() {
-                    if let Some(tenant_str) = request.tenant_id.as_deref() {
-                        if let Ok(tenant_uuid) = tenant_str.parse::<Uuid>() {
-                            notification_triggers::trigger_low_recovery_score(
-                                service,
-                                user_uuid,
-                                TenantId(tenant_uuid),
-                                recovery_score.overall_score,
-                            );
-                        }
-                    }
-                }
-            }
-        }
+        fire_low_recovery_notification(
+            &executor.resources,
+            user_uuid,
+            request.tenant_id.as_deref(),
+            recovery_score.overall_score,
+        );
 
         let payload = recovery_score_payload(
             recovery_score.clone(),

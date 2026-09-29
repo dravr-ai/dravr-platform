@@ -175,6 +175,22 @@ async fn block_kinds_and_screens_are_published_whole() -> Result<(), Box<dyn Err
         .find(|row| row["screen"] == "coach")
         .expect("the coach screen is catalogued");
     assert_eq!(agent["surface"], "chat");
+    // Home carries today's session, the plan's week and the latest activities.
+    for token in ["activity", "activities", "plan"] {
+        let row = screens
+            .iter()
+            .find(|row| row["screen"] == token)
+            .unwrap_or_else(|| panic!("the {token} screen is catalogued"));
+        assert_eq!(row["surface"], "home", "{token} opens Home");
+    }
+    // The chat is a list of threads, so only the screen that names one opens
+    // it; every other screen would land the athlete on an empty chat.
+    let chat_bound: Vec<&str> = screens
+        .iter()
+        .filter(|row| row["surface"] == "chat")
+        .filter_map(|row| row["screen"].as_str())
+        .collect();
+    assert_eq!(chat_bound, ["coach"]);
     Ok(())
 }
 

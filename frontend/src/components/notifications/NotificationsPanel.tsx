@@ -18,7 +18,6 @@ import {
   NOTIFICATION_CATEGORIES,
   formatNotificationTime,
   formatCollapsedCount,
-  resolveNotificationDestination,
   webNotificationRoute,
 } from '@pierre/shared-constants';
 import type { NotificationCategory, NotificationItem, NotificationAction } from '@pierre/shared-types';
@@ -28,11 +27,9 @@ import { useTheme } from '../../hooks/useTheme';
 interface NotificationsPanelProps {
   /** Callback when a notification with route data is clicked */
   onNavigate?: (route: string) => void;
-  /** Opens a fresh thread whose composer holds `text`, for the athlete to finish and send */
-  onOpenChatDraft?: (text: string) => void;
 }
 
-export default function NotificationsPanel({ onNavigate, onOpenChatDraft }: NotificationsPanelProps) {
+export default function NotificationsPanel({ onNavigate }: NotificationsPanelProps) {
   const { t } = useTranslation();
   // The dot takes the hue paired with the athlete's scheme: the panel follows
   // the theme like every surface around it, and the map is total, so a
@@ -52,28 +49,20 @@ export default function NotificationsPanel({ onNavigate, onOpenChatDraft }: Noti
   // every Recovery / activity notification stranded with no destination (web
   // QA 2026-05-09). Resolved from the server's own screen vocabulary against
   // the shared surface registry, so this panel, the mobile centre and any
-  // future surface land in the same place. Agent messages carry the
-  // conversation id on `data.id` and resolve to `chat/<id>`, which opens the
-  // thread rather than the empty picker. A notification that lands on the chat
-  // without a thread — a fitness improvement, a recovery score — opens a fresh
-  // one whose composer quotes it, so the tap asks about the event instead of
-  // dropping the athlete on a chat that says nothing about it.
+  // future surface land in the same place. An agent message, and an insight
+  // the agent computed while answering, carry their conversation on `data.id`
+  // and resolve to `chat/<id>`, which opens that thread. A notification with
+  // nowhere to go resolves to null and renders as information, not as a link.
   const openNotification = useCallback(
-    (item: NotificationItem, actionId?: string) => {
+    (item: NotificationItem, route: string | null) => {
       if (!item.read_at) {
         markAsRead(item.id);
       }
-      const data = item.data as Record<string, unknown> | undefined;
-      if (resolveNotificationDestination(data, actionId)?.asksInChat && onOpenChatDraft) {
-        onOpenChatDraft(t('notifications.askDraft', { title: item.title, body: item.body }));
-        return;
-      }
-      const route = webNotificationRoute(data, actionId);
       if (route && onNavigate) {
         onNavigate(route);
       }
     },
-    [markAsRead, onNavigate, onOpenChatDraft, t],
+    [markAsRead, onNavigate],
   );
 
   /** Category filter list: 'all' + each category from shared constants */
@@ -152,12 +141,17 @@ export default function NotificationsPanel({ onNavigate, onOpenChatDraft }: Noti
               const isUnread = !item.read_at;
               const meta = NOTIFICATION_CATEGORY_META[item.category];
               const collapsedLabel = formatCollapsedCount(item.collapsed_count);
+              const route = webNotificationRoute(item.data as Record<string, unknown> | undefined);
 
               return (
                 <div
                   key={item.id}
-                  className="group flex min-h-[48px] cursor-pointer items-start gap-3 border-t ghost-border-faint px-4 py-2.5 transition-colors first:border-t-0 hover:bg-surface-container-low/60 sm:gap-4 sm:px-6"
-                  onClick={() => openNotification(item)}
+                  data-testid={`notification-row-${item.id}`}
+                  className={clsx(
+                    'group flex min-h-[48px] items-start gap-3 border-t ghost-border-faint px-4 py-2.5 transition-colors first:border-t-0 hover:bg-surface-container-low/60 sm:gap-4 sm:px-6',
+                    route && 'cursor-pointer',
+                  )}
+                  onClick={() => openNotification(item, route)}
                 >
                   {/* Unread indicator — the primary dot, the same mark the chat list uses */}
                   <div className="w-2 pt-2 flex-shrink-0">
@@ -196,15 +190,16 @@ export default function NotificationsPanel({ onNavigate, onOpenChatDraft }: Noti
                     </div>
                     <p className="text-xs text-outline mt-0.5 line-clamp-2">{item.body}</p>
 
-                    {/* Action buttons */}
-                    {item.actions && item.actions.length > 0 && (
+                    {/* Action buttons — each opens the notification's own destination,
+                        so a notification with none shows no button that leads nowhere. */}
+                    {route && item.actions && item.actions.length > 0 && (
                       <div className="flex items-center gap-2 mt-2">
                         {item.actions.map((action: NotificationAction) => (
                           <button
                             key={action.id}
                             onClick={(e) => {
                               e.stopPropagation();
-                              openNotification(item, action.id);
+                              openNotification(item, route);
                             }}
                             className="text-xs font-medium px-1 py-1 text-primary hover:text-primary-hover transition-colors"
                           >

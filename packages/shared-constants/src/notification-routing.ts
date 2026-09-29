@@ -13,8 +13,8 @@ import { destinationRoutes, type DestinationRoutes } from './surfaces';
 /**
  * The surface a notification opens.
  *
- * Web and mobile each used to carry a `switch` over the same seven screen
- * names, in their own file, returning their own route shape. Nothing checked
+ * Web and mobile each used to carry a `switch` over the same screen names,
+ * in their own file, returning their own route shape. Nothing checked
  * that the two agreed, and nothing checked either against what the server
  * emits — so `connections`, which the provider-reauth notification has always
  * sent, matched neither map and tapping it navigated nowhere on both
@@ -29,24 +29,12 @@ export interface NotificationDestination {
   /** Where the destination the notification points at is served. */
   routes: DestinationRoutes;
   /**
-   * Conversation to preselect, for an agent message that carries one.
-   *
-   * `dravr-commere`'s `trigger_coach_message` sends
-   * `{ screen: "coach", action: "chat", id: <conversation_id> }`. Routing on
-   * `screen` alone strands the athlete on the chat surface with no thread
-   * open instead of the thread they were replying to.
+   * The thread a `coach` payload names in `id`: the conversation an agent
+   * message was sent in, or the one where the agent computed the insight the
+   * notification reports. The server sends
+   * `{ screen: "coach", action: "chat", id: <conversation_id> }` for both.
    */
   conversationId?: string;
-  /**
-   * The notification opens the chat surface without naming a thread.
-   *
-   * A fitness improvement, a recovery score or a sync names a training screen,
-   * and every one of those is served by the chat now. Opened bare, the chat
-   * says nothing about the event the athlete tapped, so both clients open a
-   * fresh thread instead, its composer holding a question that quotes the
-   * notification (`notifications.askDraft`).
-   */
-  asksInChat: boolean;
 }
 
 /** Read a value as a screen name the server declares, or null. */
@@ -59,31 +47,35 @@ function asScreen(value: unknown): NotificationScreen | null {
 /**
  * Resolve where a notification should take the athlete.
  *
- * Falls back to the pressed action's id when the payload carries no usable
- * `screen`, which is how an action button labelled "Settings" routes on a
- * payload that only named the notification's own subject. Returns null when
- * neither names a screen — the tap still marks the notification read, it just
- * does not navigate.
+ * A notification's action buttons open the notification's own destination —
+ * an agent message's "Reply" its thread, a sync failure's "Reconnect" the
+ * connections pane — so the payload alone decides.
+ *
+ * Returns null when the payload names nowhere to go: no screen, a screen this
+ * vocabulary does not carry (a row stored before a token was retired), or the
+ * chat without a thread. The clients render such a notification as
+ * information rather than as a link, so nothing looks tappable and leads
+ * nowhere.
  */
 export function resolveNotificationDestination(
   data: Record<string, unknown> | null | undefined,
-  actionId?: string,
 ): NotificationDestination | null {
-  const screen = asScreen(data?.screen) ?? asScreen(actionId);
+  const screen = asScreen(data?.screen);
   if (!screen) return null;
 
   const surface = NOTIFICATION_SCREEN_SURFACES[screen];
   const routes = destinationRoutes(surface);
   if (!routes) return null;
 
-  // Only the coach screen names a conversation in `id`. Every training screen
-  // (activity, recovery, stats …) also opens the chat surface now that the
-  // Insights tab is gone, but their `id` is the activity or alert itself —
-  // reading it as a thread would open a conversation that does not exist.
-  if (screen === 'coach' && typeof data?.id === 'string') {
-    return { routes, conversationId: data.id, asksInChat: false };
-  }
-  return { routes, asksInChat: surface === 'chat' };
+  // Only the coach screen names a conversation in `id`; a personal record's
+  // `id` is its activity, and reading it as a thread would open a
+  // conversation that does not exist.
+  const conversationId = screen === 'coach' && typeof data?.id === 'string' ? data.id : null;
+  if (conversationId !== null) return { routes, conversationId };
+
+  // The chat is a list of threads. A notification that names none has nothing
+  // there to show, and opening the empty chat is the dead end this refuses.
+  return surface === 'chat' ? null : { routes };
 }
 
 /**
@@ -92,9 +84,8 @@ export function resolveNotificationDestination(
  */
 export function webNotificationRoute(
   data: Record<string, unknown> | null | undefined,
-  actionId?: string,
 ): string | null {
-  const destination = resolveNotificationDestination(data, actionId);
+  const destination = resolveNotificationDestination(data);
   const web = destination?.routes.web;
   if (!web) return null;
 
@@ -133,14 +124,13 @@ export interface NotificationNavTarget {
  */
 export function mobileNotificationTarget(
   data: Record<string, unknown> | null | undefined,
-  actionId?: string,
 ): NotificationNavTarget | null {
-  const destination = resolveNotificationDestination(data, actionId);
+  const destination = resolveNotificationDestination(data);
   const pathname = destination?.routes.mobile;
   if (!pathname) return null;
 
-  // The chat tab lands on the conversation list since the Chat-First Cutover;
-  // a named conversation opens the thread route, not the list.
+  // A conversation opens the thread route, which sits beside the tabs, not
+  // the chat tab's list.
   const { conversationId } = destination;
   return conversationId
     ? { pathname: MOBILE_THREAD_PATHNAME, params: { conversationId } }

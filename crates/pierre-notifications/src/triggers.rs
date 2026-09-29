@@ -60,9 +60,32 @@ fn spawn_dispatch(service: Arc<NotificationService>, dispatch: EventDispatch, ti
     });
 }
 
+/// The conversation `conversation_id` names, which the clients open as that
+/// thread.
+fn conversation_route(conversation_id: &str) -> Value {
+    json!({
+        "screen": NotificationScreen::Coach.as_str(),
+        "action": "chat",
+        "id": conversation_id,
+    })
+}
+
+/// Where an insight the agent computed opens: the conversation it was computed
+/// in, where the agent's own answer explains the number.
+///
+/// An insight computed outside any conversation — an MCP or A2A client calling
+/// the tool directly — has no thread in the app to open, so it carries no
+/// destination and the clients show it as information rather than as a link.
+fn insight_route(conversation_id: Option<&str>) -> Value {
+    conversation_id.map_or_else(|| json!({}), conversation_route)
+}
+
 // ============================================================================
 // Intelligence / Training Triggers
 // ============================================================================
+//
+// Each of these fires from inside the tool that computed the number, so
+// `conversation_id` is the conversation the tool ran in, when it ran in one.
 
 /// Trigger notification when acute training load exceeds threshold.
 pub fn trigger_training_load_alert(
@@ -70,6 +93,7 @@ pub fn trigger_training_load_alert(
     user_id: Uuid,
     tenant_id: TenantId,
     atl_value: f64,
+    conversation_id: Option<&str>,
 ) {
     let dispatch = EventDispatch {
         user_id,
@@ -77,7 +101,7 @@ pub fn trigger_training_load_alert(
         category: NotificationCategory::Training,
         event: NotificationEvent::TrainingLoadAlert,
         params: json!({ "atl_value": format!("{atl_value:.0}") }),
-        route: json!({ "screen": "recovery" }),
+        route: insight_route(conversation_id),
         actions: None,
         bypass_frequency_cap: false,
     };
@@ -90,6 +114,7 @@ pub fn trigger_low_recovery_score(
     user_id: Uuid,
     tenant_id: TenantId,
     score: f64,
+    conversation_id: Option<&str>,
 ) {
     let dispatch = EventDispatch {
         user_id,
@@ -97,7 +122,7 @@ pub fn trigger_low_recovery_score(
         category: NotificationCategory::Recovery,
         event: NotificationEvent::LowRecoveryScore,
         params: json!({ "score": format!("{score:.0}") }),
-        route: json!({ "screen": "recovery" }),
+        route: insight_route(conversation_id),
         actions: None,
         bypass_frequency_cap: false,
     };
@@ -109,6 +134,7 @@ pub fn trigger_overtraining_warning(
     service: &Arc<NotificationService>,
     user_id: Uuid,
     tenant_id: TenantId,
+    conversation_id: Option<&str>,
 ) {
     let dispatch = EventDispatch {
         user_id,
@@ -116,7 +142,7 @@ pub fn trigger_overtraining_warning(
         category: NotificationCategory::Recovery,
         event: NotificationEvent::OvertrainingWarning,
         params: json!({}),
-        route: json!({ "screen": "recovery" }),
+        route: insight_route(conversation_id),
         actions: None,
         bypass_frequency_cap: false,
     };
@@ -143,7 +169,7 @@ pub fn trigger_personal_record(
         category: NotificationCategory::Achievement,
         event: NotificationEvent::PersonalRecord,
         params: json!({ "distance": distance, "time_display": time_display }),
-        route: json!({ "screen": "activity", "id": activity_id }),
+        route: json!({ "screen": NotificationScreen::Activity.as_str(), "id": activity_id }),
         actions: None,
         bypass_frequency_cap: false,
     };
@@ -157,6 +183,7 @@ pub fn trigger_fitness_improvement(
     tenant_id: TenantId,
     metric_name: &str,
     value_display: &str,
+    conversation_id: Option<&str>,
 ) {
     let dispatch = EventDispatch {
         user_id,
@@ -164,7 +191,7 @@ pub fn trigger_fitness_improvement(
         category: NotificationCategory::Achievement,
         event: NotificationEvent::FitnessImprovement,
         params: json!({ "metric_name": metric_name, "value_display": value_display }),
-        route: json!({ "screen": "stats" }),
+        route: insight_route(conversation_id),
         actions: None,
         bypass_frequency_cap: false,
     };
@@ -189,7 +216,7 @@ pub fn trigger_agent_message(
         category: NotificationCategory::Coach,
         event: NotificationEvent::AgentMessage,
         params: json!({ "agent_name": agent_name }),
-        route: json!({ "screen": "coach", "action": "chat", "id": conversation_id }),
+        route: conversation_route(conversation_id),
         actions: Some(vec![NotificationActionSpec {
             id: ACTION_REPLY,
             action_type: NotificationActionType::QuickReply,
@@ -212,7 +239,7 @@ pub fn trigger_plan_updated(
         category: NotificationCategory::Coach,
         event: NotificationEvent::PlanUpdated,
         params: json!({ "agent_name": agent_name }),
-        route: json!({ "screen": "coach", "action": "plan" }),
+        route: json!({ "screen": NotificationScreen::Plan.as_str() }),
         actions: None,
         bypass_frequency_cap: true,
     };
@@ -240,7 +267,10 @@ pub fn trigger_sync_failure(
         category: NotificationCategory::System,
         event: NotificationEvent::SyncFailure,
         params: json!({ "provider_name": provider_name }),
-        route: json!({ "screen": "settings", "action": "reconnect", "provider": provider_name }),
+        route: json!({
+            "screen": NotificationScreen::Connections.as_str(),
+            "provider": provider_name,
+        }),
         actions: Some(vec![NotificationActionSpec {
             id: ACTION_RECONNECT,
             action_type: NotificationActionType::OpenScreen,

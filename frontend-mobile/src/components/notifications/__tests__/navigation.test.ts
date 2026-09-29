@@ -2,20 +2,17 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Locks the mobile half of the shared notification screen → route resolution
-// ABOUTME: Regression coverage for the 2026-07-13 coach-Reply deep-link fix
+// ABOUTME: A notification opens its thread, Home, or a settings screen — or nothing, never the empty chat list
 
 import { mobileNotificationTarget } from '@pierre/shared-constants';
 
-const CHAT_ROUTE = '/(app)/(tabs)/(chat)';
-// The chat tab lands on the conversation list; a coach message that names its
-// conversation opens the thread route beneath it.
+// A conversation opens the thread route, which sits beside the tabs.
 const THREAD_ROUTE = '/(app)/chat/[conversationId]';
-const PROFILE_ROUTE = '/(app)/(tabs)/(settings)/profile';
+const HOME_ROUTE = '/(app)/(tabs)/(home)';
 const CONNECTIONS_ROUTE = '/(app)/(tabs)/(settings)/connections';
 
 describe('mobileNotificationTarget', () => {
-  it('deep-links a coach message to its thread under the chat tab', () => {
-    // dravr-commere trigger_coach_message payload shape.
+  it('deep-links an agent message to its thread', () => {
     const data = { screen: 'coach', action: 'chat', id: 'conv-abc-123' };
     expect(mobileNotificationTarget(data)).toEqual({
       pathname: THREAD_ROUTE,
@@ -23,71 +20,52 @@ describe('mobileNotificationTarget', () => {
     });
   });
 
-  it('deep-links from the Reply action button the same way', () => {
-    const data = { screen: 'coach', action: 'chat', id: 'conv-abc-123' };
-    expect(mobileNotificationTarget(data, 'reply')).toEqual({
+  it('opens the thread an insight was computed in, like an agent message', () => {
+    const data = { screen: 'coach', action: 'chat', id: 'conv-fitness-1', params: {} };
+    expect(mobileNotificationTarget(data)).toEqual({
       pathname: THREAD_ROUTE,
-      params: { conversationId: 'conv-abc-123' },
+      params: { conversationId: 'conv-fitness-1' },
     });
   });
 
-  it('falls back to the bare chat tab when a coach payload carries no id', () => {
-    expect(mobileNotificationTarget({ screen: 'coach' })).toEqual({ pathname: CHAT_ROUTE });
-    expect(mobileNotificationTarget({ screen: 'coach', id: 42 })).toEqual({ pathname: CHAT_ROUTE });
+  it('opens nothing for a coach payload that names no thread', () => {
+    // The chat tab is a list of threads: without one there is nothing to show.
+    expect(mobileNotificationTarget({ screen: 'coach' })).toBeNull();
+    expect(mobileNotificationTarget({ screen: 'coach', action: 'plan' })).toBeNull();
+    expect(mobileNotificationTarget({ screen: 'coach', id: 42 })).toBeNull();
   });
 
-  // The Insights tab was retired by the Chat-First Cutover. Every training
-  // deep-link now opens the chat tab, where the coach reads those numbers to
-  // the athlete; asserted screen by screen so a regression names the screen.
-  it('routes an activity sync to the chat tab without reopening a thread', () => {
-    // The `id` is the activity, not a conversation, so no param rides along.
+  it('opens Home for a personal record, a weekly summary and a plan update', () => {
+    // The `id` on a personal record is the activity, so no param rides along.
     expect(mobileNotificationTarget({ screen: 'activity', id: 'act-1' })).toEqual({
-      pathname: CHAT_ROUTE,
+      pathname: HOME_ROUTE,
     });
+    expect(mobileNotificationTarget({ screen: 'activities' })).toEqual({ pathname: HOME_ROUTE });
+    expect(mobileNotificationTarget({ screen: 'plan' })).toEqual({ pathname: HOME_ROUTE });
   });
 
-  it('routes the activity list to the chat tab', () => {
-    expect(mobileNotificationTarget({ screen: 'activities' })).toEqual({ pathname: CHAT_ROUTE });
-  });
-
-  it('routes a recovery alert to the chat tab', () => {
-    expect(mobileNotificationTarget({ screen: 'recovery' })).toEqual({ pathname: CHAT_ROUTE });
-  });
-
-  it('routes a training-load alert to the chat tab', () => {
-    expect(mobileNotificationTarget({ screen: 'stats' })).toEqual({ pathname: CHAT_ROUTE });
-  });
-
-  it('no longer routes the retired social screen anywhere', () => {
-    // Nothing emits `social` since friends and the feed were deleted; a row
-    // persisted before the cutover marks itself read and stays put.
-    expect(mobileNotificationTarget({ screen: 'social' })).toBeNull();
-    expect(
-      mobileNotificationTarget({ screen: 'social', action: 'friend_request', id: 'req-1' }),
-    ).toBeNull();
-  });
-
-  it('routes settings deep links to the settings surface', () => {
-    expect(mobileNotificationTarget({ screen: 'settings' })).toEqual({ pathname: PROFILE_ROUTE });
-  });
-
-  it('routes a provider-reauth notification to the connections screen', () => {
-    // `connections` is what pierre-tool-runtime emits on provider_needs_reauth.
-    // Neither client's hand-written map handled it, so the tap went nowhere.
+  it('routes a provider notification to the connections screen', () => {
+    // `connections` is what a provider reauth and a sync failure emit.
     expect(mobileNotificationTarget({ screen: 'connections', provider: 'whoop' })).toEqual({
       pathname: CONNECTIONS_ROUTE,
     });
   });
 
-  it('resolves via the action id when the payload has no usable screen', () => {
-    expect(mobileNotificationTarget({}, 'settings')).toEqual({ pathname: PROFILE_ROUTE });
+  it('opens nothing for a row stored under a retired screen', () => {
+    expect(mobileNotificationTarget({ screen: 'stats' })).toBeNull();
+    expect(mobileNotificationTarget({ screen: 'recovery' })).toBeNull();
+    expect(mobileNotificationTarget({ screen: 'settings', action: 'reconnect' })).toBeNull();
+    expect(
+      mobileNotificationTarget({ screen: 'social', action: 'friend_request', id: 'req-1' }),
+    ).toBeNull();
   });
 
-  it('returns null when neither screen nor action id maps anywhere', () => {
+  it('returns null when the payload names no screen', () => {
+    // An insight computed outside any conversation carries no destination.
+    expect(mobileNotificationTarget({ params: { score: '32' } })).toBeNull();
     expect(mobileNotificationTarget(undefined)).toBeNull();
     expect(mobileNotificationTarget(null)).toBeNull();
     expect(mobileNotificationTarget({})).toBeNull();
-    expect(mobileNotificationTarget({ screen: 'unknown_screen' }, 'reply')).toBeNull();
     // The legacy `route` key is not honoured — only `screen` routes.
     expect(mobileNotificationTarget({ route: '/somewhere' })).toBeNull();
   });

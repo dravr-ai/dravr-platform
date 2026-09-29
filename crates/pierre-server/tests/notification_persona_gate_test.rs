@@ -130,7 +130,7 @@ personas:
             notification_type: notification_type.to_owned(),
             title: "Training load elevated".to_owned(),
             body: "Your acute training load is 92 — consider a recovery day".to_owned(),
-            data: Some(json!({ "screen": "recovery" })),
+            data: Some(json!({ "screen": "coach", "action": "chat", "id": "conv-load-1" })),
             image_url: None,
             actions: None,
             bypass_frequency_cap: false,
@@ -208,8 +208,8 @@ personas:
             row.data
         );
         assert_eq!(
-            row.data.as_ref().and_then(|d| d.get("screen")),
-            Some(&json!("recovery")),
+            row.data.as_ref().and_then(|d| d.get("id")),
+            Some(&json!("conv-load-1")),
             "gating augments the payload, it does not replace it"
         );
     }

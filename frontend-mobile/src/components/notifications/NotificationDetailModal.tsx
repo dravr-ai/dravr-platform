@@ -52,11 +52,15 @@ export function NotificationDetailModal({
 
   const meta = NOTIFICATION_CATEGORY_META[notification.category];
   const categoryColor = NOTIFICATION_CATEGORY_COLORS[scheme][notification.category];
-  // Show the generic "View Details" deep-link only when the payload resolves
-  // to a screen AND there's no more specific action button (a coach "Reply"
+  // Every action button opens the notification's own destination, so a
+  // notification with none shows neither — nothing that looks tappable and
+  // leads nowhere. With a destination, the generic "View Details" deep-link
+  // shows only when there's no more specific action button (a coach "Reply"
   // already routes to the thread, so a second button would be redundant).
-  const hasActions = !!notification.actions && notification.actions.length > 0;
-  const showNavigate = !hasActions && mobileNotificationTarget(notification.data) !== null;
+  const hasDestination = mobileNotificationTarget(notification.data) !== null;
+  const hasActions =
+    hasDestination && !!notification.actions && notification.actions.length > 0;
+  const showNavigate = hasDestination && !hasActions;
 
   return (
     <Modal
@@ -121,7 +125,7 @@ export function NotificationDetailModal({
               </Text>
 
               {/* Action buttons */}
-              {notification.actions && notification.actions.length > 0 ? (
+              {hasActions && notification.actions ? (
                 <View className="flex-row mt-4 gap-2 flex-wrap">
                   {notification.actions.map((action: NotificationAction) => (
                     <TouchableOpacity

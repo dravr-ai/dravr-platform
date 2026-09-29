@@ -4,6 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+#[cfg(feature = "client-notifications")]
+use crate::context::scoped_conversation_id;
 use crate::implementations::analytics::output::{
     LoadMetrics, LoadRecoveryContext, NoTrainingLoad, ProvidersUsed, TrainingLoadDetail,
     TrainingLoadResult, TrainingZone, WeeklyTss,
@@ -592,10 +594,17 @@ fn fire_training_load_notifications(
         return;
     };
     let (atl, ctl) = (detail.load_metrics.atl, detail.load_metrics.ctl);
+    let conversation_id = scoped_conversation_id();
 
     // Trigger training load alert when ATL > RATIO * CTL
     if ctl > 0.0 && atl > ctl * TRAINING_LOAD_ALERT_ATL_RATIO {
-        notification_triggers::trigger_training_load_alert(service, user_id, tenant_id, atl);
+        notification_triggers::trigger_training_load_alert(
+            service,
+            user_id,
+            tenant_id,
+            atl,
+            conversation_id.as_deref(),
+        );
     }
 
     // Trigger overtraining warning when form drops into the deepest fatigue
@@ -604,6 +613,11 @@ fn fire_training_load_notifications(
     // chronic base band as InsufficientHistory and are never warned on a
     // number that cannot be interpreted.
     if detail.form_band == FormBand::DeepFatigue {
-        notification_triggers::trigger_overtraining_warning(service, user_id, tenant_id);
+        notification_triggers::trigger_overtraining_warning(
+            service,
+            user_id,
+            tenant_id,
+            conversation_id.as_deref(),
+        );
     }
 }

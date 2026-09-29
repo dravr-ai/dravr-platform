@@ -2,63 +2,22 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Locks the web half of the shared notification screen → route resolution
-// ABOUTME: Regression coverage for the 2026-05-09 web sweep where Recovery rows didn't navigate
+// ABOUTME: A notification opens its thread, Home, or a settings pane — or nothing, never the empty chat
 
 import { describe, it, expect } from 'vitest';
-import { resolveNotificationDestination, webNotificationRoute } from '@pierre/shared-constants';
+import { webNotificationRoute } from '@pierre/shared-constants';
 
 describe('webNotificationRoute', () => {
-  // The Insights surface was retired by the Chat-First Cutover. Every training
-  // deep-link now opens the chat, where the coach reads those numbers to the
-  // athlete; asserted screen by screen so a regression names the screen.
-  it('routes an activity sync to the chat', () => {
-    expect(webNotificationRoute({ screen: 'activity', id: 'act-1' })).toBe('chat');
-  });
-
-  it('routes the activity list to the chat', () => {
-    expect(webNotificationRoute({ screen: 'activities' })).toBe('chat');
-  });
-
-  it('routes a recovery alert to the chat', () => {
-    expect(webNotificationRoute({ screen: 'recovery' })).toBe('chat');
-  });
-
-  it('routes a training-load alert to the chat', () => {
-    expect(webNotificationRoute({ screen: 'stats' })).toBe('chat');
-  });
-
-  it('no longer routes the retired social screen anywhere', () => {
-    // Nothing emits `social` since friends and the feed were deleted; a row
-    // persisted before the cutover marks itself read and stays put.
-    expect(webNotificationRoute({ screen: 'social' })).toBeNull();
-    expect(webNotificationRoute({ screen: 'social', action: 'friend_request', id: 'req-1' })).toBeNull();
-  });
-
-  it('routes settings deep links to the profile pane', () => {
-    // The server names the profile pane for `settings`; the phone opens that
-    // screen, and web opens the same pane rather than the bare menu.
-    expect(webNotificationRoute({ screen: 'settings' })).toBe('settings/profile');
-  });
-
-  it('routes a provider-reauth notification to the connections pane', () => {
-    // `connections` is what pierre-tool-runtime emits on provider_needs_reauth.
-    // Neither client's hand-written map handled it, so the tap went nowhere.
-    // The server maps that screen to the `connections` settings pane, whose
-    // one web route is the settings section — it used to be a top-level tab too.
-    expect(webNotificationRoute({ screen: 'connections', provider: 'whoop' })).toBe(
-      'settings/connections',
-    );
-  });
-
-  it('deep-links a coach message to its conversation thread', () => {
-    // dravr-commere trigger_coach_message payload shape.
+  it('deep-links an agent message to its conversation thread', () => {
     const data = { screen: 'coach', action: 'chat', id: 'conv-abc-123' };
     expect(webNotificationRoute(data)).toBe('chat/conv-abc-123');
   });
 
-  it('deep-links from the Reply action button the same way', () => {
-    const data = { screen: 'coach', action: 'chat', id: 'conv-abc-123' };
-    expect(webNotificationRoute(data, 'reply')).toBe('chat/conv-abc-123');
+  it('opens the thread an insight was computed in, like an agent message', () => {
+    // A fitness improvement fired from the agent's own tool call names the
+    // conversation it was answering in, where the agent explained the score.
+    const data = { screen: 'coach', action: 'chat', id: 'conv-fitness-1', params: {} };
+    expect(webNotificationRoute(data)).toBe('chat/conv-fitness-1');
   });
 
   it('percent-encodes conversation ids that contain reserved characters', () => {
@@ -66,49 +25,50 @@ describe('webNotificationRoute', () => {
     expect(webNotificationRoute(data)).toBe(`chat/${encodeURIComponent('conv/with space')}`);
   });
 
-  it('falls back to the bare chat tab when a coach payload carries no id', () => {
-    expect(webNotificationRoute({ screen: 'coach' })).toBe('chat');
-    expect(webNotificationRoute({ screen: 'coach', id: 42 })).toBe('chat');
+  it('opens nothing for a coach payload that names no thread', () => {
+    // The chat is a list of threads: without one there is nothing to show, and
+    // landing on the empty chat was the dead end.
+    expect(webNotificationRoute({ screen: 'coach' })).toBeNull();
+    expect(webNotificationRoute({ screen: 'coach', action: 'plan' })).toBeNull();
+    expect(webNotificationRoute({ screen: 'coach', id: 42 })).toBeNull();
   });
 
-  it('ignores a conversation id on a screen that is not the coach thread', () => {
-    // A recovery alert lands on the chat surface but names no conversation:
-    // its `id` is the alert's own subject, not a thread to reopen.
-    expect(webNotificationRoute({ screen: 'recovery', id: 'ignored' })).toBe('chat');
+  it('opens Home for a personal record, a weekly summary and a plan update', () => {
+    // Home carries the latest activities with their routes and the plan's week.
+    expect(webNotificationRoute({ screen: 'activity', id: 'act-1' })).toBe('home');
+    expect(webNotificationRoute({ screen: 'activities' })).toBe('home');
+    expect(webNotificationRoute({ screen: 'plan' })).toBe('home');
   });
 
-  it('resolves via the action id when the payload has no usable screen', () => {
-    expect(webNotificationRoute({}, 'settings')).toBe('settings/profile');
+  it('never reads an activity id as a conversation', () => {
+    expect(webNotificationRoute({ screen: 'activity', id: 'conv-lookalike' })).toBe('home');
   });
 
-  it('returns null when neither screen nor action id maps anywhere', () => {
+  it('routes a provider notification to the connections pane', () => {
+    // `connections` is what a provider reauth and a sync failure emit. The
+    // server maps it to the `connections` settings pane, whose web route is the
+    // settings section.
+    expect(webNotificationRoute({ screen: 'connections', provider: 'whoop' })).toBe(
+      'settings/connections',
+    );
+  });
+
+  it('opens nothing for a row stored under a retired screen', () => {
+    // Rows written before the retired Insights tokens left the vocabulary, and
+    // the social screen before it, render as information rather than as links.
+    expect(webNotificationRoute({ screen: 'stats' })).toBeNull();
+    expect(webNotificationRoute({ screen: 'recovery' })).toBeNull();
+    expect(webNotificationRoute({ screen: 'settings', action: 'reconnect' })).toBeNull();
+    expect(webNotificationRoute({ screen: 'social', id: 'req-1' })).toBeNull();
+  });
+
+  it('returns null when the payload names no screen', () => {
+    // An insight computed outside any conversation carries no destination.
+    expect(webNotificationRoute({ params: { score: '32' } })).toBeNull();
     expect(webNotificationRoute(undefined)).toBeNull();
     expect(webNotificationRoute(null)).toBeNull();
     expect(webNotificationRoute({})).toBeNull();
-    expect(webNotificationRoute({ screen: 'unknown_screen' }, 'reply')).toBeNull();
     // The legacy `route` key is not honoured — only `screen` routes.
     expect(webNotificationRoute({ route: '/somewhere' })).toBeNull();
-  });
-});
-
-describe('resolveNotificationDestination asksInChat', () => {
-  // A training screen opens the chat with no thread; opened bare it says
-  // nothing about the event, so the clients ask about it in a fresh thread.
-  it.each(['activity', 'activities', 'recovery', 'stats'])('asks in chat for %s', (screen) => {
-    expect(resolveNotificationDestination({ screen, id: 'subject-1' })?.asksInChat).toBe(true);
-  });
-
-  it('asks in chat for a coach payload that names no thread', () => {
-    expect(resolveNotificationDestination({ screen: 'coach', action: 'plan' })?.asksInChat).toBe(true);
-  });
-
-  it('opens a named coach thread as it is, with nothing to ask', () => {
-    const destination = resolveNotificationDestination({ screen: 'coach', id: 'conv-1' });
-    expect(destination).toMatchObject({ conversationId: 'conv-1', asksInChat: false });
-  });
-
-  it('never asks for a settings pane', () => {
-    expect(resolveNotificationDestination({ screen: 'settings' })?.asksInChat).toBe(false);
-    expect(resolveNotificationDestination({ screen: 'connections' })?.asksInChat).toBe(false);
   });
 });

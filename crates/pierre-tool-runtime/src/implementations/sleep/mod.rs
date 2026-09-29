@@ -18,6 +18,9 @@
 /// The activity provider the recovery and sleep tools read training load from.
 mod activity_source;
 pub(crate) mod inner;
+/// The notification the recovery tool fires when a score falls below threshold.
+#[cfg(feature = "client-notifications")]
+mod recovery_notice;
 
 /// The shapes the sleep tools answer with, and their derived schemas.
 pub mod output;

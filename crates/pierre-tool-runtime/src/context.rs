@@ -89,6 +89,17 @@ tokio::task_local! {
     pub static GRANTED_SCOPES: Vec<OAuthScope>;
 }
 
+/// The conversation the in-flight tool call runs in, read from
+/// [`CONVERSATION_ID`]; `None` outside a chat turn or outside any tool body.
+///
+/// Readable anywhere in the tool body's own task, which is what lets code that
+/// never sees the [`ToolExecutionContext`] — a notification trigger deep in an
+/// analytics handler — name the thread its tool is answering in.
+#[must_use]
+pub fn scoped_conversation_id() -> Option<String> {
+    CONVERSATION_ID.try_with(Clone::clone).ok().flatten()
+}
+
 /// How the user authenticated for this request.
 ///
 /// Useful for audit logging and determining available permissions.
@@ -243,7 +254,7 @@ impl ToolExecutionContext {
             request_id: ctx.request_id.clone(),
             resources: resources.clone(),
             auth_method,
-            conversation_id: CONVERSATION_ID.try_with(Clone::clone).ok().flatten(),
+            conversation_id: scoped_conversation_id(),
             conversation_tenant_id: CONVERSATION_TENANT.try_with(Clone::clone).ok().flatten(),
             is_admin: Some(ctx.is_admin),
         }

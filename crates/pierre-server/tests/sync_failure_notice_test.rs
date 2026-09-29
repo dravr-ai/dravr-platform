@@ -20,6 +20,7 @@ mod sync_failure_notice_tests {
     use pierre_notifications::models::Notification;
     use pierre_notifications::{NotificationService, TenantId as CommereTenantId};
     use pierre_services::sync_failure_notice::{health_sync_failure_is_told, SyncFailureNotices};
+    use serde_json::Value;
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::time::sleep;
@@ -119,6 +120,12 @@ mod sync_failure_notice_tests {
             "the provider name and nothing else: {params:?}"
         );
         assert_eq!(params["provider_name"], "WHOOP");
+        // The notice and its Reconnect action open the athlete's connections.
+        let data = rows[0].data.as_ref().unwrap();
+        assert_eq!(
+            data.get("screen").and_then(Value::as_str),
+            Some("connections")
+        );
     }
 
     /// A sync that lands re-arms the notice: the next failure is told again.

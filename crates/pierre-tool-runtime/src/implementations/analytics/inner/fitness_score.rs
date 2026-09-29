@@ -24,8 +24,9 @@ use std::pin::Pin;
 use tracing::warn;
 #[cfg(feature = "client-notifications")]
 use {
-    crate::runtime::ToolRuntime, pierre_notifications::triggers as notification_triggers,
-    pierre_notifications::TenantId, std::sync::Arc, uuid::Uuid,
+    crate::context::scoped_conversation_id, crate::runtime::ToolRuntime,
+    pierre_notifications::triggers as notification_triggers, pierre_notifications::TenantId,
+    std::sync::Arc, uuid::Uuid,
 };
 
 /// Information about recovery adjustment applied to fitness score
@@ -633,6 +634,7 @@ fn fire_fitness_improvement_notification(
             tenant_id,
             "Fitness Score",
             &format!("{score}"),
+            scoped_conversation_id().as_deref(),
         );
     }
 }

@@ -24,14 +24,16 @@ mod dispatch_tests {
     use pierre_database::backends::factory::Database;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_notifications::models::{
-        CreateNotificationParams, NotificationCategory, UpsertNotificationPreferenceParams,
+        CreateNotificationParams, Notification, NotificationCategory,
+        UpsertNotificationPreferenceParams,
     };
     use pierre_notifications::{
         triggers as notification_triggers, DispatchOutcome, DispatchRequest, NotificationService,
         PushTier, SuppressionReason, TenantId,
     };
     use pierre_services::notification_localizer::UserLocaleNotificationLocalizer;
-    use serde_json::json;
+    use pierre_tool_runtime::context::{scoped_conversation_id, CONVERSATION_ID};
+    use serde_json::{json, Value};
     use std::sync::Arc;
     use tokio::time::{sleep, Duration};
     use uuid::Uuid;
@@ -54,6 +56,24 @@ mod dispatch_tests {
             Arc::clone(&resources.common.repos),
             Arc::clone(&resources.mcp.messaging_strings_registry),
         )))
+    }
+
+    /// A string the stored row's `data` carries under `key`, or `None` when the
+    /// row carries no such key — a missing key, never a null one.
+    fn data_str<'a>(notification: &'a Notification, key: &str) -> Option<&'a str> {
+        notification
+            .data
+            .as_ref()
+            .and_then(|data| data.get(key))
+            .and_then(Value::as_str)
+    }
+
+    /// Whether the stored row's `data` carries `key` at all.
+    fn data_has(notification: &Notification, key: &str) -> bool {
+        notification
+            .data
+            .as_ref()
+            .is_some_and(|data| data.get(key).is_some())
     }
 
     async fn setup_service() -> (Arc<NotificationService>, Uuid, TenantId) {
@@ -520,7 +540,13 @@ mod dispatch_tests {
 
         let service = Arc::new(notification_service(&resources));
 
-        notification_triggers::trigger_training_load_alert(&service, user.id, tenant_id, 85.0);
+        notification_triggers::trigger_training_load_alert(
+            &service,
+            user.id,
+            tenant_id,
+            85.0,
+            Some("conv-load-1"),
+        );
 
         sleep(Duration::from_millis(200)).await;
 
@@ -532,6 +558,9 @@ mod dispatch_tests {
         assert!(!notifications.is_empty());
         assert_eq!(notifications[0].notification_type, "training_load_alert");
         assert!(notifications[0].body.contains("85"));
+        // The alert opens the conversation the load was computed in.
+        assert_eq!(data_str(&notifications[0], "screen"), Some("coach"));
+        assert_eq!(data_str(&notifications[0], "id"), Some("conv-load-1"));
     }
 
     #[tokio::test]
@@ -551,7 +580,7 @@ mod dispatch_tests {
 
         let service = Arc::new(notification_service(&resources));
 
-        notification_triggers::trigger_low_recovery_score(&service, user.id, tenant_id, 32.0);
+        notification_triggers::trigger_low_recovery_score(&service, user.id, tenant_id, 32.0, None);
 
         sleep(Duration::from_millis(200)).await;
 
@@ -563,6 +592,14 @@ mod dispatch_tests {
         assert!(!notifications.is_empty());
         assert_eq!(notifications[0].notification_type, "low_recovery_score");
         assert!(notifications[0].body.contains("32"));
+        // Computed outside any conversation (an MCP or A2A client calling the
+        // tool): there is no thread to open, so the row names no destination.
+        assert!(
+            !data_has(&notifications[0], "screen"),
+            "no screen key at all: {:?}",
+            notifications[0].data
+        );
+        assert!(!data_has(&notifications[0], "id"));
     }
 
     #[tokio::test]
@@ -582,7 +619,12 @@ mod dispatch_tests {
 
         let service = Arc::new(notification_service(&resources));
 
-        notification_triggers::trigger_overtraining_warning(&service, user.id, tenant_id);
+        notification_triggers::trigger_overtraining_warning(
+            &service,
+            user.id,
+            tenant_id,
+            Some("conv-fatigue-1"),
+        );
 
         sleep(Duration::from_millis(200)).await;
 
@@ -593,6 +635,8 @@ mod dispatch_tests {
 
         assert!(!notifications.is_empty());
         assert_eq!(notifications[0].notification_type, "overtraining_warning");
+        assert_eq!(data_str(&notifications[0], "screen"), Some("coach"));
+        assert_eq!(data_str(&notifications[0], "id"), Some("conv-fatigue-1"));
     }
 
     #[tokio::test]
@@ -634,6 +678,8 @@ mod dispatch_tests {
             notifications[0].body, "Nouveau record sur 10 km : 44:14",
             "the distance code is named in the athlete's language"
         );
+        assert_eq!(data_str(&notifications[0], "screen"), Some("activity"));
+        assert_eq!(data_str(&notifications[0], "id"), Some("activity_456"));
     }
 
     #[tokio::test]
@@ -654,7 +700,12 @@ mod dispatch_tests {
         let service = Arc::new(notification_service(&resources));
 
         notification_triggers::trigger_fitness_improvement(
-            &service, user.id, tenant_id, "FTP", "265W",
+            &service,
+            user.id,
+            tenant_id,
+            "FTP",
+            "265W",
+            Some("conv-fitness-1"),
         );
 
         sleep(Duration::from_millis(200)).await;
@@ -668,6 +719,57 @@ mod dispatch_tests {
         assert_eq!(notifications[0].notification_type, "fitness_improvement");
         assert!(notifications[0].body.contains("FTP"));
         assert!(notifications[0].body.contains("265W"));
+        // The improvement opens the thread where the agent computed the score.
+        assert_eq!(data_str(&notifications[0], "screen"), Some("coach"));
+        assert_eq!(data_str(&notifications[0], "id"), Some("conv-fitness-1"));
+    }
+
+    /// What the analytics tools do: the executor scopes the turn's
+    /// conversation around the tool body, and the trigger the body fires reads
+    /// it through `scoped_conversation_id`, so the stored row opens that thread.
+    #[tokio::test]
+    async fn an_insight_fired_inside_a_conversation_scope_opens_that_thread() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (user, _token) = create_test_tenant(&resources, "fitness_scoped@example.com")
+            .await
+            .unwrap();
+        let tenants = resources
+            .common
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
+        let tenant_id = TenantId(tenants[0].id.as_uuid());
+        let service = Arc::new(notification_service(&resources));
+
+        assert_eq!(
+            scoped_conversation_id(),
+            None,
+            "no conversation outside a tool body"
+        );
+        CONVERSATION_ID
+            .scope(Some("conv-scoped-1".to_owned()), async {
+                notification_triggers::trigger_fitness_improvement(
+                    &service,
+                    user.id,
+                    tenant_id,
+                    "Fitness Score",
+                    "48",
+                    scoped_conversation_id().as_deref(),
+                );
+            })
+            .await;
+
+        sleep(Duration::from_millis(200)).await;
+
+        let (notifications, _total, _unread) = service
+            .list_notifications(user.id, tenant_id, 10, 0, Some("achievement"), false)
+            .await
+            .unwrap();
+        assert_eq!(notifications.len(), 1);
+        assert_eq!(data_str(&notifications[0], "screen"), Some("coach"));
+        assert_eq!(data_str(&notifications[0], "id"), Some("conv-scoped-1"));
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -704,7 +806,13 @@ mod dispatch_tests {
         let service = Arc::new(notification_service(&resources));
 
         // Dispatch to user A
-        notification_triggers::trigger_training_load_alert(&service, user_a.id, tenant_id_a, 90.0);
+        notification_triggers::trigger_training_load_alert(
+            &service,
+            user_a.id,
+            tenant_id_a,
+            90.0,
+            None,
+        );
 
         sleep(Duration::from_millis(200)).await;
 
@@ -826,6 +934,8 @@ mod dispatch_tests {
         assert_eq!(notifications[0].notification_type, "coach_message");
         assert_eq!(notifications[0].title, "Message de ton agent");
         assert!(notifications[0].body.contains("Running Coach"));
+        assert_eq!(data_str(&notifications[0], "screen"), Some("coach"));
+        assert_eq!(data_str(&notifications[0], "id"), Some("conv-001"));
     }
 
     #[tokio::test]
@@ -866,6 +976,9 @@ mod dispatch_tests {
         assert_eq!(notifications[0].notification_type, "plan_updated");
         assert_eq!(notifications[0].title, "Plan d'entraînement mis à jour");
         assert!(notifications[0].body.contains("Endurance Agent"));
+        // The plan, which Home shows — not a conversation it names none of.
+        assert_eq!(data_str(&notifications[0], "screen"), Some("plan"));
+        assert!(!data_has(&notifications[0], "id"));
     }
 
     // ════════════════════════════════════════════════════════════════

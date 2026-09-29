@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tests the notification center — the unread dot, a category's own hue, mono time, day grouping, the EmptyState and delete by swipe or long-press
-// ABOUTME: Mocks the notification hooks and the platform menu; pins the translated empty-state label and the fresh-thread draft a threadless notification opens
+// ABOUTME: Mocks the notification hooks and the platform menu; pins the translated empty-state label and where a tap goes — its thread, its screen, or no button at all
 
 import React from 'react';
 import { ActionSheetIOS, Alert } from 'react-native';
@@ -292,16 +292,16 @@ describe('NotificationCenterScreen', () => {
     await waitFor(() => expect(mockDeleteNotification).toHaveBeenCalledWith('notif-1'));
   });
 
-  it('opens a fitness improvement in a fresh thread whose composer quotes it, not on the bare chat list', async () => {
-    // Every training screen is served by the chat. Opened bare, the list said
-    // nothing about the Fitness Score the athlete tapped — a dead end.
+  it('opens the thread a fitness improvement was computed in, with nothing pre-typed', async () => {
+    // Fired from the agent's own tool call, the notification names the thread
+    // the agent was answering in — where it explained the score.
     const item = createNotification({
       id: 'fitness-1',
       category: 'achievement',
       notification_type: 'fitness_improvement',
       title: 'Fitness improvement detected',
       body: 'Your Fitness Score rose to 48',
-      data: { screen: 'stats' },
+      data: { screen: 'coach', action: 'chat', id: 'conv-fitness-1' },
     });
     mockUseNotificationFeed.mockReturnValue(loadedFeed([item]));
 
@@ -313,18 +313,56 @@ describe('NotificationCenterScreen', () => {
     expect(mockPush).toHaveBeenCalledTimes(1);
     expect(mockPush).toHaveBeenCalledWith({
       pathname: '/(app)/chat/[conversationId]',
-      params: {
-        conversationId: 'new',
-        draft: i18n.t('notifications.askDraft', {
-          title: 'Fitness improvement detected',
-          body: 'Your Fitness Score rose to 48',
-        }),
-      },
+      params: { conversationId: 'conv-fitness-1' },
     });
-    expect(mockPush.mock.calls[0][0].params.draft).toContain('Your Fitness Score rose to 48');
   });
 
-  it('still opens an agent message on its own thread, with no draft', async () => {
+  it('offers nothing to tap for a notification with nowhere to go', async () => {
+    // Stored under a retired screen, with a Reconnect action whose destination
+    // went with it: the sheet shows the text and no button that leads nowhere.
+    const item = createNotification({
+      id: 'stored-1',
+      category: 'system',
+      notification_type: 'sync_failure',
+      title: 'Sync failed',
+      body: 'Strava could not sync',
+      data: { screen: 'settings', action: 'reconnect' },
+      actions: [{ id: 'reconnect', title: 'Reconnect', action_type: 'open_screen' }],
+    });
+    mockUseNotificationFeed.mockReturnValue(loadedFeed([item]));
+
+    const { getByTestId, queryByTestId, getAllByText } = renderScreen();
+    await waitFor(() => expect(getByTestId('notification-row-stored-1')).toBeTruthy());
+    fireEvent.press(getByTestId('notification-row-stored-1'));
+
+    // The sheet is open, carrying the text the row clamps.
+    expect(getByTestId('notification-detail-close')).toBeTruthy();
+    expect(getAllByText('Strava could not sync')).toHaveLength(2);
+    expect(queryByTestId('notification-detail-navigate')).toBeNull();
+    expect(queryByTestId('detail-action-reconnect')).toBeNull();
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it("opens a sync failure's connections from its Reconnect action", async () => {
+    const item = createNotification({
+      id: 'sync-1',
+      category: 'system',
+      notification_type: 'sync_failure',
+      data: { screen: 'connections', provider: 'Strava' },
+      actions: [{ id: 'reconnect', title: 'Reconnect', action_type: 'open_screen' }],
+    });
+    mockUseNotificationFeed.mockReturnValue(loadedFeed([item]));
+
+    const { getByTestId } = renderScreen();
+    await waitFor(() => expect(getByTestId('notification-row-sync-1')).toBeTruthy());
+    fireEvent.press(getByTestId('notification-row-sync-1'));
+    fireEvent.press(getByTestId('detail-action-reconnect'));
+
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/(app)/(tabs)/(settings)/connections' });
+  });
+
+  it('still opens an agent message on its own thread', async () => {
     const item = createNotification({
       id: 'agent-1',
       category: 'coach',

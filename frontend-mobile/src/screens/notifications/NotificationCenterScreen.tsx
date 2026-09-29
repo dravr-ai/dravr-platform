@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 import { NotificationDetailModal } from '../../components/notifications/NotificationDetailModal';
-import { mobileNotificationTarget, resolveNotificationDestination } from '@pierre/shared-constants';
+import { mobileNotificationTarget } from '@pierre/shared-constants';
 import { dayLabelFor, localDayKey } from '@pierre/chat-utils';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, useRouter } from 'expo-router';
@@ -27,7 +27,6 @@ import {
   Clock,
 } from 'lucide-react-native';
 import { useThemeColors } from '../../constants/theme';
-import { threadHref } from '../../navigation/routes';
 import {
   useNotificationFeed,
   useNotificationActions,
@@ -98,34 +97,26 @@ export function NotificationCenterScreen() {
     setDetailNotification(item);
   }, [markAsRead]);
 
-  // Resolve `data.screen` (coach messages carry the conversation id on
-  // `data.id`) to a grouped expo-router target, through the same shared
-  // resolver the web panel uses. The legacy `data.route` key this once read
-  // was never wired server-side. A notification that lands on the chat
-  // without a thread — a fitness improvement, a recovery score — opens a fresh
-  // one whose composer quotes it, so the tap asks about the event instead of
-  // dropping the athlete on a list that says nothing about it.
-  const openNotification = useCallback((item: NotificationItem, actionId?: string) => {
-    if (resolveNotificationDestination(item.data, actionId)?.asksInChat) {
-      const draft = t('notifications.askDraft', { title: item.title, body: item.body });
-      router.push(threadHref(undefined, { draft }));
-      return;
-    }
-    const target = mobileNotificationTarget(item.data, actionId);
+  // Resolve `data.screen` (an agent message, and an insight the agent
+  // computed while answering, carry the conversation id on `data.id`) to a
+  // grouped expo-router target, through the same shared resolver the web
+  // panel uses. The legacy `data.route` key this once read was never wired
+  // server-side. A notification with nowhere to go resolves to null, and the
+  // detail sheet then offers no button that would lead nowhere.
+  const openNotification = useCallback((item: NotificationItem) => {
+    const target = mobileNotificationTarget(item.data);
     if (target) {
       router.push(target as never);
     }
-  }, [router, t]);
+  }, [router]);
 
-  const handleDetailNavigate = useCallback((item: NotificationItem) => {
-    openNotification(item);
-  }, [openNotification]);
-
-  const handleAction = useCallback((item: NotificationItem, actionId: string) => {
+  // Every action opens the notification's own destination: an agent message's
+  // "Reply" its thread, a sync failure's "Reconnect" the connections screen.
+  const handleAction = useCallback((item: NotificationItem) => {
     if (!item.read_at) {
       markAsRead(item.id);
     }
-    openNotification(item, actionId);
+    openNotification(item);
   }, [markAsRead, openNotification]);
 
   /**
@@ -298,7 +289,7 @@ export function NotificationCenterScreen() {
         notification={detailNotification}
         onClose={() => setDetailNotification(null)}
         onAction={handleAction}
-        onNavigate={handleDetailNavigate}
+        onNavigate={openNotification}
       />
     </View>
   );
