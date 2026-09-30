@@ -30,7 +30,9 @@ use pierre_auth::oauth2_server::{
     rate_limiting::OAuth2RateLimiter,
 };
 use pierre_auth::rate_limiting::OAuth2Endpoint;
-use pierre_auth::security::cookies::{host_cookie_name, SameSitePolicy, SecureCookieConfig};
+use pierre_auth::security::cookies::{
+    auth_cookie_name_on, host_cookie_name, SameSitePolicy, SecureCookieConfig,
+};
 use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_core::errors::AppError;
 use pierre_database::backends::{factory::Database, OAuth2ServerRepository};
@@ -228,8 +230,12 @@ impl OAuth2Routes {
             .get(header::COOKIE)
             .and_then(|cookie_value| {
                 cookie_value.to_str().ok().and_then(|cookie_str| {
-                    Self::extract_session_token(cookie_str, &Self::session_cookie_name(context))
-                        .and_then(|token| Self::validate_session_token(&token, context))
+                    Self::extract_session_token(
+                        cookie_str,
+                        &Self::session_cookie_name(context),
+                        &auth_cookie_name_on(Self::cookies_secure(context)),
+                    )
+                    .and_then(|token| Self::validate_session_token(&token, context))
                 })
             })
             .map_or((None, None), |(uid, tid)| (Some(uid), tid))
@@ -1115,12 +1121,19 @@ impl OAuth2Routes {
     }
 
     /// Extract session token from cookie header
-    fn extract_session_token(cookie_header: &str, session_cookie: &str) -> Option<String> {
+    fn extract_session_token(
+        cookie_header: &str,
+        session_cookie: &str,
+        app_cookie: &str,
+    ) -> Option<String> {
         // Accept the authorization server's own session cookie and, as a
-        // bridge, the first-party web app's `auth_token` cookie — both are the same
+        // bridge, the first-party web app's session cookie — both are the same
         // RS256 JWT type validated by the auth manager. This lets a user already
         // logged into the web app authorize an MCP client without a second login.
-        // The session cookie wins when both are present.
+        // `app_cookie` is `auth_cookie_name_on(issuer is HTTPS)`: `__Host-auth_token`
+        // when either the issuer or `BASE_URL` is HTTPS, so a plain `auth_token`
+        // planted by a sibling host is never read here, and `auth_token` only
+        // when both are plain HTTP. The session cookie wins when both are present.
         let mut app_token = None;
         for cookie in cookie_header.split(';') {
             let Some((name, value)) = cookie.trim().split_once('=') else {
@@ -1129,7 +1142,7 @@ impl OAuth2Routes {
             if name == session_cookie {
                 return Some(value.to_owned());
             }
-            if name == "auth_token" {
+            if name == app_cookie {
                 app_token = Some(value.to_owned());
             }
         }

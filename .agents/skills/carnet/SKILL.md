@@ -42,7 +42,9 @@ title shape uniform.
    the SessionEnd hook, so a forgotten release is not fatal — but do not rely on it.
 4. **Every close says why.** `--why` is mandatory and is what the next reader sees first.
    Add `--commit <sha>` whenever a commit resolved it: `carnet#N` in a commit message is
-   plain text to GitHub and never closes anything cross-repo.
+   plain text to GitHub and never closes anything cross-repo. It also records a `closed` line
+   with the full sha in the session's ledger, which is how `bilan` sees work a session squashed
+   in its own worktree and pushed from there, where the checkout it measures never moves.
 5. **File through `create`.** It reads the tracker from `registre.toml`, refuses a public
    tracker, prefixes the title `[<project>] `, and always adds the project label. Titles are
    `[<project>] <Thing>` — one shape, no variants, capitalised first word unless it is an
@@ -88,7 +90,7 @@ Add `--dry-run` to any of them to see the `gh` calls without making them.
   prints `carnet: NOT claimed — carnet#N came from a scheduled wakeup …` instead. Take it
   deliberately if it is yours: `carnet.sh claim <n>`.
 - **SessionEnd** (`hooks/session-end-release.sh`): releases everything this session still
-  holds, from its ledger under `$CLAUDE_CONFIG_DIR/carnet-claims/`. Zero calls when nothing
+  holds, from its ledger in the shared session-state home (below). Zero calls when nothing
   is held.
 
 All three are wired in the consumer repo's `.claude/settings.json`; the snippet is at the top
@@ -149,8 +151,10 @@ unrelated session from adopting your work out of helpfulness.
 ## How liveness is decided
 
 Claude Code writes `sessions/<pid>.json` under the config dir for every running session and
-removes it on exit. A claim on this host is **running** when that file exists with the same
-session id and the pid answers `kill -0`; otherwise it **ended** and `claim` takes it over
+removes it on exit. A claim on this host is **running** when any account's `sessions/` holds a
+file with that session id whose pid answers `kill -0` — matched on the id, not on the pid the
+marker recorded, because a session resumed under another account keeps its id and gets a new
+pid. Otherwise it **ended** and `claim` takes it over
 with a "took over" line. A claim from another host cannot be checked, so it is refused
 without `--steal`. Outside Claude Code (`session=manual`) a claim is advisory: it records the
 human, and nothing auto-releases it.
@@ -161,8 +165,21 @@ human, and nothing auto-releases it.
 |---|---|
 | Tracker | `registre.toml` → `tracker` (the dravr-* family: `dravr-ai/dravr-carnet`, PRIVATE) |
 | Title prefix | `[<repo name minus dravr->]`, from `origin` — never from the checkout's basename, which in a worktree is the branch |
-| Ledger | `${CLAUDE_CONFIG_DIR:-~/.claude}/carnet-claims/<session-id>.jsonl` |
+| Ledger | `${DRAVR_SESSION_STATE:-${XDG_STATE_HOME:-~/.local/state}/dravr/sessions}/carnet-claims/<session-id>.jsonl` — one home for every Claude account, defined in `.agents/skills/lib/session-state.sh` |
 | Tests | `skills/carnet/test.sh` — stub `gh`, every refusal path fires |
+
+## One ledger across Claude accounts
+
+ChefFamille runs Claude Code under several accounts (`CLAUDE_CONFIG_DIR` = `~/.claude`,
+`~/.claude-gatling`, `~/.claude-perso`) and switches between them, sometimes inside one session.
+A ledger under the config dir split such a session in two (carnet#670), so the ledger lives in
+one home every account reads and writes, `$DRAVR_SESSION_STATE` or by default
+`${XDG_STATE_HOME:-~/.local/state}/dravr/sessions`. The first run of `carnet.sh` or `bilan.sh`
+on a machine merges every account's `carnet-claims/` and `bilan/` into it — one identity line
+per session, keeping the earliest start; each line once; a claim or filed line the other account
+closed is dropped after asking the tracker — and replaces each old directory with a symlink to
+the shared one. Carnet copies in other repos, older worktrees and the status line still address
+`$CLAUDE_CONFIG_DIR/carnet-claims` and land in the same place through that link.
 
 ## Related
 

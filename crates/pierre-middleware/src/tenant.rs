@@ -40,7 +40,7 @@ use axum::{
     response::Response,
 };
 use pierre_auth::auth::Claims;
-use pierre_auth::security::cookies::get_cookie_value;
+use pierre_auth::security::cookies::{auth_cookie_name, get_cookie_value};
 use pierre_auth::tenant::{TenantContext, TenantRole};
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
@@ -91,7 +91,7 @@ impl ExtractedTenantContext {
 /// Tenant context middleware that extracts tenant information from JWT claims
 ///
 /// This middleware:
-/// 1. Extracts JWT token from Authorization header or `auth_token` cookie
+/// 1. Extracts JWT token from Authorization header or web session cookie (`auth_cookie_name()`)
 /// 2. Validates the token and extracts claims
 /// 3. Resolves tenant context from JWT claims or user's default tenant
 /// 4. Injects `ExtractedTenantContext` into request extensions
@@ -129,7 +129,7 @@ pub async fn tenant_context_middleware<C: MiddlewareCtx>(
     // If the cookie token is present but invalid, we still attempt the header
     // token so that API clients with a valid Bearer token are not blocked by
     // a stale browser cookie.
-    let cookie_token = get_cookie_value(headers, "auth_token");
+    let cookie_token = get_cookie_value(headers, &auth_cookie_name());
     let header_token = headers
         .get("authorization")
         .and_then(|h| h.to_str().ok())

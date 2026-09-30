@@ -79,7 +79,17 @@ run() { # <repo> [args...]
 
 CFG=$(mktemp -d "${TMPDIR:-/tmp}/bilan-cfg.XXXXXX") || die "mktemp -d failed for the config dir"
 SID="00000000-0000-0000-0000-00000000test"
-trap 'rm -rf "$CFG"' EXIT
+# HOME and the session-state home belong to the sandbox, and are set before bilan.sh first runs.
+# bilan adopts every $HOME/.claude* account's ledger and baselines into the shared home, and the
+# EXIT trap deletes the sandbox: against the real HOME the suite would move ChefFamille's state
+# into a temp dir and then delete it.
+SANDBOX=$(mktemp -d "${TMPDIR:-/tmp}/bilan-home.XXXXXX") || die "mktemp -d failed for the sandbox home"
+export HOME="$SANDBOX/home"
+export DRAVR_SESSION_STATE="$SANDBOX/state"
+STATE=$DRAVR_SESSION_STATE
+mkdir -p "$HOME"
+case $HOME in */bilan-home.*/home) : ;; *) die "HOME '$HOME' is not the sandbox's — refusing to run" ;; esac
+trap 'rm -rf "$CFG" "$SANDBOX"' EXIT
 
 # Every fixture repo starts with nothing committed by the "session", so any case that also writes
 # a transcript would pick up the unmeasured cap alongside the thing it tests. A completed todo
@@ -144,8 +154,8 @@ check "missing validation marker is a cap" 1 \
 git -C "$R" push -q origin HEAD:refs/heads/main
 
 # ---- a held carnet issue caps at 6 and outranks everything else
-mkdir -p "$CFG/carnet-claims"
-cat > "$CFG/carnet-claims/$SID.jsonl" <<LEDGER
+mkdir -p "$STATE/carnet-claims"
+cat > "$STATE/carnet-claims/$SID.jsonl" <<LEDGER
 {"v":1,"session":"$SID","name":"test","user":"t","host":"h","pid":1,"repo":"dravr-platform","branch":"main","at":"2026-09-08T00:00:00Z","kind":"identity"}
 {"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":999,"at":"2026-09-08T00:00:00Z"}
 LEDGER
@@ -156,13 +166,13 @@ check "held issue is named in the evidence" 1 \
 
 # ---- a filed issue caps at 9 and is distinguishable from a held one
 printf '{"kind":"filed","tracker":"dravr-ai/dravr-carnet","issue":1000,"at":"2026-09-08T00:00:00Z"}\n' \
-    >> "$CFG/carnet-claims/$SID.jsonl"
+    >> "$STATE/carnet-claims/$SID.jsonl"
 out=$(run "$R")
 # ChefFamille: a session that files an issue must fix it before it stops or claims 10/10.
 check "a filed issue caps at 6, level with a held one" 6 "$(printf '%s' "$out" | jq -r .score)"
 check "filed is reported separately from held" 1 \
     "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("filed this session and still open"))] | length')"
-rm -f "$CFG/carnet-claims/$SID.jsonl"
+rm -f "$STATE/carnet-claims/$SID.jsonl"
 
 # ---- the register's scope comes from the register
 #
@@ -232,7 +242,7 @@ filed_caps() { printf '%s' "$1" | jq '[.caps[] | select(.evidence | test("filed 
 IDENTITY="{\"v\":1,\"session\":\"$SID\",\"name\":\"test\",\"user\":\"t\",\"host\":\"h\",\"pid\":1,\"repo\":\"dravr-platform\",\"branch\":\"main\",\"at\":\"2026-09-08T00:00:00Z\",\"kind\":\"identity\"}"
 
 printf '%s\n%s\n' "$IDENTITY" '{"kind":"filed","tracker":"dravr-ai/dravr-carnet","issue":2001,"at":"2026-09-08T00:00:00Z"}' \
-    > "$CFG/carnet-claims/$SID.jsonl"
+    > "$STATE/carnet-claims/$SID.jsonl"
 
 # Label but NO marker — still work owed.
 check "a limitation label alone does not exempt a filed issue" 1 "$(filed_caps "$(run_full "$R" --json)")"
@@ -258,7 +268,7 @@ rm -rf "$R/crates"
 # be exempted by dropping a marker next to it.
 echo '// LIMITATION(registre#2002): the width this names' >> "$R/src/lib.rs"
 printf '{"kind":"filed","tracker":"dravr-ai/dravr-carnet","issue":2002,"at":"2026-09-08T00:00:00Z"}\n' \
-    >> "$CFG/carnet-claims/$SID.jsonl"
+    >> "$STATE/carnet-claims/$SID.jsonl"
 check "a marker without the limitation label does not exempt" 1 "$(filed_caps "$(run_full "$R" --json)")"
 git -C "$R" checkout -q -- src/lib.rs
 
@@ -267,17 +277,17 @@ git -C "$R" checkout -q -- src/lib.rs
 # the register required the issue open. It now reads the label from the line carnet.sh writes
 # when it applies it — and without that line it still keeps the cap.
 printf '%s\n%s\n' "$IDENTITY" '{"kind":"filed","tracker":"dravr-ai/dravr-carnet","issue":2001,"at":"2026-09-08T00:00:00Z"}' \
-    > "$CFG/carnet-claims/$SID.jsonl"
+    > "$STATE/carnet-claims/$SID.jsonl"
 echo '// LIMITATION(registre#2001): the width this names' >> "$R/src/lib.rs"
 check "--cheap with no recorded label keeps the cap" 1 "$(filed_caps "$(run "$R")")"
 printf '{"kind":"limitation","tracker":"dravr-ai/dravr-carnet","issue":2001,"at":"2026-09-08T00:00:00Z"}\n' \
-    >> "$CFG/carnet-claims/$SID.jsonl"
+    >> "$STATE/carnet-claims/$SID.jsonl"
 out=$(run "$R")
 check "--cheap credits a limitation carnet recorded, with a marker in scope" 0 "$(filed_caps "$out")"
 check "--cheap and the full run agree on it" "$(filed_caps "$(run_full "$R" --json)")" "$(filed_caps "$out")"
 git -C "$R" checkout -q -- src/lib.rs
 check "--cheap still wants the marker, not the label alone" 1 "$(filed_caps "$(run "$R")")"
-rm -f "$CFG/carnet-claims/$SID.jsonl"
+rm -f "$STATE/carnet-claims/$SID.jsonl"
 
 # ---- a marker this session added must name an open, labelled issue
 #
@@ -314,7 +324,7 @@ check "--cheap asks nothing, so it does not judge the marker" 0 \
 git -C "$R" checkout -q -- src/lib.rs
 
 rm -rf "$STUB"
-rm -f "$CFG/carnet-claims/$SID.jsonl"
+rm -f "$STATE/carnet-claims/$SID.jsonl"
 
 # ---- an unregistered LIMITATION marker caps at 6
 echo '// LIMITATION(registre#): nothing reads this' >> "$R/src/lib.rs"
@@ -357,7 +367,7 @@ echo '// LIMITATION(registre#7): the width this names' >> "$R2/src/lib.rs"
 check "no gate and a new marker: fails closed and names the remedy" 1 \
     "$(run "$R2" | jq '[.caps[] | select(.evidence | test("cannot scope")) | select(.remedy | test("submodule"))] | length')"
 rm -rf "$(dirname "$R2")"
-rm -f "$CFG/bilan/"*.baseline*
+rm -f "$STATE/bilan/"*.baseline*
 baseline_now "$R"
 
 # ---- ack accounts for files this session must not touch, for exactly that set
@@ -379,11 +389,11 @@ git -C "$R" checkout -q -- a.txt
 
 # The ack is keyed by path set, not by content: ownership is a property of the files, not of
 # what is in them. So clear it before exercising the gate on the same file.
-rm -f "$CFG/bilan/"*.ack.json
+rm -f "$STATE/bilan/"*.ack.json
 
 # ---- files already dirty when the session opened are not this session's, automatically.
 # Three sessions were held at 7 by a peer's mid-edit file with nothing they could do about it.
-rm -f "$CFG/bilan/"*.ack.json
+rm -f "$STATE/bilan/"*.ack.json
 echo peer-was-mid-edit >> "$R/a.txt"
 check "a file dirty before the baseline caps at 7 without one" 7 "$(run "$R" | jq -r .score)"
 ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SID" bash "$BILAN" baseline >/dev/null 2>&1 )
@@ -397,10 +407,10 @@ check "and the cap names only the session's own file" 1 \
     "$(run "$R" | jq '[.caps[] | select(.cap==7) | select(.evidence | test("c\\.txt") and (test("a\\.txt") | not))] | length')"
 git -C "$R" rm -q -f --cached c.txt >/dev/null 2>&1; rm -f "$R/c.txt"
 git -C "$R" checkout -q -- a.txt
-rm -f "$CFG/bilan/"*.baseline
+rm -f "$STATE/bilan/"*.baseline
 
 # ---- a peer's unpushed commit is inherited the same way a dirty file is
-rm -f "$CFG/bilan/"*.ack.json "$CFG/bilan/"*.baseline*
+rm -f "$STATE/bilan/"*.ack.json "$STATE/bilan/"*.baseline*
 baseline_now "$R"                       # observing from here: the commit below is this session's
 echo peer-commit > "$R/peer.txt"
 git -C "$R" add peer.txt && git -C "$R" commit -qm "a peer's cherry-pick"
@@ -411,7 +421,7 @@ check "a commit unpushed before the baseline does not cap" 0 "$(real_caps "$out"
 check "the inherited commit is stated as a note" 1 \
     "$(printf '%s' "$out" | jq '[.notes[] | select(test("already unpushed"))] | length')"
 git -C "$R" push -q origin HEAD:refs/heads/main
-rm -f "$CFG/bilan/"*.baseline*
+rm -f "$STATE/bilan/"*.baseline*
 
 # ---- background work is the one incompleteness that leaves no trace in git, the ledger or CI.
 # A session reported 10/10 from --cheap with four subagents still running; closing it would
@@ -458,7 +468,7 @@ rm -rf "$CFG/tasks"
 # But the verdict is measured against an ask. The status line renders before the first prompt,
 # and without this every session opened at "9/10 nothing measurable" for having done nothing in
 # its first second.
-rm -rf "$CFG/tasks"; rm -f "$CFG/bilan/"*.baseline*
+rm -rf "$CFG/tasks"; rm -f "$STATE/bilan/"*.baseline*
 baseline_now "$R"
 out=$(run "$R")
 check "before anything is asked there is no verdict to withhold" 0 \
@@ -479,7 +489,185 @@ echo measurable > "$R/m.txt" && git -C "$R" add m.txt && git -C "$R" commit -qm 
 check "a commit makes the session measurable" 0 \
     "$(run "$R" | jq '[.caps[] | select(.evidence | test("nothing measurable"))] | length')"
 git -C "$R" push -q origin HEAD:refs/heads/main
-rm -f "$CFG/bilan/"*.baseline*; rm -rf "$CFG/projects"
+rm -f "$STATE/bilan/"*.baseline*; rm -rf "$CFG/projects"
+
+# ---- "it committed something" is not only this checkout's HEAD moving. Sessions squash in their
+# own worktree and push HEAD:main from there, so the checkout bilan runs in never moves, and a
+# session that had landed its work read as "nothing measurable". Two records say what it landed
+# without guessing at authorship — every commit here has the same author.
+unmeasured() { run "$R" | jq '[.caps[] | select(.evidence | test("nothing measurable"))] | length'; }
+baseline_now "$R"
+mkdir -p "$CFG/projects/fixture"
+printf '%s\n' '{"type":"user","message":{"content":"Fix the lane and land it"}}' > "$CFG/projects/fixture/$SID.jsonl"
+check "no todo, HEAD unmoved and no landing record: unmeasured" 1 "$(unmeasured)"
+mkdir -p "$STATE/carnet-claims"
+printf '%s\n%s\n' "$IDENTITY" "{\"kind\":\"closed\",\"tracker\":\"dravr-ai/dravr-carnet\",\"issue\":55,\"commit\":\"$(git -C "$R" rev-parse HEAD)\",\"at\":\"2026-09-08T00:00:00Z\"}" \
+    > "$STATE/carnet-claims/$SID.jsonl"
+check "an issue closed on a commit makes the session measurable" 0 "$(unmeasured)"
+printf '%s\n%s\n' "$IDENTITY" '{"kind":"closed","tracker":"dravr-ai/dravr-carnet","issue":55,"at":"2026-09-08T00:00:00Z"}' \
+    > "$STATE/carnet-claims/$SID.jsonl"
+check "a close that named no commit does not" 1 "$(unmeasured)"
+rm -f "$STATE/carnet-claims/$SID.jsonl"
+
+# A worktree stamped as this session's (create-worktree / bin/worktrees.sh claim) with a commit
+# made in it after the stamp. The stamp says whose it is; the HEAD reflog is per worktree.
+WT="$(dirname "$R")/lane"
+git -C "$R" worktree add -q -b lane "$WT" 2>/dev/null
+stamp="$(git -C "$WT" rev-parse --absolute-git-dir)/claude-session"
+printf 'session_id=%s\nname=test\npid=1\nhost=h\nclaimed_at=%s\n' "$SID" "$(( $(date +%s) - 60 ))" > "$stamp"
+check "a stamped worktree with no commit in it is not a landing" 1 "$(unmeasured)"
+echo lane > "$WT/lane.txt" && git -C "$WT" add lane.txt && git -C "$WT" commit -qm "the lane's squash"
+printf 'session_id=%s\nclaimed_at=%s\n' "99999999-peer" "$(( $(date +%s) - 60 ))" > "$stamp"
+check "a commit in a PEER's stamped worktree does not make it measurable" 1 "$(unmeasured)"
+printf 'session_id=%s\nclaimed_at=%s\n' "$SID" "$(( $(date +%s) + 3600 ))" > "$stamp"
+check "nor does one made before this session stamped the worktree" 1 "$(unmeasured)"
+printf 'session_id=%s\nname=test\npid=1\nhost=h\nclaimed_at=%s\n' "$SID" "$(( $(date +%s) - 60 ))" > "$stamp"
+check "a commit in a worktree stamped as this session's makes it measurable" 0 "$(unmeasured)"
+check "and the landing is recorded with its commit" "$(git -C "$WT" rev-parse HEAD) lane" "$(cat "$STATE/bilan/$SID.landed" 2>/dev/null)"
+# The cleanup the repo requires deletes the stamp and the per-worktree reflog with the worktree.
+git -C "$R" worktree remove --force "$WT" >/dev/null 2>&1; git -C "$R" branch -q -D lane >/dev/null 2>&1
+check "so the landing still counts once the worktree is removed" 0 "$(unmeasured)"
+rm -f "$STATE/bilan/"*.landed
+check "which the record alone carried" 1 "$(unmeasured)"
+
+# A stamp on the shared main checkout credits nothing: every peer commit there would read as this
+# session's. bilan runs in a linked worktree here, so HEAD there never moves.
+WT="$(dirname "$R")/reader"
+git -C "$R" worktree add -q -b reader "$WT" 2>/dev/null
+( cd "$WT" && CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SID" bash "$BILAN" baseline >/dev/null 2>&1 )
+printf 'session_id=%s\nname=test\npid=1\nhost=h\nclaimed_at=%s\n' "$SID" "$(( $(date +%s) - 60 ))" \
+    > "$(git -C "$R" rev-parse --absolute-git-dir)/claude-session"
+echo peer > "$R/peer.txt" && git -C "$R" add peer.txt && git -C "$R" commit -qm "a peer's commit in main"
+check "a peer's commit in a stamped main checkout does not make it measurable" 1 \
+    "$(run "$WT" | jq '[.caps[] | select(.evidence | test("nothing measurable"))] | length')"
+rm -f "$(git -C "$R" rev-parse --absolute-git-dir)/claude-session" "$STATE/bilan/"*.landed
+git -C "$R" reset -q --hard HEAD~1
+git -C "$R" worktree remove --force "$WT" >/dev/null 2>&1; git -C "$R" branch -q -D reader >/dev/null 2>&1
+rm -f "$STATE/bilan/"*.baseline*; rm -rf "$CFG/projects"
+
+# ---- one session, two accounts (carnet#670). ChefFamille switches Claude accounts, sometimes
+# inside a session, and each account's config dir held part of it: a claim under one, a filed
+# issue under the other. Both reach the score, from one shared home.
+split_stub=$(mktemp -d "${TMPDIR:-/tmp}/bilan-gh-open.XXXXXX") || die "mktemp -d failed for the open-issue gh stub"
+printf '#!/bin/sh\nprintf %s\n' "'{\"state\":\"open\"}'" > "$split_stub/gh"; chmod +x "$split_stub/gh"
+mkdir -p "$HOME/.claude/carnet-claims" "$HOME/.claude-perso/carnet-claims"
+printf '%s\n%s\n' "$IDENTITY" '{"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":7,"at":"2026-09-08T00:00:00Z"}' \
+    > "$HOME/.claude/carnet-claims/$SID.jsonl"
+printf '%s\n%s\n' "$(printf '%s' "$IDENTITY" | jq -c '.at = "2026-09-09T00:00:00Z" | .pid = 2')" \
+    '{"kind":"filed","tracker":"dravr-ai/dravr-carnet","issue":8,"at":"2026-09-09T00:00:00Z"}' \
+    > "$HOME/.claude-perso/carnet-claims/$SID.jsonl"
+out=$( ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SID" PATH="$split_stub:$PATH" \
+    bash "$BILAN" --cheap --json 2>/dev/null ) )
+check "a claim held under one account still caps" 1 \
+    "$(printf '%s' "$out" | jq '[.caps[] | select(.cap == 6) | select(.evidence | test("still holding carnet#7"))] | length')"
+check "and an issue filed under the other caps beside it" 1 \
+    "$(printf '%s' "$out" | jq '[.caps[] | select(.cap == 6) | select(.evidence | test("filed this session and still open: carnet#8"))] | length')"
+check "the two halves are one ledger with one identity" 1 "$(grep -c '"kind":"identity"' "$STATE/carnet-claims/$SID.jsonl")"
+check "which keeps the session's earlier start" "2026-09-08T00:00:00Z" "$(head -1 "$STATE/carnet-claims/$SID.jsonl" | jq -r .at)"
+check "both accounts' directories now link to the shared home" 2 \
+    "$( { [ -L "$HOME/.claude/carnet-claims" ] && echo x; [ -L "$HOME/.claude-perso/carnet-claims" ] && echo x; } | grep -c x)"
+rm -f "$STATE/carnet-claims/$SID.jsonl"; rm -rf "${split_stub:?}"
+
+# A claim closed where this ledger could not see it: under the other account before the ledgers
+# were shared, whose ledger then held nothing and was removed, so adoption moved this one across
+# with the claim still in it. --cheap cannot ask and keeps the cap; the full run asks the tracker
+# and drops the line, and from then on --cheap agrees.
+closed_stub=$(mktemp -d "${TMPDIR:-/tmp}/bilan-gh-held.XXXXXX") || die "mktemp -d failed for the closed-claim gh stub"
+cat > "$closed_stub/gh" <<'GH'
+#!/bin/sh
+[ "$1 $2" = "issue view" ] || exit 1
+case "$3" in 9) echo CLOSED ;; *) echo OPEN ;; esac
+GH
+chmod +x "$closed_stub/gh"
+printf '%s\n%s\n%s\n' "$IDENTITY" \
+    '{"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":9,"at":"2026-09-08T00:00:00Z"}' \
+    '{"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":10,"at":"2026-09-08T00:00:00Z"}' \
+    > "$STATE/carnet-claims/$SID.jsonl"
+held_run() { ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SID" PATH="$closed_stub:$PATH" \
+    bash "$BILAN" "$@" --json 2>/dev/null ); }
+held_caps() { printf '%s' "$1" | jq -r '[.caps[] | select(.evidence | test("still holding")) | .evidence] | join(" ")'; }
+check "--cheap keeps the cap on a claim it cannot check" "still holding carnet#9 carnet#10 — claimed by this session, neither closed nor released" \
+    "$(held_caps "$(held_run --cheap)")"
+out=$(held_run)
+check "the full run drops a claim the tracker has closed, and keeps the open one" \
+    "still holding carnet#10 — claimed by this session, neither closed nor released" "$(held_caps "$out")"
+check "and says so" 1 "$(printf '%s' "$out" | jq '[.notes[] | select(test("carnet#9 is closed on the tracker"))] | length')"
+check "the closed claim is gone from the ledger" 0 "$(jq -c 'select(.kind == "claim" and .issue == 9)' "$STATE/carnet-claims/$SID.jsonl" | grep -c .)"
+check "so --cheap agrees afterwards" "still holding carnet#10 — claimed by this session, neither closed nor released" \
+    "$(held_caps "$(held_run --cheap)")"
+check "and no ledger lock is left behind" 0 "$(find "$STATE/carnet-claims" -name '*.lock' | grep -c .)"
+rm -f "$STATE/carnet-claims/$SID.jsonl"; rm -rf "${closed_stub:?}"
+
+# Two baselines of one session: the older is what the session found when it opened, and it moves
+# with its companions as a set.
+rm -f "$STATE/bilan/"*.baseline*
+baseline_now "$R"
+# The accounts' bilan directories are links since the case above adopted them; put real ones back.
+rm -rf "$HOME/.claude/bilan" "$HOME/.claude-perso/bilan"
+mkdir -p "$HOME/.claude/bilan" "$HOME/.claude-perso/bilan"
+printf 'older.txt\n' > "$HOME/.claude/bilan/$SID.baseline";       printf 'aaaa\n' > "$HOME/.claude/bilan/$SID.baseline.head"
+printf 'newer.txt\n' > "$HOME/.claude-perso/bilan/$SID.baseline"; printf 'bbbb\n' > "$HOME/.claude-perso/bilan/$SID.baseline.head"
+touch -t 202601010000 "$HOME/.claude/bilan/$SID.baseline" "$HOME/.claude/bilan/$SID.baseline.head"
+touch -t 202606010000 "$HOME/.claude-perso/bilan/$SID.baseline" "$HOME/.claude-perso/bilan/$SID.baseline.head"
+run "$R" >/dev/null
+check "the older baseline wins" "older.txt" "$(cat "$STATE/bilan/$SID.baseline")"
+check "with its own recorded HEAD" "aaaa" "$(cat "$STATE/bilan/$SID.baseline.head")"
+check "and no companion from another set" 0 "$(command ls "$STATE/bilan/$SID.baseline.commits" 2>/dev/null | grep -c .)"
+rm -f "$STATE/bilan/"*.baseline*
+
+# SessionStart fires again on a resume, a compact and after an account switch. None of those is
+# the moment the session opened, so the hook keeps the baseline it recorded then: the session's
+# own commit and dirty file from before the switch stay the session's.
+R2=$(fixture) || exit 2
+start_hook() { ( cd "$R2" && CLAUDE_CONFIG_DIR="$1" CLAUDE_CODE_SESSION_ID="$SID" \
+    bash "$HERE/hooks/session-start-sweep.sh" >/dev/null 2>&1 ); }
+start_hook "$CFG"
+opened_head=$(cat "$STATE/bilan/$SID.baseline.head")
+echo before-switch >> "$R2/a.txt"; git -C "$R2" commit -qam "made before the switch"
+echo still-editing >> "$R2/a.txt"
+mkdir -p "$HOME/.claude-third"
+start_hook "$HOME/.claude-third"
+check "a resume under another account keeps the opening HEAD" "$opened_head" "$(cat "$STATE/bilan/$SID.baseline.head")"
+check "and the opening dirty list" 0 "$(grep -c . "$STATE/bilan/$SID.baseline")"
+check "and the opening unpushed list" 0 "$(grep -c . "$STATE/bilan/$SID.baseline.commits")"
+check "so the work from before the switch still caps at 7" 7 "$(run "$R2" | jq -r .score)"
+( cd "$R2" && CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SID" bash "$BILAN" baseline >/dev/null 2>&1 )
+check "a bare baseline still re-records on purpose" 1 "$(grep -c . "$STATE/bilan/$SID.baseline")"
+rm -rf "$(dirname "$R2")" "$HOME/.claude-third"
+rm -f "$STATE/bilan/"*.baseline*
+
+# Claude Code keeps the todo list per account, and starts a fresh one under the account a session
+# switched to. Inside the session the list under the account it runs under is the live one, even
+# before anything is written there: right after a switch the other account's open items are ones
+# the session can neither see nor close, so they are stated, never capped.
+baseline_now "$R"
+rm -rf "$CFG/tasks"
+mkdir -p "$HOME/.claude-perso/tasks/$SID"
+printf '{"status":"pending","subject":"write the adoption"}\n' > "$HOME/.claude-perso/tasks/$SID/1.json"
+out=$(run "$R")
+check "right after a switch, the other account's open todo does not cap" 0 \
+    "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("todo"))] | length')"
+check "and it is stated" 1 \
+    "$(printf '%s' "$out" | jq '[.notes[] | select(test("before switching accounts"))] | length')"
+mkdir -p "$CFG/tasks/$SID"
+printf '{"status":"pending","subject":"ship it"}\n' > "$CFG/tasks/$SID/1.json"
+touch -t 202601010000 "$CFG/tasks/$SID/1.json"
+out=$(run "$R")
+check "an open todo under the account the session runs under caps at 7, however old" 1 \
+    "$(printf '%s' "$out" | jq '[.caps[] | select(.cap == 7) | select(.evidence | test("ship it"))] | length')"
+check "and only that list caps" 0 \
+    "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("write the adoption"))] | length')"
+# Run from outside the session (--session), the account is unknown: the list holding the most
+# recently written item stands in for it.
+printf '{"status":"completed","subject":"ship it"}\n' > "$CFG/tasks/$SID/1.json"
+touch -t 202601010000 "$CFG/tasks/$SID/1.json"
+out=$( ( cd "$R" && env -u CLAUDE_CODE_SESSION_ID CLAUDE_CONFIG_DIR="$CFG" \
+    bash "$BILAN" --cheap --json --session "$SID" 2>/dev/null ) )
+check "from outside, the newest list is the live one" 1 \
+    "$(printf '%s' "$out" | jq '[.caps[] | select(.cap == 7) | select(.evidence | test("write the adoption"))] | length')"
+rm -rf "$CFG/tasks" "$HOME/.claude-perso/tasks"
+measurable
+rm -f "$STATE/bilan/"*.baseline*
 
 # ---- the opening ask is carried into the report, so completion is claimed against the request
 mkdir -p "$CFG/projects/fixture"
@@ -513,7 +701,7 @@ dev_pid_file() { echo "$DEV_PROJECT_ROOT/logs/$1.pid"; }
 dev_owned() { [ -r "$(dev_pid_file "$1")" ] && head -1 "$(dev_pid_file "$1")"; }
 LIB
 printf '%s\n' "$$" > "$R/logs/peer-server.pid"      # already running when the session opens
-rm -f "$CFG/bilan/"*.baseline*
+rm -f "$STATE/bilan/"*.baseline*
 baseline_now "$R"
 out=$(run "$R")
 check "a stack running before the session does not cap" 0 \
@@ -530,7 +718,7 @@ check "and names only the new one" 0 \
 # the destructive twin of the empty-path bug that once ran this whole suite in the real
 # checkout. require_sandbox above should make it unreachable; this is what makes it harmless
 # if it ever is reached.
-rm -rf "${R:?}/logs" "${R:?}/bin"; rm -f "${CFG:?}/bilan/"*.baseline*
+rm -rf "${R:?}/logs" "${R:?}/bin"; rm -f "${STATE:?}/bilan/"*.baseline*
 baseline_now "$R"        # leave a clean starting point: with none, the next case's own edit
                          # is created before the baseline and correctly reads as inherited
 
@@ -538,7 +726,7 @@ baseline_now "$R"        # leave a clean starting point: with none, the next cas
 # carnet#236 was closed on 2026-09-03 and MCPNext's ledger still named it, so every session
 # start since reported an abandoned issue that no longer existed — a recurring false alarm
 # trains the reader to skip the one line the sweep exists to print.
-sweep_ledger="$CFG/carnet-claims/11111111-1111-1111-1111-111111111111.jsonl"
+sweep_ledger="$STATE/carnet-claims/11111111-1111-1111-1111-111111111111.jsonl"
 mkdir -p "$(dirname "$sweep_ledger")"
 cat > "$sweep_ledger" <<LEDGER
 {"v":1,"session":"11111111-1111-1111-1111-111111111111","name":"Dead","user":"t","host":"h","pid":999999,"repo":"r","branch":"main","at":"2026-09-03T11:07:02Z","kind":"identity"}
@@ -551,6 +739,18 @@ check "an unverifiable claim is still reported, not dropped" 1 \
     "$(printf '%s' "$sweep_out" | grep -c 'carnet#236')"
 check "and the ledger is left intact when it cannot be checked" 1 \
     "$(grep -c '"issue":236' "$sweep_ledger")"
+
+# The pid a ledger recorded is not the session's liveness. A session resumed under another account
+# keeps its id and runs under a new pid; read by the old pid it looked dead, and the sweep
+# reported its claims as abandoned while it was still working them.
+sleep 60 & RESUMED=$!
+mkdir -p "$HOME/.claude-perso/sessions"
+printf '{"pid":%s,"sessionId":"11111111-1111-1111-1111-111111111111"}\n' "$RESUMED" > "$HOME/.claude-perso/sessions/$RESUMED.json"
+sweep_out=$( ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" PATH=/usr/bin:/bin bash "$BILAN" sweep 2>/dev/null ) )
+check "a session running under a new pid is not reported as dead" 0 \
+    "$(printf '%s' "$sweep_out" | grep -c 'carnet#236')"
+kill "$RESUMED" 2>/dev/null; wait "$RESUMED" 2>/dev/null
+rm -rf "$HOME/.claude-perso/sessions"
 rm -f "$sweep_ledger"
 
 # ---- the sweep must only judge its own register's claims. The ledger directory is shared by
@@ -580,7 +780,12 @@ rm -rf "${xstub:?}"; rm -f "$sweep_ledger"
 # it never ran, and the text reached an arithmetic expansion as the bare word `File:`. The
 # assertion is therefore on the VALUE, not on the exit status — a status check is exactly what
 # missed it.
-mtime_of() { ( cd "$R" && bash -c "source <(sed -n '/^file_mtime/,/^}/p' \"$BILAN\"); file_mtime \"$1\"" ); }
+# One function lifted out of bilan.sh and run in a subshell. `eval`, not `source <(…)`: macOS
+# /bin/bash 3.2 cannot source a process substitution, and read nothing from it.
+bilan_fn() { # <function> [args...]
+    ( cd "$R" && eval "$(sed -n "/^$1()/,/^}/p" "$BILAN")" && "$@" )
+}
+mtime_of() { bilan_fn file_mtime "$1"; }
 mt=$(mtime_of "$R/a.txt")
 check "file_mtime returns digits on this platform, not the other stat's prose" 1 \
     "$(printf '%s' "$mt" | grep -cE '^[0-9]+$')"
@@ -610,16 +815,16 @@ check "and nothing after the fixture runs" "" \
 live_dir=$(mktemp -d "${TMPDIR:-/tmp}/bilan-live.XXXXXX") || die "mktemp -d failed for the liveness fixture"
 touch "$live_dir/just-edited.txt"
 check "a directory edited moments ago reads as in use" 0 \
-    "$( ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" bash -c "source <(sed -n '/^worktree_is_live/,/^}/p' \"$BILAN\"); worktree_is_live \"$live_dir\"" ); echo $?)"
+    "$(bilan_fn worktree_is_live "$live_dir"; echo $?)"
 touch -t 202601010000 "$live_dir/just-edited.txt"
 check "and one untouched for hours does not" 1 \
-    "$( ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" bash -c "source <(sed -n '/^worktree_is_live/,/^}/p' \"$BILAN\"); worktree_is_live \"$live_dir\"" ); echo $?)"
+    "$(bilan_fn worktree_is_live "$live_dir"; echo $?)"
 rm -rf "$live_dir"
 
 # ---- the status line has room for one phrase and it must name the thing to act on.
 # ".agents/skills/b" identified nothing, and the --cheap notice filled the line with a sentence
 # that says only "this is not a verdict".
-score_line() { cut -f3 "$CFG/bilan/$(printf '%s' "$SID" | tr -c 'a-zA-Z0-9._-' '_').score"; }
+score_line() { cut -f3 "$STATE/bilan/$(printf '%s' "$SID" | tr -c 'a-zA-Z0-9._-' '_').score"; }
 echo edited >> "$R/a.txt"
 run "$R" >/dev/null
 check "the published line names the file, not a cut path" 1 \
@@ -658,7 +863,7 @@ check "stop gate is silent on a clean tree" "" "$(gate false | jq -r '.decision 
 # A session must never be trapped. The per-state latch bounds repetition only while the state
 # holds still; in a shared checkout a peer editing beside you makes a new signature every few
 # minutes. Three tellings is the ceiling, then the gate stands down for good.
-rm -f "$CFG/bilan/"*.json "$CFG/bilan/"*.baseline*
+rm -f "$STATE/bilan/"*.json "$STATE/bilan/"*.baseline*
 baseline_now "$R"
 : > "$CFG/blocks.txt"
 for i in 1 2 3 4 5; do
@@ -675,7 +880,7 @@ check "and is silent for every attempt inside it" 4 \
     "$(grep -c '^-$' "$CFG/blocks.txt")"
 # ...but it must NOT stand down forever: a session held carnet#384 for nineteen hours after its
 # one and only block, and ChefFamille had to find it by hand.
-st="$CFG/bilan/$(printf '%s' "$SID" | tr -c 'a-zA-Z0-9._-' '_').json"
+st="$STATE/bilan/$(printf '%s' "$SID" | tr -c 'a-zA-Z0-9._-' '_').json"
 check "the block was recorded with a timestamp" 1 "$([ -f "$st" ] && jq -e 'has("blockedAt")' "$st" >/dev/null && echo 1 || echo 0)"
 old=$(python3 -c "import datetime;print((datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:%SZ'))")
 jq --arg a "$old" '.blockedAt = $a' "$st" > "$st.tmp" && mv "$st.tmp" "$st"

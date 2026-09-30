@@ -23,6 +23,9 @@ here=$(cd "$(dirname "$0")" && pwd)
 bilan="$here/../bilan.sh"
 [ -f "$bilan" ] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
+# The shared session-state home (carnet#670): the ledger is no longer under the config dir.
+# shellcheck disable=SC1090
+. "$here/../../lib/session-state.sh" 2>/dev/null || exit 0
 
 payload=$(cat 2>/dev/null || true)
 [ "$(printf '%s' "$payload" | jq -r '.stop_hook_active // false' 2>/dev/null)" = true ] && exit 0
@@ -47,8 +50,7 @@ score=$(printf '%s' "$report" | jq -r '.score // 10' 2>/dev/null)
 case "$score" in ''|*[!0-9]*) exit 0 ;; esac
 [ "$score" -ge 9 ] && exit 0
 
-CFG=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
-state_dir="$CFG/bilan"
+state_dir="$BILAN_DIR"
 mkdir -p "$state_dir" 2>/dev/null || exit 0
 state="$state_dir/$(printf '%s' "$sid" | tr -c 'a-zA-Z0-9._-' '_').json"
 

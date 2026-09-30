@@ -16,13 +16,13 @@ use axum::http::HeaderMap;
 use uuid::Uuid;
 
 use pierre_auth::auth::AuthResult;
-use pierre_auth::security::cookies::get_cookie_value;
+use pierre_auth::security::cookies::{auth_cookie_name, get_cookie_value};
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_runtime_context::MiddlewareCtx;
 
-/// Axum extractor that authenticates a user from the `Authorization` header or `auth_token` cookie.
+/// Axum extractor that authenticates a user from the `Authorization` header or web session cookie (`auth_cookie_name()`).
 ///
-/// Tries the `Authorization` header first, then falls back to the `auth_token` cookie.
+/// Tries the `Authorization` header first, then falls back to the web session cookie (`auth_cookie_name()`).
 /// Returns the full [`AuthResult`] including `user_id`, `auth_method`,
 /// and `active_tenant_id`. A delegated OAuth grant is refused with 403: see
 /// [`extract_auth_from_headers`].
@@ -68,10 +68,10 @@ impl<C: MiddlewareCtx> FromRequestParts<Arc<C>> for AuthenticatedUser {
     }
 }
 
-/// Extract and authenticate user from `Authorization` header or `auth_token` cookie.
+/// Extract and authenticate user from `Authorization` header or web session cookie (`auth_cookie_name()`).
 ///
 /// Shared logic used by the [`AuthenticatedUser`] extractor. Tries the `Authorization` header
-/// first, then falls back to the `auth_token` cookie formatted as a Bearer token.
+/// first, then falls back to the web session cookie (`auth_cookie_name()`) formatted as a Bearer token.
 ///
 /// Only the athlete's own credential passes: every route behind this acts with the athlete's
 /// whole authority and reads no scope, so a delegated OAuth grant is refused.
@@ -79,7 +79,7 @@ impl<C: MiddlewareCtx> FromRequestParts<Arc<C>> for AuthenticatedUser {
 /// # Errors
 ///
 /// Returns [`AppError`] if:
-/// - No `Authorization` header or `auth_token` cookie is present
+/// - No `Authorization` header or web session cookie (`auth_cookie_name()`) is present
 /// - The token is invalid or expired
 /// - The token is a delegated OAuth grant (403 `PermissionDenied`, passed through unchanged)
 /// - The user lookup or rate limit check fails
@@ -93,7 +93,7 @@ pub async fn extract_auth_from_headers<C: MiddlewareCtx>(
     let auth_value =
         if let Some(auth_header) = headers.get("authorization").and_then(|h| h.to_str().ok()) {
             auth_header.to_owned()
-        } else if let Some(token) = get_cookie_value(headers, "auth_token") {
+        } else if let Some(token) = get_cookie_value(headers, &auth_cookie_name()) {
             format!("Bearer {token}")
         } else {
             return Err(AppError::auth_invalid(

@@ -12,6 +12,15 @@ peer_pid=""
 cleanup() { [ -z "$peer_pid" ] || kill "$peer_pid" 2>/dev/null || true; rm -rf "$tmp"; }
 trap cleanup EXIT
 
+# HOME and the session-state home are the sandbox's, set before anything sources carnet.sh.
+# carnet.sh adopts every $HOME/.claude* account's carnet-claims into the shared home, and the
+# EXIT trap deletes $tmp: run against the real HOME, the suite would move ChefFamille's ledgers
+# into a temp dir and then delete them.
+export HOME="$tmp/home"
+export DRAVR_SESSION_STATE="$tmp/state"
+mkdir -p "$HOME"
+case $HOME in "$tmp"/*) : ;; *) echo "HOME is not the sandbox's — refusing to run" >&2; exit 2 ;; esac
+
 # ------------------------------------------------------------------ stub gh
 # Reads come from canned files under $CARNET_STUB; every call is appended to calls.log. A
 # comment and a new issue travel as a JSON payload file (--input) that carnet.sh deletes
@@ -69,7 +78,7 @@ HOST=$(hostname -s 2>/dev/null || hostname)
 ME=$CLAUDE_CODE_SESSION_ID
 PEER="22222222-aaaa-bbbb-cccc-000000000002"
 DEAD="33333333-aaaa-bbbb-cccc-000000000003"
-ledger="$tmp/cfg/carnet-claims/$ME.jsonl"
+ledger="$tmp/state/carnet-claims/$ME.jsonl"
 
 # A live peer session on this host: a real process plus its sessions file.
 sleep 600 & peer_pid=$!
@@ -92,7 +101,7 @@ release_marker() { # <session>
     printf '<!-- carnet-release {"v":1,"session":"%s","name":"x","user":"x","host":"x","pid":1,"repo":"dravr-test","branch":"main","at":"2026-09-02T11:00:00Z","reason":"done"} -->\n🔓 Released\n' "$1"
 }
 comments() { cat > "$S/comments.txt"; }
-reset() { : > "$S/calls.log"; : > "$S/comments.txt"; rm -rf "$tmp/cfg/carnet-claims"; rm -f "$S/private.txt" "$S/list.txt"; issue_open; }
+reset() { : > "$S/calls.log"; : > "$S/comments.txt"; rm -rf "$tmp/state/carnet-claims"; rm -f "$S/private.txt" "$S/list.txt"; issue_open; }
 
 # ------------------------------------------------------------------ assertions
 pass=0; fail=0
@@ -115,11 +124,11 @@ section() { printf '\n%s\n' "$1"; }
 
 # ================================================================== syntax
 section "syntax"
-for f in "$carnet" "$here"/hooks/*.sh "$here/test.sh"; do
+for f in "$carnet" "$here"/hooks/*.sh "$here/test.sh" "$here/../lib/session-state.sh"; do
     if bash -n "$f"; then ok "bash -n $(basename "$f")"; else bad "bash -n $(basename "$f")"; fi
 done
 if command -v shellcheck >/dev/null 2>&1; then
-    if shellcheck -S warning "$carnet" "$here"/hooks/*.sh; then ok "shellcheck"; else bad "shellcheck"; fi
+    if shellcheck -S warning "$carnet" "$here"/hooks/*.sh "$here/../lib/session-state.sh"; then ok "shellcheck"; else bad "shellcheck"; fi
 fi
 
 # ================================================================== claim
@@ -193,7 +202,7 @@ section "release"
 reset
 comments < <(claim_marker "$ME" TestSession tester "$HOST" "$$")
 run_carnet claim 42 >/dev/null 2>&1 || true   # not held per marker? it is — no-op, but seed the ledger by hand
-mkdir -p "$tmp/cfg/carnet-claims"
+mkdir -p "$tmp/state/carnet-claims"
 printf '{"kind":"identity","v":1,"session":"%s","name":"TestSession","user":"tester","host":"%s","pid":%s}\n{"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":42,"at":"2026-09-02T10:00:00Z"}\n' "$ME" "$HOST" "$$" > "$ledger"
 : > "$S/calls.log"
 run_carnet release --all --reason session-ended
@@ -247,6 +256,34 @@ comments < <(claim_marker "$ME" TestSession tester "$HOST" "$$")
 run_carnet close 42 --why "done"
 assert_eq "closing my own held issue works" "$rc" 0
 assert_grep "and drops label + assignee first" 'issues/42/labels/in-progress -X DELETE' "$S/calls.log"
+
+# Closing on a commit is the session's landed work, and bilan has to be able to see it: a session
+# squashes in its own worktree and pushes HEAD:main from there, so the checkout bilan measures
+# never moves. The ledger keeps a `closed` line with the full sha, and the file outlives the claim.
+reset
+run_carnet claim 42 >/dev/null 2>&1
+issue_held
+comments < <(claim_marker "$ME" TestSession tester "$HOST" "$$")
+run_carnet close 42 --why "fixed" --commit "${head_sha:0:7}"
+assert_eq "close --commit on a held issue exits 0" "$rc" 0
+assert_grep "the ledger records what landed, with the full sha" "\"kind\":\"closed\",\"tracker\":\"dravr-ai/dravr-carnet\",\"issue\":42,\"commit\":\"$head_sha\"" "$ledger"
+assert_no_grep "the claim itself is gone" '"kind":"claim"' "$ledger"
+
+reset
+run_carnet claim 42 >/dev/null 2>&1
+issue_held
+comments < <(claim_marker "$ME" TestSession tester "$HOST" "$$")
+run_carnet close 42 --why "not a code change"
+[ -f "$ledger" ] && bad "close without --commit leaves no ledger behind" || ok "close without --commit leaves no ledger behind"
+
+# --dry-run changes nothing, the ledger included. The filed line used to be dropped on a dry run.
+reset
+mkdir -p "$tmp/state/carnet-claims"
+printf '{"kind":"identity","v":1,"session":"%s","name":"TestSession","user":"tester","host":"%s","pid":%s,"at":"2026-09-02T09:00:00Z"}\n{"kind":"filed","tracker":"dravr-ai/dravr-carnet","issue":42,"at":"2026-09-02T10:00:00Z"}\n' "$ME" "$HOST" "$$" > "$ledger"
+run_carnet close 42 --why x --commit "$head_sha" --dry-run
+assert_eq "a dry-run close exits 0" "$rc" 0
+assert_grep "a dry-run close keeps the filed line" '"kind":"filed"' "$ledger"
+assert_no_grep "and records no closed line" '"kind":"closed"' "$ledger"
 
 # ================================================================== create
 section "create"
@@ -360,8 +397,8 @@ assert_grep "lists the held issue without an API call" 'carnet#42 · since' "$tm
 # incarnation's claims stay in its own file, so `mine` used to answer "holds
 # nothing" — a false all-clear, and exactly when someone is auditing.
 reset
-prior="$tmp/cfg/carnet-claims/$DEAD.jsonl"
-mkdir -p "$tmp/cfg/carnet-claims"
+prior="$tmp/state/carnet-claims/$DEAD.jsonl"
+mkdir -p "$tmp/state/carnet-claims"
 printf '{"kind":"identity","v":1,"session":"%s","name":"EarlierMe","user":"tester","host":"%s","pid":1,"repo":"r","branch":"main","at":"2026-01-01T00:00:00Z"}\n' "$DEAD" "$HOST" > "$prior"
 printf '{"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":91,"at":"2026-01-01T00:00:00Z"}\n' >> "$prior"
 run_carnet mine
@@ -375,25 +412,150 @@ assert_eq "surfacing them costs no API call" "$(count_calls 'api repos/[^ ]*/iss
 # "an earlier me" — adopting a peer's claim would be worse than the false
 # all-clear this fixes.
 reset
-foreign="$tmp/cfg/carnet-claims/$PEER.jsonl"
-mkdir -p "$tmp/cfg/carnet-claims"
+foreign="$tmp/state/carnet-claims/$PEER.jsonl"
+mkdir -p "$tmp/state/carnet-claims"
 printf '{"kind":"identity","v":1,"session":"%s","name":"SomeoneElse","user":"other","host":"%s","pid":1,"repo":"r","branch":"main","at":"2026-01-01T00:00:00Z"}\n' "$PEER" "$HOST" > "$foreign"
 printf '{"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":92,"at":"2026-01-01T00:00:00Z"}\n' >> "$foreign"
 run_carnet mine
 assert_no_grep "another user's ledger is not surfaced" 'SomeoneElse' "$tmp/out"
 
 reset
-elsewhere="$tmp/cfg/carnet-claims/$PEER.jsonl"
-mkdir -p "$tmp/cfg/carnet-claims"
+elsewhere="$tmp/state/carnet-claims/$PEER.jsonl"
+mkdir -p "$tmp/state/carnet-claims"
 printf '{"kind":"identity","v":1,"session":"%s","name":"OtherBox","user":"tester","host":"not-this-host","pid":1,"repo":"r","branch":"main","at":"2026-01-01T00:00:00Z"}\n' "$PEER" > "$elsewhere"
 printf '{"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":93,"at":"2026-01-01T00:00:00Z"}\n' >> "$elsewhere"
 run_carnet mine
 assert_no_grep "another machine's ledger is not surfaced" 'OtherBox' "$tmp/out"
 
+# ================================================================== shared state home
+# ChefFamille switches Claude accounts, sometimes inside one session (carnet#670). Each account's
+# carnet-claims is folded into one home and replaced by a link to it, so every account — and every
+# other copy of carnet that still addresses $CLAUDE_CONFIG_DIR/carnet-claims — reads one ledger.
+section "shared state home (account switches)"
+
+reset
+mkdir -p "$HOME/.claude-x/carnet-claims"
+printf '{"kind":"identity","v":1,"session":"%s","name":"TestSession","user":"tester","host":"%s","pid":1,"repo":"r","branch":"main","at":"2026-01-01T00:00:00Z"}\n{"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":77,"at":"2026-01-01T00:00:00Z"}\n' "$ME" "$HOST" \
+    > "$HOME/.claude-x/carnet-claims/$ME.jsonl"
+run_carnet mine
+assert_grep "a claim made under another account is this session's" 'carnet#77 · since' "$tmp/out"
+[ -L "$HOME/.claude-x/carnet-claims" ] && ok "the account's old directory is now a link" || bad "the account's old directory is now a link"
+assert_grep "the ledger lives in the shared home" '"issue":77' "$ledger"
+[ -L "$tmp/cfg/carnet-claims" ] && ok "the active account's directory is a link too" || bad "the active account's directory is a link too"
+printf 'x\n' > "$HOME/.claude-x/carnet-claims/through-the-link"
+[ -f "$tmp/state/carnet-claims/through-the-link" ] && ok "a writer still using the old path lands in the shared home" \
+    || bad "a writer still using the old path lands in the shared home"
+rm -f "$tmp/state/carnet-claims/through-the-link"
+
+# One session split across two accounts: one identity, the EARLIEST start (bilan dates the
+# session from it) with the pid of the newer file, and every claim and filed line once.
+reset
+rm -rf "$HOME/.claude-x"
+mkdir -p "$HOME/.claude-a/carnet-claims" "$HOME/.claude-b/carnet-claims"
+printf '{"kind":"identity","v":1,"session":"%s","name":"Early","user":"tester","host":"%s","pid":111,"repo":"r","branch":"main","at":"2026-01-01T00:00:00Z"}\n{"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":42,"at":"2026-01-01T00:00:00Z"}\n' "$ME" "$HOST" \
+    > "$HOME/.claude-a/carnet-claims/$ME.jsonl"
+printf '{"kind":"identity","v":1,"session":"%s","name":"Late","user":"tester","host":"%s","pid":222,"repo":"r","branch":"feat","at":"2026-02-01T00:00:00Z"}\n{"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":42,"at":"2026-02-01T00:00:00Z"}\n{"kind":"filed","tracker":"dravr-ai/dravr-carnet","issue":43,"at":"2026-02-01T00:00:00Z"}\n' "$ME" "$HOST" \
+    > "$HOME/.claude-b/carnet-claims/$ME.jsonl"
+touch -t 202601010000 "$HOME/.claude-a/carnet-claims/$ME.jsonl"
+run_carnet status 42 --short
+assert_eq "a split session merges into one identity line" "$(grep -c '"kind":"identity"' "$ledger")" 1
+assert_eq "…with the earliest start" "$(head -1 "$ledger" | jq -r .at)" "2026-01-01T00:00:00Z"
+assert_eq "…and the newer file's pid" "$(head -1 "$ledger" | jq -r .pid)" 222
+assert_eq "…and the newer file's branch" "$(head -1 "$ledger" | jq -r .branch)" feat
+assert_eq "a claim both accounts recorded appears once" "$(grep -c '"kind":"claim"' "$ledger")" 1
+assert_eq "…at its first stamp" "$(jq -r 'select(.kind == "claim") | .at' "$ledger")" "2026-01-01T00:00:00Z"
+assert_grep "a filed line only one account had survives" '"kind":"filed","tracker":"dravr-ai/dravr-carnet","issue":43' "$ledger"
+[ -L "$HOME/.claude-a/carnet-claims" ] && [ -L "$HOME/.claude-b/carnet-claims" ] \
+    && ok "both accounts now link to the shared home" || bad "both accounts now link to the shared home"
+assert_eq "no renamed directory is left behind" "$(find "$HOME" -name '*.adopting.*' | wc -l | tr -d ' ')" 0
+
+# A claim one account kept after the other account closed it would come back from the dead and
+# cap bilan at 6 over an issue nobody holds. A collision asks the tracker.
+reset
+rm -rf "$HOME/.claude-a" "$HOME/.claude-b"
+mkdir -p "$HOME/.claude-a/carnet-claims" "$HOME/.claude-b/carnet-claims"
+printf '{"kind":"identity","v":1,"session":"%s","name":"A","user":"tester","host":"%s","pid":1,"at":"2026-01-01T00:00:00Z"}\n{"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":42,"at":"2026-01-01T00:00:00Z"}\n' "$ME" "$HOST" \
+    > "$HOME/.claude-a/carnet-claims/$ME.jsonl"
+printf '{"kind":"identity","v":1,"session":"%s","name":"B","user":"tester","host":"%s","pid":2,"at":"2026-01-02T00:00:00Z"}\n{"kind":"filed","tracker":"dravr-ai/dravr-carnet","issue":42,"at":"2026-01-02T00:00:00Z"}\n' "$ME" "$HOST" \
+    > "$HOME/.claude-b/carnet-claims/$ME.jsonl"
+issue_closed
+run_carnet mine
+assert_no_grep "a merged claim on a closed issue is dropped" '"kind":"claim"' "$ledger"
+assert_no_grep "…and so is a merged filed line" '"kind":"filed"' "$ledger"
+rm -rf "$HOME/.claude-a" "$HOME/.claude-b"
+
+# An adoption killed mid-merge (SessionStart runs under a timeout) leaves the account's link in
+# place and its old files in a renamed directory; the next run finishes the merge. A lock whose
+# holder is dead does not stall it.
+reset
+mkdir -p "$HOME/.claude-y/carnet-claims.adopting.4242" "$tmp/state/carnet-claims" "$tmp/state/.adopt.lock"
+ln -s "$tmp/state/carnet-claims" "$HOME/.claude-y/carnet-claims"
+ln -s "$tmp/state/bilan" "$HOME/.claude-y/bilan"
+printf '{"kind":"identity","v":1,"session":"%s","name":"TestSession","user":"tester","host":"%s","pid":1,"at":"2026-01-01T00:00:00Z"}\n{"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":88,"at":"2026-01-01T00:00:00Z"}\n' "$ME" "$HOST" \
+    > "$HOME/.claude-y/carnet-claims.adopting.4242/$ME.jsonl"
+printf '999999\n' > "$tmp/state/.adopt.lock/pid"
+run_carnet mine
+assert_grep "an interrupted adoption is finished on the next run" 'carnet#88 · since' "$tmp/out"
+[ -d "$HOME/.claude-y/carnet-claims.adopting.4242" ] && bad "the renamed directory is gone once merged" || ok "the renamed directory is gone once merged"
+[ -d "$tmp/state/.adopt.lock" ] && bad "a dead holder's lock is taken over and released" || ok "a dead holder's lock is taken over and released"
+rm -rf "$HOME/.claude-y"
+
+# A write refreshes the identity's pid and branch — the release marker is built from it — and
+# keeps its start.
+reset
+mkdir -p "$tmp/state/carnet-claims"
+printf '{"kind":"identity","v":1,"session":"%s","name":"Old","user":"tester","host":"%s","pid":1,"repo":"r","branch":"old","at":"2026-01-01T00:00:00Z"}\n{"kind":"filed","tracker":"dravr-ai/dravr-carnet","issue":43,"at":"2026-01-01T00:00:00Z"}\n' "$ME" "$HOST" > "$ledger"
+run_carnet claim 42
+assert_eq "a write names the current process" "$(head -1 "$ledger" | jq -r .pid)" "$$"
+assert_eq "…and the current branch" "$(head -1 "$ledger" | jq -r .branch)" main
+assert_eq "…and keeps the session's start" "$(head -1 "$ledger" | jq -r .at)" "2026-01-01T00:00:00Z"
+
+# Parallel tool calls fire one auto-claim hook each, and every ledger write rewrites the identity
+# line: a line appended between another writer's read and its mv would be lost, and with it the
+# release SessionEnd owes that issue. The ledger lock serialises them. The writers run here with
+# `mv` slowed, which holds each rewrite's window open long enough for the others to land in it.
+ledger_writer() { # <n>
+    ( eval "$(sed -n '/^ledger_file()/p; /^ledger_identity()/,/^}/p; /^ledger_add()/,/^}/p' "$carnet")"
+      . "$here/../lib/session-state.sh"
+      identity_json() { printf '{"v":1,"session":"%s","at":"2026-01-01T00:00:00Z"}\n' "$ME"; }
+      now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+      mv() { sleep 0.1; command mv "$@"; }
+      # shellcheck disable=SC2034 # read by the ledger functions eval'd above
+      SESSION_ID=$ME TRACKER=dravr-ai/dravr-carnet
+      ledger_add "$1" )
+}
+reset
+writers=""
+for i in 1 2 3 4 5 6 7 8; do
+    ledger_writer $((500 + i)) &
+    writers="$writers $!"
+done
+for w in $writers; do wait "$w" || true; done
+assert_eq "parallel claims in one session all reach the ledger" "$(grep -c '"kind":"claim"' "$ledger")" 8
+assert_eq "…under one identity line" "$(grep -c '"kind":"identity"' "$ledger")" 1
+assert_eq "…and no lock is left behind" "$(find "$tmp/state/carnet-claims" -name '*.lock' | wc -l | tr -d ' ')" 0
+# A holder that stays alive past the wait is written through, never waited on forever, and its
+# lock is left to it.
+reset
+mkdir -p "$ledger.lock"; printf '%s\n' "$peer_pid" > "$ledger.lock/pid"
+run_carnet claim 42
+assert_eq "a claim past a wedged live holder still succeeds" "$rc" 0
+assert_grep "…and still reaches the ledger" '"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":42' "$ledger"
+[ -d "$ledger.lock" ] && ok "…leaving the holder's lock alone" || bad "…leaving the holder's lock alone"
+rm -rf "$ledger.lock"
+
+
+# A session resumed under another account keeps its id and gets a new pid. The pid in the claim
+# marker is dead; the session is not.
+reset
+comments < <(claim_marker "$PEER" PeerSession peer "$HOST" 999999)
+run_carnet claim 42
+assert_eq "a live session is live whatever pid its marker recorded" "$rc" 2
+
 # ================================================================== hooks
 section "hooks"
 reset
-pending_dir_h="$tmp/cfg/carnet-claims/pending"
+pending_dir_h="$tmp/state/carnet-claims/pending"
 hook_out=$(printf '{"prompt":"look at carnet#42, then registre#42 and https://github.com/dravr-ai/dravr-carnet/issues/7","session_id":"%s"}' "$ME" \
     | bash "$here/hooks/prompt-status.sh")
 printf '%s\n' "$hook_out" > "$tmp/hook"
@@ -468,14 +630,23 @@ assert_grep "typed prompt: pending list records the prompt id" '^prompt=aaaaaaaa
 assert_grep "typed prompt: and the issue" '^42$' "$pending_dir_h/$ME.txt"
 
 reset
-mkdir -p "$tmp/cfg/carnet-claims"
-printf '{"kind":"identity","v":1,"session":"%s","name":"Ender","user":"ender","host":"%s","pid":1}\n{"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":42,"at":"2026-09-02T10:00:00Z"}\n' "$PEER" "$HOST" > "$tmp/cfg/carnet-claims/$PEER.jsonl"
+mkdir -p "$tmp/state/carnet-claims"
+printf '{"kind":"identity","v":1,"session":"%s","name":"Ender","user":"ender","host":"%s","pid":1}\n{"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":42,"at":"2026-09-02T10:00:00Z"}\n' "$PEER" "$HOST" > "$tmp/state/carnet-claims/$PEER.jsonl"
 comments < <(claim_marker "$PEER" Ender ender "$HOST" 1)
 printf '{"session_id":"%s","reason":"exit"}' "$PEER" | bash "$here/hooks/session-end-release.sh" > "$tmp/hook4"
 assert_grep "session-end hook: reports the release" '^🔓 carnet#42 released \(session-ended\)' "$tmp/hook4"
 assert_grep "session-end hook: releases with the ledger's identity" 'issues/42/assignees -X DELETE -f assignees\[\]=ender' "$S/calls.log"
 assert_grep "session-end hook: marker names the ended session" "^BODY <!-- carnet-release \{.*\"session\":\"$PEER\".*\"reason\":\"session-ended\"" "$S/calls.log"
-[ -f "$tmp/cfg/carnet-claims/$PEER.jsonl" ] && bad "session-end hook: ledger removed" || ok "session-end hook: ledger removed"
+[ -f "$tmp/state/carnet-claims/$PEER.jsonl" ] && bad "session-end hook: ledger removed" || ok "session-end hook: ledger removed"
+
+# The hook reads the shared home, not the ending account's config dir: a session that claimed
+# under one account and ends under another still releases.
+reset
+mkdir -p "$tmp/state/carnet-claims" "$tmp/other-account"
+printf '{"kind":"identity","v":1,"session":"%s","name":"Ender","user":"ender","host":"%s","pid":1}\n{"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":42,"at":"2026-09-02T10:00:00Z"}\n' "$PEER" "$HOST" > "$tmp/state/carnet-claims/$PEER.jsonl"
+comments < <(claim_marker "$PEER" Ender ender "$HOST" 1)
+printf '{"session_id":"%s","reason":"exit"}' "$PEER" | CLAUDE_CONFIG_DIR="$tmp/other-account" bash "$here/hooks/session-end-release.sh" > "$tmp/hook5"
+assert_grep "session-end hook: releases from the shared home under any account" '^🔓 carnet#42 released \(session-ended\)' "$tmp/hook5"
 : > "$S/calls.log"
 printf '{"session_id":"%s"}' "$DEAD" | bash "$here/hooks/session-end-release.sh"
 assert_eq "session-end hook: no ledger, no call" "$(wc -c < "$S/calls.log" | tr -d ' ')" 0
@@ -487,7 +658,7 @@ auto_claim() { # <payload> ; sets rc, $tmp/ac.out, $tmp/ac.err
     rc=0
     printf '%s' "$1" | bash "$here/hooks/auto-claim.sh" > "$tmp/ac.out" 2> "$tmp/ac.err" || rc=$?
 }
-pending_dir="$tmp/cfg/carnet-claims/pending"
+pending_dir="$tmp/state/carnet-claims/pending"
 set_pending() { mkdir -p "$pending_dir"; printf '%s\n' "$@" > "$pending_dir/$ME.txt"; }
 edit_payload() { printf '{"tool_name":"Edit","session_id":"%s","tool_input":{"file_path":"/x"}}' "$ME"; }
 bash_payload() { printf '{"tool_name":"Bash","session_id":"%s","tool_input":{"command":"%s"}}' "$ME" "$1"; }

@@ -32,6 +32,7 @@ set -uo pipefail
 CHEAP=0
 JSON=0
 QUIET=0
+ONCE=0
 
 usage() {
     cat <<'EOF'
@@ -40,11 +41,12 @@ bilan — what this session left undone
   bilan.sh [--cheap] [--json] [--session <uuid>]   score this session in this checkout
   bilan.sh sweep                                    what dead sessions left across every worktree
   bilan.sh ack --why "<whose and why>"              declare uncommitted files not this session's
-  bilan.sh baseline                                 record what was already dirty (SessionStart)
+  bilan.sh baseline [--once]                        record what was already dirty (SessionStart)
 
   --cheap     local facts only: no gh, no network (what the Stop hook runs)
   --json      machine form: {"score":N,"caps":[…],"friction":{…}}
   --quiet     print nothing when the score is 10
+  --once      baseline only: keep a baseline this session already has
 
 Exit: 0 = 10/10 · 1 = incomplete · 2 = error
 EOF
@@ -59,8 +61,21 @@ command -v git >/dev/null 2>&1 || die "git is required"
 command -v jq  >/dev/null 2>&1 || die "jq is required"
 
 # ------------------------------------------------------------------ context
+# The ledger and bilan's own files (baseline, ack, score) live in the account-independent home
+# ../lib/session-state.sh defines, NOT under the config dir: ChefFamille switches Claude accounts,
+# sometimes inside one session, and state kept per account scored half a session (carnet#670).
+# What Claude Code writes itself — transcripts, todo lists — stays per account, and is read below
+# across every account. The path needs no `cd`: the kernel resolves the .claude/skills symlink
+# before it applies the `..`. state_adopt is a few stats on an adopted machine; the run that first
+# adopts one merges any session split across accounts, and only that merge asks the tracker about
+# the split claims — the single network call --cheap can make, once per machine.
+case ${BASH_SOURCE[0]} in */*) SKILL_DIR=${BASH_SOURCE[0]%/*} ;; *) SKILL_DIR=. ;; esac
+STATE_LIB="$SKILL_DIR/../lib/session-state.sh"
+[ -f "$STATE_LIB" ] || die "$STATE_LIB is missing — bilan.sh ships with .agents/skills/lib, copy both"
+# shellcheck disable=SC1090
+. "$STATE_LIB"
+state_adopt
 CFG=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
-LEDGER_DIR="$CFG/carnet-claims"
 SESSION_ID=${CLAUDE_CODE_SESSION_ID:-}
 
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || die "run this inside a git checkout"
@@ -114,14 +129,59 @@ session_started_epoch() {
         || date -u -d "$(head -1 "$f" | jq -r '.at // empty')" +%s 2>/dev/null
 }
 
+# Claude Code keeps the transcript under the account that was active when it wrote it, so a
+# session that switched accounts can have one under each. The newest is the one still growing.
 transcript_path() {
-    local slug
+    local slug d best=""
     [ -n "$SESSION_ID" ] || return 1
     slug=$(printf '%s' "$REPO_ROOT" | sed 's#[/.]#-#g')
-    for d in "$CFG/projects/$slug" "$CFG/projects"/*; do
-        [ -f "$d/$SESSION_ID.jsonl" ] && { printf '%s' "$d/$SESSION_ID.jsonl"; return 0; }
+    for d in "$CFG/projects/$slug" "$HOME"/.claude*/projects/"$slug" "$CFG/projects"/* "$HOME"/.claude*/projects/*; do
+        [ -f "$d/$SESSION_ID.jsonl" ] || continue
+        if [ -z "$best" ] || [ "$d/$SESSION_ID.jsonl" -nt "$best" ]; then best="$d/$SESSION_ID.jsonl"; fi
     done
-    return 1
+    [ -n "$best" ] || return 1
+    printf '%s' "$best"
+}
+
+# Claude Code also keeps the todo list per account: tasks/<session-id>/ under whichever config
+# dir is active. Every such list this session has, each physical directory once.
+task_list_dirs() {
+    local d phys seen="|"
+    [ -n "$SESSION_ID" ] || return 0
+    for d in "$CFG" "$HOME"/.claude*; do
+        [ -d "$d/tasks/$SESSION_ID" ] || continue
+        phys=$(cd "$d/tasks/$SESSION_ID" 2>/dev/null && pwd -P) || continue
+        case $seen in *"|$phys|"*) continue ;; esac
+        seen="$seen$phys|"
+        printf '%s
+' "$d/tasks/$SESSION_ID"
+    done
+}
+
+# The list the session works from now. After an account switch Claude Code starts a fresh list
+# under the new account and never shows the old one again, so the old list's pending items are
+# ones the session can neither see nor close. Inside the session, the account it runs under is
+# $CFG, and its list is the live one even before anything is written there: right after a switch
+# the only items on disk are the old account's. Run from outside (`--session`), the account is
+# unknown, and the list holding the most recently written item stands in for it.
+live_task_dir() {
+    local d f files=() newest
+    if [ -n "$SESSION_ID" ] && [ "$SESSION_ID" = "${CLAUDE_CODE_SESSION_ID:-}" ]; then
+        printf '%s' "$CFG/tasks/$SESSION_ID"
+        return 0
+    fi
+    while IFS= read -r d; do
+        for f in "$d"/*.json; do [ -f "$f" ] && files+=("$f"); done
+    done < <(task_list_dirs)
+    [ "${#files[@]}" -gt 0 ] || return 1
+    newest=$(command ls -t "${files[@]}" 2>/dev/null | head -1)
+    [ -n "$newest" ] || return 1
+    dirname "$newest"
+}
+
+open_todos() { # <dir> -> one subject per open item
+    jq -r 'select(.status == "pending" or .status == "in_progress") | .subject // .description // "?"' \
+        "$1"/*.json 2>/dev/null
 }
 
 # ------------------------------------------------------------------ acknowledgement
@@ -136,7 +196,7 @@ transcript_path() {
 # a paragraph on every run. It is keyed to the exact set of files: dirty one more and the cap
 # comes back. It never applies to anything but the shared-checkout case, because every other
 # cap is about state this session can actually change.
-ack_file() { [ -n "$SESSION_ID" ] && printf '%s' "$CFG/bilan/$(printf '%s' "$SESSION_ID" | tr -c 'a-zA-Z0-9._-' '_').ack.json"; }
+ack_file() { [ -n "$SESSION_ID" ] && printf '%s' "$BILAN_DIR/$(printf '%s' "$SESSION_ID" | tr -c 'a-zA-Z0-9._-' '_').ack.json"; }
 
 signature_of() { printf '%s' "$1" | sort | shasum 2>/dev/null | cut -d' ' -f1; }
 
@@ -151,7 +211,7 @@ ack_reason_for() { # <field> <signature>
 # whoever dirtied it, which was not this session — the one piece of ownership that IS decidable.
 # Paths, not content: a peer who keeps editing the same file is still that peer, and treating a
 # changed hash as "now mine" would hand their work back to the cap it was meant to escape.
-baseline_file() { [ -n "$SESSION_ID" ] && printf '%s' "$CFG/bilan/$(printf '%s' "$SESSION_ID" | tr -c 'a-zA-Z0-9._-' '_').baseline"; }
+baseline_file() { [ -n "$SESSION_ID" ] && printf '%s' "$BILAN_DIR/$(printf '%s' "$SESSION_ID" | tr -c 'a-zA-Z0-9._-' '_').baseline"; }
 
 # A session with NO baseline cannot attribute anything, and defaulting to "it is all yours" is
 # how one unpushed commit in the shared checkout came to block every other session in the fleet
@@ -168,9 +228,18 @@ ensure_baseline() {
     say_note "no baseline existed for this session — everything already uncommitted or unpushed is treated as inherited, and only changes from here are this session's"
 }
 
+# --once records only when this session has no baseline yet, and is what SessionStart passes.
+# SessionStart fires on resume and compact as well as on startup, and the baseline is shared by
+# every account the session runs under, so re-recording there would take the session's own dirty
+# files and unpushed commits from before a resume or an account switch as inherited, and move
+# `.head` past the commits it had already made. A bare `baseline` re-records on purpose.
 cmd_baseline() {
     local f u up pf
     f=$(baseline_file) || return 0
+    if [ "$ONCE" = 1 ] && [ -f "$f" ]; then
+        say "baseline: kept, recorded when this session opened"
+        return 0
+    fi
     mkdir -p "$(dirname "$f")" 2>/dev/null || return 0
     git status --porcelain 2>/dev/null | grep -v '^??' | sed 's/^...//' > "$f"
     # Commits carry the same inheritance as files: a peer's cherry-pick sitting unpushed in the
@@ -439,13 +508,34 @@ check_validation_marker() {
 }
 
 # ------------------------------------------------------------------ checks · carnet
+# A claim whose issue is already closed is not held. The close that should have dropped its line
+# can have run where this ledger could not see it: under another account before the ledgers were
+# shared, where its own ledger held nothing else and was removed, so adoption moved this one
+# across untouched with the claim still in it — or by a peer or ChefFamille on GitHub. Only the
+# full run can ask the tracker; it drops the line, under the ledger's lock, so --cheap and the
+# status line agree from then on. --cheap keeps the cap, which is the safe direction.
 check_carnet_held() {
-    local f n list=""
+    local f n t list="" tracker state tmp held
     f=$(ledger_file) || return 0
     [ -s "$f" ] || return 0
-    for n in $(jq -r 'select(.kind == "claim") | .issue' "$f" 2>/dev/null); do
+    while IFS='|' read -r t n; do
+        [ -n "$n" ] || continue
+        if [ "$CHEAP" = 0 ] && command -v gh >/dev/null 2>&1; then
+            tracker=${t:-${TRACKER:-dravr-ai/dravr-carnet}}
+            state=$(gh issue view "$n" -R "$tracker" --json state -q .state 2>/dev/null || echo OPEN)
+            if [ "$state" = CLOSED ]; then
+                held=0; state_ledger_lock "$f" || held=$?
+                tmp=$(mktemp "${TMPDIR:-/tmp}/bilan-ledger.XXXXXX") \
+                    && jq -c --arg t "$t" --argjson n "$n" \
+                        'select((.kind == "claim" and .issue == $n and (.tracker // "") == $t) | not)' "$f" > "$tmp" \
+                    && mv "$tmp" "$f"
+                state_ledger_unlock "$f" "$held"
+                say_note "carnet#$n is closed on the tracker, so this session's claim on it is dropped from the ledger"
+                continue
+            fi
+        fi
         list="$list carnet#$n"
-    done
+    done < <(jq -r 'select(.kind == "claim") | "\(.tracker // "")|\(.issue)"' "$f" 2>/dev/null)
     [ -n "${list// /}" ] || return 0
     cap 6 "❌" "still holding${list} — claimed by this session, neither closed nor released" \
           "carnet.sh close <n> --why … --commit <sha>, or release <n> --reason …"
@@ -684,15 +774,22 @@ check_running_tasks() {
 # The session's own todo list is the missing measurement. It is the session declaring what it
 # set out to do, Claude Code keeps it per session under tasks/<session-id>/, and an item still
 # pending or in progress is the session's own statement that it is not finished.
+#
+# Only the live list caps. A list left under another account after a switch is invisible to the
+# session — Claude Code shows only the active account's — so capping on it would hold the session
+# at 7 over items it has no way to close. Those are stated as a note instead.
 check_open_todos() {
-    local dir n subjects
-    dir="$CFG/tasks/$SESSION_ID"
-    [ -d "$dir" ] || return 0
-    n=$(jq -r 'select(.status == "pending" or .status == "in_progress") | .subject // .description // "?"' \
-        "$dir"/*.json 2>/dev/null | grep -c . ) || return 0
+    local dir other n subjects
+    dir=$(live_task_dir) || return 0
+    while IFS= read -r other; do
+        [ "$other" = "$dir" ] && continue
+        n=$(open_todos "$other" | grep -c .)
+        [ "${n:-0}" -gt 0 ] || continue
+        say_note "$n open todo(s) in the list this session kept under $(dirname "$(dirname "$other")") before switching accounts — not counted, the session now works from $(dirname "$(dirname "$dir")")"
+    done < <(task_list_dirs)
+    n=$(open_todos "$dir" | grep -c .)
     [ "${n:-0}" -gt 0 ] || return 0
-    subjects=$(jq -r 'select(.status == "pending" or .status == "in_progress") | .subject // .description // "?"' \
-        "$dir"/*.json 2>/dev/null | head -3 | cut -c1-60 | tr '\n' '·' | sed 's/·/ · /g; s/ · $//')
+    subjects=$(open_todos "$dir" | head -3 | cut -c1-60 | tr '\n' '·' | sed 's/·/ · /g; s/ · $//')
     cap 7 "❌" "$n todo(s) still open: $subjects" \
           "finish them, or drop the ones you are not doing — an open todo is this session saying it is not done"
 }
@@ -711,18 +808,83 @@ check_open_todos() {
 # the first prompt arrives, so this cap read "this session made no commit" on a session nobody
 # had yet asked anything of — every session opened at 9 on the strength of its own silence. No
 # ask, no verdict: the request is the thing the verdict would be measured against.
+#
+# "It committed something" cannot be read off this checkout's HEAD alone. Sessions squash in their
+# own worktree and push HEAD:main from there, so the checkout bilan runs in never moves and every
+# such session read as "nothing measurable" after landing its work. Two records say what the
+# session landed without guessing at authorship — every commit here is authored jfarcand:
+#   * a `closed` line in its ledger, which carnet.sh close --commit writes, and
+#   * a commit made in a worktree whose ownership stamp names this session, after the stamp.
 check_measurable() {
-    local f start_head todos=0
-    [ -d "$CFG/tasks/$SESSION_ID" ] && \
-        todos=$(command ls "$CFG/tasks/$SESSION_ID"/*.json 2>/dev/null | grep -c . )
+    local f start_head d todos=0
+    while IFS= read -r d; do
+        todos=$((todos + $(command ls "$d"/*.json 2>/dev/null | grep -c .)))
+    done < <(task_list_dirs)
     [ "${todos:-0}" -gt 0 ] && return 0                 # the session declared what it set out to do
     f=$(baseline_file) || return 0
     start_head=$(cat "${f}.head" 2>/dev/null || true)
     [ -n "$start_head" ] || return 0                    # no baseline: cannot tell, do not claim
     [ "$start_head" = "$HEAD_SHA" ] || return 0         # it committed something: that is measurable
+    closed_with_commit && return 0                      # it closed an issue on a commit it named
+    committed_in_own_worktree && return 0               # it committed in a worktree stamped as its own
     [ -n "$(opening_ask)" ] || return 0                 # nothing asked yet: nothing to measure against
     cap 9 "⚠️" "nothing measurable — no commit, no todo" \
           "say plainly whether the work is done — bilan checked the repo, the register and CI, and this session touched none of them"
+}
+
+# `carnet.sh close <n> --commit <sha>` records {kind:"closed", commit:<sha>} in the ledger.
+closed_with_commit() {
+    local f
+    f=$(ledger_file) || return 1
+    [ -s "$f" ] || return 1
+    jq -c 'select(.kind == "closed" and (.commit // "") != "")' "$f" 2>/dev/null | grep -q .
+}
+
+# A worktree's ownership stamp is `<its git-dir>/claude-session` (session_id=, claimed_at=<epoch>),
+# written by create-worktree and by `bin/worktrees.sh claim`. Its HEAD reflog is per worktree, so
+# a `commit` entry there dated after the stamp is a commit this session made — ownership comes
+# from the stamp, never from the author.
+#
+# Linked worktrees only. `bin/worktrees.sh claim` defaults to the current directory, so a session
+# can stamp the shared main checkout, and every peer's commit there after the stamp would then be
+# credited to it. A commit this session makes in the checkout it runs in moves HEAD, which
+# check_measurable already reads.
+#
+# The stamp and the reflog live in `.git/worktrees/<name>/`, which `git worktree remove` deletes,
+# and the repo requires that removal in the same session. So the first run that sees the evidence
+# records the commit in `<session>.landed`, and every later run reads that. The status line runs
+# bilan on every render, so the record is normally written long before the cleanup. A worktree
+# committed in and removed inside one tool call leaves nothing to read; `carnet.sh close --commit`
+# is the record that survives everything.
+landed_file() { [ -n "$SESSION_ID" ] && printf '%s' "$BILAN_DIR/$(printf '%s' "$SESSION_ID" | tr -c 'a-zA-Z0-9._-' '_').landed"; }
+
+committed_in_own_worktree() {
+    local common stamp gd at entry ts rest landed
+    [ -n "$SESSION_ID" ] || return 1
+    landed=$(landed_file)
+    [ -s "$landed" ] && return 0
+    common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
+        || common=$(cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P) || return 1
+    for stamp in "$common"/worktrees/*/claude-session; do
+        [ -f "$stamp" ] || continue
+        grep -qxF "session_id=$SESSION_ID" "$stamp" 2>/dev/null || continue
+        gd=$(dirname "$stamp")
+        at=$(sed -n 's/^claimed_at=//p' "$stamp" | head -1)
+        case $at in '' | *[!0-9]*) at=0 ;; esac
+        while IFS= read -r entry; do
+            rest=${entry#* }
+            ts=${rest#*@\{}; ts=${ts%%\}*}
+            case $ts in '' | *[!0-9]*) continue ;; esac
+            [ "$ts" -ge "$at" ] || continue
+            case ${rest#* } in
+                commit* | cherry-pick*)
+                    mkdir -p "$BILAN_DIR" 2>/dev/null \
+                        && printf '%s %s\n' "${entry%% *}" "$(basename "$gd")" > "$landed" 2>/dev/null
+                    return 0 ;;
+            esac
+        done < <(git --git-dir="$gd" reflog show --date=unix --format='%H %gd %gs' HEAD 2>/dev/null)
+    done
+    return 1
 }
 
 # The opening ask, printed with every report. bilan cannot judge whether the work satisfies it —
@@ -911,7 +1073,7 @@ score() {
     printf '%s' "$min"
 }
 
-score_file() { [ -n "$SESSION_ID" ] && printf '%s' "$CFG/bilan/$(printf '%s' "$SESSION_ID" | tr -c 'a-zA-Z0-9._-' '_').score"; }
+score_file() { [ -n "$SESSION_ID" ] && printf '%s' "$BILAN_DIR/$(printf '%s' "$SESSION_ID" | tr -c 'a-zA-Z0-9._-' '_').score"; }
 
 publish_score() { # <score>
     local f top
@@ -985,14 +1147,12 @@ report() {
 # The only thing that catches a session that died: a kill -9 fires no exit hook, so the dead
 # session can never report on itself. Reads every ledger on this machine and every worktree of
 # this repo, and names what a session that is no longer running left behind.
-is_session_alive() { # <session-id> <pid>
-    local f
-    for f in "$HOME"/.claude*/sessions/"$2".json; do
-        [ -f "$f" ] || continue
-        [ "$(jq -r '.sessionId // empty' "$f" 2>/dev/null)" = "$1" ] || continue
-        kill -0 "$2" 2>/dev/null && return 0
-    done
-    return 1
+#
+# Matched on the session id across every account's sessions/, not on the pid the ledger recorded:
+# a session resumed under another account keeps its id and gets a new pid, and the old pid made
+# that live session read as dead.
+is_session_alive() { # <session-id>
+    state_session_alive "$1"
 }
 
 # A worktree with an agent actively working in it is not something a dead session left behind.
@@ -1021,53 +1181,48 @@ worktree_is_live() { # <path>
 }
 
 cmd_sweep() {
-    local dir f id pid name at issues found=0 busy=0 path="" branch="" dirty ahead line n tmp healed="" seen=""
+    local f id name at issues found=0 busy=0 path="" branch="" dirty ahead line n tmp healed=""
     say "BILAN SWEEP · $(basename "$REPO_ROOT")"
     say ""
-    # Both accounts' config dirs, plus this session's own if CLAUDE_CONFIG_DIR points somewhere
-    # the glob does not reach — a session configured outside $HOME was invisible to its own
-    # sweep. Deduped, since the common case is that $CFG is already one of the globbed dirs.
-    for dir in "$HOME"/.claude*/carnet-claims "$LEDGER_DIR"; do
-        [ -d "$dir" ] || continue
-        case " $seen " in *" $dir "*) continue ;; esac
-        seen="$seen $dir"
-        for f in "$dir"/*.jsonl; do
-            [ -s "$f" ] || continue
-            id=$(basename "$f" .jsonl)
-            [ "$id" = "${SESSION_ID:-}" ] && continue
-            pid=$(head -1 "$f" | jq -r '.pid // 0')
-            is_session_alive "$id" "$pid" && continue
-            name=$(head -1 "$f" | jq -r '.name // "?"')
-            at=$(head -1 "$f"   | jq -r '.at // "?"')
-            # A dead session's ledger outlives the issue. carnet#236 was closed by somebody on
-            # 2026-09-03 and MCPNext's ledger still named it, so every session start since has
-            # reported an abandoned issue that no longer exists — a recurring false alarm that
-            # trains the reader to skip the line the sweep exists to print. Ask the tracker, and
-            # drop what has been resolved: SessionEnd would have cleaned this ledger up, and it
-            # is only here because the session was killed before it could.
-            issues=""
-            # Only this register's claims. The ledger directory is shared by every repo on the
-            # machine, so a dead session's ledger can hold another tracker's claim on the same
-            # number; asking THIS tracker about it and deleting on its answer erased claims this
-            # sweep does not own. A line without a tracker predates the field and is ours.
-            for n in $(jq -r --arg t "$TRACKER" 'select(.kind == "claim" and (.tracker // $t) == $t) | .issue' "$f" 2>/dev/null); do
-                if [ -n "$TRACKER" ] && command -v gh >/dev/null 2>&1 \
-                   && [ "$(gh issue view "$n" -R "$TRACKER" --json state -q .state 2>/dev/null)" = CLOSED ]; then
-                    tmp=$(mktemp)
-                    jq -c --argjson n "$n" --arg t "$TRACKER" 'select((.kind == "claim" and .issue == $n and (.tracker // $t) == $t) | not)' "$f" > "$tmp" \
-                        && mv "$tmp" "$f"
-                    healed="$healed carnet#$n"
-                    continue
-                fi
-                issues="$issues carnet#$n"
-            done
-            # A ledger with nothing left to hold is finished, exactly as ledger_drop treats it.
-            [ "$(jq -c 'select(.kind == "claim" or .kind == "filed")' "$f" 2>/dev/null | grep -c .)" = 0 ] && rm -f "$f"
-            [ -n "${issues// /}" ] || continue
-            found=1
-            say "  ☠️  session $name (${id:0:8}, last claim $at) ended holding:${issues}"
-            say "     → carnet.sh status <n> to see it; a plain claim takes over a stale one"
+    # One ledger directory for every account on the machine: each account's old carnet-claims is
+    # a link to it once state_adopt has run, which it did before this line.
+    for f in "$LEDGER_DIR"/*.jsonl; do
+        [ -s "$f" ] || continue
+        id=$(basename "$f" .jsonl)
+        [ "$id" = "${SESSION_ID:-}" ] && continue
+        is_session_alive "$id" && continue
+        name=$(head -1 "$f" | jq -r '.name // "?"')
+        at=$(head -1 "$f"   | jq -r '.at // "?"')
+        # A dead session's ledger outlives the issue. carnet#236 was closed by somebody on
+        # 2026-09-03 and MCPNext's ledger still named it, so every session start since has
+        # reported an abandoned issue that no longer exists — a recurring false alarm that
+        # trains the reader to skip the line the sweep exists to print. Ask the tracker, and
+        # drop what has been resolved: SessionEnd would have cleaned this ledger up, and it
+        # is only here because the session was killed before it could.
+        issues=""
+        # Only this register's claims. The ledger directory is shared by every repo on the
+        # machine, so a dead session's ledger can hold another tracker's claim on the same
+        # number; asking THIS tracker about it and deleting on its answer erased claims this
+        # sweep does not own. A line without a tracker predates the field and is ours.
+        for n in $(jq -r --arg t "$TRACKER" 'select(.kind == "claim" and (.tracker // $t) == $t) | .issue' "$f" 2>/dev/null); do
+            if [ -n "$TRACKER" ] && command -v gh >/dev/null 2>&1 \
+               && [ "$(gh issue view "$n" -R "$TRACKER" --json state -q .state 2>/dev/null)" = CLOSED ]; then
+                tmp=$(mktemp)
+                jq -c --argjson n "$n" --arg t "$TRACKER" 'select((.kind == "claim" and .issue == $n and (.tracker // $t) == $t) | not)' "$f" > "$tmp" \
+                    && mv "$tmp" "$f"
+                healed="$healed carnet#$n"
+                continue
+            fi
+            issues="$issues carnet#$n"
         done
+        # A ledger with no claim or filed line left is finished. A `closed` line does not keep it,
+        # though ledger_drop keeps one for a live session: it is there for that session's own bilan
+        # to read, and this session is gone.
+        [ "$(jq -c 'select(.kind == "claim" or .kind == "filed")' "$f" 2>/dev/null | grep -c .)" = 0 ] && rm -f "$f"
+        [ -n "${issues// /}" ] || continue
+        found=1
+        say "  ☠️  session $name (${id:0:8}, last claim $at) ended holding:${issues}"
+        say "     → carnet.sh status <n> to see it; a plain claim takes over a stale one"
     done
 
     while IFS= read -r line; do
@@ -1106,6 +1261,7 @@ while [ $# -gt 0 ]; do
         --cheap)    CHEAP=1 ;;
         --json)     JSON=1 ;;
         --quiet)    QUIET=1 ;;
+        --once)     ONCE=1 ;;
         --session)  shift; SESSION_ID=${1:-} ;;
         -h|--help)  usage; exit 0 ;;
         *)          die "unknown argument: $1" ;;

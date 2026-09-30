@@ -55,6 +55,9 @@ carnet="$here/../carnet.sh"
 [ -x "$carnet" ] || [ -f "$carnet" ] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 command -v gh >/dev/null 2>&1 || exit 0
+# The shared session-state home (carnet#670): the ledger is no longer under the config dir.
+# shellcheck disable=SC1090
+. "$here/../../lib/session-state.sh" 2>/dev/null || exit 0
 
 payload=$(cat 2>/dev/null || true)
 prompt=$(printf '%s' "$payload" | jq -r '.prompt // empty' 2>/dev/null || true)
@@ -110,7 +113,7 @@ if [ -n "$armable" ] && [ "$from_peer" = 0 ]; then
     sid=$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null || true)
     [ -n "$sid" ] || sid=${CLAUDE_CODE_SESSION_ID:-}
     if [ -n "$sid" ]; then
-        pending_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/carnet-claims/pending"
+        pending_dir="$LEDGER_DIR/pending"
         # `prompt=<id>` first: auto-claim.sh reads the numbers with a digits-only grep, so the
         # line is invisible to it as a number and is how it finds this prompt's transcript
         # entry to ask who wrote it.
@@ -124,7 +127,7 @@ fi
 
 [ -n "$nums" ] || exit 0
 
-cache_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/carnet-claims/cache"
+cache_dir="$LEDGER_DIR/cache"
 mkdir -p "$cache_dir" 2>/dev/null || exit 0
 
 printed=0

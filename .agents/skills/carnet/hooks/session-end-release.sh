@@ -18,13 +18,16 @@ here=$(cd "$(dirname "$0")" && pwd)
 carnet="$here/../carnet.sh"
 [ -f "$carnet" ] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
+# The shared session-state home (carnet#670): the ledger is no longer under the config dir.
+# shellcheck disable=SC1090
+. "$here/../../lib/session-state.sh" 2>/dev/null || exit 0
 
 payload=$(cat 2>/dev/null || true)
 sid=$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null || true)
 [ -n "$sid" ] || sid=${CLAUDE_CODE_SESSION_ID:-}
 [ -n "$sid" ] || exit 0
 
-ledger="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/carnet-claims/$sid.jsonl"
+ledger="$LEDGER_DIR/$sid.jsonl"
 [ -s "$ledger" ] || exit 0
 
 bash "$carnet" release --all --session "$sid" --reason session-ended || true

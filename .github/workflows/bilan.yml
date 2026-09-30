@@ -8,12 +8,14 @@ on:
   push:
     paths:
       - '.agents/skills/bilan/**'
+      - '.agents/skills/lib/**'
       - '.github/workflows/bilan.yml'
       - 'registre.toml'
       - '.build'
   pull_request:
     paths:
       - '.agents/skills/bilan/**'
+      - '.agents/skills/lib/**'
       - '.github/workflows/bilan.yml'
       - 'registre.toml'
       - '.build'
@@ -48,6 +50,6 @@ jobs:
       # test.sh is linted too, unlike carnet.yml's equivalent: its own empty-path bug is what
       # once made the suite commit to the real checkout, and shellcheck names that shape.
       - name: shellcheck
-        run: shellcheck -S warning .agents/skills/bilan/bilan.sh .agents/skills/bilan/test.sh .agents/skills/bilan/hooks/*.sh
+        run: shellcheck -S warning .agents/skills/bilan/bilan.sh .agents/skills/bilan/test.sh .agents/skills/bilan/hooks/*.sh .agents/skills/lib/session-state.sh
       - name: suite
         run: bash .agents/skills/bilan/test.sh

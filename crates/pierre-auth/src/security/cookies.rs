@@ -120,6 +120,39 @@ pub fn host_cookie_name(name: &str, secure: bool) -> String {
     }
 }
 
+/// Base name of the web app's session cookie, before the host prefix.
+const AUTH_COOKIE: &str = "auth_token";
+
+/// The name the web app's session cookie is set, read and cleared under.
+///
+/// The name follows the same predicate as the cookie's `Secure` flag
+/// (derived from `BASE_URL`), because browsers drop a
+/// `__Host-` cookie that lacks `Secure`. On an HTTPS deployment the cookie is
+/// `__Host-auth_token`: it can only be set by the host itself, with `Path=/`
+/// and no `Domain`, so a sibling host under the parent domain cannot plant a
+/// session in its place. A plain `auth_token` cookie is never read there —
+/// every reader matches this exact name. Over plain HTTP (local development,
+/// tests) the bare `auth_token` name is kept.
+#[must_use]
+pub fn auth_cookie_name() -> String {
+    host_cookie_name(AUTH_COOKIE, infer_secure_flag())
+}
+
+/// The name the web app's session cookie is read under on an endpoint whose
+/// own origin is known to be HTTPS independently of `BASE_URL`.
+///
+/// The OAuth authorization server's origin is its issuer, which
+/// `OAUTH2_ISSUER_URL` can set apart from `BASE_URL`. When either one is
+/// HTTPS the host-prefixed name is required: an HTTPS issuer served next to a
+/// plain-HTTP `BASE_URL` would otherwise accept a bare `auth_token` that a
+/// sibling host can plant. When the two disagree the bridge from the web
+/// session simply finds no cookie, and the user signs in to the authorization
+/// server itself.
+#[must_use]
+pub fn auth_cookie_name_on(origin_secure: bool) -> String {
+    host_cookie_name(AUTH_COOKIE, origin_secure || infer_secure_flag())
+}
+
 /// Set a secure authentication cookie
 ///
 /// # Arguments
@@ -127,7 +160,7 @@ pub fn host_cookie_name(name: &str, secure: bool) -> String {
 /// * `token` - JWT token to store in cookie
 /// * `max_age_secs` - Cookie expiration in seconds
 pub fn set_auth_cookie(headers: &mut HeaderMap, token: &str, max_age_secs: i64) {
-    let cookie = SecureCookieConfig::new("auth_token".to_owned(), token.to_owned(), max_age_secs);
+    let cookie = SecureCookieConfig::new(auth_cookie_name(), token.to_owned(), max_age_secs);
 
     if let Ok(header_value) = HeaderValue::from_str(&cookie.build()) {
         headers.insert(header::SET_COOKIE, header_value);
@@ -159,7 +192,10 @@ pub fn set_csrf_cookie(headers: &mut HeaderMap, csrf_token: &str, max_age_secs: 
 pub fn clear_auth_cookie(headers: &mut HeaderMap) {
     let secure = infer_secure_flag();
     let same_site = if secure { "None" } else { "Lax" };
-    let mut cookie = format!("auth_token=; Max-Age=0; Path=/; HttpOnly; SameSite={same_site}");
+    let mut cookie = format!(
+        "{}=; Max-Age=0; Path=/; HttpOnly; SameSite={same_site}",
+        host_cookie_name(AUTH_COOKIE, secure)
+    );
     if secure {
         cookie.push_str("; Secure");
     }

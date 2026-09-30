@@ -18,7 +18,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use pierre_auth::security::cookies::get_cookie_value;
+use pierre_auth::security::cookies::{auth_cookie_name, get_cookie_value};
 use pierre_config::admin_types::{ConfigScope, ResetConfigRequest, UpdateConfigRequest};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_middleware::{require_admin, PeerAddress};
@@ -58,8 +58,8 @@ impl AdminConfigState {
     /// Authenticate the caller, requiring admin privileges.
     ///
     /// Two credentials reach these routes. The admin console sends the
-    /// operator's own session (a user JWT, in the header or the `auth_token`
-    /// cookie). `pierre-cli` sends the super-admin *admin token* its device
+    /// operator's own session (a user JWT, in the header or the web session
+    /// cookie named by [`auth_cookie_name`]). `pierre-cli` sends the super-admin *admin token* its device
     /// login minted — accepted only when its stored row names the approving
     /// super-admin ([`ValidatedAdminToken::operator_user_id`], written by the
     /// device grant alone), the user every write is audited as. A service token minted by `token
@@ -74,7 +74,7 @@ impl AdminConfigState {
         let auth_value =
             if let Some(auth_header) = headers.get("authorization").and_then(|h| h.to_str().ok()) {
                 auth_header.to_owned()
-            } else if let Some(token) = get_cookie_value(headers, "auth_token") {
+            } else if let Some(token) = get_cookie_value(headers, &auth_cookie_name()) {
                 format!("Bearer {token}")
             } else {
                 return Err(AppError::auth_invalid(

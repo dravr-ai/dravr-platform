@@ -37,8 +37,13 @@
 # claim is the failure that cost three hours on 2026-09-02.
 set -uo pipefail
 
-CFG=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
-PENDING_DIR="$CFG/carnet-claims/pending"
+# The shared session-state home (carnet#670). Sourcing it defines paths and functions only — no
+# subprocess — and the path needs no `cd`: the kernel resolves the .claude/skills symlink before
+# it applies the `..`.
+case $0 in */*) hook_dir=${0%/*} ;; *) hook_dir=. ;; esac
+# shellcheck disable=SC1090
+. "$hook_dir/../../lib/session-state.sh" 2>/dev/null || exit 0
+PENDING_DIR="$LEDGER_DIR/pending"
 
 # Cheapest possible exit for the overwhelmingly common case: nothing is pending. No jq, no
 # payload parse, no subprocess -- this runs before every edit in every session.
@@ -128,8 +133,8 @@ if [ -n "$prompt_id" ] && [ -n "$transcript" ] && [ -r "$transcript" ]; then
     fi
 fi
 
-ledger="$CFG/carnet-claims/$sid.jsonl"
-warned="$CFG/carnet-claims/warned/$sid.txt"
+ledger="$LEDGER_DIR/$sid.jsonl"
+warned="$LEDGER_DIR/warned/$sid.txt"
 mkdir -p "$(dirname "$warned")" 2>/dev/null || true
 
 held=""

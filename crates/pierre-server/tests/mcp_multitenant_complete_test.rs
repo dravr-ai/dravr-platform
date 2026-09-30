@@ -12,6 +12,7 @@
 mod common;
 
 use anyhow::Result;
+use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
 use pierre_cache::{Cache, CacheConfig};
 use pierre_config::environment::{
@@ -282,11 +283,11 @@ impl MultiTenantMcpClient {
                 .get("set-cookie")
                 .and_then(|cookie| cookie.to_str().ok())
                 .and_then(|cookie_str| {
-                    // Parse "auth_token=<jwt>; HttpOnly; Secure; SameSite=Strict; Max-Age=86400; Path=/"
+                    // Parse "<auth_cookie_name()>=<jwt>; Max-Age=86400; Path=/; HttpOnly; ..."
                     cookie_str
                         .split(';')
                         .next()
-                        .and_then(|pair| pair.strip_prefix("auth_token="))
+                        .and_then(|pair| pair.strip_prefix(&format!("{}=", auth_cookie_name())))
                 })
                 .map(ToOwned::to_owned);
 

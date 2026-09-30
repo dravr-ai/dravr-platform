@@ -13,7 +13,7 @@ use pierre_auth::auth::{AuthManager, AuthMethod, AuthResult};
 use pierre_auth::rate_limiting::{
     api_key_window_start, calculate_api_key_rate_limit, calculate_jwt_rate_limit, RequestBudget,
 };
-use pierre_auth::security::cookies::get_cookie_value;
+use pierre_auth::security::cookies::{auth_cookie_name, get_cookie_value};
 use pierre_auth::user_status::enforce_user_status;
 use pierre_core::auth_header::is_api_key_format;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
@@ -208,7 +208,7 @@ impl McpAuthMiddleware {
         debug!("=== AUTH MIDDLEWARE AUTHENTICATE_REQUEST_WITH_HEADERS START ===");
 
         // Try cookie authentication first (preferred for web clients)
-        if let Some(jwt_token) = get_cookie_value(headers, "auth_token") {
+        if let Some(jwt_token) = get_cookie_value(headers, &auth_cookie_name()) {
             debug!("Found JWT in httpOnly cookie, attempting authentication");
             tracing::Span::current().record("auth_method", "JWT_COOKIE");
             match self

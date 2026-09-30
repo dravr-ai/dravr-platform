@@ -14,7 +14,7 @@ use axum::extract::State;
 use axum::http::{HeaderMap, Method, Request};
 use axum::middleware::Next;
 use axum::response::Response;
-use pierre_auth::security::cookies::get_cookie_value;
+use pierre_auth::security::cookies::{auth_cookie_name, get_cookie_value};
 use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_runtime_context::MiddlewareCtx;
@@ -147,7 +147,7 @@ pub async fn csrf_protection_layer<C: MiddlewareCtx>(
     }
 
     // Check if request has cookie auth; skip CSRF for non-cookie requests
-    let Some(auth_token) = get_cookie_value(&headers, "auth_token") else {
+    let Some(auth_token) = get_cookie_value(&headers, &auth_cookie_name()) else {
         return Ok(next.run(request).await);
     };
 

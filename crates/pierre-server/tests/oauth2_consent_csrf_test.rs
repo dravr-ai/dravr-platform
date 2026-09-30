@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! An athlete signed in to the web app carries its `auth_token` cookie to
+//! An athlete signed in to the web app carries its session cookie to
 //! the consent form, which the CSRF layer answered with 401 because an HTML
 //! form cannot send `X-CSRF-Token` — no MCP connector could be authorized from
 //! a browser that also had the app open. The form now carries a synchronizer
@@ -26,6 +26,7 @@ use common::create_test_tenant;
 use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
+use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -137,7 +138,7 @@ async fn a_web_app_session_approves_through_the_forms_own_token() {
         .await
         .unwrap();
     // The web app's cookie: the one the CSRF layer demands a header for.
-    let cookie = format!("auth_token={session}");
+    let cookie = format!("{}={session}", auth_cookie_name());
 
     let token = consent_page(&resources, &client_id, &cookie).await;
     let approved = submit(&resources, &client_id, &cookie, Some(&token), "approve").await;
@@ -163,7 +164,7 @@ async fn an_approval_without_the_forms_token_is_refused() {
     let (_user, session) = create_test_tenant(&resources, "consent-forged@example.test")
         .await
         .unwrap();
-    let cookie = format!("auth_token={session}");
+    let cookie = format!("{}={session}", auth_cookie_name());
 
     let forged = submit(&resources, &client_id, &cookie, None, "approve").await;
     assert_ne!(forged.status(), 303, "no redirect, so no code");
@@ -194,13 +195,13 @@ async fn another_athletes_form_token_is_refused() {
     let others_token = consent_page(
         &resources,
         &client_id,
-        &format!("auth_token={other_session}"),
+        &format!("{}={other_session}", auth_cookie_name()),
     )
     .await;
     let forged = submit(
         &resources,
         &client_id,
-        &format!("auth_token={victim_session}"),
+        &format!("{}={victim_session}", auth_cookie_name()),
         Some(&others_token),
         "approve",
     )
@@ -223,7 +224,7 @@ async fn a_denial_needs_no_token_and_reaches_the_client() {
     let denied = submit(
         &resources,
         &client_id,
-        &format!("auth_token={session}"),
+        &format!("{}={session}", auth_cookie_name()),
         None,
         "deny",
     )

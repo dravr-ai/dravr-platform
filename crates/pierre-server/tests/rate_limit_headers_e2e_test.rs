@@ -34,6 +34,7 @@ use chrono::{DateTime, Duration, SubsecRound, Utc};
 use futures_util::{stream, StreamExt, TryStreamExt};
 use hmac::{Hmac, Mac};
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, ApiKeyUsage};
+use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_config::environment::{CorsConfig, ServerConfig};
 use pierre_core::models::usage::JwtUsage;
 use pierre_core::models::{
@@ -837,7 +838,7 @@ async fn test_jwt_cookie_request_returns_rate_limit_headers() {
     seed_jwt_calls(&resources, athlete.user.id, 3).await;
 
     let before = next_utc_month_start(Utc::now()).timestamp();
-    let cookie = format!("auth_token={}", athlete.token);
+    let cookie = format!("{}={}", auth_cookie_name(), athlete.token);
     let answer = send(&app, get_with("/api/usage/status", &[("cookie", &cookie)])).await;
     let after = next_utc_month_start(Utc::now()).timestamp();
 
@@ -931,7 +932,7 @@ async fn test_rate_limited_jwt_session_restore_and_extractor_get_429_not_401() {
     let app = ProviderToolRouter::build_http_app(&resources);
     let exhausted = athlete(&resources, UserTier::Starter, UserRole::User).await;
     seed_jwt_calls(&resources, exhausted.user.id, 10_000).await;
-    let cookie = format!("auth_token={}", exhausted.token);
+    let cookie = format!("{}={}", auth_cookie_name(), exhausted.token);
 
     for uri in ["/api/auth/session", "/api/usage/status"] {
         let answer = send(&app, get_with(uri, &[("cookie", &cookie)])).await;
@@ -989,7 +990,7 @@ async fn test_superseded_cookie_budget_never_reaches_another_credentials_refusal
     let app = ProviderToolRouter::build_http_app(&resources);
     let exhausted = athlete(&resources, UserTier::Starter, UserRole::User).await;
     seed_jwt_calls(&resources, exhausted.user.id, 10_000).await;
-    let cookie = format!("auth_token={}", exhausted.token);
+    let cookie = format!("{}={}", auth_cookie_name(), exhausted.token);
 
     // The spent cookie falls through to the header, whose malformed token is
     // the answer: a 401 no budget decided.
@@ -1089,7 +1090,10 @@ async fn test_session_restore_reports_the_admitting_credentials_numbers() {
         &app,
         get_with(
             "/api/auth/session",
-            &[("cookie", &format!("auth_token={}", restoring.token))],
+            &[(
+                "cookie",
+                &format!("{}={}", auth_cookie_name(), restoring.token),
+            )],
         ),
     )
     .await;
@@ -1121,7 +1125,10 @@ async fn test_session_restore_reports_the_admitting_credentials_numbers() {
         get_with(
             "/api/auth/session",
             &[
-                ("cookie", &format!("auth_token={}", exhausted.token)),
+                (
+                    "cookie",
+                    &format!("{}={}", auth_cookie_name(), exhausted.token),
+                ),
                 ("authorization", &full_key),
             ],
         ),

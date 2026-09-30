@@ -21,7 +21,10 @@ bilan="$here/../bilan.sh"
 # sessions are right to refuse to touch it, which used to mean they could never reach 10 no
 # matter what they did. A path dirty before this session existed is definitionally not this
 # session's work, and that IS machine-decidable. Anything that goes dirty later still caps.
-bash "$bilan" baseline >/dev/null 2>&1 || true
+# --once: this hook also fires on resume and compact, and after an account switch, and none of
+# those is the moment the session opened. Re-recording there would call the session's own work
+# inherited.
+bash "$bilan" baseline --once >/dev/null 2>&1 || true
 
 out=$(bash "$bilan" sweep 2>/dev/null) || exit 0
 printf '%s\n' "$out" | grep -q '✅ nothing left behind' && exit 0

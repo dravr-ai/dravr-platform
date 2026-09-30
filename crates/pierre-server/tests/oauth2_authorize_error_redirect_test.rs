@@ -31,6 +31,7 @@ use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
+use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_identity::oauth2::{OAuth2Context, OAuth2Routes};
@@ -189,7 +190,7 @@ async fn admin_is_refused_to_the_client_even_with_a_session() {
         REDIRECT,
         Some("fitness:read admin"),
     ))
-    .header("cookie", &format!("auth_token={session}"))
+    .header("cookie", &format!("{}={session}", auth_cookie_name()))
     .send(oauth2_routes(&resources))
     .await;
 
@@ -283,7 +284,7 @@ async fn a_denied_consent_is_redirected_to_the_client_as_access_denied() {
     let session = generate_test_token(&resources, &user).await;
 
     let response = AxumTestRequest::post("/oauth2/consent")
-        .header("cookie", &format!("auth_token={session}"))
+        .header("cookie", &format!("{}={session}", auth_cookie_name()))
         .form(&[
             ("response_type", "code"),
             ("client_id", client_id.as_str()),
@@ -314,7 +315,7 @@ async fn a_consent_for_an_unregistered_redirect_uri_is_never_redirected() {
     let session = generate_test_token(&resources, &user).await;
 
     let response = AxumTestRequest::post("/oauth2/consent")
-        .header("cookie", &format!("auth_token={session}"))
+        .header("cookie", &format!("{}={session}", auth_cookie_name()))
         .form(&[
             ("response_type", "code"),
             ("client_id", client_id.as_str()),

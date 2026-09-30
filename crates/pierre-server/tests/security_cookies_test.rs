@@ -6,13 +6,41 @@
 
 #![allow(missing_docs)]
 
+use std::env;
+
 use axum::http::{header, HeaderMap};
 use pierre_auth::security::cookies::{
-    get_cookie_value, set_auth_cookie, set_csrf_cookie, SecureCookieConfig,
+    auth_cookie_name, get_cookie_value, set_auth_cookie, set_csrf_cookie, SecureCookieConfig,
 };
+use serial_test::serial;
+
+/// Unsets `BASE_URL` for one test, so the cookie helpers take their
+/// fail-secure default whatever the developer's shell exports, and puts back
+/// what was there on drop.
+struct NoBaseUrl {
+    previous: Option<String>,
+}
+
+impl NoBaseUrl {
+    fn unset() -> Self {
+        let previous = env::var("BASE_URL").ok();
+        env::remove_var("BASE_URL");
+        Self { previous }
+    }
+}
+
+impl Drop for NoBaseUrl {
+    fn drop(&mut self) {
+        if let Some(value) = &self.previous {
+            env::set_var("BASE_URL", value);
+        }
+    }
+}
 
 #[test]
+#[serial]
 fn test_secure_cookie_config() {
+    let _base = NoBaseUrl::unset();
     let config = SecureCookieConfig::new("test".to_owned(), "value".to_owned(), 3600);
 
     let cookie_str = config.build();
@@ -43,7 +71,14 @@ fn test_secure_cookie_config() {
 }
 
 #[test]
+#[serial]
 fn test_auth_cookie() -> anyhow::Result<()> {
+    let _base = NoBaseUrl::unset();
+    assert_eq!(
+        auth_cookie_name(),
+        "__Host-auth_token",
+        "an unset BASE_URL is treated as HTTPS"
+    );
     let mut headers = HeaderMap::new();
     set_auth_cookie(&mut headers, "test_token", 3600);
 
@@ -53,8 +88,8 @@ fn test_auth_cookie() -> anyhow::Result<()> {
         .to_str()?;
 
     assert!(
-        cookie_header.contains("auth_token=test_token"),
-        "Cookie should contain auth token"
+        cookie_header.starts_with("__Host-auth_token=test_token;"),
+        "A Secure auth cookie is host-only: {cookie_header}"
     );
     assert!(
         cookie_header.contains("HttpOnly"),
@@ -68,7 +103,9 @@ fn test_auth_cookie() -> anyhow::Result<()> {
 }
 
 #[test]
+#[serial]
 fn test_csrf_cookie() -> anyhow::Result<()> {
+    let _base = NoBaseUrl::unset();
     let mut headers = HeaderMap::new();
     set_csrf_cookie(&mut headers, "csrf_test_token", 1800);
 

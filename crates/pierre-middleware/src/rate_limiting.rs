@@ -33,7 +33,7 @@
 //!   request: the budget of the credential that admitted it, or, on the 429 a
 //!   spent budget produced, that credential's own. Authentication reports only
 //!   once a credential's outcome is the request's answer, so a credential
-//!   checked and then superseded (a spent `auth_token` cookie falling through
+//!   checked and then superseded (a spent web session cookie falling through
 //!   to the `Authorization` header) is never reported, whatever the header's
 //!   outcome. A refusal no budget decided (a malformed token, a suspended or
 //!   pending owner, a server fault while authenticating) carries no headers.

@@ -33,6 +33,7 @@ use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
+use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
@@ -394,7 +395,7 @@ async fn a_delegated_grant_is_refused_an_ordinary_read_even_in_the_cookie() {
     assert_refused(response, "GET /api/keys (header)");
 
     let response = AxumTestRequest::get("/api/keys")
-        .header("cookie", &format!("auth_token={token}"))
+        .header("cookie", &format!("{}={token}", auth_cookie_name()))
         .send(ApiKeyRoutes::routes(Arc::clone(&resources)))
         .await;
     assert_refused(response, "GET /api/keys (cookie)");
@@ -546,7 +547,7 @@ async fn a_delegated_grant_cannot_stand_in_for_the_session_on_the_consent_screen
     // grant for another client on the athlete's behalf.
     let token = delegated_token(&resources, &athlete, &[OAuthScope::FitnessRead]);
     let response = AxumTestRequest::get(&authorize)
-        .header("cookie", &format!("auth_token={token}"))
+        .header("cookie", &format!("{}={token}", auth_cookie_name()))
         .send(oauth2_routes(&resources))
         .await;
     assert!(
@@ -561,7 +562,10 @@ async fn a_delegated_grant_cannot_stand_in_for_the_session_on_the_consent_screen
     );
 
     let response = AxumTestRequest::get(&authorize)
-        .header("cookie", &format!("auth_token={}", athlete.session_token))
+        .header(
+            "cookie",
+            &format!("{}={}", auth_cookie_name(), athlete.session_token),
+        )
         .send(oauth2_routes(&resources))
         .await;
     assert_eq!(

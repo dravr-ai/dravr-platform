@@ -125,8 +125,19 @@ BRANCH=${BRANCH//--/-}
 # Claude Code exports the session id and its own pid; the per-process file under the config
 # dir carries the name set by /rename (or the derived one). Outside Claude Code the claim is
 # a manual one: it still records the human, and nothing auto-releases it.
+#
+# The ledger is NOT under the config dir. ChefFamille switches Claude accounts, sometimes inside
+# one session, and a ledger per account split that session in two (carnet#670). It lives in the
+# account-independent home ../lib/session-state.sh defines, which also adopts each account's old
+# directory the first time it runs. The path resolves through the .claude/skills symlink too:
+# the kernel follows `carnet` to its target before it applies the `..`.
+case ${BASH_SOURCE[0]} in */*) SKILL_DIR=${BASH_SOURCE[0]%/*} ;; *) SKILL_DIR=. ;; esac
+STATE_LIB="$SKILL_DIR/../lib/session-state.sh"
+[ -f "$STATE_LIB" ] || die "$STATE_LIB is missing — carnet.sh ships with .agents/skills/lib, copy both"
+# shellcheck disable=SC1090
+. "$STATE_LIB"
+state_adopt || true
 CFG=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
-LEDGER_DIR="$CFG/carnet-claims"
 SESSION_ID=${CLAUDE_CODE_SESSION_ID:-}
 SESSION_PID=${CLAUDE_PID:-}
 HOST=$(hostname -s 2>/dev/null || hostname)
@@ -179,24 +190,49 @@ identity_json() {
 # without a single API call.
 ledger_file() { [ -n "$SESSION_ID" ] && printf '%s' "$LEDGER_DIR/$SESSION_ID.jsonl"; }
 
-ledger_add() {
-    local f
-    f=$(ledger_file) || return 0
+# Every write below holds the ledger's lock (state_ledger_lock, in the shared lib): parallel tool
+# calls fire one auto-claim hook each for this session, and each write rewrites the file.
+# Line 1 names the process that last wrote. A session resumed under another account runs under
+# a new pid, name and branch, and the release marker SessionEnd posts is built from this line, so
+# every write refreshes it. `.at` is kept: it is when the session started, and bilan dates the
+# session from it.
+ledger_identity() { # <file>
+    local at tmp
     mkdir -p "$LEDGER_DIR"
-    [ -s "$f" ] || identity_json | jq -c '. + {kind:"identity"}' > "$f"
+    if [ ! -s "$1" ]; then
+        identity_json | jq -c '. + {kind:"identity"}' > "$1"
+        return 0
+    fi
+    at=$(head -1 "$1" | jq -r 'select(.kind == "identity") | .at // empty' 2>/dev/null || true)
+    tmp=$(mktemp)
+    if { identity_json | jq -c --arg at "$at" '. + {kind:"identity"} + (if $at == "" then {} else {at:$at} end)'
+         jq -c 'select(.kind != "identity")' "$1"; } > "$tmp"; then
+        mv "$tmp" "$1"
+    else
+        rm -f "$tmp"
+    fi
+}
+
+ledger_add() {
+    local f held
+    f=$(ledger_file) || return 0
+    held=0; state_ledger_lock "$f" || held=$?
+    ledger_identity "$f"
     jq -cn --arg t "$TRACKER" --argjson n "$1" --arg at "$(now)" \
         '{kind:"claim", tracker:$t, issue:$n, at:$at}' >> "$f"
+    state_ledger_unlock "$f" "$held"
 }
 
 # Filed, not claimed. `bilan` reports these so a session cannot end on a pile of new issues
 # without saying, per issue, why it is residue rather than the work it was asked to do.
 ledger_filed() {
-    local f
+    local f held
     f=$(ledger_file) || return 0
-    mkdir -p "$LEDGER_DIR"
-    [ -s "$f" ] || identity_json | jq -c '. + {kind:"identity"}' > "$f"
+    held=0; state_ledger_lock "$f" || held=$?
+    ledger_identity "$f"
     jq -cn --arg t "$TRACKER" --argjson n "$1" --arg at "$(now)" \
         '{kind:"filed", tracker:$t, issue:$n, at:$at}' >> "$f"
+    state_ledger_unlock "$f" "$held"
 }
 
 # Labelled `limitation` by this session. bilan exempts a filed issue that is a registered
@@ -205,41 +241,62 @@ ledger_filed() {
 # it, --cheap capped every correctly registered limitation at 6 for as long as the register
 # required the issue to stay open (carnet#493). `off` drops it when the label is removed.
 ledger_limitation() { # <n> <on|off>
-    local f tmp
+    local f tmp held
     f=$(ledger_file) || return 0
-    mkdir -p "$LEDGER_DIR"
-    [ -s "$f" ] || identity_json | jq -c '. + {kind:"identity"}' > "$f"
+    held=0; state_ledger_lock "$f" || held=$?
+    ledger_identity "$f"
     tmp=$(mktemp)
     jq -c --arg t "$TRACKER" --argjson n "$1" \
         'select((.kind == "limitation" and .tracker == $t and .issue == $n) | not)' "$f" > "$tmp"
     mv "$tmp" "$f"
     [ "$2" = off ] || jq -cn --arg t "$TRACKER" --argjson n "$1" --arg at "$(now)" \
         '{kind:"limitation", tracker:$t, issue:$n, at:$at}' >> "$f"
+    state_ledger_unlock "$f" "$held"
 }
 
 # Closing an issue this session filed clears its "filed" line: bilan caps on issues a session
 # opened and did not fix, and the cap has to end when the fix lands.
 ledger_drop_filed() {
-    local f tmp
+    local f tmp held
     f=$(ledger_file) || return 0
     [ -f "$f" ] || return 0
+    held=0; state_ledger_lock "$f" || held=$?
     tmp=$(mktemp)
     jq -c --arg t "$TRACKER" --argjson n "$1" \
         'select((.kind == "filed" and .tracker == $t and .issue == $n) | not)' "$f" > "$tmp"
     mv "$tmp" "$f"
+    state_ledger_unlock "$f" "$held"
+}
+
+# Closed with --commit: the session's own landed work, recorded where bilan reads it. A session
+# squashes in its own worktree and pushes HEAD:main from there, so the checkout bilan runs in
+# never moves, and "no commit" was all bilan could see. The sha says which commit landed; whose
+# commit it is needs no guessing, because this session is the one that closed the issue on it.
+ledger_closed() { # <n> <full-sha>
+    local f held
+    f=$(ledger_file) || return 0
+    held=0; state_ledger_lock "$f" || held=$?
+    ledger_identity "$f"
+    jq -cn --arg t "$TRACKER" --argjson n "$1" --arg c "$2" --arg at "$(now)" \
+        '{kind:"closed", tracker:$t, issue:$n, commit:$c, at:$at}' >> "$f"
+    state_ledger_unlock "$f" "$held"
 }
 
 ledger_drop() {
-    local f tmp
+    local f tmp held
     f=$(ledger_file) || return 0
     [ -f "$f" ] || return 0
+    held=0; state_ledger_lock "$f" || held=$?
     tmp=$(mktemp)
     jq -c --arg t "$TRACKER" --argjson n "$1" \
         'select((.kind == "claim" and .tracker == $t and .issue == $n) | not)' "$f" > "$tmp"
     mv "$tmp" "$f"
     # A ledger holding only its identity line is finished. "filed" lines count: they outlive
-    # the claims, and bilan reads them at the end of the session.
-    if [ "$(jq -c 'select(.kind == "claim" or .kind == "filed")' "$f" | wc -l | tr -d ' ')" = 0 ]; then rm -f "$f"; fi
+    # the claims, and bilan reads them at the end of the session. So do "closed" lines, which
+    # are how bilan sees what the session landed; the sweep removes a dead session's ledger
+    # once nothing but those is left.
+    if [ "$(jq -c 'select(.kind == "claim" or .kind == "filed" or .kind == "closed")' "$f" | wc -l | tr -d ' ')" = 0 ]; then rm -f "$f"; fi
+    state_ledger_unlock "$f" "$held"
 }
 
 ledger_issues() { # <file>
@@ -275,15 +332,11 @@ marker_json() { local j=${1#<!-- carnet-* }; printf '%s' "${j% -->}"; }
 
 # 0 = that session is running on this host · 1 = it ended · 2 = another host, unknowable here.
 # Claude Code removes sessions/<pid>.json on exit, so "file with matching id + live pid" is alive.
+# The pid in the marker is not consulted: a session resumed under another account keeps its id
+# and runs under a new pid, and matching on the old one handed its claims to the next session.
 holder_alive() { # <host> <pid> <session>
     [ "$1" = "$HOST" ] || return 2
-    local f
-    for f in "$CFG/sessions/$2.json" "$HOME"/.claude*/sessions/"$2".json; do
-        [ -f "$f" ] || continue
-        [ "$(jq -r '.sessionId // empty' "$f" 2>/dev/null)" = "$3" ] || continue
-        kill -0 "$2" 2>/dev/null && return 0
-    done
-    return 1
+    state_session_alive "$3"
 }
 
 has_label() { jq -e --arg l "$2" '.labels[]? | select(.name == $l)' >/dev/null 2>&1 <<<"$1"; }
@@ -398,7 +451,7 @@ cmd_release_all() { # <reason> <session-or-empty>
 
 # ------------------------------------------------------------------ close
 cmd_close() { # <n> <why> <commit>
-    local n=$1 why=$2 commit=$3 issue marker holder commit_url=""
+    local n=$1 why=$2 commit=$3 issue marker holder commit_url="" sha=""
     [ -n "$why" ] || die "close needs --why \"<what resolved it>\" — a close without a reason is invisible debt"
     issue=$(issue_json "$n")
     [ "$(jq -r .state <<<"$issue")" = "OPEN" ] || die "carnet#$n is already closed"
@@ -406,7 +459,8 @@ cmd_close() { # <n> <why> <commit>
     if [ -n "$commit" ]; then
         git -C "$REPO_ROOT" cat-file -e "$commit^{commit}" 2>/dev/null \
             || die "commit $commit is not in this repository (worktrees share objects, so a typo is the likely cause)"
-        commit_url="https://github.com/$ORIGIN_SLUG/commit/$(git -C "$REPO_ROOT" rev-parse "$commit")"
+        sha=$(git -C "$REPO_ROOT" rev-parse "$commit^{commit}")
+        commit_url="https://github.com/$ORIGIN_SLUG/commit/$sha"
     fi
 
     marker=$(last_marker "$n")
@@ -432,7 +486,11 @@ cmd_close() { # <n> <why> <commit>
     api_comment "$n" "$body"
     run api "repos/$TRACKER/issues/$n" -X PATCH -f state=closed >/dev/null
     rm -f "$body"
-    [ "$DRY_RUN" = 1 ] || ledger_drop "$n"; ledger_drop_filed "$n"
+    if [ "$DRY_RUN" != 1 ]; then
+        ledger_drop_filed "$n"
+        [ -z "$sha" ] || ledger_closed "$n" "$sha"
+        ledger_drop "$n"
+    fi
     say "✅ carnet#$n closed · $(jq -r .title <<<"$issue")"
 }
 

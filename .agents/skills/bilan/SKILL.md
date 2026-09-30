@@ -45,7 +45,7 @@ stands. The registered-limitation exemption was one, until 2026-09-21.
 
 | Evidence | Caps at |
 |---|---|
-| carnet issue claimed by this session, neither closed nor released | **6** |
+| carnet issue claimed by this session, neither closed nor released (the full run drops a claim whose issue is already closed) | **6** |
 | carnet issue **filed** by this session and still open (unless a registered limitation) | **6** |
 | background task or subagent still running | **7** |
 | `LIMITATION(registre#…)` marker added in source naming no live issue — missing, closed, a pull request, or not labelled `limitation` (full run only) | **6** |
@@ -68,7 +68,10 @@ Two mechanisms fix it, and the first needs nothing from you.
 
 **The baseline.** The SessionStart hook records which tracked files were already dirty when the
 session opened. A path dirty before the session existed is definitionally not its work — that
-much *is* machine-decidable. Those files are stated as a note and never scored.
+much *is* machine-decidable. Those files are stated as a note and never scored. The hook runs
+`baseline --once`: it also fires on resume, compact and after an account switch, and none of
+those is the moment the session opened, so a baseline the session already has is kept. A bare
+`bilan.sh baseline` re-records on purpose.
 
 **The dev stack too.** A peer starting their stack from this shared checkout writes pid files
 that are the *checkout's*, and `dev_owned` only asks whether the process is alive and unrecycled
@@ -190,6 +193,23 @@ measurable*. It caps rather than blocks, because answering a question really is 
 session; what it must not do is issue a verdict it never earned. Declaring the work as a todo,
 or committing something, makes it measurable again.
 
+"Committing something" is not read off this checkout's HEAD alone. Sessions squash in their own
+worktree and push `HEAD:main` from there, so the checkout bilan runs in never moves, and every one
+of them read as unmeasured after landing its work. Every commit here has the same author, so
+authorship proves nothing; two records do, and either one makes the session measurable:
+
+- a `closed` line in its ledger, which `carnet.sh close <n> --commit <sha>` writes with the full sha;
+- a `commit` entry in the HEAD reflog of a linked worktree whose ownership stamp
+  (`<git-dir>/claude-session`, written by create-worktree and `bin/worktrees.sh claim`) names
+  this session, made after the stamp's `claimed_at`. A stamp on the shared main checkout credits
+  nothing, since every peer's commit there would read as this session's.
+
+The worktree record is deleted with the worktree, and the repo requires that cleanup in the same
+session, so the first run that sees it copies the commit into `bilan/<session>.landed` and every
+later run reads that. The status line runs bilan on every render, which normally writes it long
+before the cleanup; a worktree committed in and removed inside one tool call leaves nothing, and
+`close --commit` is the record that survives everything.
+
 The verdict is measured against an ask, so it waits for one. The status line renders before the
 first prompt arrives, and until this was gated every session opened at "9/10 nothing measurable"
 for having done nothing in its first second. A session nobody has asked anything of scores clean.
@@ -203,6 +223,27 @@ counts because a long session is not what it opened with: one that opened on "An
 reported" and shipped four fixes reported under those words. A scheduled wakeup, a task
 notification or a peer message is text the session or the harness wrote, not an ask, and the
 transcript marks it so.
+
+## Where the state lives, across Claude accounts
+
+bilan's own files — the baseline and its `.commits`/`.head`/`.stack` companions, the ack, the
+published score, the Stop gate's state — and carnet's ledger live in one home every Claude
+account shares: `$DRAVR_SESSION_STATE`, by default `${XDG_STATE_HOME:-~/.local/state}/dravr/sessions`
+(`bilan/` and `carnet-claims/` under it), defined once in `.agents/skills/lib/session-state.sh`.
+ChefFamille switches accounts, sometimes inside a session, and state kept under each
+`$CLAUDE_CONFIG_DIR` scored whichever half of the session the current account held (carnet#670).
+
+The first run on a machine adopts every `~/.claude*/{carnet-claims,bilan}` into that home — of two
+baselines for one session the older wins, as a set — and leaves a symlink in each account, so the
+status line and every other reader of the old paths keep working.
+
+What Claude Code writes itself stays per account, and bilan reads it across all of them: the
+transcript (newest match wins) and the todo list. Only the **live** list caps — the one under the
+account the session runs under, even before anything is written there — because after a switch
+Claude Code starts a fresh list under the new account and never shows the old one again; open
+items left in the old list are stated as a note. Run from outside with `--session`, the account
+is unknown and the list holding the most recently written item stands in for it. Liveness in the sweep is matched on the session id across every account's `sessions/`, not
+on the pid the ledger recorded, since a resumed session keeps its id under a new pid.
 
 ## CI, and one thing it cannot see
 

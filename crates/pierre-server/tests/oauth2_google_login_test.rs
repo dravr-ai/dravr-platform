@@ -40,6 +40,7 @@ use pierre_auth::google_oidc::google_callback_url;
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
+use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_config::environment::ServerConfig;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::models::{
@@ -1241,7 +1242,10 @@ async fn the_server_mounts_both_routes_past_its_csrf_layer() {
         "/oauth2/login/google?{}",
         authorize_query(&f.client_id)
     ))
-    .header("cookie", "auth_token=a-web-app-session")
+    .header(
+        "cookie",
+        &format!("{}=a-web-app-session", auth_cookie_name()),
+    )
     .send(app)
     .await;
     started(&start);

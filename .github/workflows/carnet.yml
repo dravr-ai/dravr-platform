@@ -6,10 +6,12 @@ on:
   push:
     paths:
       - '.agents/skills/carnet/**'
+      - '.agents/skills/lib/**'
       - '.github/workflows/carnet.yml'
   pull_request:
     paths:
       - '.agents/skills/carnet/**'
+      - '.agents/skills/lib/**'
       - '.github/workflows/carnet.yml'
   workflow_dispatch:
 
@@ -28,6 +30,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: shellcheck
-        run: shellcheck -S warning .agents/skills/carnet/carnet.sh .agents/skills/carnet/hooks/*.sh
+        run: shellcheck -S warning .agents/skills/carnet/carnet.sh .agents/skills/carnet/hooks/*.sh .agents/skills/lib/session-state.sh
       - name: suite against a stub gh
         run: bash .agents/skills/carnet/test.sh
