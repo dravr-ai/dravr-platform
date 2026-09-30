@@ -283,21 +283,6 @@ impl UserOAuthToken {
             refresh_threshold >= expires_at
         })
     }
-
-    /// Update token with new values
-    pub fn update_token(
-        &mut self,
-        access_token: String,
-        refresh_token: Option<String>,
-        expires_at: Option<DateTime<Utc>>,
-        scope: Option<String>,
-    ) {
-        self.access_token = access_token;
-        self.refresh_token = refresh_token;
-        self.expires_at = expires_at;
-        self.scope = scope;
-        self.updated_at = Utc::now();
-    }
 }
 
 /// User OAuth app credentials for cloud deployment
@@ -622,13 +607,6 @@ impl ProviderConnection {
             metadata: None,
             account_role: None,
         }
-    }
-
-    /// Create a new provider connection with metadata
-    #[must_use]
-    pub fn with_metadata(mut self, metadata: String) -> Self {
-        self.metadata = Some(metadata);
-        self
     }
 }
 

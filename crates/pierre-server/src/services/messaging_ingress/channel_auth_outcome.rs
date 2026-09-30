@@ -15,6 +15,8 @@
 
 use std::sync::Arc;
 
+use dravr_canot::channel::MessagingChannel;
+use dravr_canot::turn::ConversationTurnId as CanotTurnId;
 use pierre_auth::auth::AuthResult;
 use pierre_contremaitre::messaging_strings::{
     DEFAULT_LOCALE, KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
@@ -25,8 +27,6 @@ use pierre_core::models::messaging::{
 };
 use pierre_core::models::TenantId;
 use pierre_database::backends::MessagingRepository;
-use pierre_messaging::channel::MessagingChannel;
-use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use pierre_middleware::auth::record_jwt_usage_for_request;
 use pierre_services::channel_error_reply::ChannelErrorReply;
 use pierre_services::locale::resolve_channel_locale;

@@ -24,7 +24,7 @@ mod notification_scheduling_tests {
     use crate::common::{create_test_server_resources, create_test_tenant};
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
-    use pierre_database::backends::factory::Database;
+    use pierre_database::backends::factory::{Database, DatabaseBackend};
     use pierre_notifications::models::{
         collapse_notifications, CreateNotificationParams, NotificationCategory, NotificationItem,
     };
@@ -53,10 +53,14 @@ mod notification_scheduling_tests {
     /// The notification service on whichever backend the test database is —
     /// the same mapping the server performs at boot.
     fn notification_service(db: &Database) -> NotificationService {
-        match db {
-            Database::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
+        match db.backend() {
+            DatabaseBackend::SQLite(sqlite) => {
+                NotificationService::from_sqlite(sqlite.pool().clone())
+            }
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
+            DatabaseBackend::PostgreSQL(pg) => {
+                NotificationService::from_postgres(pg.pool().clone())
+            }
         }
     }
 

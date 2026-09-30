@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_messaging::models::{ChannelConfig, ChannelType};
+use dravr_canot::models::{ChannelConfig, ChannelType};
 use pierre_services::messaging_status_bridge::{
     attach_status_adapter, open_status_adapter, OpenStatusParams,
 };

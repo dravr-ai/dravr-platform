@@ -15,7 +15,7 @@ use std::collections::HashSet;
 
 use chrono::{DateTime, Utc};
 use pierre_core::models::TenantId;
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::CreateChannelLinkParams;
 use pierre_services::activity_sports::{sport_label, MessagingStringsRegistry};
 use pierre_services::agents::{
@@ -277,8 +277,8 @@ async fn set_link_dates(
 ) {
     const SQL: &str = "UPDATE messaging_channel_links \
                        SET linked_at = $1, agent_proposal_sent_at = $2 WHERE id = $3";
-    match db {
-        Database::SQLite(d) => {
+    match db.backend() {
+        DatabaseBackend::SQLite(d) => {
             sqlx::query(SQL)
                 .bind(linked_at.to_rfc3339())
                 .bind(sent_at.map(|sent| sent.to_rfc3339()))
@@ -288,7 +288,7 @@ async fn set_link_dates(
                 .unwrap();
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(d) => {
+        DatabaseBackend::PostgreSQL(d) => {
             sqlx::query(SQL)
                 .bind(linked_at)
                 .bind(sent_at)
@@ -311,15 +311,15 @@ fn as_shipped_against_head(sql: &str) -> String {
 
 /// Run the backfill statement the backend ships.
 async fn run_backfill(db: &Database) {
-    match db {
-        Database::SQLite(d) => {
+    match db.backend() {
+        DatabaseBackend::SQLite(d) => {
             sqlx::query(&as_shipped_against_head(SQLITE_BACKFILL_MIGRATION_SQL))
                 .execute(d.pool())
                 .await
                 .unwrap();
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(d) => {
+        DatabaseBackend::PostgreSQL(d) => {
             sqlx::query(&as_shipped_against_head(POSTGRES_BACKFILL_MIGRATION_SQL))
                 .execute(d.pool())
                 .await
@@ -331,14 +331,14 @@ async fn run_backfill(db: &Database) {
 /// Read a single link's `agent_proposal_sent_at` (NULL ⇒ `None`).
 async fn proposal_sent_at(db: &Database, id: &str) -> Option<DateTime<Utc>> {
     const SQL: &str = "SELECT agent_proposal_sent_at FROM messaging_channel_links WHERE id = $1";
-    match db {
-        Database::SQLite(d) => sqlx::query_scalar(SQL)
+    match db.backend() {
+        DatabaseBackend::SQLite(d) => sqlx::query_scalar(SQL)
             .bind(id)
             .fetch_one(d.pool())
             .await
             .unwrap(),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(d) => sqlx::query_scalar(SQL)
+        DatabaseBackend::PostgreSQL(d) => sqlx::query_scalar(SQL)
             .bind(id)
             .fetch_one(d.pool())
             .await

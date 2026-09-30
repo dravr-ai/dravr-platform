@@ -13,7 +13,6 @@ use std::sync::Arc;
 use axum::extract::{ConnectInfo, FromRequestParts};
 use axum::http::request::Parts;
 use axum::http::HeaderMap;
-use uuid::Uuid;
 
 use pierre_auth::auth::AuthResult;
 use pierre_auth::security::cookies::{auth_cookie_name, get_cookie_value};
@@ -115,14 +114,6 @@ pub async fn extract_auth_from_headers<C: MiddlewareCtx>(
                 e.into_auth_refusal("Authentication failed")
             }
         })
-}
-
-/// Convenience function to get `user_id` from an [`AuthenticatedUser`].
-///
-/// Equivalent to `auth.user_id` — provided for handlers that only need the user ID.
-#[must_use]
-pub fn auth_user_id(auth: &AuthenticatedUser) -> Uuid {
-    auth.user_id
 }
 
 /// The TCP peer of a request, when the server was served with `ConnectInfo`.

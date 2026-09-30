@@ -59,9 +59,6 @@ use pierre_core::errors::{AppError, AppResult};
 /// RSA key size in bits for RS256 (2048 bits minimum, 4096 bits recommended)
 const RSA_KEY_SIZE: usize = 4096;
 
-/// Key rotation interval in days
-const KEY_ROTATION_DAYS: i64 = 90;
-
 /// Number of historical keys to retain for validation
 const MAX_HISTORICAL_KEYS: usize = 3;
 
@@ -310,12 +307,6 @@ impl JwksManager {
         self.keys.get(kid)
     }
 
-    /// Get all keys (for validation)
-    #[must_use]
-    pub fn get_all_keys(&self) -> Vec<&RsaKeyPair> {
-        self.keys.values().collect()
-    }
-
     /// Register an existing RSA key pair from PEM format (for database loading)
     ///
     /// # Errors
@@ -429,18 +420,6 @@ impl JwksManager {
                 self.keys.remove(kid);
             }
         }
-    }
-
-    /// Check if key rotation is needed
-    #[must_use]
-    pub fn should_rotate_keys(&self) -> bool {
-        if let Some(active_kid) = &self.active_key_id {
-            if let Some(active_key) = self.keys.get(active_kid) {
-                let age = Utc::now() - active_key.created_at;
-                return age.num_days() >= KEY_ROTATION_DAYS;
-            }
-        }
-        true // Rotate if no active key
     }
 
     /// Sign admin token claims using RS256

@@ -22,7 +22,7 @@ use common::{create_test_server_resources, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::UserRole;
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::database::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_notifications::models::Notification;
@@ -104,8 +104,8 @@ async fn athlete_in(resources: &Arc<ServerContext>, tenant_id: TenantId) -> Uuid
     );
     resources.common.repos.users.create(&user).await.unwrap();
     let now = Utc::now();
-    match resources.agent.database.as_ref() {
-        Database::SQLite(db) => {
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
             sqlx::query(INSERT_MEMBER)
                 .bind(Uuid::new_v4().to_string())
                 .bind(tenant_id.to_string())
@@ -119,7 +119,7 @@ async fn athlete_in(resources: &Arc<ServerContext>, tenant_id: TenantId) -> Uuid
         // `tenant_users` keys are `uuid` columns and the timestamps are
         // `timestamptz` on PostgreSQL, so the binds carry the native types.
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => {
+        DatabaseBackend::PostgreSQL(db) => {
             sqlx::query(INSERT_MEMBER)
                 .bind(Uuid::new_v4())
                 .bind(tenant_id.as_uuid())

@@ -25,12 +25,12 @@ const STARTER_TOOL: &str = "get_activities";
 const PROFESSIONAL_TOOL: &str = "analyze_weather_impact";
 
 fn service(db: &Arc<Database>) -> ToolSelectionService {
-    ToolSelectionService::new(&Arc::new(db.repositories()))
+    ToolSelectionService::new(&Arc::clone(db.repositories()))
 }
 
 fn service_with_disabled(db: &Arc<Database>, disabled: Vec<String>) -> ToolSelectionService {
     let config = ToolSelectionConfig::with_disabled_tools(disabled);
-    ToolSelectionService::with_config(&Arc::new(db.repositories()), config)
+    ToolSelectionService::with_config(&Arc::clone(db.repositories()), config)
 }
 
 #[tokio::test]
@@ -138,7 +138,7 @@ async fn test_user_disable_hides_plan_enabled_tool() {
         .await
         .unwrap());
 
-    admin_ops::set_user_tool_override(&repos, user_id, STARTER_TOOL, false, None, None)
+    admin_ops::set_user_tool_override(repos, user_id, STARTER_TOOL, false, None, None)
         .await
         .unwrap();
 
@@ -195,7 +195,7 @@ async fn test_user_enable_exposes_plan_restricted_tool() {
     assert_eq!(restricted.source, ToolEnablementSource::PlanRestriction);
 
     admin_ops::set_user_tool_override(
-        &repos,
+        repos,
         user_id,
         PROFESSIONAL_TOOL,
         true,
@@ -233,7 +233,7 @@ async fn test_global_disabled_is_immovable_by_user_override() {
     let svc = service_with_disabled(&db, vec![STARTER_TOOL.to_owned()]);
 
     // A user-level enable must NOT resurrect a globally-disabled tool.
-    admin_ops::set_user_tool_override(&repos, user_id, STARTER_TOOL, true, None, None)
+    admin_ops::set_user_tool_override(repos, user_id, STARTER_TOOL, true, None, None)
         .await
         .unwrap();
 
@@ -270,7 +270,7 @@ async fn test_two_users_same_tenant_diverge() {
         .unwrap();
     let svc = service(&db);
 
-    admin_ops::set_user_tool_override(&repos, user_a, STARTER_TOOL, false, None, None)
+    admin_ops::set_user_tool_override(repos, user_a, STARTER_TOOL, false, None, None)
         .await
         .unwrap();
 
@@ -291,16 +291,10 @@ async fn test_set_override_unknown_tool_is_not_found() {
     let repos = db.repositories();
     let (user_id, _user) = common::create_test_user(&db).await.unwrap();
 
-    let err = admin_ops::set_user_tool_override(
-        &repos,
-        user_id,
-        "nonexistent_tool_xyz",
-        true,
-        None,
-        None,
-    )
-    .await
-    .expect_err("unknown tool must be rejected");
+    let err =
+        admin_ops::set_user_tool_override(repos, user_id, "nonexistent_tool_xyz", true, None, None)
+            .await
+            .expect_err("unknown tool must be rejected");
     assert!(
         err.to_string().contains("nonexistent_tool_xyz"),
         "error should name the unknown tool, got: {err}"
@@ -317,7 +311,7 @@ async fn test_remove_user_tool_override_reverts_to_default() {
             .unwrap();
     let svc = service(&db);
 
-    admin_ops::set_user_tool_override(&repos, user_id, STARTER_TOOL, false, None, None)
+    admin_ops::set_user_tool_override(repos, user_id, STARTER_TOOL, false, None, None)
         .await
         .unwrap();
     assert!(!svc
@@ -325,7 +319,7 @@ async fn test_remove_user_tool_override_reverts_to_default() {
         .await
         .unwrap());
 
-    let removed = admin_ops::remove_user_tool_override(&repos, user_id, STARTER_TOOL)
+    let removed = admin_ops::remove_user_tool_override(repos, user_id, STARTER_TOOL)
         .await
         .unwrap();
     assert!(removed);
@@ -346,7 +340,7 @@ async fn test_remove_user_tool_override_reverts_to_default() {
     assert_eq!(tool.source, ToolEnablementSource::Default);
 
     // Removing again reports nothing removed.
-    let removed_again = admin_ops::remove_user_tool_override(&repos, user_id, STARTER_TOOL)
+    let removed_again = admin_ops::remove_user_tool_override(repos, user_id, STARTER_TOOL)
         .await
         .unwrap();
     assert!(!removed_again);
@@ -364,7 +358,7 @@ async fn test_admin_ops_set_user_tier_writes_tier_and_marker() {
     );
 
     let updated = admin_ops::set_user_tier(
-        &repos,
+        repos,
         user_id,
         UserTier::Professional,
         Some("qa comp".to_owned()),
@@ -389,7 +383,7 @@ async fn test_admin_ops_set_user_tier_writes_tier_and_marker() {
     assert_eq!(marker.note.as_deref(), Some("qa comp"));
 
     // Clearing removes the marker but leaves the tier in place.
-    let removed = admin_ops::clear_user_tier_override(&repos, user_id)
+    let removed = admin_ops::clear_user_tier_override(repos, user_id)
         .await
         .unwrap();
     assert!(removed);
@@ -412,7 +406,7 @@ async fn test_admin_ops_set_tenant_plan() {
             .await
             .unwrap();
 
-    let updated = admin_ops::set_tenant_plan(&repos, tenant_id, "Professional")
+    let updated = admin_ops::set_tenant_plan(repos, tenant_id, "Professional")
         .await
         .unwrap();
     assert_eq!(
@@ -424,7 +418,7 @@ async fn test_admin_ops_set_tenant_plan() {
     assert_eq!(reloaded.plan, "professional");
 
     // A bogus plan is rejected before any write.
-    let err = admin_ops::set_tenant_plan(&repos, tenant_id, "platinum")
+    let err = admin_ops::set_tenant_plan(repos, tenant_id, "platinum")
         .await
         .expect_err("unknown plan must be rejected");
     assert!(
@@ -451,7 +445,7 @@ async fn test_plan_change_unlocks_plan_restricted_tool() {
         .await
         .unwrap());
 
-    admin_ops::set_tenant_plan(&repos, tenant_id, "professional")
+    admin_ops::set_tenant_plan(repos, tenant_id, "professional")
         .await
         .unwrap();
     // The in-process cache would serve the stale starter computation for up to

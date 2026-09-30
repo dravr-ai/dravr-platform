@@ -43,7 +43,7 @@ use futures_util::future::join_all;
 use pierre_core::models::{
     Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserOAuthToken,
 };
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::StoredRouteTrack;
 use pierre_fitness_compute::routes::haversine_meters_between;
 use pierre_fitness_compute::{encode_polyline, DEFAULT_PRIVACY_RADIUS_METERS};
@@ -278,8 +278,8 @@ async fn expire_route_reads(resources: &ServerContext, user_id: Uuid) {
     const SQL: &str = "UPDATE activity_route_tracks SET expires_at = $1 \
                        WHERE user_id = $2 AND expires_at IS NOT NULL";
     let past = Utc::now() - Duration::minutes(1);
-    match resources.agent.database.as_ref() {
-        Database::SQLite(sqlite) => {
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
             sqlx::query(SQL)
                 .bind(past)
                 .bind(user_id.to_string())
@@ -288,7 +288,7 @@ async fn expire_route_reads(resources: &ServerContext, user_id: Uuid) {
                 .unwrap();
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(postgres) => {
+        DatabaseBackend::PostgreSQL(postgres) => {
             sqlx::query(SQL)
                 .bind(past)
                 .bind(user_id.to_string())

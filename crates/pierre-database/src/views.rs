@@ -323,10 +323,4 @@ impl RepositoryRegistry {
     pub fn usage_repos(&self) -> UsageRepos {
         UsageRepos::from_registry(self)
     }
-
-    /// Build a [`ContentRepos`] view from this registry.
-    #[must_use]
-    pub fn content_repos(&self) -> ContentRepos {
-        ContentRepos::from_registry(self)
-    }
 }

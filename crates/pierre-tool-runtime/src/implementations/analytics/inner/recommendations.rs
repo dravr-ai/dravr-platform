@@ -14,17 +14,17 @@ use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use chrono::{Duration, Utc};
+use dravr_cageux::config::intelligence::AlgorithmConfig;
+use dravr_cageux::pattern_detection::PatternDetector;
+use dravr_cageux::performance_prediction::PerformancePredictor;
+use dravr_cageux::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
+use dravr_cageux::training_load::TrainingLoad;
+use dravr_cageux::training_load::{FormBand, RiskLevel, TrainingLoadCalculator};
 use pierre_config::constants::limits::METERS_PER_KILOMETER;
 use pierre_core::civil_time::resolve_zone;
 use pierre_core::models::{Activity, TenantId};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_fitness_compute::AthleteInputs;
-use pierre_intelligence::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
-use pierre_intelligence::training_load::TrainingLoad;
-use pierre_intelligence::{
-    AlgorithmConfig, FormBand, PatternDetector, PerformancePredictor, RiskLevel,
-    TrainingLoadCalculator,
-};
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 
 use super::recommendations_nutrition::{

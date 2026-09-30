@@ -19,6 +19,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
+use dravr_canot::channel::MessagingChannel;
 use pierre_chat_pipeline::stages::activity_fold::shape_for_fold;
 use pierre_chat_pipeline::{AssistantTurn, ReplyBlock, TurnTelemetry};
 use pierre_contremaitre::messaging_strings::{
@@ -31,7 +32,6 @@ use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
 use pierre_mcp_server::services::backfill_reentry::{
     engaged_with_activities, ChatReentry, ReentryReply, ReentryRequest,
 };
-use pierre_messaging::channel::MessagingChannel;
 use pierre_middleware::provider_link_token::verify_link_token;
 use pierre_tool_runtime::runtime::BackfillNotifier;
 
@@ -51,7 +51,7 @@ use messaging_fixtures::{
 #[tokio::test]
 async fn push_routes_to_originating_chat() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
@@ -113,7 +113,7 @@ async fn push_routes_to_originating_chat() {
 #[tokio::test]
 async fn push_routes_dm_to_channel_user_id_when_no_conversation_id() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
@@ -164,7 +164,7 @@ async fn push_routes_dm_to_channel_user_id_when_no_conversation_id() {
 #[tokio::test]
 async fn push_provider_reauth_nudges_dm_and_resends_until_reconnect() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
@@ -265,7 +265,7 @@ async fn push_provider_reauth_nudges_dm_and_resends_until_reconnect() {
 #[tokio::test]
 async fn push_provider_reauth_for_trainingpeaks_links_the_trainingpeaks_login() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
@@ -348,7 +348,7 @@ async fn push_provider_reauth_for_trainingpeaks_links_the_trainingpeaks_login() 
 #[tokio::test]
 async fn push_provider_reauth_sends_nothing_for_a_provider_with_no_hosted_login() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
@@ -393,7 +393,7 @@ async fn push_provider_reauth_sends_nothing_for_a_provider_with_no_hosted_login(
 #[tokio::test]
 async fn push_resolves_channel_config_under_bot_tenant_for_cross_tenant_bot() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     // The user and their OWN tenant (where the session + activity cache live).
     let (user_uuid, user_tenant) = seed_user(&db).await;
@@ -527,7 +527,7 @@ impl ChatReentry for FakeReentry {
 #[tokio::test]
 async fn push_sends_the_chart_and_never_its_marker() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
@@ -642,7 +642,7 @@ async fn push_sends_the_chart_and_never_its_marker() {
 #[tokio::test]
 async fn push_renders_deterministic_list_when_reentry_produces_no_list() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
@@ -747,7 +747,7 @@ async fn push_renders_deterministic_list_when_reentry_produces_no_list() {
 #[tokio::test]
 async fn push_re_asks_the_newest_question_in_the_conversation() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
@@ -850,7 +850,7 @@ async fn push_re_asks_the_newest_question_in_the_conversation() {
 #[tokio::test]
 async fn push_prepends_activity_list_to_agent_reply() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
@@ -949,7 +949,7 @@ async fn push_prepends_activity_list_to_agent_reply() {
 #[tokio::test]
 async fn push_caps_long_activity_list_for_small_screens() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
@@ -1042,7 +1042,7 @@ async fn push_caps_long_activity_list_for_small_screens() {
 #[tokio::test]
 async fn push_for_moved_session_sends_nothing() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     let conversation_c = seed_conversation(&db, &user_id, tenant_id).await;
@@ -1096,7 +1096,7 @@ async fn push_for_moved_session_sends_nothing() {
 #[tokio::test]
 async fn push_is_tenant_scoped() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user_a, tenant_a) = seed_user(&db).await;
     let (user_b, tenant_b) = seed_user(&db).await;
     let user_a_id = user_a.to_string();
@@ -1172,7 +1172,7 @@ async fn push_is_tenant_scoped() {
 #[tokio::test]
 async fn push_sends_warmed_activity_list() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
@@ -1246,7 +1246,7 @@ async fn push_sends_warmed_activity_list() {
 #[tokio::test]
 async fn push_falls_back_to_nudge_on_empty_cache() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
@@ -1422,7 +1422,7 @@ fn a_missing_refusal_string_does_not_reject_every_reply() {
 #[tokio::test]
 async fn push_delivers_into_an_in_app_conversation_with_no_channel_session() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     // `create_conversation` leaves `channel_type` at the column default,
@@ -1492,7 +1492,7 @@ async fn push_delivers_into_an_in_app_conversation_with_no_channel_session() {
 #[tokio::test]
 async fn push_still_drops_a_reset_messaging_thread() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
@@ -1554,7 +1554,7 @@ async fn push_still_drops_a_reset_messaging_thread() {
 #[tokio::test]
 async fn push_body_is_rendered_in_the_users_locale() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     repos.users.update_locale(user_uuid, "en").await.unwrap();

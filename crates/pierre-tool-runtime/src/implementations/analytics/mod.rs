@@ -69,6 +69,7 @@ use crate::protocol::provider_helpers::resolve_provider_for_tool;
 use crate::protocol::UniversalExecutor;
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
+use dravr_meteo::{provider_from_env, WeatherQuery};
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_config::environment::default_provider;
@@ -80,7 +81,6 @@ use pierre_fitness_compute::weather_cache_adapter::WeatherCacheRepoAdapter;
 use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_providers::core::FitnessProvider;
 use pierre_tools_core::ToolResult;
-use pierre_weather::{provider_from_env, WeatherQuery};
 
 /// Annotations shared by all analytics tools: read-only, idempotent, open-world (external provider)
 fn analytics_annotations() -> ToolAnnotations {
@@ -498,7 +498,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
             .await
         {
             Ok(sample) => sample,
-            Err(pierre_weather::WeatherError::Disabled) => {
+            Err(dravr_meteo::WeatherError::Disabled) => {
                 return ok_typed(
                     "analyze_weather_impact",
                     WeatherImpactResult {

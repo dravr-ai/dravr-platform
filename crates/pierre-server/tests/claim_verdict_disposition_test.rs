@@ -41,7 +41,6 @@ use pierre_memory::claims::{
     ClaimCategory, ClaimStatus, ClaimVerdict, DispositionReason, EvidenceStrength,
     VerdictDisposition, VerdictLayer,
 };
-use pierre_routes_admin::auth::service::AdminAuthService;
 use pierre_routes_admin::handlers::claim_verdicts::{
     handle_get_claim_verdict, handle_list_claim_verdicts, handle_list_verdicts_by_message,
     handle_set_verdict_disposition, knob_for, ListVerdictsQuery, SetDispositionRequest,
@@ -240,7 +239,7 @@ async fn disposition_round_trips_through_the_enums() {
 async fn set_disposition_lands_all_five_fields_and_a_second_set_overwrites() -> Result<()> {
     let db = common::create_test_database().await?;
     let repos = db.repositories();
-    let id = seed(&repos, tenant(), Seed::default()).await;
+    let id = seed(repos, tenant(), Seed::default()).await;
 
     let first = repos
         .claim_verdicts
@@ -315,7 +314,7 @@ async fn set_disposition_lands_all_five_fields_and_a_second_set_overwrites() -> 
 async fn set_disposition_on_an_unknown_or_foreign_verdict_is_not_found() -> Result<()> {
     let db = common::create_test_database().await?;
     let repos = db.repositories();
-    let id = seed(&repos, tenant(), Seed::default()).await;
+    let id = seed(repos, tenant(), Seed::default()).await;
 
     let err = repos
         .claim_verdicts
@@ -364,12 +363,12 @@ async fn set_disposition_on_an_unknown_or_foreign_verdict_is_not_found() -> Resu
 async fn list_filters_are_applied_in_sql() -> Result<()> {
     let db = common::create_test_database().await?;
     let repos = db.repositories();
-    let owner = seed_tenant_owner(&repos, tenant()).await;
-    let agent_a = seed_agent(&repos, owner, tenant(), "Agent A").await;
-    let agent_b = seed_agent(&repos, owner, tenant(), "Agent B").await;
+    let owner = seed_tenant_owner(repos, tenant()).await;
+    let agent_a = seed_agent(repos, owner, tenant(), "Agent A").await;
+    let agent_b = seed_agent(repos, owner, tenant(), "Agent B").await;
 
     let evidence_u1 = seed(
-        &repos,
+        repos,
         tenant(),
         Seed {
             user_id: "user-1",
@@ -380,7 +379,7 @@ async fn list_filters_are_applied_in_sql() -> Result<()> {
     )
     .await;
     let deterministic_u1 = seed(
-        &repos,
+        repos,
         tenant(),
         Seed {
             user_id: "user-1",
@@ -393,7 +392,7 @@ async fn list_filters_are_applied_in_sql() -> Result<()> {
     )
     .await;
     let judge_u2 = seed(
-        &repos,
+        repos,
         tenant(),
         Seed {
             user_id: "user-2",
@@ -403,7 +402,7 @@ async fn list_filters_are_applied_in_sql() -> Result<()> {
     )
     .await;
     let supported_u2 = seed(
-        &repos,
+        repos,
         tenant(),
         Seed {
             user_id: "user-2",
@@ -413,7 +412,7 @@ async fn list_filters_are_applied_in_sql() -> Result<()> {
     )
     .await;
     // A row in another tenant never appears, whatever the filter.
-    seed(&repos, other_tenant(), Seed::default()).await;
+    seed(repos, other_tenant(), Seed::default()).await;
 
     repos
         .claim_verdicts
@@ -579,7 +578,7 @@ async fn the_recent_scan_reaches_past_the_admin_lists_page_size() -> Result<()> 
     let db = common::create_test_database().await?;
     let repos = db.repositories();
     for _ in 0..201 {
-        seed(&repos, tenant(), Seed::default()).await;
+        seed(repos, tenant(), Seed::default()).await;
     }
 
     let wide = repos
@@ -601,7 +600,7 @@ async fn list_verdicts_for_message_returns_only_that_message() -> Result<()> {
     let db = common::create_test_database().await?;
     let repos = db.repositories();
     let a1 = seed(
-        &repos,
+        repos,
         tenant(),
         Seed {
             message_id: Some("msg-a"),
@@ -611,7 +610,7 @@ async fn list_verdicts_for_message_returns_only_that_message() -> Result<()> {
     )
     .await;
     let a2 = seed(
-        &repos,
+        repos,
         tenant(),
         Seed {
             message_id: Some("msg-a"),
@@ -621,7 +620,7 @@ async fn list_verdicts_for_message_returns_only_that_message() -> Result<()> {
     )
     .await;
     seed(
-        &repos,
+        repos,
         tenant(),
         Seed {
             message_id: Some("msg-b"),
@@ -629,10 +628,10 @@ async fn list_verdicts_for_message_returns_only_that_message() -> Result<()> {
         },
     )
     .await;
-    seed(&repos, tenant(), Seed::default()).await;
+    seed(repos, tenant(), Seed::default()).await;
     // The same message id under another tenant is not this tenant's.
     seed(
-        &repos,
+        repos,
         other_tenant(),
         Seed {
             message_id: Some("msg-a"),
@@ -673,7 +672,7 @@ async fn build_context(
     let jwks_manager = common::get_shared_test_jwks();
 
     let database_arc = Arc::new((*database).clone());
-    let repos_arc = Arc::new(database_arc.repositories());
+    let repos_arc = Arc::clone(database_arc.repositories());
 
     let context = AdminApiContext::new(AdminApiContextInit {
         database: database_arc,
@@ -682,7 +681,6 @@ async fn build_context(
         auth_manager,
         jwks_manager,
         admin_api_key_monthly_limit: STARTER_MONTHLY_LIMIT,
-        admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
         guardian_config_registry: Arc::new(GuardianConfigRegistry::bootstrap()),
         prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),
@@ -1401,7 +1399,6 @@ fn cookie_admin_router(resources: &Arc<ServerContext>) -> axum::Router {
         auth_manager: resources.auth.auth_manager.clone(),
         jwks_manager: resources.auth.jwks_manager.clone(),
         admin_api_key_monthly_limit: STARTER_MONTHLY_LIMIT,
-        admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         harness_config_registry: resources.fitness.harness_config_registry.clone(),
         guardian_config_registry: resources.fitness.guardian_config_registry.clone(),
         prompt_registry: resources.mcp.prompt_registry.clone(),

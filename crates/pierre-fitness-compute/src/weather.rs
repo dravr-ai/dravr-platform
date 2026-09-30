@@ -13,7 +13,7 @@
 //! against the cageux physiological thresholds (heat stress, wind drag,
 //! precipitation).
 
-use pierre_weather::WeatherSample;
+use dravr_meteo::WeatherSample;
 use serde::{Deserialize, Serialize};
 
 use dravr_cageux::physiological_constants::{

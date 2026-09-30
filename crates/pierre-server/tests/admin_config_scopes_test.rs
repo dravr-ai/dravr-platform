@@ -33,14 +33,14 @@ use pierre_config::admin_definitions::{
 use pierre_config::admin_env::EnvConfigPins;
 use pierre_config::admin_types::{ConfigDataType, ConfigScope};
 use pierre_core::models::{Tenant, TenantId, User};
-use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::admin::postgres_manager::PostgresAdminConfigManager;
 use pierre_mcp_server::config::admin::repository::SetOverrideParams;
 use pierre_mcp_server::config::admin::{
     AdminConfigManager, AdminConfigRepository, AdminConfigService,
 };
+use pierre_test_support::db::create_test_db;
 use tokio::time::sleep;
 use uuid::Uuid;
 
@@ -62,10 +62,12 @@ fn quota_definitions() -> HashMap<String, ParameterDefinition> {
 /// partial unique index, and index inference is exactly the kind of thing a
 /// `SQLite` stand-in would not exercise.
 fn repository(db: &Database) -> Box<dyn AdminConfigRepository> {
-    match db {
-        Database::SQLite(sqlite) => Box::new(AdminConfigManager::new(sqlite.pool().clone())),
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => Box::new(AdminConfigManager::new(sqlite.pool().clone())),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => Box::new(PostgresAdminConfigManager::new(pg.pool().clone())),
+        DatabaseBackend::PostgreSQL(pg) => {
+            Box::new(PostgresAdminConfigManager::new(pg.pool().clone()))
+        }
     }
 }
 
@@ -78,8 +80,8 @@ async fn config_service(db: &Database) -> AdminConfigService {
 
 /// Count stored per-user rows for the parameter under test.
 async fn count_user_rows(db: &Database, user: &str) -> i64 {
-    match db {
-        Database::SQLite(sqlite) => sqlx::query_scalar(
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => sqlx::query_scalar(
             "SELECT COUNT(*) FROM admin_config_overrides \
              WHERE category = $1 AND config_key = $2 AND user_id = $3",
         )
@@ -91,7 +93,7 @@ async fn count_user_rows(db: &Database, user: &str) -> i64 {
         .unwrap(),
         // `user_id` is a `uuid` column on PostgreSQL, so the text id is cast.
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => sqlx::query_scalar(
+        DatabaseBackend::PostgreSQL(pg) => sqlx::query_scalar(
             "SELECT COUNT(*) FROM admin_config_overrides \
              WHERE category = $1 AND config_key = $2 AND user_id = $3::uuid",
         )
@@ -540,8 +542,8 @@ async fn a_stored_timestamp_that_is_not_one_fails_instead_of_reading_as_now() {
     let repo = repository(&db);
     let admin = seed_user(&db, "clock").await;
     write(repo.as_ref(), &admin, ConfigScope::Global, 40).await;
-    match &db {
-        Database::SQLite(sqlite) => {
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
             sqlx::query(CORRUPT)
                 .bind(CATEGORY)
                 .bind(KEY)
@@ -556,7 +558,7 @@ async fn a_stored_timestamp_that_is_not_one_fails_instead_of_reading_as_now() {
             );
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => {
+        DatabaseBackend::PostgreSQL(pg) => {
             assert!(sqlx::query(CORRUPT)
                 .bind(CATEGORY)
                 .bind(KEY)

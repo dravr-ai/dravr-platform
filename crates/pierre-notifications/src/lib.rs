@@ -43,7 +43,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use pierre_core::errors::{AppError, AppResult};
+use pierre_core::errors::AppError;
 use serde_json::json;
 use tracing::{debug, info};
 use uuid::Uuid;
@@ -567,12 +567,4 @@ pub fn to_app_error(err: CommereError) -> AppError {
         CommereError::Scheduling(msg) => AppError::invalid_input(msg),
         CommereError::NotFound { resource } => AppError::not_found(resource),
     }
-}
-
-/// Convert a `CommereResult<T>` to an `AppResult<T>`
-///
-/// # Errors
-/// Returns `AppError` mapped from the underlying `CommereError`.
-pub fn to_app_result<T>(result: CommereResult<T>) -> AppResult<T> {
-    result.map_err(to_app_error)
 }

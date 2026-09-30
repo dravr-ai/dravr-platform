@@ -136,7 +136,7 @@ jobs:
   #   contremaitre-sync    — the 4 platform<->contremaitre coupling tests (~5 min)
   #   feature-profiles     — the 2-profile server feature matrix: production clippy + no-default-features check (~5 min)
   #   backend-tests        — SQLite shards, cron / workflow_dispatch only
-  #   leaf-crate-tests     — every non-pierre-server crate's tests/ dir, per push
+  #   leaf-crate-tests     — every non-pierre-server crate's tests/ dir and unit tests, plus pierre-server's unit tests, per push
   #   changed-server-tests — the pierre-server test files THIS push touched
   # PHASE 1: release-binary (depends on clippy)
   #
@@ -273,7 +273,7 @@ jobs:
       # Compile-free like the rest of this job. The dev-process and tunnel
       # suites spawn real processes and wait on them, so the block runs in tens
       # of seconds rather than the couple the source-reading gates take alone.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, workflow test targets, generated stylesheets, email log redaction)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, workflow test targets, generated stylesheets, email log redaction, shared test-module filter)
         run: |
           ./scripts/ci/check-file-sizes.test.sh
           ./scripts/ci/check-advisory-reviews.test.sh
@@ -301,6 +301,7 @@ jobs:
           ./scripts/ci/check-workflow-test-targets.test.sh
           ./scripts/ci/check-hosted-css.test.sh
           ./scripts/ci/check-log-email-redaction.test.sh
+          bash .build/validation/test-test-module-lines.sh
           ./scripts/ci/check-satellite-drift.sh --offline
 
       # A `cargo test --test <name>` in a workflow whose target a push moved or
@@ -823,8 +824,10 @@ jobs:
   # the coverage lane. On 2026-08-30 that let b76ebb0fa land on main with a
   # broken pipeline test while every ci-backend job stayed green; coverage
   # reported it 100+ minutes later. This job closes that hole: one runner, one
-  # cargo invocation, every leaf crate's tests/ dir, refusing to report green
-  # on an empty selection exactly as the PostgreSQL lane learned to.
+  # cargo invocation, every leaf crate's tests/ dir AND its in-module unit
+  # tests (ADR-027: `#[cfg(test)] mod tests` in src/, run as the lib target),
+  # refusing to report green on an empty selection exactly as the PostgreSQL
+  # lane learned to. pierre-server's own unit tests run in the step after.
   leaf-crate-tests:
     name: Leaf-Crate Tests (every crate but pierre-server)
     timeout-minutes: 60  # the 45-min test step plus build; the step bound cannot catch a hang before it
@@ -848,13 +851,14 @@ jobs:
           # Package names are read from each Cargo.toml, never derived from the
           # directory (crates/pierre-server is the standing counter-example:
           # its package is pierre_mcp_server). pierre-server is excluded here
-          # because its 300+ test binaries have their own lanes; everything
-          # else joins automatically the day it grows a tests/ directory.
+          # because its 300+ test binaries have their own lanes. Every other
+          # crate is selected, with or without a tests/ directory: `--tests`
+          # runs the lib target's in-module unit tests too, and a crate whose
+          # only tests live in src/ must not fall out of the lane.
           PKG_FLAGS=()
           COUNT=0
-          for dir in crates/*/tests; do
-            [ -d "$dir" ] || continue
-            crate_dir="$(dirname "$dir")"
+          for manifest in crates/*/Cargo.toml; do
+            crate_dir="$(dirname "$manifest")"
             if [ "$crate_dir" = "crates/pierre-server" ]; then
               continue
             fi
@@ -870,7 +874,7 @@ jobs:
             echo "::error::Leaf-crate lane selected no packages — refusing to report green."
             exit 1
           fi
-          echo "=== $COUNT leaf crates with tests/ directories ==="
+          echo "=== $COUNT leaf crates ==="
           printf '%s\n' "${PKG_FLAGS[@]}" | paste -d' ' - - | sed 's/^-p /  /'
           # --all-features, not defaults: a leaf crate built standalone loses
           # the features pierre-server forwards to it (workspace unification).
@@ -905,6 +909,24 @@ jobs:
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"
           STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
           PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
+
+      # pierre-server's in-module unit tests (ADR-027) — its tests/ binaries run
+      # in their own lanes, and none of those runs the lib target. Compiling the
+      # server's lib test harness costs minutes, so the step runs only when
+      # pierre-server/src actually carries a test module.
+      - name: Run pierre-server unit tests
+        run: |
+          if ! grep -rqE '^#\[cfg\(test\)\]' crates/pierre-server/src; then
+            echo "pierre-server/src has no #[cfg(test)] module — nothing to run."
+            exit 0
+          fi
+          cargo test -p pierre_mcp_server --all-features --lib -- --test-threads=4
+        timeout-minutes: 30
+        env:
+          DATABASE_URL: "sqlite::memory:"
+          ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_RSA_KEY_SIZE: "2048"
 
   # The pierre-server test files THIS push added or edited, run immediately.
   # The full server suite (~500 files) runs per-push on main, feature(s)/* and

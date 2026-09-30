@@ -87,13 +87,13 @@ pub use slash::{room_reply_thread_anchor, slash_reply_should_be_private};
 #[cfg(feature = "client-messaging")]
 use slash::{try_handle_slash_command, SlashCommandContext};
 
+use dravr_canot::channel::MessagingChannel;
 use pierre_auth::auth::AuthResult;
 use pierre_core::models::groups::GroupRespondMode;
 use pierre_core::models::messaging::{ChannelType, IncomingMessage, MessageContent};
 use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_core::safety::{scan as scan_for_injection, SanitizationOutcome};
 use pierre_database::backends::{InsertMessageParams, MessagingRepository};
-use pierre_messaging::channel::MessagingChannel;
 use pierre_services::locale::resolve_channel_locale;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};

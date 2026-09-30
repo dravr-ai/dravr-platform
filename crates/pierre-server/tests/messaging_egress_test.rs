@@ -32,6 +32,7 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 use std::time::Duration;
 
+use dravr_canot::turn::ConversationTurnId as CanotTurnId;
 use pierre_chat_pipeline::{
     build_envelope, ActionKind, QuotaLevel, QuotaState, QuotaWarningState, ReconnectPrompt,
     SceneImage, ServedTurn, SurfaceProfile, TurnAction, TurnEnvelope, TurnState, TurnTelemetry,
@@ -53,7 +54,6 @@ use pierre_mcp_server::services::messaging_ingress::surface::messaging_surface_r
 use pierre_mcp_server::services::messaging_ingress::turn_guard::{
     acquire_dispatch_lock, evict_idle_dispatch_lock, new_correlation_id, run_guarded, TurnOutcome,
 };
-use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, timeout};
 use uuid::Uuid;

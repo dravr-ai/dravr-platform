@@ -28,7 +28,7 @@ use crate::models::{Activity, Athlete, Stats};
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
 use crate::spi::{OAuthEndpoints, OAuthParams, ProviderCapabilities, ProviderDescriptor};
 
-use super::api_client::{TerraApiClient, TerraApiConfig};
+use super::api_client::TerraApiClient;
 use super::cache::TerraDataCache;
 use super::constants::{
     TERRA_API_BASE_URL, TERRA_DEAUTH_URL, TERRA_TOKEN_URL, TERRA_WIDGET_SESSION_URL,
@@ -81,32 +81,6 @@ impl TerraProvider {
             credentials: RwLock::new(None),
             cache,
             api_client: None,
-            terra_user_id: RwLock::new(None),
-        }
-    }
-
-    /// Create a Terra provider with API client for REST operations
-    #[must_use]
-    pub fn with_api_client(cache: Arc<TerraDataCache>, api_config: TerraApiConfig) -> Self {
-        let api_client = TerraApiClient::new(api_config);
-        Self {
-            config: ProviderConfig {
-                name: "terra".to_owned(),
-                auth_url: TERRA_WIDGET_SESSION_URL.to_owned(),
-                token_url: TERRA_TOKEN_URL.to_owned(),
-                api_base_url: TERRA_API_BASE_URL.to_owned(),
-                revoke_url: Some(TERRA_DEAUTH_URL.to_owned()),
-                default_scopes: vec![
-                    "activity".to_owned(),
-                    "sleep".to_owned(),
-                    "body".to_owned(),
-                    "daily".to_owned(),
-                    "nutrition".to_owned(),
-                ],
-            },
-            credentials: RwLock::new(None),
-            cache,
-            api_client: Some(api_client),
             terra_user_id: RwLock::new(None),
         }
     }

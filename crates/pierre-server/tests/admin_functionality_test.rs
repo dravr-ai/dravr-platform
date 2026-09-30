@@ -285,11 +285,7 @@ async fn test_admin_auth_service_construction() -> Result<()> {
     let jwks_manager = common::get_shared_test_jwks();
 
     // Test that AdminAuthService can be constructed successfully
-    let auth_service = AdminAuthService::new(
-        db.repositories().admin.clone(),
-        jwks_manager,
-        AdminAuthService::DEFAULT_CACHE_TTL_SECS,
-    );
+    let auth_service = AdminAuthService::new(db.repositories().admin.clone(), jwks_manager);
 
     // Test basic functionality - invalid token should fail
     let invalid_result = auth_service
@@ -467,11 +463,7 @@ async fn test_admin_token_minted_by_repository_validates_through_service() -> Re
     let db = common::create_test_database().await?;
     let repos = db.repositories();
     let jwks_manager = common::get_shared_test_jwks();
-    let auth_service = AdminAuthService::new(
-        repos.admin.clone(),
-        jwks_manager.clone(),
-        AdminAuthService::DEFAULT_CACHE_TTL_SECS,
-    );
+    let auth_service = AdminAuthService::new(repos.admin.clone(), jwks_manager.clone());
 
     let scoped = repos
         .admin

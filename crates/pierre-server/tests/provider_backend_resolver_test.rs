@@ -31,7 +31,7 @@ use common::{create_test_server_resources, create_test_user};
 use pierre_cache::{CacheKey, CacheResource};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{Athlete, ConnectionType, TenantId, UserOAuthToken};
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::backend_resolver::{self, BackendKind, CoalescedStatus};
 use pierre_providers::ProviderRegistry;
@@ -1204,12 +1204,12 @@ async fn reconciliation_deletes_orphans_and_spares_synthetic_and_valid() {
     .unwrap();
 
     // Run the reconciliation exactly as migration 20260714000001 does.
-    match resources.agent.database.as_ref() {
-        Database::SQLite(db) => {
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
             sqlx::query(RECONCILE).execute(db.pool()).await.unwrap();
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => {
+        DatabaseBackend::PostgreSQL(db) => {
             sqlx::query(RECONCILE).execute(db.pool()).await.unwrap();
         }
     }
@@ -1879,12 +1879,12 @@ async fn reconciliation_deletes_an_orphaned_trainingpeaks_mirror_connection() {
     .await
     .unwrap();
 
-    match resources.agent.database.as_ref() {
-        Database::SQLite(db) => {
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
             sqlx::query(RECONCILE).execute(db.pool()).await.unwrap();
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => {
+        DatabaseBackend::PostgreSQL(db) => {
             sqlx::query(RECONCILE).execute(db.pool()).await.unwrap();
         }
     }

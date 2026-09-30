@@ -6,6 +6,7 @@
 
 use async_trait::async_trait;
 use chrono::Utc;
+use dravr_canot::commands::CommandResponse;
 use pierre_contremaitre::messaging_strings::{
     KEY_PILLARS_ARG_DM_ONLY, KEY_PILLARS_OPENER, KEY_PILLARS_OPENER_ROOM, KEY_PILLARS_START_FAILED,
 };
@@ -13,7 +14,6 @@ use pierre_core::errors::AppError;
 use pierre_core::models::{
     AddMessageParams, GuidedFlow, OnboardingState, Pillar, TopicVisibility, WalkAudience,
 };
-use pierre_messaging::commands::CommandResponse;
 use tracing::{info, warn};
 
 use crate::{CommandHandler, PlatformCommandContext};

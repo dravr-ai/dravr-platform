@@ -27,10 +27,10 @@ use pierre_config::tid_cuts::{
 use pierre_core::models::periodization::{BandCuts, TidCuts, TidCutsError};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
 use pierre_mcp_server::config::admin::service::{AdminConfigService, UpdateConfigContext};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_runtime_context::ConfigLookupScope;
+use pierre_test_support::db::create_test_db;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};

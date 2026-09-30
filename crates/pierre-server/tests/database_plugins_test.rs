@@ -11,8 +11,8 @@ use pierre_core::models::CoachingPersona;
 use pierre_core::models::{TenantId, User, UserOAuthToken, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::{factory::Database, DatabaseProvider};
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_mcp_server::constants::oauth_providers;
+use pierre_test_support::db::create_test_db_with_key;
 use serde_json::json;
 use uuid::Uuid;
 

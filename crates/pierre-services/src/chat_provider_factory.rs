@@ -42,29 +42,6 @@ pub async fn create_chat_provider() -> Result<ChatProvider, AppError> {
     ChatProvider::from_env().await
 }
 
-/// Build a [`ChatProvider`] honoring any override injected on
-/// `ServerContext::llm_provider`.
-///
-/// Production code leaves `llm_provider` set to `None` and this function
-/// falls back to [`create_chat_provider`]. Integration tests (for example
-/// the conversation-turn E2E) set the field to a deterministic mock via
-/// `ServerContext::with_llm_provider` so the pipeline runs without
-/// touching a real provider.
-///
-/// # Errors
-///
-/// Returns [`AppError`] from the fallback path ([`create_chat_provider`])
-/// when no override is present and the environment-configured provider
-/// cannot be initialized.
-pub async fn create_chat_provider_from_resources(
-    llm_provider: Option<&Arc<dyn LlmProvider>>,
-) -> Result<ChatProvider, AppError> {
-    if let Some(custom) = llm_provider {
-        return Ok(ChatProvider::Custom(Arc::clone(custom)));
-    }
-    create_chat_provider().await
-}
-
 /// Return the [`ChatProvider`] singleton resolved from the two provider
 /// handles a `ServerContext` carries.
 ///

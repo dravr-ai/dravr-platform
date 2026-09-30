@@ -290,40 +290,6 @@ pub fn format_output_with_telemetry<T: Serialize>(
     Ok((output, metrics))
 }
 
-/// Format serializable data to pretty-printed output (for debugging/display)
-///
-/// # Arguments
-/// * `data` - Any serializable data structure
-/// * `format` - The desired output format
-///
-/// # Returns
-/// * `Ok(FormattedOutput)` - Successfully formatted data with metadata
-/// * `Err(FormatError)` - Serialization failed
-///
-/// # Errors
-/// Returns `FormatError` if:
-/// - JSON serialization fails (for JSON format)
-/// - Converting to JSON value fails (for TOON format)
-/// - TOON encoding fails (for TOON format)
-pub fn format_output_pretty<T: Serialize>(
-    data: &T,
-    format: OutputFormat,
-) -> Result<FormattedOutput, FormatError> {
-    let data = match format {
-        OutputFormat::Json => serde_json::to_string_pretty(data).map_err(|e| FormatError {
-            message: e.to_string(),
-            format,
-        })?,
-        OutputFormat::Toon => encode_toon(data, format)?,
-    };
-
-    Ok(FormattedOutput {
-        data,
-        format,
-        content_type: format.content_type(),
-    })
-}
-
 /// Encode data to TOON format when the `toon` feature is enabled,
 /// or fall back to JSON when disabled.
 #[cfg(feature = "toon")]

@@ -110,10 +110,6 @@ pub mod tools;
 /// re-exported here so `crate::utils::*` keeps resolving for in-crate callers and tests).
 pub use pierre_config::utils;
 
-/// Test utilities for creating consistent test data
-#[cfg(any(test, feature = "testing"))]
-pub mod test_utils;
-
 /// Domain service layer for protocol-agnostic business logic
 pub mod services;
 pub mod startup_banner;

@@ -21,7 +21,7 @@
 use std::array;
 use std::str::FromStr;
 
-use pierre_database::database::test_utils::create_test_db_url;
+use pierre_test_support::db::create_test_db_url;
 use serde_json::{json, Value};
 use sqlx::migrate::Migrator;
 #[cfg(feature = "postgresql")]

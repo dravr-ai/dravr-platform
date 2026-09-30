@@ -19,7 +19,7 @@
 mod common;
 
 use anyhow::Result;
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_services::admin_ops;
 use reqwest::Client;
@@ -43,8 +43,8 @@ async fn add_user_to_tenant_as_member(
                           VALUES ($1, $2, $3, 'member', $4, $5)";
     let row_id = Uuid::new_v4();
     let now = chrono::Utc::now();
-    match &*resources.agent.database {
-        Database::SQLite(db) => {
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
             sqlx::query(INSERT)
                 .bind(row_id.to_string())
                 .bind(tenant_id)
@@ -55,7 +55,7 @@ async fn add_user_to_tenant_as_member(
                 .await?;
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => {
+        DatabaseBackend::PostgreSQL(db) => {
             sqlx::query(INSERT)
                 .bind(row_id)
                 .bind(Uuid::parse_str(tenant_id)?)
@@ -164,7 +164,7 @@ async fn test_user_disabled_tool_absent_from_wire_tools_list_and_reset_restores(
 
     // Disable the tool for member A only — the production write path.
     admin_ops::set_user_tool_override(
-        &repos,
+        repos,
         member_a.id,
         TARGET_TOOL,
         false,
@@ -195,7 +195,7 @@ async fn test_user_disabled_tool_absent_from_wire_tools_list_and_reset_restores(
     );
 
     // Reset restores parity, live (no cache in the per-user overlay).
-    let removed = admin_ops::remove_user_tool_override(&repos, member_a.id, TARGET_TOOL)
+    let removed = admin_ops::remove_user_tool_override(repos, member_a.id, TARGET_TOOL)
         .await
         .map_err(|e| anyhow::anyhow!("remove_user_tool_override failed: {e}"))?;
     assert!(removed, "reset must report the override row removed");

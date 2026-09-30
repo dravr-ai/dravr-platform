@@ -16,12 +16,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::repositories::UsageCounterRepository;
 use pierre_services::provider_rate_limiter::{
     budget_counter_key, budget_period, ProviderRateLimiter, RateLimitStatus, FIFTEEN_MINUTES,
     ONE_DAY, PLATFORM_SCOPE,
 };
+use pierre_test_support::db::create_test_db;
 use tokio::time::sleep;
 
 async fn counters() -> Arc<dyn UsageCounterRepository> {

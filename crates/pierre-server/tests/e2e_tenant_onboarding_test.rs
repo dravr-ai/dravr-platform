@@ -17,6 +17,10 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use dravr_cageux::types::{
+    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
+    TrendIndicators,
+};
 use pierre_auth::{
     auth::AuthManager,
     tenant::{oauth_manager::TenantOAuthManager, TenantContext, TenantOAuthClient, TenantRole},
@@ -27,12 +31,8 @@ use pierre_core::models::{Tenant, TenantId, TenantOAuthCredentials, User, UserSt
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
-use pierre_intelligence::{
-    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
-    TrendIndicators,
-};
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_test_support::db::create_test_db;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::json;
 use std::sync::Arc;
@@ -556,7 +556,6 @@ fn create_test_server_config() -> ServerConfig {
         auth: AuthConfig {
             jwt_expiry_hours: 24,
             refresh_token_expiry_days: 30,
-            ..AuthConfig::default()
         },
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
@@ -614,7 +613,6 @@ fn create_test_server_config() -> ServerConfig {
         },
         sse: SseConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
-        route_timeouts: RouteTimeoutConfig::default(),
         ..Default::default()
     }
 }

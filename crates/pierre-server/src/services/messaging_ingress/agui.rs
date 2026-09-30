@@ -6,8 +6,8 @@
 
 use std::sync::Arc;
 
+use dravr_canot::agui_status::StatusAdapter;
 use pierre_core::models::messaging::{ChannelConfig, MessageContent};
-use pierre_messaging::agui_status::StatusAdapter;
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
 use uuid::Uuid;

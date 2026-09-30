@@ -30,7 +30,6 @@ use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::UserRole;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_routes_admin::auth::service::AdminAuthService;
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
 use serde_json::{json, Value};
 use serial_test::serial;
@@ -45,7 +44,6 @@ fn admin_context(resources: &Arc<ServerContext>) -> AdminApiContext {
         auth_manager: resources.auth.auth_manager.clone(),
         jwks_manager: resources.auth.jwks_manager.clone(),
         admin_api_key_monthly_limit: STARTER_MONTHLY_LIMIT,
-        admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         harness_config_registry: resources.fitness.harness_config_registry.clone(),
         guardian_config_registry: resources.fitness.guardian_config_registry.clone(),
         prompt_registry: resources.mcp.prompt_registry.clone(),

@@ -25,6 +25,7 @@
 //!
 //! [`TurnEnvelope`]: pierre_chat_pipeline::TurnEnvelope
 
+use dravr_canot::rich_text::{parse_markdown, render_plain};
 use pierre_chat_pipeline::{
     AssistantTurn, NoticeKind, QuotaLevel, QuotaWarningState, RenderCapabilities, ReplyBlock,
 };
@@ -33,7 +34,6 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::chunking::chunk_reply;
 use pierre_core::models::messaging::{CardAction, MessageContent, OutgoingMessage};
-use pierre_messaging::rich_text::{parse_markdown, render_plain};
 
 use super::surface::messaging_render_profile;
 use super::viz_delivery::strip_viz_markers;
@@ -136,6 +136,9 @@ pub fn render_reply(
     let mut prose = Vec::new();
     let mut attachments = Vec::new();
 
+    // Blocks lay out as Text/RichText, Media and Card. No reply block carries a
+    // place, so canot's location variant has no producer on any surface.
+    // LIMITATION(registre#3): `MessageContent::Location` is never constructed in production.
     for block in &assistant.blocks {
         match block {
             ReplyBlock::Prose { text } => {

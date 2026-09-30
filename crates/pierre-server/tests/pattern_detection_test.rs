@@ -9,8 +9,9 @@
 
 use chrono::{Duration, TimeZone, Utc};
 use chrono_tz::UTC;
+use dravr_cageux::pattern_detection::PatternDetector;
+use dravr_cageux::training_load::RiskLevel;
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
-use pierre_intelligence::{PatternDetector, RiskLevel};
 
 fn create_test_activity(days_ago: i64, distance_km: f64, avg_hr: Option<u32>) -> Activity {
     let date = Utc::now() - Duration::days(days_ago);

@@ -9,8 +9,8 @@ use pierre_core::models::TenantId;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use pierre_intelligence::config::intelligence::MealTdeeProportionsConfig;
-use pierre_intelligence::recipes::{
+use dravr_cageux::config::intelligence::MealTdeeProportionsConfig;
+use dravr_cageux::recipes::{
     convert_to_grams, DietaryRestriction, IngredientUnit, MacroTargets, MacroTargetsExt,
     MealTiming, Recipe, RecipeConstraints, RecipeIngredient, SkillLevel,
 };

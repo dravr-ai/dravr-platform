@@ -20,7 +20,7 @@ mod common;
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use sqlx::Row;
 
 fn activity(id: &str, provider: &str, age_days: i64) -> Activity {
@@ -355,15 +355,15 @@ async fn activity_cache_other_sport_type_populates_indexed_column() {
 /// backend-aware and verifies whichever backend the suite runs against.
 async fn read_sport_column(database: &Database, activity_id: &str) -> Option<String> {
     const SQL: &str = "SELECT sport_type FROM cached_activities WHERE activity_id = $1";
-    match database {
-        Database::SQLite(db) => sqlx::query(SQL)
+    match database.backend() {
+        DatabaseBackend::SQLite(db) => sqlx::query(SQL)
             .bind(activity_id)
             .fetch_one(db.pool())
             .await
             .unwrap()
             .get::<Option<String>, _>("sport_type"),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => sqlx::query(SQL)
+        DatabaseBackend::PostgreSQL(db) => sqlx::query(SQL)
             .bind(activity_id)
             .fetch_one(db.pool())
             .await

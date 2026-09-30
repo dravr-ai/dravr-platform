@@ -8,8 +8,9 @@
 allowed_extra = "trivially_copy_pass_by_ref"
 
 [test_modules]
-# Platform enforces no #[cfg(test)] in src/ (tests in external tests/ directory)
-enforce_no_cfg_test = true
+# Unit tests live in a trailing inline #[cfg(test)] mod tests (ADR-027). The
+# src/ scans skip that module, so a layout they would misread fails here.
+enforce_layout = true
 
 [ci_integrity]
 # Terraform workflows legitimately use continue-on-error for plan steps

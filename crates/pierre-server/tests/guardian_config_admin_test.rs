@@ -33,7 +33,6 @@ use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
 use pierre_core::admin::models::{AdminPermissions, ValidatedAdminToken};
 use pierre_core::errors::ErrorCode;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
-use pierre_routes_admin::auth::service::AdminAuthService;
 use pierre_routes_admin::handlers::guardian_config::{
     handle_get_guardian_config, handle_put_guardian_config,
 };
@@ -54,7 +53,7 @@ async fn build_context(guardian_registry: GuardianConfigRegistry) -> Arc<AdminAp
     let jwks_manager = common::get_shared_test_jwks();
 
     let database_arc = Arc::new((*database).clone());
-    let repos_arc = Arc::new(database_arc.repositories());
+    let repos_arc = Arc::clone(database_arc.repositories());
 
     Arc::new(AdminApiContext::new(AdminApiContextInit {
         database: database_arc,
@@ -63,7 +62,6 @@ async fn build_context(guardian_registry: GuardianConfigRegistry) -> Arc<AdminAp
         auth_manager,
         jwks_manager,
         admin_api_key_monthly_limit: STARTER_MONTHLY_LIMIT,
-        admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
         guardian_config_registry: Arc::new(guardian_registry),
         prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),

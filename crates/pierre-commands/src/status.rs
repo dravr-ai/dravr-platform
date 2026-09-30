@@ -5,8 +5,8 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
+use dravr_canot::commands::CommandResponse;
 use pierre_core::errors::AppError;
-use pierre_messaging::commands::CommandResponse;
 
 #[cfg(feature = "tools-groups")]
 use pierre_contremaitre::messaging_strings::KEY_STATUS_GROUPS_LABEL;

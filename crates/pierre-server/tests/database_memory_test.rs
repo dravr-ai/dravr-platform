@@ -12,7 +12,7 @@
 use anyhow::Result;
 use pierre_core::models::User;
 use pierre_database::database::generate_encryption_key;
-use pierre_database::database::test_utils::create_test_db_with_key;
+use pierre_test_support::db::create_test_db_with_key;
 use std::env;
 use std::fs;
 

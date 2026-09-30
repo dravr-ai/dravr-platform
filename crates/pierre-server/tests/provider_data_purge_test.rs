@@ -36,6 +36,7 @@ use axum::http::StatusCode;
 use axum::response::Response;
 use axum::Extension;
 use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
+use dravr_enforme::traits::timeseries_store::TimeSeriesPointStore;
 use dravr_equilibre_sync::ContinuousMetricBatch;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
@@ -53,16 +54,14 @@ use pierre_core::models::{
     ActivityBuilder, DataSource, DeviceType, SportType, StoredHealthMetrics, StoredRecoveryMetrics,
     StoredSleepSession, Tenant, TenantId, User, UserOAuthToken, UserStatus,
 };
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
     ActivityBackfillJobRow, ActivityFetchFailure, ActivityFetchFailureRecord, BackfillCoverage,
     PersonalBest, PersonalBestSeed, ProviderDataPurge, StoredRouteTrack, SyncCursorRow,
 };
 use pierre_database::RepositoryRegistry;
-use pierre_enforme::traits::timeseries_store::TimeSeriesPointStore;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_routes_admin::auth::service::AdminAuthService;
 use pierre_routes_admin::handlers::provider_data::handle_purge_provider_data;
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
 use pierre_routes_auth::OAuthService;
@@ -469,8 +468,8 @@ async fn seed_archive_row(db: &Database, data_source_id: &str) {
     const SQL: &str = "INSERT INTO data_point_series_archive \
          (id, data_source_id, series_type_id, bucket_start_at, aggregation_type, value, sample_count) \
          VALUES ($1, $2, $3, $4, 'avg', 50.5, 2)";
-    match db {
-        Database::SQLite(sqlite) => {
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
             sqlx::query(SQL)
                 .bind(Uuid::new_v4().to_string())
                 .bind(data_source_id)
@@ -481,7 +480,7 @@ async fn seed_archive_row(db: &Database, data_source_id: &str) {
                 .unwrap();
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(postgres) => {
+        DatabaseBackend::PostgreSQL(postgres) => {
             sqlx::query(SQL)
                 .bind(Uuid::new_v4().to_string())
                 .bind(data_source_id)
@@ -714,7 +713,6 @@ fn admin_context(resources: &Arc<ServerContext>) -> Arc<AdminApiContext> {
         auth_manager: resources.auth.auth_manager.clone(),
         jwks_manager: resources.auth.jwks_manager.clone(),
         admin_api_key_monthly_limit: STARTER_MONTHLY_LIMIT,
-        admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
         guardian_config_registry: Arc::new(GuardianConfigRegistry::bootstrap()),
         prompt_registry: Arc::new(PromptRegistry::new()),

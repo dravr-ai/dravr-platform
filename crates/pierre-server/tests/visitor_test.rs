@@ -7,10 +7,10 @@
 #![allow(clippy::expect_used)]
 #![allow(missing_docs)]
 
-use pierre_core::models::TimeSeriesData;
-use pierre_intelligence::visitor::{
+use dravr_cageux::visitor::{
     DecouplingDetector, NormalizedPowerCalculator, StatsCollector, TimeSeriesExt,
 };
+use pierre_core::models::TimeSeriesData;
 
 fn create_test_time_series() -> TimeSeriesData {
     TimeSeriesData {

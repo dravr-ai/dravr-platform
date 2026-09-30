@@ -20,8 +20,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_intelligence::config::intelligence::IntelligenceConfig;
-use pierre_intelligence::nutrition_calculator::{
+use dravr_cageux::config::intelligence::IntelligenceConfig;
+use dravr_cageux::nutrition_calculator::{
     calculate_carb_needs, calculate_daily_nutrition_needs, calculate_fat_needs,
     calculate_mifflin_st_jeor, calculate_nutrient_timing, calculate_protein_needs, calculate_tdee,
     ActivityLevel, DailyNutritionParams, Gender, TrainingGoal, WorkoutIntensity,

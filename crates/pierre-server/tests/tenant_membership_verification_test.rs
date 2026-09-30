@@ -12,9 +12,9 @@ use pierre_core::errors::ErrorCode;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
+use pierre_test_support::db::create_test_db;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -69,7 +69,7 @@ async fn user_owning_a_tenant(repos: &RepositoryRegistry) -> (Uuid, TenantId) {
 #[tokio::test]
 async fn member_gets_the_role_recorded_in_tenant_users() {
     let db = create_test_db().await.unwrap();
-    let repos = Arc::new(db.repositories());
+    let repos = Arc::clone(db.repositories());
     let (user_id, tenant_id) = user_owning_a_tenant(&repos).await;
 
     let ctx = extract_tenant_context_internal(&repos, user_id, Some(tenant_id))
@@ -90,7 +90,7 @@ async fn member_gets_the_role_recorded_in_tenant_users() {
 #[tokio::test]
 async fn explicit_tenant_id_without_membership_is_refused() {
     let db = create_test_db().await.unwrap();
-    let repos = Arc::new(db.repositories());
+    let repos = Arc::clone(db.repositories());
     let (outsider_id, _own_tenant) = user_owning_a_tenant(&repos).await;
     let (_owner_id, foreign_tenant) = user_owning_a_tenant(&repos).await;
 
@@ -114,7 +114,7 @@ async fn explicit_tenant_id_without_membership_is_refused() {
 #[tokio::test]
 async fn an_unnamed_tenant_resolves_to_the_users_own_membership() {
     let db = create_test_db().await.unwrap();
-    let repos = Arc::new(db.repositories());
+    let repos = Arc::clone(db.repositories());
     let (user_id, tenant_id) = user_owning_a_tenant(&repos).await;
 
     let ctx = extract_tenant_context_internal(&repos, user_id, None)
@@ -137,7 +137,7 @@ async fn an_unnamed_tenant_resolves_to_the_users_own_membership() {
 #[tokio::test]
 async fn an_unknown_user_is_refused_rather_than_given_a_context() {
     let db = create_test_db().await.unwrap();
-    let repos = Arc::new(db.repositories());
+    let repos = Arc::clone(db.repositories());
     let (_owner_id, tenant_id) = user_owning_a_tenant(&repos).await;
     let stranger = Uuid::new_v4();
 

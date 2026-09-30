@@ -8,15 +8,15 @@
 #![allow(missing_docs)]
 
 use pierre_database::backends::{factory::Database, UserRepository};
-use pierre_database::database::test_utils::create_test_db;
 use pierre_mcp_server::a2a::system_user::A2ASystemUserService;
 use pierre_mcp_server::constants::init_server_config;
+use pierre_test_support::db::create_test_db;
 use std::env;
 use std::sync::{Arc, Once};
 
-/// Build the users repository from a `Database` factory enum.
+/// The users repository from the `Database` handle's registry.
 fn users_repo(db: &Database) -> Arc<dyn UserRepository> {
-    db.repositories().users
+    Arc::clone(&db.repositories().users)
 }
 
 static INIT: Once = Once::new();

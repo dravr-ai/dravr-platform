@@ -107,7 +107,7 @@ mod live_incident_eval {
         WITHHELD_REPLY_FINISH_REASON,
     };
     use pierre_core::permissions::UserRole;
-    use pierre_database::backends::factory::Database;
+    use pierre_database::backends::factory::{Database, DatabaseBackend};
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -1347,14 +1347,14 @@ mod live_incident_eval {
     /// whichever backend the test database is.
     async fn count_for_tenant(db: &Database, sql: &str, tenant: TenantId) -> i64 {
         let tenant = tenant.to_string();
-        match db {
-            Database::SQLite(sqlite) => sqlx::query_scalar(sql)
+        match db.backend() {
+            DatabaseBackend::SQLite(sqlite) => sqlx::query_scalar(sql)
                 .bind(&tenant)
                 .fetch_one(sqlite.pool())
                 .await
                 .unwrap(),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(pg) => sqlx::query_scalar(sql)
+            DatabaseBackend::PostgreSQL(pg) => sqlx::query_scalar(sql)
                 .bind(&tenant)
                 .fetch_one(pg.pool())
                 .await
@@ -1370,14 +1370,14 @@ mod live_incident_eval {
         tenant: TenantId,
     ) -> Option<(Option<String>, Option<String>)> {
         let tenant = tenant.to_string();
-        match db {
-            Database::SQLite(sqlite) => sqlx::query_as(sql)
+        match db.backend() {
+            DatabaseBackend::SQLite(sqlite) => sqlx::query_as(sql)
                 .bind(&tenant)
                 .fetch_optional(sqlite.pool())
                 .await
                 .unwrap(),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(pg) => sqlx::query_as(sql)
+            DatabaseBackend::PostgreSQL(pg) => sqlx::query_as(sql)
                 .bind(&tenant)
                 .fetch_optional(pg.pool())
                 .await

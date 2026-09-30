@@ -48,6 +48,9 @@ use crate::implementations::plan_flavour::RecommendPlanFlavourTool;
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use crate::training_history_compute::{recompute_stored_history, HistoryRefresh};
+use dravr_cageux::algorithms::{VdotAlgorithm, Vo2maxAlgorithm};
+use dravr_cageux::config::intelligence::VO2MaxCalculator;
+use dravr_cageux::physiological_constants::physiological_defaults::DEFAULT_LACTATE_THRESHOLD;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_config::environment::TrainingZonesConfig;
@@ -55,9 +58,6 @@ use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{HrZoneSet, PowerZoneSet, SportType, TenantId, UserPhysiologicalProfile};
 use pierre_fitness_compute::AthleteInputs;
-use pierre_intelligence::algorithms::{VdotAlgorithm, Vo2maxAlgorithm};
-use pierre_intelligence::config::intelligence::VO2MaxCalculator;
-use pierre_intelligence::physiological_constants::physiological_defaults::DEFAULT_LACTATE_THRESHOLD;
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
 
@@ -343,7 +343,7 @@ impl PhysiologyUpdate {
 /// Range-check the columns `configuration_validation` does not cover.
 ///
 /// The heart-rate, VO2 max and FTP bounds live in
-/// `pierre_intelligence::physiological_constants::configuration_validation`
+/// `dravr_cageux::physiological_constants::configuration_validation`
 /// and are applied by [`validate_parameter_ranges`]; these are the remaining
 /// profile columns, whose bounds have no home there.
 fn validate_uncovered_ranges(profile: &UserPhysiologicalProfile, errors: &mut Vec<String>) {

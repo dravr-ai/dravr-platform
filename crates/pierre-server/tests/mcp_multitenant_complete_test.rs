@@ -19,18 +19,18 @@ use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
     ExternalServicesConfig, GarminApiConfig, GeocodingServiceConfig, HttpClientConfig, LogLevel,
     LoggingConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig,
-    ProtocolConfig, RouteTimeoutConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
-    SseConfig, StravaApiConfig, TlsConfig, WeatherServiceConfig,
+    ProtocolConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig, SseConfig,
+    StravaApiConfig, TlsConfig, WeatherServiceConfig,
 };
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{backends::factory::Database, database::generate_encryption_key};
 use pierre_mcp_server::mcp::{
     multitenant::ProviderToolRouter,
     resources::{ServerContext, ServerContextOptions},
 };
+use pierre_test_support::db::create_test_db_with_key;
 use rand::Rng;
 use reqwest::{redirect::Policy, Client};
 use serde_json::{json, Value};
@@ -80,7 +80,6 @@ fn create_test_config(port: u16) -> Arc<ServerConfig> {
         auth: AuthConfig {
             jwt_expiry_hours: 24,
             refresh_token_expiry_days: 30,
-            ..AuthConfig::default()
         },
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
@@ -164,7 +163,6 @@ fn create_test_config(port: u16) -> Arc<ServerConfig> {
         },
         sse: SseConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
-        route_timeouts: RouteTimeoutConfig::default(),
         ..Default::default()
     })
 }

@@ -10,9 +10,9 @@
 #![allow(missing_docs)]
 
 use pierre_auth::key_management::KeyManager;
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::backends::shared::encryption::HasEncryption;
-use pierre_database::database::test_utils::create_test_db_with_key;
+use pierre_test_support::db::create_test_db_with_key;
 use serial_test::serial;
 use std::env;
 
@@ -25,10 +25,10 @@ async fn open_db(database_key: Vec<u8>) -> Database {
 
 /// The refresh-token blind index on whichever backend the factory opened.
 fn blind_index(database: &Database, token: &str) -> String {
-    match database {
-        Database::SQLite(db) => db.hash_token_for_storage(token).unwrap(),
+    match database.backend() {
+        DatabaseBackend::SQLite(db) => db.hash_token_for_storage(token).unwrap(),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => db.hash_token_for_storage(token).unwrap(),
+        DatabaseBackend::PostgreSQL(db) => db.hash_token_for_storage(token).unwrap(),
     }
 }
 

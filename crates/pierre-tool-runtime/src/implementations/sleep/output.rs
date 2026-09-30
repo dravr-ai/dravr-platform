@@ -14,13 +14,13 @@
 //! be two structs describing one thing.
 
 use chrono::{DateTime, Utc};
-use pierre_core::json_value::to_value_as_written;
-use pierre_intelligence::{
+use dravr_cageux::{
     recovery_calculator::{
         DataCompleteness, RecoveryCategory, RecoveryScore, RestDayRecommendation, TrainingReadiness,
     },
     sleep_analysis::{HrvRecoveryStatus, HrvTrendAnalysis, SleepQualityScore},
 };
+use pierre_core::json_value::to_value_as_written;
 use serde::Serialize;
 use serde_json::Value;
 

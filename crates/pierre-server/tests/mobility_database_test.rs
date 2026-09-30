@@ -18,8 +18,8 @@ use pierre_core::models::mobility::{
     DifficultyLevel, ListStretchingFilter, ListYogaFilter, StretchingCategory, YogaCategory,
     YogaPoseType,
 };
-use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
+use pierre_test_support::db::create_test_db;
 
 // ============================================================================
 // Test Setup
@@ -34,12 +34,12 @@ use pierre_database::database::test_utils::create_test_db;
 /// `TIMESTAMPTZ`.
 macro_rules! execute_on {
     ($db:expr, $sql:expr, $($bind:expr),+ $(,)?) => {
-        match $db {
-            Database::SQLite(d) => {
+        match ($db).backend() {
+            DatabaseBackend::SQLite(d) => {
                 sqlx::query($sql)$(.bind($bind))+.execute(d.pool()).await.unwrap();
             }
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(d) => {
+            DatabaseBackend::PostgreSQL(d) => {
                 sqlx::query($sql)$(.bind($bind))+.execute(d.pool()).await.unwrap();
             }
         }
@@ -226,7 +226,7 @@ fn test_yoga_category_as_str() {
 #[tokio::test]
 async fn test_list_stretching_empty() {
     let db = create_test_db().await.unwrap();
-    let manager = db.repositories().mobility;
+    let manager = &db.repositories().mobility;
 
     let filter = ListStretchingFilter::default();
     let exercises = manager.list_stretching_exercises(&filter).await.unwrap();
@@ -243,7 +243,7 @@ async fn test_list_stretching_exercises() {
     insert_test_stretch(&db, "stretch-2", "Quad Stretch", "static", "intermediate").await;
     insert_test_stretch(&db, "stretch-3", "Leg Swings", "dynamic", "beginner").await;
 
-    let manager = db.repositories().mobility;
+    let manager = &db.repositories().mobility;
 
     let filter = ListStretchingFilter::default();
     let exercises = manager.list_stretching_exercises(&filter).await.unwrap();
@@ -258,7 +258,7 @@ async fn test_list_stretching_by_category() {
     insert_test_stretch(&db, "stretch-1", "Hamstring Stretch", "static", "beginner").await;
     insert_test_stretch(&db, "stretch-2", "Leg Swings", "dynamic", "beginner").await;
 
-    let manager = db.repositories().mobility;
+    let manager = &db.repositories().mobility;
 
     let filter = ListStretchingFilter {
         category: Some(StretchingCategory::Static),
@@ -279,7 +279,7 @@ async fn test_list_stretching_by_difficulty() {
     insert_test_stretch(&db, "stretch-2", "Medium Stretch", "static", "intermediate").await;
     insert_test_stretch(&db, "stretch-3", "Hard Stretch", "static", "advanced").await;
 
-    let manager = db.repositories().mobility;
+    let manager = &db.repositories().mobility;
 
     let filter = ListStretchingFilter {
         difficulty: Some(DifficultyLevel::Beginner),
@@ -297,7 +297,7 @@ async fn test_get_stretching_exercise() {
 
     insert_test_stretch(&db, "stretch-123", "Test Stretch", "static", "beginner").await;
 
-    let manager = db.repositories().mobility;
+    let manager = &db.repositories().mobility;
 
     let exercise = manager
         .get_stretching_exercise("stretch-123")
@@ -313,7 +313,7 @@ async fn test_get_stretching_exercise() {
 #[tokio::test]
 async fn test_get_stretching_exercise_not_found() {
     let db = create_test_db().await.unwrap();
-    let manager = db.repositories().mobility;
+    let manager = &db.repositories().mobility;
 
     let result = manager
         .get_stretching_exercise("nonexistent")
@@ -338,7 +338,7 @@ async fn test_list_stretching_with_pagination() {
         .await;
     }
 
-    let manager = db.repositories().mobility;
+    let manager = &db.repositories().mobility;
 
     let filter = ListStretchingFilter {
         limit: Some(3),
@@ -364,7 +364,7 @@ async fn test_list_stretching_with_pagination() {
 #[tokio::test]
 async fn test_list_yoga_empty() {
     let db = create_test_db().await.unwrap();
-    let manager = db.repositories().mobility;
+    let manager = &db.repositories().mobility;
 
     let filter = ListYogaFilter::default();
     let poses = manager.list_yoga_poses(&filter).await.unwrap();
@@ -404,7 +404,7 @@ async fn test_list_yoga_poses() {
     )
     .await;
 
-    let manager = db.repositories().mobility;
+    let manager = &db.repositories().mobility;
 
     let filter = ListYogaFilter::default();
     let poses = manager.list_yoga_poses(&filter).await.unwrap();
@@ -435,7 +435,7 @@ async fn test_list_yoga_by_category() {
     )
     .await;
 
-    let manager = db.repositories().mobility;
+    let manager = &db.repositories().mobility;
 
     let filter = ListYogaFilter {
         category: Some(YogaCategory::Standing),
@@ -455,7 +455,7 @@ async fn test_list_yoga_by_difficulty() {
     insert_test_pose(&db, "pose-1", "Easy Pose", "seated", "beginner", r"[]").await;
     insert_test_pose(&db, "pose-2", "Crow Pose", "balance", "advanced", r"[]").await;
 
-    let manager = db.repositories().mobility;
+    let manager = &db.repositories().mobility;
 
     let filter = ListYogaFilter {
         difficulty: Some(DifficultyLevel::Advanced),
@@ -473,7 +473,7 @@ async fn test_get_yoga_pose() {
 
     insert_test_pose(&db, "pose-123", "Test Pose", "standing", "beginner", r"[]").await;
 
-    let manager = db.repositories().mobility;
+    let manager = &db.repositories().mobility;
 
     let pose = manager.get_yoga_pose("pose-123").await.unwrap();
 
@@ -486,7 +486,7 @@ async fn test_get_yoga_pose() {
 #[tokio::test]
 async fn test_get_yoga_pose_not_found() {
     let db = create_test_db().await.unwrap();
-    let manager = db.repositories().mobility;
+    let manager = &db.repositories().mobility;
 
     let result = manager.get_yoga_pose("nonexistent").await.unwrap();
 
@@ -525,7 +525,7 @@ async fn test_get_poses_for_recovery() {
     )
     .await;
 
-    let manager = db.repositories().mobility;
+    let manager = &db.repositories().mobility;
 
     let poses = manager
         .get_poses_for_recovery("post_cardio", None)
@@ -551,7 +551,7 @@ async fn test_list_yoga_with_pagination() {
         .await;
     }
 
-    let manager = db.repositories().mobility;
+    let manager = &db.repositories().mobility;
 
     let filter = ListYogaFilter {
         limit: Some(5),
@@ -582,7 +582,7 @@ async fn test_list_stretching_multiple_filters() {
     insert_test_stretch(&db, "stretch-2", "Static Advanced", "static", "advanced").await;
     insert_test_stretch(&db, "stretch-3", "Dynamic Beginner", "dynamic", "beginner").await;
 
-    let manager = db.repositories().mobility;
+    let manager = &db.repositories().mobility;
 
     let filter = ListStretchingFilter {
         category: Some(StretchingCategory::Static),
@@ -627,7 +627,7 @@ async fn test_list_yoga_multiple_filters() {
     )
     .await;
 
-    let manager = db.repositories().mobility;
+    let manager = &db.repositories().mobility;
 
     let filter = ListYogaFilter {
         category: Some(YogaCategory::Standing),
@@ -655,7 +655,7 @@ async fn test_list_stretching_by_muscle_group() {
     insert_test_stretch(&db, "stretch-1", "Hamstring A", "static", "beginner").await;
     insert_test_stretch(&db, "stretch-2", "Hamstring B", "dynamic", "advanced").await;
 
-    let manager = db.repositories().mobility;
+    let manager = &db.repositories().mobility;
 
     let primary = manager
         .list_stretching_exercises(&ListStretchingFilter {
@@ -693,7 +693,7 @@ async fn test_list_stretching_by_activity_type() {
 
     insert_test_stretch(&db, "stretch-1", "Runner Stretch", "static", "beginner").await;
 
-    let manager = db.repositories().mobility;
+    let manager = &db.repositories().mobility;
 
     let running = manager
         .list_stretching_exercises(&ListStretchingFilter {
@@ -738,7 +738,7 @@ async fn test_list_yoga_by_recovery_context() {
     )
     .await;
 
-    let manager = db.repositories().mobility;
+    let manager = &db.repositories().mobility;
 
     let post_cardio = manager
         .list_yoga_poses(&ListYogaFilter {

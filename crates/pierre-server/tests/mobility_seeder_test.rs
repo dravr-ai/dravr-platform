@@ -68,11 +68,11 @@ async fn reseeding_writes_each_catalogue_entry_once() {
     let database = common::create_test_database().await.unwrap();
     let repos = database.repositories();
 
-    mobility::run(&repos).await.unwrap();
-    mobility::run(&repos).await.unwrap();
+    mobility::run(repos).await.unwrap();
+    mobility::run(repos).await.unwrap();
 
     assert_eq!(
-        all_stretches(&repos).await.len(),
+        all_stretches(repos).await.len(),
         12,
         "a second run refreshes the twelve stretches, it does not add twelve more"
     );
@@ -98,7 +98,7 @@ async fn reseeding_corrects_the_row_an_earlier_seed_wrote() {
         .await
         .unwrap();
 
-    mobility::run(&repos).await.unwrap();
+    mobility::run(repos).await.unwrap();
 
     let corrected = repos
         .mobility
@@ -115,7 +115,7 @@ async fn reseeding_corrects_the_row_an_earlier_seed_wrote() {
         earlier.created_at.timestamp(),
         "the row is refreshed in place, not re-created"
     );
-    let stretches = all_stretches(&repos).await;
+    let stretches = all_stretches(repos).await;
     assert_eq!(
         stretches.iter().filter(|s| s.name == IT_BAND_ROLL).count(),
         1,
@@ -133,9 +133,9 @@ async fn reseeding_corrects_the_row_an_earlier_seed_wrote() {
 async fn seeded_it_band_roll_follows_the_mobility_agent_rules() {
     let database = common::create_test_database().await.unwrap();
     let repos = database.repositories();
-    mobility::run(&repos).await.unwrap();
+    mobility::run(repos).await.unwrap();
 
-    let roll = all_stretches(&repos)
+    let roll = all_stretches(repos)
         .await
         .into_iter()
         .find(|s| s.name == IT_BAND_ROLL)

@@ -305,26 +305,4 @@ impl TokenGenerationConfig {
             is_super_admin: true,
         }
     }
-
-    /// Get effective permissions
-    #[must_use]
-    pub fn get_permissions(&self) -> AdminPermissions {
-        self.permissions.as_ref().map_or_else(
-            || {
-                if self.is_super_admin {
-                    AdminPermissions::super_admin()
-                } else {
-                    AdminPermissions::default_admin()
-                }
-            },
-            Clone::clone,
-        )
-    }
-
-    /// Get expiration date
-    #[must_use]
-    pub fn get_expiration(&self) -> Option<DateTime<Utc>> {
-        self.expires_in_days
-            .map(|days| Utc::now() + Duration::days(i64::try_from(days).unwrap_or(365)))
-    }
 }

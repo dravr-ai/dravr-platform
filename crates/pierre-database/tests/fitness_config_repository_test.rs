@@ -19,8 +19,8 @@
 
 use pierre_core::config::FitnessConfig;
 use pierre_core::models::{Tenant, TenantId, User};
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::RepositoryRegistry;
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 /// A distinct tenant and user per call, so one test's rows cannot satisfy
@@ -60,7 +60,7 @@ fn light_max(config: &FitnessConfig) -> f32 {
 async fn a_user_reads_their_own_config_and_falls_back_to_the_tenant_default() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let (tenant_id, user_id) = fresh_tenant_and_user(&repos).await;
+    let (tenant_id, user_id) = fresh_tenant_and_user(repos).await;
     let repo = &repos.fitness_config;
 
     assert!(
@@ -108,7 +108,7 @@ async fn a_user_reads_their_own_config_and_falls_back_to_the_tenant_default() {
 async fn saving_the_same_name_again_updates_the_row_and_keeps_its_id() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let (tenant_id, user_id) = fresh_tenant_and_user(&repos).await;
+    let (tenant_id, user_id) = fresh_tenant_and_user(repos).await;
     let repo = &repos.fitness_config;
 
     let first = repo
@@ -146,8 +146,8 @@ async fn saving_the_same_name_again_updates_the_row_and_keeps_its_id() {
 async fn listings_are_scoped_and_sorted_by_name() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let (tenant_id, user_id) = fresh_tenant_and_user(&repos).await;
-    let (other_tenant, _) = fresh_tenant_and_user(&repos).await;
+    let (tenant_id, user_id) = fresh_tenant_and_user(repos).await;
+    let (other_tenant, _) = fresh_tenant_and_user(repos).await;
     let repo = &repos.fitness_config;
 
     repo.save_tenant_config(tenant_id, "winter", &FitnessConfig::default())
@@ -186,7 +186,7 @@ async fn listings_are_scoped_and_sorted_by_name() {
 async fn delete_reports_whether_a_row_went_and_leaves_the_other_scope_alone() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let (tenant_id, user_id) = fresh_tenant_and_user(&repos).await;
+    let (tenant_id, user_id) = fresh_tenant_and_user(repos).await;
     let repo = &repos.fitness_config;
 
     repo.save_tenant_config(tenant_id, "default", &config_with_light_max(0.200))
@@ -240,7 +240,7 @@ async fn delete_reports_whether_a_row_went_and_leaves_the_other_scope_alone() {
 async fn a_malformed_user_id_is_refused_on_every_operation() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let (tenant_id, _) = fresh_tenant_and_user(&repos).await;
+    let (tenant_id, _) = fresh_tenant_and_user(repos).await;
     let repo = &repos.fitness_config;
 
     assert!(

@@ -39,6 +39,7 @@
 //! * Clean result → INFO `agent drift check: N agents checked, all in sync`.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use clap::Subcommand;
 use pierre_agent_parser::drift::{classify_drift, orphaned_slugs, DbAgentRow, DriftOutcome};
@@ -91,13 +92,13 @@ async fn run_agents(args: AgentsArgs, database_url: &str) -> AppResult<()> {
 /// Initialize the seeding-mode DB connection and return the repository
 /// registry. Split out of `run_agents` to keep that function under the
 /// workspace cognitive-complexity ceiling.
-async fn connect(database_url: &str) -> AppResult<RepositoryRegistry> {
+async fn connect(database_url: &str) -> AppResult<Arc<RepositoryRegistry>> {
     info!(
         "Connecting to database for drift check: {}",
         redact_url(database_url)
     );
     let db = Database::init_for_seeding(database_url).await?;
-    Ok(db.repositories())
+    Ok(Arc::clone(db.repositories()))
 }
 
 /// Walk the contremaitre `prompts/agents` tree and return `(slug, hash)`

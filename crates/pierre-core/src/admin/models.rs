@@ -182,11 +182,6 @@ impl AdminPermissions {
         self.permissions.insert(permission)
     }
 
-    /// Remove permission
-    pub fn remove_permission(&mut self, permission: &AdminPermission) -> bool {
-        self.permissions.remove(permission)
-    }
-
     /// Get all permissions as vector
     #[must_use]
     pub fn to_vec(&self) -> Vec<AdminPermission> {
@@ -497,25 +492,6 @@ impl FromStr for AdminAction {
     }
 }
 
-/// API key provisioning request from admin service
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiKeyProvisionRequest {
-    /// Email of the user to provision the key for
-    pub user_email: String,
-    /// Optional user ID (will be looked up if not provided)
-    pub user_id: Option<Uuid>,
-    /// Tier level ("starter", "professional", "enterprise")
-    pub tier: String,
-    /// Maximum requests allowed
-    pub rate_limit_requests: u32,
-    /// Rate limit period
-    pub rate_limit_period: RateLimitPeriod,
-    /// Number of days until the key expires
-    pub expires_in_days: Option<u64>,
-    /// Additional metadata (company name, use case, etc.)
-    pub metadata: Option<serde_json::Value>,
-}
-
 /// Rate limit periods for API keys
 #[non_exhaustive]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -549,29 +525,6 @@ impl RateLimitPeriod {
             Self::Month => 2_592_000, // 30 days
         }
     }
-}
-
-/// API key provisioning response
-#[derive(Debug, Clone, Serialize)]
-pub struct ProvisionedApiKey {
-    /// Unique identifier for the API key
-    pub api_key_id: String,
-    /// The actual API key (shown only once!)
-    pub api_key: String,
-    /// ID of the user who owns the key
-    pub user_id: Uuid,
-    /// Email of the user who owns the key
-    pub user_email: String,
-    /// Tier level of the key
-    pub tier: String,
-    /// Maximum requests allowed
-    pub rate_limit_requests: u32,
-    /// Rate limit period
-    pub rate_limit_period: RateLimitPeriod,
-    /// When the key expires (if set)
-    pub expires_at: Option<DateTime<Utc>>,
-    /// When the key was created
-    pub created_at: DateTime<Utc>,
 }
 
 /// Admin token validation result

@@ -34,6 +34,15 @@ use crate::implementations::configuration_output::{
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
+use dravr_cageux::config::intelligence::VO2MaxCalculator;
+use dravr_cageux::physiological_constants::configuration_validation;
+use dravr_cageux::physiological_constants::heart_rate_zones::{
+    AEROBIC_THRESHOLD_PERMILLE, LACTATE_THRESHOLD_PERMILLE, PERMILLE_DIVISOR, ZONE_1_MAX_PERMILLE,
+    ZONE_1_MIN_PERMILLE, ZONE_2_MAX_PERMILLE, ZONE_3_MAX_PERMILLE, ZONE_4_MAX_PERMILLE,
+};
+use dravr_cageux::physiological_constants::physiological_defaults::{
+    DEFAULT_LACTATE_THRESHOLD, DEFAULT_SPORT_EFFICIENCY,
+};
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_config::catalog::CatalogBuilder;
@@ -42,15 +51,6 @@ use pierre_core::config::profiles::ProfileTemplates;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::zones::{HrZoneSet, PowerZoneSet};
 use pierre_core::models::{TenantId, UserPhysiologicalProfile};
-use pierre_intelligence::config::intelligence::VO2MaxCalculator;
-use pierre_intelligence::physiological_constants::configuration_validation;
-use pierre_intelligence::physiological_constants::heart_rate_zones::{
-    AEROBIC_THRESHOLD_PERMILLE, LACTATE_THRESHOLD_PERMILLE, PERMILLE_DIVISOR, ZONE_1_MAX_PERMILLE,
-    ZONE_1_MIN_PERMILLE, ZONE_2_MAX_PERMILLE, ZONE_3_MAX_PERMILLE, ZONE_4_MAX_PERMILLE,
-};
-use pierre_intelligence::physiological_constants::physiological_defaults::{
-    DEFAULT_LACTATE_THRESHOLD, DEFAULT_SPORT_EFFICIENCY,
-};
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
 use pierre_tools_core::ToolResult;
 

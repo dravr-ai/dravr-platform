@@ -30,7 +30,7 @@ use pierre_core::models::{
     default_locale, AddMessageParams, ConnectionType, Tenant, TenantId, User, UserStatus,
     COMMAND_FINISH_REASON,
 };
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_groups::creation_policy::GROUP_CREATION_POLICY_KEY;
 use pierre_groups::strategies::tier::tier_strategy_for;
 #[cfg(feature = "postgresql")]
@@ -104,10 +104,12 @@ async fn seed_user_tenant(
 /// A plain member of an existing tenant — no owner or admin role, so the
 /// The admin-config repository for whichever backend the test database is.
 fn admin_config_repository(db: &Database) -> Box<dyn AdminConfigRepository> {
-    match db {
-        Database::SQLite(sqlite) => Box::new(AdminConfigManager::new(sqlite.pool().clone())),
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => Box::new(AdminConfigManager::new(sqlite.pool().clone())),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => Box::new(PostgresAdminConfigManager::new(pg.pool().clone())),
+        DatabaseBackend::PostgreSQL(pg) => {
+            Box::new(PostgresAdminConfigManager::new(pg.pool().clone()))
+        }
     }
 }
 
@@ -127,8 +129,8 @@ async fn seed_tenant_member(
     // repository exposes no direct writer, so the fixture files the row the
     // way those flows do.
     let now = chrono::Utc::now();
-    match resources.agent.database.as_ref() {
-        Database::SQLite(db) => {
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
             sqlx::query(INSERT_MEMBER)
                 .bind(Uuid::new_v4().to_string())
                 .bind(tenant_id.to_string())
@@ -142,7 +144,7 @@ async fn seed_tenant_member(
         // `tenant_users` keys are `uuid` columns and the timestamps are
         // `timestamptz` on PostgreSQL, so the binds carry the native types.
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => {
+        DatabaseBackend::PostgreSQL(db) => {
             sqlx::query(INSERT_MEMBER)
                 .bind(Uuid::new_v4())
                 .bind(tenant_id.as_uuid())

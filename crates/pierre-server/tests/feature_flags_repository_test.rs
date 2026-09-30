@@ -11,7 +11,7 @@ use pierre_core::feature_flags::FeatureKey;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
-use pierre_database::database::test_utils::create_test_db;
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 async fn build_user(repos: &pierre_database::RepositoryRegistry) -> (Uuid, TenantId) {
@@ -67,7 +67,7 @@ async fn build_user(repos: &pierre_database::RepositoryRegistry) -> (Uuid, Tenan
 async fn tenant_default_set_then_list_round_trips() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let (admin_id, tenant_id) = build_user(&repos).await;
+    let (admin_id, tenant_id) = build_user(repos).await;
 
     assert!(
         repos
@@ -105,7 +105,7 @@ async fn tenant_default_set_then_list_round_trips() {
 async fn tenant_default_upsert_overwrites_value() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let (admin_id, tenant_id) = build_user(&repos).await;
+    let (admin_id, tenant_id) = build_user(repos).await;
 
     repos
         .feature_flags
@@ -141,7 +141,7 @@ async fn tenant_default_upsert_overwrites_value() {
 async fn tenant_default_clear_is_idempotent() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let (admin_id, tenant_id) = build_user(&repos).await;
+    let (admin_id, tenant_id) = build_user(repos).await;
 
     repos
         .feature_flags
@@ -176,8 +176,8 @@ async fn tenant_default_clear_is_idempotent() {
 async fn user_override_round_trips_then_clears() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let (user_id, _tenant_id) = build_user(&repos).await;
-    let (admin_id, _admin_tenant) = build_user(&repos).await;
+    let (user_id, _tenant_id) = build_user(repos).await;
+    let (admin_id, _admin_tenant) = build_user(repos).await;
 
     repos
         .feature_flags
@@ -211,7 +211,7 @@ async fn user_override_round_trips_then_clears() {
 async fn resolve_returns_compile_defaults_when_no_rows() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let (user_id, tenant_id) = build_user(&repos).await;
+    let (user_id, tenant_id) = build_user(repos).await;
 
     let resolved = repos
         .feature_flags
@@ -232,7 +232,7 @@ async fn resolve_returns_compile_defaults_when_no_rows() {
 async fn resolve_tenant_default_beats_compile_default() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let (user_id, tenant_id) = build_user(&repos).await;
+    let (user_id, tenant_id) = build_user(repos).await;
 
     // ApiTokens defaults to false at compile time; flip the tenant default
     // on and confirm resolve picks it up.
@@ -255,7 +255,7 @@ async fn resolve_tenant_default_beats_compile_default() {
 async fn resolve_user_override_beats_tenant_default() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let (user_id, tenant_id) = build_user(&repos).await;
+    let (user_id, tenant_id) = build_user(repos).await;
 
     // Tenant default ON, user override OFF — user wins.
     repos
@@ -284,8 +284,8 @@ async fn resolve_user_override_beats_tenant_default() {
 async fn cross_tenant_defaults_are_isolated() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let (_u1, tenant_a) = build_user(&repos).await;
-    let (user_b, tenant_b) = build_user(&repos).await;
+    let (_u1, tenant_a) = build_user(repos).await;
+    let (user_b, tenant_b) = build_user(repos).await;
 
     repos
         .feature_flags

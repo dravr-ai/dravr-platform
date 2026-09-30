@@ -1,5 +1,5 @@
 // ABOUTME: Server-level HTTP client utilities extending pierre-core's shared clients
-// ABOUTME: Adds OAuth, middleware, and config-driven initialization on top of core singletons
+// ABOUTME: Adds OAuth and config-driven client initialization on top of core singletons
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,15 +9,11 @@ use pierre_core::http_client::{
     api_client as core_api_client, initialize_api_client, SharedHttpClient,
 };
 use reqwest::{Client, ClientBuilder};
-use reqwest_middleware::{ClientBuilder as MiddlewareClientBuilder, ClientWithMiddleware};
 use std::sync::OnceLock;
 use std::time::Duration;
 
 /// Global HTTP client configuration
 static CLIENT_CONFIG: OnceLock<HttpClientConfig> = OnceLock::new();
-
-/// Global shared HTTP client with middleware support
-static SHARED_CLIENT_WITH_MIDDLEWARE: OnceLock<ClientWithMiddleware> = OnceLock::new();
 
 /// Get client configuration with fallback to defaults
 ///
@@ -50,11 +46,6 @@ pub fn initialize_http_clients(config: HttpClientConfig) {
     );
 }
 
-// Clients carry no retry middleware: the reqwest-retry dependency is intentionally
-// omitted to keep the workspace dependency graph free of duplicates. The
-// middleware-capable client builders below wrap the base client without attaching
-// any retry layer.
-
 /// Get or create the shared HTTP client with configured timeout settings
 ///
 /// Delegates to `pierre_core::http_client::api_client()` for the base singleton.
@@ -65,19 +56,6 @@ pub fn initialize_http_clients(config: HttpClientConfig) {
 #[must_use]
 pub fn shared_client() -> &'static SharedHttpClient {
     core_api_client()
-}
-
-/// Get or create the shared HTTP client with middleware support
-///
-/// This client supports middleware extensions. Use this when you need
-/// request/response middleware capabilities.
-///
-/// # Returns
-/// A reference to the shared `ClientWithMiddleware`
-pub fn shared_client_with_middleware() -> &'static ClientWithMiddleware {
-    // The core shared client is already a `ClientWithMiddleware`; reuse it
-    // directly rather than re-wrapping.
-    SHARED_CLIENT_WITH_MIDDLEWARE.get_or_init(|| shared_client().clone())
 }
 
 /// Create a new HTTP client with custom timeout settings
@@ -103,27 +81,6 @@ pub fn create_client_with_timeout(timeout_secs: u64, connect_timeout_secs: u64) 
         .unwrap_or_else(|_| Client::new())
 }
 
-/// Create a new HTTP client with custom configuration
-///
-/// Use this when you need specific client configurations
-/// beyond just timeout settings.
-///
-/// # Arguments
-/// * `config_fn` - Function to configure the `ClientBuilder`
-///
-/// # Returns
-/// A new `reqwest::Client` with custom configuration
-///
-/// # Errors
-/// Returns a default client if custom client creation fails
-pub fn create_custom_client<F>(config_fn: F) -> Client
-where
-    F: FnOnce(ClientBuilder) -> ClientBuilder,
-{
-    let builder = ClientBuilder::new();
-    config_fn(builder).build().unwrap_or_else(|_| Client::new())
-}
-
 /// Create a new HTTP client optimized for OAuth flows
 ///
 /// This client has configured timeouts optimized for OAuth token exchanges.
@@ -144,29 +101,6 @@ pub fn oauth_client() -> Client {
     )
 }
 
-/// Create a new HTTP client optimized for OAuth flows with middleware support
-///
-/// This client supports middleware extensions for OAuth operations.
-/// Configuration must be initialized via `initialize_http_clients()` at server startup.
-///
-/// # Returns
-/// A new `ClientWithMiddleware` optimized for OAuth operations
-///
-/// # Panics
-/// Panics if HTTP client configuration was not initialized at server startup
-#[must_use]
-pub fn oauth_client_with_middleware() -> ClientWithMiddleware {
-    let config = get_config();
-
-    let base_client = create_client_with_timeout(
-        config.oauth_client_timeout_secs,
-        config.oauth_client_connect_timeout_secs,
-    );
-
-    // Wrap the base client in a middleware-capable builder with no layers attached.
-    MiddlewareClientBuilder::new(base_client).build()
-}
-
 /// Create a new HTTP client optimized for API calls
 ///
 /// This client has configured timeouts suitable for external API calls.
@@ -185,40 +119,4 @@ pub fn api_client() -> Client {
         config.api_client_timeout_secs,
         config.api_client_connect_timeout_secs,
     )
-}
-
-/// Create a new HTTP client optimized for API calls with middleware support
-///
-/// This client supports middleware extensions for API operations.
-/// Use this for calls to external provider APIs (Strava, Garmin, etc.).
-/// Configuration must be initialized via `initialize_http_clients()` at server startup.
-///
-/// # Returns
-/// A new `ClientWithMiddleware` optimized for API operations
-///
-/// # Panics
-/// Panics if HTTP client configuration was not initialized at server startup
-#[must_use]
-pub fn api_client_with_middleware() -> ClientWithMiddleware {
-    let config = get_config();
-
-    let base_client = create_client_with_timeout(
-        config.api_client_timeout_secs,
-        config.api_client_connect_timeout_secs,
-    );
-
-    // Wrap the base client in a middleware-capable builder with no layers attached.
-    MiddlewareClientBuilder::new(base_client).build()
-}
-
-/// Get health check timeout configuration
-///
-/// # Returns
-/// Health check timeout in seconds
-///
-/// # Panics
-/// Panics if HTTP client configuration was not initialized at server startup
-#[must_use]
-pub fn get_health_check_timeout_secs() -> u64 {
-    get_config().health_check_timeout_secs
 }

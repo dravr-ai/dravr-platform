@@ -15,7 +15,7 @@ use pierre_core::models::agents::{
     AgentCategory, AgentHandle, AgentVisibility, CreateSystemAgentRequest,
 };
 use pierre_core::models::TenantId;
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::RepositoryRegistry;
 use uuid::Uuid;
 
@@ -134,8 +134,8 @@ async fn approval_assigns_a_catalogue_unique_handle() {
 
     // The unique index is the last line of defence: a second origin row
     // claiming an owned handle is refused by the database itself.
-    let clash = match resources.agent.database.as_ref() {
-        Database::SQLite(db) => sqlx::query(CLASH)
+    let clash = match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => sqlx::query(CLASH)
             .bind(Uuid::new_v4().to_string())
             .bind(author_id.to_string())
             .bind(tenant_id)
@@ -144,7 +144,7 @@ async fn approval_assigns_a_catalogue_unique_handle() {
             .map(|_| ()),
         // `agents.user_id` and `tenant_id` are `uuid` columns on PostgreSQL.
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => sqlx::query(CLASH)
+        DatabaseBackend::PostgreSQL(db) => sqlx::query(CLASH)
             .bind(Uuid::new_v4().to_string())
             .bind(author_id)
             .bind(tenant_id.as_uuid())

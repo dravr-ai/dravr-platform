@@ -18,6 +18,7 @@
 
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
+use dravr_canot::commands::{CommandAction, CommandResponse};
 use pierre_contremaitre::messaging_strings::{
     KEY_AGENT_CREATE_CARD_TITLE, KEY_AGENT_CREATE_CONFIRM_LABEL, KEY_AGENT_CREATE_DISCARD_LABEL,
     KEY_AGENT_CREATE_DONE, KEY_AGENT_CREATE_DONE_UNBOUND, KEY_AGENT_CREATE_EMPTY,
@@ -27,7 +28,6 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::errors::AppError;
 use pierre_core::models::agents::{Agent, AgentCategory, CreateAgentRequest};
 use pierre_database::repositories::PendingGuardianAction;
-use pierre_messaging::commands::{CommandAction, CommandResponse};
 use pierre_services::agent_generation::{
     agent_quota, conversation_excerpt, propose_agent, resolve_chat_provider, AgentProposal,
     ExcerptRequest, DEFAULT_MAX_MESSAGES,

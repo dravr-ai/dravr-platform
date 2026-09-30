@@ -16,13 +16,14 @@ use std::env;
 
 use anyhow::Result;
 use chrono::Utc;
-use pierre_core::models::{Activity, ActivityBuilder, SportType, User, UserOAuthToken};
-use pierre_database::backends::factory::Database;
-use pierre_intelligence::analyzer::ActivityAnalyzer;
-use pierre_intelligence::{
-    insights::ActivityContext, FitnessLevel, MetricsCalculator, TimeAvailability,
-    UserFitnessProfile, UserPreferences,
+use dravr_cageux::analyzer::ActivityAnalyzer;
+use dravr_cageux::insights::ActivityContext;
+use dravr_cageux::metrics::MetricsCalculator;
+use pierre_core::intelligence::{
+    FitnessLevel, TimeAvailability, UserFitnessProfile, UserPreferences,
 };
+use pierre_core::models::{Activity, ActivityBuilder, SportType, User, UserOAuthToken};
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::json;
 use sqlx::Row;
@@ -696,8 +697,8 @@ async fn plant_goal_row(db: &Database, id: &str, user_id: Uuid, goal_data: &serd
     const SQL: &str = "INSERT INTO goals (id, user_id, goal_data, created_at, updated_at) \
                        VALUES ($1, $2, $3, $4, $4)";
     let now = Utc::now();
-    match db {
-        Database::SQLite(d) => {
+    match db.backend() {
+        DatabaseBackend::SQLite(d) => {
             sqlx::query(SQL)
                 .bind(id)
                 .bind(user_id.to_string())
@@ -708,7 +709,7 @@ async fn plant_goal_row(db: &Database, id: &str, user_id: Uuid, goal_data: &serd
                 .unwrap();
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(d) => {
+        DatabaseBackend::PostgreSQL(d) => {
             sqlx::query(SQL)
                 .bind(id)
                 .bind(user_id)
@@ -723,15 +724,15 @@ async fn plant_goal_row(db: &Database, id: &str, user_id: Uuid, goal_data: &serd
 
 /// Run the backfill statement the backend ships.
 async fn run_goal_id_backfill(db: &Database) {
-    match db {
-        Database::SQLite(d) => {
+    match db.backend() {
+        DatabaseBackend::SQLite(d) => {
             sqlx::query(SQLITE_GOAL_ID_BACKFILL_SQL)
                 .execute(d.pool())
                 .await
                 .unwrap();
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(d) => {
+        DatabaseBackend::PostgreSQL(d) => {
             sqlx::query(POSTGRES_GOAL_ID_BACKFILL_SQL)
                 .execute(d.pool())
                 .await
@@ -743,14 +744,14 @@ async fn run_goal_id_backfill(db: &Database) {
 /// Read one goal row's stored JSON by row id.
 async fn read_goal_row(db: &Database, id: &str) -> serde_json::Value {
     const SQL: &str = "SELECT goal_data FROM goals WHERE id = $1";
-    match db {
-        Database::SQLite(d) => {
+    match db.backend() {
+        DatabaseBackend::SQLite(d) => {
             let row = sqlx::query(SQL).bind(id).fetch_one(d.pool()).await.unwrap();
             let stored: String = row.get("goal_data");
             serde_json::from_str(&stored).unwrap()
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(d) => {
+        DatabaseBackend::PostgreSQL(d) => {
             let row = sqlx::query(SQL).bind(id).fetch_one(d.pool()).await.unwrap();
             row.get("goal_data")
         }

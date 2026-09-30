@@ -11,6 +11,7 @@ mod common;
 
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 use dravr_contremaitre::training;
 use pierre_core::models::{ArtefactKind, TenantId};
@@ -33,9 +34,9 @@ fn catalogue_file(table: &[(&str, &'static str)], key: &str) -> &'static str {
 }
 
 /// Bootstrap an operator so the agent seeder has an admin to own the rows.
-async fn seeded_repos() -> (RepositoryRegistry, Uuid, TenantId) {
+async fn seeded_repos() -> (Arc<RepositoryRegistry>, Uuid, TenantId) {
     let database = common::create_test_database().await.unwrap();
-    let repos = database.repositories();
+    let repos = Arc::clone(database.repositories());
     bootstrap::run(
         BootstrapArgs {
             admin_email: "operator@dravr.ai".to_owned(),

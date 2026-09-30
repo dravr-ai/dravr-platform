@@ -251,8 +251,9 @@ fi
 # ============================================================================
 # TIER 1-shared: dravr-wide validation (.build/validation/validate.sh)
 # ============================================================================
-# The fleet's shared text scans, plus this repo's validation-patterns.local.toml
-# (which forbids #[cfg(test)] in src/). The pre-push hook skips validate.sh for
+# The fleet's shared text scans, plus this repo's validation-patterns.local.toml.
+# Unit tests in #[cfg(test)] modules under src/ are allowed (ADR-027); this
+# script only warns on them. The pre-push hook skips validate.sh for
 # any repo that owns this script, so this tier is the only place it runs
 # locally. Every push, not only Rust ones: it also reads .github/workflows/ and
 # JS/TS tests. Fails closed when the submodule is missing.
@@ -485,7 +486,7 @@ fi
 #   pierre-core / pierre-database / pierre-providers — pierre-server passes
 #     their features (or their defaults) unconditionally, so stripping locally
 #     is STRICTER than CI and would red on code CI never builds that way.
-#   pierre-chat-pipeline, pierre-commands, pierre-messaging and the other
+#   pierre-chat-pipeline, pierre-commands, dravr-canot and the other
 #     optional deps — absent from this profile entirely; the `production`
 #     matrix arm covers them, in CI.
 #   pierre-server itself — its unit is the whole graph, which is the cost this

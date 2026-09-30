@@ -22,7 +22,7 @@ use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::{ConversationTurnId, InsertLlmUsage, TenantId, TURN_SUMMARY_CALL_TYPE};
 use pierre_core::models::{Tenant, User, UserStatus};
 use pierre_core::permissions::UserRole;
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_admin::LlmConsumptionRoutes;
 use serde_json::Value;
@@ -140,8 +140,8 @@ async fn create_regular_user_and_token(
     // inserts — the endpoint rejects anything that is not admin or owner,
     // so this lets us exercise that branch.
     let now = chrono::Utc::now();
-    match resources.agent.database.as_ref() {
-        Database::SQLite(db) => {
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
             sqlx::query(DELETE_MEMBERSHIP)
                 .bind(user_id.to_string())
                 .bind(tenant_id)
@@ -161,7 +161,7 @@ async fn create_regular_user_and_token(
         // `tenant_users` keys are `uuid` columns and the timestamps are
         // `timestamptz` on PostgreSQL, so the binds carry the native types.
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => {
+        DatabaseBackend::PostgreSQL(db) => {
             sqlx::query(DELETE_MEMBERSHIP)
                 .bind(user_id)
                 .bind(tenant_id.as_uuid())
@@ -396,7 +396,7 @@ async fn returns_400_for_invalid_uuid() -> Result<()> {
 #[tokio::test]
 #[serial]
 async fn canot_turn_id_bridges_to_platform_and_endpoint() -> Result<()> {
-    use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
+    use dravr_canot::turn::ConversationTurnId as CanotTurnId;
 
     let resources = create_test_server_resources().await?;
     let (user, tenant, auth) =

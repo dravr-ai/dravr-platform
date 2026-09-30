@@ -9,9 +9,9 @@
 
 use chrono::{Duration, NaiveDate};
 use pierre_core::models::{DailyTrainingState, TenantId};
-use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db_with_key;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::DatabaseProvider;
+use pierre_test_support::db::create_test_db_with_key;
 use std::slice;
 use uuid::Uuid;
 
@@ -26,8 +26,8 @@ async fn insert_as_an_older_binary(
     const SQL: &str =
         "INSERT INTO training_history (tenant_id, user_id, date, ctl, atl, tsb, daily_load) \
                        VALUES ($1, $2, $3, 60.0, 45.0, 15.0, 0.0)";
-    let inserted = match db {
-        Database::SQLite(inner) => sqlx::query(SQL)
+    let inserted = match db.backend() {
+        DatabaseBackend::SQLite(inner) => sqlx::query(SQL)
             .bind(tenant_id)
             .bind(user_id.to_string())
             .bind(date)
@@ -36,7 +36,7 @@ async fn insert_as_an_older_binary(
             .unwrap()
             .rows_affected(),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(inner) => sqlx::query(SQL)
+        DatabaseBackend::PostgreSQL(inner) => sqlx::query(SQL)
             .bind(tenant_id)
             .bind(user_id)
             .bind(date)

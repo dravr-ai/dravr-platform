@@ -6,13 +6,13 @@
 
 use std::fmt::Write as _;
 
+use dravr_canot::turn::ConversationTurnId as CanotTurnId;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_AGENT_PROPOSAL_FOOTER, KEY_AGENT_PROPOSAL_WELCOME,
     KEY_AGENT_PROPOSAL_WELCOME_GENERIC,
 };
 use pierre_core::models::messaging::{ChannelConfig, MessageContent, OutgoingMessage};
 use pierre_database::backends::MessagingRepository;
-use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use pierre_routes_agents::agents::{build_agent_proposal, ProposedAgent, SportProfileSummary};
 use pierre_services::activity_sports::sport_label;
 use pierre_services::analytics::hash_id;

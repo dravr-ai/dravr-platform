@@ -11,10 +11,10 @@
 //! the tool-format helpers. A2A requests are dispatched natively by
 //! `pierre_a2a::A2AServer` (no universal-format conversion step).
 
-use crate::protocol::{UniversalRequest, UniversalResponse, UniversalTool};
+use crate::protocol::{UniversalRequest, UniversalResponse};
 use crate::protocols::{ProtocolError, ProtocolType};
 use pierre_core::untrusted::display_line;
-use pierre_mcp_schema::{Content, Tool, ToolCall, ToolResponse};
+use pierre_mcp_schema::{Content, ToolCall, ToolResponse};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt::Write;
@@ -298,36 +298,5 @@ impl ProtocolConverter {
         Err(ProtocolError::InvalidRequest(
             "Unknown protocol format".into(),
         ))
-    }
-
-    /// Convert tool definition to A2A format
-    #[must_use]
-    pub fn tool_to_a2a_format(tool: &UniversalTool) -> Value {
-        serde_json::json!({
-            "name": tool.name,
-            "description": tool.description,
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "required": []
-            }
-        })
-    }
-
-    /// Convert tool definition to MCP format
-    #[must_use]
-    pub fn tool_to_mcp_format(tool: &UniversalTool) -> Tool {
-        Tool {
-            name: tool.name.clone(), // Safe: String ownership needed for MCP tool schema
-            description: tool.description.clone(), // Safe: String ownership for MCP tool schema
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {},
-                "required": []
-            }),
-            annotations: None,
-            output_schema: None,
-            execution: None,
-        }
     }
 }

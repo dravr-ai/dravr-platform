@@ -457,12 +457,6 @@ impl ToolSelectionService {
         debug!("Invalidated tool selection cache for tenant {tenant_id}");
     }
 
-    /// Invalidate entire cache (for admin operations affecting all tenants)
-    pub async fn invalidate_all(&self) {
-        self.cache.write().await.clear();
-        debug!("Invalidated all tool selection cache entries");
-    }
-
     /// Get the tool catalog (all tools regardless of tenant)
     ///
     /// # Errors

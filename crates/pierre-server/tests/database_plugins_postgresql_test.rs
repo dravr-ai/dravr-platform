@@ -16,8 +16,8 @@ use chrono::Utc;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, TenantPlan, ToolCategory, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::{backends::factory::Database, database::AddMessageParams};
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 // ============================================================================

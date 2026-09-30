@@ -15,6 +15,7 @@
 //! today/tomorrow lookup and the race countdown are all deterministic.
 
 use anyhow::Result;
+use dravr_canot::rich_text::{parse_markdown, render_rich_text};
 use pierre_chat_pipeline::{dispatch_slash, CommandPersistence, SlashRequest};
 use pierre_commands::plan::{PlanShareHandler, PlanShowHandler};
 use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
@@ -29,7 +30,6 @@ use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
-use pierre_messaging::rich_text::{parse_markdown, render_rich_text};
 use pierre_runtime_context::AgentsCtx;
 use std::collections::BTreeMap;
 use std::sync::Arc;

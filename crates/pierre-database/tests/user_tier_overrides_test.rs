@@ -22,9 +22,9 @@ use std::time::Duration;
 
 use chrono::Utc;
 use pierre_core::models::{User, UserTier};
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::repositories::UserTierOverride;
 use pierre_database::RepositoryRegistry;
+use pierre_test_support::db::create_test_db;
 use tokio::time::sleep;
 use uuid::Uuid;
 
@@ -43,8 +43,8 @@ async fn fresh_user(repos: &RepositoryRegistry) -> Uuid {
 async fn upsert_then_get_round_trips_every_column() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let user_id = fresh_user(&repos).await;
-    let operator_id = fresh_user(&repos).await;
+    let user_id = fresh_user(repos).await;
+    let operator_id = fresh_user(repos).await;
 
     assert_eq!(
         repos.user_tier_overrides.get(user_id).await.unwrap(),
@@ -94,8 +94,8 @@ async fn upsert_then_get_round_trips_every_column() {
 async fn second_upsert_keeps_set_at_and_replaces_the_rest() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let user_id = fresh_user(&repos).await;
-    let first_operator = fresh_user(&repos).await;
+    let user_id = fresh_user(repos).await;
+    let first_operator = fresh_user(repos).await;
 
     let now = Utc::now();
     repos
@@ -156,7 +156,7 @@ async fn second_upsert_keeps_set_at_and_replaces_the_rest() {
 async fn delete_reports_whether_a_marker_existed() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let user_id = fresh_user(&repos).await;
+    let user_id = fresh_user(repos).await;
 
     assert!(
         !repos.user_tier_overrides.delete(user_id).await.unwrap(),

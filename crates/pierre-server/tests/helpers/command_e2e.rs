@@ -27,6 +27,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use axum::http::StatusCode;
 use chrono::Utc;
+use dravr_canot::channels::telegram::transport::TelegramTransport;
 use futures_util::stream;
 use pierre_core::errors::AppError;
 use pierre_core::llm::{
@@ -39,14 +40,13 @@ use pierre_core::models::groups::{
     CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{ConnectionType, OnboardingState, Tenant, TenantId, User, UserStatus};
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::backends::{
     CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::messaging::MessagingRoutes;
 use pierre_memory::{FactSource, UserFact};
-use pierre_messaging::channels::telegram::transport::TelegramTransport;
 use serde_json::{json, Value};
 use tokio::task::spawn_blocking;
 use tokio::time::sleep;
@@ -578,14 +578,14 @@ impl CommandE2e {
         const SQL: &str = "SELECT COUNT(*) FROM messaging_messages \
              WHERE direction = 'outbound' AND session_id = $1 \
                AND content_body IS NOT NULL AND content_body != ''";
-        match self.resources.agent.database.as_ref() {
-            Database::SQLite(db) => sqlx::query_scalar(SQL)
+        match self.resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => sqlx::query_scalar(SQL)
                 .bind(session_id)
                 .fetch_one(db.pool())
                 .await
                 .unwrap(),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => sqlx::query_scalar(SQL)
+            DatabaseBackend::PostgreSQL(db) => sqlx::query_scalar(SQL)
                 .bind(session_id)
                 .fetch_one(db.pool())
                 .await
@@ -600,14 +600,14 @@ impl CommandE2e {
              WHERE direction = 'outbound' AND session_id = $1 \
                AND content_body IS NOT NULL AND content_body != '' \
              ORDER BY created_at ASC";
-        match self.resources.agent.database.as_ref() {
-            Database::SQLite(db) => sqlx::query_scalar(SQL)
+        match self.resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => sqlx::query_scalar(SQL)
                 .bind(session_id)
                 .fetch_all(db.pool())
                 .await
                 .unwrap(),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => sqlx::query_scalar(SQL)
+            DatabaseBackend::PostgreSQL(db) => sqlx::query_scalar(SQL)
                 .bind(session_id)
                 .fetch_all(db.pool())
                 .await
@@ -625,15 +625,15 @@ impl CommandE2e {
     ) -> Vec<String> {
         const SQL: &str = "SELECT DISTINCT tenant_id FROM messaging_messages \
              WHERE session_id = $1 AND direction = $2";
-        match self.resources.agent.database.as_ref() {
-            Database::SQLite(db) => sqlx::query_scalar(SQL)
+        match self.resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => sqlx::query_scalar(SQL)
                 .bind(session_id)
                 .bind(direction)
                 .fetch_all(db.pool())
                 .await
                 .unwrap(),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => sqlx::query_scalar(SQL)
+            DatabaseBackend::PostgreSQL(db) => sqlx::query_scalar(SQL)
                 .bind(session_id)
                 .bind(direction)
                 .fetch_all(db.pool())
@@ -659,14 +659,14 @@ impl CommandE2e {
     pub async fn outbound_count_containing(&self, needle: &str) -> i64 {
         const SQL: &str = "SELECT COUNT(*) FROM messaging_messages \
              WHERE direction = 'outbound' AND content_body LIKE '%' || $1 || '%'";
-        match self.resources.agent.database.as_ref() {
-            Database::SQLite(db) => sqlx::query_scalar(SQL)
+        match self.resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => sqlx::query_scalar(SQL)
                 .bind(needle)
                 .fetch_one(db.pool())
                 .await
                 .unwrap(),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => sqlx::query_scalar(SQL)
+            DatabaseBackend::PostgreSQL(db) => sqlx::query_scalar(SQL)
                 .bind(needle)
                 .fetch_one(db.pool())
                 .await
@@ -678,14 +678,14 @@ impl CommandE2e {
     pub async fn count_inbound_with_body(&self, body: &str) -> i64 {
         const SQL: &str = "SELECT COUNT(*) FROM messaging_messages \
              WHERE direction = 'inbound' AND content_body = $1";
-        match self.resources.agent.database.as_ref() {
-            Database::SQLite(db) => sqlx::query_scalar(SQL)
+        match self.resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => sqlx::query_scalar(SQL)
                 .bind(body)
                 .fetch_one(db.pool())
                 .await
                 .unwrap(),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => sqlx::query_scalar(SQL)
+            DatabaseBackend::PostgreSQL(db) => sqlx::query_scalar(SQL)
                 .bind(body)
                 .fetch_one(db.pool())
                 .await
@@ -856,15 +856,15 @@ impl RoomE2e {
     pub async fn chat_rows_carrying(&self, conversation_id: &str, needle: &str) -> i64 {
         const SQL: &str = "SELECT COUNT(*) FROM chat_messages \
              WHERE conversation_id = $1 AND content LIKE '%' || $2 || '%'";
-        match self.base.resources.agent.database.as_ref() {
-            Database::SQLite(db) => sqlx::query_scalar(SQL)
+        match self.base.resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => sqlx::query_scalar(SQL)
                 .bind(conversation_id)
                 .bind(needle)
                 .fetch_one(db.pool())
                 .await
                 .unwrap(),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => sqlx::query_scalar(SQL)
+            DatabaseBackend::PostgreSQL(db) => sqlx::query_scalar(SQL)
                 .bind(conversation_id)
                 .bind(needle)
                 .fetch_one(db.pool())

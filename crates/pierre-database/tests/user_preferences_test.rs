@@ -25,7 +25,7 @@
 
 use chrono::{Duration, Utc};
 use pierre_core::models::{CoachingPersona, User};
-use pierre_database::database::test_utils::create_test_db;
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 /// A distinct user per test, so one test's writes cannot satisfy another's

@@ -5,6 +5,9 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::ServerContext;
+use dravr_cageux::types::ActivityIntelligence;
+#[cfg(feature = "health-sync")]
+use dravr_enforme::SyncOrchestrator;
 use pierre_auth::tenant::TenantOAuthClient;
 use pierre_cache::Cache;
 use pierre_config::environment::ServerConfig;
@@ -14,9 +17,6 @@ use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::repositories::AgentsRepository;
 use pierre_database::RepositoryRegistry;
-#[cfg(feature = "health-sync")]
-use pierre_enforme::SyncOrchestrator;
-use pierre_intelligence::ActivityIntelligence;
 use pierre_llm::LlmProvider;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::NotificationService;

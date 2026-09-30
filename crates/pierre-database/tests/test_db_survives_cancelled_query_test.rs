@@ -26,8 +26,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::repositories::WorkerRunRepository;
+use pierre_test_support::db::create_test_db;
 use tokio::time::sleep;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

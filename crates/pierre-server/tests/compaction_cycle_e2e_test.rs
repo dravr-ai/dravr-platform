@@ -17,13 +17,13 @@ use pierre_core::config::CompactionConfig;
 use pierre_core::errors::AppError;
 use pierre_core::models::{AddMessageParams, Tenant, TenantId, User};
 use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::repositories::InsertCompactionBlockParams;
 use pierre_llm::prompts::CONVERSATION_SUMMARY_PROMPT;
 use pierre_llm::{
     ChatProvider, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, MessageRole,
     StreamChunk, TokenUsage,
 };
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 use pierre_chat_pipeline::stages::prompt_builder::{

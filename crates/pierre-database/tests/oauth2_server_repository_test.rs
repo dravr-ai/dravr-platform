@@ -21,8 +21,8 @@ use pierre_core::models::{
     DeviceAuthorization, OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken, OAuth2State,
     OAuthClientGrant,
 };
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::RepositoryRegistry;
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 /// Register a distinct client; the code, token and state tables all reference it.
@@ -56,7 +56,7 @@ async fn fresh_client(repos: &RepositoryRegistry) -> OAuth2Client {
 async fn a_registered_client_reads_back_with_its_lists() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let client = fresh_client(&repos).await;
+    let client = fresh_client(repos).await;
 
     let stored = repos
         .oauth2_server
@@ -92,7 +92,7 @@ async fn a_registered_client_reads_back_with_its_lists() {
 async fn an_auth_code_is_exchanged_once_and_only_by_its_client_and_redirect() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let client = fresh_client(&repos).await;
+    let client = fresh_client(repos).await;
     let user_id = Uuid::new_v4();
     let code = OAuth2AuthCode {
         code: format!("code-{}", Uuid::new_v4()),
@@ -207,7 +207,7 @@ async fn an_auth_code_is_exchanged_once_and_only_by_its_client_and_redirect() {
 async fn a_refresh_token_rotates_once_for_its_client_and_is_stored_hashed() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let client = fresh_client(&repos).await;
+    let client = fresh_client(repos).await;
     let user_id = Uuid::new_v4();
     let raw = format!("rt-{}", Uuid::new_v4());
     let token = OAuth2RefreshToken {
@@ -293,7 +293,7 @@ async fn a_refresh_token_rotates_once_for_its_client_and_is_stored_hashed() {
 async fn a_csrf_state_is_redeemed_once_for_its_client_with_its_pkce_pair() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let client = fresh_client(&repos).await;
+    let client = fresh_client(repos).await;
     let user_id = Uuid::new_v4();
     let state = OAuth2State {
         state: format!("state-{}", Uuid::new_v4()),
@@ -364,7 +364,7 @@ async fn a_csrf_state_is_redeemed_once_for_its_client_with_its_pkce_pair() {
 async fn a_client_grant_is_idempotent_and_revocable_by_its_owner_only() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let client = fresh_client(&repos).await;
+    let client = fresh_client(repos).await;
     let user_id = Uuid::new_v4().to_string();
     let grant = OAuthClientGrant {
         id: Uuid::new_v4().to_string(),

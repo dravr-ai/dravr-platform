@@ -128,9 +128,6 @@ pub use pierre_mcp_transport::OAuthCallbackResponse;
 pub use pierre_services::auth::AuthService;
 pub use pierre_services::oauth_flow::OAuthService;
 
-/// Alias for the `OAuthService` to match existing test expectations.
-pub type OAuthRoutes = OAuthService;
-
 /// Shared state for every auth route handler in this crate.
 ///
 /// Collects the Arc handles the handlers need from the composition root's
@@ -169,7 +166,7 @@ pub struct AuthRoutesContext {
     /// Health-data sync orchestrator (enforme). `None` when health-sync
     /// feature is disabled or orchestrator init failed.
     #[cfg(feature = "health-sync")]
-    pub sync_orchestrator: Option<Arc<pierre_enforme::SyncOrchestrator>>,
+    pub sync_orchestrator: Option<Arc<dravr_enforme::SyncOrchestrator>>,
     /// The one notice a failing provider sync owes the athlete — told when
     /// the backfill after a connect fails, re-armed when it lands.
     #[cfg(feature = "health-sync")]

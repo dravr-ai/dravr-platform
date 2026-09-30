@@ -6,9 +6,7 @@
 
 use std::fmt::Write;
 
-use pierre_core::models::groups::{
-    CoachingGroup, GroupContext, MemberFlag, MemberSummaryCard, SummaryDetailLevel,
-};
+use pierre_core::models::groups::{CoachingGroup, GroupContext, MemberFlag, MemberSummaryCard};
 
 /// Strategy for building group context text injected into the agent's system prompt.
 ///
@@ -271,15 +269,5 @@ fn write_absent_member_instructions(text: &mut String, group: &GroupContext) {
              stays private until the group admin re-enables sharing. \
              Don't fabricate other members' stats."
         );
-    }
-}
-
-/// Build the detail level label for logging
-#[must_use]
-pub fn detail_level_label(level: SummaryDetailLevel) -> &'static str {
-    match level {
-        SummaryDetailLevel::Roster => "roster",
-        SummaryDetailLevel::Weekly => "weekly",
-        SummaryDetailLevel::Detailed => "detailed",
     }
 }

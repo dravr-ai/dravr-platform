@@ -10,8 +10,8 @@
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{DecryptedToken, TenantId, User, UserOAuthToken, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
-use pierre_database::database::test_utils::create_test_db;
 use pierre_mcp_server::constants::oauth_providers;
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 #[tokio::test]

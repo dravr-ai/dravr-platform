@@ -6,7 +6,7 @@
 
 //! # Cageux Config Registry
 //!
-//! Holds the canonical [`pierre_intelligence::IntelligenceConfig`] snapshot
+//! Holds the canonical [`dravr_cageux::config::intelligence::IntelligenceConfig`] snapshot
 //! that the rest of the server reads through `ServerContext`. Lives
 //! outside `contremaitre/` so it is always compiled — a feature set that
 //! leaves the contremaitre hot-reload module out still needs the cageux
@@ -25,7 +25,7 @@
 use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use chrono::{DateTime, Utc};
-use pierre_intelligence::IntelligenceConfig;
+use dravr_cageux::config::intelligence::IntelligenceConfig;
 use sha2::{Digest, Sha256};
 use tracing::warn;
 

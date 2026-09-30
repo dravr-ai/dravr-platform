@@ -18,7 +18,7 @@ postgresql = ["pierre-database/postgresql"]
 [dependencies]
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-client"] }
 pierre-database = { version = "0.3.0", path = "../pierre-database", default-features = false }
-pierre-weather = { version = "0.3.0", path = "../pierre-weather" }
+dravr-meteo = { workspace = true }
 dravr-cageux = { workspace = true }
 
 # Derives the JSON Schemas the endurance export tools declare.

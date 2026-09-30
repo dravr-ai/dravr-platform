@@ -20,10 +20,10 @@ use chrono::{Duration, Utc};
 use pierre_core::models::{Pillar, TenantId};
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
+use pierre_test_support::db::create_test_db_with_key;
 
 /// Mirrors `pierre_database::dossier_facts::FACT_BUNDLE_LIMIT`, which is
 /// crate-private. The flood only needs to exceed the recency window; a drift
@@ -84,7 +84,7 @@ async fn a_re_run_supersedes_only_the_previous_interviews_window() -> Result<()>
     // An answer from the athlete's pillars walk, written before any
     // calibration ran. It must survive.
     let older = seed(
-        &repos,
+        repos,
         tenant,
         &user,
         FactKind::Preference,
@@ -98,7 +98,7 @@ async fn a_re_run_supersedes_only_the_previous_interviews_window() -> Result<()>
     let window_start = Utc::now();
 
     let first_interview = seed(
-        &repos,
+        repos,
         tenant,
         &user,
         FactKind::Preference,
@@ -155,7 +155,7 @@ async fn a_re_run_leaves_other_pillars_alone() -> Result<()> {
 
     let window_start = Utc::now();
     let sleep_answer = seed(
-        &repos,
+        repos,
         tenant,
         &user,
         FactKind::Preference,
@@ -165,7 +165,7 @@ async fn a_re_run_leaves_other_pillars_alone() -> Result<()> {
     )
     .await?;
     seed(
-        &repos,
+        repos,
         tenant,
         &user,
         FactKind::Preference,
@@ -215,7 +215,7 @@ async fn superseded_answers_do_not_refill_the_guaranteed_bundle() -> Result<()> 
     let window_start = Utc::now() - Duration::seconds(1);
     for i in 0..5 {
         seed(
-            &repos,
+            repos,
             tenant,
             &user,
             FactKind::Preference,
@@ -271,7 +271,7 @@ async fn calibration_answers_survive_a_flood_of_newer_conversation_facts() -> Re
     let user = user_uuid.to_string();
 
     let interview_answer = seed(
-        &repos,
+        repos,
         tenant,
         &user,
         FactKind::Preference,
@@ -281,7 +281,7 @@ async fn calibration_answers_survive_a_flood_of_newer_conversation_facts() -> Re
     )
     .await?;
     let recovery_answer = seed(
-        &repos,
+        repos,
         tenant,
         &user,
         FactKind::Physiology,
@@ -295,7 +295,7 @@ async fn calibration_answers_survive_a_flood_of_newer_conversation_facts() -> Re
     let flood = FACT_BUNDLE_LIMIT + 10;
     for i in 0..flood {
         seed(
-            &repos,
+            repos,
             tenant,
             &user,
             FactKind::Preference,
@@ -347,7 +347,7 @@ async fn the_by_kind_guarantee_still_covers_agent_authored_medical_facts() -> Re
     let user = user_uuid.to_string();
 
     seed(
-        &repos,
+        repos,
         tenant,
         &user,
         FactKind::Medical,
@@ -360,7 +360,7 @@ async fn the_by_kind_guarantee_still_covers_agent_authored_medical_facts() -> Re
     let flood = FACT_BUNDLE_LIMIT + 10;
     for i in 0..flood {
         seed(
-            &repos,
+            repos,
             tenant,
             &user,
             FactKind::Preference,

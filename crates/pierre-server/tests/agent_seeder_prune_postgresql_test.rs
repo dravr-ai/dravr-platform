@@ -20,10 +20,10 @@ use pierre_core::models::groups::{GroupDigestMode, GroupRespondMode};
 use pierre_core::models::{
     AgentCategory, AgentVisibility, CoachingGroup, CreateSystemAgentRequest, TenantId,
 };
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::RepositoryRegistry;
 use pierre_seeders::agents::{self, SeedArgs};
 use pierre_seeders::bootstrap::{self, SeedArgs as BootstrapArgs};
+use pierre_test_support::db::create_test_db;
 use tempfile::TempDir;
 use uuid::Uuid;
 
@@ -79,7 +79,7 @@ async fn test_pg_retired_catalogue_agent_is_deleted_and_others_survive() {
             admin_email: "operator@dravr.ai".to_owned(),
             admin_password: "OperatorPass123!".to_owned(),
         },
-        &repos,
+        repos,
     )
     .await
     .unwrap();
@@ -119,11 +119,11 @@ async fn test_pg_retired_catalogue_agent_is_deleted_and_others_survive() {
     let checkout = TempDir::new().unwrap();
     write_agent(checkout.path(), KEPT, None);
     write_agent(checkout.path(), RETIRED, None);
-    assert!(seed(&repos, checkout.path()).await);
-    let kept = agent_id(&repos, KEPT, tenant)
+    assert!(seed(repos, checkout.path()).await);
+    let kept = agent_id(repos, KEPT, tenant)
         .await
         .expect("the kept coach is seeded on PG");
-    let retired = agent_id(&repos, RETIRED, tenant)
+    let retired = agent_id(repos, RETIRED, tenant)
         .await
         .expect("the retired coach is seeded on PG while its file exists");
     assert!(
@@ -137,10 +137,10 @@ async fn test_pg_retired_catalogue_agent_is_deleted_and_others_survive() {
     );
 
     fs::remove_dir_all(checkout.path().join("mobility").join(RETIRED)).unwrap();
-    assert!(seed(&repos, checkout.path()).await);
+    assert!(seed(repos, checkout.path()).await);
 
     assert_eq!(
-        agent_id(&repos, RETIRED, tenant).await,
+        agent_id(repos, RETIRED, tenant).await,
         None,
         "the retired coach is deleted on PG once its directory is gone"
     );
@@ -154,7 +154,7 @@ async fn test_pg_retired_catalogue_agent_is_deleted_and_others_survive() {
         "its store listing cascades on PG"
     );
     assert_eq!(
-        agent_id(&repos, KEPT, tenant).await.as_deref(),
+        agent_id(repos, KEPT, tenant).await.as_deref(),
         Some(kept.as_str()),
         "the surviving coach keeps its row on PG"
     );
@@ -183,7 +183,7 @@ async fn test_pg_merged_agent_hands_over_and_orphan_group_blocks() {
             admin_email: "operator@dravr.ai".to_owned(),
             admin_password: "OperatorPass123!".to_owned(),
         },
-        &repos,
+        repos,
     )
     .await
     .unwrap();
@@ -207,10 +207,10 @@ async fn test_pg_merged_agent_hands_over_and_orphan_group_blocks() {
     write_agent(checkout.path(), KEPT, None);
     write_agent(checkout.path(), RETIRED, None);
     write_agent(checkout.path(), "orphaned-coach", None);
-    assert!(seed(&repos, checkout.path()).await);
-    let kept = agent_id(&repos, KEPT, tenant).await.unwrap();
-    let retired = agent_id(&repos, RETIRED, tenant).await.unwrap();
-    let orphaned = agent_id(&repos, "orphaned-coach", tenant).await.unwrap();
+    assert!(seed(repos, checkout.path()).await);
+    let kept = agent_id(repos, KEPT, tenant).await.unwrap();
+    let retired = agent_id(repos, RETIRED, tenant).await.unwrap();
+    let orphaned = agent_id(repos, "orphaned-coach", tenant).await.unwrap();
 
     let conversation = repos
         .chat
@@ -261,12 +261,12 @@ async fn test_pg_merged_agent_hands_over_and_orphan_group_blocks() {
     fs::remove_dir_all(checkout.path().join("mobility").join(RETIRED)).unwrap();
     fs::remove_dir_all(checkout.path().join("mobility").join("orphaned-coach")).unwrap();
     assert!(
-        !seed(&repos, checkout.path()).await,
+        !seed(repos, checkout.path()).await,
         "the orphaned group's blocked delete is reported"
     );
 
     assert_eq!(
-        agent_id(&repos, RETIRED, tenant).await,
+        agent_id(repos, RETIRED, tenant).await,
         None,
         "the merged coach is gone on PG"
     );
@@ -294,7 +294,7 @@ async fn test_pg_merged_agent_hands_over_and_orphan_group_blocks() {
         "the group continues with the successor on PG"
     );
     assert_eq!(
-        agent_id(&repos, "orphaned-coach", tenant).await.as_deref(),
+        agent_id(repos, "orphaned-coach", tenant).await.as_deref(),
         Some(orphaned.as_str()),
         "a coach a group still needs stays on PG"
     );

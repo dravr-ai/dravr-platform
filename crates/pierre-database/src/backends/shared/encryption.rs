@@ -284,32 +284,6 @@ pub trait HasEncryption {
     fn hash_token_for_storage(&self, token: &str) -> AppResult<String>;
 }
 
-/// Hash a refresh token for secure database storage using HMAC-SHA256
-///
-/// Refresh tokens are hashed (not encrypted) because they only need to be
-/// verified, never recovered. This provides defense-in-depth: if the database
-/// is compromised, the attacker cannot replay refresh tokens because they
-/// only have the HMAC digest, not the original token value.
-///
-/// The HMAC is keyed with the database encryption key, preventing offline
-/// brute-force attacks even with database access.
-///
-/// # Arguments
-/// * `db` - Database implementing `HasEncryption` trait
-/// * `token` - The plaintext refresh token to hash
-///
-/// # Returns
-/// * `Ok(String)` - Base64-encoded HMAC-SHA256 digest for storage/lookup
-///
-/// # Errors
-/// Returns error if HMAC computation fails
-pub fn hash_refresh_token<D>(db: &D, token: &str) -> AppResult<String>
-where
-    D: HasEncryption,
-{
-    db.hash_token_for_storage(token)
-}
-
 /// DEK version assigned to ciphertext written before DEK versioning existed.
 ///
 /// Such ciphertext carries no version prefix; on read it is treated as version 1

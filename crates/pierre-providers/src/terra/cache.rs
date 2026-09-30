@@ -220,13 +220,6 @@ impl TerraDataCache {
             .add_activity(activity, max_items);
     }
 
-    /// Store multiple activities in the cache
-    pub async fn store_activities(&self, terra_user_id: &str, activities: Vec<Activity>) {
-        for activity in activities {
-            self.store_activity(terra_user_id, activity).await;
-        }
-    }
-
     /// Get activities for a user
     pub async fn get_activities(
         &self,
@@ -411,33 +404,6 @@ impl TerraDataCache {
             .entry(terra_user_id.to_owned())
             .or_default()
             .add_nutrition_log(nutrition, max_items);
-    }
-
-    /// Get nutrition logs for a date range
-    pub async fn get_nutrition_logs(
-        &self,
-        terra_user_id: &str,
-        start_date: DateTime<Utc>,
-        end_date: DateTime<Utc>,
-    ) -> Vec<NutritionLog> {
-        let ttl = self.config.ttl_days;
-
-        // Chain directly to avoid holding lock guard in named variable
-        let Some(mut logs) = self.users.read().await.get(terra_user_id).map(|cache| {
-            cache
-                .nutrition_logs
-                .iter()
-                .filter(|e| {
-                    !e.is_expired(ttl) && e.data.date >= start_date && e.data.date <= end_date
-                })
-                .map(|e| e.data.clone())
-                .collect::<Vec<_>>()
-        }) else {
-            return Vec::new();
-        };
-
-        logs.sort_by_key(|b| Reverse(b.date));
-        logs
     }
 
     /// Clean up expired entries from the cache

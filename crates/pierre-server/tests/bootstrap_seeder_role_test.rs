@@ -27,7 +27,7 @@ async fn bootstrap_operator_is_super_admin_demo_users_are_plain() {
             admin_email: "operator@dravr.ai".to_owned(),
             admin_password: "OperatorPass123!".to_owned(),
         },
-        &repos,
+        repos,
     )
     .await
     .unwrap();

@@ -19,7 +19,6 @@ use chrono::{DateTime, Duration, Utc};
 use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
 use pierre_core::models::{Pillar, Tenant, TenantId, User};
 use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::repositories::{
     InsertAgentFollowupParams, InsertAgentNoteParams, InsertCompactionBlockParams,
     MergeUserFactParams, UpsertUserFactParams,
@@ -27,6 +26,7 @@ use pierre_database::repositories::{
 use pierre_memory::{
     FactKind, FactSource, FollowupStatus, MemoryScope, PredicateCode, SessionStatus,
 };
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 /// The user, tenant and agent rows the memory tables' foreign keys resolve
@@ -193,7 +193,7 @@ async fn a_compaction_block_reads_back_in_conversation_order() {
 #[tokio::test]
 async fn user_facts_read_back_through_every_filter_and_delete() {
     let db = create_test_db().await.unwrap();
-    let memory = db.repositories().memory;
+    let memory = &db.repositories().memory;
     let seed = seed(&db).await;
 
     let goal = memory
@@ -326,7 +326,7 @@ async fn user_facts_read_back_through_every_filter_and_delete() {
 #[tokio::test]
 async fn listing_by_source_drops_a_fact_past_its_horizon() {
     let db = create_test_db().await.unwrap();
-    let memory = db.repositories().memory;
+    let memory = &db.repositories().memory;
     let seed = seed(&db).await;
 
     let live = memory
@@ -400,7 +400,7 @@ async fn listing_by_source_drops_a_fact_past_its_horizon() {
 #[tokio::test]
 async fn a_merge_only_raises_confidence_and_keeps_the_anchors_words() {
     let db = create_test_db().await.unwrap();
-    let memory = db.repositories().memory;
+    let memory = &db.repositories().memory;
     let seed = seed(&db).await;
 
     let anchor = memory
@@ -469,7 +469,7 @@ async fn a_merge_only_raises_confidence_and_keeps_the_anchors_words() {
 #[tokio::test]
 async fn expiring_onboarding_facts_honours_every_narrowing() {
     let db = create_test_db().await.unwrap();
-    let memory = db.repositories().memory;
+    let memory = &db.repositories().memory;
     let seed = seed(&db).await;
 
     let training = memory
@@ -600,7 +600,7 @@ async fn expiring_onboarding_facts_honours_every_narrowing() {
 #[tokio::test]
 async fn fact_metrics_count_the_tenant_by_kind_and_recency() {
     let db = create_test_db().await.unwrap();
-    let memory = db.repositories().memory;
+    let memory = &db.repositories().memory;
     let seed = seed(&db).await;
 
     let empty = memory.count_user_facts_metrics(seed.tenant).await.unwrap();
@@ -673,7 +673,7 @@ async fn fact_metrics_count_the_tenant_by_kind_and_recency() {
 #[tokio::test]
 async fn a_suppressed_note_leaves_recall_and_stays_in_the_audit_list() {
     let db = create_test_db().await.unwrap();
-    let memory = db.repositories().memory;
+    let memory = &db.repositories().memory;
     let seed = seed(&db).await;
 
     let note = memory
@@ -747,7 +747,7 @@ async fn a_suppressed_note_leaves_recall_and_stays_in_the_audit_list() {
 #[tokio::test]
 async fn followups_move_from_pending_to_delivered_or_cancelled_once() {
     let db = create_test_db().await.unwrap();
-    let memory = db.repositories().memory;
+    let memory = &db.repositories().memory;
     let seed = seed(&db).await;
     let now = Utc::now();
 
@@ -870,7 +870,7 @@ async fn followups_move_from_pending_to_delivered_or_cancelled_once() {
 #[tokio::test]
 async fn an_active_session_is_reused_and_touched() {
     let db = create_test_db().await.unwrap();
-    let memory = db.repositories().memory;
+    let memory = &db.repositories().memory;
     let seed = seed(&db).await;
 
     let opened = memory

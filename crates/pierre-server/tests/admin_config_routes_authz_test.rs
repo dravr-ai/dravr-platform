@@ -30,7 +30,7 @@ use common::{create_test_server_resources, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::UserRole;
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::config::routes::{admin_config_router, AdminConfigState};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_admin::auth::service::AdminAuthService;
@@ -54,7 +54,6 @@ fn router(resources: &Arc<ServerContext>) -> axum::Router {
     let admin_auth = AdminAuthService::new(
         Arc::clone(&resources.common.repos.admin),
         Arc::clone(&resources.auth.jwks_manager),
-        0,
     );
     let state = Arc::new(AdminConfigState::new(
         Arc::clone(service),
@@ -148,8 +147,8 @@ async fn effective_value(resources: &Arc<ServerContext>, auth: &str, query: &str
 async fn audit_row(resources: &Arc<ServerContext>) -> (Option<String>, Option<String>, String) {
     const SELECT: &str = "SELECT ip_address, user_agent, new_value FROM admin_config_audit \
                           WHERE config_key = $1 ORDER BY timestamp DESC LIMIT 1";
-    match resources.agent.database.as_ref() {
-        Database::SQLite(db) => {
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
             let row = sqlx::query(SELECT)
                 .bind(PARAMETER)
                 .fetch_one(db.pool())
@@ -158,7 +157,7 @@ async fn audit_row(resources: &Arc<ServerContext>) -> (Option<String>, Option<St
             (row.get(0), row.get(1), row.get(2))
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => {
+        DatabaseBackend::PostgreSQL(db) => {
             let row = sqlx::query(SELECT)
                 .bind(PARAMETER)
                 .fetch_one(db.pool())

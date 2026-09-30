@@ -9,7 +9,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use pierre_database::backends::factory::Database;
-use pierre_database::database::{generate_encryption_key, test_utils::create_test_db_with_key};
+use pierre_database::database::generate_encryption_key;
+use pierre_test_support::db::create_test_db_with_key;
 
 const AAD: &str = "tenant-1|11111111-1111-1111-1111-111111111111|strava|user_oauth_tokens";
 

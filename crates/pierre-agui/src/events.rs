@@ -340,21 +340,6 @@ impl AgUiEvent {
             timestamp: now_ms(),
         }
     }
-
-    /// Convenience constructor for `TOOL_CALL_RESULT`.
-    #[must_use]
-    pub fn tool_call_result(
-        run_id: impl Into<String>,
-        tool_call_id: impl Into<String>,
-        result: Value,
-    ) -> Self {
-        Self::ToolCallResult {
-            run_id: run_id.into(),
-            tool_call_id: tool_call_id.into(),
-            result,
-            timestamp: now_ms(),
-        }
-    }
 }
 
 /// Discriminant for [`AgUiEvent`]. Used by the filter to allow or deny

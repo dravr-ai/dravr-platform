@@ -13,15 +13,15 @@
 
 mod common;
 
+use dravr_cageux::types::{
+    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
+    TrendIndicators,
+};
 use pierre_auth::auth::AuthManager;
 use pierre_cache::{Cache, CacheConfig};
 use pierre_config::environment::{AppBehaviorConfig, BackupConfig, DatabaseConfig, ServerConfig};
 use pierre_core::models::User;
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_intelligence::{
-    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
-    TrendIndicators,
-};
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::json;

@@ -38,7 +38,6 @@ use pierre_core::feature_flags::FeatureKey;
 use pierre_core::models::{CoachingPersona, Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
-use pierre_routes_admin::auth::service::AdminAuthService;
 use pierre_routes_admin::handlers::feature_flags::{
     handle_admin_list_tenant_defaults, handle_admin_list_user_overrides,
     handle_admin_set_tenant_default, SetFeatureFlagRequest,
@@ -58,7 +57,7 @@ async fn build_context() -> (
     let jwks_manager = common::get_shared_test_jwks();
 
     let database_arc = Arc::new((*database).clone());
-    let repos_arc = Arc::new(database_arc.repositories());
+    let repos_arc = Arc::clone(database_arc.repositories());
 
     let context = AdminApiContext::new(AdminApiContextInit {
         database: database_arc,
@@ -67,7 +66,6 @@ async fn build_context() -> (
         auth_manager,
         jwks_manager,
         admin_api_key_monthly_limit: STARTER_MONTHLY_LIMIT,
-        admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
         guardian_config_registry: Arc::new(GuardianConfigRegistry::bootstrap()),
         prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),

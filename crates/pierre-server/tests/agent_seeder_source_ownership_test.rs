@@ -10,11 +10,11 @@
 use std::fs;
 use std::path::Path;
 
-use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::RepositoryRegistry;
 use pierre_seeders::agents::{self, SeedArgs};
 use pierre_seeders::bootstrap::{self, SeedArgs as BootstrapArgs};
+use pierre_test_support::db::create_test_db;
 use tempfile::TempDir;
 
 const SLUG: &str = "legacy-coach";
@@ -50,8 +50,8 @@ async fn seed(repos: &RepositoryRegistry, checkout: &Path, dry_run: bool) {
 /// There is no repository method for this on purpose — nothing in production
 /// writes `'seed'` any more — so the test reaches the engine directly.
 async fn stamp_seed(db: &Database, slug: &str) {
-    match db {
-        Database::SQLite(sqlite) => {
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
             sqlx::query("UPDATE agents SET source = 'seed' WHERE slug = $1")
                 .bind(slug)
                 .execute(sqlite.pool())
@@ -59,7 +59,7 @@ async fn stamp_seed(db: &Database, slug: &str) {
                 .unwrap();
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => {
+        DatabaseBackend::PostgreSQL(pg) => {
             sqlx::query("UPDATE agents SET source = 'seed' WHERE slug = $1")
                 .bind(slug)
                 .execute(pg.pool())
@@ -91,32 +91,32 @@ async fn an_unchanged_legacy_row_is_claimed_by_the_next_seed() {
             admin_email: "operator@dravr.ai".to_owned(),
             admin_password: "OperatorPass123!".to_owned(),
         },
-        &repos,
+        repos,
     )
     .await
     .unwrap();
     let checkout = TempDir::new().unwrap();
     write_agent(checkout.path(), SLUG);
-    seed(&repos, checkout.path(), false).await;
-    assert_eq!(source_of(&repos, SLUG).await, "contremaitre");
+    seed(repos, checkout.path(), false).await;
+    assert_eq!(source_of(repos, SLUG).await, "contremaitre");
 
     stamp_seed(&db, SLUG).await;
     assert_eq!(
-        source_of(&repos, SLUG).await,
+        source_of(repos, SLUG).await,
         "seed",
         "the legacy state is in place"
     );
 
-    seed(&repos, checkout.path(), true).await;
+    seed(repos, checkout.path(), true).await;
     assert_eq!(
-        source_of(&repos, SLUG).await,
+        source_of(repos, SLUG).await,
         "seed",
         "a dry run claims nothing"
     );
 
-    seed(&repos, checkout.path(), false).await;
+    seed(repos, checkout.path(), false).await;
     assert_eq!(
-        source_of(&repos, SLUG).await,
+        source_of(repos, SLUG).await,
         "contremaitre",
         "an unchanged file is enough for the catalogue to own the row"
     );
@@ -134,8 +134,8 @@ async fn an_unchanged_legacy_row_is_claimed_by_the_next_seed() {
 /// Put the row into a state the catalogue does not own, the way an operator's
 /// own agent sits in the table.
 async fn stamp_source(db: &Database, slug: &str, source: &str) {
-    match db {
-        Database::SQLite(sqlite) => {
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
             sqlx::query("UPDATE agents SET source = $1 WHERE slug = $2")
                 .bind(source)
                 .bind(slug)
@@ -144,7 +144,7 @@ async fn stamp_source(db: &Database, slug: &str, source: &str) {
                 .unwrap();
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => {
+        DatabaseBackend::PostgreSQL(pg) => {
             sqlx::query("UPDATE agents SET source = $1 WHERE slug = $2")
                 .bind(source)
                 .bind(slug)
@@ -170,13 +170,13 @@ async fn the_catalogue_roster_excludes_a_row_it_does_not_own() {
             admin_email: "roster@dravr.ai".to_owned(),
             admin_password: "OperatorPass123!".to_owned(),
         },
-        &repos,
+        repos,
     )
     .await
     .unwrap();
     let checkout = TempDir::new().unwrap();
     write_agent(checkout.path(), SLUG);
-    seed(&repos, checkout.path(), false).await;
+    seed(repos, checkout.path(), false).await;
 
     assert!(
         repos

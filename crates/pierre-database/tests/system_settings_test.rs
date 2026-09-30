@@ -16,7 +16,7 @@
 use std::time::Duration as StdDuration;
 
 use chrono::{Duration, Utc};
-use pierre_database::database::test_utils::create_test_db;
+use pierre_test_support::db::create_test_db;
 use tokio::time::sleep;
 use uuid::Uuid;
 

@@ -38,7 +38,7 @@ use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{
     Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserOAuthToken,
 };
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::StoredRouteTrack;
 use pierre_fitness_compute::{
     encode_polyline, trimmed_overview_polyline, RouteTrack, RouteTrackError,
@@ -1252,8 +1252,8 @@ async fn link_strava(resources: &Arc<ServerContext>, athlete: &Athlete) {
 /// (an upsert stamps now), so the fixture writes it in SQL.
 async fn backdate_cached_rows(resources: &ServerContext, user_id: Uuid, at: DateTime<Utc>) {
     const SQL: &str = "UPDATE cached_activities SET synced_at = $1 WHERE user_id = $2";
-    match resources.agent.database.as_ref() {
-        Database::SQLite(sqlite) => {
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
             sqlx::query(SQL)
                 .bind(at)
                 .bind(user_id.to_string())
@@ -1262,7 +1262,7 @@ async fn backdate_cached_rows(resources: &ServerContext, user_id: Uuid, at: Date
                 .unwrap();
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(postgres) => {
+        DatabaseBackend::PostgreSQL(postgres) => {
             sqlx::query(SQL)
                 .bind(at)
                 .bind(user_id.to_string())

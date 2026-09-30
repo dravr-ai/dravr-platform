@@ -17,12 +17,12 @@
 use std::sync::Arc;
 
 use chrono::{Duration, Utc};
+use dravr_canot::channel::MessagingChannel;
 use pierre_contremaitre::messaging_strings::KEY_BACKFILL_READY;
 use pierre_core::models::messaging::MessageContent;
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
-use pierre_messaging::channel::MessagingChannel;
 use pierre_tool_runtime::runtime::BackfillNotifier;
 
 // Shared messaging fixtures + channel fakes live in a helpers subdir (not a
@@ -72,7 +72,7 @@ fn activity_with_sport(
 #[tokio::test]
 async fn push_warmed_list_renders_sport_display_and_localized_header() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
@@ -191,7 +191,7 @@ async fn push_warmed_list_renders_sport_display_and_localized_header() {
 #[tokio::test]
 async fn push_empty_cache_nudge_honors_default_locale() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
@@ -315,7 +315,7 @@ fn sport_locale_passes_other_provider_label_through() {
 #[tokio::test]
 async fn push_warmed_list_dates_activities_on_the_athletes_calendar() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
     repos
         .users

@@ -15,9 +15,9 @@
 //! This design eliminates the need to pass multiple parameters through
 //! tool execution chains and provides consistent access to resources.
 
+use dravr_cageux::config::intelligence::IntelligenceConfig;
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_intelligence::IntelligenceConfig;
 use std::fmt;
 use std::sync::Arc;
 
@@ -27,11 +27,11 @@ use uuid::Uuid;
 
 use crate::runtime::ToolRuntime;
 use crate::tool_selection::ToolSelectionService;
+use dravr_cageux::types::ActivityIntelligence;
 use pierre_cache::Cache;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::User;
 use pierre_database::backends::factory::Database;
-use pierre_intelligence::ActivityIntelligence;
 use pierre_providers::ProviderRegistry;
 
 tokio::task_local! {
@@ -437,25 +437,6 @@ impl ToolExecutionContext {
             turn_agent_id: self.turn_agent_id.clone(),
             is_admin: None, // Reset admin cache for new user
         }
-    }
-
-    /// Get tracing span attributes for this context
-    #[must_use]
-    pub fn span_attributes(&self) -> Vec<(&'static str, String)> {
-        let mut attrs = vec![
-            ("user_id", self.user_id.to_string()),
-            ("auth_method", self.auth_method.as_str().to_owned()),
-        ];
-
-        if let Some(tenant_id) = self.tenant_id {
-            attrs.push(("tenant_id", tenant_id.to_string()));
-        }
-
-        if let Some(request_id) = &self.request_id {
-            attrs.push(("request_id", request_id.to_string()));
-        }
-
-        attrs
     }
 }
 

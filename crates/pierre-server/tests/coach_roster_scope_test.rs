@@ -162,15 +162,15 @@ async fn seeded() -> Seeded {
         .unwrap();
 
     let repos = db.repositories();
-    let agent_id = create_agent(&repos, owner, tenant).await;
-    let group_a = create_group(&repos, tenant, owner, &agent_id, "A", coach).await;
-    let group_b = create_group(&repos, tenant, owner, &agent_id, "B", coach).await;
-    let group_c = create_group(&repos, tenant, owner, &agent_id, "C", coach).await;
+    let agent_id = create_agent(repos, owner, tenant).await;
+    let group_a = create_group(repos, tenant, owner, &agent_id, "A", coach).await;
+    let group_b = create_group(repos, tenant, owner, &agent_id, "B", coach).await;
+    let group_c = create_group(repos, tenant, owner, &agent_id, "C", coach).await;
 
-    add_member(&repos, group_a, m1, tenant).await;
-    add_member(&repos, group_a, m2, tenant).await;
-    add_member(&repos, group_b, m3, tenant).await;
-    add_member(&repos, group_c, m1, tenant).await;
+    add_member(repos, group_a, m1, tenant).await;
+    add_member(repos, group_a, m2, tenant).await;
+    add_member(repos, group_b, m3, tenant).await;
+    add_member(repos, group_c, m1, tenant).await;
 
     assert!(repos
         .groups

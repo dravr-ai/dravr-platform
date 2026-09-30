@@ -13,8 +13,8 @@ use pierre_contremaitre::harness_config_document::HARNESS_CONFIG_SETTING_KEY;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::text_guardrails::{GuardrailOutcome, GuardrailRejection};
 use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_routes_admin::handlers::myth_busting::promote_topic;
+use pierre_test_support::db::create_test_db_with_key;
 
 const ENCRYPTION_KEY: &[u8; 32] = b"test_encryption_key_32_bytes_lng";
 

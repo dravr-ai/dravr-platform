@@ -50,6 +50,7 @@ mod agent_alias {
     use crate::helpers::agent_fixtures::{install_catalogue_agent, publish_catalogue_agent};
     use crate::helpers::axum_test::AxumTestRequest;
     use crate::helpers::command_e2e::{commands_dir, CommandE2e, Member, RouterLlm};
+    use dravr_canot::commands::{CommandDefinition, CommandMatcher, CommandRegistry};
     use pierre_commands::load_command_catalog;
     use pierre_contremaitre::messaging_strings::{
         KEY_AGENT_GROUP_UPDATED, KEY_AGENT_REMOVED, KEY_UNKNOWN_COMMAND,
@@ -65,7 +66,6 @@ mod agent_alias {
     use pierre_mcp_server::routes::chat::{
         ChatRoutes, ConversationResponse, ReplyBlockResponse, TurnResponse,
     };
-    use pierre_messaging::commands::{CommandDefinition, CommandMatcher, CommandRegistry};
 
     /// The persona the mock model proposes for `/agent create`, fenced the way
     /// real models fence JSON they were asked to return bare.

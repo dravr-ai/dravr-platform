@@ -6,13 +6,13 @@
 
 use async_trait::async_trait;
 use chrono::Utc;
+use dravr_canot::commands::CommandResponse;
 use pierre_contremaitre::messaging_strings::{
     KEY_NEW_CONVERSATION_TITLE_PREFIX, KEY_RESET_CONFIRM, KEY_RESET_QUOTA,
     KEY_RESET_WALK_INTERRUPTED,
 };
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::OnboardingState;
-use pierre_messaging::commands::CommandResponse;
 use pierre_services::agent_selection::AgentSelectionSource;
 use pierre_services::conversation_forge::{
     dated_title, enforce_conversation_quota, forge_conversation, repoint_messaging_session,

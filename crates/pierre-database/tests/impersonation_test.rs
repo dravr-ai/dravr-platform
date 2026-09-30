@@ -17,8 +17,8 @@
 
 use pierre_core::models::User;
 use pierre_core::permissions::impersonation::ImpersonationSession;
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::RepositoryRegistry;
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 /// A distinct user per call; the table's foreign keys need the rows to exist.
@@ -35,8 +35,8 @@ async fn fresh_user(repos: &RepositoryRegistry) -> Uuid {
 async fn a_session_reads_back_by_id_and_by_either_party() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let operator = fresh_user(&repos).await;
-    let target = fresh_user(&repos).await;
+    let operator = fresh_user(repos).await;
+    let target = fresh_user(repos).await;
 
     let session = ImpersonationSession::new(operator, target, Some("support ticket 42".to_owned()));
     repos.impersonation.create_session(&session).await.unwrap();
@@ -74,7 +74,7 @@ async fn a_session_reads_back_by_id_and_by_either_party() {
         .expect("the impersonated user's active session must be found by their id");
     assert_eq!(for_target.id, session.id);
 
-    let bystander = fresh_user(&repos).await;
+    let bystander = fresh_user(repos).await;
     assert!(
         repos
             .impersonation
@@ -90,8 +90,8 @@ async fn a_session_reads_back_by_id_and_by_either_party() {
 async fn ending_a_session_clears_it_from_the_active_lookup() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let operator = fresh_user(&repos).await;
-    let target = fresh_user(&repos).await;
+    let operator = fresh_user(repos).await;
+    let target = fresh_user(repos).await;
 
     let session = ImpersonationSession::new(operator, target, None);
     repos.impersonation.create_session(&session).await.unwrap();
@@ -120,10 +120,10 @@ async fn ending_a_session_clears_it_from_the_active_lookup() {
 async fn end_all_sessions_counts_only_the_operators_open_ones() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let operator = fresh_user(&repos).await;
-    let other_operator = fresh_user(&repos).await;
-    let first_target = fresh_user(&repos).await;
-    let second_target = fresh_user(&repos).await;
+    let operator = fresh_user(repos).await;
+    let other_operator = fresh_user(repos).await;
+    let first_target = fresh_user(repos).await;
+    let second_target = fresh_user(repos).await;
 
     for target in [first_target, second_target] {
         repos
@@ -172,10 +172,10 @@ async fn end_all_sessions_counts_only_the_operators_open_ones() {
 async fn list_sessions_honours_every_filter() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let operator = fresh_user(&repos).await;
-    let other_operator = fresh_user(&repos).await;
-    let target = fresh_user(&repos).await;
-    let other_target = fresh_user(&repos).await;
+    let operator = fresh_user(repos).await;
+    let other_operator = fresh_user(repos).await;
+    let target = fresh_user(repos).await;
+    let other_target = fresh_user(repos).await;
 
     let ended = ImpersonationSession::new(operator, target, Some("ended".to_owned()));
     repos.impersonation.create_session(&ended).await.unwrap();

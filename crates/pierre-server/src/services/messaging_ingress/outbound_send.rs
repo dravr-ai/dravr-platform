@@ -8,10 +8,10 @@
 
 use std::sync::Arc;
 
+use dravr_canot::channel::MessagingChannel;
 use pierre_core::models::messaging::{ChannelConfig, OutgoingMessage};
 use pierre_core::models::TenantId;
 use pierre_database::backends::MessagingRepository;
-use pierre_messaging::channel::MessagingChannel;
 use tracing::error;
 
 use super::block_render;

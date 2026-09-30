@@ -381,7 +381,6 @@ impl ProviderToolRouter {
                 .config
                 .rate_limiting
                 .admin_provisioned_api_key_monthly_limit;
-            let admin_token_cache_ttl = resources.common.config.auth.admin_token_cache_ttl_secs;
             let mut admin_context = AdminApiContext::new(AdminApiContextInit {
                 database: resources.agent.database.clone(),
                 repos: resources.common.repos.clone(),
@@ -389,7 +388,6 @@ impl ProviderToolRouter {
                 auth_manager: resources.auth.auth_manager.clone(),
                 jwks_manager: resources.auth.jwks_manager.clone(),
                 admin_api_key_monthly_limit: admin_api_key_limit,
-                admin_token_cache_ttl_secs: admin_token_cache_ttl,
                 harness_config_registry: resources.fitness.harness_config_registry.clone(),
                 guardian_config_registry: resources.fitness.guardian_config_registry.clone(),
                 prompt_registry: resources.mcp.prompt_registry.clone(),

@@ -24,22 +24,23 @@
 use anyhow::Result;
 use chrono::Utc;
 use pierre_core::models::TenantId;
-use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_sqlite_test_db;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::database::Database as SqliteDatabase;
 use pierre_database::repositories::LlmCredentialRepository;
+use pierre_test_support::db::create_sqlite_test_db;
 use sqlx::Executor;
+use std::sync::Arc;
 use uuid::Uuid;
 
 /// The `SQLite` backend itself: the corruptions below are shapes only its
 /// untyped TEXT columns accept (`PostgreSQL` refuses a non-UUID in a UUID
 /// column and a non-timestamp in a TIMESTAMPTZ column at the INSERT), and
 /// `PRAGMA foreign_keys` is a `SQLite` switch.
-async fn open_in_memory_db() -> Result<SqliteDatabase> {
-    match create_sqlite_test_db().await? {
-        Database::SQLite(db) => Ok(db),
+async fn open_in_memory_db() -> Result<Arc<SqliteDatabase>> {
+    match create_sqlite_test_db().await?.backend() {
+        DatabaseBackend::SQLite(db) => Ok(Arc::clone(db)),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(_) => unreachable!("create_sqlite_test_db opens SQLite"),
+        DatabaseBackend::PostgreSQL(_) => unreachable!("create_sqlite_test_db opens SQLite"),
     }
 }
 

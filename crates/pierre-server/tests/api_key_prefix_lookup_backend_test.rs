@@ -23,8 +23,8 @@ use chrono::{Duration, Utc};
 use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_core::models::{ApiKey, User, UserStatus, UserTier};
 use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::RepositoryRegistry;
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 /// A distinct active user per call, returned with the email the operator
@@ -147,8 +147,8 @@ async fn test_unknown_prefix_returns_none() {
 async fn a_trial_key_reads_back_as_trial_on_the_configured_backend() {
     let db = backend_under_test().await;
     let repos = db.repositories();
-    let (user_id, _) = fresh_user(&repos).await;
-    let stored = stored_key(&repos, user_id, ApiKeyTier::Trial).await;
+    let (user_id, _) = fresh_user(repos).await;
+    let stored = stored_key(repos, user_id, ApiKeyTier::Trial).await;
 
     let found = repos
         .api_keys
@@ -178,8 +178,8 @@ async fn a_trial_key_reads_back_as_trial_on_the_configured_backend() {
 async fn an_enterprise_key_reads_back_its_limit_on_the_configured_backend() {
     let db = backend_under_test().await;
     let repos = db.repositories();
-    let (user_id, _) = fresh_user(&repos).await;
-    let stored = stored_key(&repos, user_id, ApiKeyTier::Enterprise).await;
+    let (user_id, _) = fresh_user(repos).await;
+    let stored = stored_key(repos, user_id, ApiKeyTier::Enterprise).await;
 
     let found = repos
         .api_keys
@@ -202,8 +202,8 @@ async fn an_enterprise_key_reads_back_its_limit_on_the_configured_backend() {
 async fn created_at_round_trips_on_the_configured_backend() {
     let db = backend_under_test().await;
     let repos = db.repositories();
-    let (user_id, _) = fresh_user(&repos).await;
-    let mut api_key = stored_key(&repos, user_id, ApiKeyTier::Starter).await;
+    let (user_id, _) = fresh_user(repos).await;
+    let mut api_key = stored_key(repos, user_id, ApiKeyTier::Starter).await;
     // A second key, whose creation time is a day back.
     api_key.id = format!("key_{}", Uuid::new_v4().simple());
     api_key.key_prefix = format!("pk_live_{}", Uuid::new_v4().simple());
@@ -232,14 +232,14 @@ async fn created_at_round_trips_on_the_configured_backend() {
 async fn the_operator_listing_filters_by_email_and_activity_on_the_configured_backend() {
     let db = backend_under_test().await;
     let repos = db.repositories();
-    let (owner, owner_email) = fresh_user(&repos).await;
-    let (other, _) = fresh_user(&repos).await;
+    let (owner, owner_email) = fresh_user(repos).await;
+    let (other, _) = fresh_user(repos).await;
 
     let mut keys = Vec::new();
     for _ in 0..3 {
-        keys.push(stored_key(&repos, owner, ApiKeyTier::Starter).await);
+        keys.push(stored_key(repos, owner, ApiKeyTier::Starter).await);
     }
-    stored_key(&repos, other, ApiKeyTier::Starter).await;
+    stored_key(repos, other, ApiKeyTier::Starter).await;
     repos
         .api_keys
         .deactivate(&keys[0].id, owner)
@@ -302,8 +302,8 @@ async fn the_operator_listing_filters_by_email_and_activity_on_the_configured_ba
 async fn a_key_expired_minutes_ago_is_cleaned_up_on_the_configured_backend() {
     let db = backend_under_test().await;
     let repos = db.repositories();
-    let (user_id, _) = fresh_user(&repos).await;
-    let mut api_key = stored_key(&repos, user_id, ApiKeyTier::Starter).await;
+    let (user_id, _) = fresh_user(repos).await;
+    let mut api_key = stored_key(repos, user_id, ApiKeyTier::Starter).await;
     api_key.id = format!("key_{}", Uuid::new_v4().simple());
     api_key.key_prefix = format!("pk_live_{}", Uuid::new_v4().simple());
     api_key.key_hash = format!("hash_{}", Uuid::new_v4().simple());

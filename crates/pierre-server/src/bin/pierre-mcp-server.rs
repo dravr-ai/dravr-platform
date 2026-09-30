@@ -41,7 +41,7 @@ use pierre_mcp_server::{
         multitenant::ProviderToolRouter,
         resources::{ServerContext, ServerContextOptions},
     },
-    utils::{http_client::initialize_http_clients, route_timeout::initialize_route_timeouts},
+    utils::http_client::initialize_http_clients,
 };
 use pierre_services::agent_package_repair::repair_stored_flavours;
 use pierre_services::chat_provider_factory::spawn_llm_health_probe;
@@ -573,9 +573,6 @@ fn initialize_global_configs(config: &ServerConfig) -> Result<()> {
     initialize_http_clients(config.http_client.clone());
     info!("HTTP client configuration initialized");
 
-    initialize_route_timeouts(config.route_timeouts.clone());
-    info!("Route timeout configuration initialized");
-
     init_server_config()?;
     info!("Static server configuration initialized");
 
@@ -596,8 +593,8 @@ async fn initialize_core_systems(config: &ServerConfig) -> Result<(Database, Aut
     info!("Two-tier key management system fully initialized");
 
     let repos = database.repositories();
-    repair_package_flavours(&repos).await;
-    let jwt_secret_string = initialize_jwt_secret(&database, &repos, config).await?;
+    repair_package_flavours(repos).await;
+    let jwt_secret_string = initialize_jwt_secret(&database, repos, config).await?;
     let auth_manager = create_auth_manager(config);
 
     Ok((database, auth_manager, jwt_secret_string))
@@ -810,7 +807,7 @@ async fn create_server(
     {
         use pierre_mcp_server::messaging_seed;
         let repos = database.repositories();
-        messaging_seed::seed_from_env(&repos).await;
+        messaging_seed::seed_from_env(repos).await;
     }
 
     // In-memory (test) databases run headless: skip building the ChatProvider so a

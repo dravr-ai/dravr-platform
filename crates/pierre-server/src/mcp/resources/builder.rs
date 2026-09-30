@@ -55,20 +55,6 @@ impl ServerContextBuilder {
         self
     }
 
-    /// Set the auth manager
-    #[must_use]
-    pub const fn with_auth_manager(mut self, auth_manager: AuthManager) -> Self {
-        self.auth_manager = Some(auth_manager);
-        self
-    }
-
-    /// Set the admin JWT secret
-    #[must_use]
-    pub fn with_admin_jwt_secret(mut self, admin_jwt_secret: impl Into<String>) -> Self {
-        self.admin_jwt_secret = Some(admin_jwt_secret.into());
-        self
-    }
-
     /// Set the server configuration
     #[must_use]
     pub fn with_config(mut self, config: Arc<ServerConfig>) -> Self {
@@ -80,13 +66,6 @@ impl ServerContextBuilder {
     #[must_use]
     pub fn with_cache(mut self, cache: Cache) -> Self {
         self.cache = Some(cache);
-        self
-    }
-
-    /// Set the RSA key size for JWT signing (2048 for tests, 4096 for production)
-    #[must_use]
-    pub const fn with_rsa_key_size_bits(mut self, rsa_key_size_bits: usize) -> Self {
-        self.rsa_key_size_bits = rsa_key_size_bits;
         self
     }
 
@@ -155,16 +134,6 @@ impl ServerContextBuilder {
             options,
         )
         .await;
-        Ok(resources)
-    }
-
-    /// Build the `ServerContext` wrapped in an `Arc`
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if any required fields are missing
-    pub async fn build_arc(self) -> Result<Arc<ServerContext>, &'static str> {
-        let resources = Arc::new(self.build().await?);
         Ok(resources)
     }
 }

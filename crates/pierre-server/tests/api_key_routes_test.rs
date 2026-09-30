@@ -19,18 +19,18 @@ use pierre_config::environment::{
     DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig, GarminApiConfig,
     GeocodingServiceConfig, GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig,
     McpConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig,
-    PostgresPoolConfig, ProtocolConfig, RateLimitConfig, RouteTimeoutConfig, SecurityConfig,
-    SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig, SqlxConfig, SseConfig,
-    StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
+    PostgresPoolConfig, ProtocolConfig, RateLimitConfig, SecurityConfig, SecurityHeadersConfig,
+    ServerConfig, SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig,
+    TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
 };
 use pierre_core::models::User;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::database::generate_encryption_key;
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_mcp_server::{
     mcp::resources::{ServerContext, ServerContextOptions},
     routes::api_keys::service::ApiKeyRoutes,
 };
+use pierre_test_support::db::create_test_db_with_key;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -103,7 +103,6 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
                     auth: AuthConfig {
                         jwt_expiry_hours: 24,
                         refresh_token_expiry_days: 30,
-                        ..AuthConfig::default()
                     },
                     oauth: OAuthConfig {
                         strava: OAuthProviderConfig {
@@ -190,7 +189,6 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
                     },
                     sse: SseConfig::default(),
                     oauth2_server: OAuth2ServerConfig::default(),
-                    route_timeouts: RouteTimeoutConfig::default(),
                     host: "localhost".to_owned(),
                     base_url: "http://localhost:8081".to_owned(),
                     mcp: McpConfig {

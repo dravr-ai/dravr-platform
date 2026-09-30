@@ -33,7 +33,7 @@ use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandConte
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::periodization::{FlavourFamily, PhaseKind, Sequencing};
 use pierre_core::models::{Tenant, TenantId, User};
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -508,15 +508,15 @@ async fn an_unreadable_plan_store_is_a_server_error_not_an_empty_plan() {
     .await;
     // The weeks table going away mid-read is the failure: the plan row reads,
     // its weeks do not.
-    match resources.agent.database.as_ref() {
-        Database::SQLite(sqlite) => {
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
             sqlx::query("DROP TABLE training_plan_weeks")
                 .execute(sqlite.pool())
                 .await
                 .unwrap();
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(postgres) => {
+        DatabaseBackend::PostgreSQL(postgres) => {
             sqlx::query("DROP TABLE training_plan_weeks CASCADE")
                 .execute(postgres.pool())
                 .await

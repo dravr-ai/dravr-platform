@@ -39,8 +39,5 @@ pub mod delegation;
 /// Who may create a group: the tenant-role shortcut and the creation policy
 pub mod creation_policy;
 
-/// System prompt context builders for LLM injection
-pub mod context;
-
 // Re-export key types for consumers
 pub use service::GroupService;

@@ -14,14 +14,14 @@
 
 use std::iter::once;
 
+use dravr_canot::channel::MessagingChannel;
+use dravr_canot::turn::ConversationTurnId;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_BACKFILL_PUSH_BODY, KEY_BACKFILL_PUSH_TITLE,
 };
 use pierre_core::models::messaging::{ChannelConfig, ChannelType, MessageContent, OutgoingMessage};
 use pierre_core::models::{AddMessageParams, TenantId};
 use pierre_database::RepositoryRegistry;
-use pierre_messaging::channel::MessagingChannel;
-use pierre_messaging::turn::ConversationTurnId;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 

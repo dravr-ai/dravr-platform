@@ -13,7 +13,7 @@ mod common;
 use std::sync::Arc;
 
 use common::{create_test_server_resources, create_test_user_with_plan};
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_seeders::synthetic_activities::{run, SeedArgs};
 use uuid::Uuid;
@@ -38,8 +38,8 @@ type SeededRow = (String, Option<f64>, Option<f64>, Option<f64>);
 
 async fn seeded_rows(resources: &Arc<ServerContext>, user_id: Uuid) -> Vec<SeededRow> {
     let user = user_id.to_string();
-    match &*resources.agent.database {
-        Database::SQLite(sqlite) => sqlx::query_as(
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => sqlx::query_as(
             "SELECT sport_type, distance_meters, start_latitude, start_longitude \
              FROM synthetic_activities WHERE user_id = $1",
         )
@@ -48,7 +48,7 @@ async fn seeded_rows(resources: &Arc<ServerContext>, user_id: Uuid) -> Vec<Seede
         .await
         .unwrap(),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => sqlx::query_as(
+        DatabaseBackend::PostgreSQL(pg) => sqlx::query_as(
             "SELECT sport_type, distance_meters, start_latitude, start_longitude \
              FROM synthetic_activities WHERE CAST(user_id AS TEXT) = $1",
         )

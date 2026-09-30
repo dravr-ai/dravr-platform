@@ -22,7 +22,7 @@
 mod common;
 
 use anyhow::Result;
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::{
     mcp::resources::ServerContext, tools::registry_builtin::register_builtin_tools,
 };
@@ -63,8 +63,8 @@ async fn add_user_to_tenant_as_member(
                           VALUES ($1, $2, $3, 'member', $4, $5)";
     let row_id = Uuid::new_v4();
     let now = chrono::Utc::now();
-    match &*resources.agent.database {
-        Database::SQLite(db) => {
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
             sqlx::query(INSERT)
                 .bind(row_id.to_string())
                 .bind(tenant_id)
@@ -75,7 +75,7 @@ async fn add_user_to_tenant_as_member(
                 .await?;
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => {
+        DatabaseBackend::PostgreSQL(db) => {
             sqlx::query(INSERT)
                 .bind(row_id)
                 .bind(Uuid::parse_str(tenant_id)?)

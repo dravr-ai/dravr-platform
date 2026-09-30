@@ -27,10 +27,10 @@ mod messaging_routes_tests {
     };
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
+    use dravr_canot::channels::descriptor_for;
     use pierre_core::models::messaging::ChannelType;
     use pierre_core::models::ConnectionType;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
-    use pierre_messaging::channels::descriptor_for;
     use serde_json::json;
     use std::sync::Arc;
 

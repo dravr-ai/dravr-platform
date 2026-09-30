@@ -8,7 +8,7 @@
 //!
 //! A channel send that failed is queued (`messaging_outbound_queue`) with its
 //! rendered payload, and this worker re-sends it on the backoff schedule
-//! `pierre_messaging::retry` defines, dead-lettering it once the attempts run
+//! `dravr_canot::retry` defines, dead-lettering it once the attempts run
 //! out. The queue is durable, so a restart resumes where it stopped.
 //!
 //! Two optional bounds on an entry decide whether it may still go out at all,
@@ -26,13 +26,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use dravr_canot::channel::MessagingChannel;
+use dravr_canot::retry::{compute_retry_update, RetryDecision};
+use dravr_canot::turn::ConversationTurnId as CanotTurnId;
 use pierre_core::errors::AppError;
 use pierre_core::models::messaging::{ChannelConfig, ChannelType};
 use pierre_core::models::{ConnectionStatus, TenantId};
 use pierre_database::backends::{MessagingRepository, ProviderConnectionRepository};
-use pierre_messaging::channel::MessagingChannel;
-use pierre_messaging::retry::{compute_retry_update, RetryDecision};
-use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use serde_json::Value;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};

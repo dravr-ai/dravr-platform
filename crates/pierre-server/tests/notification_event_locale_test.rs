@@ -22,7 +22,7 @@ mod notification_event_locale_tests {
     use crate::common::{create_test_server_resources, create_test_tenant};
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
-    use pierre_database::backends::factory::Database;
+    use pierre_database::backends::factory::DatabaseBackend;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_notifications::events::{event_params, PARAMS_DATA_KEY};
     use pierre_notifications::{
@@ -40,10 +40,14 @@ mod notification_event_locale_tests {
     /// The notification service the server boots: the upstream pipeline plus
     /// the localizer that renders each event in the recipient's language.
     fn notification_service(resources: &ServerContext) -> NotificationService {
-        let service = match &*resources.agent.database {
-            Database::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
+        let service = match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(sqlite) => {
+                NotificationService::from_sqlite(sqlite.pool().clone())
+            }
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
+            DatabaseBackend::PostgreSQL(pg) => {
+                NotificationService::from_postgres(pg.pool().clone())
+            }
         };
         service.with_localizer(Arc::new(UserLocaleNotificationLocalizer::new(
             Arc::clone(&resources.common.repos),

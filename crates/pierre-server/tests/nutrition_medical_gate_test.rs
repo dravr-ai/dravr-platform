@@ -19,12 +19,12 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use chrono::{Duration, TimeZone, Utc};
+use dravr_cageux::training_load::FormBand;
 use pierre_core::models::{
     Activity, ActivityBuilder, SportType, TenantId, UserPhysiologicalProfile,
 };
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::repositories::UpsertUserFactParams;
-use pierre_intelligence::FormBand;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 use pierre_services::parq;

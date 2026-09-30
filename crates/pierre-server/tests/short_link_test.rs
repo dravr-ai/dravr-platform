@@ -25,7 +25,7 @@ const DOTTY_TARGET: &str =
 #[tokio::test]
 async fn shorten_url_persists_and_round_trips() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let short = shorten_url(
         repos.short_links.as_ref(),
@@ -63,7 +63,7 @@ async fn shorten_url_persists_and_round_trips() {
 #[tokio::test]
 async fn resolve_unknown_code_returns_none() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let resolved = repos
         .short_links
@@ -76,7 +76,7 @@ async fn resolve_unknown_code_returns_none() {
 #[tokio::test]
 async fn resolve_expired_code_returns_none() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     // Persist a link that expired an hour ago.
     repos
@@ -105,7 +105,7 @@ async fn resolve_expired_code_returns_none() {
 #[tokio::test]
 async fn create_then_resolve_within_ttl_succeeds() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     repos
         .short_links
@@ -131,7 +131,7 @@ async fn create_then_resolve_within_ttl_succeeds() {
 #[tokio::test]
 async fn sweep_deletes_only_expired_rows() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     // One expired, one live.
     repos

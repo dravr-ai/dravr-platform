@@ -14,9 +14,10 @@ use pierre_auth::oauth2_server::{
 };
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_database::{
-    backends::factory::Database,
-    database::{generate_encryption_key, test_utils::create_test_db_with_key},
+    backends::factory::{Database, DatabaseBackend},
+    database::generate_encryption_key,
 };
+use pierre_test_support::db::create_test_db_with_key;
 use std::error::Error;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -47,8 +48,8 @@ async fn create_test_client(
         .await
         .map_err(|e| format!("Failed to register OAuth2 client: {e:?}"))?;
 
-    match &**database {
-        Database::SQLite(db) => {
+    match database.backend() {
+        DatabaseBackend::SQLite(db) => {
             sqlx::query(RENAME)
                 .bind(client_id)
                 .bind(&response.client_id)
@@ -56,7 +57,7 @@ async fn create_test_client(
                 .await?;
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => {
+        DatabaseBackend::PostgreSQL(db) => {
             sqlx::query(RENAME)
                 .bind(client_id)
                 .bind(&response.client_id)

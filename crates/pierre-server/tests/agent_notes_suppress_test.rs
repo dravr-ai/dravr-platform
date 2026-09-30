@@ -11,9 +11,9 @@ use anyhow::Result;
 use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
 use pierre_core::models::{Tenant, TenantId, User};
 use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::repositories::InsertAgentNoteParams;
 use pierre_memory::scope::MemoryScope;
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 /// Open the database the lane names through the test factory.
@@ -69,7 +69,7 @@ async fn seed_user_tenant_agent(db: &Database) -> Result<(TenantId, String, Stri
 #[tokio::test]
 async fn suppressed_notes_are_excluded_from_memory_recall() -> Result<()> {
     let db = open_db().await?;
-    let memory = db.repositories().memory;
+    let memory = &db.repositories().memory;
     let (tenant, user_id, agent_id) = seed_user_tenant_agent(&db).await?;
 
     let note = memory
@@ -118,7 +118,7 @@ async fn suppressed_notes_are_excluded_from_memory_recall() -> Result<()> {
 #[tokio::test]
 async fn suppress_then_unsuppress_restores_recall() -> Result<()> {
     let db = open_db().await?;
-    let memory = db.repositories().memory;
+    let memory = &db.repositories().memory;
     let (tenant, user_id, agent_id) = seed_user_tenant_agent(&db).await?;
 
     let note = memory
@@ -157,7 +157,7 @@ async fn suppress_then_unsuppress_restores_recall() -> Result<()> {
 #[tokio::test]
 async fn set_suppressed_is_idempotent() -> Result<()> {
     let db = open_db().await?;
-    let memory = db.repositories().memory;
+    let memory = &db.repositories().memory;
     let (tenant, user_id, agent_id) = seed_user_tenant_agent(&db).await?;
 
     let note = memory
@@ -186,7 +186,7 @@ async fn set_suppressed_is_idempotent() -> Result<()> {
 #[tokio::test]
 async fn set_suppressed_returns_false_for_missing_or_wrong_tenant() -> Result<()> {
     let db = open_db().await?;
-    let memory = db.repositories().memory;
+    let memory = &db.repositories().memory;
     let (tenant_a, user_a, coach_a) = seed_user_tenant_agent(&db).await?;
     let (tenant_b, _, _) = seed_user_tenant_agent(&db).await?;
 

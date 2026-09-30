@@ -32,9 +32,9 @@
 
 use std::sync::Arc;
 
+use dravr_canot::channel::MessagingChannel;
+use dravr_canot::factory::create_adapter_from_config;
 use pierre_core::models::messaging::ChannelType;
-use pierre_messaging::channel::MessagingChannel;
-use pierre_messaging::factory::create_adapter_from_config;
 use serde_json::Value;
 use tracing::debug;
 

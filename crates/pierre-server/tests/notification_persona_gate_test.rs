@@ -32,7 +32,7 @@ mod persona_gate_tests {
     use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
     use pierre_core::feature_flags::FeatureKey;
     use pierre_core::models::{CoachingPersona, User};
-    use pierre_database::backends::factory::Database;
+    use pierre_database::backends::factory::{Database, DatabaseBackend};
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_notifications::models::{Notification, NotificationCategory};
     use pierre_notifications::{
@@ -84,10 +84,14 @@ mod persona_gate_tests {
     /// The notification service on whichever backend the test database is —
     /// the same mapping the server performs at boot.
     fn notification_service(db: &Database) -> NotificationService {
-        match db {
-            Database::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
+        match db.backend() {
+            DatabaseBackend::SQLite(sqlite) => {
+                NotificationService::from_sqlite(sqlite.pool().clone())
+            }
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
+            DatabaseBackend::PostgreSQL(pg) => {
+                NotificationService::from_postgres(pg.pool().clone())
+            }
         }
     }
 

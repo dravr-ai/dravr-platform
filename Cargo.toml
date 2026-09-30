@@ -38,7 +38,7 @@ dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", tag = "
 # rather than tag; contremaitre-bump.yml advances it.
 dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "3f149f5cd190d12d1dd7977dd8df0b12a4263b43" }
 
-# Health provider sync. default-features off so pierre-enforme's own
+# Health provider sync. default-features off so each consumer's own
 # provider-* features select the backends.
 dravr-enforme = { version = "0.6.7", git = "https://github.com/dravr-ai/dravr-enforme.git", tag = "v0.6.7", default-features = false }
 

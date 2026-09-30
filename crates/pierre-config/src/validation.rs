@@ -451,16 +451,6 @@ impl ValidationResult {
         self.errors.push(error);
         self.is_valid = false;
     }
-
-    /// Add a warning
-    pub fn add_warning(&mut self, warning: String) {
-        self.warnings.push(warning);
-    }
-
-    /// Set impact analysis
-    pub fn set_impact_analysis(&mut self, analysis: ImpactAnalysis) {
-        self.impact_analysis = Some(analysis);
-    }
 }
 
 impl Default for ValidationResult {

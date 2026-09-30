@@ -23,9 +23,9 @@ use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::repositories::{WorkerRun, WorkerRunRepository};
 use pierre_services::periodic::spawn_periodic;
+use pierre_test_support::db::create_test_db;
 use tokio::time::sleep;
 
 const PERIOD: Duration = Duration::from_millis(20);

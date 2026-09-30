@@ -50,13 +50,13 @@ use pierre_core::constants::oauth2_authorization::MAX_STATE_BYTES;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{User, UserStatus, FEDERATED_ONLY_PASSWORD_HASH};
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::backends::DatabaseProvider;
 use pierre_database::database::generate_encryption_key;
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_auth::AuthRoutes;
 use pierre_routes_identity::oauth2::{OAuth2Context, OAuth2Routes};
+use pierre_test_support::db::create_test_db_with_key;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use tracing::field::{Field, Visit};
@@ -291,12 +291,12 @@ fn authorize_request(client_id: &str, state: &str) -> AuthorizeRequest {
 /// itself, the way an outage or a broken schema would.
 async fn break_table(database: &Database, table: &str) {
     let rename = format!("ALTER TABLE {table} RENAME TO {table}_unreachable");
-    match database {
-        Database::SQLite(db) => {
+    match database.backend() {
+        DatabaseBackend::SQLite(db) => {
             sqlx::query(&rename).execute(db.pool()).await.unwrap();
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => {
+        DatabaseBackend::PostgreSQL(db) => {
             sqlx::query(&rename).execute(db.pool()).await.unwrap();
         }
     }

@@ -150,13 +150,17 @@ mod common;
 
 use axum::http::HeaderMap;
 use axum::{routing::post, Form, Json, Router};
+use dravr_cageux::types::{
+    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
+    TrendIndicators,
+};
 use pierre_auth::auth::AuthManager;
 use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
     ExternalServicesConfig, GeocodingServiceConfig, HttpClientConfig, LogLevel, LoggingConfig,
     MonitoringConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig,
-    ProtocolConfig, RouteTimeoutConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
-    SseConfig, StravaApiConfig, TlsConfig, WeatherServiceConfig,
+    ProtocolConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig, SseConfig,
+    StravaApiConfig, TlsConfig, WeatherServiceConfig,
 };
 use pierre_core::errors::protocol::ProtocolError;
 use pierre_core::models::CoachingPersona;
@@ -165,16 +169,12 @@ use pierre_core::models::{
 };
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::permissions::UserRole;
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{backends::factory::Database, database::generate_encryption_key};
-use pierre_intelligence::{
-    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
-    TrendIndicators,
-};
 use pierre_mcp_server::{
     constants::oauth_providers,
     mcp::resources::{ServerContext, ServerContextOptions},
 };
+use pierre_test_support::db::create_test_db_with_key;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::json;
 use serial_test::serial;
@@ -206,7 +206,6 @@ fn create_test_server_config_without_oauth() -> Arc<ServerConfig> {
         auth: AuthConfig {
             jwt_expiry_hours: 24,
             refresh_token_expiry_days: 30,
-            ..AuthConfig::default()
         },
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
@@ -284,7 +283,6 @@ fn create_test_server_config_without_oauth() -> Arc<ServerConfig> {
         },
         sse: SseConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
-        route_timeouts: RouteTimeoutConfig::default(),
         monitoring: MonitoringConfig::default(),
         ..Default::default()
     })
@@ -311,7 +309,6 @@ fn create_test_server_config() -> Arc<ServerConfig> {
         auth: AuthConfig {
             jwt_expiry_hours: 24,
             refresh_token_expiry_days: 30,
-            ..AuthConfig::default()
         },
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
@@ -389,7 +386,6 @@ fn create_test_server_config() -> Arc<ServerConfig> {
         },
         sse: SseConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
-        route_timeouts: RouteTimeoutConfig::default(),
         monitoring: MonitoringConfig::default(),
         ..Default::default()
     })

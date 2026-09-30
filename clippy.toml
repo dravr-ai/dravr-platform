@@ -1,5 +1,5 @@
 # ABOUTME: Clippy configuration for disallowed methods and valid doc identifiers
-# ABOUTME: Prevents usage of anyhow::Context trait methods in favor of structured errors
+# ABOUTME: Prevents anyhow::Context methods and lets in-module unit tests unwrap, expect and panic
 
 # Disallow anyhow::Context trait methods - use structured ProviderError types instead
 # These methods create untyped errors that bypass our structured error handling
@@ -11,3 +11,10 @@ disallowed-methods = [
 # Brand names that are CamelCase by the vendor's own spelling, so `doc_markdown`
 # reads them as code. ".." keeps clippy's default list (GitHub, OAuth, ...).
 doc-valid-idents = ["TrainingPeaks", ".."]
+
+# Unit tests live in `#[cfg(test)] mod tests` inside src/ (ADR-027). The
+# workspace denies unwrap_used, expect_used and panic; inside a test those are
+# how a test fails, the same allowance tests/ already has.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true

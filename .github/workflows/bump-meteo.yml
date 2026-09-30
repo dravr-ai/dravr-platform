@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 #
-# dravr-meteo is the weather provider behind pierre-weather. Compiled into the
+# dravr-meteo is the weather provider behind the training-context enrichment. Compiled into the
 # platform binary, no service of its own.
 #
 # It is the one satellite that cuts no GitHub releases — two tags, zero releases — so

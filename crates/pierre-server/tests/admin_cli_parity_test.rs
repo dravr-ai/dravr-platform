@@ -26,7 +26,7 @@ async fn test_rate_limit_override_set_and_clear() {
         .unwrap();
 
     admin_ops::set_user_rate_limit_override(
-        &repos,
+        repos,
         user_id,
         Some(500),
         Some("cli parity test".to_owned()),
@@ -46,7 +46,7 @@ async fn test_rate_limit_override_set_and_clear() {
     assert_eq!(row.set_by, Some(admin_id));
 
     // The admin view reports the override as the monthly limit in force
-    let view = admin_ops::compute_user_rate_limits(&repos, user_id)
+    let view = admin_ops::compute_user_rate_limits(repos, user_id)
         .await
         .unwrap();
     assert_eq!(view.monthly_limit, Some(500));
@@ -55,10 +55,10 @@ async fn test_rate_limit_override_set_and_clear() {
     assert_eq!(view.override_note.as_deref(), Some("cli parity test"));
 
     // An omitted cap lifts the monthly ceiling
-    admin_ops::set_user_rate_limit_override(&repos, user_id, None, None, Some(admin_id))
+    admin_ops::set_user_rate_limit_override(repos, user_id, None, None, Some(admin_id))
         .await
         .unwrap();
-    let view = admin_ops::compute_user_rate_limits(&repos, user_id)
+    let view = admin_ops::compute_user_rate_limits(repos, user_id)
         .await
         .unwrap();
     assert_eq!(view.monthly_limit, None);
@@ -66,20 +66,20 @@ async fn test_rate_limit_override_set_and_clear() {
     assert!(view.override_active);
 
     // Zero caps are rejected before any write.
-    let err = admin_ops::set_user_rate_limit_override(&repos, user_id, Some(0), None, None)
+    let err = admin_ops::set_user_rate_limit_override(repos, user_id, Some(0), None, None)
         .await
         .expect_err("zero monthly cap must be rejected");
     assert!(err.to_string().contains("positive"), "got: {err}");
 
     // Unknown users are a clean not-found.
     let missing = uuid::Uuid::new_v4();
-    let err = admin_ops::set_user_rate_limit_override(&repos, missing, Some(10), None, None)
+    let err = admin_ops::set_user_rate_limit_override(repos, missing, Some(10), None, None)
         .await
         .expect_err("unknown user must be rejected");
     assert!(err.to_string().contains("not found"), "got: {err}");
 
     // Clear removes the row exactly once.
-    assert!(admin_ops::clear_user_rate_limit_override(&repos, user_id)
+    assert!(admin_ops::clear_user_rate_limit_override(repos, user_id)
         .await
         .unwrap());
     assert!(repos
@@ -88,10 +88,10 @@ async fn test_rate_limit_override_set_and_clear() {
         .await
         .unwrap()
         .is_none());
-    assert!(!admin_ops::clear_user_rate_limit_override(&repos, user_id)
+    assert!(!admin_ops::clear_user_rate_limit_override(repos, user_id)
         .await
         .unwrap());
-    let view = admin_ops::compute_user_rate_limits(&repos, user_id)
+    let view = admin_ops::compute_user_rate_limits(repos, user_id)
         .await
         .unwrap();
     assert!(!view.override_active);
@@ -121,14 +121,14 @@ async fn test_approve_and_suspend_transition_status_with_audit() {
         .unwrap();
 
     let approved =
-        admin_ops::transition_user_status(&repos, user_id, UserStatus::Active, Some(admin_id))
+        admin_ops::transition_user_status(repos, user_id, UserStatus::Active, Some(admin_id))
             .await
             .unwrap();
     assert_eq!(approved.user_status, UserStatus::Active);
     assert_eq!(approved.approved_by, Some(admin_id), "audit actor recorded");
 
     let suspended =
-        admin_ops::transition_user_status(&repos, user_id, UserStatus::Suspended, Some(admin_id))
+        admin_ops::transition_user_status(repos, user_id, UserStatus::Suspended, Some(admin_id))
             .await
             .unwrap();
     assert_eq!(suspended.user_status, UserStatus::Suspended);
@@ -136,7 +136,7 @@ async fn test_approve_and_suspend_transition_status_with_audit() {
 
     // Idempotence guard: re-suspending an already-suspended user is rejected.
     let err =
-        admin_ops::transition_user_status(&repos, user_id, UserStatus::Suspended, Some(admin_id))
+        admin_ops::transition_user_status(repos, user_id, UserStatus::Suspended, Some(admin_id))
             .await
             .expect_err("double suspend must be rejected");
     assert!(err.to_string().contains("already"), "got: {err}");
@@ -148,7 +148,7 @@ async fn test_password_reset_token_issue() {
     let repos = db.repositories();
     let (user_id, _u) = common::create_test_user(&db).await.unwrap();
 
-    let token = admin_ops::issue_password_reset_token(&repos, user_id, "pierre-cli")
+    let token = admin_ops::issue_password_reset_token(repos, user_id, "pierre-cli")
         .await
         .unwrap();
 
@@ -287,7 +287,7 @@ async fn test_tenant_tool_override_via_service() {
         common::create_test_user_with_plan(&db, "tenant-tools@example.com", "enterprise")
             .await
             .unwrap();
-    let repos = Arc::new(db.repositories());
+    let repos = Arc::clone(db.repositories());
     let svc = ToolSelectionService::new(&repos);
 
     // Baseline: enabled by catalog default.

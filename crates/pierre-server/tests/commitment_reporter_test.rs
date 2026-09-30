@@ -13,7 +13,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::models::messaging::{ChannelType, MessageContent};
 use pierre_core::models::TenantId;
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::services::commitment_reporter::{
     channel_allows_proactive, ServerCommitmentReporter,
@@ -125,8 +125,8 @@ fn labeled(
 /// `SQLite` stores the column as RFC 3339 text, `PostgreSQL` as `TIMESTAMPTZ`.
 async fn backdate_session(db: &Database, session_id: &str, last_message_at: DateTime<Utc>) {
     const SQL: &str = "UPDATE messaging_sessions SET last_message_at = $1 WHERE id = $2";
-    match db {
-        Database::SQLite(inner) => {
+    match db.backend() {
+        DatabaseBackend::SQLite(inner) => {
             sqlx::query(SQL)
                 .bind(last_message_at.to_rfc3339())
                 .bind(session_id)
@@ -135,7 +135,7 @@ async fn backdate_session(db: &Database, session_id: &str, last_message_at: Date
                 .unwrap();
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(inner) => {
+        DatabaseBackend::PostgreSQL(inner) => {
             sqlx::query(SQL)
                 .bind(last_message_at)
                 .bind(session_id)
@@ -159,7 +159,7 @@ fn sent_body(channel: &CapturingChannel) -> String {
 async fn a_partial_verdict_reaches_the_originating_telegram_chat() {
     let db = create_test_db().await;
     let (user, tenant) = seed_user(&db).await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let conversation = seed_conversation(&db, &user.to_string(), tenant).await;
     seed_session(
@@ -210,7 +210,7 @@ async fn a_partial_verdict_reaches_the_originating_telegram_chat() {
 async fn the_verdict_never_echoes_the_stored_statement() {
     let db = create_test_db().await;
     let (user, tenant) = seed_user(&db).await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let conversation = seed_conversation(&db, &user.to_string(), tenant).await;
     seed_session(
@@ -256,7 +256,7 @@ async fn the_verdict_never_echoes_the_stored_statement() {
 async fn a_shut_whatsapp_window_sends_nothing() {
     let db = create_test_db().await;
     let (user, tenant) = seed_user(&db).await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let conversation = seed_conversation(&db, &user.to_string(), tenant).await;
     let session_id = seed_session(
@@ -302,7 +302,7 @@ async fn a_shut_whatsapp_window_sends_nothing() {
 async fn a_fresh_whatsapp_window_delivers() {
     let db = create_test_db().await;
     let (user, tenant) = seed_user(&db).await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let conversation = seed_conversation(&db, &user.to_string(), tenant).await;
     // A freshly created session stamps last_message_at to now.
@@ -341,7 +341,7 @@ async fn a_fresh_whatsapp_window_delivers() {
 async fn a_commitment_with_no_conversation_has_no_chat_route() {
     let db = create_test_db().await;
     let (user, tenant) = seed_user(&db).await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let channel = Arc::new(CapturingChannel::default());
     let resolver = Arc::new(FakeResolver::new(channel.clone()));
@@ -367,7 +367,7 @@ async fn a_commitment_with_no_conversation_has_no_chat_route() {
 async fn a_reset_thread_no_longer_routes_to_the_old_chat() {
     let db = create_test_db().await;
     let (user, tenant) = seed_user(&db).await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     // The conversation exists but no session points at it any more — the
     // athlete reset and the session was repointed at a fresh thread.

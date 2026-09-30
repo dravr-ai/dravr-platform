@@ -12,6 +12,7 @@ mod helpers;
 
 use std::sync::Arc;
 
+use dravr_canot::channels::descriptor_for;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::oauth::providers::provider_terms_version;
@@ -19,7 +20,6 @@ use pierre_core::feature_flags::FeatureKey;
 use pierre_core::models::messaging::{channel_label, ChannelType};
 use pierre_core::models::{ConnectionType, TenantId};
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_messaging::channels::descriptor_for;
 use pierre_middleware::provider_link_token::{
     mint_connect_link_token, mint_link_token, MintProviderLinkTokenArgs,
 };

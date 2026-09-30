@@ -160,7 +160,6 @@ use pierre_core::admin::TokenScope;
 use pierre_core::models::{User, UserStatus};
 use pierre_database::backends::factory::Database;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
-use pierre_routes_admin::auth::service::AdminAuthService;
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use serde_json::{json, Value};
@@ -202,7 +201,7 @@ impl AdminTestSetup {
         let jwt_secret = "test_admin_jwt_secret_for_route_testing";
         let admin_api_key_monthly_limit = STARTER_MONTHLY_LIMIT;
         let database_arc = Arc::new((*database).clone());
-        let repos_arc = Arc::new(database_arc.repositories());
+        let repos_arc = Arc::clone(database_arc.repositories());
         let context = AdminApiContext::new(AdminApiContextInit {
             database: database_arc,
             repos: repos_arc,
@@ -210,7 +209,6 @@ impl AdminTestSetup {
             auth_manager: auth_manager.clone(),
             jwks_manager: jwks_manager.clone(),
             admin_api_key_monthly_limit,
-            admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
             harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
             guardian_config_registry: Arc::new(GuardianConfigRegistry::bootstrap()),
             prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),

@@ -8,13 +8,13 @@
 
 use std::sync::Arc;
 
+use dravr_canot::channel::MessagingChannel;
+use dravr_canot::turn::ConversationTurnId as CanotTurnId;
 use pierre_contremaitre::messaging_strings::KEY_SLASH_ANSWERED_PRIVATELY;
 use pierre_core::errors::messaging::MessagingError;
 use pierre_core::models::messaging::{ChannelType, MessageContent, OutgoingMessage};
 use pierre_core::models::TenantId;
 use pierre_database::backends::MessagingRepository;
-use pierre_messaging::channel::MessagingChannel;
-use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use tracing::{debug, info};
 use uuid::Uuid;
 

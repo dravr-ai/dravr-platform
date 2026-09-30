@@ -36,7 +36,7 @@ mod shared_quota_tests {
     use pierre_core::errors::ErrorCode;
     use pierre_core::models::{TenantId, STARTER};
     use pierre_core::permissions::scopes::OAuthScope;
-    use pierre_database::backends::factory::Database;
+    use pierre_database::backends::factory::DatabaseBackend;
     use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::mcp::tool_handlers::ToolHandlers;
@@ -337,8 +337,8 @@ mod shared_quota_tests {
         // Make the caller an admin of their own tenant — the exact condition
         // the old `/mcp` check short-circuited on. Written straight to
         // `tenant_users` because no repository method promotes a membership.
-        match resources.agent.database.as_ref() {
-            Database::SQLite(db) => {
+        match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => {
                 sqlx::query(PROMOTE)
                     .bind(user_id.to_string())
                     .bind(tenant_id)
@@ -347,7 +347,7 @@ mod shared_quota_tests {
             }
             // `tenant_users` keys are `uuid` columns on PostgreSQL.
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => {
+            DatabaseBackend::PostgreSQL(db) => {
                 sqlx::query(PROMOTE)
                     .bind(user_id)
                     .bind(tenant_id.as_uuid())

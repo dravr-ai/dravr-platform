@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
-use pierre_messaging::commands::{CommandDefinition, CommandRole};
+use dravr_canot::commands::{CommandDefinition, CommandRole};
 use serde::Deserialize;
 use tracing::{debug, info, warn};
 

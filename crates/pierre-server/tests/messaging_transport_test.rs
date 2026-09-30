@@ -17,10 +17,10 @@
     clippy::redundant_closure_for_method_calls
 )]
 
+use dravr_canot::transport::TransportAdapter;
 use hmac::{Hmac, Mac};
 use http::HeaderMap;
 use pierre_core::models::messaging::{ChannelType, MessageContent};
-use pierre_messaging::transport::TransportAdapter;
 use sha2::Sha256;
 
 // ── Helper: compute HMAC-SHA256 hex digest ──
@@ -38,7 +38,7 @@ fn hmac_sha256_hex(secret: &str, data: &[u8]) -> String {
 #[cfg(feature = "client-messaging")]
 mod whatsapp {
     use super::*;
-    use pierre_messaging::channels::whatsapp::transport::WhatsAppTransport;
+    use dravr_canot::channels::whatsapp::transport::WhatsAppTransport;
 
     const APP_SECRET: &str = "whatsapp-test-app-secret";
 
@@ -298,7 +298,7 @@ mod whatsapp {
 #[cfg(feature = "client-messaging")]
 mod messenger {
     use super::*;
-    use pierre_messaging::channels::messenger::transport::MessengerTransport;
+    use dravr_canot::channels::messenger::transport::MessengerTransport;
 
     const APP_SECRET: &str = "fb-app-secret";
 
@@ -476,8 +476,8 @@ mod messenger {
 #[cfg(feature = "client-messaging")]
 mod discord {
     use super::*;
+    use dravr_canot::channels::discord::transport::DiscordTransport;
     use ed25519_dalek::{Signer, SigningKey};
-    use pierre_messaging::channels::discord::transport::DiscordTransport;
 
     fn make_keypair() -> (String, SigningKey) {
         let signing_key = SigningKey::from_bytes(&[42u8; 32]);
@@ -627,7 +627,7 @@ mod discord {
 #[cfg(feature = "client-messaging")]
 mod slack {
     use super::*;
-    use pierre_messaging::channels::slack::transport::SlackTransport;
+    use dravr_canot::channels::slack::transport::SlackTransport;
 
     const SIGNING_SECRET: &str = "slack-signing-secret";
 
@@ -847,7 +847,7 @@ mod slack {
 #[cfg(feature = "client-messaging")]
 mod telegram {
     use super::*;
-    use pierre_messaging::channels::telegram::transport::TelegramTransport;
+    use dravr_canot::channels::telegram::transport::TelegramTransport;
 
     const WEBHOOK_SECRET: &str = "telegram-webhook-secret";
 

@@ -29,22 +29,22 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
+use dravr_canot::channel::MessagingChannel;
+use dravr_canot::error::{MessagingError, MessagingResult};
+use dravr_canot::models::MAX_RETRY_ATTEMPTS;
+use dravr_canot::turn::ConversationTurnId;
 use http::HeaderMap;
 use pierre_core::models::messaging::{
     ChannelConfig, ChannelType, DeliveryReceipt, DeliveryStatus, IncomingMessage, MessageContent,
     OutgoingMessage,
 };
 use pierre_core::models::{ConnectionType, TenantId};
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::backends::{
     EnqueueOutboundParams, OutboundReauthGuard, UpsertChannelConfigParams,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::backfill_notifier::{AdapterResolver, ServerBackfillNotifier};
-use pierre_messaging::channel::MessagingChannel;
-use pierre_messaging::error::{MessagingError, MessagingResult};
-use pierre_messaging::models::MAX_RETRY_ATTEMPTS;
-use pierre_messaging::turn::ConversationTurnId;
 use pierre_middleware::provider_link_token::verify_link_token;
 use pierre_notifications::{NotificationService, TenantId as CommereTenantId};
 use pierre_services::channel_adapters::ChannelAdapterFactory;
@@ -250,10 +250,10 @@ async fn fixture(first_send: ScriptedChannels, worker: ScriptedChannels) -> Fixt
         strings(),
         Arc::new(first_send) as Arc<dyn AdapterResolver>,
     )));
-    let service = Arc::new(match &*context.agent.database {
-        Database::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
+    let service = Arc::new(match context.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
+        DatabaseBackend::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
     });
     context.common.notification_service = Some(Arc::clone(&service));
     for channel in worker.0.keys() {
@@ -349,8 +349,8 @@ impl Fixture {
     /// repository reads only due entries, so the finished ones are read
     /// straight from the pool.
     async fn queue(&self) -> Vec<Value> {
-        let rows: Vec<QueueRow> = match &*self.database {
-            Database::SQLite(sqlite) => sqlx::query_as(
+        let rows: Vec<QueueRow> = match self.database.backend() {
+            DatabaseBackend::SQLite(sqlite) => sqlx::query_as(
                 "SELECT id, message_id, channel_type, status, attempt_count, reauth_provider \
                      FROM messaging_outbound_queue WHERE tenant_id = $1 ORDER BY created_at",
             )
@@ -359,7 +359,7 @@ impl Fixture {
             .await
             .unwrap(),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(pg) => sqlx::query_as(
+            DatabaseBackend::PostgreSQL(pg) => sqlx::query_as(
                 "SELECT id, message_id, channel_type, status, attempt_count, reauth_provider \
                      FROM messaging_outbound_queue WHERE tenant_id = $1 ORDER BY created_at",
             )

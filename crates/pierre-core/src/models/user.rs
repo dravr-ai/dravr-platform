@@ -259,16 +259,6 @@ impl UserStatus {
     pub const fn can_login(&self) -> bool {
         matches!(self, Self::Active)
     }
-
-    /// Get user-friendly status message
-    #[must_use]
-    pub const fn to_message(&self) -> &'static str {
-        match self {
-            Self::Pending => "Your account is pending admin approval",
-            Self::Active => "Account is active",
-            Self::Suspended => "Your account has been suspended",
-        }
-    }
 }
 
 impl Display for UserStatus {
@@ -772,24 +762,6 @@ impl UserPhysiologicalProfile {
         let fraction = self.lactate_threshold_percentage?;
         let max_hr = self.max_hr?;
         Some(f64::from(max_hr) * max_hr_fraction_at_vo2max_fraction(fraction))
-    }
-
-    /// Check if profile has sufficient data for VO2 max calculations
-    #[must_use]
-    pub const fn has_vo2_max_data(&self) -> bool {
-        self.vo2_max.is_some()
-            && self.resting_hr.is_some()
-            && (self.max_hr.is_some() || self.age.is_some())
-    }
-
-    /// Get fitness level from VO2 max if available
-    #[must_use]
-    pub fn fitness_level_from_vo2_max(&self) -> FitnessLevel {
-        self.vo2_max.map_or(self.fitness_level, |vo2_max| {
-            FitnessLevel::from_vo2_max(
-                vo2_max, self.age, None, // Gender not stored in this profile
-            )
-        })
     }
 }
 

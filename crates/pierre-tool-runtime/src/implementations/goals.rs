@@ -43,20 +43,8 @@ use crate::protocol::auth::AuthService;
 use crate::protocol::provider_helpers::resolve_provider_for_tool;
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
-use dravr_tronc::mcp::schema::{Tool, ToolResponse};
-use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
-use pierre_config::constants::defaults::DEFAULT_GOAL_TIMEFRAME_DAYS;
-use pierre_config::constants::goal_management::MIN_ACTIVITIES_FOR_TRAINING_HISTORY;
-use pierre_config::constants::limits::{
-    ACTIVITY_CAPACITY_HINT, MAX_TIMEFRAME_DAYS, METERS_PER_KILOMETER, PERCENTAGE_MULTIPLIER,
-};
-use pierre_config::constants::time_constants::{
-    DAYS_PER_MONTH, DAYS_PER_QUARTER, DAYS_PER_WEEK, DAYS_PER_YEAR, SECONDS_PER_HOUR_F64,
-};
-use pierre_core::errors::{AppError, AppResult, JsonResultExt};
-use pierre_core::models::Activity;
-use pierre_intelligence::goal_engine::{AdvancedGoalEngine, GoalEngineTrait};
-use pierre_intelligence::physiological_constants::goal_feasibility::{
+use dravr_cageux::goal_engine::{AdvancedGoalEngine, GoalEngineTrait};
+use dravr_cageux::physiological_constants::goal_feasibility::{
     ADEQUATE_FREQUENCY_DATA_THRESHOLD, ASSUMED_TRAINING_HISTORY_WEEKS, DAYS_PER_MONTH_APPROX,
     DEFAULT_TIMEFRAME_DAYS as GOAL_DEFAULT_TIMEFRAME_DAYS, EXCELLENT_CONFIDENCE_THRESHOLD,
     EXCELLENT_DATA_QUALITY_THRESHOLD, EXCESSIVE_IMPROVEMENT_PENALTY_FACTOR,
@@ -68,8 +56,22 @@ use pierre_intelligence::physiological_constants::goal_feasibility::{
     SAFE_RANGE_PENALTY_FACTOR, SIMPLE_PROGRESS_THRESHOLD, UNSAFE_IMPROVEMENT_PENALTY_BASE,
     VERY_LOW_CONFIDENCE_LEVEL, VOLUME_DOUBLING_THRESHOLD,
 };
-use pierre_intelligence::seasonality::build_seasonal_context;
-use pierre_intelligence::{FitnessLevel, TimeAvailability, UserFitnessProfile, UserPreferences};
+use dravr_cageux::seasonality::build_seasonal_context;
+use dravr_tronc::mcp::schema::{Tool, ToolResponse};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
+use pierre_config::constants::defaults::DEFAULT_GOAL_TIMEFRAME_DAYS;
+use pierre_config::constants::goal_management::MIN_ACTIVITIES_FOR_TRAINING_HISTORY;
+use pierre_config::constants::limits::{
+    ACTIVITY_CAPACITY_HINT, MAX_TIMEFRAME_DAYS, METERS_PER_KILOMETER, PERCENTAGE_MULTIPLIER,
+};
+use pierre_config::constants::time_constants::{
+    DAYS_PER_MONTH, DAYS_PER_QUARTER, DAYS_PER_WEEK, DAYS_PER_YEAR, SECONDS_PER_HOUR_F64,
+};
+use pierre_core::errors::{AppError, AppResult, JsonResultExt};
+use pierre_core::intelligence::{
+    FitnessLevel, TimeAvailability, UserFitnessProfile, UserPreferences,
+};
+use pierre_core::models::Activity;
 use pierre_mcp_schema::json_schemas::AnalyzeGoalFeasibilityParams;
 use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;

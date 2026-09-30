@@ -21,8 +21,8 @@ use std::time::Duration;
 
 use chrono::Utc;
 use pierre_core::models::{Tenant, TenantId, TenantPlan, ToolCatalogEntry, ToolCategory, User};
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::RepositoryRegistry;
+use pierre_test_support::db::create_test_db;
 use tokio::time::sleep;
 use uuid::Uuid;
 
@@ -183,7 +183,7 @@ async fn an_override_round_trips_and_reverts_to_the_default() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
     let repo = &repos.tool_selection;
-    let (tenant_id, operator) = fresh_tenant(&repos, "starter").await;
+    let (tenant_id, operator) = fresh_tenant(repos, "starter").await;
 
     let on_by_default = entry(ToolCategory::Goals, TenantPlan::Starter, true);
     let off_by_default = entry(ToolCategory::Goals, TenantPlan::Starter, false);

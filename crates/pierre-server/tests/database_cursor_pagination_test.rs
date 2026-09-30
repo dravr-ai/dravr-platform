@@ -12,7 +12,7 @@ use pierre_core::models::CoachingPersona;
 use pierre_core::models::{User, UserStatus, UserTier};
 use pierre_core::pagination::PaginationParams;
 use pierre_core::permissions::UserRole;
-use pierre_database::database::test_utils::create_test_db_with_key;
+use pierre_test_support::db::create_test_db_with_key;
 use tokio::time::{sleep, Duration};
 use uuid::Uuid;
 

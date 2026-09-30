@@ -43,7 +43,7 @@ mod agent_rebind_tests {
     };
     use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::{ConnectionType, Tenant, TenantId, User, UserStatus};
-    use pierre_database::backends::factory::Database;
+    use pierre_database::backends::factory::{Database, DatabaseBackend};
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -426,14 +426,14 @@ mod agent_rebind_tests {
     /// One nullable text column selected by `sql` with `$1` bound to `bind`,
     /// on whichever backend the test database is.
     async fn optional_text(db: &Database, sql: &str, bind: &str) -> Option<String> {
-        let row: Option<(Option<String>,)> = match db {
-            Database::SQLite(sqlite) => sqlx::query_as(sql)
+        let row: Option<(Option<String>,)> = match db.backend() {
+            DatabaseBackend::SQLite(sqlite) => sqlx::query_as(sql)
                 .bind(bind)
                 .fetch_optional(sqlite.pool())
                 .await
                 .unwrap(),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(pg) => sqlx::query_as(sql)
+            DatabaseBackend::PostgreSQL(pg) => sqlx::query_as(sql)
                 .bind(bind)
                 .fetch_optional(pg.pool())
                 .await

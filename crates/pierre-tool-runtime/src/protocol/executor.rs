@@ -18,6 +18,14 @@ use crate::reconnect::offer_in_payload;
 use crate::runtime::ToolRuntime;
 use crate::scopes::missing_scope;
 use chrono::{Duration, Utc};
+use dravr_cageux::config::intelligence::IntelligenceConfig;
+use dravr_cageux::physiological_constants::business_thresholds::{
+    DEFAULT_HR_EFFORT_SCORE, DISTANCE_SCORE_DIVISOR, DURATION_SCORE_FACTOR, MAX_SCORE,
+    MIN_VALID_DISTANCE,
+};
+use dravr_cageux::physiological_constants::efficiency_defaults::{
+    DEFAULT_EFFICIENCY_SCORE, DEFAULT_EFFICIENCY_WITH_DISTANCE,
+};
 use dravr_tronc::mcp::schema::{Content, ToolResponse};
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext};
 use pierre_config::constants::time_constants::SECONDS_PER_HOUR_F64;
@@ -27,14 +35,6 @@ use pierre_core::models::{Activity, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_database::repositories::PendingGuardianAction;
-use pierre_intelligence::physiological_constants::business_thresholds::{
-    DEFAULT_HR_EFFORT_SCORE, DISTANCE_SCORE_DIVISOR, DURATION_SCORE_FACTOR, MAX_SCORE,
-    MIN_VALID_DISTANCE,
-};
-use pierre_intelligence::physiological_constants::efficiency_defaults::{
-    DEFAULT_EFFICIENCY_SCORE, DEFAULT_EFFICIENCY_WITH_DISTANCE,
-};
-use pierre_intelligence::IntelligenceConfig;
 use pierre_services::onboarding_gate::user_has_connected_provider;
 use pierre_services::usage_counter::increment_counter;
 use serde_json::Value as JsonValue;

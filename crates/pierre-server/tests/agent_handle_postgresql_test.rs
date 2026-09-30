@@ -20,7 +20,7 @@ use pierre_core::models::agents::{
 use pierre_core::models::{CoachingPersona, Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 async fn seed_pg_user(db: &Database) -> Uuid {

@@ -36,8 +36,7 @@ bench = false
 [features]
 default = ["sqlite", "server-full", "sqlx/migrate"]
 sqlite = []
-postgresql = ["sqlx/postgres", "pierre-core/sqlx-postgres", "pierre-database/postgresql", "pierre-fitness-compute/postgresql", "pierre-notifications/postgresql", "pierre-services/postgresql"]
-testing = []
+postgresql = ["sqlx/postgres", "pierre-core/sqlx-postgres", "pierre-database/postgresql", "pierre-test-support/postgresql", "pierre-fitness-compute/postgresql", "pierre-notifications/postgresql", "pierre-services/postgresql"]
 telemetry = ["pierre-logging/telemetry", "pierre-middleware/telemetry", "pierre-core/telemetry"]
 toon = ["dep:toon-format", "pierre-formatters/toon"]
 analytics-posthog = ["pierre-services/analytics-posthog"]
@@ -54,7 +53,7 @@ provider-whoop = ["pierre-providers/provider-whoop"]
 provider-coros = ["pierre-providers/provider-coros"]
 provider-intervals-icu = ["pierre-providers/provider-intervals-icu"]
 provider-sciotte = ["pierre-providers/provider-sciotte", "pierre-routes-auth?/provider-sciotte"]
-health-sync = ["dep:pierre-enforme", "pierre-enforme/provider-whoop", "pierre-enforme/provider-garmin", "pierre-enforme/provider-coros", "pierre-enforme/provider-intervals-icu", "dep:dravr-equilibre-sync", "pierre-services/health-sync", "pierre-tool-runtime/health-sync", "pierre-routes-auth?/health-sync", "pierre-chat-pipeline?/health-sync"]
+health-sync = ["dep:dravr-enforme", "dravr-enforme/provider-whoop", "dravr-enforme/provider-garmin", "dravr-enforme/provider-coros", "dravr-enforme/provider-intervals-icu", "dep:dravr-equilibre-sync", "pierre-services/health-sync", "pierre-tool-runtime/health-sync", "pierre-routes-auth?/health-sync", "pierre-chat-pipeline?/health-sync"]
 all-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-whoop", "provider-coros", "provider-intervals-icu", "provider-sciotte"]
 production-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-whoop", "provider-coros", "provider-intervals-icu", "provider-sciotte"]
 
@@ -162,7 +161,7 @@ client-mcp-tokens = ["protocol-mcp"]     # user_mcp_tokens.rs
 
 # Depends on tools-groups: a non-DM chat auto-binds to a coaching group through
 # GroupService, which owns the tier gate and the group.created/joined events.
-client-messaging = ["protocol-rest", "dep:pierre-messaging", "dep:pierre-commands", "pierre-messaging/all-channels", "pierre-services/client-messaging", "tools-groups"]
+client-messaging = ["protocol-rest", "dep:dravr-canot", "dep:pierre-commands", "dravr-canot/all-channels", "pierre-services/client-messaging", "tools-groups"]
 client-notifications = ["protocol-rest", "dep:pierre-notifications", "dep:pierre-routes-groups", "pierre-routes-groups?/client-notifications", "pierre-services/client-notifications", "pierre-routes-agents/client-notifications", "pierre-runtime-context/client-notifications", "pierre-tool-runtime/client-notifications"]   # push notification routes (extracted to pierre-routes-groups)
 
 client-all = ["client-web", "client-admin", "client-mobile", "client-mcp-tokens", "client-messaging", "client-notifications"]
@@ -211,7 +210,7 @@ pierre-routes-identity = { version = "0.3.0", path = "../pierre-routes-identity"
 pierre-routes-web-admin = { version = "0.3.0", path = "../pierre-routes-web-admin", optional = true }
 pierre-services = { version = "0.3.0", path = "../pierre-services" }
 pierre-sse = { version = "0.3.0", path = "../pierre-sse", optional = true }
-pierre-intelligence = { version = "0.3.0", path = "../pierre-intelligence" }
+dravr-cageux = { workspace = true }
 pierre-fitness-compute = { version = "0.3.0", path = "../pierre-fitness-compute" }
 pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
 pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
@@ -220,7 +219,7 @@ pierre-cache = { version = "0.3.0", path = "../pierre-cache", features = ["redis
 pierre-config = { version = "0.3.0", path = "../pierre-config" }
 pierre-a2a = { version = "0.3.0", path = "../pierre-a2a", optional = true }
 pierre-routes-a2a = { version = "0.3.0", path = "../pierre-routes-a2a", optional = true }
-pierre-messaging = { version = "0.3.0", path = "../pierre-messaging", optional = true }
+dravr-canot = { workspace = true, optional = true }
 pierre-notifications = { version = "0.3.0", path = "../pierre-notifications", optional = true }
 pierre-groups = { version = "0.3.0", path = "../pierre-groups", optional = true }
 pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
@@ -229,8 +228,8 @@ dravr-contremaitre = { workspace = true }
 # Chart geometry: resolves a persisted dravr-viz spec into a Scene as a message is serialized.
 photograveur = { workspace = true }
 dravr-tronc = { workspace = true, features = ["notifications", "google-iam"] }
-pierre-weather = { path = "../pierre-weather", version = "0.3.0" }
-pierre-enforme = { path = "../pierre-enforme", version = "0.3.0", optional = true, features = ["provider-whoop"] }
+dravr-meteo = { workspace = true }
+dravr-enforme = { workspace = true, optional = true, features = ["provider-whoop"] }
 dravr-equilibre-sync = { workspace = true, optional = true }
 
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "net", "time", "fs", "signal", "io-std", "io-util", "sync"] }
@@ -242,7 +241,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
-reqwest-middleware = "0.3"
 async-stream = "0.3"
 thiserror = "2.0"
 tracing = "0.1"
@@ -314,6 +312,8 @@ cron = "0.15.0"
 [dev-dependencies]
 # Integration tests only — production code uses structured AppError (anyhow is banned in src/)
 anyhow = "1.0"
+# Test fixtures (create_test_db, user fixtures): a dev-dependency only, per ADR-027.
+pierre-test-support = { version = "0.3.0", path = "../pierre-test-support" }
 # Test-only: compiles a tool's declared outputSchema and validates the payload
 # the tool actually sends against it. Production only DERIVES schemas.
 jsonschema = { version = "0.46.5", default-features = false }

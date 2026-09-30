@@ -7,8 +7,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_intelligence::config::intelligence::{TrainingZonesConfig, VO2MaxCalculator};
-use pierre_intelligence::AlgorithmConfig;
+use dravr_cageux::config::intelligence::AlgorithmConfig;
+use dravr_cageux::config::intelligence::{TrainingZonesConfig, VO2MaxCalculator};
 
 #[test]
 fn test_vo2_max_calculator_creation() {

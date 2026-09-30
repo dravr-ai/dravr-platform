@@ -60,6 +60,11 @@ use crate::config::admin::AdminConfigService;
 use crate::services::photograveur_client::PhotograveurClient;
 use crate::services::turn_lifecycle::InFlightTurns;
 use crate::services::turn_runner::TurnRunner;
+use dravr_cageux::types::ActivityIntelligence;
+#[cfg(feature = "client-messaging")]
+use dravr_canot::commands::CommandRegistry;
+#[cfg(feature = "client-messaging")]
+use dravr_canot::ChannelRegistry;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase::FirebaseAuth;
@@ -82,14 +87,9 @@ use pierre_database::backends::factory::Database;
 use pierre_database::views::{AgentRepos, AuthRepos, FitnessRepos, UsageRepos};
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
-use pierre_intelligence::ActivityIntelligence;
 use pierre_llm::health::LlmHealthState;
 use pierre_llm::ChatProvider;
 use pierre_llm::LlmProvider;
-#[cfg(feature = "client-messaging")]
-use pierre_messaging::commands::CommandRegistry;
-#[cfg(feature = "client-messaging")]
-use pierre_messaging::ChannelRegistry;
 #[cfg(feature = "provider-sciotte")]
 use pierre_middleware::provider_link_token::NonceStore;
 use pierre_middleware::redaction::RedactionConfig;
@@ -247,7 +247,7 @@ pub struct FitnessSlice {
     pub activity_intelligence: Arc<ActivityIntelligence>,
     /// Health data sync orchestrator for wearable provider synchronization.
     #[cfg(feature = "health-sync")]
-    pub sync_orchestrator: Option<Arc<pierre_enforme::SyncOrchestrator>>,
+    pub sync_orchestrator: Option<Arc<dravr_enforme::SyncOrchestrator>>,
     /// Storage adapter behind the sync orchestrator, kept so the
     /// AuthService-backed credential refresher can be injected post-Arc
     /// (see `services::health_sync_refresher`).

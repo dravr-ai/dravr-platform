@@ -17,9 +17,9 @@ use axum::{
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
-use pierre_database::database::test_utils::create_test_db;
 use pierre_logging::{telemetry_enabled, LogFormat, LoggingConfig};
 use pierre_middleware::{request_id_middleware, RequestId};
+use pierre_test_support::db::create_test_db;
 use std::error::Error;
 use tower::ServiceExt;
 

@@ -79,14 +79,6 @@ impl NotificationStream {
             ))
         }
     }
-
-    /// Check if stream has active subscribers
-    pub async fn has_subscribers(&self) -> bool {
-        let sender_guard = self.sender.read().await;
-        sender_guard
-            .as_ref()
-            .is_some_and(|sender| sender.receiver_count() > 0)
-    }
 }
 
 impl Default for NotificationStream {

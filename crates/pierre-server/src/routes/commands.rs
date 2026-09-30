@@ -38,12 +38,12 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
+use dravr_canot::commands::CommandDefinition;
 use pierre_commands::{
     caller_group_standing, CallerGroupStanding, ConversationRotation, PlatformCommandContext,
 };
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::errors::AppError;
-use pierre_messaging::commands::CommandDefinition;
 use pierre_middleware::extract_auth_from_headers;
 use pierre_runtime_context::{resolve_tenant, tenant::require, CommandCtx, TenantMode};
 use pierre_services::locale::resolve_user_locale;

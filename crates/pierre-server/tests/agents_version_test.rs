@@ -14,7 +14,7 @@ use pierre_core::models::agents::{
 };
 use pierre_core::models::{Tenant, TenantId, User};
 use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 /// Open a test database and seed the rows the tests reference by fixed id.
@@ -65,7 +65,7 @@ fn test_tenant() -> TenantId {
 #[tokio::test]
 async fn test_create_version_manually() {
     let db = open_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create an agent first
     let request = CreateAgentRequest {
@@ -119,7 +119,7 @@ async fn test_create_version_manually() {
 #[tokio::test]
 async fn test_auto_version_on_update() {
     let db = open_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create an agent
     let request = CreateAgentRequest {
@@ -234,7 +234,7 @@ async fn test_auto_version_on_update() {
 #[tokio::test]
 async fn test_get_versions() {
     let db = open_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create agent and update twice
     let request = CreateAgentRequest {
@@ -333,7 +333,7 @@ async fn test_get_versions() {
 #[tokio::test]
 async fn test_get_versions_with_limit() {
     let db = open_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Test Coach".to_owned(),
@@ -404,7 +404,7 @@ async fn test_get_versions_with_limit() {
 #[tokio::test]
 async fn test_get_specific_version() {
     let db = open_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Original Title".to_owned(),
@@ -476,7 +476,7 @@ async fn test_get_specific_version() {
 #[tokio::test]
 async fn test_get_version_not_found() {
     let db = open_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Test Coach".to_owned(),
@@ -513,7 +513,7 @@ async fn test_get_version_not_found() {
 #[tokio::test]
 async fn test_get_version_wrong_tenant() {
     let db = open_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Test Coach".to_owned(),
@@ -562,7 +562,7 @@ async fn test_get_version_wrong_tenant() {
 #[tokio::test]
 async fn test_revert_to_version() {
     let db = open_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create agent with initial data
     let request = CreateAgentRequest {
@@ -645,7 +645,7 @@ async fn test_revert_to_version() {
 #[tokio::test]
 async fn test_revert_creates_new_version() {
     let db = open_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Original".to_owned(),
@@ -738,7 +738,7 @@ async fn test_revert_creates_new_version() {
 #[tokio::test]
 async fn test_revert_to_nonexistent_version() {
     let db = open_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Test".to_owned(),
@@ -778,7 +778,7 @@ async fn test_revert_to_nonexistent_version() {
 #[tokio::test]
 async fn test_version_snapshot_contains_all_fields() {
     let db = open_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Full Coach".to_owned(),
@@ -833,7 +833,7 @@ async fn test_version_snapshot_contains_all_fields() {
 #[tokio::test]
 async fn test_version_has_content_hash() {
     let db = open_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Test Coach".to_owned(),
@@ -878,7 +878,7 @@ async fn test_version_has_content_hash() {
 #[tokio::test]
 async fn test_different_content_different_hash() {
     let db = open_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Original".to_owned(),
@@ -980,7 +980,7 @@ async fn test_different_content_different_hash() {
 #[tokio::test]
 async fn test_system_agent_version_on_update() {
     let db = open_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create a system agent
     let request = CreateSystemAgentRequest {
@@ -1045,7 +1045,7 @@ async fn test_system_agent_version_on_update() {
 #[tokio::test]
 async fn test_update_with_change_summary() {
     let db = open_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Test Coach".to_owned(),
@@ -1117,7 +1117,7 @@ async fn test_update_with_change_summary() {
 #[tokio::test]
 async fn test_version_tracks_created_by() {
     let db = open_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Test Coach".to_owned(),
@@ -1168,7 +1168,7 @@ async fn test_version_tracks_created_by() {
 #[tokio::test]
 async fn test_get_versions_empty() {
     let db = open_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Test Coach".to_owned(),
@@ -1205,7 +1205,7 @@ async fn test_get_versions_empty() {
 #[tokio::test]
 async fn test_get_current_version_no_versions() {
     let db = open_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Test Coach".to_owned(),
@@ -1242,7 +1242,7 @@ async fn test_get_current_version_no_versions() {
 #[tokio::test]
 async fn test_version_deleted_with_agent() {
     let db = open_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Test Coach".to_owned(),
@@ -1305,7 +1305,7 @@ async fn test_version_deleted_with_agent() {
 #[tokio::test]
 async fn test_revert_denied_for_non_owner_leaves_agent_unchanged() {
     let db = open_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Owner creates a private agent.
     let request = CreateAgentRequest {

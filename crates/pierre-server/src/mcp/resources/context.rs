@@ -37,12 +37,10 @@ use pierre_chat_pipeline::McpBridgeProvider;
 
 #[cfg(feature = "client-chat")]
 use super::tool_surface::HostedToolBridge;
-use pierre_database::backends::StoreListingsRepository;
-use pierre_database::database::repositories::{
-    AgentsRepository, MobilityRepository, RecipeRepository,
-};
 #[cfg(feature = "client-messaging")]
-use pierre_messaging::ChannelRegistry;
+use dravr_canot::ChannelRegistry;
+use pierre_database::backends::StoreListingsRepository;
+use pierre_database::database::repositories::AgentsRepository;
 #[cfg(feature = "health-sync")]
 use pierre_services::personal_bests::PersonalBests;
 #[cfg(feature = "health-sync")]
@@ -109,18 +107,6 @@ impl ServerContext {
     #[must_use]
     pub fn store_listings_repository(&self) -> &dyn StoreListingsRepository {
         self.common.repos.store_listings.as_ref()
-    }
-
-    /// Get the recipe repository
-    #[must_use]
-    pub fn recipe_repository(&self) -> &dyn RecipeRepository {
-        self.common.repos.recipes.as_ref()
-    }
-
-    /// Get the mobility repository
-    #[must_use]
-    pub fn mobility_repository(&self) -> &dyn MobilityRepository {
-        self.common.repos.mobility.as_ref()
     }
 
     /// Get the messaging channel registry

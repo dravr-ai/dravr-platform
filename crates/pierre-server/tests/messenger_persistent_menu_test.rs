@@ -15,8 +15,8 @@
 
 #[cfg(feature = "client-messaging")]
 mod messenger_menu_tests {
+    use dravr_canot::commands::CommandRegistry;
     use pierre_commands::load_command_catalog;
-    use pierre_messaging::commands::CommandRegistry;
     use pierre_services::messenger_persistent_menu::persistent_menu_payload;
     use serde_json::Value;
     use std::path::Path;

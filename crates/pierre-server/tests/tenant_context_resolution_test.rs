@@ -9,7 +9,7 @@
 
 use chrono::Utc;
 use pierre_core::models::{Tenant, TenantId};
-use pierre_database::database::test_utils::create_test_db_with_key;
+use pierre_test_support::db::create_test_db_with_key;
 
 mod common;
 use common::*;

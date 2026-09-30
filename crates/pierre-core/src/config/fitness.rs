@@ -178,18 +178,6 @@ impl FitnessConfig {
         }
     }
 
-    /// Get the internal sport type name for a provider sport type
-    #[must_use]
-    pub fn map_sport_type(&self, provider_sport: &str) -> Option<&str> {
-        self.sport_types.get(provider_sport).map(String::as_str)
-    }
-
-    /// Get all configured sport type mappings
-    #[must_use]
-    pub const fn get_sport_mappings(&self) -> &HashMap<String, String> {
-        &self.sport_types
-    }
-
     /// Apply environment variable overrides to the configuration
     fn apply_environment_overrides(config: &mut Self) {
         Self::apply_effort_threshold_overrides(&mut config.intelligence.effort_thresholds);

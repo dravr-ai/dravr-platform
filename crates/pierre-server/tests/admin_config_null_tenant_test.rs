@@ -34,12 +34,12 @@
 
 use pierre_config::admin_types::{ConfigDataType, ConfigScope};
 use pierre_core::models::{Tenant, TenantId, User};
-use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::admin::postgres_manager::PostgresAdminConfigManager;
 use pierre_mcp_server::config::admin::repository::SetOverrideParams;
 use pierre_mcp_server::config::admin::{AdminConfigManager, AdminConfigRepository};
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 /// Category of a real catalogued parameter, so the row under test is shaped
@@ -50,10 +50,12 @@ const KEY: &str = "group_creation_policy";
 
 /// Build the repository for whichever backend [`create_test_db`] opened.
 fn repository(db: &Database) -> Box<dyn AdminConfigRepository> {
-    match db {
-        Database::SQLite(sqlite) => Box::new(AdminConfigManager::new(sqlite.pool().clone())),
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => Box::new(AdminConfigManager::new(sqlite.pool().clone())),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => Box::new(PostgresAdminConfigManager::new(pg.pool().clone())),
+        DatabaseBackend::PostgreSQL(pg) => {
+            Box::new(PostgresAdminConfigManager::new(pg.pool().clone()))
+        }
     }
 }
 
@@ -103,8 +105,8 @@ async fn count_rows(db: &Database, tenant: Option<&str>) -> i64 {
         "SELECT COUNT(*) FROM admin_config_overrides \
          WHERE category = $1 AND config_key = $2 AND tenant_id IS NULL AND user_id IS NULL"
     };
-    match db {
-        Database::SQLite(sqlite) => {
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
             let mut q = sqlx::query_scalar(sql).bind(CATEGORY).bind(KEY);
             if let Some(t) = tenant {
                 q = q.bind(t);
@@ -112,7 +114,7 @@ async fn count_rows(db: &Database, tenant: Option<&str>) -> i64 {
             q.fetch_one(sqlite.pool()).await.unwrap()
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => {
+        DatabaseBackend::PostgreSQL(pg) => {
             let mut q = sqlx::query_scalar(sql).bind(CATEGORY).bind(KEY);
             if let Some(t) = tenant {
                 q = q.bind(t);

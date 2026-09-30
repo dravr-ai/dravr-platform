@@ -46,31 +46,6 @@ pub fn extract_bearer_token_owned(auth_header: &str) -> AppResult<String> {
     extract_bearer_token(auth_header).map(str::to_owned)
 }
 
-/// Extract bearer token from optional Authorization header
-///
-/// # Errors
-///
-/// Returns an error if:
-/// - Authorization header is missing (None)
-/// - Header format is invalid
-/// - Token is empty
-pub fn extract_bearer_token_from_option(auth_header: Option<&str>) -> AppResult<&str> {
-    let header = auth_header.ok_or_else(AppError::auth_required)?;
-    extract_bearer_token(header)
-}
-
-/// Extract bearer token from optional Authorization header as owned String
-///
-/// # Errors
-///
-/// Returns an error if:
-/// - Authorization header is missing (None)
-/// - Header format is invalid  
-/// - Token is empty
-pub fn extract_bearer_token_from_option_owned(auth_header: Option<&str>) -> AppResult<String> {
-    extract_bearer_token_from_option(auth_header).map(str::to_owned)
-}
-
 /// Whether an Authorization header value, or the bearer token a transport
 /// stripped from one, is an API key this server issues (`pk_live_` or
 /// `pk_trial_`).

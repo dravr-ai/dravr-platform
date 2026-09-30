@@ -20,8 +20,8 @@
     clippy::float_cmp
 )]
 
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::repositories::WeatherCacheEntry;
+use pierre_test_support::db::create_test_db;
 
 fn entry(lat_centi: i32, lng_centi: i32, hour_unix: i64, temp: f32) -> WeatherCacheEntry {
     WeatherCacheEntry {

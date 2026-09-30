@@ -22,8 +22,6 @@
 use pierre_core::errors::{AppError, AppResult};
 use pierre_memory::{ClaimCategory, EvidenceStrength};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
-use tokio::fs;
 
 /// A single atomic proposition in the evidence corpus.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,19 +55,6 @@ pub struct EvidenceCorpus {
 }
 
 impl EvidenceCorpus {
-    /// Build a corpus from a JSONL file on disk, one record per line.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the file cannot be read or any line fails to
-    /// deserialize into an [`EvidenceRecord`].
-    pub async fn load_from_path<P: AsRef<Path>>(path: P) -> AppResult<Self> {
-        let contents = fs::read_to_string(path.as_ref())
-            .await
-            .map_err(|e| AppError::internal(format!("Failed to read evidence corpus: {e}")))?;
-        Self::from_jsonl(&contents)
-    }
-
     /// Build a corpus directly from JSONL text.
     ///
     /// Retained as a lightweight constructor for tests that want to inline

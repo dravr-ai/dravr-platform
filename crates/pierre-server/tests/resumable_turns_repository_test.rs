@@ -21,8 +21,8 @@ use anyhow::Result;
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::repositories::{ResumableTurnClaim, ResumableTurnRow, TurnClaim, TurnLease};
+use pierre_test_support::db::create_test_db_with_key;
 use uuid::Uuid;
 
 /// The cap the dispatcher applies; the repository takes it as a parameter so

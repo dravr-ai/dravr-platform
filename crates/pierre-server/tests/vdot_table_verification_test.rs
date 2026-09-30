@@ -7,7 +7,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_intelligence::{AlgorithmConfig, PerformancePredictor};
+use dravr_cageux::config::intelligence::AlgorithmConfig;
+use dravr_cageux::performance_prediction::PerformancePredictor;
 
 /// Default algorithm config (daniels VDOT) for table-verification tests.
 fn cfg() -> AlgorithmConfig {

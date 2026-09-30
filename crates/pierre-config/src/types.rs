@@ -25,18 +25,6 @@ pub enum LogLevel {
 }
 
 impl LogLevel {
-    /// Convert to `tracing::Level`
-    #[must_use]
-    pub const fn to_tracing_level(&self) -> tracing::Level {
-        match self {
-            Self::Error => tracing::Level::ERROR,
-            Self::Warn => tracing::Level::WARN,
-            Self::Info => tracing::Level::INFO,
-            Self::Debug => tracing::Level::DEBUG,
-            Self::Trace => tracing::Level::TRACE,
-        }
-    }
-
     /// Parse from string with fallback
     #[must_use]
     pub fn from_str_or_default(s: &str) -> Self {
@@ -90,18 +78,6 @@ impl Environment {
     #[must_use]
     pub const fn is_production(&self) -> bool {
         matches!(self, Self::Production)
-    }
-
-    /// Check if this is a development environment
-    #[must_use]
-    pub const fn is_development(&self) -> bool {
-        matches!(self, Self::Development)
-    }
-
-    /// Check if this is a testing environment
-    #[must_use]
-    pub const fn is_testing(&self) -> bool {
-        matches!(self, Self::Testing)
     }
 }
 

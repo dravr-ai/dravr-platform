@@ -1110,17 +1110,4 @@ impl AuthService {
         self.handle_expired_token(user_id, tenant_id, provider, &oauth_token)
             .await
     }
-
-    /// Check if user has valid authentication for a provider
-    pub async fn has_valid_auth(
-        &self,
-        user_id: Uuid,
-        provider: &str,
-        tenant_id: Option<&str>,
-    ) -> bool {
-        matches!(
-            self.get_valid_token(user_id, provider, tenant_id).await,
-            Ok(Some(_))
-        )
-    }
 }

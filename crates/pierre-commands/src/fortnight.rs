@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
+use dravr_canot::commands::CommandResponse;
 use pierre_contremaitre::messaging_strings::{
     KEY_FORTNIGHT_ARM_FAILED, KEY_FORTNIGHT_BLOCKED, KEY_FORTNIGHT_COVERED,
     KEY_FORTNIGHT_NO_PHASES, KEY_FORTNIGHT_NO_PLAN, KEY_FORTNIGHT_WALK_RUNNING,
@@ -12,7 +13,6 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::errors::AppError;
 use pierre_core::models::onboarding::{GuidedFlow, OnboardingState};
-use pierre_messaging::commands::CommandResponse;
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::fortnight::{
     decide_fortnight, CoverageReading, DeclineReason, FortnightInputs, FortnightVerdict,

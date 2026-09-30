@@ -13,7 +13,7 @@ publish = false
 [features]
 default = []
 # Health backfill kicks in after a successful OAuth connection (handled inside oauth.rs handler).
-health-sync = ["pierre-services/health-sync", "dep:pierre-enforme"]
+health-sync = ["pierre-services/health-sync", "dep:dravr-enforme"]
 # Sciotte (Strava-mirror) provider routes: credential login + hosted login pages.
 provider-sciotte = ["dep:dravr-sciotte", "dep:pierre-groups", "pierre-providers/provider-sciotte"]
 
@@ -54,7 +54,7 @@ uuid = { version = "1.22", features = ["v4", "serde"] }
 dravr-sciotte = { workspace = true, optional = true }
 
 # Health backfill (health-sync feature)
-pierre-enforme = { version = "0.3.0", path = "../pierre-enforme", optional = true }
+dravr-enforme = { workspace = true, optional = true }
 
 [lints]
 workspace = true

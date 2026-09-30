@@ -12,9 +12,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use chrono::Utc;
+use dravr_enforme::models::connection::ConnectedUser;
 use pierre_core::models::{OAuthNotification, SmartScheduleWeights, TenantId};
 use pierre_database::AuthRepos;
-use pierre_enforme::models::connection::ConnectedUser;
 use pierre_providers::backend_resolver::{is_mirror_backend, sync_backend};
 use tokio::task::AbortHandle;
 use tracing::{info, warn};
@@ -40,13 +40,13 @@ use crate::sync_failure_notice::{health_sync_failure_is_told, SyncFailureNotices
 ///
 /// Returns an `AbortHandle` to cancel the background task on shutdown.
 pub fn start_scheduled_sync(
-    orchestrator: Arc<pierre_enforme::SyncOrchestrator>,
+    orchestrator: Arc<dravr_enforme::SyncOrchestrator>,
     repos: &AuthRepos,
     sse_manager: Arc<dyn SyncNotifier>,
     rate_limiter: Option<Arc<ProviderRateLimiter>>,
     notices: SyncFailureNotices,
 ) -> AbortHandle {
-    use pierre_enforme::orchestrator::scheduler::with_jitter;
+    use dravr_enforme::orchestrator::scheduler::with_jitter;
     use tokio::time::sleep;
 
     let repos = repos.clone();
@@ -80,7 +80,7 @@ pub fn start_scheduled_sync(
 
 /// Execute one full sync cycle across all providers and users.
 async fn run_scheduled_sync_cycle(
-    orchestrator: &Arc<pierre_enforme::SyncOrchestrator>,
+    orchestrator: &Arc<dravr_enforme::SyncOrchestrator>,
     repos: &AuthRepos,
     sse_manager: &Arc<dyn SyncNotifier>,
     rate_limiter: Option<&Arc<ProviderRateLimiter>>,
@@ -120,7 +120,7 @@ async fn run_scheduled_sync_cycle(
 
 /// Sync all active users for a single provider, checking rate limits per user.
 async fn sync_provider_users(
-    orchestrator: &Arc<pierre_enforme::SyncOrchestrator>,
+    orchestrator: &Arc<dravr_enforme::SyncOrchestrator>,
     repos: &AuthRepos,
     sse_manager: &Arc<dyn SyncNotifier>,
     rate_limiter: Option<&Arc<ProviderRateLimiter>>,
@@ -171,7 +171,7 @@ async fn sync_provider_users(
 
 /// Sync a single user for a given provider, recording metrics and sending notifications.
 async fn sync_single_user(
-    orchestrator: &Arc<pierre_enforme::SyncOrchestrator>,
+    orchestrator: &Arc<dravr_enforme::SyncOrchestrator>,
     repos: &AuthRepos,
     sse_manager: &Arc<dyn SyncNotifier>,
     notices: &SyncFailureNotices,

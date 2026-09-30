@@ -122,7 +122,6 @@
 
 use crate::backend_resolver::user_facing_name;
 use crate::errors::{AppError, AppResult};
-use crate::models::TenantId;
 use crate::models::{
     Activity, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout, Stats, TimeSeriesData,
 };
@@ -133,8 +132,6 @@ use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use tracing::info;
-use uuid::Uuid;
 
 /// Callback invoked when a provider refreshes its OAuth tokens internally.
 ///
@@ -637,165 +634,4 @@ pub trait ProviderFactory: Send + Sync {
 
     /// Get supported provider names
     fn supported_providers(&self) -> &'static [&'static str];
-}
-
-/// Tenant-aware provider wrapper that handles multi-tenancy
-pub struct TenantProvider {
-    inner: Box<dyn FitnessProvider>,
-    tenant_id: TenantId,
-    user_id: Uuid,
-}
-
-impl TenantProvider {
-    /// Create a new tenant-aware provider
-    #[must_use]
-    pub fn new(inner: Box<dyn FitnessProvider>, tenant_id: TenantId, user_id: Uuid) -> Self {
-        Self {
-            inner,
-            tenant_id,
-            user_id,
-        }
-    }
-
-    /// Get tenant ID
-    #[must_use]
-    pub const fn tenant_id(&self) -> TenantId {
-        self.tenant_id
-    }
-
-    /// Get user ID
-    #[must_use]
-    pub const fn user_id(&self) -> Uuid {
-        self.user_id
-    }
-}
-
-#[async_trait]
-impl FitnessProvider for TenantProvider {
-    fn name(&self) -> &'static str {
-        self.inner.name()
-    }
-
-    fn config(&self) -> &ProviderConfig {
-        self.inner.config()
-    }
-
-    async fn set_credentials(&self, credentials: OAuth2Credentials) -> AppResult<()> {
-        // Add tenant-specific logging/metrics here
-        info!(
-            "Setting credentials for provider {} in tenant {} for user {}",
-            self.name(),
-            self.tenant_id,
-            self.user_id
-        );
-        self.inner.set_credentials(credentials).await
-    }
-
-    async fn is_authenticated(&self) -> bool {
-        self.inner.is_authenticated().await
-    }
-
-    async fn refresh_token_if_needed(&self) -> AppResult<()> {
-        self.inner.refresh_token_if_needed().await
-    }
-
-    fn set_token_refresh_callback(&self, callback: TokenRefreshCallback) {
-        self.inner.set_token_refresh_callback(callback);
-    }
-
-    async fn get_athlete(&self) -> AppResult<Athlete> {
-        self.inner.get_athlete().await
-    }
-
-    async fn get_activities_with_params(
-        &self,
-        params: &ActivityQueryParams,
-    ) -> AppResult<Vec<Activity>> {
-        self.inner.get_activities_with_params(params).await
-    }
-
-    fn head_complete(&self) -> bool {
-        self.inner.head_complete()
-    }
-
-    async fn get_activities_cursor(
-        &self,
-        params: &PaginationParams,
-    ) -> AppResult<CursorPage<Activity>> {
-        self.inner.get_activities_cursor(params).await
-    }
-
-    async fn get_activity(&self, id: &str) -> AppResult<Activity> {
-        self.inner.get_activity(id).await
-    }
-
-    // Without this forward the wrapper fell back to the trait default
-    // (get_activity), silently degrading a provider with a real detail
-    // endpoint (Strava, Garmin) to its summary shape — laps and splits gone.
-    async fn get_activity_detailed(&self, id: &str) -> AppResult<Activity> {
-        self.inner.get_activity_detailed(id).await
-    }
-
-    // Same rule as the detail forward above: without it, every tenant-scoped
-    // provider would report no stream source.
-    fn serves_activity_streams(&self) -> bool {
-        self.inner.serves_activity_streams()
-    }
-
-    // Same rule as the detail forward above: without it, every tenant-scoped
-    // call would silently take the streams-less default.
-    async fn get_activity_with_streams(&self, id: &str) -> AppResult<Activity> {
-        self.inner.get_activity_with_streams(id).await
-    }
-
-    // Same rule again: without it, a tenant-scoped streams read would take
-    // the default and pay the detail round trip the provider's own override
-    // exists to skip.
-    async fn get_activity_streams(&self, id: &str) -> AppResult<Option<TimeSeriesData>> {
-        self.inner.get_activity_streams(id).await
-    }
-
-    async fn get_stats(&self) -> AppResult<Stats> {
-        self.inner.get_stats().await
-    }
-
-    // The planned read is forwarded for the same reason: without it a
-    // tenant-scoped provider would answer the "does not expose planned
-    // workouts" refusal while the provider it wraps can read the calendar.
-    async fn list_planned_workouts(
-        &self,
-        after: NaiveDate,
-        before: NaiveDate,
-    ) -> AppResult<Vec<PlannedWorkout>> {
-        self.inner.list_planned_workouts(after, before).await
-    }
-
-    // The calendar write surface is forwarded like every read: a wrapped
-    // provider that answered "unsupported" here while the inner one could
-    // write would turn a tenant-scoped push into a silent refusal.
-    async fn list_calendar_events(
-        &self,
-        from: NaiveDate,
-        to: NaiveDate,
-    ) -> AppResult<Vec<CalendarEventRef>> {
-        self.inner.list_calendar_events(from, to).await
-    }
-
-    async fn push_planned_session(&self, session: &PlannedSession) -> AppResult<String> {
-        self.inner.push_planned_session(session).await
-    }
-
-    async fn update_planned_session(
-        &self,
-        provider_event_id: &str,
-        session: &PlannedSession,
-    ) -> AppResult<()> {
-        self.inner
-            .update_planned_session(provider_event_id, session)
-            .await
-    }
-
-    async fn delete_planned_sessions(&self, provider_event_ids: &[String]) -> AppResult<u64> {
-        self.inner.delete_planned_sessions(provider_event_ids).await
-    }
 }

@@ -16,11 +16,9 @@ use chrono::{Duration, Utc};
 use pierre_auth::api_keys::{ApiKey, ApiKeyTier, ApiKeyUsage};
 use pierre_core::models::JwtUsage;
 use pierre_core::models::{TenantId, User, UserOAuthToken, UserTier};
-use pierre_database::{
-    backends::DatabaseProvider, database::generate_encryption_key,
-    database::test_utils::create_test_db_with_key,
-};
+use pierre_database::{backends::DatabaseProvider, database::generate_encryption_key};
 use pierre_mcp_server::constants::oauth_providers;
+use pierre_test_support::db::create_test_db_with_key;
 use serial_test::serial;
 use uuid::Uuid;
 
@@ -847,8 +845,8 @@ mod postgres_tests {
     use super::*;
     use pierre_config::environment::PostgresPoolConfig;
     use pierre_database::backends::factory::Database;
-    use pierre_database::database::test_utils::create_test_db;
-    use pierre_database::database::test_utils::create_test_db_url;
+    use pierre_test_support::db::create_test_db;
+    use pierre_test_support::db::create_test_db_url;
 
     #[tokio::test]
     async fn test_postgres_database_creation() -> Result<()> {

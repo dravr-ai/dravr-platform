@@ -20,7 +20,7 @@ use pierre_database::backends::{
     factory::Database, CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams,
     UpsertChannelConfigParams,
 };
-use pierre_database::database::test_utils::create_test_db;
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 // ============================================================================

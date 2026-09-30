@@ -15,11 +15,11 @@
 
 use std::collections::HashMap;
 
+use dravr_cageux::config::intelligence::IntelligenceConfig;
 use pierre_config::admin_definitions::ParameterDefinition;
 use pierre_config::nutrition_params::{
     athlete_protein_g_per_kg, register_nutrition, PROTEIN_ATHLETE_G_PER_KG_KEY,
 };
-use pierre_intelligence::IntelligenceConfig;
 use serde_json::json;
 
 fn protein_athlete() -> ParameterDefinition {

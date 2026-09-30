@@ -11,13 +11,10 @@
 //!
 //! This module provides authentication and authorization functionality for admin services.
 
-use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use serde_json::json;
-use tokio::sync::RwLock;
-use tracing::{debug, info};
+use tracing::info;
 
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_core::admin::models::{
@@ -34,31 +31,19 @@ pub struct AdminAuthService {
     admin: Arc<dyn AdminRepository>,
     jwt_manager: AdminJwtManager,
     jwks_manager: Arc<JwksManager>,
-    // TTL cache for validated tokens with automatic expiration
-    token_cache: Arc<RwLock<HashMap<String, (ValidatedAdminToken, Instant)>>>,
-    // Cache TTL in seconds (default: 300 seconds = 5 minutes)
-    cache_ttl: Duration,
 }
 
 impl AdminAuthService {
-    /// Default cache TTL (5 minutes) - exposed for test configuration
-    pub const DEFAULT_CACHE_TTL_SECS: u64 = 300;
-
     /// Create new admin auth service with RS256 (REQUIRED)
     ///
-    /// The `cache_ttl_secs` parameter should come from `ServerConfig.auth.admin_token_cache_ttl_secs`.
+    /// Every authentication reads the token row from the database, so a
+    /// revoked or expired token is refused on its next request.
     #[must_use]
-    pub fn new(
-        admin: Arc<dyn AdminRepository>,
-        jwks_manager: Arc<JwksManager>,
-        cache_ttl_secs: u64,
-    ) -> Self {
+    pub fn new(admin: Arc<dyn AdminRepository>, jwks_manager: Arc<JwksManager>) -> Self {
         Self {
             admin,
             jwt_manager: AdminJwtManager::new(),
             jwks_manager,
-            token_cache: Arc::new(RwLock::new(HashMap::new())),
-            cache_ttl: Duration::from_secs(cache_ttl_secs),
         }
     }
 
@@ -162,66 +147,12 @@ impl AdminAuthService {
         self.log_token_usage(&stored_token.id, "auth_check", None, ip_address, true, None)
             .await?;
 
-        // Step 6: Update cache
-        {
-            let mut cache = self.token_cache.write().await;
-            cache.insert(
-                validated_token.token_id.clone(),
-                (validated_token.clone(), Instant::now()),
-            );
-        }
-
         info!(
             "Admin authentication successful: token_id={}",
             validated_token.token_id
         );
 
         Ok(validated_token)
-    }
-
-    /// Fast authentication check using cache
-    ///
-    /// # Errors
-    /// Returns an error if:
-    /// - Token extraction fails
-    /// - Full authentication fails when cache misses
-    pub async fn quick_auth_check(
-        &self,
-        token: &str,
-        required_permission: AdminPermission,
-    ) -> AppResult<ValidatedAdminToken> {
-        // Validate token to extract token_id for cache lookup
-        let validated_token = self.jwt_manager.validate_token(token, &self.jwks_manager)?;
-
-        // Try cache first with TTL check
-        {
-            let mut cache = self.token_cache.write().await;
-            if let Some((cached_token, timestamp)) = cache.get(&validated_token.token_id) {
-                // Check if cache entry is still valid (within TTL)
-                if timestamp.elapsed() < self.cache_ttl {
-                    if cached_token
-                        .permissions
-                        .has_permission(&required_permission)
-                    {
-                        let result = cached_token.clone();
-                        drop(cache);
-                        return Ok(result);
-                    }
-                } else {
-                    // Expired - remove it
-                    cache.remove(&validated_token.token_id);
-                    drop(cache);
-                    debug!(
-                        "Removed expired admin token from cache: {}",
-                        validated_token.token_id
-                    );
-                }
-            }
-        }
-
-        // Cache miss or expired - do full authentication
-        self.authenticate_and_authorize(token, required_permission, None)
-            .await
     }
 
     /// Log admin token usage for audit trail
@@ -253,24 +184,6 @@ impl AdminAuthService {
 
         self.admin.record_token_usage(&usage).await?;
         Ok(())
-    }
-
-    /// Invalidate token cache (call when token is revoked)
-    pub async fn invalidate_cache(&self, token_id: &str) {
-        {
-            let mut cache = self.token_cache.write().await;
-            cache.remove(token_id);
-        }
-        info!("Invalidated admin token cache for: {token_id}");
-    }
-
-    /// Clear all cached tokens
-    pub async fn clear_cache(&self) {
-        {
-            let mut cache = self.token_cache.write().await;
-            cache.clear();
-        }
-        info!("Cleared admin token cache");
     }
 
     /// Get JWT manager for token operations

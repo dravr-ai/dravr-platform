@@ -13,7 +13,7 @@ use pierre_auth::key_management::{
     DatabaseEncryptionKey, KeyManager, LocalKekProvider, MasterEncryptionKey,
 };
 use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db_with_key;
+use pierre_test_support::db::create_test_db_with_key;
 use serial_test::serial;
 
 const AAD: &str = "tenant-1|11111111-1111-1111-1111-111111111111|strava|user_oauth_tokens";

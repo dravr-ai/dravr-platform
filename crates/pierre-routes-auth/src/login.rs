@@ -74,7 +74,6 @@ pub async fn handle_register(
     let admin_auth_service = AdminAuthService::new(
         resources.repos.admin.clone(),
         resources.jwks_manager.clone(),
-        resources.config.auth.admin_token_cache_ttl_secs,
     );
 
     // Authenticate admin (no specific permission check - any valid admin token can register users)

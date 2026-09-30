@@ -13,7 +13,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tracing::{info, warn};
 
-use pierre_weather::{
+use dravr_meteo::{
     CacheLimits, CachedGeocoder, CachedProvider, GeocodeError, Geocoder, InMemoryStore,
     OpenMeteoForecastProvider, OpenMeteoGeocoder, Place, PlaceQuery, WeatherError, WeatherProvider,
     WeatherQuery, WeatherSample,

@@ -26,7 +26,7 @@ mod common;
 
 use chrono::Utc;
 use pierre_core::models::{StoredSleepSession, TenantId};
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::{Aggregation, DataPoint, SeriesType, TimeRange};
 
 use std::sync::Arc;
@@ -42,8 +42,8 @@ async fn make_user_and_tenant(db: &Arc<Database>) -> (Uuid, TenantId, String) {
     let tenant_id = TenantId::generate();
     // sleep_sessions.data_source_id has FK to data_sources(id) — seed a row.
     let data_source_id = format!("ds-{}", Uuid::new_v4());
-    match db.as_ref() {
-        Database::SQLite(sqlite) => {
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
             sqlx::query(INSERT_SOURCE)
                 .bind(&data_source_id)
                 .bind(user_id.to_string())
@@ -54,7 +54,7 @@ async fn make_user_and_tenant(db: &Arc<Database>) -> (Uuid, TenantId, String) {
                 .unwrap();
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => {
+        DatabaseBackend::PostgreSQL(pg) => {
             sqlx::query(INSERT_SOURCE)
                 .bind(&data_source_id)
                 .bind(user_id.to_string())
@@ -73,14 +73,14 @@ async fn make_user_and_tenant(db: &Arc<Database>) -> (Uuid, TenantId, String) {
 /// row is gone.
 async fn deleted_at_is_set(db: &Database, id: &str) -> Option<bool> {
     const SQL: &str = "SELECT deleted_at IS NOT NULL FROM sleep_sessions WHERE id = $1";
-    match db {
-        Database::SQLite(sqlite) => sqlx::query_scalar(SQL)
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => sqlx::query_scalar(SQL)
             .bind(id)
             .fetch_optional(sqlite.pool())
             .await
             .unwrap(),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => sqlx::query_scalar(SQL)
+        DatabaseBackend::PostgreSQL(pg) => sqlx::query_scalar(SQL)
             .bind(id)
             .fetch_optional(pg.pool())
             .await
@@ -116,7 +116,7 @@ fn sleep_session(user_id: Uuid, source_name: &str, data_source_id: &str) -> Stor
 async fn sleep_soft_delete_hides_row_from_reads_but_keeps_it_in_table() {
     common::init_server_config();
     let database = common::create_test_database().await.unwrap();
-    let repos = Arc::new(database.repositories());
+    let repos = Arc::clone(database.repositories());
     let (user_id, tenant_id, ds) = make_user_and_tenant(&database).await;
 
     let session = sleep_session(user_id, "strava", &ds);
@@ -189,7 +189,7 @@ async fn sleep_soft_delete_hides_row_from_reads_but_keeps_it_in_table() {
 async fn sleep_hard_delete_removes_the_row_entirely() {
     common::init_server_config();
     let database = common::create_test_database().await.unwrap();
-    let repos = Arc::new(database.repositories());
+    let repos = Arc::clone(database.repositories());
     let (user_id, tenant_id, ds) = make_user_and_tenant(&database).await;
 
     let session = sleep_session(user_id, "garmin", &ds);
@@ -219,7 +219,7 @@ async fn sleep_hard_delete_removes_the_row_entirely() {
 async fn sleep_find_tenant_resolves_owner_then_delete_works() {
     common::init_server_config();
     let database = common::create_test_database().await.unwrap();
-    let repos = Arc::new(database.repositories());
+    let repos = Arc::clone(database.repositories());
     let (user_id, tenant_id, ds) = make_user_and_tenant(&database).await;
 
     let session = sleep_session(user_id, "strava", &ds);
@@ -252,7 +252,7 @@ async fn sleep_find_tenant_resolves_owner_then_delete_works() {
 async fn sleep_delete_by_id_rejects_wrong_tenant() {
     common::init_server_config();
     let database = common::create_test_database().await.unwrap();
-    let repos = Arc::new(database.repositories());
+    let repos = Arc::clone(database.repositories());
     let (user_id, owner_tenant, ds) = make_user_and_tenant(&database).await;
     let other_tenant = TenantId::generate();
 
@@ -286,7 +286,7 @@ async fn sleep_delete_by_id_rejects_wrong_tenant() {
 async fn time_series_insert_round_trips_within_a_range() {
     common::init_server_config();
     let database = common::create_test_database().await.unwrap();
-    let repos = Arc::new(database.repositories());
+    let repos = Arc::clone(database.repositories());
     let (_user_id, _tenant_id, ds) = make_user_and_tenant(&database).await;
 
     let now = Utc::now();
@@ -331,7 +331,7 @@ async fn time_series_insert_round_trips_within_a_range() {
 async fn time_series_insert_is_idempotent_on_conflict() {
     common::init_server_config();
     let database = common::create_test_database().await.unwrap();
-    let repos = Arc::new(database.repositories());
+    let repos = Arc::clone(database.repositories());
     let (_user_id, _tenant_id, ds) = make_user_and_tenant(&database).await;
 
     let ts = Utc::now();
@@ -375,7 +375,7 @@ async fn time_series_insert_is_idempotent_on_conflict() {
 async fn time_series_empty_batch_is_a_no_op() {
     common::init_server_config();
     let database = common::create_test_database().await.unwrap();
-    let repos = Arc::new(database.repositories());
+    let repos = Arc::clone(database.repositories());
     let (_user_id, _tenant_id, ds) = make_user_and_tenant(&database).await;
 
     repos
@@ -403,7 +403,7 @@ async fn time_series_empty_batch_is_a_no_op() {
 async fn time_series_aggregate_downsamples_into_windows() {
     common::init_server_config();
     let database = common::create_test_database().await.unwrap();
-    let repos = Arc::new(database.repositories());
+    let repos = Arc::clone(database.repositories());
     let (_user_id, _tenant_id, ds) = make_user_and_tenant(&database).await;
 
     let start = Utc::now();
@@ -443,7 +443,7 @@ async fn time_series_aggregate_downsamples_into_windows() {
 async fn time_series_latest_returns_most_recent_point() {
     common::init_server_config();
     let database = common::create_test_database().await.unwrap();
-    let repos = Arc::new(database.repositories());
+    let repos = Arc::clone(database.repositories());
     let (_user_id, _tenant_id, ds) = make_user_and_tenant(&database).await;
 
     let now = Utc::now();

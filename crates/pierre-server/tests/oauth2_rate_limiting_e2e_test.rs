@@ -31,10 +31,10 @@ use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::models::TenantId;
 use pierre_database::backends::{DatabaseProvider, OAuth2ServerRepository};
 use pierre_database::database::generate_encryption_key;
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_routes_identity::oauth2::OAuth2Context;
 use pierre_routes_identity::OAuth2Routes;
+use pierre_test_support::db::create_test_db_with_key;
 use serde_json::{json, Value};
 use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},

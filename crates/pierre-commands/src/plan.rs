@@ -6,6 +6,8 @@
 
 use async_trait::async_trait;
 use chrono::{NaiveDate, Utc};
+use dravr_canot::commands::CommandResponse;
+use dravr_canot::rich_text::escape_markdown;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_PLAN_DAY_LINE, KEY_PLAN_EMPTY, KEY_PLAN_GOAL_LINE,
     KEY_PLAN_NO_COVERAGE, KEY_PLAN_NO_SESSION, KEY_PLAN_PHASE_LINE, KEY_PLAN_REST,
@@ -18,8 +20,6 @@ use pierre_core::models::User;
 use pierre_memory::training_plans::{
     parse_plan_date, PlanPhase, PlanWeek, PlannedDay, TrainingPlan,
 };
-use pierre_messaging::commands::CommandResponse;
-use pierre_messaging::rich_text::escape_markdown;
 use pierre_services::training_plan_render::{
     plan_goal_is_stale, select_active_weeks, SelectedWeek, ACTIVE_WEEKS,
 };

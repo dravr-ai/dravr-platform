@@ -7,8 +7,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_intelligence::config::intelligence::AlgorithmParamsConfig;
-use pierre_intelligence::{AlgorithmConfig, PerformancePredictor};
+use dravr_cageux::config::intelligence::AlgorithmConfig;
+use dravr_cageux::config::intelligence::AlgorithmParamsConfig;
+use dravr_cageux::performance_prediction::PerformancePredictor;
 
 // Test constants (matching values from performance_prediction.rs)
 const DISTANCE_5K: f64 = 5_000.0;

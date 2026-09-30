@@ -21,11 +21,11 @@ use pierre_auth::{
 };
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::models::{Tenant, TenantId, User};
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{
     backends::{factory::Database, DatabaseProvider},
     database::generate_encryption_key,
 };
+use pierre_test_support::db::create_test_db_with_key;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 

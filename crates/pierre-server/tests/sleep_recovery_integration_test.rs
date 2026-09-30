@@ -125,7 +125,6 @@ fn create_test_config() -> Arc<ServerConfig> {
         auth: AuthConfig {
             jwt_expiry_hours: 24,
             refresh_token_expiry_days: 30,
-            ..AuthConfig::default()
         },
         oauth: create_test_oauth_config(),
         security: create_test_security_config(),
@@ -145,7 +144,6 @@ fn create_test_config() -> Arc<ServerConfig> {
         },
         sse: SseConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
-        route_timeouts: RouteTimeoutConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
         mcp: McpConfig {

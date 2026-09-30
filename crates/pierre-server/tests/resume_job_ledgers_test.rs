@@ -15,10 +15,10 @@
 
 use chrono::Utc;
 use pierre_core::models::TenantId;
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::repositories::{
     ActivityBackfillJobRow, BackfillJobClaim, ExtractionJobClaim, MemoryExtractionJobRow,
 };
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 fn now_ms() -> i64 {

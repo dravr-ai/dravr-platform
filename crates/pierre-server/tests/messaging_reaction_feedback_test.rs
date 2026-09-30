@@ -16,6 +16,10 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use common::{create_test_server_resources, create_test_user};
+use dravr_canot::channel::MessagingChannel;
+use dravr_canot::channels::descriptor_for;
+use dravr_canot::channels::messenger::MessengerChannel;
+use dravr_canot::channels::whatsapp::WhatsAppChannel;
 use http::HeaderMap;
 use pierre_core::models::messaging::{ChannelType, InboundReaction, ReactionAction};
 use pierre_core::models::{AddMessageParams, TenantId};
@@ -26,10 +30,6 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::messaging_ingress::reactions::{
     apply_reactions, channel_delivers_reactions, rating_for_emoji,
 };
-use pierre_messaging::channel::MessagingChannel;
-use pierre_messaging::channels::descriptor_for;
-use pierre_messaging::channels::messenger::MessengerChannel;
-use pierre_messaging::channels::whatsapp::WhatsAppChannel;
 use serde_json::json;
 use uuid::Uuid;
 

@@ -24,7 +24,7 @@ use db_fixtures::{create_test_db, seed_user};
 #[tokio::test]
 async fn gate_flips_with_connection_status_active_then_reauth_then_reconnect() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user, tenant) = seed_user(&db).await;
 
     // A freshly-registered Garmin (sciotte mirror) connection is Active → usable,

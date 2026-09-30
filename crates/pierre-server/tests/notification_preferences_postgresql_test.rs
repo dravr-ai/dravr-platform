@@ -14,12 +14,12 @@
 #![cfg(feature = "postgresql")]
 
 use chrono::{NaiveTime, Utc};
-use pierre_database::database::test_utils::create_test_db;
 use pierre_notifications::models::{
     CreateNotificationParams, CreateScheduledNotificationParams, DevicePlatform,
     NotificationCategory, UpsertNotificationPreferenceParams,
 };
 use pierre_notifications::{NotificationService, TenantId};
+use pierre_test_support::db::create_test_db;
 use serde_json::json;
 use uuid::Uuid;
 

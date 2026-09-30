@@ -17,9 +17,9 @@
 
 use anyhow::Result;
 use chrono::{Duration, Utc};
+use dravr_cageux::training_load::TrainingLoadCalculator;
 use pierre_core::models::{ActivityBuilder, ConnectionType, SportType, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_intelligence::TrainingLoadCalculator;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use serde_json::{json, Value};
 use std::collections::HashMap;

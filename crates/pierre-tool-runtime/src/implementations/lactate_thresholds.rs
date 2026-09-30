@@ -31,15 +31,15 @@ use crate::implementations::lactate_thresholds_output::{
 };
 use crate::implementations::physiology::optional_number;
 use crate::runtime::ToolRuntime;
+use dravr_cageux::algorithms::lactate::{
+    LactateIntensityUnit, LactateStage, LactateStepTest, LactateThresholdMethod, LactateThresholds,
+    ThresholdOutcome, MAX_STAGES,
+};
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_config::environment::TrainingZonesConfig;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{TenantId, UserPhysiologicalProfile};
-use pierre_intelligence::algorithms::lactate::{
-    LactateIntensityUnit, LactateStage, LactateStepTest, LactateThresholdMethod, LactateThresholds,
-    ThresholdOutcome, MAX_STAGES,
-};
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
 use pierre_tools_core::ToolResult;
 

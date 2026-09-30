@@ -12,15 +12,16 @@ use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
+use dravr_cageux::pattern_detection::{
+    HardEasyPattern, OvertrainingSignals, PatternDetector, VolumeProgressionPattern, VolumeTrend,
+    WeeklySchedulePattern,
+};
+use dravr_cageux::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
+use dravr_cageux::training_load::RiskLevel;
 use pierre_core::civil_time::resolve_zone;
 use pierre_core::models::Activity;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_formatters::OutputFormat;
-use pierre_intelligence::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
-use pierre_intelligence::{
-    HardEasyPattern, OvertrainingSignals, PatternDetector, RiskLevel, VolumeProgressionPattern,
-    VolumeTrend, WeeklySchedulePattern,
-};
 use pierre_providers::core::FitnessProvider;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use std::collections::HashMap;

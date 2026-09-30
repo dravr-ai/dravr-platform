@@ -18,31 +18,29 @@
 
 #[cfg(feature = "client-messaging")]
 mod messaging_tests {
+    use dravr_canot::channel::MessagingChannel;
+    use dravr_canot::channels::capabilities_for;
+    use dravr_canot::channels::discord::{renderer::DiscordRenderer, transport::DiscordTransport};
+    use dravr_canot::channels::messenger::{
+        renderer::MessengerRenderer, transport::MessengerTransport,
+    };
+    use dravr_canot::channels::slack::{renderer::SlackRenderer, transport::SlackTransport};
+    use dravr_canot::channels::telegram::{
+        renderer::TelegramRenderer, transport::TelegramTransport,
+    };
+    use dravr_canot::channels::whatsapp::{
+        renderer::WhatsAppRenderer, transport::WhatsAppTransport,
+    };
+    use dravr_canot::registry::ChannelRegistry;
+    use dravr_canot::renderer::ResponseRenderer;
+    use dravr_canot::retry::{compute_retry_update, RetryDecision};
+    use dravr_canot::transport::TransportAdapter;
+    use dravr_canot::turn::ConversationTurnId as CanotTurnId;
     use hmac::{Hmac, Mac};
     use http::HeaderMap;
     use pierre_core::models::messaging::{
         CardAction, ChannelType, MessageContent, OutgoingMessage,
     };
-    use pierre_messaging::channel::MessagingChannel;
-    use pierre_messaging::channels::capabilities_for;
-    use pierre_messaging::channels::discord::{
-        renderer::DiscordRenderer, transport::DiscordTransport,
-    };
-    use pierre_messaging::channels::messenger::{
-        renderer::MessengerRenderer, transport::MessengerTransport,
-    };
-    use pierre_messaging::channels::slack::{renderer::SlackRenderer, transport::SlackTransport};
-    use pierre_messaging::channels::telegram::{
-        renderer::TelegramRenderer, transport::TelegramTransport,
-    };
-    use pierre_messaging::channels::whatsapp::{
-        renderer::WhatsAppRenderer, transport::WhatsAppTransport,
-    };
-    use pierre_messaging::registry::ChannelRegistry;
-    use pierre_messaging::renderer::ResponseRenderer;
-    use pierre_messaging::retry::{compute_retry_update, RetryDecision};
-    use pierre_messaging::transport::TransportAdapter;
-    use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
     use sha2::Sha256;
     use std::sync::Arc;
 
@@ -978,7 +976,7 @@ mod messaging_tests {
 
     #[test]
     fn test_registry_register_and_get() {
-        use pierre_messaging::channels::telegram::TelegramChannel;
+        use dravr_canot::channels::telegram::TelegramChannel;
 
         let mut registry = ChannelRegistry::new();
         let channel: Arc<dyn MessagingChannel> =
@@ -996,7 +994,7 @@ mod messaging_tests {
 
     #[test]
     fn test_registry_duplicate_registration() {
-        use pierre_messaging::channels::telegram::TelegramChannel;
+        use dravr_canot::channels::telegram::TelegramChannel;
 
         let mut registry = ChannelRegistry::new();
         registry
@@ -1009,8 +1007,8 @@ mod messaging_tests {
 
     #[test]
     fn test_registry_registered_channels() {
-        use pierre_messaging::channels::slack::SlackChannel;
-        use pierre_messaging::channels::telegram::TelegramChannel;
+        use dravr_canot::channels::slack::SlackChannel;
+        use dravr_canot::channels::telegram::TelegramChannel;
 
         let mut registry = ChannelRegistry::new();
         registry.register(Arc::new(SlackChannel::new("s".to_owned())) as Arc<dyn MessagingChannel>);

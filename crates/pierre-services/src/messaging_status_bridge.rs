@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 //! Bridge between the server-side AG-UI [`RunRegistry`] and the
-//! client-side [`pierre_messaging::agui_status::StatusAdapter`]s.
+//! client-side [`dravr_canot::agui_status::StatusAdapter`]s.
 //!
 //! Messaging channels (Telegram/Slack/Discord) let a user see what
 //! the assistant is doing by editing a single placeholder message
@@ -45,12 +45,12 @@
 //! those channels return `None` and fall back to the normal
 //! single-reply path.
 
-use pierre_messaging::agui_consumer::AgUiEvent;
-use pierre_messaging::agui_status::StatusAdapter;
-use pierre_messaging::channels::discord::agui_status::DiscordStatusAdapter;
-use pierre_messaging::channels::slack::agui_status::SlackStatusAdapter;
-use pierre_messaging::channels::telegram::agui_status::TelegramStatusAdapter;
-use pierre_messaging::models::{ChannelConfig, ChannelType};
+use dravr_canot::agui_consumer::AgUiEvent;
+use dravr_canot::agui_status::StatusAdapter;
+use dravr_canot::channels::discord::agui_status::DiscordStatusAdapter;
+use dravr_canot::channels::slack::agui_status::SlackStatusAdapter;
+use dravr_canot::channels::telegram::agui_status::TelegramStatusAdapter;
+use dravr_canot::models::{ChannelConfig, ChannelType};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;

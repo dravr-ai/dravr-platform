@@ -53,7 +53,7 @@ use pierre_core::models::{
     TenantOAuthCredentials, User, UserOAuthToken, UserReferenceKind, UserStatus, UserTier,
 };
 use pierre_core::permissions::UserRole;
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 #[cfg(feature = "postgresql")]
 use pierre_database::repositories::POSTGRES_USER_PURGE;
 use pierre_database::repositories::{
@@ -65,7 +65,6 @@ use pierre_mcp_server::a2a::client::ClientRegistrationRequest;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
-use pierre_routes_admin::auth::service::AdminAuthService;
 use pierre_routes_admin::handlers::strava_pool::{
     handle_list_strava_seats, handle_upsert_strava_pool_app,
 };
@@ -209,7 +208,6 @@ fn admin_context_with(
         auth_manager: resources.auth.auth_manager.clone(),
         jwks_manager: resources.auth.jwks_manager.clone(),
         admin_api_key_monthly_limit: STARTER_MONTHLY_LIMIT,
-        admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
         guardian_config_registry: Arc::new(GuardianConfigRegistry::bootstrap()),
         prompt_registry: Arc::new(PromptRegistry::new()),
@@ -1187,8 +1185,8 @@ async fn delete_clears_the_users_quarantined_agents() {
     let context = admin_context(&resources, &stub.url);
     let (user_id, ..) = seed_user(repos, "quarantined-author").await;
 
-    match resources.agent.database.as_ref() {
-        Database::SQLite(db) => {
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
             let tables: i64 = sqlx::query_scalar(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = $1",
             )
@@ -1208,7 +1206,7 @@ async fn delete_clears_the_users_quarantined_agents() {
             );
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => {
+        DatabaseBackend::PostgreSQL(db) => {
             // What the quarantine moved: an agent whose tenant_id named no
             // tenant, which the column's new foreign key could not hold.
             const QUARANTINED_TENANT: &str = "tenant-that-never-was";
@@ -1279,8 +1277,8 @@ async fn every_uncascaded_user_table_is_cleared_by_the_delete() {
     const SQLITE_TABLES: &str = "SELECT name FROM sqlite_master WHERE type = 'table'";
 
     let resources = resources().await;
-    let (uncascaded, purge): (Vec<String>, UserPurge) = match resources.agent.database.as_ref() {
-        Database::SQLite(db) => {
+    let (uncascaded, purge): (Vec<String>, UserPurge) = match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
             let tables: BTreeSet<String> = sqlx::query_scalar(SQLITE_TABLES)
                 .fetch_all(db.pool())
                 .await
@@ -1302,7 +1300,7 @@ async fn every_uncascaded_user_table_is_cleared_by_the_delete() {
             (uncascaded, SQLITE_USER_PURGE)
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => {
+        DatabaseBackend::PostgreSQL(db) => {
             let uncascaded = sqlx::query_scalar(POSTGRES_UNCASCADED)
                 .fetch_all(db.pool())
                 .await
@@ -1864,15 +1862,15 @@ async fn a_live_subscription_blocks_the_delete_and_a_canceled_one_is_cleared() {
 /// Mark a tenant inactive, which no repository path does for a test.
 async fn deactivate_tenant(resources: &ServerContext, tenant_id: TenantId) {
     const DEACTIVATE: &str = "UPDATE tenants SET is_active = FALSE WHERE id = $1";
-    let deactivated = match resources.agent.database.as_ref() {
-        Database::SQLite(db) => sqlx::query(DEACTIVATE)
+    let deactivated = match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => sqlx::query(DEACTIVATE)
             .bind(tenant_id.to_string())
             .execute(db.pool())
             .await
             .unwrap()
             .rows_affected(),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => sqlx::query(DEACTIVATE)
+        DatabaseBackend::PostgreSQL(db) => sqlx::query(DEACTIVATE)
             .bind(tenant_id.as_uuid())
             .execute(db.pool())
             .await
@@ -2280,8 +2278,8 @@ async fn every_reference_into_what_the_delete_removes_is_cleared_first_or_refuse
         WHERE k.contype = 'f' AND pg_catalog.pg_table_is_visible(c.oid)";
 
     let resources = resources().await;
-    let (keys, purge): (Vec<ForeignKey>, UserPurge) = match resources.agent.database.as_ref() {
-        Database::SQLite(db) => (
+    let (keys, purge): (Vec<ForeignKey>, UserPurge) = match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => (
             sqlx::query_as(SQLITE_FOREIGN_KEYS)
                 .fetch_all(db.pool())
                 .await
@@ -2289,7 +2287,7 @@ async fn every_reference_into_what_the_delete_removes_is_cleared_first_or_refuse
             SQLITE_USER_PURGE,
         ),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => (
+        DatabaseBackend::PostgreSQL(db) => (
             sqlx::query_as(POSTGRES_FOREIGN_KEYS)
                 .fetch_all(db.pool())
                 .await

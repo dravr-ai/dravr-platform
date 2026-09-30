@@ -9,7 +9,6 @@ use pierre_auth::auth::AuthResult;
 use pierre_core::config::fitness::FitnessConfig;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
-use pierre_middleware::require_admin;
 // Trait methods dispatched through repos.fitness_config / repos.tenants / repos.users
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -29,13 +28,6 @@ pub struct SaveFitnessConfigRequest {
     pub configuration: FitnessConfig,
 }
 
-/// Request to retrieve a specific fitness configuration
-#[derive(Debug, Deserialize)]
-pub struct GetFitnessConfigRequest {
-    /// Configuration name (defaults to "default")
-    pub configuration_name: Option<String>,
-}
-
 /// Response containing fitness configuration details
 #[derive(Debug, Serialize)]
 pub struct FitnessConfigurationResponse {
@@ -53,17 +45,6 @@ pub struct FitnessConfigurationResponse {
     pub created_at: String,
     /// Last update timestamp
     pub updated_at: String,
-    /// Response metadata
-    pub metadata: ResponseMetadata,
-}
-
-/// Response containing list of available fitness configurations
-#[derive(Debug, Serialize)]
-pub struct FitnessConfigurationListResponse {
-    /// List of configuration names
-    pub configurations: Vec<String>,
-    /// Total count
-    pub total_count: usize,
     /// Response metadata
     pub metadata: ResponseMetadata,
 }
@@ -155,58 +136,6 @@ impl FitnessConfigurationRoutes {
     // ================================================================================================
     // Route Handlers
     // ================================================================================================
-
-    /// GET /api/fitness-configurations - List all configuration names for user
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - User authentication fails
-    /// - Database operations fail
-    pub async fn list_configurations(
-        &self,
-        auth: &AuthResult,
-    ) -> AppResult<FitnessConfigurationListResponse> {
-        let processing_start = Instant::now();
-        let user_id = auth.user_id;
-        let tenant_id = self.get_user_tenant(user_id).await?;
-
-        let user_id_str = user_id.to_string();
-
-        // Get both user-specific and tenant-level configurations
-        let mut configurations = self
-            .resources
-            .common
-            .repos
-            .fitness_config
-            .list_user_configurations(tenant_id, &user_id_str)
-            .await
-            .map_err(|e| {
-                AppError::database(format!("Failed to list user fitness configurations: {e}"))
-            })?;
-
-        let tenant_configs = self
-            .resources
-            .common
-            .repos
-            .fitness_config
-            .list_tenant_configurations(tenant_id)
-            .await
-            .map_err(|e| {
-                AppError::database(format!("Failed to list tenant fitness configurations: {e}"))
-            })?;
-
-        // Combine and deduplicate
-        configurations.extend(tenant_configs);
-        configurations.sort();
-        configurations.dedup();
-
-        Ok(FitnessConfigurationListResponse {
-            total_count: configurations.len(),
-            configurations,
-            metadata: Self::create_metadata(processing_start),
-        })
-    }
 
     /// GET /api/fitness-configurations/{name} - Get specific configuration
     ///
@@ -310,49 +239,6 @@ impl FitnessConfigurationRoutes {
         })
     }
 
-    /// POST /api/fitness-configurations/tenant - Save tenant-level configuration (admin only)
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - User authentication fails
-    /// - User is not admin
-    /// - Database operations fail
-    /// - Configuration validation fails
-    pub async fn save_tenant_configuration(
-        &self,
-        auth: &AuthResult,
-        request: SaveFitnessConfigRequest,
-    ) -> AppResult<FitnessConfigurationSaveResponse> {
-        let processing_start = Instant::now();
-        let user_id = auth.user_id;
-        let tenant_id = self.get_user_tenant(user_id).await?;
-
-        // Verify admin privileges using centralized guard
-        require_admin(user_id, &self.resources.common.repos.users).await?;
-
-        let configuration_name = request
-            .configuration_name
-            .unwrap_or_else(|| "default".to_owned());
-
-        let config_id = self
-            .resources
-            .common
-            .repos
-            .fitness_config
-            .save_tenant_config(tenant_id, &configuration_name, &request.configuration)
-            .await
-            .map_err(|e| {
-                AppError::database(format!("Failed to save tenant fitness config: {e}"))
-            })?;
-
-        Ok(FitnessConfigurationSaveResponse {
-            id: config_id,
-            message: "Tenant-level fitness configuration saved successfully".to_owned(),
-            metadata: Self::create_metadata(processing_start),
-        })
-    }
-
     /// DELETE /api/fitness-configurations/{name} - Delete user-specific configuration
     ///
     /// # Errors
@@ -389,50 +275,6 @@ impl FitnessConfigurationRoutes {
         Ok(FitnessConfigurationSaveResponse {
             id: format!("{tenant_id}:{user_id}:{configuration_name}"),
             message: "User-specific fitness configuration deleted successfully".to_owned(),
-            metadata: Self::create_metadata(processing_start),
-        })
-    }
-
-    /// DELETE /api/fitness-configurations/tenant/{name} - Delete tenant-level configuration (admin only)
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - User authentication fails
-    /// - User is not admin
-    /// - Database operations fail
-    pub async fn delete_tenant_configuration(
-        &self,
-        auth: &AuthResult,
-        configuration_name: &str,
-    ) -> AppResult<FitnessConfigurationSaveResponse> {
-        let processing_start = Instant::now();
-        let user_id = auth.user_id;
-        let tenant_id = self.get_user_tenant(user_id).await?;
-
-        // Verify admin privileges using centralized guard
-        require_admin(user_id, &self.resources.common.repos.users).await?;
-
-        let deleted = self
-            .resources
-            .common
-            .repos
-            .fitness_config
-            .delete_config(tenant_id, None, configuration_name)
-            .await
-            .map_err(|e| {
-                AppError::database(format!("Failed to delete tenant fitness config: {e}"))
-            })?;
-
-        if !deleted {
-            return Err(AppError::not_found(format!(
-                "Configuration {configuration_name}"
-            )));
-        }
-
-        Ok(FitnessConfigurationSaveResponse {
-            id: format!("{tenant_id}:{configuration_name}"),
-            message: "Tenant-level fitness configuration deleted successfully".to_owned(),
             metadata: Self::create_metadata(processing_start),
         })
     }

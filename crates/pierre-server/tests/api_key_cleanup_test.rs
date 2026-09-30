@@ -10,8 +10,8 @@
 use chrono::{DateTime, Duration, Utc};
 use pierre_auth::api_keys::{ApiKey, ApiKeyTier};
 use pierre_core::models::User;
-use pierre_database::database::test_utils::create_test_db;
 use pierre_services::api_key_cleanup::sweep_expired_api_keys;
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 fn key(user_id: Uuid, expires_at: Option<DateTime<Utc>>) -> ApiKey {

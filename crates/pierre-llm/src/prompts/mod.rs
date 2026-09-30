@@ -194,22 +194,10 @@ pub const fn get_tool_discipline_prompt() -> &'static str {
     TOOL_DISCIPLINE_PROMPT
 }
 
-/// Get the tool-discipline prompt for messaging channels.
-#[must_use]
-pub const fn get_tool_discipline_messaging_prompt() -> &'static str {
-    TOOL_DISCIPLINE_MESSAGING_PROMPT
-}
-
 /// Get the tool-discipline rules shared by every surface.
 #[must_use]
 pub const fn get_tool_discipline_shared_prompt() -> &'static str {
     TOOL_DISCIPLINE_SHARED_PROMPT
-}
-
-/// Get the Tier 2 memory extraction system prompt.
-#[must_use]
-pub const fn get_memory_extraction_prompt() -> &'static str {
-    MEMORY_EXTRACTION_PROMPT
 }
 
 /// Get the persona-specific block to substitute for `{{COACHING_PERSONA_RULES}}`

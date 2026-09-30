@@ -29,11 +29,11 @@ use uuid::Uuid;
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::ParticipantRole;
-use pierre_database::database::test_utils::create_test_db_url;
 use pierre_mcp_server::routes::chat::{
     ChatRoutes, ConversationListResponse, ConversationResponse, MessagesListResponse,
     ParticipantListResponse, ParticipantResponse, TurnResponse,
 };
+use pierre_test_support::db::create_test_db_url;
 
 /// Migrations of the `SQLite` lane, applied by hand for the backfill test.
 static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");

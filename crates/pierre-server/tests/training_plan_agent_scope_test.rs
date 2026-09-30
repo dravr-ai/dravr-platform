@@ -34,7 +34,7 @@ use pierre_core::models::groups::{
 use pierre_core::models::{
     Tenant, TenantId, TenantPlan, ToolCatalogEntry, ToolCategory, User, UserStatus,
 };
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{PlanOutlineInput, SavePlanBundleParams};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -1232,14 +1232,14 @@ async fn an_athlete_with_no_tenant_membership_is_refused() {
     // Nothing may have been written for that user under ANY tenant — with no
     // home there is nowhere correct, so any row at all would be the bug.
     let plans_sql = "SELECT COUNT(*) FROM training_plans WHERE CAST(user_id AS TEXT) = $1";
-    let plans_for_athlete: i64 = match resources.agent.database.as_ref() {
-        Database::SQLite(db) => sqlx::query_scalar(plans_sql)
+    let plans_for_athlete: i64 = match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => sqlx::query_scalar(plans_sql)
             .bind(athlete.to_string())
             .fetch_one(db.pool())
             .await
             .unwrap(),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => sqlx::query_scalar(plans_sql)
+        DatabaseBackend::PostgreSQL(db) => sqlx::query_scalar(plans_sql)
             .bind(athlete.to_string())
             .fetch_one(db.pool())
             .await

@@ -45,7 +45,7 @@ mod capability_recovery {
     use pierre_core::models::ConnectionType;
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
     use pierre_core::permissions::UserRole;
-    use pierre_database::backends::factory::Database;
+    use pierre_database::backends::factory::{Database, DatabaseBackend};
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -353,14 +353,14 @@ mod capability_recovery {
              WHERE c.tenant_id = $1 AND m.role = 'assistant' \
              ORDER BY m.created_at DESC LIMIT 1";
         let tenant = tenant_id.to_string();
-        let row: Option<(Option<String>,)> = match resources.agent.database.as_ref() {
-            Database::SQLite(db) => sqlx::query_as(SQL)
+        let row: Option<(Option<String>,)> = match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => sqlx::query_as(SQL)
                 .bind(&tenant)
                 .fetch_optional(db.pool())
                 .await
                 .unwrap(),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => sqlx::query_as(SQL)
+            DatabaseBackend::PostgreSQL(db) => sqlx::query_as(SQL)
                 .bind(&tenant)
                 .fetch_optional(db.pool())
                 .await
@@ -373,14 +373,14 @@ mod capability_recovery {
     /// test database is. `sql` binds the tenant id as `$1` and selects one
     /// text column.
     async fn latest_text(db: &Database, sql: &str, tenant: &str) -> Option<String> {
-        let row: Option<(String,)> = match db {
-            Database::SQLite(sqlite) => sqlx::query_as(sql)
+        let row: Option<(String,)> = match db.backend() {
+            DatabaseBackend::SQLite(sqlite) => sqlx::query_as(sql)
                 .bind(tenant)
                 .fetch_optional(sqlite.pool())
                 .await
                 .unwrap(),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(pg) => sqlx::query_as(sql)
+            DatabaseBackend::PostgreSQL(pg) => sqlx::query_as(sql)
                 .bind(tenant)
                 .fetch_optional(pg.pool())
                 .await
@@ -1006,6 +1006,7 @@ mod capability_recovery {
     /// number about the peer is re-verified against what was fetched.
     mod subject_routing {
         use super::*;
+        use dravr_canot::channels::telegram::transport::TelegramTransport;
         use pierre_chat_pipeline::stages::capability_subject::{
             SUBJECT_DECLINED_MARKER, SUBJECT_FETCHED_MARKER,
         };
@@ -1016,7 +1017,6 @@ mod capability_recovery {
             CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
         };
         use pierre_core::models::{ActivityBuilder, SportType};
-        use pierre_messaging::channels::telegram::transport::TelegramTransport;
         use std::sync::Mutex;
 
         /// Numeric bot id encoded in the fixture `bot_token` prefix.
@@ -1446,15 +1446,15 @@ mod capability_recovery {
             );
             let tenant = scenario.bot_tenant.to_string();
             let member = member.to_string();
-            let row: Option<(Option<String>,)> = match scenario.resources.agent.database.as_ref() {
-                Database::SQLite(db) => sqlx::query_as(&sql)
+            let row: Option<(Option<String>,)> = match scenario.resources.agent.database.backend() {
+                DatabaseBackend::SQLite(db) => sqlx::query_as(&sql)
                     .bind(&tenant)
                     .bind(&member)
                     .fetch_optional(db.pool())
                     .await
                     .unwrap(),
                 #[cfg(feature = "postgresql")]
-                Database::PostgreSQL(db) => sqlx::query_as(&sql)
+                DatabaseBackend::PostgreSQL(db) => sqlx::query_as(&sql)
                     .bind(&tenant)
                     .bind(&member)
                     .fetch_optional(db.pool())

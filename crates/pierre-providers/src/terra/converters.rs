@@ -10,7 +10,7 @@
 //! to Pierre's unified fitness data models.
 
 use crate::models::{
-    Activity, ActivityBuilder, Athlete, FoodItem, HealthMetrics, MealEntry, MealType, NutritionLog,
+    Activity, ActivityBuilder, FoodItem, HealthMetrics, MealEntry, MealType, NutritionLog,
     RecoveryMetrics, SleepSession, SleepStage, SleepStageType, SportType,
 };
 use chrono::Utc;
@@ -30,8 +30,7 @@ use super::constants::{
     TERRA_SLEEP_STAGE_REM,
 };
 use super::models::{
-    TerraActivity, TerraAthlete, TerraBody, TerraDaily, TerraNutrition, TerraSleep,
-    TerraSleepStage, TerraUser,
+    TerraActivity, TerraBody, TerraDaily, TerraNutrition, TerraSleep, TerraSleepStage, TerraUser,
 };
 
 /// Converter utilities for Terra to Pierre models
@@ -520,22 +519,6 @@ impl TerraConverters {
             water_ml: summary.and_then(|s| s.water_ml),
             meals,
             provider: provider_name,
-        }
-    }
-
-    /// Convert Terra user to Pierre `Athlete`
-    #[must_use]
-    pub fn athlete_from_terra(terra: &TerraAthlete) -> Athlete {
-        Athlete {
-            id: terra.user_id.clone(),
-            username: terra
-                .reference_id
-                .clone()
-                .unwrap_or_else(|| terra.user_id.clone()),
-            firstname: terra.first_name.clone(),
-            lastname: terra.last_name.clone(),
-            profile_picture: None,
-            provider: format!("terra:{}", terra.provider.to_lowercase()),
         }
     }
 

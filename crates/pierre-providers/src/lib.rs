@@ -89,7 +89,7 @@ pub mod whoop_provider;
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
 pub use core::{
     ActivityQueryParams, FitnessProvider as CoreFitnessProvider, OAuth2Credentials, ProviderConfig,
-    ProviderFactory, TenantProvider, TokenRefreshCallback,
+    ProviderFactory, TokenRefreshCallback,
 };
 pub use http_client::{initialize_shared_client, shared_client};
 pub use pierre_core::errors::provider::{ProviderError, ProviderResult};

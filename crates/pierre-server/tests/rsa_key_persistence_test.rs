@@ -16,8 +16,11 @@ use pierre_core::admin::models::{AdminPermission, AdminPermissions};
 use pierre_core::admin::AdminJwtManager;
 use pierre_core::admin::TokenScope;
 use pierre_core::models::User;
-use pierre_database::database::test_utils::create_test_db_with_key;
-use pierre_database::{backends::factory::Database, database};
+use pierre_database::{
+    backends::factory::{Database, DatabaseBackend},
+    database,
+};
+use pierre_test_support::db::create_test_db_with_key;
 use std::{sync::Arc, time::Duration};
 use tokio::time::sleep;
 
@@ -370,14 +373,14 @@ async fn test_super_admin_token_persistence() -> Result<()> {
 /// the repository so the test sees the stored bytes and not the decrypted key.
 async fn stored_private_key_column(database: &Database, kid: &str) -> Option<String> {
     const SQL: &str = "SELECT private_key_pem FROM rsa_keypairs WHERE kid = $1";
-    match database {
-        Database::SQLite(sqlite) => sqlx::query_scalar(SQL)
+    match database.backend() {
+        DatabaseBackend::SQLite(sqlite) => sqlx::query_scalar(SQL)
             .bind(kid)
             .fetch_optional(sqlite.pool())
             .await
             .unwrap(),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => sqlx::query_scalar(SQL)
+        DatabaseBackend::PostgreSQL(pg) => sqlx::query_scalar(SQL)
             .bind(kid)
             .fetch_optional(pg.pool())
             .await
@@ -389,8 +392,8 @@ async fn stored_private_key_column(database: &Database, kid: &str) -> Option<Str
 /// the private key was encrypted at rest.
 async fn write_plaintext_private_key_column(database: &Database, kid: &str, pem: &str) {
     const SQL: &str = "UPDATE rsa_keypairs SET private_key_pem = $1 WHERE kid = $2";
-    match database {
-        Database::SQLite(sqlite) => {
+    match database.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
             sqlx::query(SQL)
                 .bind(pem)
                 .bind(kid)
@@ -399,7 +402,7 @@ async fn write_plaintext_private_key_column(database: &Database, kid: &str, pem:
                 .unwrap();
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => {
+        DatabaseBackend::PostgreSQL(pg) => {
             sqlx::query(SQL)
                 .bind(pem)
                 .bind(kid)

@@ -14,9 +14,9 @@ use pierre_chat_pipeline::stages::memory::{inject_agent_notes, AGENT_NOTES_INJEC
 use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
 use pierre_core::models::{Tenant, TenantId, User};
 use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::repositories::InsertAgentNoteParams;
 use pierre_memory::MemoryScope;
+use pierre_test_support::db::create_test_db;
 use tokio::time::sleep;
 use uuid::Uuid;
 
@@ -89,7 +89,7 @@ fn note_params<'a>(
 #[tokio::test]
 async fn tenant_audit_returns_notes_newest_first() -> Result<()> {
     let db = open_db().await?;
-    let memory = db.repositories().memory;
+    let memory = &db.repositories().memory;
     let (tenant, agent_id) = seed_user_tenant_agent(&db).await?;
 
     memory
@@ -117,7 +117,7 @@ async fn tenant_audit_returns_notes_newest_first() -> Result<()> {
 #[tokio::test]
 async fn tenant_audit_clamps_to_limit() -> Result<()> {
     let db = open_db().await?;
-    let memory = db.repositories().memory;
+    let memory = &db.repositories().memory;
     let (tenant, agent_id) = seed_user_tenant_agent(&db).await?;
 
     for i in 0..5 {
@@ -141,7 +141,7 @@ async fn tenant_audit_clamps_to_limit() -> Result<()> {
 #[tokio::test]
 async fn tenant_audit_is_tenant_scoped() -> Result<()> {
     let db = open_db().await?;
-    let memory = db.repositories().memory;
+    let memory = &db.repositories().memory;
     let (tenant_a, coach_a) = seed_user_tenant_agent(&db).await?;
     let (tenant_b, coach_b) = seed_user_tenant_agent(&db).await?;
 
@@ -169,7 +169,7 @@ async fn tenant_audit_is_tenant_scoped() -> Result<()> {
 #[tokio::test]
 async fn chat_prompt_reads_back_the_agents_newest_unsuppressed_notes() -> Result<()> {
     let db = open_db().await?;
-    let memory = db.repositories().memory;
+    let memory = &db.repositories().memory;
     let (tenant, agent_id) = seed_user_tenant_agent(&db).await?;
 
     let mut ids = Vec::new();

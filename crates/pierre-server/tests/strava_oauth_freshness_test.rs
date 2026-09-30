@@ -34,12 +34,12 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use common::{create_test_server_resources, create_test_user, create_test_user_with_email};
+use dravr_enforme::traits::connection_store::UserConnectionStore;
 use pierre_core::errors::AppError;
 use pierre_core::models::{
     ActivityBuilder, OAuthNotification, RefreshConfig, SportType, TenantId, UserOAuthToken,
 };
 use pierre_database::RepositoryRegistry;
-use pierre_enforme::traits::connection_store::UserConnectionStore;
 use pierre_services::health_sync::PierreSyncStorage;
 use pierre_services::provider_refresh::{RefreshService, SyncNotifier};
 use uuid::Uuid;

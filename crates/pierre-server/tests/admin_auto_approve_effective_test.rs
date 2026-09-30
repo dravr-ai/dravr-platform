@@ -24,7 +24,7 @@ use axum::http::StatusCode;
 use common::{create_test_server_resources, create_test_user};
 use helpers::axum_test::AxumTestRequest;
 use pierre_config::environment::AppBehaviorConfig;
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_routes_auth::AuthRoutes;
 use pierre_services::admin_settings;
 
@@ -129,15 +129,15 @@ async fn providers_status_surfaces_a_repository_failure_instead_of_reporting_dis
     );
 
     // Break the backing table so the repository read fails for the same user.
-    match resources.agent.database.as_ref() {
-        Database::SQLite(db) => {
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
             sqlx::query(DROP_CONNECTIONS_TABLE)
                 .execute(db.pool())
                 .await
                 .unwrap();
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => {
+        DatabaseBackend::PostgreSQL(db) => {
             sqlx::query(DROP_CONNECTIONS_TABLE)
                 .execute(db.pool())
                 .await

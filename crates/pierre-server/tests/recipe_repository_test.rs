@@ -68,7 +68,7 @@ fn sample_nutrition() -> ValidatedNutrition {
 async fn create_then_get_round_trips_every_column() {
     let db = create_test_db().await;
     let (user_id, tenant_id) = seed_user(&db).await;
-    let repo = db.repositories().recipes;
+    let repo = &db.repositories().recipes;
 
     let mut recipe = sample_recipe(user_id, "Overnight oats", MealTiming::PreTraining);
     recipe.nutrition = Some(sample_nutrition());
@@ -129,7 +129,7 @@ async fn get_by_id_is_scoped_to_owner_and_tenant() {
     let db = create_test_db().await;
     let (user_id, tenant_id) = seed_user(&db).await;
     let (other_user, other_tenant) = seed_user(&db).await;
-    let repo = db.repositories().recipes;
+    let repo = &db.repositories().recipes;
 
     let recipe = sample_recipe(user_id, "Mine", MealTiming::General);
     let recipe_id = repo.create(user_id, tenant_id, &recipe).await.unwrap();
@@ -152,7 +152,7 @@ async fn get_by_id_is_scoped_to_owner_and_tenant() {
 async fn list_filters_by_meal_timing_and_pages_newest_first() {
     let db = create_test_db().await;
     let (user_id, tenant_id) = seed_user(&db).await;
-    let repo = db.repositories().recipes;
+    let repo = &db.repositories().recipes;
 
     for (name, timing) in [
         ("Pre A", MealTiming::PreTraining),
@@ -200,7 +200,7 @@ async fn update_replaces_columns_and_ingredients_atomically() {
     let db = create_test_db().await;
     let (user_id, tenant_id) = seed_user(&db).await;
     let (other_user, _) = seed_user(&db).await;
-    let repo = db.repositories().recipes;
+    let repo = &db.repositories().recipes;
 
     let recipe = sample_recipe(user_id, "Draft", MealTiming::General);
     let recipe_id = repo.create(user_id, tenant_id, &recipe).await.unwrap();
@@ -249,7 +249,7 @@ async fn search_matches_name_tags_and_description_case_insensitively() {
     let db = create_test_db().await;
     let (user_id, tenant_id) = seed_user(&db).await;
     let (other_user, other_tenant) = seed_user(&db).await;
-    let repo = db.repositories().recipes;
+    let repo = &db.repositories().recipes;
 
     let mut by_name = sample_recipe(user_id, "Banana Bread", MealTiming::General);
     by_name.tags = vec![];
@@ -294,7 +294,7 @@ async fn delete_removes_the_recipe_and_its_ingredients() {
     let db = create_test_db().await;
     let (user_id, tenant_id) = seed_user(&db).await;
     let (other_user, _) = seed_user(&db).await;
-    let repo = db.repositories().recipes;
+    let repo = &db.repositories().recipes;
 
     let recipe = sample_recipe(user_id, "Gone", MealTiming::General);
     let recipe_id = repo.create(user_id, tenant_id, &recipe).await.unwrap();
@@ -317,7 +317,7 @@ async fn delete_removes_the_recipe_and_its_ingredients() {
 async fn an_fdc_id_past_int4_is_refused_before_either_engine_sees_it() {
     let db = create_test_db().await;
     let (user_id, tenant_id) = seed_user(&db).await;
-    let repo = db.repositories().recipes;
+    let repo = &db.repositories().recipes;
 
     let mut recipe = sample_recipe(user_id, "Too wide", MealTiming::General);
     recipe.ingredients[0].fdc_id = Some(i64::from(i32::MAX) + 1);

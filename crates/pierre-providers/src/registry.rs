@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::core::{FitnessProvider, ProviderConfig, ProviderFactory, TenantProvider};
+use crate::core::{FitnessProvider, ProviderConfig, ProviderFactory};
 use crate::spi::{ProviderBundle, ProviderCapabilities, ProviderDescriptor};
 #[cfg(any(
     feature = "provider-strava",
@@ -550,16 +550,6 @@ impl ProviderRegistry {
             .collect()
     }
 
-    /// Get all providers that support sleep tracking
-    #[must_use]
-    pub fn sleep_providers(&self) -> Vec<&'static str> {
-        self.descriptors
-            .iter()
-            .filter(|(_, d)| d.supports_sleep())
-            .map(|(name, _)| *name)
-            .collect()
-    }
-
     /// Get all providers that read the workouts their calendar plans, by
     /// registered name, sorted so a message that lists them reads the same
     /// on every call.
@@ -651,7 +641,10 @@ impl ProviderRegistry {
         factory.create(config)
     }
 
-    /// Create a tenant-aware provider
+    /// Create a provider on behalf of one user of one tenant
+    ///
+    /// The provider itself is tenant-agnostic; the tenant and user are recorded
+    /// in the log line that attributes the construction.
     ///
     /// # Errors
     ///
@@ -661,25 +654,15 @@ impl ProviderRegistry {
         provider_name: &str,
         tenant_id: TenantId,
         user_id: Uuid,
-    ) -> AppResult<TenantProvider> {
+    ) -> AppResult<Box<dyn FitnessProvider>> {
         let provider = self.create_provider(provider_name)?;
-        Ok(TenantProvider::new(provider, tenant_id, user_id))
-    }
-
-    /// Create a tenant-aware provider with custom configuration
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the provider is not supported.
-    pub fn create_tenant_provider_with_config(
-        &self,
-        provider_name: &str,
-        config: ProviderConfig,
-        tenant_id: TenantId,
-        user_id: Uuid,
-    ) -> AppResult<TenantProvider> {
-        let provider = self.create_provider_with_config(provider_name, config)?;
-        Ok(TenantProvider::new(provider, tenant_id, user_id))
+        info!(
+            provider = provider.name(),
+            %tenant_id,
+            %user_id,
+            "Created provider for tenant user"
+        );
+        Ok(provider)
     }
 }
 
@@ -731,7 +714,7 @@ pub fn create_tenant_provider(
     provider_name: &str,
     tenant_id: TenantId,
     user_id: Uuid,
-) -> AppResult<TenantProvider> {
+) -> AppResult<Box<dyn FitnessProvider>> {
     global_registry().create_tenant_provider(provider_name, tenant_id, user_id)
 }
 

@@ -29,9 +29,9 @@ use pierre_core::models::{
     ApiKey, ApiKeyTier, ApiKeyUsage, ConversationTurnId, JwtMonthlyUsage, JwtUsage,
     MonthlyLimitOverride, TenantId, User, WindowUsage,
 };
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::repositories::UserRateLimitOverride;
 use pierre_database::RepositoryRegistry;
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 /// A distinct user per call, so one test's rows cannot satisfy another's
@@ -102,8 +102,8 @@ fn jwt_call(user_id: Uuid, at: DateTime<Utc>) -> JwtUsage {
 async fn an_api_call_reads_back_from_the_request_log_with_what_was_stored() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let user_id = fresh_user(&repos).await;
-    let api_key = fresh_api_key(&repos, user_id).await;
+    let user_id = fresh_user(repos).await;
+    let api_key = fresh_api_key(repos, user_id).await;
     let repo = &repos.usage;
 
     let failed = ApiKeyUsage {
@@ -189,8 +189,8 @@ async fn an_api_call_reads_back_from_the_request_log_with_what_was_stored() {
 async fn the_key_window_stats_and_top_tools_count_the_recorded_calls() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let user_id = fresh_user(&repos).await;
-    let api_key = fresh_api_key(&repos, user_id).await;
+    let user_id = fresh_user(repos).await;
+    let api_key = fresh_api_key(repos, user_id).await;
     let repo = &repos.usage;
     // Whole seconds, so the oldest call reads back equal on Postgres, whose
     // TIMESTAMPTZ keeps microseconds, as on SQLite.
@@ -219,7 +219,7 @@ async fn the_key_window_stats_and_top_tools_count_the_recorded_calls() {
         },
         "the call two hours ago is outside the key's one-hour window, and the oldest inside it frees the first slot"
     );
-    let unused_key = fresh_api_key(&repos, user_id).await;
+    let unused_key = fresh_api_key(repos, user_id).await;
     assert_eq!(
         repo.get_api_key_window_usage(&unused_key.id, window_start)
             .await
@@ -281,7 +281,7 @@ async fn the_key_window_stats_and_top_tools_count_the_recorded_calls() {
 async fn jwt_usage_counts_this_utc_month_and_not_last_month() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let user_id = fresh_user(&repos).await;
+    let user_id = fresh_user(repos).await;
     let repo = &repos.usage;
 
     let now = Utc::now();
@@ -303,7 +303,7 @@ async fn jwt_usage_counts_this_utc_month_and_not_last_month() {
     repo.record_jwt_usage(&jwt_call(user_id, last_month))
         .await
         .unwrap();
-    repo.record_jwt_usage(&jwt_call(fresh_user(&repos).await, now))
+    repo.record_jwt_usage(&jwt_call(fresh_user(repos).await, now))
         .await
         .unwrap();
 
@@ -330,8 +330,8 @@ fn monthly_override(user_id: Uuid, monthly_limit: Option<u32>) -> UserRateLimitO
 async fn jwt_usage_reads_the_users_own_override_with_the_months_count() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let user_id = fresh_user(&repos).await;
-    let neighbour = fresh_user(&repos).await;
+    let user_id = fresh_user(repos).await;
+    let neighbour = fresh_user(repos).await;
     let now = Utc::now();
     for _ in 0..2 {
         repos

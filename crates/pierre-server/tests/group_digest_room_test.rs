@@ -24,6 +24,9 @@ mod group_digest_room_tests {
     use async_trait::async_trait;
     use chrono::{DateTime, Datelike, Days, Duration, NaiveDate, TimeZone, Utc};
     use chrono_tz::America::Toronto;
+    use dravr_canot::channels::discord::renderer::DiscordRenderer;
+    use dravr_canot::channels::slack::renderer::SlackRenderer;
+    use dravr_canot::renderer::ResponseRenderer;
     use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::groups::{
         CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
@@ -31,14 +34,11 @@ mod group_digest_room_tests {
     };
     use pierre_core::models::messaging::{ChannelType, MessageContent};
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
-    use pierre_database::backends::factory::Database;
+    use pierre_database::backends::factory::DatabaseBackend;
     use pierre_database::backends::{CreateChannelLinkParams, MessagingRepository};
     use pierre_database::RepositoryRegistry;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::services::group_chat_poster::ServerGroupChatPoster;
-    use pierre_messaging::channels::discord::renderer::DiscordRenderer;
-    use pierre_messaging::channels::slack::renderer::SlackRenderer;
-    use pierre_messaging::renderer::ResponseRenderer;
     use pierre_notifications::NotificationEvent;
     use pierre_notifications::{
         DispatchRequest, NotificationChannelSink, NotificationService, TenantId as CommTenantId,
@@ -176,10 +176,14 @@ mod group_digest_room_tests {
         async fn new() -> Self {
             let resources = create_test_server_resources().await.unwrap();
             let sink = Arc::new(RecordingSink::default());
-            let service = match &*resources.agent.database {
-                Database::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
+            let service = match resources.agent.database.backend() {
+                DatabaseBackend::SQLite(sqlite) => {
+                    NotificationService::from_sqlite(sqlite.pool().clone())
+                }
                 #[cfg(feature = "postgresql")]
-                Database::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
+                DatabaseBackend::PostgreSQL(pg) => {
+                    NotificationService::from_postgres(pg.pool().clone())
+                }
             }
             .with_localizer(Arc::new(UserLocaleNotificationLocalizer::new(
                 Arc::clone(&resources.common.repos),
@@ -722,7 +726,7 @@ mod group_digest_room_tests {
         let repos = db.repositories();
         let (owner, tenant) = seed_user(&db).await;
         let group = seed_group(
-            &repos,
+            repos,
             tenant,
             "Ledger Club",
             GroupDigestMode::Chat,

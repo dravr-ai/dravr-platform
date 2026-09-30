@@ -34,6 +34,9 @@ mod room_echo_tests {
     use crate::messaging_fixtures::CapturingChannel;
     use async_trait::async_trait;
     use chrono::Utc;
+    use dravr_canot::channel::MessagingChannel;
+    use dravr_canot::error::MessagingResult;
+    use dravr_canot::turn::ConversationTurnId;
     use http::HeaderMap;
     use pierre_contremaitre::messaging_strings::KEY_SLASH_ANSWERED_PRIVATELY;
     use pierre_core::models::messaging::{
@@ -46,9 +49,6 @@ mod room_echo_tests {
     use pierre_mcp_server::services::messaging_ingress::room_echo::{
         settle_room_echo, RoomEchoSettlement,
     };
-    use pierre_messaging::channel::MessagingChannel;
-    use pierre_messaging::error::MessagingResult;
-    use pierre_messaging::turn::ConversationTurnId;
     use serde_json::Value;
     use std::sync::{Arc, Mutex};
     use uuid::Uuid;

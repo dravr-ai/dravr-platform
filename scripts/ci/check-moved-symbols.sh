@@ -172,7 +172,7 @@ for f in "${changed_src[@]}"; do
                 #
                 # And the name has to be imported AT that path: `path::item`,
                 # or a top-level entry of a `path::{...}` group. A removed
-                # crate-root re-export leaves `pierre_intelligence::analyzer::
+                # crate-root re-export leaves `dravr_cageux::analyzer::
                 # ActivityAnalyzer` compiling, and reading the name anywhere
                 # after `path::` flagged it as stranded.
                 if awk -v path="$suffix" -v inner="$inner" -v item="$name" '

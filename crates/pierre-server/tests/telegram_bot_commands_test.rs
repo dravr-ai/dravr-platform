@@ -21,8 +21,8 @@
 
 #[cfg(feature = "client-messaging")]
 mod telegram_menu_tests {
+    use dravr_canot::commands::CommandRegistry;
     use pierre_commands::{load_command_catalog, CommandCatalog};
-    use pierre_messaging::commands::CommandRegistry;
     use pierre_services::telegram_bot_commands::{
         telegram_command_payload, CommandScope, PERSONAL_MARKER,
     };

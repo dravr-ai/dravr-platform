@@ -73,13 +73,6 @@ impl PublishOutcome {
             Self::NoSubscribers | Self::NoSlot => 0,
         }
     }
-
-    /// `true` when the run is unknown to the registry. Producer code
-    /// should log this distinctly from `NoSubscribers`.
-    #[must_use]
-    pub const fn is_no_slot(self) -> bool {
-        matches!(self, Self::NoSlot)
-    }
 }
 
 /// Snapshot of a run's recent event backlog plus a live receiver.

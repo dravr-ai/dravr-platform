@@ -16,11 +16,11 @@
 
 use std::sync::Arc;
 
+use dravr_canot::channel::MessagingChannel;
 use pierre_core::models::messaging::{ChannelType, MessageContent};
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
 use pierre_mcp_server::services::messaging_ingress::addressing::reply_recipient;
-use pierre_messaging::channel::MessagingChannel;
 use pierre_tool_runtime::runtime::BackfillNotifier;
 
 // Shared messaging fixtures + channel fakes live in a helpers subdir (not a
@@ -85,7 +85,7 @@ async fn route_recipient_for(
     channel_conversation_id: Option<&str>,
 ) -> String {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;

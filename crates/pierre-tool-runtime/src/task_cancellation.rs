@@ -17,7 +17,7 @@
 //! probe reads as not-cancelled.
 
 use std::future::Future;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 tokio::task_local! {
@@ -42,13 +42,4 @@ pub fn scoped_with_cancel_flag<F: Future>(
 #[must_use]
 pub fn current_task_cancel_flag() -> Option<Arc<AtomicBool>> {
     MCP_TASK_CANCEL_FLAG.try_with(Clone::clone).ok()
-}
-
-/// Whether cancellation was requested for the current dispatch. `false` when
-/// no flag is scoped (an inline, non-task execution).
-#[must_use]
-pub fn task_cancel_requested() -> bool {
-    MCP_TASK_CANCEL_FLAG
-        .try_with(|flag| flag.load(Ordering::Relaxed))
-        .unwrap_or(false)
 }

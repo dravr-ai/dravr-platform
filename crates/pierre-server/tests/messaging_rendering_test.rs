@@ -45,17 +45,17 @@
 
 #[cfg(feature = "client-messaging")]
 mod rendering_snapshots {
+    use dravr_canot::channels::discord::renderer::DiscordRenderer;
+    use dravr_canot::channels::messenger::renderer::MessengerRenderer;
+    use dravr_canot::channels::slack::renderer::SlackRenderer;
+    use dravr_canot::channels::telegram::renderer::TelegramRenderer;
+    use dravr_canot::channels::whatsapp::renderer::WhatsAppRenderer;
+    use dravr_canot::models::{ChannelType, MessageContent, OutgoingMessage};
+    use dravr_canot::renderer::ResponseRenderer;
     use pierre_contremaitre::messaging_strings::{
         MessagingStringsRegistry, KEY_INTAKE_PERSONA, KEY_INTAKE_YESNO_HINT,
     };
     use pierre_core::models::ConversationTurnId;
-    use pierre_messaging::channels::discord::renderer::DiscordRenderer;
-    use pierre_messaging::channels::messenger::renderer::MessengerRenderer;
-    use pierre_messaging::channels::slack::renderer::SlackRenderer;
-    use pierre_messaging::channels::telegram::renderer::TelegramRenderer;
-    use pierre_messaging::channels::whatsapp::renderer::WhatsAppRenderer;
-    use pierre_messaging::models::{ChannelType, MessageContent, OutgoingMessage};
-    use pierre_messaging::renderer::ResponseRenderer;
     use pierre_services::messaging_broadcast::proactive_rich_text;
     use serde_json::json;
 

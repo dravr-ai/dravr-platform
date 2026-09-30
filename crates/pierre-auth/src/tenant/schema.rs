@@ -46,17 +46,6 @@ impl TenantRole {
             }
         }
     }
-
-    /// Convert to database string
-    #[must_use]
-    pub const fn to_db_string(&self) -> &'static str {
-        match self {
-            Self::Owner => "owner",
-            Self::Admin => "admin",
-            Self::Billing => "billing",
-            Self::Member => "member",
-        }
-    }
 }
 
 /// Tenant/Organization in the multi-tenant system

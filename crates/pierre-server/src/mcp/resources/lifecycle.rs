@@ -21,6 +21,8 @@ use crate::services::photograveur_client::PhotograveurClient;
 use crate::services::turn_lifecycle::InFlightTurns;
 use crate::services::turn_runner::TurnRunner;
 use chrono::Utc;
+#[cfg(feature = "client-messaging")]
+use dravr_canot::commands::CommandDefinition;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase::FirebaseAuth;
@@ -64,13 +66,19 @@ use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 #[cfg(feature = "client-notifications")]
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
-#[cfg(feature = "client-messaging")]
-use pierre_messaging::commands::CommandDefinition;
 
 /// One `setMyCommands` call: the entries, the scope and the `language_code` they are for.
 #[cfg(feature = "client-messaging")]
 type TelegramMenuList = (Vec<(String, String)>, CommandScope, Option<&'static str>);
 
+use dravr_cageux::types::{
+    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
+    TrendIndicators,
+};
+#[cfg(feature = "client-messaging")]
+use dravr_canot::commands::CommandRegistry;
+#[cfg(feature = "client-messaging")]
+use dravr_canot::ChannelRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
 use pierre_contremaitre::ContremaitreConfig;
 use pierre_core::billing::{dummy::DummyProvider, BillingProvider};
@@ -80,22 +88,16 @@ use pierre_core::errors::{AppError, AppResult};
 #[cfg(feature = "client-messaging")]
 use pierre_core::models::SUPPORTED_LOCALES;
 use pierre_database::backends::factory::Database;
+#[cfg(feature = "client-notifications")]
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
 #[cfg(feature = "tools-groups")]
 use pierre_groups::delegation::DelegationStore;
 #[cfg(feature = "tools-groups")]
 use pierre_groups::strategies::tier::tier_strategy_for;
-use pierre_intelligence::{
-    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
-    TrendIndicators,
-};
 use pierre_llm::health::LlmHealthState;
 use pierre_llm::ChatProvider;
-#[cfg(feature = "client-messaging")]
-use pierre_messaging::commands::CommandRegistry;
-#[cfg(feature = "client-messaging")]
-use pierre_messaging::ChannelRegistry;
 #[cfg(feature = "provider-sciotte")]
 use pierre_middleware::provider_link_token::NonceStore;
 use pierre_middleware::redaction::RedactionConfig;
@@ -190,7 +192,7 @@ impl ServerContext {
         });
 
         let database_arc = Arc::new(database);
-        let repos = Arc::new(database_arc.repositories());
+        let repos = Arc::clone(database_arc.repositories());
 
         let auth_manager_arc = Arc::new(auth_manager);
 
@@ -780,10 +782,12 @@ impl ServerContext {
         messaging_strings: &Arc<MessagingStringsRegistry>,
         persona_contracts: &Arc<PersonaContractRegistry>,
     ) -> Arc<NotificationService> {
-        let service = match database.as_ref() {
-            Database::SQLite(db) => NotificationService::from_sqlite(db.pool().clone()),
+        let service = match database.backend() {
+            DatabaseBackend::SQLite(db) => NotificationService::from_sqlite(db.pool().clone()),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => NotificationService::from_postgres(db.pool().clone()),
+            DatabaseBackend::PostgreSQL(db) => {
+                NotificationService::from_postgres(db.pool().clone())
+            }
         };
         #[cfg(feature = "client-messaging")]
         let service = service.with_channel_sink(Arc::new(MessagingChannelSink::new(
@@ -850,7 +854,7 @@ impl ServerContext {
         rate_limiter: &Arc<ProviderRateLimiter>,
     ) -> (
         Arc<PierreSyncStorage>,
-        Arc<pierre_enforme::SyncOrchestrator>,
+        Arc<dravr_enforme::SyncOrchestrator>,
         AbortHandle,
     ) {
         use pierre_services::provider_refresh::start_scheduled_sync;

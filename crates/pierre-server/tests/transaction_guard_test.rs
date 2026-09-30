@@ -9,9 +9,9 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use pierre_core::errors::AppError;
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::backends::shared::transactions::{retry_transaction, TransactionGuard};
-use pierre_database::database::test_utils::create_test_db;
+use pierre_test_support::db::create_test_db;
 use sqlx::Row;
 
 /// The guard is generic over the `SQLx` database, so every test runs its
@@ -22,8 +22,9 @@ macro_rules! with_test_pool {
         match create_test_db()
             .await
             .expect("Failed to create test database")
+            .backend()
         {
-            Database::SQLite(db) => {
+            DatabaseBackend::SQLite(db) => {
                 let $pool = db.pool().clone();
                 create_items_table(
                     &$pool,
@@ -37,7 +38,7 @@ macro_rules! with_test_pool {
                 $body
             }
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => {
+            DatabaseBackend::PostgreSQL(db) => {
                 let $pool = db.pool().clone();
                 create_items_table(
                     &$pool,

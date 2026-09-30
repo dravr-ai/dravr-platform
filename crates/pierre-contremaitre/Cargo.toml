@@ -16,7 +16,7 @@ publish = false
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-client"] }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
 pierre-evals = { version = "0.3.0", path = "../pierre-evals" }
-pierre-intelligence = { version = "0.3.0", path = "../pierre-intelligence" }
+dravr-cageux = { workspace = true }
 pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
 pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
 

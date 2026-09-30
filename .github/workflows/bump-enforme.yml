@@ -32,7 +32,7 @@
 #   moving tag, the next unrelated apply would deploy it.
 #
 # * There are TWO things to ship. This lane deploys the sciotte SERVICE, and it also
-#   has to rebuild the platform binary — pierre-enforme compiles dravr-enforme in.
+#   has to rebuild the platform binary — pierre-services compiles dravr-enforme in.
 #   The lane once did not: it deployed sciotte and left main carrying an enforme the
 #   running binary did not have. That is carnet#94's shape, and the platform dispatch
 #   in the deploy job below is the fix.
@@ -137,7 +137,7 @@ jobs:
   #   providers, because a build that lost one still boots.
   #
   # * The platform binary. dravr-enforme is a Rust crate compiled INTO
-  #   dravr-mcp-server-api — `pierre-enforme` re-exports it and `server-production`
+  #   dravr-mcp-server-api — pierre-services depends on it and `server-production`
   #   turns on `health-sync`, so the Whoop, Garmin and Strava sync paths in the
   #   running binary are enforme's code. This lane once deployed sciotte and left
   #   main carrying an enforme the running binary did not have, until an unrelated

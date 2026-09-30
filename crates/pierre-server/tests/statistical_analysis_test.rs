@@ -11,7 +11,8 @@
 #![allow(clippy::cast_possible_wrap)] // Test helper uses small indices
 
 use chrono::Utc;
-use pierre_intelligence::{StatisticalAnalyzer, TrendDataPoint, TrendDirection};
+use dravr_cageux::statistical_analysis::StatisticalAnalyzer;
+use dravr_cageux::types::{TrendDataPoint, TrendDirection};
 
 /// Slope threshold the `analyze_performance_trends` tool passes to `determine_trend_direction`.
 const SLOPE_THRESHOLD: f64 = 0.01;

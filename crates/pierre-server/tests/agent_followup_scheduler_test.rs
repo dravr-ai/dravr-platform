@@ -12,9 +12,9 @@ use chrono::{Duration, Utc};
 use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
 use pierre_core::models::{Tenant, TenantId, User};
 use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::repositories::InsertAgentFollowupParams;
 use pierre_services::agent_followup_scheduler::tick;
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 /// Open the database the lane names through the test factory.
@@ -70,7 +70,7 @@ async fn seed_user_tenant_agent(db: &Database) -> Result<(TenantId, String, Stri
 #[tokio::test]
 async fn tick_processes_overdue_followup_and_marks_delivered() -> Result<()> {
     let db = open_db().await?;
-    let memory = db.repositories().memory;
+    let memory = &db.repositories().memory;
     let (tenant, user_id, agent_id) = seed_user_tenant_agent(&db).await?;
 
     let due_in_past = Utc::now() - Duration::hours(1);
@@ -124,7 +124,7 @@ async fn tick_processes_overdue_followup_and_marks_delivered() -> Result<()> {
 #[tokio::test]
 async fn tick_skips_followups_with_due_at_in_the_future() -> Result<()> {
     let db = open_db().await?;
-    let memory = db.repositories().memory;
+    let memory = &db.repositories().memory;
     let (tenant, user_id, agent_id) = seed_user_tenant_agent(&db).await?;
 
     memory
@@ -161,7 +161,7 @@ async fn tick_skips_followups_with_due_at_in_the_future() -> Result<()> {
 #[tokio::test]
 async fn tick_skips_followups_with_no_due_at() -> Result<()> {
     let db = open_db().await?;
-    let memory = db.repositories().memory;
+    let memory = &db.repositories().memory;
     let (tenant, user_id, agent_id) = seed_user_tenant_agent(&db).await?;
 
     memory
@@ -199,7 +199,7 @@ async fn tick_skips_followups_with_no_due_at() -> Result<()> {
 #[tokio::test]
 async fn second_tick_does_not_re_process_delivered_row() -> Result<()> {
     let db = open_db().await?;
-    let memory = db.repositories().memory;
+    let memory = &db.repositories().memory;
     let (tenant, user_id, agent_id) = seed_user_tenant_agent(&db).await?;
 
     memory
@@ -242,7 +242,7 @@ async fn second_tick_does_not_re_process_delivered_row() -> Result<()> {
 #[tokio::test]
 async fn tick_processes_multiple_overdue_in_one_batch() -> Result<()> {
     let db = open_db().await?;
-    let memory = db.repositories().memory;
+    let memory = &db.repositories().memory;
     let (tenant, user_id, agent_id) = seed_user_tenant_agent(&db).await?;
 
     for i in 0..5 {
@@ -282,7 +282,7 @@ async fn tick_processes_multiple_overdue_in_one_batch() -> Result<()> {
 mod dispatch_outcome {
     use super::{open_db, seed_user_tenant_agent, Result};
     use chrono::{Duration, Utc};
-    use pierre_database::backends::factory::Database;
+    use pierre_database::backends::factory::{Database, DatabaseBackend};
     use pierre_database::repositories::InsertAgentFollowupParams;
     use pierre_memory::FollowupStatus;
     use pierre_notifications::{NotificationService, TenantId as CommTenantId};
@@ -304,17 +304,21 @@ mod dispatch_outcome {
     /// The notification service on the scheduler's own database, where the
     /// notification tables exist and a dispatch persists a row.
     fn reachable_notification_service(db: &Database) -> NotificationService {
-        match db {
-            Database::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
+        match db.backend() {
+            DatabaseBackend::SQLite(sqlite) => {
+                NotificationService::from_sqlite(sqlite.pool().clone())
+            }
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
+            DatabaseBackend::PostgreSQL(pg) => {
+                NotificationService::from_postgres(pg.pool().clone())
+            }
         }
     }
 
     #[tokio::test]
     async fn failed_dispatch_leaves_followup_pending_for_the_next_tick() -> Result<()> {
         let db = open_db().await?;
-        let memory = db.repositories().memory;
+        let memory = &db.repositories().memory;
         let (tenant, user_id, agent_id) = seed_user_tenant_agent(&db).await?;
         let service = unreachable_notification_service().await?;
 
@@ -365,7 +369,7 @@ mod dispatch_outcome {
     #[tokio::test]
     async fn successful_dispatch_marks_followup_delivered_and_persists_the_push() -> Result<()> {
         let db = open_db().await?;
-        let memory = db.repositories().memory;
+        let memory = &db.repositories().memory;
         let (tenant, user_id, agent_id) = seed_user_tenant_agent(&db).await?;
         let service = reachable_notification_service(&db);
 

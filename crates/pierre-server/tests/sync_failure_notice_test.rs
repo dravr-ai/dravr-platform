@@ -12,9 +12,9 @@ mod common;
 mod sync_failure_notice_tests {
     use crate::common::{create_test_server_resources, create_test_tenant};
     use chrono::Utc;
+    use dravr_enforme::EnformeError;
     use pierre_core::models::{ConnectionType, TenantId};
-    use pierre_database::backends::factory::Database;
-    use pierre_enforme::EnformeError;
+    use pierre_database::backends::factory::DatabaseBackend;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_notifications::events::event_params;
     use pierre_notifications::models::Notification;
@@ -30,10 +30,14 @@ mod sync_failure_notice_tests {
     const DISPATCH_SETTLE: Duration = Duration::from_millis(400);
 
     fn notification_service(resources: &ServerContext) -> Arc<NotificationService> {
-        let service = match &*resources.agent.database {
-            Database::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
+        let service = match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(sqlite) => {
+                NotificationService::from_sqlite(sqlite.pool().clone())
+            }
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
+            DatabaseBackend::PostgreSQL(pg) => {
+                NotificationService::from_postgres(pg.pool().clone())
+            }
         };
         Arc::new(service)
     }

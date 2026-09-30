@@ -21,6 +21,3 @@ pub const DAYS_PER_WEEK: f64 = 7.0;
 
 /// Days per year (approximation)
 pub const DAYS_PER_YEAR: f64 = 365.0;
-
-/// Milliseconds per second
-pub const MS_PER_SECOND: f64 = 1000.0;

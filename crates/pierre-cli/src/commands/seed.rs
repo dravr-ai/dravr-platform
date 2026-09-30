@@ -4,6 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::sync::Arc;
+
 use clap::Subcommand;
 use pierre_auth::key_management::KeyManager;
 #[cfg(feature = "postgresql")]
@@ -82,7 +84,10 @@ pub async fn dispatch(action: SeedCommand, database_url: &str) -> AppResult<()> 
 /// Repositories over the full two-tier key management (the real DEK), for a
 /// seeder that writes an encrypted `oauth_token`: the token then decrypts in
 /// the server exactly like a real provider connection.
-async fn keyed_repositories(database_url: &str, seeder: &str) -> AppResult<RepositoryRegistry> {
+async fn keyed_repositories(
+    database_url: &str,
+    seeder: &str,
+) -> AppResult<Arc<RepositoryRegistry>> {
     info!(
         "Connecting to database for {seeder} seeding (full key init): {}",
         redact_url(database_url)
@@ -96,7 +101,7 @@ async fn keyed_repositories(database_url: &str, seeder: &str) -> AppResult<Repos
     )
     .await?;
     key_manager.complete_initialization(&mut database).await?;
-    Ok(database.repositories())
+    Ok(Arc::clone(database.repositories()))
 }
 
 async fn dispatch_with_database(action: SeedCommand, database_url: &str) -> AppResult<()> {
@@ -108,11 +113,11 @@ async fn dispatch_with_database(action: SeedCommand, database_url: &str) -> AppR
     let repos = db.repositories();
 
     match action {
-        SeedCommand::Bootstrap(args) => run_bootstrap(args, &repos).await,
-        SeedCommand::Agents(args) => run_agents(args, &repos).await,
-        SeedCommand::DemoData(args) => run_demo_data(args, &repos).await,
-        SeedCommand::LlmUsage(args) => run_llm_usage(args, &repos).await,
-        SeedCommand::Mobility => run_mobility(&repos).await,
+        SeedCommand::Bootstrap(args) => run_bootstrap(args, repos).await,
+        SeedCommand::Agents(args) => run_agents(args, repos).await,
+        SeedCommand::DemoData(args) => run_demo_data(args, repos).await,
+        SeedCommand::LlmUsage(args) => run_llm_usage(args, repos).await,
+        SeedCommand::Mobility => run_mobility(repos).await,
         SeedCommand::SyntheticActivities(_) | SeedCommand::TrainingpeaksDelegation(_) => {
             unreachable!("token-writing seeders are handled by dispatch() with full key init")
         }

@@ -61,7 +61,7 @@ async fn the_store_reads_an_agent_in_the_athletes_language() {
         .id;
 
     let agent_id = publish_catalogue_agent(
-        &repos,
+        repos,
         user_id,
         tenant_id,
         "Marathon Coach",
@@ -153,7 +153,7 @@ async fn a_translation_without_tags_keeps_the_english_chips() {
         .id;
 
     let agent_id = publish_catalogue_agent(
-        &repos,
+        repos,
         user_id,
         tenant_id,
         "Recovery Coach",
@@ -221,7 +221,7 @@ async fn a_french_tag_finds_the_agent_published_under_the_english_slug() {
         .id;
 
     let agent_id = publish_catalogue_agent_tagged(
-        &repos,
+        repos,
         user_id,
         tenant_id,
         "Double Threshold Coach",

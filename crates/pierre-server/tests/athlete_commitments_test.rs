@@ -53,7 +53,7 @@ fn commitment(
 #[tokio::test]
 async fn insert_round_trips_every_field() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let c = commitment("t1", "u1", Some("run"), 3, 7);
     assert!(repos.commitments.insert_commitment(&c).await.unwrap());
@@ -84,7 +84,7 @@ async fn insert_round_trips_every_field() {
 #[tokio::test]
 async fn absent_optional_fields_round_trip_as_none() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let mut c = commitment("t1", "u1", None, 2, 5);
     c.agent_id = None;
@@ -107,7 +107,7 @@ async fn absent_optional_fields_round_trip_as_none() {
 #[tokio::test]
 async fn reaffirming_the_same_promise_does_not_stack() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let first = commitment("t1", "u1", Some("run"), 3, 7);
     let mut same = first.clone();
@@ -133,7 +133,7 @@ async fn reaffirming_the_same_promise_does_not_stack() {
 #[tokio::test]
 async fn a_different_target_is_a_different_promise() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let three_runs = commitment("t1", "u1", Some("run"), 3, 7);
     let two_swims = commitment("t1", "u1", Some("swim"), 2, 7);
@@ -161,7 +161,7 @@ async fn a_different_target_is_a_different_promise() {
 #[tokio::test]
 async fn due_scan_returns_only_closed_windows_oldest_first() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let overdue_older = commitment("t1", "u1", Some("run"), 3, -5);
     let overdue_newer = commitment("t1", "u1", Some("ride"), 2, -1);
@@ -183,7 +183,7 @@ async fn due_scan_returns_only_closed_windows_oldest_first() {
 #[tokio::test]
 async fn recording_a_verdict_moves_it_out_of_the_due_scan() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let c = commitment("t1", "u1", Some("run"), 3, -1);
     repos.commitments.insert_commitment(&c).await.unwrap();
@@ -223,7 +223,7 @@ async fn recording_a_verdict_moves_it_out_of_the_due_scan() {
 #[tokio::test]
 async fn a_racing_second_sweep_writes_nothing() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let c = commitment("t1", "u1", Some("run"), 3, -1);
     repos.commitments.insert_commitment(&c).await.unwrap();
@@ -262,7 +262,7 @@ async fn a_racing_second_sweep_writes_nothing() {
 #[tokio::test]
 async fn reporting_is_single_shot_and_recorded() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let c = commitment("t1", "u1", Some("run"), 3, -1);
     repos.commitments.insert_commitment(&c).await.unwrap();
@@ -321,7 +321,7 @@ async fn reporting_is_single_shot_and_recorded() {
 #[tokio::test]
 async fn cancelling_removes_it_from_every_scan() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let c = commitment("t1", "u1", Some("run"), 3, -1);
     repos.commitments.insert_commitment(&c).await.unwrap();
@@ -357,7 +357,7 @@ async fn cancelling_removes_it_from_every_scan() {
 #[tokio::test]
 async fn expiring_closes_a_verdict_that_never_landed() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let c = commitment("t1", "u1", Some("run"), 3, -1);
     repos.commitments.insert_commitment(&c).await.unwrap();
@@ -398,7 +398,7 @@ async fn expiring_closes_a_verdict_that_never_landed() {
 #[tokio::test]
 async fn every_write_is_tenant_scoped() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let mine = commitment("t1", "u1", Some("run"), 3, -1);
     repos.commitments.insert_commitment(&mine).await.unwrap();
@@ -447,7 +447,7 @@ async fn every_write_is_tenant_scoped() {
 #[tokio::test]
 async fn open_list_is_scoped_to_the_athlete() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     repos
         .commitments

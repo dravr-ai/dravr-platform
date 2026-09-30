@@ -18,6 +18,7 @@ mod group_transcript_tests {
     use async_trait::async_trait;
     use axum::http::StatusCode;
     use chrono::Utc;
+    use dravr_canot::channels::telegram::transport::TelegramTransport;
     use futures_util::stream;
     use pierre_core::errors::AppError;
     use pierre_core::llm::{
@@ -36,7 +37,6 @@ mod group_transcript_tests {
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::routes::chat::ChatRoutes;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
-    use pierre_messaging::channels::telegram::transport::TelegramTransport;
     use pierre_services::channel_adapters::ChannelAdapterFactory;
     use serde_json::{json, Value};
     use serial_test::serial;

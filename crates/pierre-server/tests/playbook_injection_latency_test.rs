@@ -265,7 +265,7 @@ async fn playbook_injection_latency_breakdown() {
     // Scenario A — empty / cold-start (the common case: every new user).
     let db = create_test_db().await;
     let (user_a, tenant_a) = seed_user(&db).await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     // A light activity history so the cold-start read scans real rows.
     let acts: Vec<Activity> = (0..50).map(activity).collect();
     repos
@@ -278,7 +278,7 @@ async fn playbook_injection_latency_breakdown() {
     // Scenario B — established athlete (12 playbooks + 6 priors, no cold-start read).
     let db_b = create_test_db().await;
     let (user_b, tenant_b) = seed_user(&db_b).await;
-    let repos_b: Arc<RepositoryRegistry> = Arc::new(db_b.repositories());
+    let repos_b: Arc<RepositoryRegistry> = Arc::clone(db_b.repositories());
     seed_playbooks(&repos_b, &tenant_b.to_string(), &user_b.to_string(), 12).await;
     seed_priors(&repos_b, 6).await;
     let phase_b = run_scenario(&repos_b, &tenant_b.to_string(), &user_b.to_string()).await;
@@ -286,7 +286,7 @@ async fn playbook_injection_latency_breakdown() {
     // Scenario C — cold-start with a heavy activity history (300 activities).
     let db_c = create_test_db().await;
     let (user_c, tenant_c) = seed_user(&db_c).await;
-    let repos_c: Arc<RepositoryRegistry> = Arc::new(db_c.repositories());
+    let repos_c: Arc<RepositoryRegistry> = Arc::clone(db_c.repositories());
     let acts_c: Vec<Activity> = (0..300).map(activity).collect();
     repos_c
         .activity_cache
@@ -356,8 +356,8 @@ async fn real_inject_playbooks_latency() {
     let db_b = create_test_db().await;
     let (user_b, tenant_b) = seed_user(&db_b).await;
     let repos_b = db_b.repositories();
-    seed_playbooks(&repos_b, &tenant_b.to_string(), &user_b.to_string(), 12).await;
-    seed_priors(&repos_b, 6).await;
+    seed_playbooks(repos_b, &tenant_b.to_string(), &user_b.to_string(), 12).await;
+    seed_priors(repos_b, 6).await;
     let (tb, ub) = (tenant_b.to_string(), user_b.to_string());
     let mut established = Duration::ZERO;
     for _ in 0..iters {

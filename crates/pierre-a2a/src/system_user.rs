@@ -160,30 +160,4 @@ impl A2ASystemUserService {
         }
         Ok(None)
     }
-
-    /// Deactivate a system user when A2A client is deleted
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if database operations fail
-    pub async fn deactivate_system_user(&self, client_id: &str) -> AppResult<()> {
-        let system_email = format!("a2a-system-{client_id}@pierre.ai");
-
-        if let Some(user) = self
-            .users
-            .get_by_email(&system_email)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to get user by email: {e}")))?
-        {
-            // Instead of deleting, we could mark as inactive
-            // Log system user deactivation
-            info!(
-                user_id = %user.id,
-                client_id = %client_id,
-                "Deactivated A2A system user"
-            );
-        }
-
-        Ok(())
-    }
 }

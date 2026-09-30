@@ -33,11 +33,11 @@ use pierre_auth::{
 };
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{JwtMonthlyUsage, MonthlyLimitOverride, User, UserTier, WindowUsage};
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::repositories::analytics::next_utc_month_start;
 use pierre_database::{backends::factory::Database, database::generate_encryption_key};
 use pierre_middleware::rate_limiting::enforce_request_budget;
 use pierre_middleware::McpAuthMiddleware;
+use pierre_test_support::db::create_test_db_with_key;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -53,7 +53,7 @@ async fn create_test_setup() -> (Arc<Database>, ApiKeyManager, Arc<McpAuthMiddle
     // Create auth manager and middleware
     let auth_manager = AuthManager::new(24);
     let jwks_manager = common::get_shared_test_jwks();
-    let repos = Arc::new(database.repositories());
+    let repos = Arc::clone(database.repositories());
     let auth_middleware = Arc::new(McpAuthMiddleware::new(auth_manager, repos, jwks_manager));
 
     // Create API key manager
@@ -119,7 +119,7 @@ fn call(api_key_id: &str, at: DateTime<Utc>, tool_name: &str, status_code: u16) 
 }
 
 async fn seed_calls(database: &Database, api_key_id: &str, count: u32, at: DateTime<Utc>) {
-    let usage = database.repositories().usage;
+    let usage = &database.repositories().usage;
     for i in 0..count {
         usage
             .record_api_key(&call(api_key_id, at, &format!("seeded_tool_{i}"), 200))
@@ -545,7 +545,7 @@ async fn test_window_usage_counts_only_calls_inside_the_window() {
 
     // Whole seconds, so the oldest call reads back equal on every engine.
     let now = Utc::now().with_nanosecond(0).unwrap();
-    let usage = database.repositories().usage;
+    let usage = &database.repositories().usage;
     for hours_ago in 0..5 {
         usage
             .record_api_key(&call(

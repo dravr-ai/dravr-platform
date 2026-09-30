@@ -17,8 +17,8 @@ use pierre_core::models::{
 };
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::repositories::ChatRepository;
+use pierre_test_support::db::create_test_db;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 use tokio::time::sleep;
@@ -56,7 +56,7 @@ struct ChatFixture {
 
 impl ChatFixture {
     fn chat(&self) -> Arc<dyn ChatRepository> {
-        self.db.repositories().chat
+        Arc::clone(&self.db.repositories().chat)
     }
 
     fn athlete(&self) -> &str {

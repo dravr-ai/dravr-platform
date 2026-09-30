@@ -41,7 +41,7 @@ use pierre_core::models::{
     A2AClient, A2AUsage, RequestLog, Tenant, TenantId, User, UserStatus, UserTier,
 };
 use pierre_core::permissions::UserRole;
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::backends::{
     CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
 };
@@ -352,15 +352,15 @@ async fn key_rows(resources: &Arc<ServerContext>, api_key_id: &str) -> Vec<Reque
 /// Take the JWT usage counter away, so authenticating a JWT fails on the
 /// server side rather than on the credential.
 async fn drop_jwt_usage(resources: &Arc<ServerContext>) {
-    match resources.agent.database.as_ref() {
-        Database::SQLite(sqlite) => {
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
             sqlx::query("DROP TABLE jwt_usage")
                 .execute(sqlite.pool())
                 .await
                 .unwrap();
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(postgres) => {
+        DatabaseBackend::PostgreSQL(postgres) => {
             sqlx::query("DROP TABLE jwt_usage CASCADE")
                 .execute(postgres.pool())
                 .await
@@ -467,8 +467,8 @@ async fn a2a_rows(resources: &Arc<ServerContext>, client_id: &str) -> Vec<A2ARow
     const ROWS_SQL: &str = "SELECT endpoint, CAST(status_code AS INTEGER) AS status_code, \
          response_time_ms, session_token, protocol_version, client_capabilities, granted_scopes \
          FROM a2a_usage WHERE client_id = $1 ORDER BY timestamp";
-    match resources.agent.database.as_ref() {
-        Database::SQLite(sqlite) => {
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
             // The list columns hold JSON arrays on SQLite.
             let list = |row: &SqliteRow, column: &str| -> Vec<String> {
                 serde_json::from_str(&row.get::<String, _>(column)).unwrap()
@@ -491,7 +491,7 @@ async fn a2a_rows(resources: &Arc<ServerContext>, client_id: &str) -> Vec<A2ARow
                 .collect()
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(postgres) => sqlx::query(ROWS_SQL)
+        DatabaseBackend::PostgreSQL(postgres) => sqlx::query(ROWS_SQL)
             .bind(client_id)
             .fetch_all(postgres.pool())
             .await

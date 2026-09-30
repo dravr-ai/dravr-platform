@@ -50,16 +50,6 @@ impl ToolResult {
         }
     }
 
-    /// Create a result with notifications
-    #[must_use]
-    pub const fn with_notifications(content: Value, notifications: Vec<ToolNotification>) -> Self {
-        Self {
-            content,
-            notifications,
-            is_error: false,
-        }
-    }
-
     /// Add a notification to this result
     #[must_use]
     pub fn add_notification(mut self, notification: ToolNotification) -> Self {
@@ -182,16 +172,5 @@ impl ToolNotification {
         }
 
         Self::new(NotificationType::Progress, data)
-    }
-
-    /// Create a cache invalidation notification
-    #[must_use]
-    pub fn cache_invalidation(pattern: &str) -> Self {
-        Self::new(
-            NotificationType::CacheInvalidation,
-            serde_json::json!({
-                "pattern": pattern
-            }),
-        )
     }
 }

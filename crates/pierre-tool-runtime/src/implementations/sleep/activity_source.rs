@@ -5,8 +5,8 @@
 // Copyright (c) 2026 dravr.ai
 
 use chrono::Utc;
+use dravr_cageux::training_load::{TrainingLoad, TrainingLoadCalculator};
 use pierre_core::models::Activity;
-use pierre_intelligence::{TrainingLoad, TrainingLoadCalculator};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use serde_json::Value;

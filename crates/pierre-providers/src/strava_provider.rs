@@ -34,7 +34,7 @@ use serde::Deserialize;
 use std::fmt::Write;
 use std::sync::OnceLock;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 /// Context for multi-page activity fetching
 struct PaginationContext {
@@ -548,63 +548,6 @@ impl StravaProvider {
     fn streams_absent(status: reqwest::StatusCode, _text: &str, url: &str) -> Option<AppError> {
         (status == reqwest::StatusCode::NOT_FOUND)
             .then(|| AppError::not_found(format!("Strava streams at {url}")))
-    }
-
-    /// Fetch activities with optional detailed data enrichment
-    ///
-    /// PERFORMANCE WARNING: When `include_details=true`, this makes N+1 API calls:
-    /// - 1 call to fetch activity summaries (or multiple for pagination)
-    /// - N additional calls to fetch detailed data for each activity
-    ///
-    /// For 25 activities with details: 1 summary call + 25 detail calls = 26 total API calls
-    /// This significantly increases:
-    /// - API quota usage (Strava: 100 requests per 15min, 1000 per day)
-    /// - Response latency (26 sequential requests vs 1)
-    /// - Rate limiting risk
-    ///
-    /// Use `include_details=true` only when detailed activity data is explicitly needed.
-    /// Most use cases are satisfied by the summary endpoint data.
-    ///
-    /// # Errors
-    /// Returns error if API requests fail, authentication is invalid, or response parsing fails
-    pub async fn get_activities_with_details(
-        &self,
-        limit: Option<usize>,
-        offset: Option<usize>,
-        include_details: bool,
-    ) -> AppResult<Vec<Activity>> {
-        // Fetch summary activities using existing implementation
-        let activities = self.get_activities(limit, offset).await?;
-
-        // If details not requested, return summary data
-        if !include_details {
-            return Ok(activities);
-        }
-
-        // Fetch detailed data for each activity (N+1 query pattern)
-        warn!(
-            "Fetching detailed data for {} activities - this will make {} additional API calls",
-            activities.len(),
-            activities.len()
-        );
-
-        let mut detailed_activities = Vec::with_capacity(activities.len());
-        for activity in activities {
-            match self.get_activity_details(activity.id()).await {
-                Ok(detailed) => detailed_activities.push(detailed),
-                Err(e) => {
-                    error!(
-                        "Failed to fetch details for activity {}: {} - using summary data",
-                        activity.id(),
-                        e
-                    );
-                    // Fallback: use summary data if detail fetch fails
-                    detailed_activities.push(activity);
-                }
-            }
-        }
-
-        Ok(detailed_activities)
     }
 }
 

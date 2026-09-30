@@ -150,9 +150,6 @@ pub mod worker_runs;
 /// Endurance user-authored `workout_templates` repository (`SQLite`)
 pub mod workout_templates;
 
-/// Test utilities for database operations
-pub mod test_utils;
-
 pub use agents::{
     Agent, AgentCategory, CreateAgentRequest, ListAgentsFilter, PublishStatus, UpdateAgentRequest,
 };
@@ -176,7 +173,6 @@ use base64::Engine;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
-use ring::digest::{digest, SHA256};
 use ring::hmac;
 use ring::rand::{SecureRandom, SystemRandom};
 use sqlx::{Pool, Sqlite, SqlitePool};
@@ -218,6 +214,20 @@ impl Database {
             .await
             .map_err(|e| AppError::database(format!("Failed to connect to database: {e}")))?;
 
+        Self::from_pool(pool, encryption_key).await
+    }
+
+    /// Open the database over a pool the caller has already configured.
+    ///
+    /// For a caller that needs connection options a URL cannot express — a
+    /// journal mode, a synchronous level, a single connection. The embedded
+    /// migrations run against the pool, so a database that already carries
+    /// them applies nothing and an empty one ends up fully migrated.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the migration process fails.
+    pub async fn from_pool(pool: Pool<Sqlite>, encryption_key: Vec<u8>) -> AppResult<Self> {
         let db = Self {
             pool,
             blind_index_key: encryption_key.clone(),
@@ -226,7 +236,6 @@ impl Database {
             encryption_key,
         };
 
-        // Run migrations
         db.migrate_impl()
             .await
             .map_err(|e| AppError::database(format!("Database migration failed: {e}")))?;
@@ -370,81 +379,6 @@ impl Database {
         Ok(())
     }
 
-    /// Encrypt sensitive data using AES-256-GCM
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if encryption fails
-    pub fn encrypt_data(&self, data: &str) -> AppResult<String> {
-        let rng = SystemRandom::new();
-
-        // Generate unique nonce
-        let mut nonce_bytes = [0u8; 12];
-        rng.fill(&mut nonce_bytes)
-            .map_err(|e| AppError::internal(format!("Failed to generate nonce: {e}")))?;
-        let nonce = Nonce::assume_unique_for_key(nonce_bytes);
-
-        // Create encryption key
-        let unbound_key = UnboundKey::new(&AES_256_GCM, &self.encryption_key)
-            .map_err(|e| AppError::internal(format!("Failed to create encryption key: {e}")))?;
-        let key = LessSafeKey::new(unbound_key);
-
-        // Encrypt data
-        let mut data_bytes = data.as_bytes().to_vec();
-        key.seal_in_place_append_tag(nonce, Aad::empty(), &mut data_bytes)
-            .map_err(|e| AppError::internal(format!("Failed to encrypt data: {e}")))?;
-
-        // Combine nonce and encrypted data, base64 encode, then tag with the active DEK version
-        let mut combined = nonce_bytes.to_vec();
-        combined.extend(data_bytes);
-
-        Ok(shared::encryption::tag_dek_version(
-            self.active_dek_version,
-            &general_purpose::STANDARD.encode(combined),
-        ))
-    }
-
-    /// Decrypt sensitive data
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if decryption fails or data is malformed
-    pub fn decrypt_data(&self, encrypted_data: &str) -> AppResult<String> {
-        // Split the DEK version tag, then decode the base64 payload
-        let (dek_version, payload) = shared::encryption::split_dek_version(encrypted_data);
-        let dek = self.dek_key_for_version(dek_version)?;
-        let combined = general_purpose::STANDARD
-            .decode(payload)
-            .map_err(|e| AppError::internal(format!("Failed to decode base64: {e}")))?;
-
-        if combined.len() < 12 {
-            return Err(AppError::internal("Invalid encrypted data: too short"));
-        }
-
-        // Extract nonce and encrypted data
-        let (nonce_bytes, encrypted_bytes) = combined.split_at(12);
-        let nonce = Nonce::assume_unique_for_key(
-            nonce_bytes
-                .try_into()
-                .map_err(|e| AppError::internal(format!("Invalid nonce size: {e}")))?,
-        );
-
-        // Create decryption key for the resolved DEK version
-        let unbound_key = UnboundKey::new(&AES_256_GCM, dek)
-            .map_err(|e| AppError::internal(format!("Failed to create decryption key: {e}")))?;
-        let key = LessSafeKey::new(unbound_key);
-
-        // Decrypt data
-        let mut decrypted_data = encrypted_bytes.to_vec();
-        let decrypted = key
-            .open_in_place(nonce, Aad::empty(), &mut decrypted_data)
-            .map_err(|e| AppError::internal(format!("Failed to decrypt data: {e}")))?;
-
-        String::from_utf8(decrypted.to_vec()).map_err(|e| {
-            AppError::internal(format!("Failed to convert decrypted data to string: {e}"))
-        })
-    }
-
     /// Encrypt sensitive data using AES-256-GCM with Additional Authenticated Data (AAD)
     ///
     /// AAD binds the encrypted data to a specific context (tenant|user|provider|table)
@@ -570,16 +504,6 @@ impl Database {
         .map_err(|e| AppError::database(format!("Database query failed: {e}")))?;
 
         Ok(row.map(|r| r.0))
-    }
-
-    /// Hash sensitive data using SHA-256
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if hashing fails
-    pub fn hash_data(&self, data: &str) -> AppResult<String> {
-        let hash = digest(&SHA256, data.as_bytes());
-        Ok(general_purpose::STANDARD.encode(hash.as_ref()))
     }
 }
 

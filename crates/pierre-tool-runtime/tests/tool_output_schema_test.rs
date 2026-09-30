@@ -17,6 +17,10 @@
 //! describes the fields the payload carries, and it rejects a payload missing
 //! one.
 
+use dravr_meteo::{
+    DummyWeatherProvider, GeocodeError, Geocoded, Geocoder, Place, PlaceQuery, WeatherError,
+    WeatherProvider, WeatherQuery, WeatherSample,
+};
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::SportType;
@@ -179,10 +183,6 @@ use pierre_tool_runtime::implementations::weather_forecast::{
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::training_history_compute::HistoryRefresh;
-use pierre_weather::{
-    DummyWeatherProvider, GeocodeError, Geocoded, Geocoder, Place, PlaceQuery, WeatherError,
-    WeatherProvider, WeatherQuery, WeatherSample,
-};
 use serde_json::json;
 use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;

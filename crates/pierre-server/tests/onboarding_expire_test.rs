@@ -11,10 +11,10 @@ use anyhow::Result;
 use pierre_core::models::{Pillar, TenantId};
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
+use pierre_test_support::db::create_test_db_with_key;
 use uuid::Uuid;
 
 async fn open_in_memory_db() -> Result<Database> {
@@ -60,7 +60,7 @@ async fn expire_onboarding_facts_supersedes_scoped_then_all() -> Result<()> {
     let user_s = user.to_string();
 
     seed(
-        &repos,
+        repos,
         tenant,
         &user_s,
         Some(Pillar::Fuelling),
@@ -69,7 +69,7 @@ async fn expire_onboarding_facts_supersedes_scoped_then_all() -> Result<()> {
     )
     .await?;
     seed(
-        &repos,
+        repos,
         tenant,
         &user_s,
         Some(Pillar::SleepAndRecovery),
@@ -79,7 +79,7 @@ async fn expire_onboarding_facts_supersedes_scoped_then_all() -> Result<()> {
     .await?;
     // A conversation-sourced fact in the same pillar — must NEVER be superseded.
     seed(
-        &repos,
+        repos,
         tenant,
         &user_s,
         Some(Pillar::Fuelling),

@@ -23,12 +23,12 @@ mod common;
 mod snapshot_tenant_tests {
     use crate::common::create_test_server_resources;
     use chrono::{Duration, Utc};
+    use dravr_cageux::training_load::TrainingLoadCalculator;
     use pierre_core::models::{
         Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User,
         UserPhysiologicalProfile, UserStatus,
     };
     use pierre_fitness_compute::AthleteInputs;
-    use pierre_intelligence::TrainingLoadCalculator;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_tool_runtime::group_fitness::fetch_member_snapshots;
     use pierre_tool_runtime::runtime::ToolRuntime;

@@ -40,7 +40,7 @@ mod strava_seat_reclaim_tests {
     };
     use pierre_config::constants::strava_seat_reclaim as keys;
     use pierre_core::models::{ConnectionType, Tenant, TenantId, User, UserOAuthToken, UserStatus};
-    use pierre_database::backends::factory::Database;
+    use pierre_database::backends::factory::DatabaseBackend;
     use pierre_database::RepositoryRegistry;
     #[cfg(feature = "postgresql")]
     use pierre_mcp_server::config::admin::postgres_manager::PostgresAdminConfigManager;
@@ -178,10 +178,12 @@ mod strava_seat_reclaim_tests {
         resources: &ServerContext,
     ) -> (Arc<NotificationService>, Arc<LinkedChannel>) {
         let channel = Arc::new(LinkedChannel::default());
-        let service = match resources.agent.database.as_ref() {
-            Database::SQLite(db) => NotificationService::from_sqlite(db.pool().clone()),
+        let service = match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => NotificationService::from_sqlite(db.pool().clone()),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => NotificationService::from_postgres(db.pool().clone()),
+            DatabaseBackend::PostgreSQL(db) => {
+                NotificationService::from_postgres(db.pool().clone())
+            }
         }
         .with_channel_sink(Arc::clone(&channel) as Arc<dyn NotificationChannelSink>)
         .with_policy_gate(Arc::new(PersonaNotificationPolicyGate::new(
@@ -424,10 +426,10 @@ mod strava_seat_reclaim_tests {
         data_type: ConfigDataType,
     ) {
         let admin_id = admin(&resources.common.repos).await;
-        let repository: Box<dyn AdminConfigRepository> = match resources.agent.database.as_ref() {
-            Database::SQLite(db) => Box::new(AdminConfigManager::new(db.pool().clone())),
+        let repository: Box<dyn AdminConfigRepository> = match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => Box::new(AdminConfigManager::new(db.pool().clone())),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => {
+            DatabaseBackend::PostgreSQL(db) => {
                 Box::new(PostgresAdminConfigManager::new(db.pool().clone()))
             }
         };
@@ -509,8 +511,8 @@ mod strava_seat_reclaim_tests {
     /// Move an athlete's `users.last_active`, as a login or a message would.
     async fn set_last_active(resources: &ServerContext, holder: Holder, at: DateTime<Utc>) {
         const SQL: &str = "UPDATE users SET last_active = $1 WHERE id = $2";
-        match resources.agent.database.as_ref() {
-            Database::SQLite(db) => {
+        match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => {
                 sqlx::query(SQL)
                     .bind(at)
                     .bind(holder.user_id.to_string())
@@ -519,7 +521,7 @@ mod strava_seat_reclaim_tests {
                     .unwrap();
             }
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => {
+            DatabaseBackend::PostgreSQL(db) => {
                 sqlx::query(SQL)
                     .bind(at)
                     .bind(holder.user_id)
@@ -537,8 +539,8 @@ mod strava_seat_reclaim_tests {
                            WHERE user_id = $2 AND tenant_id = $3 AND provider = 'strava'";
         let user_id = holder.user_id.to_string();
         let tenant_id = holder.tenant_id.to_string();
-        match resources.agent.database.as_ref() {
-            Database::SQLite(db) => {
+        match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => {
                 sqlx::query(SQL)
                     .bind(at)
                     .bind(user_id)
@@ -548,7 +550,7 @@ mod strava_seat_reclaim_tests {
                     .unwrap();
             }
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => {
+            DatabaseBackend::PostgreSQL(db) => {
                 sqlx::query(SQL)
                     .bind(at)
                     .bind(user_id)

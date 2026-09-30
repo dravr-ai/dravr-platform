@@ -37,7 +37,7 @@ const PROVIDER: &str = oauth_providers::SCIOTTE_TRAININGPEAKS;
 
 struct Fixture {
     db: Arc<Database>,
-    repos: RepositoryRegistry,
+    repos: Arc<RepositoryRegistry>,
     owner: Uuid,
     owner_tenant: TenantId,
     coach: Uuid,
@@ -57,7 +57,7 @@ async fn fixture() -> Fixture {
         create_test_user_with_plan(&db, "coach@delegation.test", "starter")
             .await
             .unwrap();
-    let repos = db.repositories();
+    let repos = Arc::clone(db.repositories());
     let agent_id = repos
         .agents
         .create(

@@ -58,7 +58,7 @@ mod phase_1_integration {
     use pierre_core::models::ConnectionType;
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
     use pierre_core::permissions::UserRole;
-    use pierre_database::backends::factory::Database;
+    use pierre_database::backends::factory::DatabaseBackend;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -236,14 +236,14 @@ mod phase_1_integration {
         let tenant_str = tenant_id.to_string();
 
         for _ in 0..50 {
-            let row: Option<(String,)> = match resources.agent.database.as_ref() {
-                Database::SQLite(db) => sqlx::query_as(SQL)
+            let row: Option<(String,)> = match resources.agent.database.backend() {
+                DatabaseBackend::SQLite(db) => sqlx::query_as(SQL)
                     .bind(&tenant_str)
                     .fetch_optional(db.pool())
                     .await
                     .unwrap(),
                 #[cfg(feature = "postgresql")]
-                Database::PostgreSQL(db) => sqlx::query_as(SQL)
+                DatabaseBackend::PostgreSQL(db) => sqlx::query_as(SQL)
                     .bind(&tenant_str)
                     .fetch_optional(db.pool())
                     .await

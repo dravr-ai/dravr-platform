@@ -10,16 +10,10 @@
 pub mod http {
     /// Default HTTP timeout in seconds
     pub const DEFAULT_TIMEOUT_SECS: u64 = 30;
-    /// Maximum header size
-    pub const MAX_HEADER_SIZE: usize = 8192; // 8KB
-    /// Default keep-alive timeout
-    pub const KEEP_ALIVE_TIMEOUT_SECS: u64 = 75;
 }
 
 /// MCP protocol constants
 pub mod mcp {
     /// Default MCP timeout in seconds
     pub const DEFAULT_TIMEOUT_SECS: u64 = 60;
-    /// Maximum MCP message size
-    pub const MAX_MESSAGE_SIZE: usize = 10_485_760; // 10MB
 }

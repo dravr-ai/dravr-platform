@@ -29,7 +29,7 @@ use std::time::Duration;
 
 use chrono::Utc;
 use pierre_core::models::TenantId;
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::ActivityBackfillJobRow;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_tool_runtime::activity_backfill::{
@@ -121,15 +121,15 @@ async fn stored_job(fx: &Fixture, provider: &str) -> Option<StoredJob> {
                        created_at_ms, leased_until_ms, attempts \
                        FROM activity_backfill_jobs WHERE user_id = $1 AND provider = $2";
     let user_id = fx.user_id.to_string();
-    let row: Option<StoredJobTuple> = match fx.database.as_ref() {
-        Database::SQLite(db) => sqlx::query_as(SQL)
+    let row: Option<StoredJobTuple> = match fx.database.backend() {
+        DatabaseBackend::SQLite(db) => sqlx::query_as(SQL)
             .bind(&user_id)
             .bind(provider)
             .fetch_optional(db.pool())
             .await
             .unwrap(),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => sqlx::query_as(SQL)
+        DatabaseBackend::PostgreSQL(db) => sqlx::query_as(SQL)
             .bind(&user_id)
             .bind(provider)
             .fetch_optional(db.pool())

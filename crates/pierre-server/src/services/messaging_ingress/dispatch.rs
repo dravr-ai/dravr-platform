@@ -8,10 +8,10 @@ use std::env;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use dravr_canot::turn::ConversationTurnId as CanotTurnId;
 use pierre_core::models::messaging::{ChannelConfig, MessageContent, OutgoingMessage};
 use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_database::backends::MessagingRepository;
-use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use tracing::{error, info, warn};
 
 use super::scene_publisher::{athlete_color_scheme, MessagingScenePublisher};

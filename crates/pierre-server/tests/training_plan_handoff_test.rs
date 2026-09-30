@@ -24,7 +24,7 @@ use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::FactKind;
 use pierre_tool_runtime::context::CONVERSATION_ID;
@@ -258,15 +258,15 @@ async fn week_authors(a: &Athlete, plan: &str) -> Vec<(String, Option<String>)> 
 async fn active_plan_rows(a: &Athlete) -> i64 {
     let sql = "SELECT COUNT(*) FROM training_plans \
                WHERE tenant_id = $1 AND user_id = $2 AND status = 'active'";
-    match &*a.resources.agent.database {
-        Database::SQLite(sqlite) => sqlx::query_scalar(sql)
+    match a.resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => sqlx::query_scalar(sql)
             .bind(a.tenant.to_string())
             .bind(a.user.to_string())
             .fetch_one(sqlite.pool())
             .await
             .unwrap(),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => sqlx::query_scalar(sql)
+        DatabaseBackend::PostgreSQL(pg) => sqlx::query_scalar(sql)
             .bind(a.tenant.to_string())
             .bind(a.user.to_string())
             .fetch_one(pg.pool())

@@ -45,6 +45,9 @@ mod slack_room {
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
     use chrono::Utc;
+    use dravr_canot::channel::MessagingChannel;
+    use dravr_canot::channels::slack::{ephemeral_payload, SlackChannel};
+    use dravr_canot::turn::ConversationTurnId as CanotTurnId;
     use hmac::{Hmac, Mac};
     use pierre_chat_pipeline::stages::command_persistence::is_room_visible;
     use pierre_contremaitre::messaging_strings::{
@@ -57,7 +60,7 @@ mod slack_room {
     use pierre_core::models::messaging::{ChannelType, MessageContent, OutgoingMessage};
     use pierre_core::models::periodization::PhaseKind;
     use pierre_core::models::{Tenant, TenantId, User, UserStatus, COMMAND_FINISH_REASON};
-    use pierre_database::backends::factory::Database;
+    use pierre_database::backends::factory::DatabaseBackend;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -69,9 +72,6 @@ mod slack_room {
         settle_room_echo, RoomEchoSettlement,
     };
     use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
-    use pierre_messaging::channel::MessagingChannel;
-    use pierre_messaging::channels::slack::{ephemeral_payload, SlackChannel};
-    use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
     use serde_json::{json, Value};
     use sha2::Sha256;
     use std::collections::BTreeMap;
@@ -481,8 +481,8 @@ mod slack_room {
              JOIN chat_conversations c ON m.conversation_id = c.id \
              WHERE c.tenant_id = $1 AND CAST(c.user_id AS TEXT) = $2 \
                AND m.finish_reason = $3";
-        match resources.agent.database.as_ref() {
-            Database::SQLite(db) => sqlx::query_as(SQL)
+        match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => sqlx::query_as(SQL)
                 .bind(tenant.to_string())
                 .bind(user.to_string())
                 .bind(COMMAND_FINISH_REASON)
@@ -490,7 +490,7 @@ mod slack_room {
                 .await
                 .unwrap(),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => sqlx::query_as(SQL)
+            DatabaseBackend::PostgreSQL(db) => sqlx::query_as(SQL)
                 .bind(tenant.to_string())
                 .bind(user.to_string())
                 .bind(COMMAND_FINISH_REASON)
@@ -504,14 +504,14 @@ mod slack_room {
     /// tenant — the "did the plan text land anywhere durable" probe.
     async fn chat_rows_carrying(resources: &Arc<ServerContext>, needle: &str) -> i64 {
         const SQL: &str = "SELECT COUNT(*) FROM chat_messages WHERE content LIKE '%' || $1 || '%'";
-        match resources.agent.database.as_ref() {
-            Database::SQLite(db) => sqlx::query_scalar(SQL)
+        match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => sqlx::query_scalar(SQL)
                 .bind(needle)
                 .fetch_one(db.pool())
                 .await
                 .unwrap(),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => sqlx::query_scalar(SQL)
+            DatabaseBackend::PostgreSQL(db) => sqlx::query_scalar(SQL)
                 .bind(needle)
                 .fetch_one(db.pool())
                 .await
@@ -526,14 +526,14 @@ mod slack_room {
         needle: &str,
     ) -> Vec<(String, String, Option<String>, String, String)> {
         const SQL: &str = "SELECT direction, channel_message_id, chat_message_id,                                   correlation_id, tenant_id              FROM messaging_messages WHERE content_body LIKE '%' || $1 || '%'              ORDER BY created_at ASC";
-        match resources.agent.database.as_ref() {
-            Database::SQLite(db) => sqlx::query_as(SQL)
+        match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => sqlx::query_as(SQL)
                 .bind(needle)
                 .fetch_all(db.pool())
                 .await
                 .unwrap(),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => sqlx::query_as(SQL)
+            DatabaseBackend::PostgreSQL(db) => sqlx::query_as(SQL)
                 .bind(needle)
                 .fetch_all(db.pool())
                 .await
@@ -567,15 +567,15 @@ mod slack_room {
     /// plan — what the outbound ledger row must stamp as `chat_message_id`.
     async fn assistant_chat_row_id(resources: &Arc<ServerContext>) -> String {
         const SQL: &str = "SELECT id FROM chat_messages              WHERE finish_reason = $1 AND role = 'assistant'                AND content LIKE '%' || $2 || '%'";
-        match resources.agent.database.as_ref() {
-            Database::SQLite(db) => sqlx::query_scalar(SQL)
+        match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => sqlx::query_scalar(SQL)
                 .bind(COMMAND_FINISH_REASON)
                 .bind(PLAN_SESSION)
                 .fetch_one(db.pool())
                 .await
                 .unwrap(),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => sqlx::query_scalar(SQL)
+            DatabaseBackend::PostgreSQL(db) => sqlx::query_scalar(SQL)
                 .bind(COMMAND_FINISH_REASON)
                 .bind(PLAN_SESSION)
                 .fetch_one(db.pool())

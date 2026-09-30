@@ -5,12 +5,12 @@
 // Copyright (c) 2026 dravr.ai
 
 use chrono::{DateTime, Utc};
+use dravr_canot::channel::MessagingChannel;
 use pierre_core::errors::AppError;
 use pierre_core::models::messaging::OutgoingMessage;
 use pierre_core::models::TenantId;
 use pierre_database::backends::{InsertMessageParams, MessagingRepository};
 use pierre_database::repositories::{EnqueueOutboundParams, OutboundReauthGuard};
-use pierre_messaging::channel::MessagingChannel;
 use tracing::info;
 use uuid::Uuid;
 

@@ -11,8 +11,7 @@ use anyhow::Result;
 use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::WorkoutStep;
-use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::training_plans::{PlanAuthor, NO_AUTHOR_AGENT};
 use pierre_database::repositories::{
     PlanOutlineInput, PlanWeekInput, SavePlanBundleParams, SaveTrainingPlanParams,
@@ -21,6 +20,7 @@ use pierre_database::repositories::{
 use pierre_memory::training_plans::{
     GoalRace, PlanPhase, PlanStatus, PlannedDay, RacePriority, TrainingPlan, WeekStatus,
 };
+use pierre_test_support::db::create_test_db;
 use sqlx::{Connection, SqliteConnection};
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -974,8 +974,8 @@ async fn a_weeks_only_save_waiting_on_an_outline_supersede_lands_on_the_new_outl
         &week,
     );
 
-    let saved = match &db {
-        Database::SQLite(sqlite) => {
+    let saved = match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
             let options = sqlite.pool().connect_options();
             let mut conn = SqliteConnection::connect_with(&options).await?;
             let mut held = conn.begin().await?;
@@ -997,7 +997,7 @@ async fn a_weeks_only_save_waiting_on_an_outline_supersede_lands_on_the_new_outl
             saved?
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => {
+        DatabaseBackend::PostgreSQL(pg) => {
             let mut held = pg.pool().begin().await?;
             sqlx::query(supersede)
                 .bind(now)

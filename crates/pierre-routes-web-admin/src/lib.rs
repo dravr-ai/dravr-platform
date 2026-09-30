@@ -216,17 +216,6 @@ pub struct UserUsageResponse {
     pub daily: Vec<LlmUsageDailyRow>,
 }
 
-/// Per-user cost time series, daily granularity.
-#[derive(Debug, Serialize)]
-pub struct UserCostTimeseriesResponse {
-    /// User UUID.
-    pub user_id: String,
-    /// Window start (`RFC3339`).
-    pub from: String,
-    /// Daily time series points.
-    pub daily: Vec<LlmUsageDailyRow>,
-}
-
 /// Web admin routes - accessible via browser for admin users
 pub struct WebAdminRoutes;
 

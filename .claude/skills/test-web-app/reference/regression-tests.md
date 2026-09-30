@@ -248,8 +248,8 @@ rg "<test_name>" crates/pierre-server/tests/ --files-with-matches
 cargo test --test <file> <test_name> -- --nocapture
 ```
 
-Never `cargo test <name>` without `--test` (compiles all 325 binaries), never
-`cargo test --lib` (runs ~0 tests). Confirm `running N tests` with N > 0 and `N passed` —
+Never `cargo test <name>` without `--test` (compiles all 325 binaries); a crate's in-module
+unit tests run with `cargo test -p <crate> --lib`. Confirm `running N tests` with N > 0 and `N passed` —
 `cargo test` exits 0 when zero tests run.
 
 ## Before you call it done

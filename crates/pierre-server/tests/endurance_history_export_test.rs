@@ -10,8 +10,8 @@
 use chrono::{Duration, NaiveDate};
 use pierre_core::models::{DailyTrainingState, TenantId};
 use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::DatabaseProvider;
+use pierre_test_support::db::create_test_db_with_key;
 use std::slice;
 use uuid::Uuid;
 

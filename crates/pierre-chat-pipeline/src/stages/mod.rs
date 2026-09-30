@@ -17,7 +17,7 @@
 //! - Prompt assembly: [`prompt_builder`], [`refresh`], [`memory`],
 //!   [`followups`], [`introduction`]
 //! - Pre-LLM preparation: [`prefetch`], [`compaction`]
-//! - Post-LLM processing: [`guardrails`], [`verification`]
+//! - Post-LLM processing: `guardrails`, [`verification`]
 //! - Lifecycle I/O: [`persistence`], [`command_persistence`]
 
 /// First-use acronym expansion: gloss catalogued acronyms deterministically.
@@ -48,11 +48,12 @@ pub mod deterministic_reply;
 pub mod followups;
 /// Guardian confirm-required recovery: short-circuit a turn with the
 /// localized confirmation ask when the Guardian parked a destructive call.
-pub mod guardian_confirm;
+pub(crate) mod guardian_confirm;
 /// Guardian-denied recovery: short-circuit a turn with a localized "blocked
 /// for safety" reply when the runtime Guardian blocked a tool in enforce mode.
-pub mod guardian_denied;
-pub mod guardrails;
+pub(crate) mod guardian_denied;
+/// Admin-configured text guardrails applied to the assistant reply.
+pub(crate) mod guardrails;
 /// Agent introduction: an agent names itself and its role the first time it
 /// answers in a thread.
 pub mod introduction;
@@ -71,7 +72,8 @@ pub mod prefetch;
 /// Prompt assembly: agent/default → provider/group/memory → canary → messages.
 pub mod prompt_assembly;
 pub mod prompt_builder;
-pub mod provider_stop;
+/// The caveat on a reply the provider truncated or filtered.
+pub(crate) mod provider_stop;
 pub mod refresh;
 /// The language a platform note appended to a reply is written in.
 pub(crate) mod reply_locale;

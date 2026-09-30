@@ -152,15 +152,13 @@ use pierre_config::environment::{
     DatabaseConfig, DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig,
     GarminApiConfig, GeocodingServiceConfig, GoalManagementConfig, HttpClientConfig, LogLevel,
     LoggingConfig, McpConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig,
-    OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RateLimitConfig, RouteTimeoutConfig,
-    SecurityConfig, SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig, SqlxConfig,
-    SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig,
-    WeatherServiceConfig,
+    OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RateLimitConfig, SecurityConfig,
+    SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig, SqlxConfig, SseConfig,
+    StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
 };
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{backends::DatabaseProvider, database::generate_encryption_key};
 use pierre_mcp_server::mcp::{
     multitenant::ProviderToolRouter,
@@ -168,6 +166,7 @@ use pierre_mcp_server::mcp::{
 };
 use pierre_routes_auth::{AuthService, OAuthService, RegisterRequest};
 use pierre_services::oauth_flow::AuthUrlOptions;
+use pierre_test_support::db::create_test_db_with_key;
 use serde_json::json;
 use std::{path::PathBuf, sync::Arc};
 use tokio::time::{sleep, Duration};
@@ -205,7 +204,6 @@ async fn test_oauth_flow_through_mcp() {
         auth: AuthConfig {
             jwt_expiry_hours: 24,
             refresh_token_expiry_days: 30,
-            ..AuthConfig::default()
         },
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
@@ -283,7 +281,6 @@ async fn test_oauth_flow_through_mcp() {
         },
         sse: SseConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
-        route_timeouts: RouteTimeoutConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
         mcp: McpConfig {
@@ -517,7 +514,6 @@ async fn test_oauth_callback_error_handling() {
         auth: AuthConfig {
             jwt_expiry_hours: 24,
             refresh_token_expiry_days: 30,
-            ..AuthConfig::default()
         },
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
@@ -602,7 +598,6 @@ async fn test_oauth_callback_error_handling() {
         },
         sse: SseConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
-        route_timeouts: RouteTimeoutConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
         mcp: McpConfig {
@@ -831,7 +826,6 @@ async fn test_oauth_state_csrf_protection() {
         auth: AuthConfig {
             jwt_expiry_hours: 24,
             refresh_token_expiry_days: 30,
-            ..AuthConfig::default()
         },
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
@@ -916,7 +910,6 @@ async fn test_oauth_state_csrf_protection() {
         },
         sse: SseConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
-        route_timeouts: RouteTimeoutConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
         mcp: McpConfig {
@@ -1031,7 +1024,6 @@ async fn test_connection_status_tracking() {
         auth: AuthConfig {
             jwt_expiry_hours: 24,
             refresh_token_expiry_days: 30,
-            ..AuthConfig::default()
         },
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
@@ -1089,7 +1081,6 @@ async fn test_connection_status_tracking() {
         },
         sse: SseConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
-        route_timeouts: RouteTimeoutConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
         mcp: McpConfig {

@@ -312,22 +312,6 @@ impl A2AClientManager {
             .map_err(map_db_error("Failed to get A2A client"))
     }
 
-    /// List all registered clients for a specific user
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if database query fails
-    pub async fn list_clients_for_user(
-        &self,
-        user_id: &uuid::Uuid,
-    ) -> Result<Vec<A2AClient>, A2AError> {
-        self.repos
-            .a2a
-            .list_clients(user_id)
-            .await
-            .map_err(map_db_error("Failed to list A2A clients"))
-    }
-
     /// List all registered clients (system-wide - admin only)
     ///
     /// # Errors
@@ -525,12 +509,6 @@ impl A2AClientManager {
                 vec![]
             }
         }
-    }
-
-    /// Clean up expired sessions
-    pub const fn cleanup_expired_sessions(&self) {
-        // With database storage, expired sessions are automatically filtered out
-        // This could trigger a cleanup job if needed
     }
 
     /// The request budget a client-credentials call from `client_id`

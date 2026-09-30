@@ -333,11 +333,10 @@ done
 # whose arms run their own SQL is the same duplication with no file boundary
 # to pair on (claim_verdict_backfill.rs was the standing case). Whole-tree and
 # fatal — the statement belongs in a repository written once. The factory's
-# own dispatch and the test-database factory are exempt: neither holds a
-# statement a production read runs.
+# own dispatch is exempt: it holds no statement a production read runs.
 mapfile -t query_time_splits < <(
     grep -rlE --include='*.rs' 'Database::(SQLite|PostgreSQL)\(' crates/*/src 2>/dev/null \
-        | grep -v "^$DB_ROOT/backends/factory/" | grep -vx "$DB_ROOT/database/test_utils.rs" | sort || true
+        | grep -v "^$DB_ROOT/backends/factory/" | sort || true
 )
 for f in "${query_time_splits[@]}"; do
     [[ -n "$f" ]] || continue

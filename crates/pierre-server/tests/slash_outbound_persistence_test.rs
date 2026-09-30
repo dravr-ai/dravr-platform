@@ -13,6 +13,9 @@ mod messaging_fixtures;
 use std::sync::Arc;
 use std::time::Duration;
 
+use dravr_canot::channel::MessagingChannel;
+use dravr_canot::models::{ChannelType, MessageContent, OutgoingMessage};
+use dravr_canot::turn::ConversationTurnId;
 use messaging_fixtures::{create_test_db, seed_user, CapturingChannel, FailingChannel};
 use pierre_core::models::TenantId;
 use pierre_database::backends::{
@@ -21,9 +24,6 @@ use pierre_database::backends::{
 use pierre_mcp_server::services::messaging_ingress::outbound_send::{
     send_channel_response, send_private_channel_response, OutboundPersistSpec,
 };
-use pierre_messaging::channel::MessagingChannel;
-use pierre_messaging::models::{ChannelType, MessageContent, OutgoingMessage};
-use pierre_messaging::turn::ConversationTurnId;
 use serde_json::Value;
 use tokio::time::sleep;
 use uuid::Uuid;

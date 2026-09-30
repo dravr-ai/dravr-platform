@@ -31,6 +31,8 @@ use crate::guardian::{Guardian, GuardianTurns};
 use crate::reconnect::ReconnectOffers;
 use crate::registry::ToolRegistry;
 use crate::tool_selection::ToolSelectionService;
+use dravr_cageux::config::intelligence::IntelligenceConfig;
+use dravr_cageux::types::ActivityIntelligence;
 use pierre_auth::tenant::TenantOAuthClient;
 use pierre_cache::Cache;
 use pierre_config::environment::ServerConfig;
@@ -40,7 +42,6 @@ use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::repositories::AgentsRepository;
 use pierre_database::RepositoryRegistry;
-use pierre_intelligence::{ActivityIntelligence, IntelligenceConfig};
 use pierre_llm::LlmProvider;
 use pierre_providers::ProviderRegistry;
 use pierre_runtime_context::{AdminConfigLookup, DataContext};
@@ -49,7 +50,7 @@ use pierre_runtime_context::{AdminConfigLookup, DataContext};
 use pierre_services::provider_refresh::SyncNotifier;
 
 #[cfg(feature = "health-sync")]
-use pierre_enforme::SyncOrchestrator;
+use dravr_enforme::SyncOrchestrator;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::NotificationService;
 

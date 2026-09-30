@@ -28,6 +28,8 @@
 //!   [`webhook::TerraWebhookHandler`] is never invoked by the running server. The
 //!   provider therefore reads from a cache that nothing populates at runtime.
 //!
+//! LIMITATION(registre#34): `TerraWebhookHandler` is never mounted — no route accepts Terra webhook POSTs.
+//!
 //! Treat the architecture diagram below as the *intended* design, not as wired
 //! production behavior.
 //!

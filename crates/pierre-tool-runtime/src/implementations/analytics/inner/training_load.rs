@@ -18,11 +18,13 @@ use crate::protocols::ProtocolError;
 #[cfg(feature = "client-notifications")]
 use crate::runtime::ToolRuntime;
 use chrono::Utc;
+use dravr_cageux::config::intelligence::AlgorithmConfig;
+use dravr_cageux::sleep_analysis::SleepAnalyzer;
+use dravr_cageux::training_load::{TrainingLoadCalculator, TssDataPoint};
 use pierre_core::models::Activity;
 use pierre_core::models::{FormBand, FormReading};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_fitness_compute::AthleteInputs;
-use pierre_intelligence::{AlgorithmConfig, SleepAnalyzer, TrainingLoadCalculator, TssDataPoint};
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::triggers as notification_triggers;
 #[cfg(feature = "client-notifications")]

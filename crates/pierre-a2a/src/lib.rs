@@ -81,8 +81,3 @@ pub type A2AErrorResponse = JsonRpcError;
 pub fn map_db_error(context: &str) -> impl Fn(errors::AppError) -> A2AError + '_ {
     move |e| A2AError::InternalError(format!("{context}: {e}"))
 }
-
-/// Helper function for mapping database errors to A2A errors with string context
-pub fn map_db_error_str(context: String) -> impl Fn(errors::AppError) -> A2AError {
-    move |e| A2AError::InternalError(format!("{context}: {e}"))
-}

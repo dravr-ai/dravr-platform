@@ -20,7 +20,7 @@ mod messaging_quota_enforcement_tests {
     use pierre_contremaitre::messaging_strings::{DEFAULT_LOCALE, KEY_QUOTA_EXCEEDED};
     use pierre_core::models::ConnectionType;
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
-    use pierre_database::backends::factory::Database;
+    use pierre_database::backends::factory::DatabaseBackend;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -286,14 +286,14 @@ mod messaging_quota_enforcement_tests {
         // The gate runs before the pipeline persists the user message, so a
         // refused turn must leave no chat rows at all.
         let tenant = tenant_id.to_string();
-        let chat_rows: i64 = match resources.agent.database.as_ref() {
-            Database::SQLite(db) => sqlx::query_scalar(CHAT_ROWS_FOR_TENANT)
+        let chat_rows: i64 = match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => sqlx::query_scalar(CHAT_ROWS_FOR_TENANT)
                 .bind(&tenant)
                 .fetch_one(db.pool())
                 .await
                 .unwrap(),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => sqlx::query_scalar(CHAT_ROWS_FOR_TENANT)
+            DatabaseBackend::PostgreSQL(db) => sqlx::query_scalar(CHAT_ROWS_FOR_TENANT)
                 .bind(&tenant)
                 .fetch_one(db.pool())
                 .await

@@ -123,7 +123,7 @@ embacle = { version = "0.32.0", optional = true }
 
 # Standalone messaging types and channel adapters (dravr-canot)
 # pierre-core re-exports types/errors and reads channel names from their descriptors —
-# channel adapters enabled via pierre-messaging
+# channel adapters are enabled by the consuming crates
 dravr-canot = { workspace = true }
 
 # Standalone sports science intelligence engine (dravr-cageux)

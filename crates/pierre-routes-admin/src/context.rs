@@ -118,8 +118,6 @@ pub struct AdminApiContextInit {
     pub jwks_manager: Arc<JwksManager>,
     /// Per-tenant monthly API-key limit for admin-provisioned keys
     pub admin_api_key_monthly_limit: u32,
-    /// TTL for admin-token validation cache, in seconds
-    pub admin_token_cache_ttl_secs: u64,
     /// Harness config registry surfaced to admin eval flows
     pub harness_config_registry: Arc<HarnessConfigRegistry>,
     /// Guardian policy registry behind `PUT /admin/settings/guardian`
@@ -149,11 +147,8 @@ impl AdminApiContext {
     #[must_use]
     pub fn new(init: AdminApiContextInit) -> Self {
         info!("AdminApiContext initialized with JWT signing key");
-        let auth_service = AdminAuthService::new(
-            Arc::clone(&init.repos.admin),
-            init.jwks_manager.clone(),
-            init.admin_token_cache_ttl_secs,
-        );
+        let auth_service =
+            AdminAuthService::new(Arc::clone(&init.repos.admin), init.jwks_manager.clone());
         Self {
             database: init.database,
             repos: init.repos,

@@ -17,7 +17,7 @@ use common::{
 use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::{capture_notify, named, only};
 use pierre_core::models::TenantId;
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::database::agents::{
     AgentCategory, AgentVisibility, CreateSystemAgentRequest, PublishStatus,
 };
@@ -349,8 +349,8 @@ async fn cursor_pagination_survives_same_millisecond_published_at() {
     let micro_offsets: [i64; 5] = [0, 0, 100, 200, 300];
     for (agent_id, offset) in agent_ids.iter().zip(micro_offsets) {
         let ts = base + Duration::microseconds(offset);
-        match resources.agent.database.as_ref() {
-            Database::SQLite(db) => {
+        match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => {
                 sqlx::query(SET_PUBLISHED_AT)
                     .bind(ts.to_rfc3339())
                     .bind(agent_id)
@@ -360,7 +360,7 @@ async fn cursor_pagination_survives_same_millisecond_published_at() {
             }
             // `published_at` is a `timestamptz` column on PostgreSQL.
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => {
+            DatabaseBackend::PostgreSQL(db) => {
                 sqlx::query(SET_PUBLISHED_AT)
                     .bind(ts)
                     .bind(agent_id)

@@ -93,13 +93,6 @@ impl ServerContextOptions {
         }
     }
 
-    /// Set the RSA key size
-    #[must_use]
-    pub const fn with_rsa_key_size(mut self, size: usize) -> Self {
-        self.rsa_key_size_bits = Some(size);
-        self
-    }
-
     /// Set the JWKS manager
     #[must_use]
     pub fn with_jwks_manager(mut self, jwks: Arc<JwksManager>) -> Self {

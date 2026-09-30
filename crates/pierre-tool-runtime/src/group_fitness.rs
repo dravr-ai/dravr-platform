@@ -16,13 +16,14 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, NaiveDate, Utc};
+use dravr_cageux::config::intelligence::AlgorithmConfig;
+use dravr_cageux::training_load::{TrainingLoad, TrainingLoadCalculator};
 use futures_util::future::join_all;
 use pierre_core::models::groups::{MemberFitnessSnapshot, OvertrainingRiskLevel, RosterActivity};
 use pierre_core::models::FormBand;
 use pierre_core::models::{Activity, ProviderConnection, TenantId};
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_fitness_compute::AthleteInputs;
-use pierre_intelligence::{AlgorithmConfig, TrainingLoad, TrainingLoadCalculator};
 use pierre_providers::core::ActivityQueryParams;
 use tracing::{debug, info, warn};
 use uuid::Uuid;

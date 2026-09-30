@@ -293,20 +293,6 @@ impl ChainGuard {
         let elapsed_ms = now_ms().saturating_sub(opened_at);
         elapsed_ms < CIRCUIT_COOLDOWN_SECS * 1_000
     }
-
-    /// True when the circuit has been open longer than the cooldown
-    /// window and is ready for a half-open probe. Used by Chain to
-    /// decide whether to try the primary once "for real" or keep
-    /// skipping it.
-    #[must_use]
-    pub fn is_half_open(&self) -> bool {
-        let opened_at = self.circuit_opened_at_ms.load(Ordering::Relaxed);
-        if opened_at == 0 {
-            return false;
-        }
-        let elapsed_ms = now_ms().saturating_sub(opened_at);
-        elapsed_ms >= CIRCUIT_COOLDOWN_SECS * 1_000
-    }
 }
 
 /// Whether a stored budget figure is a reason to pass over a Copilot tier:

@@ -83,6 +83,7 @@ use recovery::{run_recovery_and_post_process, RecoveryAndPostProcessInputs};
 use std::sync::Arc;
 
 use chrono::Utc;
+use dravr_canot::commands::CommandRegistry;
 use pierre_agui::AgUiEvent;
 use pierre_commands::CommandHandlerRegistry;
 use pierre_config::environment::{LlmProviderType, ServerConfig};
@@ -102,7 +103,6 @@ use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_database::RepositoryRegistry;
 use pierre_llm::health::{LlmHealthState, LlmHealthStatus};
 use pierre_llm::{ChatMessage, ChatProvider, LlmProvider};
-use pierre_messaging::commands::CommandRegistry;
 use pierre_runtime_context::{AdminConfigLookup, CommandCtx, DataContext};
 use pierre_services::advice_capture::{
     spawn_capture_advice, AdviceCaptureStrategy, CapturedTurn, HeuristicGatedLlmExtraction,
@@ -204,7 +204,7 @@ pub struct ChatPipelineContext {
     pub sse_manager: Arc<SseManager>,
     /// Optional health-data sync orchestrator (enforme).
     #[cfg(feature = "health-sync")]
-    pub sync_orchestrator: Option<Arc<pierre_enforme::SyncOrchestrator>>,
+    pub sync_orchestrator: Option<Arc<dravr_enforme::SyncOrchestrator>>,
     /// Group coaching service — used by group context injection.
     #[cfg(feature = "tools-groups")]
     pub group_service: Arc<pierre_groups::GroupService>,

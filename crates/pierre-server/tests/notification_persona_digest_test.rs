@@ -46,7 +46,7 @@ mod digest_tests {
     use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
     use pierre_core::feature_flags::FeatureKey;
     use pierre_core::models::{ActivityBuilder, CoachingPersona, SportType, TenantId};
-    use pierre_database::backends::factory::Database;
+    use pierre_database::backends::factory::{Database, DatabaseBackend};
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_notifications::events::{event_params, SubjectAthlete};
     use pierre_notifications::models::{
@@ -129,10 +129,14 @@ personas:
     }
 
     fn notification_service(db: &Database) -> NotificationService {
-        match db {
-            Database::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
+        match db.backend() {
+            DatabaseBackend::SQLite(sqlite) => {
+                NotificationService::from_sqlite(sqlite.pool().clone())
+            }
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
+            DatabaseBackend::PostgreSQL(pg) => {
+                NotificationService::from_postgres(pg.pool().clone())
+            }
         }
     }
 
@@ -266,8 +270,8 @@ personas:
         let batch = batch_of(digest);
         // notification_id is TEXT on SQLite and UUID on PostgreSQL, the type of
         // the notifications.id it references on each engine.
-        match db {
-            Database::SQLite(sqlite) => {
+        match db.backend() {
+            DatabaseBackend::SQLite(sqlite) => {
                 let rows: Vec<String> = sqlx::query_scalar(
                     "SELECT notification_id FROM persona_digest_returns WHERE batch_id = ?",
                 )
@@ -278,7 +282,7 @@ personas:
                 rows.iter().map(|id| id.parse().unwrap()).collect()
             }
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(pg) => sqlx::query_scalar::<_, Uuid>(
+            DatabaseBackend::PostgreSQL(pg) => sqlx::query_scalar::<_, Uuid>(
                 "SELECT notification_id FROM persona_digest_returns WHERE batch_id = $1",
             )
             .bind(batch)
@@ -304,8 +308,8 @@ personas:
     /// cadence waits between two digests.
     async fn backdate(db: &Database, digest: &Notification, to: DateTime<Utc>) {
         let batch = batch_of(digest);
-        match db {
-            Database::SQLite(sqlite) => {
+        match db.backend() {
+            DatabaseBackend::SQLite(sqlite) => {
                 sqlx::query(
                     "UPDATE persona_digest_returns SET returned_at_ms = ? WHERE batch_id = ?",
                 )
@@ -316,7 +320,7 @@ personas:
                 .unwrap();
             }
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(pg) => {
+            DatabaseBackend::PostgreSQL(pg) => {
                 sqlx::query(
                     "UPDATE persona_digest_returns SET returned_at_ms = $1 WHERE batch_id = $2",
                 )

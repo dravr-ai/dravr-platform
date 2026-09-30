@@ -33,9 +33,9 @@
 use std::cmp::Reverse;
 
 use chrono::{Duration, Utc};
+use dravr_cageux::config::intelligence::AlgorithmConfig;
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_fitness_compute::AthleteInputs;
-use pierre_intelligence::AlgorithmConfig;
 use pierre_tool_runtime::implementations::analytics::calculate_fitness_metrics;
 use pierre_tool_runtime::implementations::analytics::output::{FitnessScoreResult, ProvidersUsed};
 

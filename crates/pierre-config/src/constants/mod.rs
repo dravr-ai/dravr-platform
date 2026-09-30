@@ -41,14 +41,6 @@ pub fn get_server_config() -> Option<&'static ServerConfig> {
     SERVER_CONFIG.get()
 }
 
-/// Try to get reference to the static server configuration without panicking
-///
-/// Returns `None` if `init_server_config()` hasn't been called yet (e.g., in tests)
-#[must_use]
-pub fn try_get_server_config() -> Option<&'static ServerConfig> {
-    SERVER_CONFIG.get()
-}
-
 // Domain-specific modules
 
 /// Server-side runtime-configurable MCP protocol values (server name, version).
@@ -153,12 +145,11 @@ pub use pierre_core::constants::oauth::*;
 /// Tool-related constants re-export
 pub use pierre_core::constants::tools::*;
 pub use pierre_core::constants::{
-    api_provider_limits, api_tier_limits, cache, cache_config, configuration_system, crypto,
-    database, defaults, endpoints, error_messages, errors, goal_management, http_status,
-    json_fields, key_prefixes, limits, mcp_transport, messages, oauth, oauth_config,
-    oauth_rate_limiting, physiology, ports, project, protocols, rate_limits, redis, routes,
-    security, service_names, sleep_recovery, status, system_config, system_monitoring, tiers, time,
-    time_constants, timeouts, tools, units, user_defaults,
+    api_provider_limits, cache, cache_config, configuration_system, database, defaults,
+    error_messages, errors, goal_management, http_status, json_fields, key_prefixes, limits,
+    mcp_transport, oauth, oauth_config, oauth_rate_limiting, physiology, ports, project, protocols,
+    rate_limits, redis, routes, security, service_names, sleep_recovery, status, system_config,
+    system_monitoring, tiers, time, time_constants, timeouts, tools, units,
 };
 // Note: `protocol` (local server-runtime helpers) and `protocols` (compile-time
 // re-export from pierre-core) are kept as modules to avoid identifier conflicts.

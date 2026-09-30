@@ -24,7 +24,7 @@ use chrono::Utc;
 use pierre_commands::calibration::CalibrateHandler;
 use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_core::models::{GuidedFlow, OnboardingState, TenantId};
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_runtime_context::AgentsCtx;
 #[cfg(feature = "postgresql")]
@@ -113,8 +113,8 @@ fn ctx(
 /// fails at the statement, and so would the write. [`stored_profile`] renames it
 /// back before reading.
 async fn plant_unreadable_profile(db: &Database, user_id: Uuid) -> Result<String> {
-    match db {
-        Database::SQLite(sqlite) => {
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
             let now = Utc::now().to_rfc3339();
             sqlx::query(
                 "INSERT INTO user_profiles (user_id, profile_data, created_at, updated_at)
@@ -129,7 +129,7 @@ async fn plant_unreadable_profile(db: &Database, user_id: Uuid) -> Result<String
             Ok(UNREADABLE_PROFILE.to_owned())
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => {
+        DatabaseBackend::PostgreSQL(pg) => {
             db.repositories()
                 .profiles
                 .upsert_profile(
@@ -157,15 +157,15 @@ async fn plant_unreadable_profile(db: &Database, user_id: Uuid) -> Result<String
 /// cannot parse it — a readback through `get_profile` would fail the same way
 /// and prove nothing about what is stored.
 async fn stored_profile(db: &Database, user_id: Uuid) -> Result<Option<String>> {
-    let stored = match db {
-        Database::SQLite(sqlite) => {
+    let stored = match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
             sqlx::query_scalar("SELECT profile_data FROM user_profiles WHERE user_id = $1")
                 .bind(user_id.to_string())
                 .fetch_optional(sqlite.pool())
                 .await?
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => {
+        DatabaseBackend::PostgreSQL(pg) => {
             sqlx::query("ALTER TABLE IF EXISTS user_profiles_held RENAME TO user_profiles")
                 .execute(pg.pool())
                 .await?;

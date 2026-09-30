@@ -11,6 +11,7 @@ use chrono::{Duration, Utc};
 use pierre_core::models::SessionRefreshToken;
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
+use std::sync::Arc;
 use uuid::Uuid;
 
 mod common;
@@ -27,10 +28,10 @@ fn record(user_id: Uuid, family_id: &str) -> SessionRefreshToken {
     }
 }
 
-async fn seeded() -> (Database, RepositoryRegistry, Uuid) {
+async fn seeded() -> (Database, Arc<RepositoryRegistry>, Uuid) {
     let database = common::create_test_database().await.unwrap();
     let (user_id, _) = common::create_test_user(&database).await.unwrap();
-    let repos = database.repositories();
+    let repos = Arc::clone(database.repositories());
     ((*database).clone(), repos, user_id)
 }
 

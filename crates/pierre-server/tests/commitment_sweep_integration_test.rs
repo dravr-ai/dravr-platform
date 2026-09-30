@@ -176,7 +176,7 @@ async fn fixture() -> (Database, Uuid, TenantId) {
 #[tokio::test]
 async fn three_of_three_is_met_and_reaches_the_athlete() {
     let (db, user, tenant) = fixture().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let c = closed_window_commitment(tenant, user, Some("run"), 3, 7);
     repos.commitments.insert_commitment(&c).await.unwrap();
@@ -212,7 +212,7 @@ async fn three_of_three_is_met_and_reaches_the_athlete() {
 #[tokio::test]
 async fn two_of_three_is_partial_and_carries_both_numbers() {
     let (db, user, tenant) = fixture().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let c = closed_window_commitment(tenant, user, Some("run"), 3, 7);
     repos.commitments.insert_commitment(&c).await.unwrap();
@@ -247,7 +247,7 @@ async fn two_of_three_is_partial_and_carries_both_numbers() {
 #[tokio::test]
 async fn the_wrong_sport_does_not_count() {
     let (db, user, tenant) = fixture().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let c = closed_window_commitment(tenant, user, Some("run"), 3, 7);
     repos.commitments.insert_commitment(&c).await.unwrap();
@@ -276,7 +276,7 @@ async fn the_wrong_sport_does_not_count() {
 #[tokio::test]
 async fn a_sport_agnostic_commitment_counts_anything() {
     let (db, user, tenant) = fixture().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let c = closed_window_commitment(tenant, user, None, 2, 7);
     repos.commitments.insert_commitment(&c).await.unwrap();
@@ -305,7 +305,7 @@ async fn a_sport_agnostic_commitment_counts_anything() {
 #[tokio::test]
 async fn a_cold_cache_defers_instead_of_accusing() {
     let (db, user, tenant) = fixture().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let c = closed_window_commitment(tenant, user, Some("run"), 3, 7);
     repos.commitments.insert_commitment(&c).await.unwrap();
@@ -339,7 +339,7 @@ async fn a_cold_cache_defers_instead_of_accusing() {
 #[tokio::test]
 async fn a_deferral_that_never_resolves_expires_rather_than_blocking() {
     let (db, user, tenant) = fixture().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let mut c = closed_window_commitment(tenant, user, Some("run"), 3, 30);
     // Eight days past its window with the data still cold — beyond the sweep's
@@ -366,7 +366,7 @@ async fn a_deferral_that_never_resolves_expires_rather_than_blocking() {
 #[tokio::test]
 async fn a_closed_route_holds_the_verdict_for_the_next_tick() {
     let (db, user, tenant) = fixture().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let c = closed_window_commitment(tenant, user, Some("run"), 3, 7);
     repos.commitments.insert_commitment(&c).await.unwrap();
@@ -402,7 +402,7 @@ async fn a_closed_route_holds_the_verdict_for_the_next_tick() {
 #[tokio::test]
 async fn the_cadence_cap_stops_two_verdicts_landing_at_once() {
     let (db, user, tenant) = fixture().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     // Two promises closing the same hour.
     let runs = closed_window_commitment(tenant, user, Some("run"), 2, 7);
@@ -439,7 +439,7 @@ async fn the_cadence_cap_stops_two_verdicts_landing_at_once() {
 #[tokio::test]
 async fn a_sweep_with_no_reporter_still_counts_and_ages_out() {
     let (db, user, tenant) = fixture().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let c = closed_window_commitment(tenant, user, Some("run"), 2, 7);
     repos.commitments.insert_commitment(&c).await.unwrap();
@@ -475,7 +475,7 @@ async fn a_sweep_with_no_reporter_still_counts_and_ages_out() {
 #[tokio::test]
 async fn a_cold_cache_is_warmed_by_the_refresh_and_the_verdict_lands() {
     let (db, user, tenant) = fixture().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let c = closed_window_commitment(tenant, user, Some("run"), 3, 7);
     repos.commitments.insert_commitment(&c).await.unwrap();
@@ -530,7 +530,7 @@ async fn a_cold_cache_is_warmed_by_the_refresh_and_the_verdict_lands() {
 #[tokio::test]
 async fn a_refresh_that_finds_nothing_lets_missed_land_instead_of_expiring() {
     let (db, user, tenant) = fixture().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let c = closed_window_commitment(tenant, user, Some("run"), 3, 7);
     repos.commitments.insert_commitment(&c).await.unwrap();
@@ -562,7 +562,7 @@ async fn a_refresh_that_finds_nothing_lets_missed_land_instead_of_expiring() {
 #[tokio::test]
 async fn a_fresh_met_count_requests_no_refresh() {
     let (db, user, tenant) = fixture().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let c = closed_window_commitment(tenant, user, Some("run"), 2, 7);
     repos.commitments.insert_commitment(&c).await.unwrap();
@@ -597,7 +597,7 @@ async fn a_fresh_met_count_requests_no_refresh() {
 #[tokio::test]
 async fn a_future_window_is_left_alone() {
     let (db, user, tenant) = fixture().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let mut c = closed_window_commitment(tenant, user, Some("run"), 3, 7);
     c.window_end = Utc::now() + Duration::days(3);

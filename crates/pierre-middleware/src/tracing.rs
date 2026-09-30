@@ -5,7 +5,6 @@
 // Copyright (c) 2026 dravr.ai
 
 use tracing::field::Empty;
-use tracing::Span;
 use uuid::Uuid;
 
 /// Request context that flows through the entire request lifecycle
@@ -45,24 +44,6 @@ impl RequestContext {
         self.tenant_id = tenant_id;
         self.auth_method = Some(auth_method);
         self
-    }
-
-    /// Record context in current tracing span
-    pub fn record_in_span(&self) {
-        let span = Span::current();
-        span.record("request_id", &self.request_id);
-
-        if let Some(user_id) = &self.user_id {
-            span.record("user_id", user_id.to_string());
-        }
-
-        if let Some(tenant_id) = &self.tenant_id {
-            span.record("tenant_id", tenant_id.to_string());
-        }
-
-        if let Some(auth_method) = &self.auth_method {
-            span.record("auth_method", auth_method);
-        }
     }
 }
 

@@ -7,7 +7,7 @@
 // Test files: allow missing_docs (rustc lint) and unwrap (valid in tests per CLAUDE.md guidelines)
 #![allow(missing_docs, clippy::unwrap_used)]
 
-use pierre_database::database::test_utils::create_test_db;
+use pierre_test_support::db::create_test_db;
 
 #[tokio::test]
 async fn test_increment_counter_creates_new() {

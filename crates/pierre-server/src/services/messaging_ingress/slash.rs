@@ -8,10 +8,10 @@
 
 use std::sync::Arc;
 
+use dravr_canot::rich_text::{parse_markdown, render_rich_text};
+use dravr_canot::turn::ConversationTurnId as CanotTurnId;
 use pierre_core::models::messaging::{CardAction, ChannelType, MessageContent, OutgoingMessage};
 use pierre_core::models::TenantId;
-use pierre_messaging::rich_text::{parse_markdown, render_rich_text};
-use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use tracing::info;
 
 use pierre_auth::auth::AuthResult;

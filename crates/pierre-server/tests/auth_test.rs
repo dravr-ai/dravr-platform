@@ -17,8 +17,8 @@ use pierre_auth::{
 use pierre_core::models::{AuthRequest, User, UserStatus, UserTier};
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::generate_encryption_key;
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_middleware::McpAuthMiddleware;
+use pierre_test_support::db::create_test_db_with_key;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -162,7 +162,7 @@ async fn test_mcp_auth_middleware() {
     database.repositories().users.create(&user).await.unwrap();
 
     let jwks_manager = common::get_shared_test_jwks();
-    let repos = Arc::new(database.repositories());
+    let repos = Arc::clone(database.repositories());
     let middleware = McpAuthMiddleware::new(auth_manager, repos, jwks_manager.clone());
 
     let token = middleware
@@ -192,7 +192,7 @@ async fn test_mcp_auth_middleware_invalid_header() {
     let database = Arc::new(create_test_db_with_key(encryption_key).await.unwrap());
 
     let jwks_manager = common::get_shared_test_jwks();
-    let repos = Arc::new(database.repositories());
+    let repos = Arc::clone(database.repositories());
     let middleware = McpAuthMiddleware::new(auth_manager, repos, jwks_manager);
 
     // Test missing header
@@ -217,7 +217,7 @@ async fn test_provider_access_check() {
     let database = Arc::new(create_test_db_with_key(encryption_key).await.unwrap());
 
     let jwks_manager = common::get_shared_test_jwks();
-    let repos = Arc::new(database.repositories());
+    let repos = Arc::clone(database.repositories());
     let middleware = McpAuthMiddleware::new(auth_manager, repos, jwks_manager.clone());
 
     // User has no providers initially
@@ -639,7 +639,7 @@ async fn test_mcp_auth_middleware_different_user_tiers() {
         user.email = format!("tier_test_{i}@example.com"); // Unique email for each user
         database.repositories().users.create(&user).await.unwrap();
 
-        let repos = Arc::new(database.repositories());
+        let repos = Arc::clone(database.repositories());
         let middleware = McpAuthMiddleware::new(auth_manager.clone(), repos, jwks_manager.clone());
         let token = middleware
             .auth_manager()

@@ -9,7 +9,7 @@
 
 use anyhow::Result;
 use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils;
+use pierre_test_support::db as test_db;
 
 /// Create a test database instance
 ///
@@ -17,5 +17,5 @@ use pierre_database::database::test_utils;
 ///
 /// Returns an error if database initialization fails
 pub async fn create_test_db() -> Result<Database> {
-    test_utils::create_test_db().await.map_err(Into::into)
+    test_db::create_test_db().await.map_err(Into::into)
 }

@@ -14,10 +14,10 @@ use pierre_core::models::{
 };
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
+use pierre_test_support::db::create_test_db_with_key;
 use uuid::Uuid;
 
 async fn open_in_memory_db() -> Result<Database> {
@@ -78,7 +78,7 @@ async fn onboarding_walk_covers_all_seven_topics_in_order() -> Result<()> {
     let user_s = user.to_string();
 
     // Topic 0: nothing covered yet → probe the North Star first.
-    let cov = coverage(&repos, tenant, user).await?;
+    let cov = coverage(repos, tenant, user).await?;
     assert_eq!(cov.covered_count(), 0);
     assert!(!cov.is_complete());
     assert_eq!(
@@ -88,7 +88,7 @@ async fn onboarding_walk_covers_all_seven_topics_in_order() -> Result<()> {
 
     // Answer the North Star → next probe is the first pillar in canonical order.
     capture(
-        &repos,
+        repos,
         tenant,
         &user_s,
         FactKind::NorthStar,
@@ -96,7 +96,7 @@ async fn onboarding_walk_covers_all_seven_topics_in_order() -> Result<()> {
         "be present and energetic for my kids",
     )
     .await?;
-    let cov = coverage(&repos, tenant, user).await?;
+    let cov = coverage(repos, tenant, user).await?;
     assert_eq!(cov.covered_count(), 1);
     assert_eq!(
         cov.next_target(&[], WalkAudience::Private),
@@ -116,7 +116,7 @@ async fn onboarding_walk_covers_all_seven_topics_in_order() -> Result<()> {
     ];
     for (i, pillar) in Pillar::ALL.into_iter().enumerate() {
         capture(
-            &repos,
+            repos,
             tenant,
             &user_s,
             FactKind::Goal,
@@ -124,7 +124,7 @@ async fn onboarding_walk_covers_all_seven_topics_in_order() -> Result<()> {
             &format!("a durable {} fact", pillar.as_str()),
         )
         .await?;
-        let cov = coverage(&repos, tenant, user).await?;
+        let cov = coverage(repos, tenant, user).await?;
         // North Star (1) + the pillars answered so far (i + 1).
         assert_eq!(
             cov.covered_count(),
@@ -142,7 +142,7 @@ async fn onboarding_walk_covers_all_seven_topics_in_order() -> Result<()> {
     }
 
     // Terminal state: North Star + all six pillars covered.
-    let cov = coverage(&repos, tenant, user).await?;
+    let cov = coverage(repos, tenant, user).await?;
     assert!(cov.is_complete(), "onboarding should be complete");
     assert_eq!(cov.covered_count(), 7);
     assert_eq!(cov.next_target(&[], WalkAudience::Private), None);
@@ -162,7 +162,7 @@ async fn stale_pillar_fact_reopens_that_topic() -> Result<()> {
 
     // Cover North Star + every pillar, then expire the Fuelling onboarding fact.
     capture(
-        &repos,
+        repos,
         tenant,
         &user_s,
         FactKind::NorthStar,
@@ -172,7 +172,7 @@ async fn stale_pillar_fact_reopens_that_topic() -> Result<()> {
     .await?;
     for pillar in Pillar::ALL {
         capture(
-            &repos,
+            repos,
             tenant,
             &user_s,
             FactKind::Goal,
@@ -181,7 +181,7 @@ async fn stale_pillar_fact_reopens_that_topic() -> Result<()> {
         )
         .await?;
     }
-    assert!(coverage(&repos, tenant, user).await?.is_complete());
+    assert!(coverage(repos, tenant, user).await?.is_complete());
 
     // Supersede the Fuelling onboarding fact (sets valid_until in the past).
     let superseded = repos
@@ -191,7 +191,7 @@ async fn stale_pillar_fact_reopens_that_topic() -> Result<()> {
     assert_eq!(superseded, 1);
 
     // Coverage drops by one and the walk re-targets the now-uncovered Fuelling.
-    let cov = coverage(&repos, tenant, user).await?;
+    let cov = coverage(repos, tenant, user).await?;
     assert!(
         !cov.is_complete(),
         "stale Fuelling fact must re-open onboarding"
@@ -231,7 +231,7 @@ async fn delivered_probe_history_round_trips_and_drives_the_advance() -> Result<
 
     // Coverage is still 0/7 — the answer's fact has not landed — yet the walk
     // advances to the first pillar rather than re-asking the North Star.
-    let cov = coverage(&repos, tenant, user).await?;
+    let cov = coverage(repos, tenant, user).await?;
     assert_eq!(cov.covered_count(), 0);
     assert_eq!(
         cov.next_target(&reloaded.probed, WalkAudience::Private),

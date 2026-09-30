@@ -9,11 +9,11 @@
 
 use anyhow::Result;
 use chrono::{Duration, Utc};
+use dravr_cageux::config::intelligence::AlgorithmConfig;
 use pierre_core::models::activity::ActivityBuilder;
 use pierre_core::models::{Activity, SportType, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_fitness_compute::training_history_compute::{compute_training_history, AthleteInputs};
-use pierre_intelligence::AlgorithmConfig;
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::registry::ToolRegistry;

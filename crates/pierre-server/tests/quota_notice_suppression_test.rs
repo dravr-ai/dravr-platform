@@ -32,7 +32,7 @@
 use pierre_chat_pipeline::quota_policy::claim_notice_slot;
 use pierre_chat_pipeline::QuotaLevel;
 use pierre_core::models::TenantId;
-use pierre_database::database::test_utils::create_test_db;
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 const WINDOW: &str = "2026-09-03T00:00:00Z";
@@ -41,7 +41,7 @@ const NEXT_WINDOW: &str = "2026-09-04T00:00:00Z";
 #[tokio::test]
 async fn the_notice_is_claimed_once_per_window() {
     let db = create_test_db().await.expect("test db");
-    let counters = db.repositories().usage_counters;
+    let counters = &db.repositories().usage_counters;
     let tenant = TenantId::generate();
     let user = Uuid::new_v4();
 
@@ -78,7 +78,7 @@ async fn the_notice_is_claimed_once_per_window() {
 #[tokio::test]
 async fn crossing_into_burst_earns_its_own_notice() {
     let db = create_test_db().await.expect("test db");
-    let counters = db.repositories().usage_counters;
+    let counters = &db.repositories().usage_counters;
     let tenant = TenantId::generate();
     let user = Uuid::new_v4();
 
@@ -120,7 +120,7 @@ async fn crossing_into_burst_earns_its_own_notice() {
 #[tokio::test]
 async fn the_next_window_tells_them_again() {
     let db = create_test_db().await.expect("test db");
-    let counters = db.repositories().usage_counters;
+    let counters = &db.repositories().usage_counters;
     let tenant = TenantId::generate();
     let user = Uuid::new_v4();
 
@@ -151,7 +151,7 @@ async fn the_next_window_tells_them_again() {
 #[tokio::test]
 async fn the_slot_is_per_athlete() {
     let db = create_test_db().await.expect("test db");
-    let counters = db.repositories().usage_counters;
+    let counters = &db.repositories().usage_counters;
     let tenant = TenantId::generate();
 
     let raph = Uuid::new_v4();
@@ -191,7 +191,7 @@ async fn the_slot_is_per_athlete() {
 #[tokio::test]
 async fn exactly_one_of_two_concurrent_turns_claims_the_slot() {
     let db = create_test_db().await.expect("test db");
-    let counters = db.repositories().usage_counters;
+    let counters = &db.repositories().usage_counters;
     let tenant = TenantId::generate();
     let user = Uuid::new_v4();
 

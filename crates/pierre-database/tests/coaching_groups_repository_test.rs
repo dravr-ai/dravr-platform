@@ -16,9 +16,9 @@ use pierre_core::models::groups::{
     CoachingGroup, GroupDigestMode, GroupRespondMode, UpdateGroupRequest,
 };
 use pierre_core::models::{AgentCategory, CreateAgentRequest, Tenant, TenantId, User};
-use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::RepositoryRegistry;
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 /// The user, tenant and agent rows a group's foreign keys resolve against.
@@ -97,7 +97,7 @@ fn group_bound_to_telegram(tenant_id: TenantId, owner_id: Uuid, agent_id: &str) 
 async fn listings_carry_the_channel_binding_the_by_id_read_carries() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let (owner_id, tenant_id, agent_id) = seed_owner_tenant_agent(&repos).await;
+    let (owner_id, tenant_id, agent_id) = seed_owner_tenant_agent(repos).await;
 
     let created = repos
         .groups
@@ -144,8 +144,8 @@ async fn insert_group_without_digest_mode(
          (id, tenant_id, name, agent_id, owner_id, created_at, updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, $6)";
     let now = Utc::now();
-    match db {
-        Database::SQLite(sqlite) => {
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
             sqlx::query(SQL)
                 .bind(id.to_string())
                 .bind(tenant_id.to_string())
@@ -158,7 +158,7 @@ async fn insert_group_without_digest_mode(
                 .unwrap();
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => {
+        DatabaseBackend::PostgreSQL(pg) => {
             sqlx::query(SQL)
                 .bind(id)
                 .bind(tenant_id.to_string())
@@ -180,7 +180,7 @@ async fn insert_group_without_digest_mode(
 async fn a_group_without_a_digest_mode_reads_off_until_an_update_sets_one() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let (owner_id, tenant_id, agent_id) = seed_owner_tenant_agent(&repos).await;
+    let (owner_id, tenant_id, agent_id) = seed_owner_tenant_agent(repos).await;
     let id = Uuid::new_v4();
     insert_group_without_digest_mode(&db, id, tenant_id, owner_id, &agent_id).await;
     let group_id = id.to_string();

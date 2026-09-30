@@ -48,7 +48,7 @@ fn sample_metric() -> OutcomeMetric {
 #[tokio::test]
 async fn record_outcome_creates_then_increments_same_playbook() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (trigger, intervention, metric) =
         (sample_trigger(), sample_intervention(), sample_metric());
 
@@ -106,7 +106,7 @@ async fn record_outcome_creates_then_increments_same_playbook() {
 #[tokio::test]
 async fn list_playbooks_is_tenant_isolated() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (trigger, intervention, metric) =
         (sample_trigger(), sample_intervention(), sample_metric());
 
@@ -140,7 +140,7 @@ async fn list_playbooks_is_tenant_isolated() {
 #[tokio::test]
 async fn pending_advice_due_label_and_future() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let make_advice = |id: &str, due_by| PendingAdvice {
         id: id.to_owned(),
@@ -214,7 +214,7 @@ async fn pending_advice_due_label_and_future() {
 #[tokio::test]
 async fn agent_scoping_includes_agnostic_excludes_other_agent() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (intervention, metric) = (sample_intervention(), sample_metric());
 
     // An agent-agnostic playbook and a "trail" agent playbook (distinct triggers
@@ -287,7 +287,7 @@ fn due_sample_advice(id: &str) -> PendingAdvice {
 #[tokio::test]
 async fn forget_playbook_purges_pending_advice_so_it_cannot_resurrect() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (trigger, intervention, metric) =
         (sample_trigger(), sample_intervention(), sample_metric());
 
@@ -337,7 +337,7 @@ async fn forget_playbook_purges_pending_advice_so_it_cannot_resurrect() {
 #[tokio::test]
 async fn insert_pending_advice_dedups_identical_open_advice() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     // The same recommendation reaffirmed across two turns must enqueue only one
     // open advice, so a single real behavior cannot double-count later.
@@ -360,7 +360,7 @@ async fn insert_pending_advice_dedups_identical_open_advice() {
 #[tokio::test]
 async fn archetype_priors_batch_fetch_is_confidence_ranked_and_pruned() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     // Upsert a well-evidenced "run" prior, then verify the batch fetch returns
     // it for the run+any key set, and that delete removes it (prune path).

@@ -22,11 +22,11 @@ use pierre_core::models::{
 };
 use pierre_core::models::{Tenant, TenantId, TenantPlan, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
-use pierre_database::database::test_utils::{create_sqlite_test_db, create_test_db};
 use pierre_database::{
     backends::factory::Database, database::AddMessageParams, repositories::SyncCursorRow,
     repository_registry::RepositoryRegistry,
 };
+use pierre_test_support::db::{create_sqlite_test_db, create_test_db};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -168,8 +168,8 @@ async fn test_parity_tenant_tool_overrides() {
     let pg_repos = pg_db.repositories();
 
     // Create users with tenants in both databases
-    let (sqlite_user_id, sqlite_tenant_id) = create_test_user(&sqlite_repos).await;
-    let (pg_user_id, pg_tenant_id) = create_test_user(&pg_repos).await;
+    let (sqlite_user_id, sqlite_tenant_id) = create_test_user(sqlite_repos).await;
+    let (pg_user_id, pg_tenant_id) = create_test_user(pg_repos).await;
 
     // Both should start with empty overrides
     let sqlite_overrides = sqlite_repos
@@ -248,8 +248,8 @@ async fn test_parity_chat_create_conversation() {
     let sqlite_repos = sqlite_db.repositories();
     let pg_repos = pg_db.repositories();
 
-    let (sqlite_user_id, sqlite_tenant_id) = create_test_user(&sqlite_repos).await;
-    let (pg_user_id, pg_tenant_id) = create_test_user(&pg_repos).await;
+    let (sqlite_user_id, sqlite_tenant_id) = create_test_user(sqlite_repos).await;
+    let (pg_user_id, pg_tenant_id) = create_test_user(pg_repos).await;
 
     // Parity check: both backends round-trip a NULL agent_id identically.
     // Full agent-attached flows are covered by chat_routes_test and the
@@ -354,8 +354,8 @@ async fn test_parity_chat_messages() {
     let sqlite_repos = sqlite_db.repositories();
     let pg_repos = pg_db.repositories();
 
-    let (sqlite_user_id, sqlite_tenant_id) = create_test_user(&sqlite_repos).await;
-    let (pg_user_id, pg_tenant_id) = create_test_user(&pg_repos).await;
+    let (sqlite_user_id, sqlite_tenant_id) = create_test_user(sqlite_repos).await;
+    let (pg_user_id, pg_tenant_id) = create_test_user(pg_repos).await;
 
     // Create conversations
     let sqlite_conv = sqlite_repos
@@ -490,8 +490,8 @@ async fn test_parity_chat_list_conversations() {
     let sqlite_repos = sqlite_db.repositories();
     let pg_repos = pg_db.repositories();
 
-    let (sqlite_user_id, sqlite_tenant_id) = create_test_user(&sqlite_repos).await;
-    let (pg_user_id, pg_tenant_id) = create_test_user(&pg_repos).await;
+    let (sqlite_user_id, sqlite_tenant_id) = create_test_user(sqlite_repos).await;
+    let (pg_user_id, pg_tenant_id) = create_test_user(pg_repos).await;
 
     // Create same conversations in both
     for i in 1..=5 {
@@ -569,7 +569,7 @@ async fn test_parity_sync_cursor_roundtrip() {
 
     for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
         let repos = db.repositories();
-        let (user_id, tenant_id) = create_test_user(&repos).await;
+        let (user_id, tenant_id) = create_test_user(repos).await;
 
         let last_sync_at = micros(Utc::now());
         let next_retry_at = micros(Utc::now() + Duration::minutes(15));
@@ -675,7 +675,7 @@ async fn test_parity_user_onboarding() {
 
     for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
         let repos = db.repositories();
-        let (user_id, _tenant_id) = create_test_user(&repos).await;
+        let (user_id, _tenant_id) = create_test_user(repos).await;
         let uid = user_id.to_string();
 
         // A plain step, plus the messaging-channel step carrying a chosen_channel
@@ -795,7 +795,7 @@ async fn test_parity_data_source_upsert_stable_id() {
 
     for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
         let repos = db.repositories();
-        let (user_id, tenant_id) = create_test_user(&repos).await;
+        let (user_id, tenant_id) = create_test_user(repos).await;
 
         // Provider-level source: empty id (store generates one), no device metadata.
         let source = DataSource {
@@ -867,8 +867,8 @@ async fn test_parity_recovery_metrics_roundtrip() {
 
     for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
         let repos = db.repositories();
-        let (user_id, tenant_id) = create_test_user(&repos).await;
-        let data_source_id = seed_data_source(&repos, user_id, tenant_id).await;
+        let (user_id, tenant_id) = create_test_user(repos).await;
+        let data_source_id = seed_data_source(repos, user_id, tenant_id).await;
 
         let metrics = StoredRecoveryMetrics {
             id: String::new(),
@@ -953,8 +953,8 @@ async fn test_parity_health_snapshot_constant_provider_id_across_dates() {
 
     for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
         let repos = db.repositories();
-        let (user_id, tenant_id) = create_test_user(&repos).await;
-        let data_source_id = seed_data_source(&repos, user_id, tenant_id).await;
+        let (user_id, tenant_id) = create_test_user(repos).await;
+        let data_source_id = seed_data_source(repos, user_id, tenant_id).await;
 
         // Captured once so a midnight rollover mid-test cannot make the two
         // upserts share a date and silently stop testing the collision.
@@ -1043,8 +1043,8 @@ async fn test_parity_health_snapshot_roundtrip() {
 
     for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
         let repos = db.repositories();
-        let (user_id, tenant_id) = create_test_user(&repos).await;
-        let data_source_id = seed_data_source(&repos, user_id, tenant_id).await;
+        let (user_id, tenant_id) = create_test_user(repos).await;
+        let data_source_id = seed_data_source(repos, user_id, tenant_id).await;
 
         let snapshot = StoredHealthMetrics {
             id: String::new(),
@@ -1112,7 +1112,7 @@ async fn test_parity_recipe_ingredient_fdc_id_roundtrip() {
 
     for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
         let repos = db.repositories();
-        let (user_id, tenant_id) = create_test_user(&repos).await;
+        let (user_id, tenant_id) = create_test_user(repos).await;
 
         let mut recipe = Recipe::new(user_id, "Parity Oat Bowl", 2);
         recipe.ingredients = vec![RecipeIngredient {
@@ -1159,7 +1159,7 @@ async fn test_parity_api_key_top_tools_analysis() {
 
     for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
         let repos = db.repositories();
-        let (user_id, _tenant_id) = create_test_user(&repos).await;
+        let (user_id, _tenant_id) = create_test_user(repos).await;
 
         let api_key = ApiKey {
             id: Uuid::new_v4().to_string(),
@@ -1241,7 +1241,7 @@ async fn test_parity_api_key_stats() {
 
     for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
         let repos = db.repositories();
-        let (user_id, _tenant_id) = create_test_user(&repos).await;
+        let (user_id, _tenant_id) = create_test_user(repos).await;
 
         let api_key = ApiKey {
             id: Uuid::new_v4().to_string(),
@@ -1326,11 +1326,11 @@ async fn test_parity_a2a_usage_stats() {
 
     for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
         let repos = db.repositories();
-        let client = create_parity_a2a_client(&repos, backend, 3600).await;
+        let client = create_parity_a2a_client(repos, backend, 3600).await;
 
         for (response_time_ms, status_code) in [(90, 200), (100, 200), (110, 500)] {
             record_parity_a2a_call(
-                &repos,
+                repos,
                 backend,
                 &client,
                 Utc::now(),
@@ -1373,7 +1373,7 @@ async fn test_parity_a2a_client_window_usage() {
 
     for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
         let repos = db.repositories();
-        let client = create_parity_a2a_client(&repos, backend, 60).await;
+        let client = create_parity_a2a_client(repos, backend, 60).await;
         let now = Utc::now();
         let window_start = a2a_client_window_start(&client, now);
 
@@ -1397,7 +1397,7 @@ async fn test_parity_a2a_client_window_usage() {
             earliest_inside,
             now - Duration::seconds(5),
         ] {
-            record_parity_a2a_call(&repos, backend, &client, at, 10, 200).await;
+            record_parity_a2a_call(repos, backend, &client, at, 10, 200).await;
         }
 
         let window = repos

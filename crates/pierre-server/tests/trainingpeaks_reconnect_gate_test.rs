@@ -27,7 +27,7 @@ use db_fixtures::{create_test_db, seed_user};
 #[tokio::test]
 async fn gate_flips_with_trainingpeaks_connection_status() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user, tenant) = seed_user(&db).await;
     let mirror = oauth_providers::SCIOTTE_TRAININGPEAKS;
 
@@ -84,7 +84,7 @@ async fn gate_flips_with_trainingpeaks_connection_status() {
 #[tokio::test]
 async fn trainingpeaks_with_no_session_row_resolves_to_its_mirror() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user, tenant) = seed_user(&db).await;
 
     let resolved = backend_resolver::resolve_backend(

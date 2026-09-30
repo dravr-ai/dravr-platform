@@ -33,7 +33,7 @@ use pierre_core::models::{Tenant, TenantId, User};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::{factory::Database, DatabaseProvider};
 use pierre_database::database::generate_encryption_key;
-use pierre_database::database::test_utils::create_test_db_with_key;
+use pierre_test_support::db::create_test_db_with_key;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 

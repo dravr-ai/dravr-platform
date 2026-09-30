@@ -20,9 +20,9 @@
 //! module existed the descriptor's number was asserted by tests and read by
 //! nothing, while `/plan` hard-coded the cross-channel floor instead.
 
+use dravr_canot::channels::capabilities_for;
 use pierre_chat_pipeline::{MessagingTransportCaps, SurfaceId, SurfaceProfile, SurfaceRequest};
 use pierre_core::models::messaging::ChannelType;
-use pierre_messaging::channels::capabilities_for;
 
 /// The [`SurfaceId`] a channel type reports on every pipeline span.
 #[must_use]

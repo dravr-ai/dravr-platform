@@ -17,7 +17,7 @@ use std::str::FromStr;
 
 #[cfg(feature = "postgresql")]
 use chrono::{TimeZone, Utc};
-use pierre_database::database::test_utils::create_test_db_url;
+use pierre_test_support::db::create_test_db_url;
 use sqlx::migrate::Migrator;
 #[cfg(feature = "postgresql")]
 use sqlx::postgres::PgPoolOptions;

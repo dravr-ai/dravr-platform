@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
+use dravr_canot::commands::CommandResponse;
 use pierre_contremaitre::messaging_strings::{
     KEY_SEASON_OPENER, KEY_SEASON_OPENER_AVAILABILITY, KEY_SEASON_OPENER_ROOM,
     KEY_SEASON_START_FAILED,
@@ -12,7 +13,6 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::errors::AppError;
 use pierre_core::models::{Dossier, GuidedFlow, Pillar};
 use pierre_memory::{FactKind, FactSource, PredicateCode};
-use pierre_messaging::commands::CommandResponse;
 use pierre_services::memory_facts::SentenceRenderer;
 use tracing::warn;
 

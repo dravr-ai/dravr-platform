@@ -31,8 +31,8 @@ use pierre_core::permissions::scopes::OAuthScope;
 use std::fmt::Display;
 
 use async_trait::async_trait;
+use dravr_canot::commands::CommandResponse;
 use pierre_core::errors::AppError;
-use pierre_messaging::commands::CommandResponse;
 use tracing::{info, warn};
 
 use pierre_contremaitre::messaging_strings::{

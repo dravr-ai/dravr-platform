@@ -10,9 +10,9 @@ use chrono::Utc;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
-use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::UserRateLimitOverride;
+use pierre_test_support::db::create_test_db;
 use std::time::Duration;
 use tokio::time::sleep;
 use uuid::Uuid;
@@ -73,7 +73,7 @@ async fn build_user(
 async fn override_upsert_then_get_round_trips() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let (user_id, _tenant_id) = build_user(&repos, UserTier::Starter).await;
+    let (user_id, _tenant_id) = build_user(repos, UserTier::Starter).await;
 
     assert!(
         repos
@@ -86,7 +86,7 @@ async fn override_upsert_then_get_round_trips() {
     );
 
     // Create a real admin to satisfy the set_by foreign key.
-    let (admin_user_id, _admin_tenant) = build_user(&repos, UserTier::Enterprise).await;
+    let (admin_user_id, _admin_tenant) = build_user(repos, UserTier::Enterprise).await;
 
     let now = Utc::now();
     let row = UserRateLimitOverride {
@@ -117,7 +117,7 @@ async fn override_upsert_then_get_round_trips() {
 async fn override_null_limit_round_trips_as_unlimited() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let (user_id, _tenant_id) = build_user(&repos, UserTier::Starter).await;
+    let (user_id, _tenant_id) = build_user(repos, UserTier::Starter).await;
 
     let now = Utc::now();
     let row = UserRateLimitOverride {
@@ -143,7 +143,7 @@ async fn override_null_limit_round_trips_as_unlimited() {
 async fn override_delete_reverts_to_tier_default() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let (user_id, _tenant_id) = build_user(&repos, UserTier::Starter).await;
+    let (user_id, _tenant_id) = build_user(repos, UserTier::Starter).await;
 
     let now = Utc::now();
     let row = UserRateLimitOverride {
@@ -185,7 +185,7 @@ async fn override_delete_reverts_to_tier_default() {
 async fn override_upsert_preserves_original_set_at() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let (user_id, _tenant_id) = build_user(&repos, UserTier::Starter).await;
+    let (user_id, _tenant_id) = build_user(repos, UserTier::Starter).await;
 
     let initial = Utc::now();
     repos
@@ -247,15 +247,15 @@ async fn override_upsert_preserves_original_set_at() {
 /// The column list of `user_rate_limit_overrides` on whichever backend
 /// `db` is, in declaration order.
 async fn override_columns(db: &Database) -> Vec<String> {
-    match db {
-        Database::SQLite(sqlite) => {
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
             sqlx::query_scalar("SELECT name FROM pragma_table_info('user_rate_limit_overrides')")
                 .fetch_all(sqlite.pool())
                 .await
                 .unwrap()
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(postgres) => sqlx::query_scalar(
+        DatabaseBackend::PostgreSQL(postgres) => sqlx::query_scalar(
             "SELECT column_name::TEXT FROM information_schema.columns \
              WHERE table_schema = current_schema() \
                AND table_name = 'user_rate_limit_overrides' \

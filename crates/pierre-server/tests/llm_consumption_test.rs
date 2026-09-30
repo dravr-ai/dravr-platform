@@ -11,7 +11,7 @@ use embacle::pricing::{calculate_cost, calculate_cost_with_cache};
 use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::ConversationTurnId;
 use pierre_database::database::repositories::LlmUsageRepository;
-use pierre_database::database::test_utils::create_test_db;
+use pierre_test_support::db::create_test_db;
 
 /// Parameters for inserting test LLM usage data
 struct TestUsageParams<'a> {

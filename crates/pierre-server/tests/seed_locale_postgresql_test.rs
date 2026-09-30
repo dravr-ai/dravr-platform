@@ -13,8 +13,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg(feature = "postgresql")]
 
-use pierre_database::database::test_utils::create_test_db;
 use pierre_seeders::bootstrap::{self, SeedArgs};
+use pierre_test_support::db::create_test_db;
 
 /// `users.locale` is `NOT NULL DEFAULT 'fr'` on both engines, and the two seeder
 /// backends write their own INSERT. A locale bound on `SQLite` but missing from the PG
@@ -30,7 +30,7 @@ async fn test_pg_seeded_accounts_are_english() {
             admin_email: "operator@dravr.ai".to_owned(),
             admin_password: "OperatorPass123!".to_owned(),
         },
-        &repos,
+        repos,
     )
     .await
     .unwrap();
@@ -58,7 +58,7 @@ async fn test_pg_seeded_accounts_are_english() {
             admin_email: "operator@dravr.ai".to_owned(),
             admin_password: "OperatorPass123!".to_owned(),
         },
-        &repos,
+        repos,
     )
     .await
     .unwrap();

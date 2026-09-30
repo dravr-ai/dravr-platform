@@ -14,15 +14,15 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::models::{Pillar, TenantId};
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::database::generate_encryption_key;
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::PredicateCode;
 use pierre_memory::{FactKind, FactSource, MemoryScope};
 use pierre_services::memory_facts::SentenceRenderer;
 use pierre_services::okf::render_okf_bundle_default;
+use pierre_test_support::db::create_test_db_with_key;
 use tracing::field::{Field, Visit};
 use tracing::subscriber::DefaultGuard;
 use tracing::Subscriber;
@@ -142,7 +142,7 @@ async fn pillar_facts_group_into_dossier_buckets() -> Result<()> {
     let user_s = user.to_string();
 
     seed_fact(
-        &repos,
+        repos,
         tenant,
         &user_s,
         FactKind::Goal,
@@ -151,7 +151,7 @@ async fn pillar_facts_group_into_dossier_buckets() -> Result<()> {
     )
     .await?;
     seed_fact(
-        &repos,
+        repos,
         tenant,
         &user_s,
         FactKind::NorthStar,
@@ -160,7 +160,7 @@ async fn pillar_facts_group_into_dossier_buckets() -> Result<()> {
     )
     .await?;
     seed_fact(
-        &repos,
+        repos,
         tenant,
         &user_s,
         FactKind::Medical,
@@ -211,7 +211,7 @@ async fn medical_fact_survives_recency_window_eviction() -> Result<()> {
 
     // Oldest fact: the medical flag.
     seed_fact(
-        &repos,
+        repos,
         tenant,
         &user_s,
         FactKind::Medical,
@@ -222,7 +222,7 @@ async fn medical_fact_survives_recency_window_eviction() -> Result<()> {
     // Bury it under 45 newer conversation facts (> the 40-row recency window).
     for i in 0..45 {
         seed_fact(
-            &repos,
+            repos,
             tenant,
             &user_s,
             FactKind::Goal,
@@ -261,7 +261,7 @@ async fn dossier_facts_are_tenant_scoped() -> Result<()> {
 
     // Fact lives under tenant B only.
     seed_fact(
-        &repos,
+        repos,
         tenant_b,
         &user_s,
         FactKind::Goal,
@@ -306,14 +306,14 @@ async fn failing_fact_reads_warn_with_the_error_and_still_render() -> Result<()>
     let user_s = user.to_string();
 
     // Take the fact table away so every fact read in compose_dossier fails.
-    match &db {
-        Database::SQLite(sqlite) => {
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
             sqlx::query("DROP TABLE user_facts")
                 .execute(sqlite.pool())
                 .await?;
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => {
+        DatabaseBackend::PostgreSQL(pg) => {
             sqlx::query("DROP TABLE user_facts")
                 .execute(pg.pool())
                 .await?;

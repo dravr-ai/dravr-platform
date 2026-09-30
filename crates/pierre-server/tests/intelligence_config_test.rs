@@ -142,14 +142,15 @@
 )]
 //! Tests for the intelligence configuration system
 
-use pierre_intelligence::config::intelligence::{
+use dravr_cageux::config::intelligence::{
     AggressiveStrategy, ConservativeStrategy, DefaultStrategy, IntelligenceConfig,
     IntelligenceStrategy,
 };
-use pierre_intelligence::performance_analyzer::AdvancedPerformanceAnalyzer;
-use pierre_intelligence::recommendation_engine::AdvancedRecommendationEngine;
-use pierre_intelligence::{
-    AdvancedGoalEngine, FitnessLevel, TimeAvailability, UserFitnessProfile, UserPreferences,
+use dravr_cageux::goal_engine::AdvancedGoalEngine;
+use dravr_cageux::performance_analyzer::AdvancedPerformanceAnalyzer;
+use dravr_cageux::recommendation_engine::AdvancedRecommendationEngine;
+use pierre_core::intelligence::{
+    FitnessLevel, TimeAvailability, UserFitnessProfile, UserPreferences,
 };
 
 #[test]

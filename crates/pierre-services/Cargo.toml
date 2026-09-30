@@ -13,22 +13,22 @@ publish = false
 [features]
 default = []
 # Forwarded to pierre-database/pierre-core for backend dispatch
-postgresql = ["pierre-database/postgresql", "sqlx/postgres"]
+postgresql = ["pierre-database/postgresql", "sqlx/postgres", "pierre-test-support/postgresql"]
 # Bullshit detector services (claim_verification, claim_verdict_backfill, eval_harness)
 tools-verification = ["dep:pierre-evals", "dep:dravr-contremaitre"]
 # Messaging-related services (messaging_outbound, messaging_seed, channel_error_reply, messaging_status_bridge)
 client-messaging = [
-    "dep:pierre-messaging",
+    "dep:dravr-canot",
     "dep:pierre-agui",
-    "pierre-messaging/agui",
-    "pierre-messaging/channel-discord",
-    "pierre-messaging/channel-slack",
-    "pierre-messaging/channel-telegram",
+    "dravr-canot/agui",
+    "dravr-canot/channel-discord",
+    "dravr-canot/channel-slack",
+    "dravr-canot/channel-telegram",
 ]
 # Push notification dispatch in coach_followup_scheduler
 client-notifications = []
 # Health-data sync adapter (health_sync)
-health-sync = ["dep:pierre-enforme", "dep:dravr-equilibre-sync", "dep:dravr-riviere"]
+health-sync = ["dep:dravr-enforme", "dep:dravr-equilibre-sync", "dep:dravr-riviere"]
 # PostHog analytics implementation
 analytics-posthog = []
 
@@ -44,7 +44,7 @@ pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre" }
 pierre-evals = { version = "0.3.0", path = "../pierre-evals", optional = true }
 # The compiled-in evidence corpus the claim verifier falls back to.
 dravr-contremaitre = { workspace = true, optional = true }
-pierre-intelligence = { version = "0.3.0", path = "../pierre-intelligence" }
+dravr-cageux = { workspace = true }
 pierre-fitness-compute = { version = "0.3.0", path = "../pierre-fitness-compute" }
 pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
 # The price table and token-count arithmetic; the override registry here layers on them.
@@ -53,13 +53,13 @@ pierre-mcp-schema = { version = "0.3.0", path = "../pierre-mcp-schema" }
 pierre-mcp-transport = { version = "0.3.0", path = "../pierre-mcp-transport" }
 pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
 pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }
-pierre-messaging = { version = "0.3.0", path = "../pierre-messaging", optional = true }
+dravr-canot = { workspace = true, optional = true }
 pierre-groups = { version = "0.3.0", path = "../pierre-groups" }
 pierre-notifications = { version = "0.3.0", path = "../pierre-notifications" }
 pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
 pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
-pierre-weather = { version = "0.3.0", path = "../pierre-weather" }
-pierre-enforme = { version = "0.3.0", path = "../pierre-enforme", optional = true, features = ["provider-whoop", "provider-garmin", "provider-coros"] }
+dravr-meteo = { workspace = true }
+dravr-enforme = { workspace = true, optional = true, features = ["provider-whoop", "provider-garmin", "provider-coros"] }
 
 dravr-tronc = { workspace = true, features = ["notifications"] }
 dravr-equilibre-sync = { workspace = true, optional = true }
@@ -91,6 +91,10 @@ tracing = "0.1"
 url = "2.5"
 urlencoding = "2.1"
 uuid = { version = "1.22", features = ["v4", "serde"] }
+
+[dev-dependencies]
+# Test fixtures (create_test_db, user fixtures): a dev-dependency only, per ADR-027.
+pierre-test-support = { version = "0.3.0", path = "../pierre-test-support" }
 
 [lints]
 workspace = true

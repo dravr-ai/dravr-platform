@@ -14,7 +14,7 @@ use common::create_test_server_resources;
 use pierre_auth::config::oauth::{get_oauth_config, strava_oauth_seat_cap};
 use pierre_auth::strava_pool::{select_strava_app, strava_seat_summary, SelectedStravaApp};
 use pierre_core::models::{ConnectionType, TenantId, User, UserOAuthToken};
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::RepositoryRegistry;
 use uuid::Uuid;
 
@@ -112,8 +112,8 @@ async fn connect(repos: &RepositoryRegistry, athlete: Uuid, tenant: TenantId, ap
 async fn revoke_connection(database: &Database, athlete: Uuid, tenant: TenantId) {
     const SQL: &str = "UPDATE provider_connections SET status = 'revoked' \
                        WHERE user_id = $1 AND tenant_id = $2 AND provider = 'strava'";
-    let affected = match database {
-        Database::SQLite(db) => sqlx::query(SQL)
+    let affected = match database.backend() {
+        DatabaseBackend::SQLite(db) => sqlx::query(SQL)
             .bind(athlete.to_string())
             .bind(tenant.to_string())
             .execute(db.pool())
@@ -121,7 +121,7 @@ async fn revoke_connection(database: &Database, athlete: Uuid, tenant: TenantId)
             .unwrap()
             .rows_affected(),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => sqlx::query(SQL)
+        DatabaseBackend::PostgreSQL(db) => sqlx::query(SQL)
             .bind(athlete.to_string())
             .bind(tenant.to_string())
             .execute(db.pool())

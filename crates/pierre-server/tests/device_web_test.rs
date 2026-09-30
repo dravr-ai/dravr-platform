@@ -23,7 +23,6 @@ use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
 use pierre_core::models::{DeviceAuthorization, User};
 use pierre_core::permissions::UserRole;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
-use pierre_routes_admin::auth::service::AdminAuthService;
 use pierre_routes_admin::handlers::device_auth::handle_device_token;
 use pierre_routes_admin::handlers::device_web::{
     handle_device_approve_web, handle_device_page, DeviceApproveForm, DevicePageQuery,
@@ -46,7 +45,7 @@ async fn build_context() -> Arc<AdminApiContext> {
     let jwks_manager = common::get_shared_test_jwks();
 
     let database_arc = Arc::new((*database).clone());
-    let repos_arc = Arc::new(database_arc.repositories());
+    let repos_arc = Arc::clone(database_arc.repositories());
 
     let context = AdminApiContext::new(AdminApiContextInit {
         database: database_arc,
@@ -55,7 +54,6 @@ async fn build_context() -> Arc<AdminApiContext> {
         auth_manager,
         jwks_manager,
         admin_api_key_monthly_limit: STARTER_MONTHLY_LIMIT,
-        admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
         guardian_config_registry: Arc::new(GuardianConfigRegistry::bootstrap()),
         prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),

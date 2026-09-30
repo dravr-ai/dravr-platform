@@ -37,9 +37,11 @@ use dravr_riviere::TimeSeriesStore;
 
 /// Holds one `Arc<dyn Repository>` per domain trait.
 ///
-/// Constructed once at startup via [`RepositoryRegistry::from_sqlite`] or
-/// [`RepositoryRegistry::from_postgres`]. Consumers access repositories directly
-/// without runtime enum dispatch.
+/// Built by the [`Database`](crate::backends::factory::Database) handle when it
+/// is constructed, via [`RepositoryRegistry::from_sqlite`] or
+/// [`RepositoryRegistry::from_postgres`], and shared behind an `Arc` by every
+/// clone of that handle. Consumers access repositories directly without
+/// runtime enum dispatch.
 pub struct RepositoryRegistry {
     /// User account CRUD and lookup
     pub users: Arc<dyn UserRepository>,

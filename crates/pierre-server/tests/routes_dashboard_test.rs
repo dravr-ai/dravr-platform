@@ -162,9 +162,9 @@ use pierre_config::environment::{
     DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig, GarminApiConfig,
     GeocodingServiceConfig, GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig,
     McpConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig,
-    PostgresPoolConfig, ProtocolConfig, RateLimitConfig, RouteTimeoutConfig, SecurityConfig,
-    SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig, SqlxConfig, SseConfig,
-    StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
+    PostgresPoolConfig, ProtocolConfig, RateLimitConfig, SecurityConfig, SecurityHeadersConfig,
+    ServerConfig, SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig,
+    TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
 };
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::factory::Database;
@@ -206,7 +206,6 @@ impl DashboardTestSetup {
             auth: AuthConfig {
                 jwt_expiry_hours: 24,
                 refresh_token_expiry_days: 30,
-                ..AuthConfig::default()
             },
             oauth: OAuthConfig {
                 strava: OAuthProviderConfig {
@@ -291,7 +290,6 @@ impl DashboardTestSetup {
             },
             sse: SseConfig::default(),
             oauth2_server: OAuth2ServerConfig::default(),
-            route_timeouts: RouteTimeoutConfig::default(),
             host: "localhost".to_owned(),
             base_url: "http://localhost:8081".to_owned(),
             mcp: McpConfig {
@@ -486,10 +484,10 @@ impl DashboardTestSetup {
         }
 
         // Record the usage
-        let usage_repo = database.repositories().usage;
+        let usage_repo = &database.repositories().usage;
         stream::iter(rows)
             .map(|usage| {
-                let repo = Arc::clone(&usage_repo);
+                let repo = Arc::clone(usage_repo);
                 async move { repo.record_api_key(&usage).await }
             })
             .buffer_unordered(USAGE_WRITE_CONCURRENCY)

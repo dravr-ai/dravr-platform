@@ -444,21 +444,6 @@ pub struct ValidateConfigResponse {
     pub warnings: Vec<String>,
 }
 
-/// Configuration export format
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConfigExportData {
-    /// Export timestamp
-    pub exported_at: DateTime<Utc>,
-    /// Schema version
-    pub version: String,
-    /// Tenant ID if tenant-specific export
-    pub tenant_id: Option<String>,
-    /// All configuration overrides
-    pub overrides: Vec<ConfigOverride>,
-    /// Categories for reference
-    pub categories: Vec<AdminConfigCategory>,
-}
-
 /// Request to reset configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResetConfigRequest {

@@ -21,7 +21,7 @@ mod common;
 #[cfg(feature = "client-notifications")]
 mod dispatch_tests {
     use crate::common::{create_test_server_resources, create_test_tenant};
-    use pierre_database::backends::factory::Database;
+    use pierre_database::backends::factory::DatabaseBackend;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_notifications::models::{
         CreateNotificationParams, Notification, NotificationCategory,
@@ -47,10 +47,14 @@ mod dispatch_tests {
     /// each event in the recipient's language. Without the localizer a row
     /// would carry the catalogue keys, which is not what any deployment does.
     fn notification_service(resources: &ServerContext) -> NotificationService {
-        let service = match &*resources.agent.database {
-            Database::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
+        let service = match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(sqlite) => {
+                NotificationService::from_sqlite(sqlite.pool().clone())
+            }
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
+            DatabaseBackend::PostgreSQL(pg) => {
+                NotificationService::from_postgres(pg.pool().clone())
+            }
         };
         service.with_localizer(Arc::new(UserLocaleNotificationLocalizer::new(
             Arc::clone(&resources.common.repos),
@@ -1493,10 +1497,10 @@ mod dispatch_tests {
     #[tokio::test]
     async fn test_live_schema_carries_the_rebuilt_category_check() {
         let resources = create_test_server_resources().await.unwrap();
-        match resources.agent.database.as_ref() {
-            Database::SQLite(db) => assert_category_check_matches_the_enum(db.pool()).await,
+        match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => assert_category_check_matches_the_enum(db.pool()).await,
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => {
+            DatabaseBackend::PostgreSQL(db) => {
                 assert_postgres_category_check_matches_the_enum(db.pool()).await;
             }
         }

@@ -36,11 +36,12 @@ use pierre_core::models::{
     OAuth2AuthCode, OAuth2Client, OAuth2ClientSweep, OAuth2RefreshToken, OAuth2State,
     OAuthClientGrant,
 };
-use pierre_database::backends::factory::Database;
-use pierre_database::database::{generate_encryption_key, test_utils::create_test_db_with_key};
+use pierre_database::backends::factory::{Database, DatabaseBackend};
+use pierre_database::database::generate_encryption_key;
 use pierre_mcp_server::start_oauth2_client_sweeper;
 use pierre_routes_identity::oauth2::OAuth2Context;
 use pierre_routes_identity::OAuth2Routes;
+use pierre_test_support::db::create_test_db_with_key;
 use tokio::time::sleep;
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -196,8 +197,8 @@ async fn backdate(
     created_at: DateTime<Utc>,
     expires_at: Option<DateTime<Utc>>,
 ) {
-    let affected = match database {
-        Database::SQLite(db) => sqlx::query(BACKDATE_SQL)
+    let affected = match database.backend() {
+        DatabaseBackend::SQLite(db) => sqlx::query(BACKDATE_SQL)
             .bind(created_at)
             .bind(expires_at)
             .bind(client_id)
@@ -206,7 +207,7 @@ async fn backdate(
             .unwrap()
             .rows_affected(),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => sqlx::query(BACKDATE_SQL)
+        DatabaseBackend::PostgreSQL(db) => sqlx::query(BACKDATE_SQL)
             .bind(created_at)
             .bind(expires_at)
             .bind(client_id)
@@ -219,14 +220,14 @@ async fn backdate(
 }
 
 async fn count_for(database: &Database, sql: &str, client_id: &str) -> i64 {
-    match database {
-        Database::SQLite(db) => sqlx::query_scalar::<_, i64>(sql)
+    match database.backend() {
+        DatabaseBackend::SQLite(db) => sqlx::query_scalar::<_, i64>(sql)
             .bind(client_id)
             .fetch_one(db.pool())
             .await
             .unwrap(),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => sqlx::query_scalar::<_, i64>(sql)
+        DatabaseBackend::PostgreSQL(db) => sqlx::query_scalar::<_, i64>(sql)
             .bind(client_id)
             .fetch_one(db.pool())
             .await
@@ -235,13 +236,13 @@ async fn count_for(database: &Database, sql: &str, client_id: &str) -> i64 {
 }
 
 async fn count_all(database: &Database, sql: &str) -> i64 {
-    match database {
-        Database::SQLite(db) => sqlx::query_scalar::<_, i64>(sql)
+    match database.backend() {
+        DatabaseBackend::SQLite(db) => sqlx::query_scalar::<_, i64>(sql)
             .fetch_one(db.pool())
             .await
             .unwrap(),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => sqlx::query_scalar::<_, i64>(sql)
+        DatabaseBackend::PostgreSQL(db) => sqlx::query_scalar::<_, i64>(sql)
             .fetch_one(db.pool())
             .await
             .unwrap(),
@@ -249,14 +250,16 @@ async fn count_all(database: &Database, sql: &str) -> i64 {
 }
 
 async fn last_authorized_at(database: &Database, client_id: &str) -> Option<DateTime<Utc>> {
-    match database {
-        Database::SQLite(db) => sqlx::query_scalar::<_, Option<DateTime<Utc>>>(LAST_AUTHORIZED_SQL)
-            .bind(client_id)
-            .fetch_one(db.pool())
-            .await
-            .unwrap(),
+    match database.backend() {
+        DatabaseBackend::SQLite(db) => {
+            sqlx::query_scalar::<_, Option<DateTime<Utc>>>(LAST_AUTHORIZED_SQL)
+                .bind(client_id)
+                .fetch_one(db.pool())
+                .await
+                .unwrap()
+        }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => {
+        DatabaseBackend::PostgreSQL(db) => {
             sqlx::query_scalar::<_, Option<DateTime<Utc>>>(LAST_AUTHORIZED_SQL)
                 .bind(client_id)
                 .fetch_one(db.pool())

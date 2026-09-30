@@ -170,7 +170,7 @@ echo ""
 echo -e "${BLUE}--- 6. Tenant Isolation in Non-DB Code ---${NC}"
 
 # Check for global mutable OAuth credential storage that should be per-tenant
-# Excludes: read-only app config (ServerConfig, RouteTimeoutConfig), comment lines, provider definitions
+# Excludes: read-only app config (ServerConfig), comment lines, provider definitions
 GLOBAL_OAUTH_STATE=$(rg 'static.*OAuth.*Mutex|static.*OAuth.*RwLock|LazyLock.*OAuth.*token|LazyLock.*OAuth.*credential' crates/*/src/ --type rust -n 2>/dev/null | \
   rg -v 'test|//|DEFAULT' | wc -l | tr -d ' ')
 

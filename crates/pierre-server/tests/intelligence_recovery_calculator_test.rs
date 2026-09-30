@@ -8,8 +8,8 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
-use pierre_intelligence::config::intelligence::{IntelligenceConfig, SleepRecoveryConfig};
-use pierre_intelligence::{
+use dravr_cageux::config::intelligence::{IntelligenceConfig, SleepRecoveryConfig};
+use dravr_cageux::{
     algorithms::RecoveryAggregationAlgorithm,
     recovery_calculator::{
         DataCompleteness, RecoveryCalculator, RecoveryCategory, RecoveryComponents, RecoveryScore,

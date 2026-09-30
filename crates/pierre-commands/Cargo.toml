@@ -1,5 +1,5 @@
 # ABOUTME: Slash-command catalog loader (YAML → CommandDefinition) for chat/messaging surfaces
-# ABOUTME: Leaf crate — pierre-messaging defines the command types; this crate parses the catalog
+# ABOUTME: Leaf crate — dravr-canot defines the command types; this crate parses the catalog
 
 [package]
 name = "pierre-commands"
@@ -23,7 +23,7 @@ pierre-core = { version = "0.3.0", path = "../pierre-core" }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
 pierre-groups = { version = "0.3.0", path = "../pierre-groups" }
 pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
-pierre-messaging = { version = "0.3.0", path = "../pierre-messaging" }
+dravr-canot = { workspace = true }
 pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
 pierre-services = { version = "0.3.0", path = "../pierre-services" }
 pierre-tool-runtime = { version = "0.3.0", path = "../pierre-tool-runtime" }

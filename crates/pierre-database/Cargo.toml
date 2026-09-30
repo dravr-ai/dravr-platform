@@ -13,8 +13,7 @@ publish = false
 [features]
 default = ["sqlite"]
 sqlite = []
-postgresql = ["sqlx/postgres", "pierre-core/sqlx-postgres"]
-testing = []
+postgresql = ["sqlx/postgres", "pierre-core/sqlx-postgres", "pierre-test-support/postgresql"]
 
 [dependencies]
 # Workspace crates
@@ -26,9 +25,8 @@ pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
 dravr-riviere = { workspace = true }
 
 # Async runtime and traits
-# "sync" backs the OnceCell holding the test factory's serialized schema image
 async-trait = "0.1"
-tokio = { version = "1.50", features = ["time", "sync"] }
+tokio = { version = "1.50", features = ["time"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -61,5 +59,7 @@ tracing = "0.1"
 workspace = true
 
 [dev-dependencies]
-# The test-database factory's own test opens real databases, so it needs a runtime.
+# The integration tests open real databases, so they need a runtime.
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros"] }
+# Test fixtures (create_test_db, user fixtures): a dev-dependency only, per ADR-027.
+pierre-test-support = { version = "0.3.0", path = "../pierre-test-support" }

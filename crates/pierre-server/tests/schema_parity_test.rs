@@ -54,8 +54,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::{create_sqlite_test_db, create_test_db};
+use pierre_database::backends::factory::DatabaseBackend;
+use pierre_test_support::db::{create_sqlite_test_db, create_test_db};
 use sqlx::Row;
 
 /// Repo-root-relative path to the SQLite migration tree.
@@ -285,10 +285,10 @@ async fn columns_match_on_shared_tables() {
     // factory opens: real PostgreSQL in ci-postgres, and a clean skip in the
     // SQLite-only local lane.
     let db = create_sqlite_test_db().await.unwrap();
-    let sqlite = match &db {
-        Database::SQLite(sqlite_db) => sqlite_schema(sqlite_db.pool()).await,
+    let sqlite = match db.backend() {
+        DatabaseBackend::SQLite(sqlite_db) => sqlite_schema(sqlite_db.pool()).await,
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(_) => panic!("create_sqlite_test_db yields SQLite"),
+        DatabaseBackend::PostgreSQL(_) => panic!("create_sqlite_test_db yields SQLite"),
     };
     assert!(
         sqlite.len() > 50,
@@ -354,10 +354,10 @@ async fn applied_pg_schema() -> Option<BTreeMap<String, BTreeSet<String>>> {
     let db = create_test_db()
         .await
         .expect("open the factory's test database");
-    match &db {
-        Database::SQLite(_) => None,
+    match db.backend() {
+        DatabaseBackend::SQLite(_) => None,
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => {
+        DatabaseBackend::PostgreSQL(pg) => {
             let rows = sqlx::query(
                 "SELECT table_name, column_name \
                  FROM information_schema.columns \

@@ -172,7 +172,6 @@ fn admin_config(resources: &Arc<ServerContext>) -> axum::Router {
     let admin_auth = AdminAuthService::new(
         Arc::clone(&resources.common.repos.admin),
         Arc::clone(&resources.auth.jwks_manager),
-        0,
     );
     let state = Arc::new(AdminConfigState::new(
         Arc::clone(service),
@@ -320,7 +319,6 @@ fn console_admin(resources: &Arc<ServerContext>) -> axum::Router {
         auth_manager: resources.auth.auth_manager.clone(),
         jwks_manager: resources.auth.jwks_manager.clone(),
         admin_api_key_monthly_limit: STARTER_MONTHLY_LIMIT,
-        admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         harness_config_registry: resources.fitness.harness_config_registry.clone(),
         guardian_config_registry: resources.fitness.guardian_config_registry.clone(),
         prompt_registry: resources.mcp.prompt_registry.clone(),

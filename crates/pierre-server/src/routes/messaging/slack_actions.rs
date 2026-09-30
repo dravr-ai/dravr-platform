@@ -10,11 +10,11 @@ use std::sync::Arc;
 use axum::body::Bytes;
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
-use dravr_tronc::notifications::{SlackClient, SlackConfig};
-use pierre_core::models::TenantId;
-use pierre_messaging::channels::slack::transport::{
+use dravr_canot::channels::slack::transport::{
     parse_slack_body, verify_slack_signature as verify_slack_v0,
 };
+use dravr_tronc::notifications::{SlackClient, SlackConfig};
+use pierre_core::models::TenantId;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 use tracing::{info, warn};
@@ -191,7 +191,7 @@ pub async fn execute_postback_command(
     channel_id: &str,
     command_text: &str,
 ) -> AppResult<String> {
-    use pierre_messaging::commands::CommandMatcher;
+    use dravr_canot::commands::CommandMatcher;
 
     use pierre_commands::{ConversationRotation, PlatformCommandContext};
 

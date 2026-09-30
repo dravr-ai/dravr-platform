@@ -18,10 +18,12 @@ use super::recovery_notice::fire_low_recovery_notification;
 use crate::protocol::sleep_helpers::{latest_sleep_data, sleep_history_data};
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
+use dravr_cageux::algorithms::RecoveryAggregationAlgorithm;
+use dravr_cageux::config::intelligence::IntelligenceConfig;
+use dravr_cageux::recovery_calculator::RecoveryCalculator;
+use dravr_cageux::sleep_analysis::{SleepAnalyzer, SleepData};
 use pierre_core::models::FormBand;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
-use pierre_intelligence::algorithms::RecoveryAggregationAlgorithm;
-use pierre_intelligence::{IntelligenceConfig, RecoveryCalculator, SleepAnalyzer, SleepData};
 
 use crate::implementations::sleep::output::{
     payload_value, recovery_score_payload, rest_day_payload, sleep_schedule_payload,

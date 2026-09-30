@@ -19,6 +19,7 @@
 //! still answer successfully with a plausible-looking body.
 
 use anyhow::Result;
+use dravr_canot::commands::{CommandRegistry, CommandResponse};
 use pierre_commands::help::{HelpHandler, PERSONAL_MARKER};
 use pierre_commands::plan::PlanShareHandler;
 use pierre_commands::{
@@ -26,7 +27,6 @@ use pierre_commands::{
 };
 use pierre_core::models::TenantId;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_messaging::commands::{CommandRegistry, CommandResponse};
 use pierre_runtime_context::AgentsCtx;
 use std::collections::HashMap;
 use std::path::Path;

@@ -18,13 +18,13 @@ use pierre_core::models::mobility::{
     DifficultyLevel, StretchingCategory, StretchingExercise, YogaCategory, YogaPose, YogaPoseType,
 };
 use pierre_core::models::{ApiKey, ApiKeyTier, User};
-use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::SeedTable;
 use pierre_database::seed_models::{
     SeedA2AClient, SeedA2AUsage, SeedApiKey, SeedApiKeyUsage, SeedDemoUser,
 };
 use pierre_database::RepositoryRegistry;
+use pierre_test_support::db::create_test_db;
 use sqlx::Row;
 use uuid::Uuid;
 
@@ -43,15 +43,15 @@ async fn fresh_user(repos: &RepositoryRegistry) -> Uuid {
 /// backend the test database is: for the columns no repository reader
 /// exposes.
 async fn text_cell(db: &Database, sql: &str, key: &str) -> String {
-    match db {
-        Database::SQLite(sqlite) => sqlx::query(sql)
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => sqlx::query(sql)
             .bind(key)
             .fetch_one(sqlite.pool())
             .await
             .unwrap()
             .get(0),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => sqlx::query(sql)
+        DatabaseBackend::PostgreSQL(pg) => sqlx::query(sql)
             .bind(key)
             .fetch_one(pg.pool())
             .await
@@ -100,7 +100,7 @@ fn seed_a2a_client(user_id: Uuid, capabilities: &str) -> SeedA2AClient {
 async fn usage_rows_land_under_endpoint_on_both_tables() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let user_id = fresh_user(&repos).await;
+    let user_id = fresh_user(repos).await;
 
     let key = seed_api_key(user_id, "professional", Some(1000));
     repos.seeder.seed_insert_api_key(&key).await.unwrap();
@@ -230,7 +230,7 @@ async fn demo_user_is_active_follows_its_status() {
 async fn enterprise_key_seeded_without_a_limit_reads_as_unlimited() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let user_id = fresh_user(&repos).await;
+    let user_id = fresh_user(repos).await;
 
     let seeded = seed_api_key(user_id, "enterprise", None);
     repos.seeder.seed_insert_api_key(&seeded).await.unwrap();
@@ -274,7 +274,7 @@ async fn enterprise_key_seeded_without_a_limit_reads_as_unlimited() {
 async fn a2a_client_keeps_its_seeded_capabilities() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let user_id = fresh_user(&repos).await;
+    let user_id = fresh_user(repos).await;
 
     let client = seed_a2a_client(user_id, r#"["chat", "analyze"]"#);
     repos.seeder.seed_insert_a2a_client(&client).await.unwrap();
@@ -302,7 +302,7 @@ async fn a2a_client_keeps_its_seeded_capabilities() {
 async fn a2a_client_seeds_the_default_daily_quota() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let user_id = fresh_user(&repos).await;
+    let user_id = fresh_user(repos).await;
 
     let client = seed_a2a_client(user_id, "[]");
     repos.seeder.seed_insert_a2a_client(&client).await.unwrap();

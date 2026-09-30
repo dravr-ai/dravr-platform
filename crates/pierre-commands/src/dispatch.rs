@@ -6,10 +6,10 @@
 
 use std::sync::Arc;
 
+use dravr_canot::commands::{CommandMatcher, CommandRegistry, CommandResponse};
 use pierre_contremaitre::messaging_strings::KEY_UNKNOWN_COMMAND;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
-use pierre_messaging::commands::{CommandMatcher, CommandRegistry, CommandResponse};
 use pierre_runtime_context::CommandCtx;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use tracing::info;

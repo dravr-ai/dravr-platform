@@ -23,7 +23,7 @@ use pierre_config::environment::{
     SecurityHeadersConfig, ServerConfig,
 };
 use pierre_core::models::{Tenant, TenantId, User};
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_routes_auth::AuthRoutes;
 use serde_json::json;
@@ -587,8 +587,8 @@ async fn insert_member(
     tenant_id: TenantId,
     at: DateTime<Utc>,
 ) {
-    match setup.resources.agent.database.as_ref() {
-        Database::SQLite(db) => {
+    match setup.resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
             sqlx::query(INSERT_MEMBER)
                 .bind(Uuid::new_v4().to_string())
                 .bind(tenant_id.to_string())
@@ -602,7 +602,7 @@ async fn insert_member(
         // `tenant_users` keys are `uuid` columns and the timestamps are
         // `timestamptz` on PostgreSQL, so the binds carry the native types.
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => {
+        DatabaseBackend::PostgreSQL(db) => {
             sqlx::query(INSERT_MEMBER)
                 .bind(Uuid::new_v4())
                 .bind(tenant_id.as_uuid())
@@ -618,8 +618,8 @@ async fn insert_member(
 
 /// Remove `user_id` from `tenant_id`, the way an operator's removal leaves it.
 async fn delete_member(setup: &AuthTestSetup, user_id: Uuid, tenant_id: TenantId) {
-    match setup.resources.agent.database.as_ref() {
-        Database::SQLite(db) => {
+    match setup.resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
             sqlx::query(DELETE_MEMBER)
                 .bind(user_id.to_string())
                 .bind(tenant_id.to_string())
@@ -628,7 +628,7 @@ async fn delete_member(setup: &AuthTestSetup, user_id: Uuid, tenant_id: TenantId
                 .unwrap();
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => {
+        DatabaseBackend::PostgreSQL(db) => {
             sqlx::query(DELETE_MEMBER)
                 .bind(user_id)
                 .bind(tenant_id.as_uuid())

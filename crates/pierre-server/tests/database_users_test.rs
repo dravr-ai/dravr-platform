@@ -13,7 +13,8 @@ use pierre_core::models::{TenantId, User, UserStatus, UserTier};
 use pierre_core::pagination::{PaginationDirection, PaginationParams};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
+use pierre_test_support::db::create_test_db;
+use pierre_test_support::server::{create_test_admin_user, create_test_user};
 use uuid::Uuid;
 
 #[tokio::test]
@@ -180,42 +181,6 @@ async fn create_test_database() -> Database {
     create_test_db()
         .await
         .expect("Failed to create test database")
-}
-
-fn create_test_user(email: &str, display_name: Option<String>) -> User {
-    let now = Utc::now();
-    User {
-        id: Uuid::new_v4(),
-        email: email.to_owned(),
-        display_name,
-        password_hash: "hashed_password".to_owned(),
-        tier: UserTier::Professional,
-        strava_token: None,
-        is_active: true,
-        user_status: UserStatus::Active,
-        is_admin: false,
-        role: UserRole::User,
-        approved_by: None,
-        approved_at: Some(now),
-        created_at: now,
-        last_active: now,
-        firebase_uid: None,
-        auth_provider: String::new(),
-        analytics_consent: false,
-        analytics_consent_at: None,
-        locale: "fr".to_owned(),
-        coaching_persona: CoachingPersona::Casual,
-        manages_roster: false,
-        timezone: None,
-        theme: None,
-    }
-}
-
-fn create_test_admin_user(email: &str, display_name: Option<String>) -> User {
-    let mut user = create_test_user(email, display_name);
-    user.is_admin = true;
-    user.user_status = UserStatus::Active;
-    user
 }
 
 #[tokio::test]

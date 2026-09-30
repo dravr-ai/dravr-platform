@@ -21,18 +21,18 @@ use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
     ExternalServicesConfig, GeocodingServiceConfig, HttpClientConfig, LogLevel, LoggingConfig,
     MonitoringConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig,
-    ProtocolConfig, RouteTimeoutConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
-    SseConfig, StravaApiConfig, TlsConfig, WeatherServiceConfig,
+    ProtocolConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig, SseConfig,
+    StravaApiConfig, TlsConfig, WeatherServiceConfig,
 };
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::{factory::Database, DatabaseProvider};
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_mcp_server::mcp::{
     multitenant::ProviderToolRouter,
     resources::{ServerContext, ServerContextOptions},
 };
+use pierre_test_support::db::create_test_db_with_key;
 use std::{path::PathBuf, sync::Arc};
 use uuid::Uuid;
 
@@ -61,7 +61,6 @@ fn create_test_server_config() -> Arc<ServerConfig> {
         auth: AuthConfig {
             jwt_expiry_hours: 24,
             refresh_token_expiry_days: 30,
-            ..AuthConfig::default()
         },
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
@@ -122,7 +121,6 @@ fn create_test_server_config() -> Arc<ServerConfig> {
         },
         sse: SseConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
-        route_timeouts: RouteTimeoutConfig::default(),
         monitoring: MonitoringConfig::default(),
         ..Default::default()
     })

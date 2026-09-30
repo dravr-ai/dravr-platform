@@ -13,7 +13,7 @@
 
 use chrono::{TimeZone, Utc};
 use pierre_core::models::{Subscription, SubscriptionStatus, TenantId, UserTier};
-use pierre_database::database::test_utils::create_test_db;
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 const TEST_PROVIDER: &str = "dummy";

@@ -21,8 +21,8 @@ use pierre_core::models::CoachingPersona;
 use pierre_core::models::{SubscriptionStatus, Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
 use pierre_routes_billing::dispatch_billing_event;
+use pierre_test_support::db::create_test_db;
 use sha2::Sha256;
 use uuid::Uuid;
 

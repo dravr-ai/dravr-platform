@@ -23,10 +23,10 @@ use pierre_core::models::messaging::{CardAction, ChannelType, OutgoingMessage};
 
 use super::card_or_rich_text;
 use super::surface::messaging_render_profile;
+use dravr_canot::turn::ConversationTurnId as CanotTurnId;
 use pierre_core::models::TenantId;
 use pierre_database::backends::TenantRepository;
 use pierre_database::repositories::shorten_url;
-use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use pierre_middleware::provider_link_token::mint_connect_link_token;
 use tracing::warn;
 use uuid::Uuid;

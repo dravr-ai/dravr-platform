@@ -3,8 +3,8 @@
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
-use crate::backends::factory::Database;
 use pierre_core::errors::{AppError, AppResult};
+use pierre_database::backends::factory::Database;
 use std::env;
 #[cfg(not(feature = "postgresql"))]
 use std::future::{ready, Future};
@@ -218,15 +218,13 @@ mod sqlite {
     //! it (see [`build_image`]).
 
     use super::DEFAULT_TEST_KEY;
-    use crate::backends::factory::Database;
-    use crate::backends::shared;
-    use crate::database::Database as SqliteDatabase;
     use pierre_core::errors::{AppError, AppResult};
+    use pierre_database::backends::factory::Database;
+    use pierre_database::database::Database as SqliteDatabase;
     use sqlx::sqlite::{
         SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous,
     };
     use sqlx::{ConnectOptions, Connection};
-    use std::collections::HashMap;
     use std::env;
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -291,7 +289,11 @@ mod sqlite {
             .map_err(|e| {
                 AppError::database(format!("Test DB: cannot open {}: {e}", path.display()))
             })?;
-        Ok(Database::SQLite(wrap_migrated_pool(pool, encryption_key)))
+        // The clone already carries every migration, so `from_pool` finds the
+        // ledger complete and applies nothing.
+        Ok(Database::from_sqlite(
+            SqliteDatabase::from_pool(pool, encryption_key).await?,
+        ))
     }
 
     /// The directory every test database file lives in, created on demand.
@@ -333,23 +335,6 @@ mod sqlite {
             if stale {
                 let _ = fs::remove_file(&path);
             }
-        }
-    }
-
-    /// Wrap a pool whose database already carries the fully migrated schema
-    /// — the clone-from-image path skips the migration run, so it fills the
-    /// backend's fields directly (a sibling module may touch them; production
-    /// construction stays in `Database::new`).
-    fn wrap_migrated_pool(
-        pool: sqlx::Pool<sqlx::Sqlite>,
-        encryption_key: Vec<u8>,
-    ) -> SqliteDatabase {
-        SqliteDatabase {
-            pool,
-            blind_index_key: encryption_key.clone(),
-            active_dek_version: shared::encryption::LEGACY_DEK_VERSION,
-            prior_dek_versions: HashMap::new(),
-            encryption_key,
         }
     }
 
@@ -441,10 +426,10 @@ mod postgres {
     //! gate belongs to a test that has finished.
 
     use super::TestDatabaseUrl;
-    use crate::backends::factory::Database;
-    use crate::backends::postgres::migrations_fingerprint;
     use pierre_core::config::database::PostgresPoolConfig;
     use pierre_core::errors::{AppError, AppResult};
+    use pierre_database::backends::factory::Database;
+    use pierre_database::backends::postgres::migrations_fingerprint;
     use sqlx::{Connection, Executor, PgConnection, Row};
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use uuid::Uuid;

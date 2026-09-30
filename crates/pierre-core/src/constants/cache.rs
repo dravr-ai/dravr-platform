@@ -41,17 +41,5 @@ pub const TTL_TRAINING_HISTORY_SECS: u64 = 3_600;
 /// session; the linking UI can ask for a fresh read.
 pub const TTL_PROVIDER_ROSTER_SECS: u64 = 600;
 
-/// Redis connection pool minimum size
-pub const REDIS_POOL_MIN_SIZE: usize = 2;
-
-/// Redis connection pool maximum size
-pub const REDIS_POOL_MAX_SIZE: usize = 10;
-
-/// Redis connection timeout in seconds
-pub const REDIS_CONNECT_TIMEOUT_SECS: u64 = 5;
-
-/// Redis operation timeout in seconds
-pub const REDIS_OPERATION_TIMEOUT_SECS: u64 = 3;
-
 /// Cache key prefix for namespacing
 pub const CACHE_KEY_PREFIX: &str = "pierre:cache:";

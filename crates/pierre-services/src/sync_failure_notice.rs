@@ -22,10 +22,10 @@
 
 use std::sync::Arc;
 
+#[cfg(feature = "health-sync")]
+use dravr_enforme::EnformeError;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::ProviderConnectionRepository;
-#[cfg(feature = "health-sync")]
-use pierre_enforme::EnformeError;
 use pierre_notifications::triggers::trigger_sync_failure;
 use pierre_notifications::{NotificationService, TenantId as CommTenantId};
 use pierre_providers::backend_resolver::{brand_name, user_facing_name};

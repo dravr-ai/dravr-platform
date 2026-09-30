@@ -28,25 +28,25 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use db_fixtures::seed_user;
+use dravr_enforme::models::connection::ConnectedUser;
+use dravr_enforme::providers::sciotte_reader::{
+    AuthSession, DailySummary, DailySummaryReader, ScraperError, ScraperResult,
+};
+use dravr_enforme::traits::connection_store::UserConnectionStore;
+use dravr_enforme::traits::credential_store::CredentialStore;
+use dravr_enforme::traits::cursor_store::SyncCursorStore;
+use dravr_enforme::traits::recovery_store::RecoveryStore;
 use pierre_core::errors::AppError;
 use pierre_core::models::{
     OAuthNotification, RefreshConfig, StoredRecoveryMetrics, SyncStatus, TenantId, UserOAuthToken,
 };
 use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::RepositoryRegistry;
-use pierre_enforme::models::connection::ConnectedUser;
-use pierre_enforme::providers::sciotte_reader::{
-    AuthSession, DailySummary, DailySummaryReader, ScraperError, ScraperResult,
-};
-use pierre_enforme::traits::connection_store::UserConnectionStore;
-use pierre_enforme::traits::credential_store::CredentialStore;
-use pierre_enforme::traits::cursor_store::SyncCursorStore;
-use pierre_enforme::traits::recovery_store::RecoveryStore;
 use pierre_providers::sciotte_remote::{ENV_AUDIENCE, ENV_REMOTE_URL};
 use pierre_services::health_sync::PierreSyncStorage;
 use pierre_services::provider_refresh::{scrape_sync_not_due, RefreshService, SyncNotifier};
 use pierre_services::sciotte_health_reader::SciotteServiceReader;
+use pierre_test_support::db::create_test_db_with_key;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use uuid::Uuid;
@@ -221,7 +221,7 @@ fn dead_session(_: &str, _: NaiveDate) -> ScraperResult<DailySummary> {
 async fn a_coros_athlete_is_on_the_roster_under_coros_with_its_session() {
     let db = create_test_db().await;
     let (user_id, tenant) = seed_user(&db).await;
-    let repos = Arc::new(db.repositories());
+    let repos = Arc::clone(db.repositories());
     connect_scrape(&repos, user_id, tenant, "sciotte_coros").await;
     let storage = PierreSyncStorage::new(&repos);
 
@@ -249,7 +249,7 @@ async fn a_coros_athlete_is_on_the_roster_under_coros_with_its_session() {
 async fn a_coros_sync_stores_resting_hr_sleep_hrv_and_vo2max_as_coros() {
     let db = create_test_db().await;
     let (user_id, tenant) = seed_user(&db).await;
-    let repos = Arc::new(db.repositories());
+    let repos = Arc::clone(db.repositories());
     connect_scrape(&repos, user_id, tenant, "sciotte_coros").await;
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let (fake, reader) = FakeScraper::reader(|p, d| Ok(coros_yesterday(p, d)));
@@ -310,7 +310,7 @@ async fn a_coros_sync_stores_resting_hr_sleep_hrv_and_vo2max_as_coros() {
 async fn a_garmin_sync_stores_the_night_the_morning_and_the_body_as_garmin() {
     let db = create_test_db().await;
     let (user_id, tenant) = seed_user(&db).await;
-    let repos = Arc::new(db.repositories());
+    let repos = Arc::clone(db.repositories());
     connect_scrape(&repos, user_id, tenant, "sciotte_garmin").await;
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let (_fake, reader) = FakeScraper::reader(|p, d| Ok(garmin_yesterday(p, d)));
@@ -357,7 +357,7 @@ async fn a_garmin_sync_stores_the_night_the_morning_and_the_body_as_garmin() {
 async fn a_dead_coros_session_writes_nothing_and_keeps_no_cursor() {
     let db = create_test_db().await;
     let (user_id, tenant) = seed_user(&db).await;
-    let repos = Arc::new(db.repositories());
+    let repos = Arc::clone(db.repositories());
     connect_scrape(&repos, user_id, tenant, "sciotte_coros").await;
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let (fake, reader) = FakeScraper::reader(dead_session);
@@ -393,7 +393,7 @@ async fn a_dead_coros_session_writes_nothing_and_keeps_no_cursor() {
 async fn no_row_is_written_under_another_providers_tenant() {
     let db = create_test_db().await;
     let (user_id, tenant) = seed_user(&db).await;
-    let repos = Arc::new(db.repositories());
+    let repos = Arc::clone(db.repositories());
     // The athlete holds a WHOOP grant and no COROS connection.
     connect_oauth(&repos, user_id, tenant, "whoop").await;
     let storage = Arc::new(PierreSyncStorage::new(&repos));
@@ -442,7 +442,7 @@ async fn no_row_is_written_under_another_providers_tenant() {
 async fn a_scrape_sync_waits_six_hours_and_an_api_sync_never_waits() {
     let db = create_test_db().await;
     let (user_id, tenant) = seed_user(&db).await;
-    let repos = Arc::new(db.repositories());
+    let repos = Arc::clone(db.repositories());
     connect_scrape(&repos, user_id, tenant, "sciotte_coros").await;
     connect_oauth(&repos, user_id, tenant, "whoop").await;
     let auth = repos.auth_repos();
@@ -499,7 +499,7 @@ impl SyncNotifier for NoopNotifier {
 async fn a_chat_turn_never_scrapes_for_a_garmin_session_or_a_leftover_garmin_row() {
     let db = create_test_db().await;
     let (user_id, tenant) = seed_user(&db).await;
-    let repos = Arc::new(db.repositories());
+    let repos = Arc::clone(db.repositories());
     connect_scrape(&repos, user_id, tenant, "sciotte_garmin").await;
     // A leftover row for Garmin's partner-gated OAuth API, which the Garmin
     // sync does not read and whose last_sync nothing stamps.

@@ -36,7 +36,7 @@ use pierre_core::models::{
     CalendarEventSource, CalendarKey, ConnectionType, FuelingProtocol, PrescribedWorkout,
     SportType, TenantId, UserId, UserOAuthToken, WorkoutStep,
 };
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
@@ -359,8 +359,8 @@ impl Fixture {
     async fn ledger(&self) -> Vec<PrescribedWorkout> {
         const SQL: &str = "SELECT id FROM prescribed_workouts \
                            WHERE tenant_id = $1 AND user_id = $2 ORDER BY created_at DESC";
-        let ids: Vec<Uuid> = match self.executor.resources.database().as_ref() {
-            Database::SQLite(db) => sqlx::query(SQL)
+        let ids: Vec<Uuid> = match self.executor.resources.database().backend() {
+            DatabaseBackend::SQLite(db) => sqlx::query(SQL)
                 .bind(self.tenant)
                 .bind(UserId::from_uuid(self.user_id))
                 .fetch_all(db.pool())
@@ -370,7 +370,7 @@ impl Fixture {
                 .map(|row| Uuid::parse_str(&row.get::<String, _>("id")).expect("uuid id"))
                 .collect(),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => sqlx::query(SQL)
+            DatabaseBackend::PostgreSQL(db) => sqlx::query(SQL)
                 .bind(self.tenant)
                 .bind(UserId::from_uuid(self.user_id))
                 .fetch_all(db.pool())

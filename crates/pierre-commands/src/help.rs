@@ -9,8 +9,8 @@ use std::fmt::Write;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use dravr_canot::commands::{CommandAction, CommandRegistry, CommandResponse};
 use pierre_core::errors::AppError;
-use pierre_messaging::commands::{CommandAction, CommandRegistry, CommandResponse};
 use tracing::warn;
 
 use pierre_contremaitre::messaging_strings::{

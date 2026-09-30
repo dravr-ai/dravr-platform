@@ -11,8 +11,8 @@ use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::zones::{HrZoneSet, PowerZoneSet};
 use pierre_core::models::{SportType, TenantId, UserPhysiologicalProfile};
 use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::DatabaseProvider;
+use pierre_test_support::db::create_test_db_with_key;
 use uuid::Uuid;
 
 async fn make_test_db() -> Database {

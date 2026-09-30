@@ -58,12 +58,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use chrono::Utc;
+use dravr_cageux::best_efforts::{best_efforts, STANDARD_RUNNING_DISTANCES_METERS};
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, SportType, TenantId, TimeSeriesData};
 use pierre_database::repositories::{
     PersonalBest, PersonalBestRepository, PersonalBestSeed, WorkerRunRepository,
 };
-use pierre_intelligence::best_efforts::{best_efforts, STANDARD_RUNNING_DISTANCES_METERS};
 use pierre_notifications::triggers::trigger_personal_record;
 use pierre_notifications::{NotificationService, TenantId as CommTenantId};
 use pierre_providers::core::{ActivityQueryParams, FitnessProvider};

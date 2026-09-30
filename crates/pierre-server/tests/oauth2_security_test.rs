@@ -12,8 +12,8 @@ use pierre_auth::oauth2_server::{
     client_registration::ClientRegistrationManager, models::ClientRegistrationRequest,
 };
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{backends::DatabaseProvider, database::generate_encryption_key};
+use pierre_test_support::db::create_test_db_with_key;
 use std::sync::Arc;
 
 /// Test redirect URI validation - HTTPS enforcement

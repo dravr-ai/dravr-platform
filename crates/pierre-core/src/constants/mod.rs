@@ -41,22 +41,10 @@ pub mod oauth_providers {
 
 // Remaining constants organized by domain
 
-/// API endpoints
-pub mod endpoints {
-    /// Health check endpoint
-    pub const HEALTH_CHECK: &str = "/health";
-    /// API base path
-    pub const API_BASE: &str = "/api";
-}
-
 /// Network ports
 pub mod ports {
     /// Default HTTP port
     pub const DEFAULT_HTTP_PORT: u16 = 8081;
-    /// Default MCP port
-    pub const DEFAULT_MCP_PORT: u16 = 8081;
-    /// Default docs port
-    pub const DEFAULT_DOCS_PORT: u16 = 8082;
 }
 
 /// API routes
@@ -69,8 +57,6 @@ pub mod routes {
     pub const STATS: &str = "/stats";
     /// Connect route
     pub const CONNECT: &str = "/connect";
-    /// OAuth callback route
-    pub const OAUTH_CALLBACK: &str = "/oauth/callback";
 }
 
 /// Default limits
@@ -114,12 +100,6 @@ pub mod limits {
     pub const DEFAULT_BACKUP_INTERVAL_SECS: u64 = 86400; // 24 hours
     /// Default backup retention count
     pub const DEFAULT_BACKUP_RETENTION_COUNT: u32 = 7;
-    /// Default rate limit requests
-    pub const DEFAULT_RATE_LIMIT_REQUESTS: u32 = 100;
-    /// Default rate limit window seconds
-    pub const DEFAULT_RATE_LIMIT_WINDOW_SECS: u64 = 60;
-    /// Default confidence threshold
-    pub const DEFAULT_CONFIDENCE_THRESHOLD: f64 = 0.85;
 }
 
 /// Timeout configurations
@@ -138,24 +118,12 @@ pub mod timeouts {
     pub const API_CLIENT_CONNECT_TIMEOUT_SECS: u64 = 10;
     /// Health check client timeout in seconds
     pub const HEALTH_CHECK_TIMEOUT_SECS: u64 = 5;
-    /// Database connection timeout in seconds
-    pub const DATABASE_TIMEOUT_SECS: u64 = 10;
-    /// OAuth callback wait timeout in seconds (for bridge flow)
-    pub const OAUTH_CALLBACK_WAIT_TIMEOUT_SECS: u64 = 300; // 5 minutes
     /// SSE cleanup task interval in seconds
     pub const SSE_CLEANUP_INTERVAL_SECS: u64 = 300; // 5 minutes
     /// SSE connection timeout in seconds (inactive connections removed after this duration)
     pub const SSE_CONNECTION_TIMEOUT_SECS: u64 = 600; // 10 minutes
     /// OAuth session cookie Max-Age in seconds (matches JWT expiration)
     pub const SESSION_COOKIE_MAX_AGE_SECS: u64 = 86400; // 24 hours
-}
-
-/// Cryptographic constants
-pub mod crypto {
-    /// Token prefix for `API` keys
-    pub const TOKEN_PREFIX: &str = "pk_";
-    /// Secret key minimum length
-    pub const SECRET_KEY_MIN_LENGTH: usize = 32;
 }
 
 /// Security configurations
@@ -166,10 +134,6 @@ pub mod security {
 
 /// OAuth configuration constants
 pub mod oauth_config {
-    /// OAuth state parameter length
-    pub const STATE_LENGTH: usize = 32;
-    /// OAuth code challenge length
-    pub const CODE_CHALLENGE_LENGTH: usize = 128;
     /// OAuth authorization URL expiration time in minutes
     /// Authorization URLs remain valid for 10 minutes
     pub const AUTHORIZATION_EXPIRES_MINUTES: u32 = 10;
@@ -207,26 +171,16 @@ pub mod tiers {
     pub const PROFESSIONAL: &str = "professional";
     /// Enterprise tier
     pub const ENTERPRISE: &str = "enterprise";
-    /// Professional tier (short name)
-    pub const PRO: &str = "professional";
-    /// Enterprise tier (short name)
-    pub const ENT: &str = "enterprise";
 }
 
 /// Default values
 pub mod defaults {
     /// Default page size for paginated responses
     pub const PAGE_SIZE: usize = 20;
-    /// Default cache TTL in seconds
-    pub const CACHE_TTL_SECS: u64 = 300; // 5 minutes
     /// Default goal timeframe in days
     pub const DEFAULT_GOAL_TIMEFRAME_DAYS: u32 = 30;
     /// Default backup directory
     pub const DEFAULT_BACKUP_DIR: &str = "./backups";
-    /// Default weather cache TTL
-    pub const DEFAULT_WEATHER_CACHE_TTL_SECS: u64 = 1800; // 30 minutes
-    /// Default analytics cache TTL
-    pub const DEFAULT_ANALYTICS_CACHE_TTL_SECS: u64 = 3600; // 1 hour
 }
 
 /// Tool-loop iteration budget bounds.
@@ -261,24 +215,14 @@ pub mod configuration_system {
 
 /// Database configuration
 pub mod database {
-    /// Connection pool minimum size
-    pub const POOL_MIN_SIZE: u32 = 1;
-    /// Connection pool maximum size
-    pub const POOL_MAX_SIZE: u32 = 10;
     /// Connection timeout in seconds
     pub const CONNECTION_TIMEOUT_SECS: u64 = 30;
-    /// Query timeout in seconds
-    pub const QUERY_TIMEOUT_SECS: u64 = 30;
-    /// Migration timeout in seconds
-    pub const MIGRATION_TIMEOUT_SECS: u64 = 300;
     /// Default number of connection retries on startup
     pub const CONNECTION_RETRIES: u32 = 5;
     /// Initial retry delay in milliseconds for exponential backoff
     pub const INITIAL_RETRY_DELAY_MS: u64 = 500;
     /// Maximum retry delay in milliseconds
     pub const MAX_RETRY_DELAY_MS: u64 = 30_000;
-    /// Exponential backoff base multiplier
-    pub const RETRY_BACKOFF_MULTIPLIER: u32 = 2;
 }
 
 /// Redis connection configuration
@@ -321,8 +265,6 @@ pub mod status {
     pub mod mcp {
         /// Connected
         pub const CONNECTED: &str = "connected";
-        /// Disconnected
-        pub const DISCONNECTED: &str = "disconnected";
         /// Error
         pub const ERROR: &str = "error";
     }
@@ -336,10 +278,6 @@ pub mod json_fields {
     pub const PROVIDER: &str = "provider";
     /// Activities field
     pub const ACTIVITIES: &str = "activities";
-    /// Activity ID field
-    pub const ACTIVITY_ID: &str = "activity_id";
-    /// Goal ID field
-    pub const GOAL_ID: &str = "goal_id";
     /// Limit field
     pub const LIMIT: &str = "limit";
     /// Offset field
@@ -350,20 +288,6 @@ pub mod json_fields {
     pub const AFTER: &str = "after";
     /// Mode field for response detail level (summary vs detailed)
     pub const MODE: &str = "mode";
-    /// Sport type field for filtering activities by sport type
-    pub const SPORT_TYPE: &str = "sport_type";
-    /// Output format field for serialization format (json, toon)
-    pub const FORMAT: &str = "format";
-}
-
-/// System configuration messages
-pub mod messages {
-    /// Startup message
-    pub const STARTUP: &str = "Pierre MCP Server starting up";
-    /// Shutdown message
-    pub const SHUTDOWN: &str = "Pierre MCP Server shutting down";
-    /// Health check message
-    pub const HEALTH_OK: &str = "Service healthy";
 }
 
 /// Service names
@@ -382,8 +306,6 @@ pub mod service_names {
     pub const PIERRE_MCP_SERVER: &str = "pierre-mcp-server";
     /// Admin API service
     pub const ADMIN_API: &str = "admin_api";
-    /// Pierre MCP Admin API
-    pub const PIERRE_MCP_ADMIN_API: &str = "pierre-mcp-admin-api";
 }
 
 /// Project metadata constants
@@ -418,8 +340,6 @@ pub mod time_constants {
     pub const SECONDS_PER_WEEK: u32 = 604_800;
     /// Seconds per month (30 days)
     pub const SECONDS_PER_MONTH: u32 = 2_592_000;
-    /// Seconds per year (365 days)
-    pub const SECONDS_PER_YEAR: u64 = 31_536_000;
     /// Minutes per hour
     pub const MINUTES_PER_HOUR: u64 = 60;
     /// Hours per day
@@ -440,20 +360,12 @@ pub mod error_messages {
     pub const INVALID_CREDENTIALS: &str = "Invalid credentials provided";
     /// Unauthorized access message
     pub const UNAUTHORIZED: &str = "Unauthorized access";
-    /// Token expired message
-    pub const TOKEN_EXPIRED: &str = "Token has expired";
-    /// Invalid token message
-    pub const INVALID_TOKEN: &str = "Invalid token provided";
     /// Invalid email format message
     pub const INVALID_EMAIL_FORMAT: &str = "Invalid email format";
     /// Password too weak message
     pub const PASSWORD_TOO_WEAK: &str = "Password must be at least 8 characters";
     /// User already exists message
     pub const USER_ALREADY_EXISTS: &str = "User already exists";
-    /// User not found message
-    pub const USER_NOT_FOUND: &str = "User not found";
-    /// Database connection error
-    pub const DATABASE_CONNECTION_ERROR: &str = "Database connection error";
     /// Rate limit exceeded
     pub const RATE_LIMIT_EXCEEDED: &str = "Rate limit exceeded";
 }
@@ -474,8 +386,6 @@ pub mod rate_limits {
     pub const TERRA_DEFAULT_DAILY_RATE_LIMIT: u32 = 1000;
     /// Default burst limit
     pub const DEFAULT_BURST_LIMIT: u32 = 10;
-    /// Default rate limit window
-    pub const DEFAULT_RATE_LIMIT_WINDOW: u64 = 60;
 }
 
 /// Provider athlete-seat capacities.
@@ -532,14 +442,6 @@ pub mod provider_capture {
             BASELINE_CAPTURE_VERSION
         }
     }
-}
-
-/// User default values
-pub mod user_defaults {
-    /// Default user age
-    pub const DEFAULT_USER_AGE: i32 = 30;
-    /// Default goal distance in kilometers
-    pub const DEFAULT_GOAL_DISTANCE: f64 = 100.0;
 }
 
 /// API provider limits
@@ -613,32 +515,18 @@ pub mod time {
     pub const MINUTE_SECONDS: i64 = 60;
     /// Seconds in an hour
     pub const HOUR_SECONDS: i64 = 3600;
-    /// Seconds in a day
-    pub const DAY_SECONDS: i64 = 86_400;
     /// Unix epoch start
     pub const UNIX_EPOCH: &str = "1970-01-01T00:00:00Z";
-    /// ISO 8601 format
-    pub const ISO_8601_FORMAT: &str = "%Y-%m-%dT%H:%M:%SZ";
-    /// Date format
-    pub const DATE_FORMAT: &str = "%Y-%m-%d";
-    /// Time format
-    pub const TIME_FORMAT: &str = "%H:%M:%S";
 }
 
 /// Network configuration
 pub mod network_config {
     /// TCP keep alive timeout in seconds
     pub const TCP_KEEP_ALIVE_SECS: u64 = 60;
-    /// TCP no delay
-    pub const TCP_NODELAY: bool = true;
     /// `SO_REUSEADDR`
     pub const SO_REUSEADDR: bool = true;
     /// OAuth code verifier length
     pub const OAUTH_CODE_VERIFIER_LENGTH: usize = 128;
-    /// Localhost patterns for validation
-    pub const LOCALHOST_PATTERNS: &[&str] = &["localhost", "127.0.0.1", "::1", "0.0.0.0"];
-    /// HTTP client error threshold
-    pub const HTTP_CLIENT_ERROR_THRESHOLD: u16 = 400;
     /// SSE broadcast channel size
     pub const SSE_BROADCAST_CHANNEL_SIZE: usize = 1000;
     /// Maximum concurrent SSE connections per user (`DoS` prevention)
@@ -647,26 +535,10 @@ pub mod network_config {
 
 /// Physiology constants
 pub mod physiology {
-    /// Minimum good ground contact time in milliseconds
-    pub const MIN_GOOD_GCT_MS: f64 = 180.0;
-    /// Maximum good ground contact time in milliseconds
-    pub const MAX_GOOD_GCT_MS: f64 = 250.0;
-    /// Optimal ground contact time in milliseconds
-    pub const OPTIMAL_GCT_MS: f64 = 215.0;
     /// Default resting heart rate
     pub const DEFAULT_RESTING_HR: u16 = 60;
     /// Default maximum heart rate
     pub const DEFAULT_MAX_HR: u16 = 190;
-}
-
-/// API tier request limits
-pub mod api_tier_limits {
-    /// Trial requests per month
-    pub const TRIAL_REQUESTS_PER_MONTH: u32 = 100;
-    /// Starter requests per month
-    pub const STARTER_REQUESTS_PER_MONTH: u32 = 1000;
-    /// Pro requests per month
-    pub const PRO_REQUESTS_PER_MONTH: u32 = 10000;
 }
 
 /// HTTP status codes
@@ -697,12 +569,6 @@ pub mod http_status {
 
 /// System monitoring constants
 pub mod system_monitoring {
-    /// Bytes to MB divisor
-    pub const BYTES_TO_MB_DIVISOR: u64 = 1_048_576;
-    /// Bytes to GB divisor
-    pub const BYTES_TO_GB_DIVISOR: u64 = 1_073_741_824;
-    /// KB to MB divisor
-    pub const KB_TO_MB_DIVISOR: u64 = 1024;
     /// Memory warning threshold percentage
     pub const MEMORY_WARNING_THRESHOLD: f64 = 80.0;
     /// Disk warning threshold percentage
@@ -719,8 +585,6 @@ pub mod oauth_rate_limiting {
     pub const REGISTER_RPM: u32 = 10;
     /// Rate limit window duration in seconds
     pub const WINDOW_SECS: u64 = 60;
-    /// Default retry-after header value in seconds
-    pub const DEFAULT_RETRY_AFTER_SECS: u64 = 60;
 }
 
 /// Retention of RFC 7591 dynamic client registrations.
@@ -771,16 +635,12 @@ pub mod oauth2_authorization {
 pub mod cache_config {
     /// Default cache capacity for LRU cache
     pub const DEFAULT_CAPACITY: usize = 1000;
-    /// Rate limiter cleanup threshold (reused for cache cleanup)
-    pub const CLEANUP_THRESHOLD: usize = 1000;
 }
 
 /// MCP transport configuration
 pub mod mcp_transport {
     /// Notification broadcast channel size
     pub const NOTIFICATION_CHANNEL_SIZE: usize = 100;
-    /// Maximum allowed MCP request body size in bytes (5 MB)
-    pub const MAX_REQUEST_BODY_BYTES: usize = 5 * 1024 * 1024;
 }
 
 /// Sleep analysis and recovery constants

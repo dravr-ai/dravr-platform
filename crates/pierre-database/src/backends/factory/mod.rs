@@ -37,79 +37,91 @@ pub enum DatabaseType {
     PostgreSQL,
 }
 
-/// Database instance wrapper that delegates to the appropriate implementation
+/// The concrete backend a [`Database`] wraps.
+///
+/// Each variant holds the backend behind an `Arc` shared with the
+/// [`RepositoryRegistry`] built from it, so the registry and the backend
+/// handle are one instance rather than two copies.
 #[derive(Clone)]
-pub enum Database {
+pub enum DatabaseBackend {
     /// `SQLite` database instance
-    SQLite(SqliteDatabase),
+    SQLite(Arc<SqliteDatabase>),
     /// `PostgreSQL` database instance (requires postgresql feature)
     #[cfg(feature = "postgresql")]
-    PostgreSQL(PostgresDatabase),
+    PostgreSQL(Arc<PostgresDatabase>),
+}
+
+impl DatabaseBackend {
+    /// Build the repository registry over this backend's shared instance.
+    fn build_registry(&self) -> RepositoryRegistry {
+        match self {
+            Self::SQLite(db) => RepositoryRegistry::from_sqlite(Arc::clone(db)),
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => RepositoryRegistry::from_postgres(Arc::clone(db)),
+        }
+    }
+}
+
+/// Database handle: one backend plus the one [`RepositoryRegistry`] built over it.
+///
+/// The registry is built when the handle is constructed and rebuilt only when
+/// the encryption keys change ([`Database::update_encryption_key`],
+/// [`Database::install_dek_versions`]). Cloning a `Database` clones two `Arc`s,
+/// so every clone shares the same backend and the same registry.
+#[derive(Clone)]
+pub struct Database {
+    /// The concrete backend, shared with every repository in `repositories`
+    backend: DatabaseBackend,
+    /// Arc: shared by every clone of this handle and by the server resources
+    /// and runtime contexts that read repositories from it
+    repositories: Arc<RepositoryRegistry>,
 }
 
 impl Database {
-    /// Build a [`RepositoryRegistry`] from whichever backend this enum wraps.
-    ///
-    /// Call this once at startup. The returned registry holds `Arc<dyn Trait>`
-    /// for every repository, eliminating per-call enum dispatch.
+    /// Wrap a `SQLite` backend, building its repository registry.
     #[must_use]
-    pub fn into_repositories(self) -> RepositoryRegistry {
-        match self {
-            Self::SQLite(db) => RepositoryRegistry::from_sqlite(Arc::new(db)),
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => RepositoryRegistry::from_postgres(Arc::new(db)),
+    pub fn from_sqlite(db: SqliteDatabase) -> Self {
+        Self::from_backend(DatabaseBackend::SQLite(Arc::new(db)))
+    }
+
+    /// Wrap a `PostgreSQL` backend, building its repository registry.
+    #[cfg(feature = "postgresql")]
+    #[must_use]
+    pub fn from_postgres(db: PostgresDatabase) -> Self {
+        Self::from_backend(DatabaseBackend::PostgreSQL(Arc::new(db)))
+    }
+
+    fn from_backend(backend: DatabaseBackend) -> Self {
+        let repositories = Arc::new(backend.build_registry());
+        Self {
+            backend,
+            repositories,
         }
     }
 
-    /// Build a [`RepositoryRegistry`] by cloning the inner backend.
+    /// The repository registry for this database.
     ///
-    /// Works on any `Database` reference. The inner `SqliteDatabase` or
-    /// `PostgresDatabase` is cloned (both hold connection pools which are
-    /// `Arc`-based, so the clone is cheap).
+    /// Built once when the handle is constructed; every call, and every clone
+    /// of this handle, returns the same `Arc`. Clone the `Arc` to hold the
+    /// registry beyond the handle's borrow.
     #[must_use]
-    pub fn repositories(&self) -> RepositoryRegistry {
-        match self {
-            Self::SQLite(db) => RepositoryRegistry::from_sqlite(Arc::new(db.clone())),
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => RepositoryRegistry::from_postgres(Arc::new(db.clone())),
-        }
+    pub const fn repositories(&self) -> &Arc<RepositoryRegistry> {
+        &self.repositories
+    }
+
+    /// The concrete backend, for the call sites that need a raw pool.
+    #[must_use]
+    pub const fn backend(&self) -> &DatabaseBackend {
+        &self.backend
     }
 
     /// Get a descriptive string for the current database backend
     #[must_use]
     pub const fn backend_info(&self) -> &'static str {
-        match self {
-            Self::SQLite(_) => "SQLite (Local Development)",
+        match self.backend {
+            DatabaseBackend::SQLite(_) => "SQLite (Local Development)",
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(_) => "PostgreSQL (Cloud-Ready)",
-        }
-    }
-
-    /// Get the database type enum
-    #[must_use]
-    pub const fn database_type(&self) -> DatabaseType {
-        match self {
-            Self::SQLite(_) => DatabaseType::SQLite,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(_) => DatabaseType::PostgreSQL,
-        }
-    }
-
-    /// Get detailed database information for logging/monitoring
-    #[must_use]
-    pub fn info_summary(&self) -> String {
-        match self {
-            Self::SQLite(_) => "Database Backend: SQLite\n\
-                     Type: Embedded file-based database\n\
-                     Use Case: Local development and testing\n\
-                     Features: Zero-configuration, serverless, lightweight"
-                .to_owned(),
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(_) => "Database Backend: PostgreSQL\n\
-                     Type: Client-server relational database\n\
-                     Use Case: Production and cloud deployments\n\
-                     Features: Concurrent access, advanced queries, scalability"
-                .to_owned(),
+            DatabaseBackend::PostgreSQL(_) => "PostgreSQL (Cloud-Ready)",
         }
     }
 
@@ -117,12 +129,8 @@ impl Database {
     ///
     /// Returns `None` for `PostgreSQL` databases.
     #[must_use]
-    pub const fn sqlite_pool(&self) -> Option<&sqlx::Pool<sqlx::Sqlite>> {
-        match self {
-            Self::SQLite(db) => Some(db.pool()),
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(_) => None,
-        }
+    pub fn sqlite_pool(&self) -> Option<&sqlx::Pool<sqlx::Sqlite>> {
+        self.sqlite_database().map(SqliteDatabase::pool)
     }
 
     /// Get a reference to the underlying `SQLite` database if this is a `SQLite` backend.
@@ -131,11 +139,11 @@ impl Database {
     /// domain-specific repository traits (`RecipeRepository`, `AgentsRepository`,
     /// `MobilityRepository`).
     #[must_use]
-    pub const fn sqlite_database(&self) -> Option<&SqliteDatabase> {
-        match self {
-            Self::SQLite(db) => Some(db),
+    pub fn sqlite_database(&self) -> Option<&SqliteDatabase> {
+        match &self.backend {
+            DatabaseBackend::SQLite(db) => Some(db),
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(_) => None,
+            DatabaseBackend::PostgreSQL(_) => None,
         }
     }
 
@@ -145,22 +153,22 @@ impl Database {
     #[cfg(feature = "postgresql")]
     #[must_use]
     pub fn postgres_pool(&self) -> Option<&sqlx::Pool<sqlx::Postgres>> {
-        match self {
-            Self::SQLite(_) => None,
-            Self::PostgreSQL(db) => Some(db.pool()),
+        match &self.backend {
+            DatabaseBackend::SQLite(_) => None,
+            DatabaseBackend::PostgreSQL(db) => Some(db.pool()),
         }
     }
 
     /// Get a reference to the underlying database as a `SecurityRepository`.
     ///
-    /// Used during early initialization when the factory still owns the database
-    /// mutably and a `RepositoryRegistry` is not yet available.
+    /// Used during key-management initialization, while the caller holds the
+    /// handle mutably to install the loaded DEK versions.
     #[must_use]
     pub fn as_security_repository(&self) -> &dyn super::SecurityRepository {
-        match self {
-            Self::SQLite(db) => db,
+        match &self.backend {
+            DatabaseBackend::SQLite(db) => db.as_ref(),
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db,
+            DatabaseBackend::PostgreSQL(db) => db.as_ref(),
         }
     }
 
@@ -170,14 +178,19 @@ impl Database {
     /// two-tier key management initialization. The database is initially created
     /// with a temporary key, then updated with the real key once it's loaded.
     ///
+    /// The backend carries its keys by value, so the backend is copied with the
+    /// new key and the repository registry is rebuilt over the copy. A registry
+    /// `Arc` or a `Database` clone taken before this call keeps the old key.
+    ///
     /// # Safety
     /// Only call this once during startup, before any encrypted data operations.
     pub fn update_encryption_key(&mut self, new_key: Vec<u8>) {
-        match self {
-            Self::SQLite(db) => db.update_encryption_key(new_key),
+        match &mut self.backend {
+            DatabaseBackend::SQLite(db) => Arc::make_mut(db).update_encryption_key(new_key),
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.update_encryption_key(new_key),
+            DatabaseBackend::PostgreSQL(db) => Arc::make_mut(db).update_encryption_key(new_key),
         }
+        self.repositories = Arc::new(self.backend.build_registry());
     }
 
     /// Install a full set of DEK versions (after load-all-versions or a rotation).
@@ -185,6 +198,11 @@ impl Database {
     /// `active_key` (version `active_version`) encrypts new data; `prior_versions`
     /// are retained for decrypt-only. The blind-index (HMAC) key is pinned to
     /// version 1, falling back to the active key only when v1 is itself active.
+    ///
+    /// The backend carries its keys by value, so the backend is copied with the
+    /// new versions and the repository registry is rebuilt over the copy. A
+    /// registry `Arc` or a `Database` clone taken before this call keeps the
+    /// previous keys.
     ///
     /// # Safety
     /// Call during startup or rotation while holding `&mut self`, before serving
@@ -197,15 +215,16 @@ impl Database {
     ) {
         // Only one arm runs per call, so the owned `active_key`/`prior_versions`
         // move into the active backend without a double-move.
-        match self {
-            Self::SQLite(db) => {
-                db.install_dek_versions(active_version, active_key, prior_versions);
+        match &mut self.backend {
+            DatabaseBackend::SQLite(db) => {
+                Arc::make_mut(db).install_dek_versions(active_version, active_key, prior_versions);
             }
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => {
-                db.install_dek_versions(active_version, active_key, prior_versions);
+            DatabaseBackend::PostgreSQL(db) => {
+                Arc::make_mut(db).install_dek_versions(active_version, active_key, prior_versions);
             }
         }
+        self.repositories = Arc::new(self.backend.build_registry());
     }
 
     /// Create a new database instance based on the connection string (internal implementation)
@@ -261,7 +280,7 @@ impl Database {
         info!("Initializing SQLite database");
         let db = SqliteDatabase::new(database_url, encryption_key).await?;
         info!("SQLite database initialized successfully");
-        Ok(Self::SQLite(db))
+        Ok(Self::from_sqlite(db))
     }
 
     #[cfg(feature = "postgresql")]
@@ -273,7 +292,7 @@ impl Database {
         info!("Initializing PostgreSQL database");
         let db = PostgresDatabase::new(database_url, encryption_key, pool_config).await?;
         info!("PostgreSQL database initialized successfully");
-        Ok(Self::PostgreSQL(db))
+        Ok(Self::from_postgres(db))
     }
 
     #[cfg(not(feature = "postgresql"))]
@@ -338,10 +357,10 @@ impl Database {
     ///
     /// Returns an error if the database query fails
     pub async fn is_auto_approval_enabled(&self) -> AppResult<Option<bool>> {
-        match self {
-            Self::SQLite(db) => db.is_auto_approval_enabled().await,
+        match &self.backend {
+            DatabaseBackend::SQLite(db) => db.is_auto_approval_enabled().await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.is_auto_approval_enabled().await,
+            DatabaseBackend::PostgreSQL(db) => db.is_auto_approval_enabled().await,
         }
     }
 
@@ -351,10 +370,10 @@ impl Database {
     ///
     /// Returns an error if the database operation fails
     pub async fn set_auto_approval_enabled(&self, enabled: bool) -> AppResult<()> {
-        match self {
-            Self::SQLite(db) => db.set_auto_approval_enabled(enabled).await,
+        match &self.backend {
+            DatabaseBackend::SQLite(db) => db.set_auto_approval_enabled(enabled).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.set_auto_approval_enabled(enabled).await,
+            DatabaseBackend::PostgreSQL(db) => db.set_auto_approval_enabled(enabled).await,
         }
     }
 
@@ -367,10 +386,10 @@ impl Database {
     ///
     /// Returns an error if the database query fails.
     pub async fn get_system_setting(&self, key: &str) -> AppResult<Option<SystemSetting>> {
-        match self {
-            Self::SQLite(db) => db.get_system_setting(key).await,
+        match &self.backend {
+            DatabaseBackend::SQLite(db) => db.get_system_setting(key).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_system_setting(key).await,
+            DatabaseBackend::PostgreSQL(db) => db.get_system_setting(key).await,
         }
     }
 
@@ -380,10 +399,10 @@ impl Database {
     ///
     /// Returns an error if the database operation fails.
     pub async fn set_system_setting(&self, key: &str, value: &str) -> AppResult<()> {
-        match self {
-            Self::SQLite(db) => db.set_system_setting(key, value).await,
+        match &self.backend {
+            DatabaseBackend::SQLite(db) => db.set_system_setting(key, value).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.set_system_setting(key, value).await,
+            DatabaseBackend::PostgreSQL(db) => db.set_system_setting(key, value).await,
         }
     }
 }
@@ -431,10 +450,10 @@ impl DatabaseProvider for Database {
         }
     }
     async fn migrate(&self) -> AppResult<()> {
-        match self {
-            Self::SQLite(db) => db.migrate().await,
+        match &self.backend {
+            DatabaseBackend::SQLite(db) => db.migrate().await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.migrate().await,
+            DatabaseBackend::PostgreSQL(db) => db.migrate().await,
         }
     }
 }

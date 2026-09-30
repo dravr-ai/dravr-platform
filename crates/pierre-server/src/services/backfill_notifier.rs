@@ -41,6 +41,8 @@ use std::sync::{Arc, OnceLock};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use chrono_tz::Tz;
+use dravr_canot::channel::MessagingChannel;
+use dravr_canot::factory::create_adapter_from_config;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_BACKFILL_LIST_HEADER, KEY_BACKFILL_LIST_MORE, KEY_BACKFILL_READY,
     KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
@@ -53,8 +55,6 @@ use pierre_database::backends::MessagingRepository;
 use pierre_database::repositories::shorten_url;
 use pierre_database::repositories::OutboundReauthGuard;
 use pierre_database::RepositoryRegistry;
-use pierre_messaging::channel::MessagingChannel;
-use pierre_messaging::factory::create_adapter_from_config;
 use pierre_middleware::provider_link_token::{
     mint_link_token, MintProviderLinkTokenArgs, PROVIDER_LINK_TOKEN_TTL_MINUTES,
 };

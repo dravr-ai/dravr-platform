@@ -35,7 +35,6 @@ use pierre_memory::claims::{
     ClaimCategory, ClaimStatus, DispositionReason, EvidenceStrength, VerdictDisposition,
     VerdictLayer,
 };
-use pierre_routes_admin::auth::service::AdminAuthService;
 use pierre_routes_admin::handlers::claim_verdicts::{handle_verdict_health, VerdictHealthQuery};
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
@@ -318,7 +317,7 @@ fn false_positive_rate_guards_the_division() {
 async fn health_rolls_a_known_mix_into_exact_totals_and_breakdowns() -> Result<()> {
     let db = common::create_test_database().await?;
     let repos = db.repositories();
-    let (agent_a, agent_b) = seed_mix(&repos).await;
+    let (agent_a, agent_b) = seed_mix(repos).await;
 
     let stats = repos
         .claim_verdicts
@@ -412,7 +411,7 @@ async fn health_of_an_empty_window_is_all_zeros() -> Result<()> {
     let repos = db.repositories();
     // A supported row alone: not flagged, so the window is empty.
     insert(
-        &repos,
+        repos,
         tenant(),
         None,
         ClaimCategory::Recovery,
@@ -462,7 +461,7 @@ async fn build_context() -> (Arc<AdminApiContext>, Arc<RepositoryRegistry>) {
     let jwks_manager = common::get_shared_test_jwks();
 
     let database_arc = Arc::new((*database).clone());
-    let repos_arc = Arc::new(database_arc.repositories());
+    let repos_arc = Arc::clone(database_arc.repositories());
 
     let context = AdminApiContext::new(AdminApiContextInit {
         database: database_arc,
@@ -471,7 +470,6 @@ async fn build_context() -> (Arc<AdminApiContext>, Arc<RepositoryRegistry>) {
         auth_manager,
         jwks_manager,
         admin_api_key_monthly_limit: STARTER_MONTHLY_LIMIT,
-        admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
         harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
         guardian_config_registry: Arc::new(GuardianConfigRegistry::bootstrap()),
         prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),

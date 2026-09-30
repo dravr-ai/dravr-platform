@@ -10,8 +10,8 @@
 mod common;
 mod helpers;
 
+use dravr_canot::commands::{CommandMatcher, CommandRegistry};
 use pierre_commands::parser::load_command_catalog;
-use pierre_messaging::commands::{CommandMatcher, CommandRegistry};
 
 use crate::helpers::command_e2e::commands_dir;
 
@@ -65,12 +65,12 @@ fn the_catalogue_matches_only_the_explicit_reset_forms() {
 mod reset_locale {
     use crate::common::create_test_server_resources_with_chat_provider;
     use crate::helpers::command_e2e::{CommandE2e, Member, RouterLlm};
+    use dravr_canot::rich_text::{parse_markdown, render_rich_text};
     use pierre_config::constants::usage_quotas::DEFAULT_MAX_ACTIVE_CONVERSATIONS;
     use pierre_contremaitre::messaging_strings::{
         DEFAULT_LOCALE, KEY_NEW_CONVERSATION_TITLE_PREFIX, KEY_RESET_CONFIRM, KEY_RESET_QUOTA,
         KEY_RESET_WALK_INTERRUPTED,
     };
-    use pierre_messaging::rich_text::{parse_markdown, render_rich_text};
     use serial_test::serial;
     use std::env;
     use std::sync::atomic::Ordering;

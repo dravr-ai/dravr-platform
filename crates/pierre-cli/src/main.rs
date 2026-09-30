@@ -831,10 +831,10 @@ async fn main() -> Result<()> {
     info!("Running database migrations...");
     database.migrate().await?;
 
-    // Build repository registry for trait-object dispatch
+    // The database's repository registry, for trait-object dispatch
     // Arc: the tenant tool-override commands construct a ToolSelectionService,
     // which shares the registry; everything else borrows through the Arc.
-    let repos = Arc::new(database.repositories());
+    let repos = Arc::clone(database.repositories());
 
     // Initialize JWKS manager - loads RSA keys from database for server compatibility
     let jwks_manager = initialize_jwks_manager(&repos).await?;

@@ -11,7 +11,6 @@ mod common;
 
 use pierre_core::models::TenantId;
 use pierre_mcp_server::constants::oauth_providers;
-use pierre_providers::core::FitnessProvider;
 use pierre_providers::registry::{
     create_provider, create_tenant_provider, global_registry, ProviderRegistry,
 };
@@ -50,7 +49,6 @@ async fn test_create_tenant_provider() {
     assert!(tenant_provider.is_ok());
 
     let tenant_provider = tenant_provider.unwrap();
-    assert_eq!(tenant_provider.tenant_id(), tenant_id);
-    assert_eq!(tenant_provider.user_id(), user_id);
     assert_eq!(tenant_provider.name(), oauth_providers::STRAVA);
+    assert!(!tenant_provider.is_authenticated().await);
 }

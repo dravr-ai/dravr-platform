@@ -243,19 +243,6 @@ const FEMALE_VO2_THRESHOLDS: Vo2MaxThresholds = Vo2MaxThresholds {
 };
 
 impl FitnessLevel {
-    /// Get threshold adjustment factor for fitness level
-    #[must_use]
-    pub const fn threshold_factor(&self) -> f64 {
-        match self {
-            Self::Beginner => 0.85,
-            Self::Recreational => 0.90,
-            Self::Intermediate => 0.95,
-            Self::Advanced => 1.0,
-            Self::Elite => 1.05,
-            Self::Professional => 1.1,
-        }
-    }
-
     /// Create from VO2 max value
     #[must_use]
     pub fn from_vo2_max(vo2_max: f64, age: Option<u16>, gender: Option<&str>) -> Self {

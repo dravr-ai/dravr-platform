@@ -40,7 +40,7 @@ mod intake_tests {
         TokenUsage,
     };
     use pierre_core::models::{ConnectionType, Tenant, TenantId, User, UserStatus};
-    use pierre_database::backends::factory::Database;
+    use pierre_database::backends::factory::DatabaseBackend;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -404,14 +404,14 @@ mod intake_tests {
              JOIN messaging_sessions s ON s.pierre_conversation_id = m.conversation_id \
              WHERE CAST(s.user_id AS TEXT) = $1 AND m.role = 'assistant'";
         let user = user_id.to_string();
-        let count: i64 = match resources.agent.database.as_ref() {
-            Database::SQLite(db) => sqlx::query_scalar(SQL)
+        let count: i64 = match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => sqlx::query_scalar(SQL)
                 .bind(&user)
                 .fetch_one(db.pool())
                 .await
                 .unwrap(),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => sqlx::query_scalar(SQL)
+            DatabaseBackend::PostgreSQL(db) => sqlx::query_scalar(SQL)
                 .bind(&user)
                 .fetch_one(db.pool())
                 .await
@@ -427,14 +427,14 @@ mod intake_tests {
              JOIN messaging_sessions s ON s.pierre_conversation_id = c.id \
              WHERE CAST(s.user_id AS TEXT) = $1";
         let user = user_id.to_string();
-        let row: Option<(Option<String>,)> = match resources.agent.database.as_ref() {
-            Database::SQLite(db) => sqlx::query_as(SQL)
+        let row: Option<(Option<String>,)> = match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => sqlx::query_as(SQL)
                 .bind(&user)
                 .fetch_optional(db.pool())
                 .await
                 .unwrap(),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => sqlx::query_as(SQL)
+            DatabaseBackend::PostgreSQL(db) => sqlx::query_as(SQL)
                 .bind(&user)
                 .fetch_optional(db.pool())
                 .await
@@ -505,14 +505,14 @@ mod intake_tests {
     async fn medical_facts(resources: &ServerContext, user_id: Uuid) -> Vec<String> {
         const SQL: &str = "SELECT object FROM user_facts WHERE user_id = $1 AND kind = 'medical'";
         let user = user_id.to_string();
-        let rows: Vec<(String,)> = match resources.agent.database.as_ref() {
-            Database::SQLite(db) => sqlx::query_as(SQL)
+        let rows: Vec<(String,)> = match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => sqlx::query_as(SQL)
                 .bind(&user)
                 .fetch_all(db.pool())
                 .await
                 .unwrap(),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => sqlx::query_as(SQL)
+            DatabaseBackend::PostgreSQL(db) => sqlx::query_as(SQL)
                 .bind(&user)
                 .fetch_all(db.pool())
                 .await

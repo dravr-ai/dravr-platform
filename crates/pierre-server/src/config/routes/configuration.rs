@@ -15,15 +15,15 @@
 
 use crate::constants::physiology;
 use crate::mcp::resources::ServerContext;
+use dravr_cageux::config::intelligence::{
+    PersonalizedHRZones, PersonalizedPaceZones, PersonalizedPowerZones, VO2MaxCalculator,
+};
 use pierre_auth::auth::AuthResult;
 use pierre_config::catalog::{CatalogBuilder, ConfigCatalog};
 use pierre_config::runtime::{ConfigValue, RuntimeConfig};
 use pierre_config::validation::{ConfigValidator, ValidationResult};
 use pierre_core::config::profiles::{ConfigProfile, ProfileTemplates};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_intelligence::config::intelligence::{
-    PersonalizedHRZones, PersonalizedPaceZones, PersonalizedPowerZones, VO2MaxCalculator,
-};
 use pierre_mcp_schema::json_schemas;
 // UserRepository methods dispatched through repos.users Arc<dyn Trait>
 use serde::{Deserialize, Serialize};

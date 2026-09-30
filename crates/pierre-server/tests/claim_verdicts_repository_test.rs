@@ -13,9 +13,9 @@ use anyhow::Result;
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::repositories::InsertClaimVerdictParams;
 use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
+use pierre_test_support::db::create_test_db_with_key;
 use tokio::time::sleep;
 use uuid::Uuid;
 

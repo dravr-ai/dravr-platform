@@ -72,6 +72,11 @@ use crate::protocol::provider_helpers::resolve_provider_for_tool;
 use crate::protocol::{auth_required_provider, UniversalExecutor};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
+use dravr_cageux::physiological_constants::api_limits::{
+    safe_limit_json_detailed, safe_limit_json_summary, safe_limit_toon_detailed,
+    safe_limit_toon_summary, DEFAULT_ACTIVITY_LIMIT_U32, MAX_ACTIVITY_LIMIT,
+};
+use dravr_meteo::{provider_from_env, WeatherProvider};
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::config::fitness::{activity_detail_threshold, EXPENSIVE_DETAIL_PROMOTION_BUDGET};
@@ -80,10 +85,6 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::connection_needs_reauth;
 use pierre_fitness_compute::weather_cache_adapter::WeatherCacheRepoAdapter;
 use pierre_formatters::OutputFormat;
-use pierre_intelligence::physiological_constants::api_limits::{
-    safe_limit_json_detailed, safe_limit_json_summary, safe_limit_toon_detailed,
-    safe_limit_toon_summary, DEFAULT_ACTIVITY_LIMIT_U32, MAX_ACTIVITY_LIMIT,
-};
 use pierre_mcp_schema::PropertySchema;
 use pierre_providers::backend_resolver;
 use pierre_providers::core::ActivityQueryParams;
@@ -91,7 +92,6 @@ use pierre_providers::deduplication::FragmentReport;
 use pierre_providers::spi::ProviderCapabilities;
 use pierre_services::weather_backfill;
 use pierre_tools_core::ToolResult;
-use pierre_weather::{provider_from_env, WeatherProvider};
 
 /// Tool for retrieving user activities from fitness providers.
 ///

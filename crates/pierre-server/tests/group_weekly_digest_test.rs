@@ -20,7 +20,7 @@ mod group_weekly_digest_tests {
     use pierre_core::models::groups::{
         GroupAggregateStats, GroupTrend, MemberFitnessSnapshot, OvertrainingRiskLevel,
     };
-    use pierre_database::backends::factory::Database;
+    use pierre_database::backends::factory::DatabaseBackend;
     use pierre_groups::GroupService;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_notifications::models::NotificationCategory;
@@ -204,10 +204,14 @@ En forme :
     }
 
     fn notification_service(resources: &ServerContext) -> NotificationService {
-        let service = match &*resources.agent.database {
-            Database::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
+        let service = match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(sqlite) => {
+                NotificationService::from_sqlite(sqlite.pool().clone())
+            }
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
+            DatabaseBackend::PostgreSQL(pg) => {
+                NotificationService::from_postgres(pg.pool().clone())
+            }
         };
         service.with_localizer(Arc::new(UserLocaleNotificationLocalizer::new(
             Arc::clone(&resources.common.repos),

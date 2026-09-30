@@ -31,15 +31,15 @@ use crate::implementations::nutrition_gate::{gate_for_call, NutritionAnswer};
 use crate::implementations::usda_shared::{check_ingredient_count, shared_usda_client};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
+use dravr_cageux::nutrition_calculator::{
+    calculate_daily_nutrition_needs, calculate_nutrient_timing, ActivityLevel,
+    DailyNutritionParams, Gender, TrainingGoal, WorkoutIntensity,
+};
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_config::nutrition_params::{athlete_protein_g_per_kg, PROTEIN_ATHLETE_G_PER_KG_KEY};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_external::{FoodSearchResult, UsdaClient};
-use pierre_intelligence::{
-    calculate_daily_nutrition_needs, calculate_nutrient_timing, ActivityLevel,
-    DailyNutritionParams, Gender, TrainingGoal, WorkoutIntensity,
-};
 use pierre_mcp_schema::PropertySchema;
 use pierre_runtime_context::ConfigLookupScope;
 use pierre_tools_core::ToolResult;

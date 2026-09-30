@@ -55,14 +55,6 @@ struct PutContentsRequest {
     branch: String,
 }
 
-/// Request body for DELETE /repos/{owner}/{repo}/contents/{path}
-#[derive(Serialize)]
-struct DeleteContentsRequest {
-    message: String,
-    sha: String,
-    branch: String,
-}
-
 /// Error response from GitHub API
 #[derive(Deserialize)]
 struct GitHubErrorResponse {
@@ -208,45 +200,5 @@ impl GitHubContentsClient {
             .to_owned();
 
         Ok(commit_sha)
-    }
-
-    /// Delete a file from the repository.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the file cannot be deleted from GitHub.
-    pub async fn delete_file(
-        &self,
-        path: &str,
-        message: &str,
-        sha: &str,
-    ) -> Result<(), ContremaitreError> {
-        let url = format!("{GITHUB_API_BASE}/repos/{}/contents/{}", self.repo, path);
-
-        let body = DeleteContentsRequest {
-            message: message.to_owned(),
-            sha: sha.to_owned(),
-            branch: self.branch.clone(),
-        };
-
-        let client = api_client();
-        let response = client
-            .delete(&url)
-            .header("Authorization", format!("Bearer {}", self.pat))
-            .header("Accept", "application/vnd.github.v3+json")
-            .header("User-Agent", "pierre-mcp-server")
-            .json(&body)
-            .send()
-            .await?;
-
-        let status = response.status().as_u16();
-        if status != 200 {
-            let resp_body = response.text().await.unwrap_or_default();
-            let message = serde_json::from_str::<GitHubErrorResponse>(&resp_body)
-                .map_or(resp_body, |e| e.message);
-            return Err(ContremaitreError::GitHubApi { status, message });
-        }
-
-        Ok(())
     }
 }

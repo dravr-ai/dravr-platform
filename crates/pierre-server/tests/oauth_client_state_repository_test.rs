@@ -18,7 +18,7 @@
 
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::models::OAuthClientState;
-use pierre_database::database::test_utils::create_test_db;
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 fn minted(name: &str, user_id: Option<Uuid>, ttl: Duration) -> OAuthClientState {

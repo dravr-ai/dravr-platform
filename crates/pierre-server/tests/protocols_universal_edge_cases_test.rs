@@ -12,15 +12,15 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use dravr_cageux::types::{
+    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
+    TrendIndicators,
+};
 use pierre_auth::auth::AuthManager;
 use pierre_config::environment::*;
 use pierre_core::errors::protocol::ProtocolError;
 use pierre_core::models::{ConnectionType, Tenant, User, UserOAuthToken};
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_intelligence::{
-    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
-    TrendIndicators,
-};
 use pierre_mcp_server::{
     constants::oauth_providers,
     mcp::resources::{ServerContext, ServerContextOptions},
@@ -58,7 +58,6 @@ fn create_test_config() -> Arc<ServerConfig> {
         auth: AuthConfig {
             jwt_expiry_hours: 24,
             refresh_token_expiry_days: 30,
-            ..AuthConfig::default()
         },
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
@@ -119,7 +118,6 @@ fn create_test_config() -> Arc<ServerConfig> {
         },
         sse: SseConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
-        route_timeouts: RouteTimeoutConfig::default(),
         ..Default::default()
     })
 }

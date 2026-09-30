@@ -8,14 +8,14 @@ use crate::implementations::analytics::output::{ActivityMetricsResult, MetricsIn
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
+use dravr_cageux::physiological_constants::efficiency_defaults::{
+    DEFAULT_EFFICIENCY_SCORE, DEFAULT_EFFICIENCY_WITH_DISTANCE,
+};
+use dravr_cageux::physiological_constants::heart_rate::AGE_BASED_MAX_HR_CONSTANT;
+use dravr_cageux::physiological_constants::unit_conversions::MS_TO_KMH_FACTOR;
 use pierre_config::constants::limits::{self, METERS_PER_KILOMETER};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_formatters::OutputFormat;
-use pierre_intelligence::physiological_constants::efficiency_defaults::{
-    DEFAULT_EFFICIENCY_SCORE, DEFAULT_EFFICIENCY_WITH_DISTANCE,
-};
-use pierre_intelligence::physiological_constants::heart_rate::AGE_BASED_MAX_HR_CONSTANT;
-use pierre_intelligence::physiological_constants::unit_conversions::MS_TO_KMH_FACTOR;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;

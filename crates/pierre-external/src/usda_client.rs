@@ -533,19 +533,6 @@ impl UsdaClient {
 
         Ok(food_details)
     }
-
-    /// Clear all caches (useful for testing)
-    pub async fn clear_caches(&self) {
-        self.search_cache.write().await.clear();
-        self.details_cache.write().await.clear();
-    }
-
-    /// Get cache statistics (useful for monitoring)
-    pub async fn cache_stats(&self) -> (usize, usize) {
-        let search_count = self.search_cache.read().await.len();
-        let details_count = self.details_cache.read().await.len();
-        (search_count, details_count)
-    }
 }
 
 /// Redact API key from error messages to prevent credential leakage in logs

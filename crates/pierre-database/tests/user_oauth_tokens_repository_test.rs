@@ -20,8 +20,8 @@
 
 use chrono::{DateTime, Utc};
 use pierre_core::models::{TenantId, User, UserOAuthToken};
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::RepositoryRegistry;
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 /// A distinct user per call; both token tables reference `users` on Postgres.
@@ -67,7 +67,7 @@ fn token(
 async fn a_backdated_token_keeps_the_timestamps_it_was_handed() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let user_id = fresh_user(&repos).await;
+    let user_id = fresh_user(repos).await;
     let tenant_id = TenantId::generate();
     let created_at = seconds_ago(3 * 86_400);
 
@@ -103,7 +103,7 @@ async fn a_backdated_token_keeps_the_timestamps_it_was_handed() {
 async fn get_tokens_orders_by_the_stored_created_at_not_by_insertion() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let user_id = fresh_user(&repos).await;
+    let user_id = fresh_user(repos).await;
     let tenant_id = TenantId::generate();
 
     // The older token is inserted last: an ordering by insertion time would
@@ -134,7 +134,7 @@ async fn get_tokens_orders_by_the_stored_created_at_not_by_insertion() {
 async fn a_refreshed_token_round_trips_its_new_pair() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let user_id = fresh_user(&repos).await;
+    let user_id = fresh_user(repos).await;
     let tenant_id = TenantId::generate();
 
     let mut expired = token(user_id, &tenant_id, "strava", seconds_ago(7 * 3600));
@@ -223,7 +223,7 @@ async fn a_refreshed_token_round_trips_its_new_pair() {
 async fn a_refresh_of_a_replaced_row_writes_nothing() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let user_id = fresh_user(&repos).await;
+    let user_id = fresh_user(repos).await;
     let tenant_id = TenantId::generate();
 
     let mut read_by_the_refresh = token(user_id, &tenant_id, "strava", seconds_ago(7 * 3600));
@@ -290,8 +290,8 @@ async fn a_byo_app_frees_the_shared_app_seat_it_occupied() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
     let tenant_id = TenantId::generate();
-    let pooled = fresh_user(&repos).await;
-    let byo = fresh_user(&repos).await;
+    let pooled = fresh_user(repos).await;
+    let byo = fresh_user(repos).await;
 
     let mut pooled_token = token(pooled, &tenant_id, "strava", seconds_ago(30));
     pooled_token.oauth_app_client_id = Some("201455".to_owned());
@@ -304,7 +304,7 @@ async fn a_byo_app_frees_the_shared_app_seat_it_occupied() {
     repos.oauth_tokens.upsert_token(&byo_token).await.unwrap();
 
     assert_eq!(
-        seat_usage(&repos).await,
+        seat_usage(repos).await,
         vec![(None, 1), (Some("201455".to_owned()), 1)],
         "both users sit on the shared app before either registers their own"
     );
@@ -322,7 +322,7 @@ async fn a_byo_app_frees_the_shared_app_seat_it_occupied() {
         .unwrap();
 
     assert_eq!(
-        seat_usage(&repos).await,
+        seat_usage(repos).await,
         vec![(Some("201455".to_owned()), 1)],
         "a user with their own app no longer counts against the shared app"
     );
@@ -367,7 +367,7 @@ async fn a_byo_app_frees_the_shared_app_seat_it_occupied() {
         .await
         .unwrap();
     assert_eq!(
-        seat_usage(&repos).await,
+        seat_usage(repos).await,
         vec![(None, 1), (Some("201455".to_owned()), 1)],
         "removing the BYO app puts the user back on the shared app"
     );
@@ -377,7 +377,7 @@ async fn a_byo_app_frees_the_shared_app_seat_it_occupied() {
 async fn a_sync_stamp_is_absent_until_written_and_scoped_to_its_row() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let user_id = fresh_user(&repos).await;
+    let user_id = fresh_user(repos).await;
     let tenant_id = TenantId::generate();
     repos
         .oauth_tokens

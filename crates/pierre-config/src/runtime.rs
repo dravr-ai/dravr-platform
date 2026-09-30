@@ -11,9 +11,9 @@
 // - Profile data ownership for configuration loading and session management
 
 use chrono::{DateTime, Utc};
+use dravr_cageux::config::intelligence::VO2MaxCalculator;
 use pierre_core::config::profiles::ConfigProfile;
 use pierre_core::models::UserPhysiologicalProfile;
-use pierre_intelligence::config::intelligence::{SportEfficiency, VO2MaxCalculator};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -105,14 +105,6 @@ impl RuntimeConfig {
         }
     }
 
-    /// Create with a specific profile
-    #[must_use]
-    pub fn with_profile(profile: ConfigProfile) -> Self {
-        let mut config = Self::new();
-        config.active_profile = profile;
-        config
-    }
-
     /// Load base constants from physiological constants module
     fn load_base_constants() -> HashMap<String, f64> {
         let mut constants = HashMap::new();
@@ -137,25 +129,6 @@ impl RuntimeConfig {
         constants
     }
 
-    /// Set user physiological profile and update VO2 calculator
-    pub fn set_user_profile(&mut self, profile: UserPhysiologicalProfile) {
-        // Create VO2 calculator if we have the necessary data
-        if let (Some(vo2_max), Some(resting_hr), Some(max_hr)) =
-            (profile.vo2_max, profile.resting_hr, profile.max_hr)
-        {
-            self.vo2_calculator = Some(VO2MaxCalculator::new(
-                vo2_max,
-                resting_hr,
-                max_hr,
-                profile.lactate_threshold_percentage.unwrap_or(0.85),
-                profile.primary_sport.sport_efficiency_factor(),
-            ));
-        }
-
-        self.user_profile = Some(profile);
-        self.last_modified = Utc::now();
-    }
-
     /// Apply a configuration profile
     pub fn apply_profile(&mut self, profile: ConfigProfile) {
         self.log_change(
@@ -168,12 +141,6 @@ impl RuntimeConfig {
 
         self.active_profile = profile;
         self.last_modified = Utc::now();
-    }
-
-    /// Determine profile based on current configuration settings
-    #[must_use]
-    pub fn determine_profile(&self) -> ConfigProfile {
-        self.active_profile.clone()
     }
 
     /// Get a configuration value
@@ -236,20 +203,6 @@ impl RuntimeConfig {
         }
 
         values
-    }
-
-    /// Reset all session overrides
-    pub fn reset_overrides(&mut self) {
-        self.session_overrides.clear();
-        self.last_modified = Utc::now();
-
-        self.log_change(
-            "system".into(),
-            "all_overrides".into(),
-            None,
-            ConfigValue::String("reset".into()),
-            Some("Reset all session overrides".into()),
-        );
     }
 
     /// Log a configuration change

@@ -1661,6 +1661,7 @@ mod command_tests {
     // we invoke each handler directly, matching the `StatusHandler` pattern
     // in `messaging_locale_test`.
 
+    use dravr_canot::commands::CommandRegistry;
     use pierre_commands::group::{
         GroupConsentHandler, GroupInviteHandler, GroupListHandler, GroupMembersHandler,
         GroupStatusHandler,
@@ -1669,7 +1670,6 @@ mod command_tests {
     use pierre_core::models::groups::{
         CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
     };
-    use pierre_messaging::commands::CommandRegistry;
 
     /// Create a bare active user (no tenant/provider) for use as an additional
     /// group member. `coaching_group_members.user_id` is a FK to `users(id)`,
@@ -2767,7 +2767,7 @@ mod command_tests {
     /// `/agent list add @tempo`.
     #[test]
     fn coaches_alias_reaches_every_coach_subcommand() {
-        use pierre_messaging::commands::CommandMatcher;
+        use dravr_canot::commands::CommandMatcher;
 
         let registry = real_command_registry();
         let matcher = CommandMatcher::from_registry(&registry);

@@ -25,8 +25,8 @@
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 
+use dravr_cageux::config::intelligence::IntelligenceConfig;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_intelligence::IntelligenceConfig;
 use serde_json::Value;
 
 use crate::admin_definitions::ParameterDefinition;

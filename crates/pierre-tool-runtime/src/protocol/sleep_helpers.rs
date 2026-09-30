@@ -21,11 +21,11 @@
 use std::collections::HashMap;
 
 use chrono::{Duration, NaiveDate, Utc};
+use dravr_cageux::sleep_analysis::SleepData;
 use pierre_core::models::{
     merge_recovery_metrics, merge_sleep_sessions, Merged, StoredRecoveryMetrics,
     StoredSleepSession, StoredSleepStageType, TenantId,
 };
-use pierre_intelligence::SleepData;
 use tracing::warn;
 use uuid::Uuid;
 

@@ -3608,7 +3608,9 @@ version = "0.3.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "dravr-canot",
  "dravr-contremaitre",
+ "dravr-enforme",
  "dravr-tronc",
  "embacle",
  "embacle-tool-host",
@@ -3620,13 +3622,11 @@ dependencies = [
  "pierre-contremaitre",
  "pierre-core",
  "pierre-database",
- "pierre-enforme",
  "pierre-evals",
  "pierre-fitness-compute",
  "pierre-groups",
  "pierre-llm",
  "pierre-memory",
- "pierre-messaging",
  "pierre-middleware",
  "pierre-providers",
  "pierre-runtime-context",
@@ -3679,12 +3679,12 @@ dependencies = [
  "async-trait",
  "chrono",
  "chrono-tz",
+ "dravr-canot",
  "pierre-contremaitre",
  "pierre-core",
  "pierre-database",
  "pierre-groups",
  "pierre-memory",
- "pierre-messaging",
  "pierre-runtime-context",
  "pierre-services",
  "pierre-tool-runtime",
@@ -3700,14 +3700,13 @@ name = "pierre-config"
 version = "0.3.0"
 dependencies = [
  "chrono",
+ "dravr-cageux",
  "pierre-auth",
  "pierre-cache",
  "pierre-core",
- "pierre-intelligence",
  "pierre-llm",
  "pierre-middleware",
  "reqwest 0.12.28",
- "reqwest-middleware",
  "schemars 1.2.1",
  "serde",
  "serde_json",
@@ -3723,13 +3722,13 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "chrono",
+ "dravr-cageux",
  "dravr-contremaitre",
  "dravr-tronc",
  "hex",
  "pierre-core",
  "pierre-database",
  "pierre-evals",
- "pierre-intelligence",
  "pierre-llm",
  "pierre-memory",
  "regex",
@@ -3794,6 +3793,7 @@ dependencies = [
  "hex",
  "pierre-core",
  "pierre-memory",
+ "pierre-test-support",
  "rand 0.9.4",
  "ring",
  "serde",
@@ -3828,13 +3828,6 @@ dependencies = [
  "html-escape",
  "pierre-core",
  "tracing",
-]
-
-[[package]]
-name = "pierre-enforme"
-version = "0.3.0"
-dependencies = [
- "dravr-enforme",
 ]
 
 [[package]]
@@ -3875,10 +3868,10 @@ dependencies = [
  "async-trait",
  "chrono",
  "dravr-cageux",
+ "dravr-meteo",
  "hex",
  "pierre-core",
  "pierre-database",
- "pierre-weather",
  "rayon",
  "regex",
  "reqwest 0.12.28",
@@ -3916,14 +3909,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tracing",
  "uuid",
-]
-
-[[package]]
-name = "pierre-intelligence"
-version = "0.3.0"
-dependencies = [
- "dravr-cageux",
- "pierre-core",
 ]
 
 [[package]]
@@ -4005,13 +3990,6 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
-]
-
-[[package]]
-name = "pierre-messaging"
-version = "0.3.0"
-dependencies = [
- "dravr-canot",
 ]
 
 [[package]]
@@ -4166,6 +4144,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "chrono",
+ "dravr-enforme",
  "dravr-sciotte",
  "hex",
  "hmac",
@@ -4176,7 +4155,6 @@ dependencies = [
  "pierre-core",
  "pierre-database",
  "pierre-email",
- "pierre-enforme",
  "pierre-groups",
  "pierre-mcp-schema",
  "pierre-mcp-transport",
@@ -4304,13 +4282,13 @@ name = "pierre-runtime-context"
 version = "0.3.0"
 dependencies = [
  "async-trait",
+ "dravr-cageux",
  "pierre-auth",
  "pierre-cache",
  "pierre-contremaitre",
  "pierre-core",
  "pierre-database",
  "pierre-groups",
- "pierre-intelligence",
  "pierre-llm",
  "pierre-notifications",
  "pierre-providers",
@@ -4345,8 +4323,12 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "dashmap",
+ "dravr-cageux",
+ "dravr-canot",
  "dravr-contremaitre",
+ "dravr-enforme",
  "dravr-equilibre",
+ "dravr-meteo",
  "dravr-riviere",
  "dravr-tronc",
  "embacle",
@@ -4360,21 +4342,18 @@ dependencies = [
  "pierre-contremaitre",
  "pierre-core",
  "pierre-database",
- "pierre-enforme",
  "pierre-evals",
  "pierre-fitness-compute",
  "pierre-groups",
- "pierre-intelligence",
  "pierre-llm",
  "pierre-mcp-schema",
  "pierre-mcp-transport",
  "pierre-memory",
- "pierre-messaging",
  "pierre-middleware",
  "pierre-notifications",
  "pierre-providers",
  "pierre-runtime-context",
- "pierre-weather",
+ "pierre-test-support",
  "rand 0.9.4",
  "reqwest 0.12.28",
  "schemars 1.2.1",
@@ -4415,6 +4394,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pierre-test-support"
+version = "0.3.0"
+dependencies = [
+ "chrono",
+ "pierre-core",
+ "pierre-database",
+ "sqlx",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "pierre-tool-runtime"
 version = "0.3.0"
 dependencies = [
@@ -4422,6 +4413,9 @@ dependencies = [
  "base64 0.22.1",
  "bitflags 2.11.1",
  "chrono",
+ "dravr-cageux",
+ "dravr-enforme",
+ "dravr-meteo",
  "dravr-tronc",
  "embacle",
  "futures-util",
@@ -4434,13 +4428,11 @@ dependencies = [
  "pierre-contremaitre",
  "pierre-core",
  "pierre-database",
- "pierre-enforme",
  "pierre-evals",
  "pierre-external",
  "pierre-fitness-compute",
  "pierre-formatters",
  "pierre-groups",
- "pierre-intelligence",
  "pierre-llm",
  "pierre-mcp-schema",
  "pierre-mcp-transport",
@@ -4450,7 +4442,6 @@ dependencies = [
  "pierre-runtime-context",
  "pierre-services",
  "pierre-tools-core",
- "pierre-weather",
  "regex",
  "reqwest 0.12.28",
  "schemars 1.2.1",
@@ -4470,13 +4461,6 @@ dependencies = [
  "pierre-core",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "pierre-weather"
-version = "0.3.0"
-dependencies = [
- "dravr-meteo",
 ]
 
 [[package]]
@@ -4502,8 +4486,12 @@ dependencies = [
  "cron",
  "dashmap",
  "dirs 5.0.1",
+ "dravr-cageux",
+ "dravr-canot",
  "dravr-contremaitre",
+ "dravr-enforme",
  "dravr-equilibre",
+ "dravr-meteo",
  "dravr-sciotte",
  "dravr-stripe",
  "dravr-tronc",
@@ -4533,19 +4521,16 @@ dependencies = [
  "pierre-core",
  "pierre-database",
  "pierre-email",
- "pierre-enforme",
  "pierre-evals",
  "pierre-external",
  "pierre-fitness-compute",
  "pierre-formatters",
  "pierre-groups",
- "pierre-intelligence",
  "pierre-llm",
  "pierre-logging",
  "pierre-mcp-schema",
  "pierre-mcp-transport",
  "pierre-memory",
- "pierre-messaging",
  "pierre-middleware",
  "pierre-notifications",
  "pierre-providers",
@@ -4562,9 +4547,9 @@ dependencies = [
  "pierre-seeders",
  "pierre-services",
  "pierre-sse",
+ "pierre-test-support",
  "pierre-tool-runtime",
  "pierre-tools-core",
- "pierre-weather",
  "pprof",
  "qrcode",
  "rand 0.9.4",
@@ -4573,7 +4558,6 @@ dependencies = [
  "redis",
  "regex",
  "reqwest 0.12.28",
- "reqwest-middleware",
  "ring",
  "rsa",
  "schemars 1.2.1",

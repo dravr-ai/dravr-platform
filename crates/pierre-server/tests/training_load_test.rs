@@ -8,8 +8,8 @@
 #![allow(missing_docs)]
 
 use chrono::{DateTime, Duration, Utc};
+use dravr_cageux::training_load::{FormBand, RiskLevel, TrainingLoad, TrainingLoadCalculator};
 use pierre_core::models::{Activity, SportType};
-use pierre_intelligence::{FormBand, RiskLevel, TrainingLoad, TrainingLoadCalculator};
 
 fn create_test_activity(
     date: DateTime<Utc>,

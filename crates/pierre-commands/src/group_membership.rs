@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
+use dravr_canot::commands::{CommandAction, CommandResponse};
 use pierre_contremaitre::messaging_strings::{
     KEY_GROUP_CREATED, KEY_GROUP_CREATE_FORBIDDEN, KEY_GROUP_CREATE_NO_AGENT,
     KEY_GROUP_CREATE_UNAVAILABLE, KEY_GROUP_CREATE_USAGE, KEY_GROUP_INVITE_LABEL, KEY_GROUP_JOINED,
@@ -17,7 +18,6 @@ use pierre_core::models::groups::{CoachingGroup, CreateGroupRequest, GroupInvite
 use pierre_core::models::{ConversationRecord, TenantId};
 use pierre_groups::creation_policy::{check_create_group_permission, GROUP_CREATION_POLICY_KEY};
 use pierre_groups::strategies::tier::tier_strategy_for;
-use pierre_messaging::commands::{CommandAction, CommandResponse};
 use pierre_runtime_context::ConfigLookupScope;
 use tracing::info;
 

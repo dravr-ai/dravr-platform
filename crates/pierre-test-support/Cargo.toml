@@ -1,0 +1,29 @@
+# ABOUTME: Test fixtures shared by the workspace's integration tests: the test-database factory and user fixtures
+# ABOUTME: Never a normal dependency; every consumer lists it under [dev-dependencies] only (ADR-027)
+
+[package]
+name = "pierre-test-support"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Test fixtures for the Pierre platform's integration tests"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[features]
+default = []
+# Clone per-test databases from a PostgreSQL template when DATABASE_URL names
+# a PostgreSQL server. A consumer's own `postgresql` feature forwards here.
+postgresql = ["pierre-database/postgresql", "sqlx/postgres"]
+
+[dependencies]
+pierre-core = { version = "0.3.0", path = "../pierre-core" }
+pierre-database = { version = "0.3.0", path = "../pierre-database" }
+chrono = { version = "0.4", features = ["serde"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite"], default-features = false }
+# "sync" backs the OnceCell holding the migrated SQLite image.
+tokio = { version = "1.50", features = ["sync"] }
+uuid = { version = "1.22", features = ["v4"] }
+
+[lints]
+workspace = true

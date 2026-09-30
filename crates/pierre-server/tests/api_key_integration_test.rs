@@ -21,9 +21,9 @@ use pierre_auth::{
 };
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{User, WindowUsage};
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{backends::factory::Database, database::generate_encryption_key};
 use pierre_middleware::McpAuthMiddleware;
+use pierre_test_support::db::create_test_db_with_key;
 use std::sync::Arc;
 
 async fn create_test_environment() -> (
@@ -43,7 +43,7 @@ async fn create_test_environment() -> (
 
     // Create auth middleware
     let jwks_manager = common::get_shared_test_jwks();
-    let repos = Arc::new(database.repositories());
+    let repos = Arc::clone(database.repositories());
     let auth_middleware = Arc::new(McpAuthMiddleware::new(
         (*auth_manager).clone(),
         repos,

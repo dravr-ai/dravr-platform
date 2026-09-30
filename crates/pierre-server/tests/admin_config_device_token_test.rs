@@ -17,7 +17,7 @@ use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use pierre_core::admin::models::{CreateAdminTokenRequest, DEVICE_CLI_SERVICE_PREFIX};
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::UserRole;
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::config::routes::{admin_config_router, AdminConfigState};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_admin::auth::service::AdminAuthService;
@@ -39,7 +39,6 @@ fn router(resources: &Arc<ServerContext>) -> Router {
     let admin_auth = AdminAuthService::new(
         Arc::clone(&resources.common.repos.admin),
         Arc::clone(&resources.auth.jwks_manager),
-        0,
     );
     let state = Arc::new(AdminConfigState::new(
         service,
@@ -125,8 +124,8 @@ async fn admin_token(
 /// entry per row, so an empty list is "nothing was written".
 async fn override_authors(resources: &Arc<ServerContext>, user_id: Uuid) -> Vec<String> {
     let user = user_id.to_string();
-    match &*resources.agent.database {
-        Database::SQLite(sqlite) => sqlx::query_scalar(
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => sqlx::query_scalar(
             "SELECT created_by FROM admin_config_overrides WHERE config_key = $1 AND user_id = $2",
         )
         .bind(KEY)
@@ -135,7 +134,7 @@ async fn override_authors(resources: &Arc<ServerContext>, user_id: Uuid) -> Vec<
         .await
         .unwrap(),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => sqlx::query_scalar(
+        DatabaseBackend::PostgreSQL(pg) => sqlx::query_scalar(
             "SELECT CAST(created_by AS TEXT) FROM admin_config_overrides \
              WHERE config_key = $1 AND user_id = $2::uuid",
         )

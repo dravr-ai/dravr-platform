@@ -24,12 +24,12 @@ use pierre_core::constants::tool_execution::{
 };
 use pierre_core::models::agents::CreateAgentRequest;
 use pierre_core::models::TenantId;
-use pierre_database::database::test_utils::create_test_db;
 use pierre_mcp_server::config::admin::service::AdminConfigService;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_agents::agents::AgentResponse;
 use pierre_routes_agents::build_agents_router;
 use pierre_runtime_context::ConfigLookupScope;
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 /// Build an agents router plus the bearer header and the context the runtime

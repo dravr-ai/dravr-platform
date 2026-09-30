@@ -5,12 +5,12 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
+use dravr_canot::commands::CommandResponse;
 use pierre_contremaitre::messaging_strings::{
     KEY_CALIBRATE_OPENER, KEY_CALIBRATE_OPENER_ROOM, KEY_CALIBRATE_START_FAILED,
 };
 use pierre_core::errors::AppError;
 use pierre_core::models::GuidedFlow;
-use pierre_messaging::commands::CommandResponse;
 
 use crate::guided_walk::{read_profile, start_walk, WalkSpec};
 use crate::{CommandHandler, PlatformCommandContext};

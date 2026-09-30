@@ -218,25 +218,6 @@ pub async fn verify_reply_with_config_and_judge(
     Ok(out)
 }
 
-/// Verify a single caller-provided claim (already extracted) at the given
-/// minimum evidence strength, using the compiled-in fallback corpus.
-#[must_use]
-pub fn verify_single_claim(
-    claim: &ExtractedClaim,
-    minimum_strength: EvidenceStrength,
-) -> VerdictOutcome {
-    // A claim verified in isolation has no siblings, so the consistency-check layer
-    // has nothing to compare against and the verdict falls through to evidence.
-    check_claim(
-        claim,
-        slice::from_ref(claim),
-        corpus(),
-        minimum_strength,
-        None,
-        None,
-    )
-}
-
 /// Verify a single claim against a caller-provided corpus.
 ///
 /// Used by the `verify_claim` MCP tool to honor the runtime registry

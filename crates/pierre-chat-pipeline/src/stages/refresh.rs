@@ -47,7 +47,7 @@ pub struct RefreshDeps<'a> {
     pub activity_cache: Arc<dyn ActivityCacheRepository>,
     /// Optional sync orchestrator used to schedule background refreshes.
     #[cfg(feature = "health-sync")]
-    pub sync_orchestrator: &'a Option<Arc<pierre_enforme::SyncOrchestrator>>,
+    pub sync_orchestrator: &'a Option<Arc<dravr_enforme::SyncOrchestrator>>,
     /// SSE manager used to push refresh-status events to the client. Present
     /// only under `health-sync`, the feature that owns the background sync the
     /// events describe.

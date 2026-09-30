@@ -7,12 +7,12 @@
 use std::env;
 use std::sync::Arc;
 
+use dravr_canot::channel::MessagingChannel;
+use dravr_canot::channels::discord::gateway::{start_gateway, GatewayConfig};
+use dravr_canot::factory::create_adapter_from_config;
 use pierre_core::models::messaging::{ChannelType, IncomingMessage};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::MessagingRepository;
-use pierre_messaging::channel::MessagingChannel;
-use pierre_messaging::channels::discord::gateway::{start_gateway, GatewayConfig};
-use pierre_messaging::factory::create_adapter_from_config;
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tracing::{info, warn};

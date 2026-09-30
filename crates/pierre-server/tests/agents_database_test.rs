@@ -16,7 +16,7 @@ use pierre_core::models::agents::{
 use pierre_core::models::{CoachingPersona, Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils;
+use pierre_test_support::db as test_db;
 use uuid::Uuid;
 
 /// A user row for the seeded fixture.
@@ -51,7 +51,7 @@ fn test_user(id: Uuid, email: &str) -> User {
 /// Open a test database through the factory and seed the two users, two
 /// tenants, and four memberships every test relies on.
 async fn create_test_db() -> Database {
-    let db = test_utils::create_test_db().await.unwrap();
+    let db = test_db::create_test_db().await.unwrap();
     let repos = db.repositories();
 
     for (user_id, email) in [
@@ -129,7 +129,7 @@ fn other_tenant() -> TenantId {
 #[tokio::test]
 async fn test_create_agent() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Marathon Coach".to_owned(),
@@ -173,7 +173,7 @@ async fn test_create_agent() {
 #[tokio::test]
 async fn test_create_agent_minimal() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Simple Coach".to_owned(),
@@ -211,7 +211,7 @@ async fn test_create_agent_minimal() {
 #[tokio::test]
 async fn test_get_agent() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Test Coach".to_owned(),
@@ -250,7 +250,7 @@ async fn test_get_agent() {
 #[tokio::test]
 async fn test_get_agent_not_found() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let result = manager
         .get_by_id("nonexistent-id", test_user_id(), test_tenant())
@@ -263,7 +263,7 @@ async fn test_get_agent_not_found() {
 #[tokio::test]
 async fn test_get_agent_wrong_user() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Private Coach".to_owned(),
@@ -304,7 +304,7 @@ async fn test_get_agent_wrong_user() {
 #[tokio::test]
 async fn test_list_agents_empty() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let filter = ListAgentsFilter::default();
     let agents = manager
@@ -318,7 +318,7 @@ async fn test_list_agents_empty() {
 #[tokio::test]
 async fn test_list_agents() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create multiple agents
     for i in 1..=3 {
@@ -357,7 +357,7 @@ async fn test_list_agents() {
 #[tokio::test]
 async fn test_list_agents_by_category() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create agents with different categories
     let categories = [
@@ -409,7 +409,7 @@ async fn test_list_agents_by_category() {
 #[tokio::test]
 async fn test_list_agents_favorites_only() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create agents
     let mut agent_ids = Vec::new();
@@ -461,7 +461,7 @@ async fn test_list_agents_favorites_only() {
 #[tokio::test]
 async fn test_list_agents_with_pagination() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create 5 agents
     for i in 1..=5 {
@@ -528,7 +528,7 @@ async fn test_list_agents_with_pagination() {
 #[tokio::test]
 async fn test_list_agents_user_isolation() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create agent for user 1
     let request = CreateAgentRequest {
@@ -601,7 +601,7 @@ async fn test_list_agents_user_isolation() {
 #[tokio::test]
 async fn test_update_agent() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Original Title".to_owned(),
@@ -667,7 +667,7 @@ async fn test_update_agent() {
 #[tokio::test]
 async fn test_update_agent_partial() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Original Title".to_owned(),
@@ -732,7 +732,7 @@ async fn test_update_agent_partial() {
 #[tokio::test]
 async fn test_update_agent_not_found() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let update = UpdateAgentRequest {
         title: Some("New Title".to_owned()),
@@ -773,7 +773,7 @@ async fn test_update_agent_not_found() {
 #[tokio::test]
 async fn test_delete_agent() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "To Delete".to_owned(),
@@ -816,7 +816,7 @@ async fn test_delete_agent() {
 #[tokio::test]
 async fn test_delete_agent_not_found() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let deleted = manager
         .delete("nonexistent-id", test_user_id(), test_tenant())
@@ -829,7 +829,7 @@ async fn test_delete_agent_not_found() {
 #[tokio::test]
 async fn test_delete_agent_wrong_user() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Private Coach".to_owned(),
@@ -877,7 +877,7 @@ async fn test_delete_agent_wrong_user() {
 #[tokio::test]
 async fn test_toggle_favorite() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Test Coach".to_owned(),
@@ -940,7 +940,7 @@ async fn test_toggle_favorite() {
 #[tokio::test]
 async fn test_toggle_favorite_not_found() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let result = manager
         .toggle_favorite("nonexistent-id", test_user_id(), test_tenant())
@@ -957,7 +957,7 @@ async fn test_toggle_favorite_not_found() {
 #[tokio::test]
 async fn test_activate_agent() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Active Coach".to_owned(),
@@ -1002,7 +1002,7 @@ async fn test_activate_agent() {
 #[tokio::test]
 async fn test_activate_agent_deactivates_others() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create two agents
     let request1 = CreateAgentRequest {
@@ -1081,7 +1081,7 @@ async fn test_activate_agent_deactivates_others() {
 #[tokio::test]
 async fn test_deactivate_agent() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Test Coach".to_owned(),
@@ -1130,7 +1130,7 @@ async fn test_deactivate_agent() {
 #[tokio::test]
 async fn test_deactivate_when_none_active() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Deactivate when nothing is active
     let deactivated = manager
@@ -1143,7 +1143,7 @@ async fn test_deactivate_when_none_active() {
 #[tokio::test]
 async fn test_get_active_agent() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // No active agent initially
     let active = manager
@@ -1194,7 +1194,7 @@ async fn test_get_active_agent() {
 #[tokio::test]
 async fn test_active_agent_user_isolation() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create agent for user 1 and activate
     let request = CreateAgentRequest {
@@ -1245,7 +1245,7 @@ async fn test_active_agent_user_isolation() {
 #[tokio::test]
 async fn test_record_usage() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Test Coach".to_owned(),
@@ -1320,7 +1320,7 @@ async fn test_record_usage() {
 #[tokio::test]
 async fn test_record_usage_for_system_agent_from_other_tenant() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateSystemAgentRequest {
         title: "Cross-tenant System Coach".to_owned(),
@@ -1374,7 +1374,7 @@ async fn test_record_usage_for_system_agent_from_other_tenant() {
 #[tokio::test]
 async fn test_activate_system_agent_from_other_tenant() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateSystemAgentRequest {
         title: "Activate-me Cross-tenant System Coach".to_owned(),
@@ -1408,7 +1408,7 @@ async fn test_activate_system_agent_from_other_tenant() {
 #[tokio::test]
 async fn test_search_agents() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create agents with searchable content
     let requests = [
@@ -1507,7 +1507,7 @@ async fn test_search_agents() {
 #[tokio::test]
 async fn test_search_agents_with_limit() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create multiple agents with "Coach" in title
     for i in 1..=5 {
@@ -1549,7 +1549,7 @@ async fn test_search_agents_with_limit() {
 #[tokio::test]
 async fn test_count_agents() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Initially zero
     let count = manager.count(test_user_id(), test_tenant()).await.unwrap();
@@ -1680,7 +1680,7 @@ fn test_agent_category_serde_deserialization() {
 #[tokio::test]
 async fn test_create_system_agent() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateSystemAgentRequest {
         title: "Pierre Default Coach".to_owned(),
@@ -1707,7 +1707,7 @@ async fn test_create_system_agent() {
 #[tokio::test]
 async fn test_list_system_agents() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create two system agents
     for i in 1..=2 {
@@ -1734,7 +1734,7 @@ async fn test_list_system_agents() {
 #[tokio::test]
 async fn test_get_system_agent() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateSystemAgentRequest {
         title: "System Coach".to_owned(),
@@ -1766,7 +1766,7 @@ async fn test_get_system_agent() {
 #[tokio::test]
 async fn test_update_system_agent() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateSystemAgentRequest {
         title: "Original System Coach".to_owned(),
@@ -1817,7 +1817,7 @@ async fn test_update_system_agent() {
 #[tokio::test]
 async fn test_delete_system_agent() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateSystemAgentRequest {
         title: "To Delete".to_owned(),
@@ -1856,7 +1856,7 @@ async fn test_delete_system_agent() {
 #[tokio::test]
 async fn test_assign_agent_to_user() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create a system agent
     let request = CreateSystemAgentRequest {
@@ -1893,7 +1893,7 @@ async fn test_assign_agent_to_user() {
 #[tokio::test]
 async fn test_unassign_agent_from_user() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create and assign
     let request = CreateSystemAgentRequest {
@@ -1934,7 +1934,7 @@ async fn test_unassign_agent_from_user() {
 #[tokio::test]
 async fn test_list_assignments() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create system agent
     let request = CreateSystemAgentRequest {
@@ -1971,7 +1971,7 @@ async fn test_list_assignments() {
 #[tokio::test]
 async fn test_list_agents_includes_assigned_system_agents() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create a personal agent for user 1
     let personal_request = CreateAgentRequest {
@@ -2045,7 +2045,7 @@ async fn test_list_agents_includes_assigned_system_agents() {
 #[tokio::test]
 async fn test_hide_agent() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create a system agent and assign it
     let request = CreateSystemAgentRequest {
@@ -2079,7 +2079,7 @@ async fn test_hide_agent() {
 #[tokio::test]
 async fn test_hide_agent_not_found() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Try to hide non-existent agent - should return error
     let result = manager
@@ -2095,7 +2095,7 @@ async fn test_hide_agent_not_found() {
 #[tokio::test]
 async fn test_hide_agent_in_another_tenant_reads_as_not_hideable() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Tenant-bound Coach".to_owned(),
@@ -2149,7 +2149,7 @@ async fn test_hide_agent_in_another_tenant_reads_as_not_hideable() {
 #[tokio::test]
 async fn test_show_agent() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create a system agent and assign it
     let request = CreateSystemAgentRequest {
@@ -2189,7 +2189,7 @@ async fn test_show_agent() {
 #[tokio::test]
 async fn test_list_hidden_agents() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create two system agents
     let mut agent_ids = Vec::new();
@@ -2238,7 +2238,7 @@ async fn test_list_hidden_agents() {
 #[tokio::test]
 async fn test_hidden_agent_excluded_from_list() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create a system agent and assign it
     let request = CreateSystemAgentRequest {
@@ -2285,7 +2285,7 @@ async fn test_hidden_agent_excluded_from_list() {
 #[tokio::test]
 async fn test_unhidden_agent_appears_in_list() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create a system agent and assign it
     let request = CreateSystemAgentRequest {
@@ -2338,7 +2338,7 @@ async fn test_unhidden_agent_appears_in_list() {
 #[tokio::test]
 async fn test_hide_agent_user_isolation() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create a system agent and assign to both users
     let request = CreateSystemAgentRequest {
@@ -2395,7 +2395,7 @@ async fn test_hide_agent_user_isolation() {
 #[tokio::test]
 async fn test_system_agent_visible_across_tenants() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create a system agent in test_tenant() (tenant A)
     let request = CreateSystemAgentRequest {
@@ -2438,7 +2438,7 @@ async fn test_system_agent_visible_across_tenants() {
 #[tokio::test]
 async fn test_system_agent_hidden_when_include_system_false() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create a system agent in test_tenant()
     let request = CreateSystemAgentRequest {
@@ -2477,7 +2477,7 @@ async fn test_system_agent_hidden_when_include_system_false() {
 #[tokio::test]
 async fn test_multiple_system_agents_visible_across_tenants() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create system agent in test_tenant()
     let request1 = CreateSystemAgentRequest {
@@ -2538,7 +2538,7 @@ async fn test_multiple_system_agents_visible_across_tenants() {
 #[tokio::test]
 async fn test_personal_agents_remain_isolated_with_system_agents() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create a personal agent in test_tenant()
     let personal_request = CreateAgentRequest {
@@ -2608,7 +2608,7 @@ async fn test_personal_agents_remain_isolated_with_system_agents() {
 #[tokio::test]
 async fn test_hide_system_agent_cross_tenant() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create a system agent in test_tenant() (tenant A)
     let request = CreateSystemAgentRequest {
@@ -2667,7 +2667,7 @@ async fn test_hide_system_agent_cross_tenant() {
 #[tokio::test]
 async fn test_show_system_agent_cross_tenant() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create a system agent in test_tenant()
     let request = CreateSystemAgentRequest {
@@ -2729,7 +2729,7 @@ async fn test_show_system_agent_cross_tenant() {
 #[tokio::test]
 async fn test_create_agent_with_structured_fields() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Structured Coach".to_owned(),
@@ -2808,7 +2808,7 @@ async fn test_create_agent_with_structured_fields() {
 #[tokio::test]
 async fn test_create_agent_without_structured_fields() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Flat Coach".to_owned(),
@@ -2862,7 +2862,7 @@ async fn test_create_agent_without_structured_fields() {
 #[tokio::test]
 async fn test_update_agent_adds_structured_fields() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     // Create a flat agent (no structured fields)
     let request = CreateAgentRequest {
@@ -2969,7 +2969,7 @@ async fn test_update_agent_adds_structured_fields() {
 #[tokio::test]
 async fn test_token_count_with_structured_fields() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let purpose = "Help athletes build a training plan.";
     let instructions = "You are an expert coach who builds periodized plans.";
@@ -3030,7 +3030,7 @@ async fn test_token_count_with_structured_fields() {
 #[tokio::test]
 async fn test_create_agent_persists_max_tool_iterations() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Budgeted Coach".to_owned(),
@@ -3073,7 +3073,7 @@ async fn test_create_agent_persists_max_tool_iterations() {
 #[tokio::test]
 async fn test_update_agent_writes_max_tool_iterations() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Budgeted Coach".to_owned(),
@@ -3144,7 +3144,7 @@ async fn test_update_agent_writes_max_tool_iterations() {
 #[tokio::test]
 async fn test_update_agent_preserves_max_tool_iterations_when_absent() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Budgeted Coach".to_owned(),
@@ -3209,7 +3209,7 @@ async fn test_update_agent_preserves_max_tool_iterations_when_absent() {
 #[tokio::test]
 async fn test_update_agent_clears_max_tool_iterations_on_an_explicit_null() {
     let db = create_test_db().await;
-    let manager = db.repositories().agents;
+    let manager = &db.repositories().agents;
 
     let request = CreateAgentRequest {
         title: "Budgeted Coach".to_owned(),

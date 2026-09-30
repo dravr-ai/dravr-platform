@@ -384,10 +384,3 @@ impl<DB: Database> Drop for TransactionGuard<'_, DB> {
         }
     }
 }
-
-/// Type alias for `SQLite` transaction guard
-pub type SqliteTransactionGuard<'c> = TransactionGuard<'c, sqlx::Sqlite>;
-
-/// Type alias for `PostgreSQL` transaction guard
-#[cfg(feature = "postgresql")]
-pub type PostgresTransactionGuard<'c> = TransactionGuard<'c, sqlx::Postgres>;

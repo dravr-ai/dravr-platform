@@ -18,23 +18,23 @@ use std::{collections::HashMap, env, error::Error, path::PathBuf, sync::Arc};
 use uuid::Uuid;
 
 // Import necessary modules from the main crate
+use dravr_cageux::insights::{Insight, InsightType};
+use dravr_cageux::types::ContextualWeeklyLoad;
+use dravr_cageux::types::{
+    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
+    TrendIndicators,
+};
 use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
 use pierre_config::environment::*;
 use pierre_core::models::{
     DecryptedToken, Tenant, TenantId, User, UserOAuthToken, UserStatus, UserTier,
 };
 use pierre_core::permissions::UserRole;
-use pierre_database::database::test_utils::create_test_db_with_key;
-use pierre_intelligence::insights::{Insight, InsightType};
-use pierre_intelligence::types::ContextualWeeklyLoad;
-use pierre_intelligence::{
-    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
-    TrendIndicators,
-};
 use pierre_mcp_server::{
     constants::oauth_providers,
     mcp::resources::{ServerContext, ServerContextOptions},
 };
+use pierre_test_support::db::create_test_db_with_key;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 
 mod common;
@@ -141,7 +141,6 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
         auth: AuthConfig {
             jwt_expiry_hours: 24,
             refresh_token_expiry_days: 30,
-            ..AuthConfig::default()
         },
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
@@ -225,7 +224,6 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
         },
         sse: SseConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
-        route_timeouts: RouteTimeoutConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
         mcp: McpConfig {

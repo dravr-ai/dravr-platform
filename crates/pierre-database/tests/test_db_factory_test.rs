@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 //! The `PostgreSQL` CI lane's whole verdict rests on the factory in
-//! `pierre_database::database::test_utils` honouring `DATABASE_URL`. This file
+//! `pierre_test_support::db` honouring `DATABASE_URL`. This file
 //! asserts that contract from the outside, against whichever server the
 //! environment provides: on a `PostgreSQL` URL every database it hands out is
 //! `PostgreSQL` and private to its caller; anywhere else it is a file-backed
@@ -16,11 +16,11 @@
 #[cfg(feature = "postgresql")]
 use pierre_core::config::database::PostgresPoolConfig;
 use pierre_core::models::User;
-use pierre_database::backends::factory::{Database, DatabaseType};
-use pierre_database::database::test_utils::{
+use pierre_database::backends::factory::{Database, DatabaseBackend, DatabaseType};
+use pierre_database::DatabaseProvider;
+use pierre_test_support::db::{
     create_sqlite_test_db, create_test_db, create_test_db_url, create_test_db_with_key,
 };
-use pierre_database::DatabaseProvider;
 use std::env;
 
 fn expected_backend() -> DatabaseType {
@@ -33,10 +33,10 @@ fn expected_backend() -> DatabaseType {
 }
 
 fn backend_of(db: &Database) -> DatabaseType {
-    match db {
-        Database::SQLite(_) => DatabaseType::SQLite,
+    match db.backend() {
+        DatabaseBackend::SQLite(_) => DatabaseType::SQLite,
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(_) => DatabaseType::PostgreSQL,
+        DatabaseBackend::PostgreSQL(_) => DatabaseType::PostgreSQL,
     }
 }
 

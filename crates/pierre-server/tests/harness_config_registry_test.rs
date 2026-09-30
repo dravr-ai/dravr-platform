@@ -17,7 +17,7 @@ use pierre_contremaitre::harness_config_registry::{
 };
 use pierre_contremaitre::text_guardrails::LocaleGuardrails;
 use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db_with_key;
+use pierre_test_support::db::create_test_db_with_key;
 
 const ENCRYPTION_KEY: &[u8; 32] = b"test_encryption_key_32_bytes_lng";
 

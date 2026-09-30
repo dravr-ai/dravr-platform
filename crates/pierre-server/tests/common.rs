@@ -33,7 +33,6 @@ use pierre_core::models::ConnectionType;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_llm::ChatProvider;
 use pierre_mcp_server::services::turn_runner::TurnRunner;
 use pierre_mcp_server::{
@@ -43,6 +42,7 @@ use pierre_mcp_server::{
     utils,
 };
 use pierre_middleware::McpAuthMiddleware;
+use pierre_test_support::db::create_test_db_with_key;
 use pierre_tool_runtime::RuntimeTool;
 use rand::Rng;
 use std::{
@@ -177,7 +177,7 @@ pub fn init_test_http_clients() {
 ///
 /// Opens whatever backend `DATABASE_URL` names — a private `PostgreSQL`
 /// database on the CI lane, in-memory `SQLite` locally — through the one
-/// factory in `pierre_database::database::test_utils`. Tests never spell a
+/// factory in `pierre_test_support::db`. Tests never spell a
 /// database URL themselves; that is how this suite ran `SQLite` under the
 /// `PostgreSQL` banner for fourteen months.
 pub async fn create_test_database() -> Result<Arc<Database>> {
@@ -207,7 +207,7 @@ pub fn create_test_auth_middleware(
 ) -> Arc<McpAuthMiddleware> {
     // Use shared JWKS manager instead of generating new keys
     let jwks_manager = get_shared_test_jwks();
-    let repos = Arc::new(database.repositories());
+    let repos = Arc::clone(database.repositories());
     Arc::new(McpAuthMiddleware::new(
         (**auth_manager).clone(),
         repos,
@@ -686,7 +686,7 @@ pub async fn setup_server_resources_test_environment() -> Result<(Arc<ServerCont
 //
 // A test never spells a database URL. `create_test_database()` and every
 // `create_test_server_resources*` helper above go through
-// `pierre_database::database::test_utils`, which honours DATABASE_URL: on the
+// `pierre_test_support::db`, which honours DATABASE_URL: on the
 // PostgreSQL CI lane each call is a private PostgreSQL database cloned from a
 // migrated template and reclaimed once the test is done; anywhere else it is
 // in-memory SQLite, which leaves no files behind. A test that opened SQLite by

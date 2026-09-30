@@ -11,8 +11,8 @@
 //! they need server-internal types (`ServerContext`, route handlers,
 //! `AdminConfigService`).
 
+use dravr_cageux::config::intelligence::IntelligenceConfig;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_intelligence::config::intelligence::IntelligenceConfig;
 use tracing::{debug, info};
 
 /// Admin configuration management with runtime parameter overrides

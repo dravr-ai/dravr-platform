@@ -7,8 +7,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_intelligence::types::ZoneDistribution;
-use pierre_intelligence::{
+use dravr_cageux::types::ZoneDistribution;
+use dravr_cageux::types::{
     ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
     TrendIndicators,
 };

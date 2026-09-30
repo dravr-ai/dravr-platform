@@ -17,9 +17,9 @@
     clippy::redundant_closure_for_method_calls
 )]
 
+use dravr_canot::renderer::ResponseRenderer;
+use dravr_canot::turn::ConversationTurnId as CanotTurnId;
 use pierre_core::models::messaging::{CardAction, ChannelType, MessageContent, OutgoingMessage};
-use pierre_messaging::renderer::ResponseRenderer;
-use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use uuid::Uuid;
 
 // ── Helper: create test OutgoingMessage ──
@@ -99,7 +99,7 @@ fn card_message(channel: ChannelType) -> OutgoingMessage {
 #[cfg(feature = "client-messaging")]
 mod whatsapp {
     use super::*;
-    use pierre_messaging::channels::whatsapp::renderer::WhatsAppRenderer;
+    use dravr_canot::channels::whatsapp::renderer::WhatsAppRenderer;
 
     fn renderer() -> WhatsAppRenderer {
         WhatsAppRenderer
@@ -155,7 +155,7 @@ mod whatsapp {
 #[cfg(feature = "client-messaging")]
 mod messenger {
     use super::*;
-    use pierre_messaging::channels::messenger::renderer::MessengerRenderer;
+    use dravr_canot::channels::messenger::renderer::MessengerRenderer;
 
     fn renderer() -> MessengerRenderer {
         MessengerRenderer
@@ -209,7 +209,7 @@ mod messenger {
 #[cfg(feature = "client-messaging")]
 mod discord {
     use super::*;
-    use pierre_messaging::channels::discord::renderer::DiscordRenderer;
+    use dravr_canot::channels::discord::renderer::DiscordRenderer;
 
     fn renderer() -> DiscordRenderer {
         DiscordRenderer
@@ -251,7 +251,7 @@ mod discord {
 #[cfg(feature = "client-messaging")]
 mod slack {
     use super::*;
-    use pierre_messaging::channels::slack::renderer::SlackRenderer;
+    use dravr_canot::channels::slack::renderer::SlackRenderer;
 
     fn renderer() -> SlackRenderer {
         SlackRenderer
@@ -304,7 +304,7 @@ mod slack {
 #[cfg(feature = "client-messaging")]
 mod telegram {
     use super::*;
-    use pierre_messaging::channels::telegram::renderer::TelegramRenderer;
+    use dravr_canot::channels::telegram::renderer::TelegramRenderer;
 
     fn renderer() -> TelegramRenderer {
         TelegramRenderer
@@ -371,8 +371,8 @@ mod telegram {
 #[cfg(feature = "client-messaging")]
 mod slack_reply_to {
     use super::*;
-    use pierre_messaging::channels::slack::renderer::SlackRenderer;
-    use pierre_messaging::renderer::ResponseRenderer;
+    use dravr_canot::channels::slack::renderer::SlackRenderer;
+    use dravr_canot::renderer::ResponseRenderer;
 
     fn renderer() -> SlackRenderer {
         SlackRenderer

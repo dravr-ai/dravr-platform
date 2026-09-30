@@ -15,8 +15,8 @@ use pierre_cache::{Cache, CacheConfig};
 use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
     ExternalServicesConfig, HttpClientConfig, LogLevel, LoggingConfig, OAuth2ServerConfig,
-    OAuthConfig, PostgresPoolConfig, ProtocolConfig, RouteTimeoutConfig, SecurityConfig,
-    SecurityHeadersConfig, ServerConfig, SseConfig, TlsConfig,
+    OAuthConfig, PostgresPoolConfig, ProtocolConfig, SecurityConfig, SecurityHeadersConfig,
+    ServerConfig, SseConfig, TlsConfig,
 };
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
@@ -142,7 +142,6 @@ impl TestServer {
             auth: AuthConfig {
                 jwt_expiry_hours: 24,
                 refresh_token_expiry_days: 30,
-                ..AuthConfig::default()
             },
             oauth: OAuthConfig::default(),
             security: SecurityConfig {
@@ -173,7 +172,6 @@ impl TestServer {
             },
             sse: SseConfig::default(),
             oauth2_server: OAuth2ServerConfig::default(),
-            route_timeouts: RouteTimeoutConfig::default(),
             ..Default::default()
         })
     }

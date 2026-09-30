@@ -29,7 +29,7 @@ use std::time::Duration as StdDuration;
 use chrono::Utc;
 use pierre_core::models::messaging::{ChannelType, MessageContent};
 use pierre_core::models::{ConnectionStatus, ConnectionType, ReauthMark, TenantId};
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
 use pierre_middleware::provider_link_token::verify_link_token;
@@ -82,10 +82,10 @@ async fn fixture() -> Fixture {
         strings(),
         Arc::new(FakeResolver::new(channel.clone())),
     )));
-    let service = Arc::new(match &*context.agent.database {
-        Database::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
+    let service = Arc::new(match context.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
+        DatabaseBackend::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
     });
     context.common.notification_service = Some(Arc::clone(&service));
     let database = Arc::clone(&context.agent.database);

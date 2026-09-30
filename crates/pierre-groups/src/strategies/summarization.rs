@@ -373,12 +373,6 @@ impl AdaptiveSummarizer {
         }
     }
 
-    /// Create with custom token budget
-    #[must_use]
-    pub fn with_budget(token_budget: usize) -> Self {
-        Self { token_budget }
-    }
-
     fn select_strategy(&self, member_count: usize) -> Box<dyn GroupSummarizationStrategy> {
         let roster_cost = member_count * 50 + 10;
         let weekly_cost = member_count * 200 + 20;

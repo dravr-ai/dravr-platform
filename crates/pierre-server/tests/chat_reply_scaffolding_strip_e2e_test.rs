@@ -54,7 +54,7 @@ mod reply_scaffolding_strip {
     use pierre_core::models::ConnectionType;
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
     use pierre_core::permissions::UserRole;
-    use pierre_database::backends::factory::Database;
+    use pierre_database::backends::factory::{Database, DatabaseBackend};
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -303,14 +303,14 @@ mod reply_scaffolding_strip {
              JOIN chat_conversations c ON m.conversation_id = c.id \
              WHERE c.tenant_id = $1 AND m.role = 'assistant' \
              ORDER BY m.created_at DESC LIMIT 1";
-        let row: Option<(String,)> = match db {
-            Database::SQLite(sqlite) => sqlx::query_as(SQL)
+        let row: Option<(String,)> = match db.backend() {
+            DatabaseBackend::SQLite(sqlite) => sqlx::query_as(SQL)
                 .bind(tenant)
                 .fetch_optional(sqlite.pool())
                 .await
                 .unwrap(),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(pg) => sqlx::query_as(SQL)
+            DatabaseBackend::PostgreSQL(pg) => sqlx::query_as(SQL)
                 .bind(tenant)
                 .fetch_optional(pg.pool())
                 .await

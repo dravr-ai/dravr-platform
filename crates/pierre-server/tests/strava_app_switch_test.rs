@@ -33,6 +33,10 @@ use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use chrono::{Duration, Utc};
+#[cfg(feature = "health-sync")]
+use dravr_enforme::error::EnformeError;
+#[cfg(feature = "health-sync")]
+use dravr_enforme::traits::credential_store::CredentialStore;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 #[cfg(feature = "client-chat")]
 use pierre_chat_pipeline::stages::prefetch::{
@@ -45,12 +49,8 @@ use pierre_core::models::{
 };
 #[cfg(feature = "client-chat")]
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::RepositoryRegistry;
-#[cfg(feature = "health-sync")]
-use pierre_enforme::error::EnformeError;
-#[cfg(feature = "health-sync")]
-use pierre_enforme::traits::credential_store::CredentialStore;
 #[cfg(feature = "client-chat")]
 use pierre_llm::ChatMessage;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -1507,8 +1507,8 @@ async fn the_mobile_authorize_route_pins_the_pool_app_for_the_exchange() {
 /// Run `sql` against the test database with text binds, on whichever backend
 /// `DATABASE_URL` opened.
 async fn run_sql(resources: &ServerContext, sql: &str, binds: &[&str]) {
-    match &*resources.agent.database {
-        Database::SQLite(db) => {
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
             let mut query = sqlx::query(sql);
             for bind in binds {
                 query = query.bind(*bind);
@@ -1516,7 +1516,7 @@ async fn run_sql(resources: &ServerContext, sql: &str, binds: &[&str]) {
             query.execute(db.pool()).await.unwrap();
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => {
+        DatabaseBackend::PostgreSQL(db) => {
             let mut query = sqlx::query(sql);
             for bind in binds {
                 query = query.bind(*bind);

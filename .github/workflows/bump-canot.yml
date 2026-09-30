@@ -5,7 +5,7 @@
 # Copyright (c) 2026 dravr.ai
 #
 # dravr-canot is the messaging channel abstraction — the ChannelDescriptor surface
-# pierre-messaging renders against — compiled into the platform binary. No service of
+# the messaging ingress renders against — compiled into the platform binary. No service of
 # its own.
 #
 # One thing is specific to this pin and worth knowing before touching the rewriter:

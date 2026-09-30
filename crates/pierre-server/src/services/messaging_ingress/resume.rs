@@ -49,6 +49,7 @@ use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
 use chrono::Utc;
+use dravr_canot::channel::MessagingChannel;
 use pierre_auth::auth::AuthResult;
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::{ConversationTurnId, TenantId};
@@ -56,7 +57,6 @@ use pierre_database::backends::MessagingRepository;
 use pierre_database::repositories::{
     ResumableTurnClaim, ResumableTurnRepository, ResumableTurnRow, TurnClaim, TurnLease,
 };
-use pierre_messaging::channel::MessagingChannel;
 use pierre_services::periodic::spawn_periodic;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;

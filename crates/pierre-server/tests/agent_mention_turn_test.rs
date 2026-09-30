@@ -626,7 +626,7 @@ mod messaging {
     use super::*;
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
-    use pierre_database::backends::factory::Database;
+    use pierre_database::backends::factory::DatabaseBackend;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -643,14 +643,14 @@ mod messaging {
         const SQL: &str = "SELECT pierre_conversation_id FROM messaging_sessions \
              WHERE CAST(user_id AS TEXT) = $1";
         let user = user_id.to_string();
-        let row: Option<(Option<String>,)> = match resources.agent.database.as_ref() {
-            Database::SQLite(db) => sqlx::query_as(SQL)
+        let row: Option<(Option<String>,)> = match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => sqlx::query_as(SQL)
                 .bind(&user)
                 .fetch_optional(db.pool())
                 .await
                 .unwrap(),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => sqlx::query_as(SQL)
+            DatabaseBackend::PostgreSQL(db) => sqlx::query_as(SQL)
                 .bind(&user)
                 .fetch_optional(db.pool())
                 .await

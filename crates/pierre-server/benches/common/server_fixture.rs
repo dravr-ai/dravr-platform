@@ -177,7 +177,7 @@ pub async fn seed_user_overrides(resources: &ServerContext, user_id: Uuid, tools
     let repos = resources.agent.database.repositories();
     for tool_name in tools {
         admin_ops::set_user_tool_override(
-            &repos,
+            repos,
             user_id,
             tool_name,
             false,

@@ -20,10 +20,10 @@ use pierre_auth::rate_limiting::{calculate_jwt_rate_limit, RequestBudget};
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{JwtMonthlyUsage, MonthlyLimitOverride, User};
 use pierre_database::database::generate_encryption_key;
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::repositories::analytics::next_utc_month_start;
 use pierre_middleware::rate_limiting::enforce_request_budget;
 use pierre_middleware::McpAuthMiddleware;
+use pierre_test_support::db::create_test_db_with_key;
 use std::sync::Arc;
 
 #[tokio::test]
@@ -36,7 +36,7 @@ async fn test_jwt_tokens_now_have_rate_limiting() {
     // Create auth manager and middleware
     let auth_manager = AuthManager::new(24);
     let jwks_manager = common::get_shared_test_jwks();
-    let repos = Arc::new(database.repositories());
+    let repos = Arc::clone(database.repositories());
     let auth_middleware = Arc::new(McpAuthMiddleware::new(
         auth_manager,
         repos,

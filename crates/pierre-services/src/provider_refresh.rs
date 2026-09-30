@@ -65,7 +65,7 @@ pub struct RefreshService {
     activity_cache: Arc<dyn ActivityCacheRepository>,
     /// Health data sync orchestrator (enforme).
     #[cfg(feature = "health-sync")]
-    sync_orchestrator: Option<Arc<pierre_enforme::SyncOrchestrator>>,
+    sync_orchestrator: Option<Arc<dravr_enforme::SyncOrchestrator>>,
     /// SSE manager for real-time notifications to clients. Only read by the
     /// `health-sync` spawn paths today; cfg-gated so non-health-sync builds
     /// (e.g. pierre-routes-web-admin's preflight clippy) don't see a dead
@@ -84,7 +84,7 @@ impl RefreshService {
         repos: &AuthRepos,
         activity_cache: Arc<dyn ActivityCacheRepository>,
         #[cfg(feature = "health-sync")] sync_orchestrator: Option<
-            Arc<pierre_enforme::SyncOrchestrator>,
+            Arc<dravr_enforme::SyncOrchestrator>,
         >,
         #[cfg(feature = "health-sync")] sse_manager: Arc<dyn SyncNotifier>,
     ) -> Self {
@@ -98,17 +98,6 @@ impl RefreshService {
             #[cfg(feature = "client-notifications")]
             notification_service: None,
         }
-    }
-
-    /// Set the notification service for push notifications on sync completion.
-    #[cfg(feature = "client-notifications")]
-    #[must_use]
-    pub fn with_notification_service(
-        mut self,
-        service: Option<Arc<pierre_notifications::NotificationService>>,
-    ) -> Self {
-        self.notification_service = service;
-        self
     }
 
     /// Get freshness status for all connected providers of a user.

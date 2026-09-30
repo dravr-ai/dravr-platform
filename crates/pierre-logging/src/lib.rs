@@ -21,10 +21,7 @@ pub mod span_fields;
 pub mod otel;
 
 /// Re-export tenant logging utilities
-pub use tenant::{
-    record_performance_metrics, record_request_context, record_tenant_context, ProviderApiContext,
-    TenantLogger,
-};
+pub use tenant::{record_performance_metrics, record_request_context, record_tenant_context};
 
 use gcp::GcpFormatter;
 use span_fields::SpanFieldStorage;
@@ -796,15 +793,6 @@ impl LoggingConfig {
             request_id_header: "x-request-id".into(),
         }
     }
-}
-
-/// Initialize logging with default configuration
-///
-/// # Errors
-///
-/// Returns an error if logging initialization fails
-pub fn init_default() -> AppResult<()> {
-    LoggingConfig::default().init()
 }
 
 /// Initialize logging from environment

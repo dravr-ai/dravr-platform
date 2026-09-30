@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
+use dravr_canot::commands::{CommandAction, CommandResponse};
 use pierre_contremaitre::messaging_strings::{
     KEY_DISCOVER_ADD_LABEL, KEY_DISCOVER_CARD_TITLE, KEY_DISCOVER_CATALOGUE_EMPTY,
     KEY_DISCOVER_EMPTY, KEY_DISCOVER_INSTALLED, KEY_DISCOVER_INSTALL_ALREADY,
@@ -14,7 +15,6 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::errors::AppError;
 use pierre_core::markdown::strip_emphasis;
 use pierre_core::models::agents::{AgentCategory, AgentHandle};
-use pierre_messaging::commands::{CommandAction, CommandResponse};
 use pierre_services::agent_store::{
     browse_store_page, install_store_agent, search_store, StoreAgent,
 };

@@ -157,5 +157,3 @@ pub const TERRA_ACTIVITY_SKATEBOARDING: i32 = 51;
 pub const TERRA_ACTIVITY_INLINE_SKATING: i32 = 52;
 
 // Generic
-/// Unknown/generic activity type
-pub const TERRA_ACTIVITY_UNKNOWN: i32 = 0;

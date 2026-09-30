@@ -12,18 +12,18 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use dravr_cageux::insights::{Insight, InsightType};
+use dravr_cageux::types::ContextualWeeklyLoad;
+use dravr_cageux::types::{
+    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
+    TrendIndicators,
+};
 use pierre_auth::auth::AuthManager;
 use pierre_cache::{Cache, CacheConfig};
 use pierre_config::environment::{self, *};
 use pierre_core::errors::protocol::ProtocolError;
 use pierre_core::models::{ConnectionType, Tenant, User};
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_intelligence::insights::{Insight, InsightType};
-use pierre_intelligence::types::ContextualWeeklyLoad;
-use pierre_intelligence::{
-    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
-    TrendIndicators,
-};
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::json;
@@ -92,7 +92,6 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
         auth: AuthConfig {
             jwt_expiry_hours: 24,
             refresh_token_expiry_days: 30,
-            ..AuthConfig::default()
         },
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
@@ -176,7 +175,6 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
         },
         sse: SseConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
-        route_timeouts: RouteTimeoutConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
         mcp: McpConfig {
@@ -520,7 +518,6 @@ async fn test_set_goal_tool() -> Result<()> {
         auth: AuthConfig {
             jwt_expiry_hours: 24,
             refresh_token_expiry_days: 30,
-            ..AuthConfig::default()
         },
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
@@ -604,7 +601,6 @@ async fn test_set_goal_tool() -> Result<()> {
         },
         sse: SseConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
-        route_timeouts: RouteTimeoutConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
         mcp: McpConfig {
@@ -1420,7 +1416,6 @@ async fn test_disconnect_provider_tool() -> Result<()> {
         auth: AuthConfig {
             jwt_expiry_hours: 24,
             refresh_token_expiry_days: 30,
-            ..AuthConfig::default()
         },
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
@@ -1504,7 +1499,6 @@ async fn test_disconnect_provider_tool() -> Result<()> {
         },
         sse: SseConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
-        route_timeouts: RouteTimeoutConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
         mcp: McpConfig {

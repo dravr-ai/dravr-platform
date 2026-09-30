@@ -12,8 +12,8 @@ use chrono::{Duration, Utc};
 use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
 use pierre_core::models::{Tenant, TenantId, User};
 use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::repositories::InsertAgentFollowupParams;
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 /// Open the database the lane names through the test factory.
@@ -87,7 +87,7 @@ fn followup_params<'a>(
 #[tokio::test]
 async fn tenant_wide_list_orders_by_due_date_nulls_last() -> Result<()> {
     let db = open_db().await?;
-    let memory = db.repositories().memory;
+    let memory = &db.repositories().memory;
     let (tenant, agent_id) = seed_user_tenant_agent(&db).await?;
     let now = Utc::now();
 
@@ -135,7 +135,7 @@ async fn tenant_wide_list_orders_by_due_date_nulls_last() -> Result<()> {
 #[tokio::test]
 async fn cancel_followup_transitions_pending_once() -> Result<()> {
     let db = open_db().await?;
-    let memory = db.repositories().memory;
+    let memory = &db.repositories().memory;
     let (tenant, agent_id) = seed_user_tenant_agent(&db).await?;
 
     let followup = memory
@@ -170,7 +170,7 @@ async fn cancel_followup_transitions_pending_once() -> Result<()> {
 #[tokio::test]
 async fn pending_list_is_tenant_scoped() -> Result<()> {
     let db = open_db().await?;
-    let memory = db.repositories().memory;
+    let memory = &db.repositories().memory;
     let (tenant_a, coach_a) = seed_user_tenant_agent(&db).await?;
     let (tenant_b, coach_b) = seed_user_tenant_agent(&db).await?;
 

@@ -13,18 +13,18 @@
 //! in them needs the tool plumbing next door.
 
 use chrono::Utc;
-use pierre_config::constants::limits::METERS_PER_KILOMETER;
-use pierre_config::constants::time_constants::{DAYS_PER_MONTH, SECONDS_PER_HOUR_F64};
-use pierre_core::models::Activity;
-use pierre_intelligence::physiological_constants::goal_feasibility::{
+use dravr_cageux::physiological_constants::goal_feasibility::{
     DAYS_PER_MONTH_APPROX, EXCELLENT_DATA_QUALITY_THRESHOLD, GOOD_DATA_QUALITY_THRESHOLD,
     SAFE_MONTHLY_IMPROVEMENT_RATE_PERCENT,
 };
+use pierre_config::constants::limits::METERS_PER_KILOMETER;
+use pierre_config::constants::time_constants::{DAYS_PER_MONTH, SECONDS_PER_HOUR_F64};
+use pierre_core::models::Activity;
 use tracing::warn;
 
 use super::goals::safe_f64_to_u32;
 use super::goals_spec::{GoalDetails, NewGoal};
-use pierre_intelligence::goal_engine::GoalSuggestion;
+use dravr_cageux::goal_engine::GoalSuggestion;
 use schemars::JsonSchema;
 use serde::Serialize;
 

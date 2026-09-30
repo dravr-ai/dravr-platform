@@ -18,10 +18,10 @@
 
 use pierre_core::models::{User, UserStatus, UserTier};
 use pierre_core::pagination::PaginationParams;
-use pierre_database::database::test_utils::create_test_db;
 use pierre_routes_admin::handlers::types::{
     ListUsersQuery, USER_PAGE_DEFAULT, USER_PAGE_MAX, USER_PAGE_MIN,
 };
+use pierre_test_support::db::create_test_db;
 
 /// Build `count` active users with a deterministic tier rotation, so a tier
 /// filter has something to exclude.
@@ -93,7 +93,7 @@ fn page_size_is_clamped_at_both_ends() {
 async fn a_page_returns_the_requested_size_not_everything() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    seed_users(&repos, 12).await;
+    seed_users(repos, 12).await;
 
     let page = repos
         .users
@@ -123,7 +123,7 @@ async fn a_page_returns_the_requested_size_not_everything() {
 async fn paging_covers_every_user_without_repeats() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let seeded = seed_users(&repos, 11).await;
+    let seeded = seed_users(repos, 11).await;
 
     let mut seen: Vec<String> = Vec::new();
     let mut cursor = None;
@@ -168,7 +168,7 @@ async fn paging_covers_every_user_without_repeats() {
 async fn the_tier_filter_admits_only_that_tier() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    seed_users(&repos, 12).await;
+    seed_users(repos, 12).await;
 
     let page = repos
         .users

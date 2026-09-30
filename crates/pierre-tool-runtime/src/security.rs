@@ -24,8 +24,6 @@
 //! `capabilities()`), never serialize onto the MCP wire, and never reach the
 //! TypeScript SDK — they are server-internal egress policy.
 
-use std::sync::Arc;
-
 use bitflags::bitflags;
 
 use crate::runtime::ToolRuntime;
@@ -108,16 +106,6 @@ impl SecurityLabels {
 pub trait RuntimeTool: McpTool<dyn ToolRuntime> {
     /// The tool's Guardian security classification (see [`SecurityLabels`]).
     fn security_class(&self) -> SecurityLabels;
-}
-
-/// A wrapping decorator that adds no egress surface of its own delegates its
-/// classification to the tool it wraps.
-///
-/// Used by [`crate::decorators::AuditedTool`]; kept as a free function so the
-/// blanket-free delegation is written once.
-#[must_use]
-pub fn delegated_security_class(inner: &Arc<dyn RuntimeTool>) -> SecurityLabels {
-    inner.security_class()
 }
 
 /// Implement [`RuntimeTool`] for a tool type in one line, co-located with its

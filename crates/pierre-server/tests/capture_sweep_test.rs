@@ -37,7 +37,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::models::{Activity, ConnectionStatus, ConnectionType, TenantId};
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_tool_runtime::activity_fetch::{fetch_provider_activities, fetch_provider_head};
 use pierre_tool_runtime::capture_sweep::{
@@ -172,8 +172,8 @@ async fn stamp_connected_at(f: &Fixture, provider: &str, at: DateTime<Utc>) {
     let sql = "UPDATE provider_connections SET connected_at = $1 \
                WHERE user_id = $2 AND tenant_id = $3 AND provider = $4";
     let (user, tenant) = (f.user_id.to_string(), f.tenant.to_string());
-    let affected = match &**f.runtime.database() {
-        Database::SQLite(db) => sqlx::query(sql)
+    let affected = match f.runtime.database().backend() {
+        DatabaseBackend::SQLite(db) => sqlx::query(sql)
             .bind(at)
             .bind(&user)
             .bind(&tenant)
@@ -183,7 +183,7 @@ async fn stamp_connected_at(f: &Fixture, provider: &str, at: DateTime<Utc>) {
             .unwrap()
             .rows_affected(),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => sqlx::query(sql)
+        DatabaseBackend::PostgreSQL(db) => sqlx::query(sql)
             .bind(at)
             .bind(&user)
             .bind(&tenant)
@@ -422,8 +422,8 @@ async fn revoke(f: &Fixture) {
     let sql = "UPDATE provider_connections SET status = 'revoked' \
                WHERE user_id = $1 AND tenant_id = $2 AND provider = 'sciotte'";
     let (user, tenant) = (f.user_id.to_string(), f.tenant.to_string());
-    let affected = match &**f.runtime.database() {
-        Database::SQLite(db) => sqlx::query(sql)
+    let affected = match f.runtime.database().backend() {
+        DatabaseBackend::SQLite(db) => sqlx::query(sql)
             .bind(&user)
             .bind(&tenant)
             .execute(db.pool())
@@ -431,7 +431,7 @@ async fn revoke(f: &Fixture) {
             .unwrap()
             .rows_affected(),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(db) => sqlx::query(sql)
+        DatabaseBackend::PostgreSQL(db) => sqlx::query(sql)
             .bind(&user)
             .bind(&tenant)
             .execute(db.pool())
@@ -470,15 +470,15 @@ async fn row_state(f: &Fixture) -> RowState {
                WHERE user_id = $1 AND tenant_id = $2 AND provider = 'sciotte'";
     let (user, tenant) = (f.user_id.to_string(), f.tenant.to_string());
     let (status, last_error, stamped): (String, Option<String>, String) =
-        match &**f.runtime.database() {
-            Database::SQLite(db) => sqlx::query_as(sql)
+        match f.runtime.database().backend() {
+            DatabaseBackend::SQLite(db) => sqlx::query_as(sql)
                 .bind(&user)
                 .bind(&tenant)
                 .fetch_one(db.pool())
                 .await
                 .unwrap(),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => sqlx::query_as(sql)
+            DatabaseBackend::PostgreSQL(db) => sqlx::query_as(sql)
                 .bind(&user)
                 .bind(&tenant)
                 .fetch_one(db.pool())

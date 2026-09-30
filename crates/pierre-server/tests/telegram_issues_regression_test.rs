@@ -9,8 +9,8 @@
 
 use std::env;
 
+use dravr_cageux::metrics_extractor::MetricType;
 use pierre_core::models::{ActivityBuilder, SportType};
-use pierre_intelligence::MetricType;
 use pierre_llm::prompts::{
     get_messaging_context_prompt, get_pierre_system_prompt, get_tool_discipline_prompt,
     get_tool_discipline_shared_prompt, PLATFORM_CONTRACT_PROMPT,

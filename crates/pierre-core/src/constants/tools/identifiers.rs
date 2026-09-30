@@ -60,39 +60,6 @@ pub const CALCULATE_FITNESS_SCORE: &str = "calculate_fitness_score";
 pub const GENERATE_RECOMMENDATIONS: &str = "generate_recommendations";
 /// Tool identifier for goal suggestion functionality
 pub const SUGGEST_GOALS: &str = "suggest_goals";
-/// Tool identifier for analyzing weather impact on activity performance
-pub const ANALYZE_WEATHER_IMPACT: &str = "analyze_weather_impact";
-
-/// Nutrition analysis tools
-pub const CALCULATE_DAILY_NUTRITION: &str = "calculate_daily_nutrition";
-/// Tool identifier for searching food items
-pub const SEARCH_FOOD: &str = "search_food";
-/// Tool identifier for retrieving detailed food information
-pub const GET_FOOD_DETAILS: &str = "get_food_details";
-/// Tool identifier for analyzing meal nutrition
-pub const ANALYZE_MEAL_NUTRITION: &str = "analyze_meal_nutrition";
-
-/// Configuration tools
-pub const GET_CONFIGURATION_CATALOG: &str = "get_configuration_catalog";
-/// Tool identifier for retrieving configuration profiles
-pub const GET_CONFIGURATION_PROFILES: &str = "get_configuration_profiles";
-/// Tool identifier for validating configuration values
-pub const VALIDATE_CONFIGURATION: &str = "validate_configuration";
-
-/// Recipe management tools (Combat des Chefs)
-pub const GET_RECIPE_CONSTRAINTS: &str = "get_recipe_constraints";
-/// Tool identifier for listing user recipes
-pub const LIST_RECIPES: &str = "list_recipes";
-/// Tool identifier for retrieving a specific recipe
-pub const GET_RECIPE: &str = "get_recipe";
-/// Tool identifier for deleting a recipe
-pub const DELETE_RECIPE: &str = "delete_recipe";
-/// Tool identifier for searching recipes
-pub const SEARCH_RECIPES: &str = "search_recipes";
-/// Tool identifier for saving a new recipe
-pub const SAVE_RECIPE: &str = "save_recipe";
-/// Tool identifier for validating recipe nutrition
-pub const VALIDATE_RECIPE: &str = "validate_recipe";
 
 /// Mobility tools (stretching exercises, yoga poses)
 /// Tool identifier for listing stretching exercises

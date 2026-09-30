@@ -10,7 +10,7 @@
 //!
 //! 1. **Catalog loader** ([`parser::load_command_catalog`]). Reads
 //!    `commands/*.md` files with YAML frontmatter into the
-//!    `pierre_messaging::commands::CommandDefinition` shape, plus the
+//!    `dravr_canot::commands::CommandDefinition` shape, plus the
 //!    argument signatures `/help` renders beside each command.
 //! 2. **Handler runtime** ([`CommandHandler`], [`CommandHandlerRegistry`],
 //!    [`PlatformCommandContext`], and the per-command modules
@@ -77,9 +77,9 @@ use std::sync::{Arc, OnceLock};
 use tracing::warn;
 
 use async_trait::async_trait;
+use dravr_canot::commands::CommandResponse;
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
-use pierre_messaging::commands::CommandResponse;
 use pierre_runtime_context::CommandCtx;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use uuid::Uuid;

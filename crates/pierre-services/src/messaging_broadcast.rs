@@ -21,14 +21,14 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use dravr_canot::channel::MessagingChannel;
+use dravr_canot::factory::create_adapter_from_config;
+use dravr_canot::rich_text::{parse_markdown, render_rich_text};
+use dravr_canot::turn::ConversationTurnId;
 use pierre_contremaitre::messaging_strings::DEFAULT_LOCALE;
 use pierre_core::models::messaging::{ChannelConfig, ChannelType, MessageContent, OutgoingMessage};
 use pierre_core::models::TenantId;
 use pierre_database::backends::MessagingRepository;
-use pierre_messaging::channel::MessagingChannel;
-use pierre_messaging::factory::create_adapter_from_config;
-use pierre_messaging::rich_text::{parse_markdown, render_rich_text};
-use pierre_messaging::turn::ConversationTurnId;
 use serde_json::Value;
 use tracing::{info, warn};
 use uuid::Uuid;

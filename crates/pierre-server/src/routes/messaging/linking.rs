@@ -30,11 +30,11 @@ mod link_account;
 
 use super::templates;
 use crate::mcp::resources::ServerContext;
+use dravr_canot::http_client::describe_request_error;
 use link_account::resolve_user_from_form;
 use pierre_auth::auth::AuthResult;
 use pierre_config::utils::http_client::shared_client;
 use pierre_core::errors::AppError;
-use pierre_messaging::http_client::describe_request_error;
 use pierre_middleware::extract_auth_from_headers;
 use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
 

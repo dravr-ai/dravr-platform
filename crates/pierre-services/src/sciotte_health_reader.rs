@@ -20,10 +20,10 @@
 
 use async_trait::async_trait;
 use chrono::NaiveDate;
-use pierre_core::errors::{AppError, ErrorCode};
-use pierre_enforme::providers::sciotte_reader::{
+use dravr_enforme::providers::sciotte_reader::{
     AuthSession, DailySummary, DailySummaryReader, ScraperError, ScraperResult,
 };
+use pierre_core::errors::{AppError, ErrorCode};
 use pierre_providers::sciotte_remote::{shed_retry_after_secs, RemoteSciotteClient};
 
 /// Reads daily summaries on the dravr-sciotte scraper service.

@@ -62,7 +62,7 @@ use futures_util::future::join_all;
 use pierre_core::models::{
     Activity, ActivityBuilder, ConnectionStatus, ConnectionType, SportType, TenantId,
 };
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::StoredRouteTrack;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
@@ -746,8 +746,8 @@ async fn await_background(resources: &ServerContext) {
 /// Run one SQL statement binding `at` and the athlete's user id, on
 /// whichever engine the suite runs on.
 async fn exec_at(resources: &ServerContext, sql: &str, at: DateTime<Utc>, athlete: &Athlete) {
-    match resources.agent.database.as_ref() {
-        Database::SQLite(sqlite) => {
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
             sqlx::query(sql)
                 .bind(at)
                 .bind(athlete.user_id.to_string())
@@ -756,7 +756,7 @@ async fn exec_at(resources: &ServerContext, sql: &str, at: DateTime<Utc>, athlet
                 .unwrap();
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(postgres) => {
+        DatabaseBackend::PostgreSQL(postgres) => {
             sqlx::query(sql)
                 .bind(at)
                 .bind(athlete.user_id.to_string())

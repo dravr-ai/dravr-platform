@@ -23,14 +23,14 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use chrono::Utc;
+use dravr_canot::channel::MessagingChannel;
+use dravr_canot::error::MessagingResult;
+use dravr_canot::factory::create_adapter_from_config;
+use dravr_canot::turn::ConversationTurnId;
 use http::HeaderMap;
 use pierre_core::models::messaging::{
     ChannelConfig, ChannelType, DeliveryReceipt, DeliveryStatus, IncomingMessage, OutgoingMessage,
 };
-use pierre_messaging::channel::MessagingChannel;
-use pierre_messaging::error::MessagingResult;
-use pierre_messaging::factory::create_adapter_from_config;
-use pierre_messaging::turn::ConversationTurnId;
 use pierre_services::channel_adapters::ChannelAdapterFactory;
 use serde_json::Value;
 

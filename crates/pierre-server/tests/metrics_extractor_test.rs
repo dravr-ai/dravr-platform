@@ -11,8 +11,8 @@
 #![allow(clippy::float_cmp)] // Test values are exact
 
 use chrono::Utc;
+use dravr_cageux::metrics_extractor::{MetricType, SafeMetricExtractor};
 use pierre_core::models::{Activity, SportType};
-use pierre_intelligence::{MetricType, SafeMetricExtractor};
 
 fn create_test_activity() -> Activity {
     use pierre_core::models::ActivityBuilder;

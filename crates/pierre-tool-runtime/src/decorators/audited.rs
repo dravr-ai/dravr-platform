@@ -89,12 +89,6 @@ impl AuditedTool {
     pub fn inner(&self) -> &Arc<dyn RuntimeTool> {
         &self.inner
     }
-
-    /// Check if argument logging is enabled
-    #[must_use]
-    pub const fn logs_arguments(&self) -> bool {
-        self.log_arguments
-    }
 }
 
 #[async_trait]

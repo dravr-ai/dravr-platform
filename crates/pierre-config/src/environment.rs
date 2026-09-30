@@ -9,10 +9,10 @@
 //! This module serves as the main orchestrator for configuration loading,
 //! delegating to specialized sub-modules for each configuration domain.
 
+use dravr_cageux::config::intelligence::IntelligenceConfig;
 use pierre_core::constants::limits::DEFAULT_ACTIVITIES_LIMIT;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::redaction::redact_url;
-use pierre_intelligence::IntelligenceConfig;
 use serde::{Deserialize, Serialize};
 use std::env;
 use tracing::{info, warn};
@@ -37,9 +37,7 @@ pub use crate::logging::LoggingConfig;
 // MCP
 pub use crate::mcp::{AppBehaviorConfig, McpConfig, ProtocolConfig, TokioRuntimeConfig};
 // Network
-pub use crate::network::{
-    CorsConfig, HttpClientConfig, RouteTimeoutConfig, SseBufferStrategy, SseConfig, TlsConfig,
-};
+pub use crate::network::{CorsConfig, HttpClientConfig, SseBufferStrategy, SseConfig, TlsConfig};
 // OAuth (canonical types live in pierre-auth)
 pub use pierre_auth::config::oauth::{
     default_provider, get_oauth_config, load_provider_env_config, FirebaseConfig,
@@ -49,8 +47,8 @@ pub use pierre_auth::config::oauth::{
 pub use crate::security::{AuthConfig, MonitoringConfig, SecurityConfig, SecurityHeadersConfig};
 // Sleep tool params (operational parameters, distinct from intelligence sleep config)
 pub use crate::sleep_tool_params::SleepToolParamsConfig;
-// Training zones (canonical types live in pierre-intelligence/dravr-cageux)
-pub use pierre_intelligence::config::intelligence::TrainingZonesConfig;
+// Training zones (canonical types live in dravr-cageux)
+pub use dravr_cageux::config::intelligence::TrainingZonesConfig;
 // Core types
 pub use crate::types::{Environment, LlmProviderType, LogLevel};
 
@@ -87,8 +85,6 @@ pub struct ServerConfig {
     pub http_client: HttpClientConfig,
     /// SSE connection management configuration
     pub sse: SseConfig,
-    /// Per-route timeout configuration
-    pub route_timeouts: RouteTimeoutConfig,
     /// Server host
     pub host: String,
     /// Base URL for OAuth and external URLs
@@ -157,7 +153,6 @@ impl ServerConfig {
             app_behavior: AppBehaviorConfig::from_env()?,
             http_client: HttpClientConfig::from_env(),
             sse: SseConfig::from_env()?,
-            route_timeouts: RouteTimeoutConfig::from_env(),
             host: env::var("HOST").unwrap_or_else(|_| "localhost".to_owned()),
             base_url: env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8081".to_owned()),
             mcp: McpConfig::from_env(),
@@ -362,25 +357,6 @@ impl ServerConfig {
             .as_deref()
             .filter(|s| !s.is_empty())?;
         Some((api_key, from_email))
-    }
-
-    /// Get protocol information
-    #[must_use]
-    pub fn protocol_info(&self) -> (&str, &str, &str) {
-        (
-            &self.app_behavior.protocol.mcp_version,
-            &self.app_behavior.protocol.server_name,
-            &self.app_behavior.protocol.server_version,
-        )
-    }
-
-    /// Get activity fetch limits
-    #[must_use]
-    pub const fn activity_limits(&self) -> (usize, usize) {
-        (
-            self.app_behavior.max_activities_fetch,
-            self.app_behavior.default_activities_limit,
-        )
     }
 }
 

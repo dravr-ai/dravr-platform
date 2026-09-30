@@ -37,7 +37,6 @@ use pierre_core::models::{User, UserStatus};
 use pierre_core::permissions::UserRole;
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
-use pierre_routes_admin::auth::service::AdminAuthService;
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
 use pierre_services::user_approval::UserApprovalNotifier;
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
@@ -91,7 +90,7 @@ impl Harness {
         let jwks = common::get_shared_test_jwks();
 
         let database_arc = Arc::new((*database).clone());
-        let repos = Arc::new(database_arc.repositories());
+        let repos = Arc::clone(database_arc.repositories());
 
         let mut context = AdminApiContext::new(AdminApiContextInit {
             database: Arc::clone(&database_arc),
@@ -100,7 +99,6 @@ impl Harness {
             auth_manager: auth_manager.clone(),
             jwks_manager: Arc::clone(&jwks),
             admin_api_key_monthly_limit: STARTER_MONTHLY_LIMIT,
-            admin_token_cache_ttl_secs: AdminAuthService::DEFAULT_CACHE_TTL_SECS,
             harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
             guardian_config_registry: Arc::new(GuardianConfigRegistry::bootstrap()),
             prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),

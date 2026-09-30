@@ -190,7 +190,7 @@ async fn fixture() -> Fixture {
     let (user_id, _email) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
-    let repos = Arc::new(resources.agent.database.repositories());
+    let repos = Arc::clone(resources.agent.database.repositories());
     let tenant_id = repos
         .tenants
         .list_for_user(user_id)

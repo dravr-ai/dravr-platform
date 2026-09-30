@@ -29,7 +29,7 @@ use std::time::Duration;
 use axum::http::StatusCode;
 use chrono::{DateTime, TimeZone, Utc};
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId, TimeSeriesData};
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_notifications::events::event_params;
 use pierre_notifications::models::Notification;
@@ -51,10 +51,10 @@ const DISPATCH_SETTLE: Duration = Duration::from_millis(400);
 /// The notification service the server boots: the pipeline plus the localizer
 /// that renders each event in the recipient's language.
 fn notification_service(resources: &ServerContext) -> Arc<NotificationService> {
-    let service = match &*resources.agent.database {
-        Database::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
+    let service = match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
+        DatabaseBackend::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
     };
     Arc::new(
         service.with_localizer(Arc::new(UserLocaleNotificationLocalizer::new(

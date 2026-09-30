@@ -19,6 +19,7 @@ mod discover_over_messaging {
     use crate::helpers::notify_capture::{capture_notify, named, only};
     use axum::http::StatusCode;
     use chrono::Utc;
+    use dravr_canot::commands::CommandResponse;
     use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
     use pierre_commands::load_command_catalog;
     use pierre_contremaitre::messaging_strings::{
@@ -36,7 +37,6 @@ mod discover_over_messaging {
     };
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
-    use pierre_messaging::commands::CommandResponse;
     use pierre_runtime_context::CommandCtx;
     use pierre_tool_runtime::runtime::ToolRuntime;
     use serde_json::json;

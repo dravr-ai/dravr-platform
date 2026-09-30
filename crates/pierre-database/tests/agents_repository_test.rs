@@ -18,9 +18,9 @@
 use pierre_core::field_update::FieldUpdate;
 use pierre_core::models::agents::{Agent, ListAgentsFilter, UpdateAgentRequest};
 use pierre_core::models::{AgentCategory, CreateAgentRequest, Tenant, TenantId, User};
-use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::RepositoryRegistry;
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 async fn seed_user(repos: &RepositoryRegistry, label: &str) -> Uuid {
@@ -68,8 +68,8 @@ fn request(title: &str, category: AgentCategory) -> CreateAgentRequest {
 /// method writes it.
 async fn set_temperature(db: &Database, agent_id: &str, temperature: f64) {
     const SQL: &str = "UPDATE agents SET temperature = $1 WHERE id = $2";
-    match db {
-        Database::SQLite(sqlite) => {
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
             sqlx::query(SQL)
                 .bind(temperature)
                 .bind(agent_id)
@@ -78,7 +78,7 @@ async fn set_temperature(db: &Database, agent_id: &str, temperature: f64) {
                 .unwrap();
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => {
+        DatabaseBackend::PostgreSQL(pg) => {
             sqlx::query(SQL)
                 .bind(temperature)
                 .bind(agent_id)
@@ -94,8 +94,8 @@ async fn set_temperature(db: &Database, agent_id: &str, temperature: f64) {
 async fn a_stored_temperature_reads_back() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let owner = seed_user(&repos, "temperature").await;
-    let tenant = seed_tenant(&repos, owner).await;
+    let owner = seed_user(repos, "temperature").await;
+    let tenant = seed_tenant(repos, owner).await;
     let agent = repos
         .agents
         .create(owner, tenant, &request("Tempo", AgentCategory::Training))
@@ -131,9 +131,9 @@ async fn a_stored_temperature_reads_back() {
 async fn a_hidden_agent_lists_with_its_startup_query() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let owner = seed_user(&repos, "hidden-owner").await;
-    let athlete = seed_user(&repos, "hidden-athlete").await;
-    let tenant = seed_tenant(&repos, owner).await;
+    let owner = seed_user(repos, "hidden-owner").await;
+    let athlete = seed_user(repos, "hidden-athlete").await;
+    let tenant = seed_tenant(repos, owner).await;
     let agent = repos
         .agents
         .create(owner, tenant, &request("Hideable", AgentCategory::Recovery))
@@ -205,8 +205,8 @@ async fn a_hidden_agent_lists_with_its_startup_query() {
 async fn the_listing_carries_the_users_state_and_honours_its_filters() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let owner = seed_user(&repos, "listing").await;
-    let tenant = seed_tenant(&repos, owner).await;
+    let owner = seed_user(repos, "listing").await;
+    let tenant = seed_tenant(repos, owner).await;
     let training = repos
         .agents
         .create(
@@ -314,8 +314,8 @@ async fn the_listing_carries_the_users_state_and_honours_its_filters() {
 async fn search_ignores_case() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let owner = seed_user(&repos, "search").await;
-    let tenant = seed_tenant(&repos, owner).await;
+    let owner = seed_user(repos, "search").await;
+    let tenant = seed_tenant(repos, owner).await;
     let agent = repos
         .agents
         .create(
@@ -346,8 +346,8 @@ async fn search_ignores_case() {
 async fn search_narrows_to_a_category() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let owner = seed_user(&repos, "search-category").await;
-    let tenant = seed_tenant(&repos, owner).await;
+    let owner = seed_user(repos, "search-category").await;
+    let tenant = seed_tenant(repos, owner).await;
     let training = repos
         .agents
         .create(
@@ -420,8 +420,8 @@ async fn search_narrows_to_a_category() {
 async fn an_edit_is_versioned_and_a_revert_restores_it() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let owner = seed_user(&repos, "versions").await;
-    let tenant = seed_tenant(&repos, owner).await;
+    let owner = seed_user(repos, "versions").await;
+    let tenant = seed_tenant(repos, owner).await;
     let agent = repos
         .agents
         .create(owner, tenant, &request("Original", AgentCategory::Training))

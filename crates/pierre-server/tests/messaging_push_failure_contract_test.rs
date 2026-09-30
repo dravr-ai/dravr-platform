@@ -17,11 +17,11 @@
 use std::sync::Arc;
 
 use chrono::{Duration, Utc};
+use dravr_canot::channel::MessagingChannel;
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::ConnectionType;
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
-use pierre_messaging::channel::MessagingChannel;
 use pierre_tool_runtime::runtime::BackfillNotifier;
 
 // Shared messaging fixtures + channel fakes, pulled in via `#[path]` so this
@@ -44,7 +44,7 @@ use messaging_fixtures::{
 #[tokio::test]
 async fn failed_push_is_enqueued_for_retry_not_dropped() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
@@ -128,7 +128,7 @@ async fn failed_push_is_enqueued_for_retry_not_dropped() {
 #[tokio::test]
 async fn successful_push_does_not_enqueue() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
@@ -202,7 +202,7 @@ async fn successful_push_does_not_enqueue() {
 #[tokio::test]
 async fn failed_reauth_nudge_is_enqueued_for_retry_not_dropped() {
     let db = create_test_db().await;
-    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
     let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;

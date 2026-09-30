@@ -182,7 +182,21 @@ eval "$(python3 "$SCRIPT_DIR/parse-validation-patterns.py" "$VALIDATION_PATTERNS
 # ============================================================================
 
 # Anti-Pattern Detection
-NULL_UUIDS=$(rg "00000000-0000-0000-0000-000000000000" crates/pierre-server/src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+# Scans of src/ that count calls legitimate in tests read production lines only:
+# prod_src_matches drops matches inside a file's trailing #[cfg(test)] module
+# through .build's shared filter, the one validate.sh uses (ADR-027). The layout
+# it relies on is enforced by validate.sh, which this repo's
+# validation-patterns.local.toml opts into with enforce_layout = true.
+TEST_MODULE_LINES="$PROJECT_ROOT/.build/validation/test-module-lines.sh"
+if [ ! -x "$TEST_MODULE_LINES" ]; then
+    echo -e "${RED}❌ $TEST_MODULE_LINES missing — run: git submodule update --init --recursive${NC}"
+    exit 1
+fi
+prod_src_matches() { # $1 = pattern, remaining = rg paths/flags
+    local pattern="$1"; shift
+    { rg -n --with-filename "$pattern" "$@" 2>/dev/null || true; } | "$TEST_MODULE_LINES"
+}
+NULL_UUIDS=$(prod_src_matches "00000000-0000-0000-0000-000000000000" crates/pierre-server/src/ | wc -l | tr -d ' ')
 RESOURCE_CREATION=$(rg "AuthManager::new|OAuthManager::new|A2AClientManager::new|TenantOAuthManager::new" crates/pierre-server/src/ -g "!crates/pierre-server/src/mcp/multitenant.rs" -g "!crates/pierre-server/src/mcp/resources.rs" -g "!crates/pierre-server/src/bin/*" -g "!crates/pierre-server/tests/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 FAKE_RESOURCES=$(rg "Arc::new\(ServerResources\s*[\{\:]" crates/pierre-server/src/ -g "!crates/pierre-server/src/bin/*" 2>/dev/null | wc -l | awk '{print $1+0}')
 OBSOLETE_FUNCTIONS=$(rg "fn.*run_http_server\(" crates/pierre-server/src/ 2>/dev/null | wc -l | awk '{print $1+0}')
@@ -195,21 +209,20 @@ ANYHOW_TYPES=$(rg "$ANYHOW_TYPE_ANTIPATTERNS_PATTERNS" crates/pierre-server/src/
 ANYHOW_METHODS=$(rg "$ANYHOW_METHOD_ANTIPATTERNS_PATTERNS" crates/pierre-server/src/ -g "!crates/pierre-server/tests/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 
 # Code Quality Analysis
-PROBLEMATIC_UNWRAPS=$(rg "\.unwrap\(\)" crates/pierre-server/src/ | rg -v "// Safe|hardcoded.*valid|static.*data|00000000-0000-0000-0000-000000000000" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
-PROBLEMATIC_EXPECTS=$(rg "\.expect\(" crates/pierre-server/src/ | rg -v "// Safe|ServerResources.*required" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
-PANICS=$(rg "panic!\(" crates/pierre-server/src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+PROBLEMATIC_UNWRAPS=$(prod_src_matches "\.unwrap\(\)" crates/pierre-server/src/ | rg -v "// Safe|hardcoded.*valid|static.*data|00000000-0000-0000-0000-000000000000" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
+PROBLEMATIC_EXPECTS=$(prod_src_matches "\.expect\(" crates/pierre-server/src/ | rg -v "// Safe|ServerResources.*required" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
+PANICS=$(prod_src_matches "panic!\(" crates/pierre-server/src/ | wc -l | tr -d ' ')
 TODOS_SRC=$(rg "TODO|FIXME|XXX" crates/pierre-server/src/ -g "!*.json" -g "!*.md" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 TODOS_TESTS=$(rg "TODO|FIXME|XXX" crates/pierre-server/tests/ -g "!*.json" -g "!*.md" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 TODOS_SDK=$(rg "TODO|FIXME|XXX" sdk/ -g "!*.json" -g "!*.md" -g "!*.lock" -g "!node_modules/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 TODOS_FRONTEND=$(rg "TODO|FIXME|XXX" frontend/ -g "!*.json" -g "!*.md" -g "!*.lock" -g "!node_modules/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 TODOS=$((TODOS_SRC + TODOS_TESTS + TODOS_SDK + TODOS_FRONTEND))
-PRODUCTION_MOCKS=$(rg "mock_|get_mock|return.*mock|demo purposes|for demo|stub implementation|mock implementation" crates/pierre-server/src/ -g "!crates/pierre-server/src/bin/*" -g "!crates/pierre-server/tests/*" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
+PRODUCTION_MOCKS=$(prod_src_matches "mock_|get_mock|return.*mock|demo purposes|for demo|stub implementation|mock implementation" crates/pierre-server/src/ -g "!crates/pierre-server/src/bin/*" -g "!crates/pierre-server/tests/*" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
 # Magic input anti-patterns: tools that generate fake data based on special input values
 # Excludes: synthetic_provider.rs (legitimate provider), registry.rs (provider registration), spi.rs (provider interface),
 #           auth.rs (AuthService legitimately bypasses OAuth for the synthetic provider behind the provider-synthetic feature flag)
 MAGIC_INPUT_ANTIPATTERNS=$(rg "SyntheticProvider::new\(\)|SyntheticProvider::from_seed|generate_.*_data\(|create_synthetic_|if.*provider.*==.*\"synthetic\"|match.*provider.*synthetic" crates/pierre-server/src/tools/ -g "!*synthetic_provider.rs" -g "!*registry.rs" -g "!*spi.rs" -g "!**/protocol/auth.rs" 2>/dev/null | wc -l | tr -d ' ' || echo 0)
-PROBLEMATIC_UNDERSCORE_NAMES=$(rg "fn _|let _[a-zA-Z]|struct _|enum _" crates/pierre-server/src/ | rg -v "let _[[:space:]]*=" | rg -v "let _result|let _response|let _output" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
-CFG_TEST_IN_SRC=$(rg "#\[cfg\(test\)\]" crates/pierre-server/src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+PROBLEMATIC_UNDERSCORE_NAMES=$(prod_src_matches "fn _|let _[a-zA-Z]|struct _|enum _" crates/pierre-server/src/ | rg -v "let _[[:space:]]*=" | rg -v "let _result|let _response|let _output" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
 CLIPPY_ALLOWS_PROBLEMATIC=$(rg "#!?\[allow\(" crates/pierre-server/src/ -g '!crates/pierre-server/src/routes/openapi.rs' -o -r '$0' --no-line-number 2>/dev/null \
     | sed -E 's/^.*#!?\[allow\(//; s/\)\].*$//' \
     | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' \
@@ -303,7 +316,7 @@ echo -e "${BLUE}Checking for critical anti-patterns...${NC}"
 # ============================================================================
 # TEST DATABASE FACTORY (tests never open SQLite by hand)
 # ============================================================================
-# Every test opens its database through pierre_database::database::test_utils,
+# Every test opens its database through pierre_test_support::db,
 # which honours DATABASE_URL: a private PostgreSQL database on the PostgreSQL
 # lane, in-memory SQLite everywhere else. A test that opens SQLite itself — a
 # literal `sqlite:` URL handed to Database::new, a raw SqlitePool, a
@@ -320,10 +333,10 @@ FACTORY_BYPASS=$(rg -nU \
     crates/*/tests/ -g '*.rs' -g '!*_sqlite_test.rs' 2>/dev/null || true)
 if [ -n "$FACTORY_BYPASS" ]; then
     FACTORY_BYPASS_COUNT=$(echo "$FACTORY_BYPASS" | wc -l | tr -d ' ')
-    echo -e "${RED}❌ CRITICAL: $FACTORY_BYPASS_COUNT test site(s) open SQLite by hand instead of through test_utils::create_test_db${NC}"
+    echo -e "${RED}❌ CRITICAL: $FACTORY_BYPASS_COUNT test site(s) open SQLite by hand instead of through pierre_test_support::db::create_test_db${NC}"
     echo "$FACTORY_BYPASS"
     echo "   Use create_test_db()/create_test_db_with_key()/create_test_db_url() from"
-    echo "   pierre_database::database::test_utils, and the repository traits instead of a raw pool:"
+    echo "   pierre_test_support::db, and the repository traits instead of a raw pool:"
     echo "   AdminConfigService::for_database(&db) for the admin-config service, db.repositories().<domain> for data access, and a match on the Database enum for genuinely raw SQL."
     echo "   A test of the SQLite backend itself belongs in a *_sqlite_test.rs file."
     fail_validation "Tests must open databases through the factory so the PostgreSQL lane runs PostgreSQL"
@@ -331,10 +344,10 @@ if [ -n "$FACTORY_BYPASS" ]; then
 fi
 
 # NULL UUID detection (absolute blocker)
-NULL_UUIDS=$(rg "00000000-0000-0000-0000-000000000000" crates/pierre-server/src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+NULL_UUIDS=$(prod_src_matches "00000000-0000-0000-0000-000000000000" crates/pierre-server/src/ | wc -l | tr -d ' ')
 if [ "$NULL_UUIDS" -gt 0 ]; then
     echo -e "${RED}❌ CRITICAL: Found $NULL_UUIDS null UUIDs (test/placeholder code)${NC}"
-    rg "00000000-0000-0000-0000-000000000000" crates/pierre-server/src/ -n
+    prod_src_matches "00000000-0000-0000-0000-000000000000" crates/pierre-server/src/
     fail_validation "Null UUIDs indicate incomplete implementation"
     exit 1
 fi
@@ -1186,7 +1199,7 @@ printf "│ %-35s │ %5d │ " "Problematic unwraps" "$PROBLEMATIC_UNWRAPS"
 if [ "$PROBLEMATIC_UNWRAPS" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "Proper error handling"
 else
-    FIRST_UNWRAP=$(get_first_location 'rg "\.unwrap\(\)" crates/pierre-server/src/ | rg -v "// Safe" -n')
+    FIRST_UNWRAP=$(get_first_location 'prod_src_matches "\.unwrap\(\)" crates/pierre-server/src/ | rg -v "// Safe"')
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_UNWRAP"
     VALIDATION_FAILED=true
 fi
@@ -1195,7 +1208,7 @@ printf "│ %-35s │ %5d │ " "Problematic expects" "$PROBLEMATIC_EXPECTS"
 if [ "$PROBLEMATIC_EXPECTS" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "Proper error handling"
 else
-    FIRST_EXPECT=$(get_first_location 'rg "\.expect\(" crates/pierre-server/src/ | rg -v "// Safe" -n')
+    FIRST_EXPECT=$(get_first_location 'prod_src_matches "\.expect\(" crates/pierre-server/src/ | rg -v "// Safe"')
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_EXPECT"
     VALIDATION_FAILED=true
 fi
@@ -1204,7 +1217,7 @@ printf "│ %-35s │ %5d │ " "Panic calls" "$PANICS"
 if [ "$PANICS" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "No panic! found"
 else
-    FIRST_PANIC=$(get_first_location 'rg "panic!\(" crates/pierre-server/src/ -n')
+    FIRST_PANIC=$(get_first_location 'prod_src_matches "panic!\(" crates/pierre-server/src/')
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_PANIC"
     VALIDATION_FAILED=true
 fi
@@ -1222,7 +1235,7 @@ printf "│ %-35s │ %5d │ " "Production mock implementations" "$PRODUCTION_M
 if [ "$PRODUCTION_MOCKS" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "No mock code in production"
 else
-    FIRST_MOCK=$(get_first_location 'rg "mock_|get_mock|stub implementation" crates/pierre-server/src/ -g "!crates/pierre-server/src/bin/*" -g "!crates/pierre-server/tests/*" -n')
+    FIRST_MOCK=$(get_first_location 'prod_src_matches "mock_|get_mock|stub implementation" crates/pierre-server/src/ -g "!crates/pierre-server/src/bin/*"')
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_MOCK"
 fi
 
@@ -1239,17 +1252,8 @@ printf "│ %-35s │ %5d │ " "Underscore-prefixed names" "$PROBLEMATIC_UNDERS
 if [ "$PROBLEMATIC_UNDERSCORE_NAMES" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "Good naming conventions"
 else
-    FIRST_UNDERSCORE=$(get_first_location 'rg "fn _|let _[a-zA-Z]|struct _|enum _" crates/pierre-server/src/ | rg -v "let _[[:space:]]*=" -n')
+    FIRST_UNDERSCORE=$(get_first_location 'prod_src_matches "fn _|let _[a-zA-Z]|struct _|enum _" crates/pierre-server/src/ | rg -v "let _[[:space:]]*="')
     printf "$(format_status "⚠️ WARN")│ %-39s │\n" "$FIRST_UNDERSCORE"
-fi
-
-printf "│ %-35s │ %5d │ " "Test modules in crates/pierre-server/src/" "$CFG_TEST_IN_SRC"
-if [ "$CFG_TEST_IN_SRC" -eq 0 ]; then
-    printf "$(format_status "✅ PASS")│ %-39s │\n" "Tests in crates/pierre-server/tests/ directory"
-else
-    FIRST_CFG=$(get_first_location 'rg "#\[cfg\(test\)\]" crates/pierre-server/src/ -n')
-    printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_CFG"
-    VALIDATION_FAILED=true
 fi
 
 printf "│ %-35s │ %5d │ " "Problematic clippy allows" "$CLIPPY_ALLOWS_PROBLEMATIC"

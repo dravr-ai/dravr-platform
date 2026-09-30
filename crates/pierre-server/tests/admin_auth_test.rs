@@ -23,11 +23,7 @@ async fn test_admin_authentication_flow() {
     // Create auth service
     let jwt_secret = "test_jwt_secret_for_admin_auth";
     let repos = database.repositories();
-    let auth_service = AdminAuthService::new(
-        repos.admin.clone(),
-        jwks_manager.clone(),
-        AdminAuthService::DEFAULT_CACHE_TTL_SECS,
-    );
+    let auth_service = AdminAuthService::new(repos.admin.clone(), jwks_manager.clone());
 
     // Mint the token through the repository, the same path `pierre-cli token
     // generate` takes, so the stored row is whatever the backend writes.

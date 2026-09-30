@@ -17,7 +17,7 @@ use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::{factory::Database, DatabaseProvider};
-use pierre_database::database::test_utils::create_test_db_with_key;
+use pierre_test_support::db::create_test_db_with_key;
 use serial_test::serial;
 use std::env;
 use uuid::Uuid;

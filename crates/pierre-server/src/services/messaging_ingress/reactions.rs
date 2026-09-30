@@ -44,11 +44,11 @@
 
 use std::sync::Arc;
 
+use dravr_canot::channels::descriptor_for;
+use dravr_canot::descriptor::ChannelDescriptor;
 use pierre_core::models::messaging::{ChannelType, InboundReaction, ReactionAction};
 use pierre_core::models::UpsertMessageFeedbackParams;
 use pierre_database::repositories::{MessagingRepository, ReactionFeedbackTarget};
-use pierre_messaging::channels::descriptor_for;
-use pierre_messaging::descriptor::ChannelDescriptor;
 use tracing::{debug, info, warn};
 
 use crate::mcp::resources::ServerContext;

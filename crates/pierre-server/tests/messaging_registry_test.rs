@@ -17,15 +17,15 @@
     clippy::redundant_closure_for_method_calls
 )]
 
+use dravr_canot::registry::ChannelRegistry;
 use pierre_core::models::messaging::ChannelType;
-use pierre_messaging::registry::ChannelRegistry;
 use std::sync::Arc;
 
 #[cfg(feature = "client-messaging")]
-use pierre_messaging::channels::whatsapp::WhatsAppChannel;
+use dravr_canot::channels::whatsapp::WhatsAppChannel;
 
 #[cfg(feature = "client-messaging")]
-use pierre_messaging::channels::telegram::TelegramChannel;
+use dravr_canot::channels::telegram::TelegramChannel;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ChannelRegistry Tests

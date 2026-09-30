@@ -26,18 +26,18 @@ use crate::implementations::activity_summary::{detail_json, summary_json, Activi
 use crate::implementations::data_helpers::activity_coverage_note;
 use crate::implementations::session_merge_summary::FragmentDedupSummary;
 use crate::protocol::types::UniversalResponse;
+use dravr_cageux::physiological_constants::api_limits::{
+    CLAUDE_CONTEXT_TOKENS, CONTEXT_WARNING_THRESHOLD_PERCENT, TOKENS_PER_ACTIVITY_DETAILED,
+    TOKENS_PER_ACTIVITY_SUMMARY, USABLE_CONTEXT_TOKENS,
+};
+use dravr_meteo::WeatherProvider;
 use pierre_cache::{Cache, CacheKey, CacheResource};
 use pierre_core::civil_time::parse_zone;
 use pierre_core::json_value::to_value_as_written;
 use pierre_core::models::{resolve_sport_type, sport_matches_family, Activity, SportType};
 use pierre_formatters::{format_output, OutputFormat};
-use pierre_intelligence::physiological_constants::api_limits::{
-    CLAUDE_CONTEXT_TOKENS, CONTEXT_WARNING_THRESHOLD_PERCENT, TOKENS_PER_ACTIVITY_DETAILED,
-    TOKENS_PER_ACTIVITY_SUMMARY, USABLE_CONTEXT_TOKENS,
-};
 use pierre_providers::deduplication::FragmentReport;
 use pierre_services::weather_backfill;
-use pierre_weather::WeatherProvider;
 use serde::Serialize;
 use serde_json::{to_value, Value};
 use std::cmp::Reverse;

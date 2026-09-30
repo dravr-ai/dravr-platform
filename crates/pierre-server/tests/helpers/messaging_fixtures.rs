@@ -18,6 +18,9 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
+use dravr_canot::channel::MessagingChannel;
+use dravr_canot::error::{MessagingError, MessagingResult};
+use dravr_canot::turn::ConversationTurnId;
 use http::HeaderMap;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::models::messaging::{
@@ -26,9 +29,6 @@ use pierre_core::models::messaging::{
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
 use pierre_database::backends::{factory::Database, CreateChannelLinkParams, CreateSessionParams};
 use pierre_mcp_server::services::backfill_notifier::AdapterResolver;
-use pierre_messaging::channel::MessagingChannel;
-use pierre_messaging::error::{MessagingError, MessagingResult};
-use pierre_messaging::turn::ConversationTurnId;
 use serde_json::Value;
 use uuid::Uuid;
 

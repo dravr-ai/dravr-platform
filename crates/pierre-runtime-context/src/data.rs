@@ -4,10 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use dravr_cageux::types::ActivityIntelligence;
 use pierre_cache::Cache;
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
-use pierre_intelligence::ActivityIntelligence;
 use pierre_providers::ProviderRegistry;
 use std::sync::Arc;
 

@@ -7,6 +7,13 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use dravr_canot::channels::capabilities_for;
+use dravr_canot::channels::discord::DiscordDescriptor;
+use dravr_canot::channels::messenger::MessengerDescriptor;
+use dravr_canot::channels::slack::SlackDescriptor;
+use dravr_canot::channels::telegram::TelegramDescriptor;
+use dravr_canot::channels::whatsapp::WhatsAppDescriptor;
+use dravr_canot::descriptor::ChannelDescriptor;
 use pierre_chat_pipeline::{
     ModelPolicy, ProgressiveSupport, ProseFormat, SurfaceId, SurfaceProfile, SurfaceRequest,
     TurnBudget,
@@ -15,13 +22,6 @@ use pierre_core::models::messaging::ChannelType;
 use pierre_mcp_server::services::messaging_ingress::surface::{
     messaging_surface_request, transport_caps,
 };
-use pierre_messaging::channels::capabilities_for;
-use pierre_messaging::channels::discord::DiscordDescriptor;
-use pierre_messaging::channels::messenger::MessengerDescriptor;
-use pierre_messaging::channels::slack::SlackDescriptor;
-use pierre_messaging::channels::telegram::TelegramDescriptor;
-use pierre_messaging::channels::whatsapp::WhatsAppDescriptor;
-use pierre_messaging::descriptor::ChannelDescriptor;
 
 fn messaging(channel_type: ChannelType) -> SurfaceProfile {
     SurfaceProfile::resolve(&messaging_surface_request(

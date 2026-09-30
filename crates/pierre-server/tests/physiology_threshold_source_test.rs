@@ -21,6 +21,7 @@
 
 use anyhow::Result;
 use chrono::{Duration, Utc};
+use dravr_cageux::training_load::TrainingLoadCalculator;
 use pierre_core::models::activity::ActivityBuilder;
 use pierre_core::models::{
     max_hr_fraction_at_vo2max_fraction, Activity, ConnectionType, SportType, TenantId,
@@ -28,7 +29,6 @@ use pierre_core::models::{
 };
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_fitness_compute::AthleteInputs;
-use pierre_intelligence::TrainingLoadCalculator;
 use pierre_tool_runtime::implementations::analytics::analyze_detailed_training_load;
 use pierre_tool_runtime::implementations::analytics::output::{FitnessScoreResult, ProvidersUsed};
 use pierre_tool_runtime::implementations::analytics::{

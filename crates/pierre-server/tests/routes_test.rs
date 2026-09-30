@@ -18,13 +18,13 @@ use pierre_config::environment::{
     DatabaseConfig, DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig,
     GeocodingServiceConfig, GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig,
     McpConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig,
-    PostgresPoolConfig, ProtocolConfig, RateLimitConfig, RouteTimeoutConfig, SecurityConfig,
-    SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig, SqlxConfig, SseConfig,
-    StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
+    PostgresPoolConfig, ProtocolConfig, RateLimitConfig, SecurityConfig, SecurityHeadersConfig,
+    ServerConfig, SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig,
+    TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
 };
-use pierre_database::database::test_utils::create_test_db;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_routes_auth::{AuthService, RegisterRequest};
+use pierre_test_support::db::create_test_db;
 use std::{ptr, sync::Arc};
 
 #[tokio::test]
@@ -81,7 +81,6 @@ async fn test_register_user() {
         auth: AuthConfig {
             jwt_expiry_hours: 24,
             refresh_token_expiry_days: 30,
-            ..AuthConfig::default()
         },
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
@@ -139,7 +138,6 @@ async fn test_register_user() {
         },
         sse: SseConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
-        route_timeouts: RouteTimeoutConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
         mcp: McpConfig {
@@ -241,7 +239,6 @@ async fn test_register_duplicate_user() {
         auth: AuthConfig {
             jwt_expiry_hours: 24,
             refresh_token_expiry_days: 30,
-            ..AuthConfig::default()
         },
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
@@ -299,7 +296,6 @@ async fn test_register_duplicate_user() {
         },
         sse: SseConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
-        route_timeouts: RouteTimeoutConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
         mcp: McpConfig {

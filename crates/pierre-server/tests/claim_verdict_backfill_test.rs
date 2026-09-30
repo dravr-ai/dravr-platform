@@ -21,9 +21,9 @@ use pierre_core::models::{
 };
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
-use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_evals::VerificationConfig;
 use pierre_services::claim_verdict_backfill::{run_backfill, BackfillParams};
+use pierre_test_support::db::create_test_db_with_key;
 use uuid::Uuid;
 
 async fn open_test_db() -> Result<Database> {
@@ -144,7 +144,7 @@ async fn backfill_walks_assistant_messages_and_persists_verdicts() -> Result<()>
 
     let repos = db.repositories();
     let stats = run_backfill(
-        &repos,
+        repos,
         &db,
         &default_params(tenant_id),
         &VerificationConfig::default(),
@@ -167,7 +167,7 @@ async fn dry_run_scans_without_persisting_anything() -> Result<()> {
     let repos = db.repositories();
     let mut params = default_params(tenant_id);
     params.dry_run = true;
-    let stats = run_backfill(&repos, &db, &params, &VerificationConfig::default()).await?;
+    let stats = run_backfill(repos, &db, &params, &VerificationConfig::default()).await?;
 
     assert_eq!(stats.messages_scanned, 1);
     assert!(stats.dry_run);
@@ -188,7 +188,7 @@ async fn backfill_respects_limit_clamp() -> Result<()> {
     let repos = db.repositories();
     let mut params = default_params(tenant_id);
     params.limit = 0; // clamped up to 1
-    let stats = run_backfill(&repos, &db, &params, &VerificationConfig::default()).await?;
+    let stats = run_backfill(repos, &db, &params, &VerificationConfig::default()).await?;
 
     // Only one message belongs to tenant_id's conversations.
     assert!(stats.messages_scanned <= 1);
@@ -204,7 +204,7 @@ async fn resume_skips_previously_processed_messages() -> Result<()> {
 
     // First pass — walks the one seeded message and stores the cursor.
     let first_stats = run_backfill(
-        &repos,
+        repos,
         &db,
         &default_params(tenant_id),
         &VerificationConfig::default(),
@@ -217,7 +217,7 @@ async fn resume_skips_previously_processed_messages() -> Result<()> {
     // between.
     let mut params = default_params(tenant_id);
     params.resume = true;
-    let resumed_stats = run_backfill(&repos, &db, &params, &VerificationConfig::default()).await?;
+    let resumed_stats = run_backfill(repos, &db, &params, &VerificationConfig::default()).await?;
     assert_eq!(resumed_stats.messages_scanned, 0);
     Ok(())
 }

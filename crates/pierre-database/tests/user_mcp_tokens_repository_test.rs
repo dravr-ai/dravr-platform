@@ -17,8 +17,8 @@
 use chrono::{Duration, Utc};
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{CreateUserMcpTokenRequest, User};
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::RepositoryRegistry;
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 /// A distinct user per call; the table's foreign key needs the row to exist.
@@ -35,7 +35,7 @@ async fn fresh_user(repos: &RepositoryRegistry) -> Uuid {
 async fn a_minted_token_reads_back_and_validates_to_its_owner() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let owner = fresh_user(&repos).await;
+    let owner = fresh_user(repos).await;
 
     let created = repos
         .user_mcp_tokens
@@ -72,7 +72,7 @@ async fn a_minted_token_reads_back_and_validates_to_its_owner() {
         "expiry lands 30 days out, got {expires_at}"
     );
 
-    let stranger = fresh_user(&repos).await;
+    let stranger = fresh_user(repos).await;
     assert!(
         repos
             .user_mcp_tokens
@@ -109,8 +109,8 @@ async fn a_minted_token_reads_back_and_validates_to_its_owner() {
 async fn list_tokens_is_scoped_to_the_owner_and_newest_first() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let owner = fresh_user(&repos).await;
-    let other = fresh_user(&repos).await;
+    let owner = fresh_user(repos).await;
+    let other = fresh_user(repos).await;
 
     for name in ["first", "second"] {
         repos
@@ -150,8 +150,8 @@ async fn list_tokens_is_scoped_to_the_owner_and_newest_first() {
 async fn revoke_is_scoped_to_the_owner_and_stops_validation() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let owner = fresh_user(&repos).await;
-    let stranger = fresh_user(&repos).await;
+    let owner = fresh_user(repos).await;
+    let stranger = fresh_user(repos).await;
 
     let created = repos
         .user_mcp_tokens
@@ -193,7 +193,7 @@ async fn revoke_is_scoped_to_the_owner_and_stops_validation() {
 async fn an_expired_token_is_refused_while_a_live_one_validates() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let owner = fresh_user(&repos).await;
+    let owner = fresh_user(repos).await;
 
     let live = repos
         .user_mcp_tokens

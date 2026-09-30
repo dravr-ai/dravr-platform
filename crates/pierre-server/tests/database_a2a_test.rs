@@ -16,10 +16,10 @@ use pierre_core::models::a2a::{A2APushNotificationConfig, A2AUsage};
 use pierre_core::models::{CoachingPersona, WindowUsage};
 use pierre_core::models::{User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
-use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::a2a::{client::A2ASession, models::a2a::A2AClient, protocol::TaskStatus};
+use pierre_test_support::db::create_test_db;
 use tokio::time::sleep;
 use uuid::Uuid;
 
@@ -135,7 +135,7 @@ async fn test_a2a_client_round_trips_through_every_read() {
         .expect("Failed to create test database");
     let repos = db.repositories();
 
-    let (client, user_id, api_key_id) = create_test_client_with_window(&repos, 3600).await;
+    let (client, user_id, api_key_id) = create_test_client_with_window(repos, 3600).await;
 
     let by_id = repos
         .a2a
@@ -217,7 +217,7 @@ async fn test_a2a_window_usage_honours_the_client_window() {
         .expect("Failed to create test database");
     let repos = db.repositories();
 
-    let (client, _user_id, _api_key_id) = create_test_client_with_window(&repos, 60).await;
+    let (client, _user_id, _api_key_id) = create_test_client_with_window(repos, 60).await;
     let now = Utc::now();
     let inside = now - chrono::Duration::seconds(5);
 
@@ -285,7 +285,7 @@ async fn test_a2a_client_management() {
         .expect("Failed to create test database");
     let repos = db.repositories();
 
-    let (client, user_id) = create_test_client(&repos).await;
+    let (client, user_id) = create_test_client(repos).await;
 
     // Get client
     let retrieved = repos
@@ -322,7 +322,7 @@ async fn test_a2a_session_management() {
         .expect("Failed to create test database");
     let repos = db.repositories();
 
-    let (client, _user_id) = create_test_client(&repos).await;
+    let (client, _user_id) = create_test_client(repos).await;
 
     // Create session (without user_id to avoid foreign key constraint)
     let session = A2ASession {
@@ -385,7 +385,7 @@ async fn test_a2a_task_management() {
         .expect("Failed to create test database");
     let repos = db.repositories();
 
-    let (client, _user_id) = create_test_client(&repos).await;
+    let (client, _user_id) = create_test_client(repos).await;
 
     let session_token = repos
         .a2a
@@ -508,7 +508,7 @@ async fn test_a2a_push_notification_config_crud() {
         .expect("Failed to create test database");
     let repos = db.repositories();
 
-    let (client, _user_id) = create_test_client(&repos).await;
+    let (client, _user_id) = create_test_client(repos).await;
     let session_token = repos
         .a2a
         .create_session(&client.id, None, &["read".into()], 1)
@@ -596,7 +596,7 @@ async fn test_a2a_usage_tracking() {
         .expect("Failed to create test database");
     let repos = db.repositories();
 
-    let (client, _user_id) = create_test_client(&repos).await;
+    let (client, _user_id) = create_test_client(repos).await;
 
     // Record usage
     let usage = A2AUsage {
@@ -653,15 +653,15 @@ async fn test_a2a_schema_no_duplicate_columns() {
     let db = create_test_db().await.expect("Failed to create database");
 
     // Each backend has its own catalogue; both list the migrated columns.
-    let columns: Vec<(String,)> = match &db {
-        Database::SQLite(sqlite) => {
+    let columns: Vec<(String,)> = match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
             sqlx::query_as("SELECT name FROM pragma_table_info('a2a_clients') ORDER BY name")
                 .fetch_all(sqlite.pool())
                 .await
                 .expect("Failed to query table info")
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => sqlx::query_as(
+        DatabaseBackend::PostgreSQL(pg) => sqlx::query_as(
             "SELECT column_name::text FROM information_schema.columns \
              WHERE table_schema = current_schema() AND table_name = 'a2a_clients' \
              ORDER BY column_name",
@@ -708,7 +708,7 @@ async fn test_a2a_expired_session_is_not_live() {
         .expect("Failed to create test database");
     let repos = db.repositories();
 
-    let (client, _user_id) = create_test_client(&repos).await;
+    let (client, _user_id) = create_test_client(repos).await;
 
     let expired = repos
         .a2a
@@ -767,7 +767,7 @@ async fn test_a2a_list_tasks_updated_after_sees_the_updated_task() {
         .expect("Failed to create test database");
     let repos = db.repositories();
 
-    let (client, _user_id) = create_test_client(&repos).await;
+    let (client, _user_id) = create_test_client(repos).await;
 
     let untouched = repos
         .a2a
@@ -859,7 +859,7 @@ async fn test_a2a_usage_history_is_per_day_newest_first() {
         .expect("Failed to create test database");
     let repos = db.repositories();
 
-    let (client, _user_id) = create_test_client(&repos).await;
+    let (client, _user_id) = create_test_client(repos).await;
     let now = Utc::now();
     let yesterday = now - chrono::Duration::days(1);
     let last_week = now - chrono::Duration::days(8);
@@ -907,7 +907,7 @@ async fn test_a2a_usage_stats_partition_on_the_400_boundary() {
         .expect("Failed to create test database");
     let repos = db.repositories();
 
-    let (client, _user_id) = create_test_client(&repos).await;
+    let (client, _user_id) = create_test_client(repos).await;
     let now = Utc::now();
     for code in [200, 302, 404, 500] {
         repos

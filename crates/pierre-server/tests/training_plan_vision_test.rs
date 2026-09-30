@@ -19,7 +19,6 @@ use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_core::models::periodization::{
     FlavourFamily, LoadingPattern, PhaseKind, Sequencing, Share, TidTarget, WorkoutPurpose,
 };
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_memory::training_plans::{
@@ -29,6 +28,7 @@ use pierre_memory::training_plans::{
 use pierre_services::agent_package::PackagedCatalogue;
 use pierre_services::plan_fueling::FuelingDisclosure;
 use pierre_services::training_plan_render::render_training_plan_block;
+use pierre_test_support::db::create_test_db;
 
 fn d(s: &str) -> NaiveDate {
     NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap_or_default()
@@ -143,7 +143,7 @@ fn day(
 #[tokio::test]
 async fn the_vision_round_trips_through_storage() -> Result<()> {
     let db = create_test_db().await?;
-    let plans = db.repositories().training_plans;
+    let plans = &db.repositories().training_plans;
     let selection = flavour();
     let outline_phases = phases();
     let params = TemplateParams {

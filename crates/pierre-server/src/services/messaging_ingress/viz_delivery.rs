@@ -26,11 +26,11 @@
 
 use std::fmt::Write as _;
 
+use dravr_canot::rich_text::{escape_markdown, parse_markdown, render_rich_text};
 use pierre_chat_pipeline::stages::viz_blocks::strip_markers;
 use pierre_chat_pipeline::RenderCapabilities;
 use pierre_core::models::messaging::{CardAction, MessageContent};
 use pierre_core::models::{ColorScheme, TenantId};
-use pierre_messaging::rich_text::{escape_markdown, parse_markdown, render_rich_text};
 use serde_json::Value;
 use tracing::debug;
 
@@ -68,18 +68,6 @@ pub struct VizMedia {
     pub mime_type: String,
     /// The block's own title, when it carried one.
     pub caption: Option<String>,
-}
-
-impl VizMedia {
-    /// Build the canot content for this chart.
-    #[must_use]
-    pub fn into_content(self) -> MessageContent {
-        MessageContent::Media {
-            url: self.url,
-            mime_type: self.mime_type,
-            caption: self.caption,
-        }
-    }
 }
 
 /// Decide what the channel gets, and mint the URLs if it gets pixels.

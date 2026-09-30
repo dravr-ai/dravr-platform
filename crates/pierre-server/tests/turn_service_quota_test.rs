@@ -51,7 +51,7 @@ mod turn_service_quota_tests {
     };
     use pierre_core::models::ConnectionType;
     use pierre_core::models::{ConversationTurnId, Tenant, TenantId, User, UserStatus};
-    use pierre_database::backends::factory::Database;
+    use pierre_database::backends::factory::DatabaseBackend;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -224,14 +224,14 @@ mod turn_service_quota_tests {
                  WHERE c.tenant_id = $1 AND m.role = 'assistant'";
         let tenant = tenant_id.to_string();
         for _ in 0..150 {
-            let count: i64 = match resources.agent.database.as_ref() {
-                Database::SQLite(db) => sqlx::query_scalar(SQL)
+            let count: i64 = match resources.agent.database.backend() {
+                DatabaseBackend::SQLite(db) => sqlx::query_scalar(SQL)
                     .bind(&tenant)
                     .fetch_one(db.pool())
                     .await
                     .unwrap(),
                 #[cfg(feature = "postgresql")]
-                Database::PostgreSQL(db) => sqlx::query_scalar(SQL)
+                DatabaseBackend::PostgreSQL(db) => sqlx::query_scalar(SQL)
                     .bind(&tenant)
                     .fetch_one(db.pool())
                     .await

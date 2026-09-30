@@ -40,8 +40,7 @@ use std::env;
 
 use pierre_config::admin_types::{ConfigDataType, ConfigScope, UpdateConfigRequest};
 use pierre_core::models::User;
-use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::admin::postgres_manager::PostgresAdminConfigManager;
 use pierre_mcp_server::config::admin::repository::SetOverrideParams;
@@ -49,6 +48,7 @@ use pierre_mcp_server::config::admin::{
     AdminConfigManager, AdminConfigRepository, AdminConfigService, UpdateConfigContext,
 };
 use pierre_runtime_context::ConfigLookupScope;
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 const CATEGORY: &str = "usage_quotas";
@@ -80,10 +80,12 @@ async fn backend(db: &Database) -> (AdminConfigService, Box<dyn AdminConfigRepos
     let service = AdminConfigService::for_database(db)
         .await
         .expect("admin config service");
-    let repo: Box<dyn AdminConfigRepository> = match db {
-        Database::SQLite(sqlite) => Box::new(AdminConfigManager::new(sqlite.pool().clone())),
+    let repo: Box<dyn AdminConfigRepository> = match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => Box::new(AdminConfigManager::new(sqlite.pool().clone())),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => Box::new(PostgresAdminConfigManager::new(pg.pool().clone())),
+        DatabaseBackend::PostgreSQL(pg) => {
+            Box::new(PostgresAdminConfigManager::new(pg.pool().clone()))
+        }
     };
     (service, repo)
 }

@@ -15,7 +15,6 @@ use uuid::Uuid;
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::backends::{LlmCredentialRepository, SecurityRepository};
-use pierre_llm::config::LlmProviderType;
 
 /// Environment variable names for LLM provider API keys
 const GEMINI_API_KEY_ENV: &str = "GEMINI_API_KEY";
@@ -81,19 +80,6 @@ impl LlmProvider {
             Self::Anthropic => "ANTHROPIC_API_KEY",
             Self::Cohere => COHERE_API_KEY_ENV,
             Self::Local => LOCAL_LLM_API_KEY_ENV,
-        }
-    }
-
-    /// Convert to `LlmProviderType` enum used by the LLM module
-    #[must_use]
-    pub const fn to_llm_provider_type(&self) -> Option<LlmProviderType> {
-        match self {
-            Self::Gemini => Some(LlmProviderType::Gemini),
-            Self::Groq => Some(LlmProviderType::Groq),
-            Self::Cohere => Some(LlmProviderType::Cohere),
-            Self::Local => Some(LlmProviderType::Local),
-            // OpenAI and Anthropic not yet supported in LlmProviderType
-            Self::OpenAi | Self::Anthropic => None,
         }
     }
 }

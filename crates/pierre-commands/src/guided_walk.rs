@@ -5,11 +5,11 @@
 // Copyright (c) 2026 dravr.ai
 
 use chrono::Utc;
+use dravr_canot::commands::CommandResponse;
 use pierre_core::errors::AppError;
 use pierre_core::models::{
     AddMessageParams, GuidedFlow, GuidedWindow, LoadSnapshot, OnboardingState, Pillar, WalkAudience,
 };
-use pierre_messaging::commands::CommandResponse;
 use pierre_services::recent_load::recent_load_snapshot;
 use serde_json::Value;
 use tracing::{info, warn};

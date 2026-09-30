@@ -5,9 +5,9 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
+use dravr_canot::commands::CommandResponse;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::SUPPORTED_LOCALES;
-use pierre_messaging::commands::CommandResponse;
 use tracing::info;
 
 use pierre_contremaitre::messaging_strings::{

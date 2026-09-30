@@ -87,28 +87,6 @@ impl ImpersonationClaims {
     }
 }
 
-/// Request to start impersonation
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StartImpersonationRequest {
-    /// User ID to impersonate
-    pub target_user_id: Uuid,
-    /// Reason for impersonation (optional but recommended)
-    pub reason: Option<String>,
-}
-
-/// Response after starting impersonation
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ImpersonationResponse {
-    /// New JWT token with impersonation claims
-    pub token: String,
-    /// Session ID for tracking
-    pub session_id: String,
-    /// Target user email for display
-    pub target_user_email: String,
-    /// Target user display name
-    pub target_user_name: Option<String>,
-}
-
 /// Permission delegation record for session sharing
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PermissionDelegation {

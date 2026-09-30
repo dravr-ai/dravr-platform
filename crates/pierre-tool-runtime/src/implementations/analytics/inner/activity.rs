@@ -14,16 +14,16 @@ use crate::protocol::{
     auth_required_provider, UniversalRequest, UniversalResponse, UniversalToolExecutor,
 };
 use crate::protocols::ProtocolError;
+use dravr_cageux::physiological_constants::business_thresholds::{
+    ACHIEVEMENT_DISTANCE_THRESHOLD_KM, ACHIEVEMENT_ELEVATION_THRESHOLD_M,
+};
+use dravr_cageux::physiological_constants::heart_rate::HIGH_INTENSITY_HR_THRESHOLD;
 use pierre_config::constants::limits::METERS_PER_KILOMETER;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::Activity;
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_formatters::OutputFormat;
-use pierre_intelligence::physiological_constants::business_thresholds::{
-    ACHIEVEMENT_DISTANCE_THRESHOLD_KM, ACHIEVEMENT_ELEVATION_THRESHOLD_M,
-};
-use pierre_intelligence::physiological_constants::heart_rate::HIGH_INTENSITY_HR_THRESHOLD;
 use pierre_providers::core::FitnessProvider;
 use serde_json::{json, Value};
 use uuid::Uuid;

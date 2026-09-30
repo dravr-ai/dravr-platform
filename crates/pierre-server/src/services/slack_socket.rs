@@ -9,14 +9,14 @@ use std::slice;
 use std::sync::Arc;
 use std::time::Duration;
 
+use dravr_canot::channel::MessagingChannel;
+use dravr_canot::channels::slack::transport::SlackTransport;
+use dravr_canot::channels::slack::SlackChannel;
+use dravr_canot::transport::TransportAdapter;
 use http::HeaderMap;
 use pierre_core::models::messaging::{ChannelType, InboundReaction, IncomingMessage};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::MessagingRepository;
-use pierre_messaging::channel::MessagingChannel;
-use pierre_messaging::channels::slack::transport::SlackTransport;
-use pierre_messaging::channels::slack::SlackChannel;
-use pierre_messaging::transport::TransportAdapter;
 use serde_json::{json, Value};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;

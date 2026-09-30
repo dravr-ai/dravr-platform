@@ -20,13 +20,13 @@ use embacle::pricing::{
 use pierre_config::admin_types::{ConfigDataType, ConfigScope};
 use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::{ConversationTurnId, Tenant, User};
-use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
+use pierre_database::backends::factory::DatabaseBackend;
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::admin::postgres_manager::PostgresAdminConfigManager;
 use pierre_mcp_server::config::admin::repository::SetOverrideParams;
 use pierre_mcp_server::config::admin::{AdminConfigManager, AdminConfigRepository};
 use pierre_services::pricing::{PricingOverrideMap, PricingRegistry};
+use pierre_test_support::db::create_test_db;
 
 #[tokio::test]
 async fn test_insert_llm_usage() {
@@ -449,10 +449,12 @@ async fn test_admin_pricing_loader_round_trip() {
     // The row exactly as `PUT /api/admin/config` writes it: a system-wide
     // (tenant-less) override whose value is the pricing payload as JSON text.
     let payload = serde_json::json!({"input_per_million": 0.999, "output_per_million": 9.99});
-    let repo: Box<dyn AdminConfigRepository> = match &db {
-        Database::SQLite(sqlite) => Box::new(AdminConfigManager::new(sqlite.pool().clone())),
+    let repo: Box<dyn AdminConfigRepository> = match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => Box::new(AdminConfigManager::new(sqlite.pool().clone())),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => Box::new(PostgresAdminConfigManager::new(pg.pool().clone())),
+        DatabaseBackend::PostgreSQL(pg) => {
+            Box::new(PostgresAdminConfigManager::new(pg.pool().clone()))
+        }
     };
     repo.set_override(SetOverrideParams {
         category: "cat_llm_pricing",
@@ -507,10 +509,12 @@ async fn tenant_scoped_overrides_list_with_their_tenant() {
     db.repositories().tenants.create(&tenant).await.unwrap();
     let tenant_id = tenant.id.to_string();
 
-    let repo: Box<dyn AdminConfigRepository> = match &db {
-        Database::SQLite(sqlite) => Box::new(AdminConfigManager::new(sqlite.pool().clone())),
+    let repo: Box<dyn AdminConfigRepository> = match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => Box::new(AdminConfigManager::new(sqlite.pool().clone())),
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(pg) => Box::new(PostgresAdminConfigManager::new(pg.pool().clone())),
+        DatabaseBackend::PostgreSQL(pg) => {
+            Box::new(PostgresAdminConfigManager::new(pg.pool().clone()))
+        }
     };
     let payload = serde_json::json!({"input_per_million": 0.5, "output_per_million": 5.0});
     let category = format!("cat_pricing_{}", uuid::Uuid::new_v4().simple());

@@ -29,7 +29,7 @@ async fn bootstrap_seeds_english_accounts() {
     let database = common::create_test_database().await.unwrap();
     let repos = database.repositories();
 
-    bootstrap::run(bootstrap_args(), &repos).await.unwrap();
+    bootstrap::run(bootstrap_args(), repos).await.unwrap();
 
     let operator = repos
         .users
@@ -61,14 +61,14 @@ async fn demo_data_seeds_english_visual_test_users() {
     let repos = database.repositories();
 
     // demo_data assigns its usage rows to an existing admin, so bootstrap runs first.
-    bootstrap::run(bootstrap_args(), &repos).await.unwrap();
+    bootstrap::run(bootstrap_args(), repos).await.unwrap();
     demo_data::run(
         DemoArgs {
             admin_email: Some("operator@dravr.ai".to_owned()),
             reset: false,
             days: 1,
         },
-        &repos,
+        repos,
     )
     .await
     .unwrap();
@@ -93,7 +93,7 @@ async fn reseeding_rewrites_a_french_account_to_english() {
     let database = common::create_test_database().await.unwrap();
     let repos = database.repositories();
 
-    bootstrap::run(bootstrap_args(), &repos).await.unwrap();
+    bootstrap::run(bootstrap_args(), repos).await.unwrap();
     let alice = repos
         .users
         .get_by_email("alice@demo.pierre.dev")
@@ -102,7 +102,7 @@ async fn reseeding_rewrites_a_french_account_to_english() {
         .expect("demo user seeded");
     repos.users.update_locale(alice.id, "fr").await.unwrap();
 
-    bootstrap::run(bootstrap_args(), &repos).await.unwrap();
+    bootstrap::run(bootstrap_args(), repos).await.unwrap();
 
     let reseeded = repos
         .users

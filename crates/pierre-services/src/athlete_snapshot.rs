@@ -23,13 +23,13 @@
 //! false, so the personalized layer stays silent.
 
 use chrono::{Duration, NaiveDate, Utc};
+use dravr_cageux::config::intelligence::AlgorithmConfig;
+use dravr_cageux::config::intelligence::{TrainingZonesConfig, VO2MaxCalculator};
 use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
 use pierre_core::models::{Activity, TenantId, UserPhysiologicalProfile};
 use pierre_database::RepositoryRegistry;
 use pierre_evals::AthleteMetrics;
 use pierre_fitness_compute::{compute_training_history, AthleteInputs};
-use pierre_intelligence::config::intelligence::{TrainingZonesConfig, VO2MaxCalculator};
-use pierre_intelligence::AlgorithmConfig;
 use uuid::Uuid;
 
 /// Lookback window for the activity read backing `data_days` and the TSB compute.

@@ -89,43 +89,11 @@ impl ToolError {
         }
     }
 
-    /// Create a "disabled for tenant" error
-    #[must_use]
-    pub fn disabled_for_tenant(tool_name: impl Into<String>, tenant_id: uuid::Uuid) -> Self {
-        Self::DisabledForTenant {
-            tool_name: tool_name.into(),
-            tenant_id,
-        }
-    }
-
     /// Create an "admin required" error
     #[must_use]
     pub fn admin_required(tool_name: impl Into<String>) -> Self {
         Self::AdminRequired {
             tool_name: tool_name.into(),
-        }
-    }
-
-    /// Create a "provider required" error
-    #[must_use]
-    pub fn provider_required(tool_name: impl Into<String>, provider: Option<String>) -> Self {
-        Self::ProviderRequired {
-            tool_name: tool_name.into(),
-            provider,
-        }
-    }
-
-    /// Create an "invalid parameter" error
-    #[must_use]
-    pub fn invalid_parameter(
-        tool_name: impl Into<String>,
-        parameter: impl Into<String>,
-        reason: impl Into<String>,
-    ) -> Self {
-        Self::InvalidParameter {
-            tool_name: tool_name.into(),
-            parameter: parameter.into(),
-            reason: reason.into(),
         }
     }
 
@@ -135,23 +103,6 @@ impl ToolError {
         Self::MissingParameter {
             tool_name: tool_name.into(),
             parameter: parameter.into(),
-        }
-    }
-
-    /// Create an "execution failed" error
-    #[must_use]
-    pub fn execution_failed(tool_name: impl Into<String>, details: impl Into<String>) -> Self {
-        Self::ExecutionFailed {
-            tool_name: tool_name.into(),
-            details: details.into(),
-        }
-    }
-
-    /// Create an "already registered" error
-    #[must_use]
-    pub fn already_registered(tool_name: impl Into<String>) -> Self {
-        Self::AlreadyRegistered {
-            tool_name: tool_name.into(),
         }
     }
 

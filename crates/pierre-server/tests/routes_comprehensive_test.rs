@@ -18,10 +18,9 @@ use pierre_config::environment::{
     DatabaseConfig, DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig,
     GarminApiConfig, GeocodingServiceConfig, GoalManagementConfig, HttpClientConfig, LogLevel,
     LoggingConfig, McpConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig,
-    OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RateLimitConfig, RouteTimeoutConfig,
-    SecurityConfig, SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig, SqlxConfig,
-    SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig,
-    WeatherServiceConfig,
+    OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RateLimitConfig, SecurityConfig,
+    SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig, SqlxConfig, SseConfig,
+    StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
 };
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
@@ -182,7 +181,6 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
         auth: AuthConfig {
             jwt_expiry_hours: 24,
             refresh_token_expiry_days: 30,
-            ..AuthConfig::default()
         },
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
@@ -266,7 +264,6 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
         },
         sse: SseConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
-        route_timeouts: RouteTimeoutConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
         mcp: McpConfig {
@@ -472,7 +469,6 @@ async fn test_user_login_success() -> Result<()> {
         auth: AuthConfig {
             jwt_expiry_hours: 24,
             refresh_token_expiry_days: 30,
-            ..AuthConfig::default()
         },
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
@@ -556,7 +552,6 @@ async fn test_user_login_success() -> Result<()> {
         },
         sse: SseConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
-        route_timeouts: RouteTimeoutConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
         mcp: McpConfig {
@@ -763,7 +758,6 @@ async fn test_token_refresh_success() -> Result<()> {
         auth: AuthConfig {
             jwt_expiry_hours: 24,
             refresh_token_expiry_days: 30,
-            ..AuthConfig::default()
         },
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
@@ -847,7 +841,6 @@ async fn test_token_refresh_success() -> Result<()> {
         },
         sse: SseConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
-        route_timeouts: RouteTimeoutConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
         mcp: McpConfig {
@@ -1010,7 +1003,6 @@ async fn test_token_refresh_suspended_user() -> Result<()> {
         auth: AuthConfig {
             jwt_expiry_hours: 24,
             refresh_token_expiry_days: 30,
-            ..AuthConfig::default()
         },
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
@@ -1094,7 +1086,6 @@ async fn test_token_refresh_suspended_user() -> Result<()> {
         },
         sse: SseConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
-        route_timeouts: RouteTimeoutConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
         mcp: McpConfig {
@@ -1526,7 +1517,6 @@ async fn test_complete_auth_flow() -> Result<()> {
         auth: AuthConfig {
             jwt_expiry_hours: 24,
             refresh_token_expiry_days: 30,
-            ..AuthConfig::default()
         },
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
@@ -1610,7 +1600,6 @@ async fn test_complete_auth_flow() -> Result<()> {
         },
         sse: SseConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
-        route_timeouts: RouteTimeoutConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
         mcp: McpConfig {
@@ -1843,7 +1832,6 @@ async fn test_concurrent_logins() -> Result<()> {
         auth: AuthConfig {
             jwt_expiry_hours: 24,
             refresh_token_expiry_days: 30,
-            ..AuthConfig::default()
         },
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
@@ -1927,7 +1915,6 @@ async fn test_concurrent_logins() -> Result<()> {
         },
         sse: SseConfig::default(),
         oauth2_server: OAuth2ServerConfig::default(),
-        route_timeouts: RouteTimeoutConfig::default(),
         host: "localhost".to_owned(),
         base_url: "http://localhost:8081".to_owned(),
         mcp: McpConfig {

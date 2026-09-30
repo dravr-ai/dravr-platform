@@ -12,15 +12,23 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
-use pierre_intelligence::activity_analyzer::AdvancedActivityAnalyzer;
-use pierre_intelligence::performance_analyzer::AdvancedPerformanceAnalyzer;
-use pierre_intelligence::types::{
+use dravr_cageux::activity_analyzer::AdvancedActivityAnalyzer;
+use dravr_cageux::config::intelligence::IntelligenceConfig;
+use dravr_cageux::metrics::AdvancedMetrics;
+use dravr_cageux::performance_analyzer::AdvancedPerformanceAnalyzer;
+use dravr_cageux::types::{
     ActivityInsights, AdvancedInsight, Anomaly, ContextualWeeklyLoad, GoalStatus, GoalType,
     InsightSeverity, LocationContext, Milestone, PersonalRecord, ProgressReport,
     RecommendationPriority, RecommendationType, TimeFrame, TrainingRecommendation,
     WeatherConditions, ZoneDistribution,
 };
-use pierre_intelligence::*;
+use dravr_cageux::types::{
+    ActivityIntelligence, Confidence, ContextualFactors, Goal, PerformanceMetrics, TimeOfDay,
+    TrendAnalysis, TrendDataPoint, TrendDirection, TrendIndicators,
+};
+use pierre_core::intelligence::{
+    FitnessLevel, TimeAvailability, UserFitnessProfile, UserPreferences,
+};
 use std::collections::HashMap;
 
 mod common;

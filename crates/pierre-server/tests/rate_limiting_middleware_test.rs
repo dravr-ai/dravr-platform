@@ -133,7 +133,7 @@ async fn rows_eventually(
 /// ledgers, as the server installs it.
 fn layered(router: Router, database: &Database) -> Router {
     router.layer(from_fn_with_state(
-        UsageLedgers::from_registry(&database.repositories()),
+        UsageLedgers::from_registry(database.repositories()),
         request_budget_middleware,
     ))
 }

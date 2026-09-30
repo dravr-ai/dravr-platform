@@ -29,7 +29,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::models::{ConnectionStatus, ConnectionType, TenantId};
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_tool_runtime::capture_sweep::{refresh_captures, SweepBudget};
@@ -191,8 +191,8 @@ impl Fixture {
                  reauth_retry_at = CASE WHEN reauth_retry_at IS NULL THEN NULL ELSE $1 END \
              WHERE user_id = $2 AND tenant_id = $3 AND provider = $4";
         let (user, tenant) = (self.user_id.to_string(), self.tenant.to_string());
-        let affected = match self.resources.agent.database.as_ref() {
-            Database::SQLite(db) => sqlx::query(SQL)
+        let affected = match self.resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => sqlx::query(SQL)
                 .bind(at)
                 .bind(&user)
                 .bind(&tenant)
@@ -202,7 +202,7 @@ impl Fixture {
                 .unwrap()
                 .rows_affected(),
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => sqlx::query(SQL)
+            DatabaseBackend::PostgreSQL(db) => sqlx::query(SQL)
                 .bind(at)
                 .bind(&user)
                 .bind(&tenant)

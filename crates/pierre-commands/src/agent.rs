@@ -5,13 +5,13 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
+use dravr_canot::commands::{CommandAction, CommandResponse};
 use pierre_core::errors::AppError;
 use pierre_core::markdown::strip_emphasis;
 use pierre_core::models::agents::{Agent, AgentHandle, ListAgentsFilter};
 use pierre_core::models::groups::GroupInviteKind;
 use pierre_core::models::{GroupRole, TenantId};
 use pierre_core::uuid_utils::parse_uuid;
-use pierre_messaging::commands::{CommandAction, CommandResponse};
 
 use pierre_contremaitre::messaging_strings::{
     KEY_AGENT_ADD_UNKNOWN, KEY_AGENT_ADD_USAGE, KEY_AGENT_ASSIGN_FORBIDDEN,

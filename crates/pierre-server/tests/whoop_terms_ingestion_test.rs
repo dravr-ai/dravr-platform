@@ -34,6 +34,9 @@ use std::sync::{Arc, Once};
 
 use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
 use db_fixtures::seed_user;
+use dravr_enforme::traits::health_store::HealthStore;
+use dravr_enforme::traits::recovery_store::RecoveryStore;
+use dravr_enforme::traits::sleep_store::SleepStore;
 use pierre_config::environment::HttpClientConfig;
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::feature_flags::FeatureKey;
@@ -41,18 +44,15 @@ use pierre_core::models::{
     ActivityBuilder, DataSource, DeviceType, SportType, StoredHealthMetrics, StoredRecoveryMetrics,
     StoredSleepSession, TenantId, UserOAuthToken,
 };
-use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db_with_key;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::RepositoryRegistry;
-use pierre_enforme::traits::health_store::HealthStore;
-use pierre_enforme::traits::recovery_store::RecoveryStore;
-use pierre_enforme::traits::sleep_store::SleepStore;
 use pierre_mcp_server::constants::init_server_config;
 use pierre_mcp_server::utils::http_client::initialize_http_clients;
 use pierre_providers::core::{FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::whoop_provider::WhoopProvider;
 use pierre_services::health_sync::PierreSyncStorage;
 use pierre_services::whoop_terms::{in_house_sleep_efficiency, sleep_session_to_store};
+use pierre_test_support::db::create_test_db_with_key;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use uuid::Uuid;
@@ -272,15 +272,15 @@ fn from<'a, T>(rows: &'a [T], source: &str, name: impl Fn(&T) -> &str) -> &'a T 
 
 /// Apply the migration under test, whole, to whichever engine the test database is.
 async fn run_migration(db: &Database) {
-    match db {
-        Database::SQLite(sqlite) => {
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
             sqlx::raw_sql(SQLITE_MIGRATION)
                 .execute(sqlite.pool())
                 .await
                 .unwrap();
         }
         #[cfg(feature = "postgresql")]
-        Database::PostgreSQL(postgres) => {
+        DatabaseBackend::PostgreSQL(postgres) => {
             sqlx::raw_sql(POSTGRES_MIGRATION)
                 .execute(postgres.pool())
                 .await
@@ -326,7 +326,7 @@ fn another_providers_night_passes_through_untouched() {
 #[tokio::test]
 async fn a_synced_whoop_night_keeps_its_measurements_and_none_of_whoops_scores() {
     let db = create_test_db().await;
-    let repos = Arc::new(db.repositories());
+    let repos = Arc::clone(db.repositories());
     let (user_id, tenant) = seed_user(&db).await;
     connect(&repos, user_id, tenant, "whoop").await;
     connect(&repos, user_id, tenant, "sciotte_garmin").await;
@@ -377,7 +377,7 @@ async fn a_synced_whoop_night_keeps_its_measurements_and_none_of_whoops_scores()
 #[tokio::test]
 async fn a_synced_whoop_day_keeps_its_measurements_and_drops_recovery_and_strain() {
     let db = create_test_db().await;
-    let repos = Arc::new(db.repositories());
+    let repos = Arc::clone(db.repositories());
     let (user_id, tenant) = seed_user(&db).await;
     connect(&repos, user_id, tenant, "whoop").await;
     connect(&repos, user_id, tenant, "sciotte_garmin").await;
@@ -431,7 +431,7 @@ async fn a_synced_whoop_day_keeps_its_measurements_and_drops_recovery_and_strain
 #[tokio::test]
 async fn a_whoop_record_is_refused_once_the_athletes_whoop_grant_is_gone() {
     let db = create_test_db().await;
-    let repos = Arc::new(db.repositories());
+    let repos = Arc::clone(db.repositories());
     let (user_id, tenant) = seed_user(&db).await;
     connect(&repos, user_id, tenant, "sciotte_garmin").await;
     let whoop_ds = data_source(&repos, user_id, tenant, "whoop").await;
@@ -515,7 +515,7 @@ async fn weigh_ins(
 #[tokio::test]
 async fn no_whoop_record_is_kept_until_the_owner_authorizes_it() {
     let db = create_test_db().await;
-    let repos = Arc::new(db.repositories());
+    let repos = Arc::clone(db.repositories());
     let (user_id, tenant) = seed_user(&db).await;
     connect(&repos, user_id, tenant, "whoop").await;
     connect(&repos, user_id, tenant, "sciotte_garmin").await;
@@ -697,7 +697,7 @@ async fn a_whoop_workout_reaches_the_activity_model_without_its_strain() {
 #[tokio::test]
 async fn the_migration_clears_whoop_scores_already_stored_and_nothing_else() {
     let db = create_test_db().await;
-    let repos = Arc::new(db.repositories());
+    let repos = Arc::clone(db.repositories());
     let (user_id, tenant) = seed_user(&db).await;
     let whoop_ds = data_source(&repos, user_id, tenant, "whoop").await;
     let garmin_ds = data_source(&repos, user_id, tenant, "garmin").await;

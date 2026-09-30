@@ -23,8 +23,8 @@ use pierre_core::models::{
 };
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
-use pierre_database::database::test_utils::create_test_db;
 use pierre_database::RepositoryRegistry;
+use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 async fn seed_pg_user(db: &Database) -> Uuid {
@@ -180,7 +180,7 @@ async fn test_pg_list_rows_carry_kind_facts_preview_paging_and_unread() {
     let member = member_id.to_string();
 
     let agent_id =
-        install_published_agent(&repos, author_id, author_tenant, athlete_id, tenant).await;
+        install_published_agent(repos, author_id, author_tenant, athlete_id, tenant).await;
 
     let now = Utc::now();
     let group_id = Uuid::new_v4();
@@ -255,7 +255,7 @@ async fn test_pg_list_rows_carry_kind_facts_preview_paging_and_unread() {
         .await
         .unwrap();
     let first = add_row(
-        &repos,
+        repos,
         tenant,
         &coached.id,
         athlete_id,
@@ -264,7 +264,7 @@ async fn test_pg_list_rows_carry_kind_facts_preview_paging_and_unread() {
     )
     .await;
     add_row(
-        &repos,
+        repos,
         tenant,
         &coached.id,
         athlete_id,
@@ -273,7 +273,7 @@ async fn test_pg_list_rows_carry_kind_facts_preview_paging_and_unread() {
     )
     .await;
     let reply = "Ta charge grimpe.\n\n⟦viz:0⟧\n\nOn coupe jeudi.";
-    add_row(&repos, tenant, &coached.id, athlete_id, "assistant", reply).await;
+    add_row(repos, tenant, &coached.id, athlete_id, "assistant", reply).await;
 
     // The page: every row fact, newest activity first, the real total.
     let page = repos
@@ -354,7 +354,7 @@ async fn test_pg_list_rows_carry_kind_facts_preview_paging_and_unread() {
         .await
         .unwrap());
     assert_eq!(
-        unread_for(&repos, tenant, &coached.id, &athlete).await,
+        unread_for(repos, tenant, &coached.id, &athlete).await,
         Some(1)
     );
     assert!(repos
@@ -363,7 +363,7 @@ async fn test_pg_list_rows_carry_kind_facts_preview_paging_and_unread() {
         .await
         .unwrap());
     assert_eq!(
-        unread_for(&repos, tenant, &coached.id, &athlete).await,
+        unread_for(repos, tenant, &coached.id, &athlete).await,
         Some(0)
     );
     assert!(repos
@@ -372,7 +372,7 @@ async fn test_pg_list_rows_carry_kind_facts_preview_paging_and_unread() {
         .await
         .unwrap());
     assert_eq!(
-        unread_for(&repos, tenant, &coached.id, &athlete).await,
+        unread_for(repos, tenant, &coached.id, &athlete).await,
         Some(0),
         "never backwards"
     );
@@ -382,7 +382,7 @@ async fn test_pg_list_rows_carry_kind_facts_preview_paging_and_unread() {
         .await
         .unwrap());
     assert_eq!(
-        unread_for(&repos, tenant, &coached.id, &athlete).await,
+        unread_for(repos, tenant, &coached.id, &athlete).await,
         Some(2),
         "mark unread counts every turn"
     );
@@ -413,14 +413,14 @@ async fn test_pg_list_rows_carry_kind_facts_preview_paging_and_unread() {
             .total,
         0
     );
-    assert_eq!(unread_for(&repos, tenant, &coached.id, &member).await, None);
+    assert_eq!(unread_for(repos, tenant, &coached.id, &member).await, None);
     repos
         .chat
         .add_participant(&coached.id, tenant, &member, &athlete)
         .await
         .unwrap();
     assert_eq!(
-        unread_for(&repos, tenant, &coached.id, &member).await,
+        unread_for(repos, tenant, &coached.id, &member).await,
         Some(2)
     );
     assert!(repos
@@ -429,7 +429,7 @@ async fn test_pg_list_rows_carry_kind_facts_preview_paging_and_unread() {
         .await
         .unwrap());
     add_row(
-        &repos,
+        repos,
         tenant,
         &coached.id,
         member_id,
@@ -438,11 +438,11 @@ async fn test_pg_list_rows_carry_kind_facts_preview_paging_and_unread() {
     )
     .await;
     assert_eq!(
-        unread_for(&repos, tenant, &coached.id, &athlete).await,
+        unread_for(repos, tenant, &coached.id, &athlete).await,
         Some(1)
     );
     assert_eq!(
-        unread_for(&repos, tenant, &coached.id, &member).await,
+        unread_for(repos, tenant, &coached.id, &member).await,
         Some(3)
     );
     let member_page = repos

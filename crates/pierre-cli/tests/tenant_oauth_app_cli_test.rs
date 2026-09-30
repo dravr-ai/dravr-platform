@@ -144,7 +144,6 @@ async fn set_oauth_app_stores_a_secret_the_read_path_decrypts() {
     assert_eq!(stored.scopes, vec!["read:recovery", "read:sleep"]);
     assert!(stored.rate_limit_per_day > 0);
 
-    drop(repos);
     drop(database);
     let _ = fs::remove_file(&path);
 }

@@ -16,7 +16,7 @@
 //! `X-RateLimit-*` response headers, and takes `now` so a caller and its tests
 //! agree on the instant the window is measured from.
 
-use chrono::{DateTime, Duration, Timelike, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serde::Serialize;
 
 use crate::api_keys::{ApiKey, ApiKeyTier};
@@ -303,15 +303,5 @@ impl OAuth2RateLimitStatus {
             self.retry_after_seconds = Some(retry_after);
         }
         self
-    }
-
-    /// Get next reset time (start of next minute)
-    #[must_use]
-    pub fn calculate_reset() -> DateTime<Utc> {
-        let now = Utc::now();
-        now.with_second(0)
-            .and_then(|dt| dt.with_nanosecond(0))
-            .unwrap_or(now)
-            + chrono::Duration::minutes(1)
     }
 }

@@ -25,7 +25,7 @@ use pierre_config::admin_types::{
 use pierre_config::nutrition_params::register_nutrition;
 use pierre_config::tid_cuts::register_tid_cuts;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_runtime_context::ConfigLookupScope;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
@@ -58,10 +58,10 @@ impl AdminConfigService {
     ///
     /// Returns an error if the initial cache refresh fails.
     pub async fn for_database(database: &Database) -> AppResult<Self> {
-        match database {
-            Database::SQLite(db) => Self::new(db.pool().clone()).await,
+        match database.backend() {
+            DatabaseBackend::SQLite(db) => Self::new(db.pool().clone()).await,
             #[cfg(feature = "postgresql")]
-            Database::PostgreSQL(db) => Self::from_postgres(db.pool().clone()).await,
+            DatabaseBackend::PostgreSQL(db) => Self::from_postgres(db.pool().clone()).await,
         }
     }
 
