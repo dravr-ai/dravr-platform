@@ -196,6 +196,13 @@ RUN echo "apt security epoch: ${APT_SECURITY_EPOCH}" \
 # is not needed at runtime.
 ARG COPILOT_CLI_VERSION=1.0.86
 ARG CLAUDE_CODE_CLI_VERSION=2.1.258
+# The extracted copilot package vendors foundry-local-sdk, which bundles
+# adm-zip 0.6.0 (CVE-2026-102282, GHSA-8238-w5pm-2374, GHSA-rcw4-f5rp-g42v;
+# all fixed in 0.6.1). The trivy gate fails the image on it. adm-zip has no
+# dependencies and 0.6.1 is a patch release, so every vendored copy is swapped
+# for the fixed release after extraction, and the build fails if any other
+# version is still there.
+ARG ADM_ZIP_VERSION=0.6.1
 # The copilot binary is a Node SEA bootstrap: on first run it extracts its
 # package (app.js + prebuilds/linux-x64/runtime.node, ~150 MB) into
 # $COPILOT_PKG_CACHE_HOME/pkg and skips the extraction whenever that directory
@@ -221,6 +228,13 @@ RUN npm install -g "@github/copilot-linux-x64@${COPILOT_CLI_VERSION}" \
     && test -f "/opt/copilot-pkg/pkg/linux-x64/${COPILOT_CLI_VERSION}/.extraction-complete" \
     && test -s "/opt/copilot-pkg/pkg/linux-x64/${COPILOT_CLI_VERSION}/prebuilds/linux-x64/runtime.node" \
     && test -x "/opt/copilot-pkg/pkg/linux-x64/${COPILOT_CLI_VERSION}/prebuilds/linux-x64/copilot-runtime" \
+    && npm install --prefix /tmp/adm-zip --no-save --ignore-scripts "adm-zip@${ADM_ZIP_VERSION}" \
+    && find /opt/copilot-pkg -type d -path '*/node_modules/adm-zip' -prune \
+        -exec rm -rf {} \; -exec cp -R /tmp/adm-zip/node_modules/adm-zip {} \; \
+    && rm -rf /tmp/adm-zip \
+    && if find /opt/copilot-pkg -path '*/node_modules/adm-zip/package.json' \
+        -exec grep -L "\"version\": \"${ADM_ZIP_VERSION}\"" {} + | grep -q .; then \
+        echo "adm-zip other than ${ADM_ZIP_VERSION} left under /opt/copilot-pkg" >&2; exit 1; fi \
     && chmod -R a+rX /opt/copilot-pkg \
     && claude --version \
     && rm -rf "$NPM_PREFIX/lib/node_modules/npm" "$NPM_PREFIX/bin/npm" "$NPM_PREFIX/bin/npx"
