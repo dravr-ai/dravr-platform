@@ -422,6 +422,10 @@ fn looks_like_a_data_ask(message: &str) -> bool {
 /// produced neither a tool call nor an injected block is ungrounded by
 /// construction. Turns it misses simply do not get this repair pass — which is
 /// why the same predicate must never gate the fetch itself.
+///
+/// LIMITATION(registre#678): `recovery_trigger` does not exempt a turn a guided
+/// flow owns, so a walk answer naming a race or a week is re-asked with a data
+/// dump as the athlete's message and the agent's reply is replaced.
 fn recovery_trigger(
     deps: &CapabilityRecoveryDeps<'_>,
     input: &TurnInput,

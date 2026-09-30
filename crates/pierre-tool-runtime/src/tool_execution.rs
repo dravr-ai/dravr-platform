@@ -632,8 +632,8 @@ pub async fn run_cli_tool_loop(
             return Ok(tally.guardian_confirm(response.usage, confirm));
         }
 
-        // LIMITATION(registre#677): `run_cli_tool_loop` never returns this pre-tool text as the reply, and the
-        // tool-result user turn reads as the athlete. Scaffolding is stripped via embacle so parrots never accumulate.
+        // Add assistant message (with tool calls and any echoed tool-result
+        // scaffolding stripped via embacle, so parroted output never accumulates)
         let assistant_text = tool_simulation::strip_simulation_artifacts(&response.content);
         if !assistant_text.is_empty() {
             llm_messages.push(ChatMessage::assistant(&assistant_text));
