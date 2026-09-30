@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use chrono::{Duration, Utc};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
-use pierre_core::models::{ActivityBuilder, ConnectionType, SportType};
+use pierre_core::models::{ActivityBuilder, ConnectionType, ReauthMark, SportType};
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
@@ -300,5 +300,117 @@ async fn a_dead_only_connection_still_surfaces_the_reconnect_signal() {
         payload.get("provider").and_then(Value::as_str),
         Some("whoop"),
         "auth_recovery mints the link for the provider named here"
+    );
+}
+
+/// A sibling already flagged `needs_reauth` still holds the athlete's rides in
+/// the durable cache, and those rows answer. The first read of a turn that finds
+/// the sibling refusing flags it and serves its cache; the next read of the same
+/// turn must serve the same rows rather than lose them to the flag the first
+/// read raised — a served turn once collapsed into the blank reconnect reply
+/// that way, the model's own `get_activities` call answering nothing after the
+/// prefetch had answered two rides.
+#[tokio::test]
+async fn a_sibling_flagged_for_reconnect_still_serves_its_cached_rides() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, user) = create_test_user(&resources.agent.database)
+        .await
+        .expect("test user");
+    let tenants = resources
+        .agent
+        .database
+        .repositories()
+        .tenants
+        .list_for_user(user.id)
+        .await
+        .expect("list tenants");
+    let tenant = tenants.first().expect("user has a tenant").id;
+
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(user_id, tenant, "strava", &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+    let long_ride = ActivityBuilder::new(
+        "strava-ride-1".to_owned(),
+        "Sortie longue".to_owned(),
+        SportType::Ride,
+        Utc::now() - Duration::days(2),
+        7_200,
+        "strava".to_owned(),
+    )
+    .distance_meters(200_000.0)
+    .build();
+    resources
+        .common
+        .repos
+        .activity_cache
+        .upsert_activities(user_id, &tenant, "strava", &[long_ride])
+        .await
+        .unwrap();
+    let flagged = resources
+        .common
+        .repos
+        .provider_connections
+        .mark_needs_reauth(
+            user_id,
+            tenant,
+            "strava",
+            Some("session_expired"),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        flagged,
+        ReauthMark::Flagged,
+        "the fixture must really hold a flagged sibling"
+    );
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(user_id, tenant, "whoop", &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let ctx = ToolContext::new()
+        .with_user(user_id.to_string())
+        .with_tenant(tenant.to_string())
+        .with_auth_method("jwt_bearer");
+    let response = GetActivitiesTool
+        .execute(&runtime, &ctx, json!({ "limit": 10, "mode": "summary" }))
+        .await;
+
+    let payload = response
+        .structured_content
+        .expect("tool result carries structured content");
+    let activities = payload
+        .get("activities")
+        .and_then(Value::as_array)
+        .unwrap_or_else(|| panic!("the flagged sibling's cache must answer, got: {payload}"));
+    let ids: Vec<&str> = activities
+        .iter()
+        .filter_map(|a| a.get("id").and_then(Value::as_str))
+        .collect();
+    assert_eq!(ids, vec!["strava-ride-1"], "the cached ride is served");
+    let served_distance = activities[0]
+        .get("distance_meters")
+        .and_then(Value::as_f64)
+        .expect("the served ride keeps its distance");
+    assert!(
+        (served_distance - 200_000.0).abs() < 1.0,
+        "the served row is the sibling's real record, got {served_distance} m"
+    );
+    assert_eq!(
+        payload
+            .get("reconnect_required")
+            .and_then(|c| c.get("provider"))
+            .and_then(Value::as_str),
+        Some("whoop"),
+        "the dead primary is still named for reconnection, got: {payload}"
     );
 }

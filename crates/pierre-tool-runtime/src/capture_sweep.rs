@@ -49,6 +49,7 @@ use std::time::{Duration, Instant};
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use pierre_core::errors::AppResult;
 use pierre_core::models::{ReauthMark, TenantId};
+use pierre_database::repositories::ActivityFetchFailure;
 use pierre_providers::core::ActivityQueryParams;
 use serde::Serialize;
 use tokio::time::timeout;
@@ -56,6 +57,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::activity_fetch::fetch_provider_head;
+use crate::activity_fetch::sync_verdict::{covers_list_head, record_sync_failure};
 use crate::protocol::reauth_notice::flag_needs_reauth;
 use crate::reauth_retry::{claim_scrape_session_retry, SCRAPE_SESSION_RETRY_INTERVAL_HOURS};
 use crate::runtime::ToolRuntime;
@@ -87,12 +89,13 @@ pub const DEFAULT_CONNECTION_TIMEOUT_SECS: u64 = 90;
 /// these" beats a 504 that reports nothing at all.
 pub const DEFAULT_SWEEP_BUDGET_SECS: u64 = 480;
 
-/// Reason recorded on a connection this sweep flags.
+/// Reason recorded on a connection this sweep flags, and on one a Home
+/// refresh found refused ([`fetch_provider_activities`](crate::activity_fetch::fetch_provider_activities)).
 ///
 /// Matches the vocabulary the backfill notifier already writes, so a reader of
 /// `provider_connections.last_error` sees one word for one condition regardless
 /// of which path noticed it.
-const FLAG_REASON: &str = "session_expired";
+pub(crate) const FLAG_REASON: &str = "session_expired";
 
 /// Bounds for one refresh sweep.
 #[derive(Debug, Clone, Copy)]
@@ -417,15 +420,15 @@ async fn refresh_one(
     let Ok(result) = timeout(per_connection, fetch).await else {
         // A bound the sweep imposed, not a verdict on the connection — a slow
         // scrape is not a dead session and must never flag one.
-        warn!(
-            user_id = %user_id,
-            provider = %provider,
-            timeout_secs = per_connection.as_secs(),
-            "Capture sweep: fetch exceeded its bound"
-        );
-        return RefreshOutcome::Failed {
-            error: format!("fetch exceeded {}s", per_connection.as_secs()),
-        };
+        return fetch_dropped(
+            runtime,
+            tenant_id,
+            parsed_user,
+            provider,
+            params,
+            per_connection,
+        )
+        .await;
     };
 
     match result {
@@ -453,6 +456,44 @@ async fn refresh_one(
                 error: e.to_string(),
             }
         }
+    }
+}
+
+/// What the sweep reports for a head fetch its bound dropped, recorded as a
+/// failed sync.
+///
+/// The fetch was cut off before it could record anything itself, so it is
+/// recorded here — when it read the list head — and Home opens on "sync
+/// failed" rather than on rows that silently missed their sync.
+async fn fetch_dropped(
+    runtime: &Arc<dyn ToolRuntime>,
+    tenant_id: &str,
+    user_id: Uuid,
+    provider: &str,
+    params: &ActivityQueryParams,
+    per_connection: Duration,
+) -> RefreshOutcome {
+    warn!(
+        user_id = %user_id,
+        provider = %provider,
+        timeout_secs = per_connection.as_secs(),
+        "Capture sweep: fetch exceeded its bound"
+    );
+    if let (Ok(tenant), true) = (
+        TenantId::parse_str(tenant_id),
+        covers_list_head(params, Utc::now().timestamp()),
+    ) {
+        record_sync_failure(
+            runtime,
+            user_id,
+            tenant,
+            provider,
+            ActivityFetchFailure::FetchError,
+        )
+        .await;
+    }
+    RefreshOutcome::Failed {
+        error: format!("fetch exceeded {}s", per_connection.as_secs()),
     }
 }
 

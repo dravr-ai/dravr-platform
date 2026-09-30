@@ -5,6 +5,7 @@
 // ABOUTME: Pins that a rest day and an uncovered day read differently, and that each tap opens a chat drafted about what was tapped
 
 import React from 'react';
+import { AccessibilityInfo, Platform } from 'react-native';
 import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Svg from 'react-native-svg';
@@ -48,15 +49,17 @@ jest.mock('expo-router', () => {
 });
 
 const mockGetTrainingPlan = jest.fn<Promise<TrainingPlanResponse>, [string?]>();
-const mockGetRecentActivities = jest.fn<Promise<RecentActivitiesResponse>, [number?]>();
-const mockGetActivityRoute = jest.fn<Promise<ActivityRouteResponse>, [string, string]>();
+const mockGetRecentActivities = jest.fn<Promise<RecentActivitiesResponse>, [number?, { retry?: boolean }?]>();
+const mockGetActivityRoute = jest.fn<Promise<ActivityRouteResponse>, [string, string, { retry?: boolean }?]>();
 const mockGetProvidersStatus = jest.fn();
 
 jest.mock('../src/services/api', () => ({
   athleteApi: {
     getTrainingPlan: (locale?: string) => mockGetTrainingPlan(locale),
-    getRecentActivities: (limit?: number) => mockGetRecentActivities(limit),
-    getActivityRoute: (provider: string, id: string) => mockGetActivityRoute(provider, id),
+    getRecentActivities: (limit?: number, options?: { retry?: boolean }) =>
+      options === undefined ? mockGetRecentActivities(limit) : mockGetRecentActivities(limit, options),
+    getActivityRoute: (provider: string, id: string, options?: { retry?: boolean }) =>
+      options === undefined ? mockGetActivityRoute(provider, id) : mockGetActivityRoute(provider, id, options),
   },
   oauthApi: { getProvidersStatus: () => mockGetProvidersStatus() },
 }));
@@ -372,14 +375,119 @@ describe('recent activities', () => {
     );
   });
 
-  it('says the map failed when the route read fails, with a retry', async () => {
-    mockGetActivityRoute.mockRejectedValueOnce(new Error('403')).mockResolvedValue(LATEST_ROUTE_RESPONSE);
+  it('says the map failed when the route read fails twice, with a retry', async () => {
+    // The route query asks once more before it gives up, never the client's default.
+    mockGetActivityRoute
+      .mockRejectedValueOnce(new Error('503'))
+      .mockRejectedValueOnce(new Error('503'))
+      .mockResolvedValue(LATEST_ROUTE_RESPONSE);
+    mockGetRecentActivities.mockResolvedValue(recentResponse({ activities: [ACTIVITIES[0]] }));
+    const screen = renderHome();
+
+    expect(await screen.findByTestId('home-latest-map-failed', {}, { timeout: 4000 })).toHaveTextContent(
+      /^The map couldn't be loaded\./,
+    );
+    expect(mockGetActivityRoute).toHaveBeenCalledTimes(2);
+    fireEvent.press(screen.getByTestId('home-latest-map-retry'));
+    expect(await screen.findByTestId('route-track')).toBeTruthy();
+  });
+
+  it('says the map failed when the server could not read the route just now, and draws it on a retry past it', async () => {
+    mockGetActivityRoute
+      .mockResolvedValueOnce({ route: null, reason: 'unavailable' })
+      .mockResolvedValue(LATEST_ROUTE_RESPONSE);
     mockGetRecentActivities.mockResolvedValue(recentResponse({ activities: [ACTIVITIES[0]] }));
     const screen = renderHome();
 
     expect(await screen.findByTestId('home-latest-map-failed')).toHaveTextContent(/^The map couldn't be loaded\./);
+    expect(screen.queryByTestId('home-latest-map-loading')).toBeNull();
+    expect(screen.queryByTestId('home-latest-no-track')).toBeNull();
     fireEvent.press(screen.getByTestId('home-latest-map-retry'));
     expect(await screen.findByTestId('route-track')).toBeTruthy();
+    expect(mockGetActivityRoute).toHaveBeenCalledTimes(2);
+    // Only a retry the server reads past its stored `unavailable` can draw
+    // the route inside that answer's ten minutes.
+    expect(mockGetActivityRoute).toHaveBeenLastCalledWith(ACTIVITIES[0].provider, ACTIVITIES[0].id, { retry: true });
+  });
+
+  it('names the provider whose sync failed, dates the list from its last good sync once, and retries the sync', async () => {
+    const failure = {
+      provider: 'strava',
+      provider_name: 'Strava',
+      failed_at: '2026-09-29T14:04:00Z',
+      last_synced_at: '2026-09-28T21:15:00Z',
+    };
+    mockGetRecentActivities
+      .mockResolvedValueOnce(recentResponse({ as_of: '2026-09-29T08:02:00Z', sync_failure: failure }))
+      .mockResolvedValue(recentResponse({ stale: true, sync_failure: failure }));
+    const screen = renderHome();
+
+    const failed = await screen.findByTestId('home-activities-sync-failed');
+    expect(failed).toHaveTextContent(/Strava · Sync failed/);
+    expect(failed).not.toHaveTextContent(/Last synced/);
+    expect(screen.getAllByText(/Last synced: /)).toHaveLength(1);
+    expect(screen.getByTestId('home-activities-synced-at')).toHaveTextContent(/28 Sep|Sep 28/);
+    expect(screen.getByTestId('home-activities-sync-retry').props.className ?? '').toContain('min-h-11');
+
+    fireEvent.press(screen.getByTestId('home-activities-sync-retry'));
+    await waitFor(() => expect(mockGetRecentActivities).toHaveBeenLastCalledWith(undefined, { retry: true }));
+    // The refresh the retry started is running: the list says it is checking,
+    // not that the sync failed.
+    expect(await screen.findByTestId('home-activities-refreshing')).toBeTruthy();
+    expect(screen.queryByTestId('home-activities-sync-failed')).toBeNull();
+  });
+
+  it('announces a failed sync to VoiceOver when it appears, since iOS reads no live region', async () => {
+    const originalOS = Platform.OS;
+    (Platform as { OS: string }).OS = 'ios';
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+    mockGetRecentActivities.mockResolvedValue(
+      recentResponse({
+        sync_failure: {
+          provider: 'strava',
+          provider_name: 'Strava',
+          failed_at: '2026-09-29T14:04:00Z',
+          last_synced_at: null,
+        },
+      }),
+    );
+    const screen = renderHome();
+
+    await screen.findByTestId('home-activities-sync-failed');
+    expect(announce).toHaveBeenCalledWith('Strava · Sync failed');
+    announce.mockRestore();
+    (Platform as { OS: string }).OS = originalOS;
+  });
+
+  it('leaves a failed sync to the live region on Android, so TalkBack reads it once', async () => {
+    const originalOS = Platform.OS;
+    (Platform as { OS: string }).OS = 'android';
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+    mockGetRecentActivities.mockResolvedValue(
+      recentResponse({
+        sync_failure: {
+          provider: 'strava',
+          provider_name: 'Strava',
+          failed_at: '2026-09-29T14:04:00Z',
+          last_synced_at: null,
+        },
+      }),
+    );
+    const screen = renderHome();
+
+    const failed = await screen.findByTestId('home-activities-sync-failed');
+    expect(failed).toHaveTextContent(/Strava · Sync failed/);
+    expect(failed.props.accessibilityLiveRegion).toBe('polite');
+    expect(announce).not.toHaveBeenCalled();
+    announce.mockRestore();
+    (Platform as { OS: string }).OS = originalOS;
+  });
+
+  it('says nothing about a failed sync when the last attempt succeeded', async () => {
+    const screen = renderHome();
+
+    expect(await screen.findByTestId('home-activities-synced-at')).toBeTruthy();
+    expect(screen.queryByTestId('home-activities-sync-failed')).toBeNull();
   });
 
   it('points an athlete with no provider at Connections', async () => {

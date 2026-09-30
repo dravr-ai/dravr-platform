@@ -651,6 +651,61 @@ async fn a_limit_of_five_is_filled_when_copies_hold_the_newest_rows() {
     assert_eq!(ids(&body), ["g-1", "g-2", "g-3", "o4", "o5"]);
 }
 
+#[tokio::test]
+async fn a_limit_of_five_is_filled_when_one_connection_split_the_newest_workout() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "recent-split").await;
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(
+            athlete.user_id,
+            athlete.tenant,
+            oauth_providers::STRAVA,
+            &ConnectionType::OAuth,
+            None,
+        )
+        .await
+        .unwrap();
+    resources
+        .common
+        .repos
+        .activity_cache
+        .record_activity_fetch(
+            athlete.user_id,
+            &athlete.tenant,
+            oauth_providers::STRAVA,
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    // One connection, so the read makes room for one copy per workout; the
+    // newest workout was auto-split into two rows three minutes apart, the
+    // two merge into one, and five older runs sit behind them.
+    let split_start = Utc::now() - Duration::hours(3);
+    let mut rows = vec![
+        run("split-a", oauth_providers::STRAVA, split_start),
+        run(
+            "split-b",
+            oauth_providers::STRAVA,
+            split_start + Duration::minutes(43),
+        ),
+    ];
+    rows.extend((1..=5).map(|d| run(&format!("o{d}"), oauth_providers::STRAVA, days_ago(d))));
+    cache(&resources, &athlete, oauth_providers::STRAVA, &rows).await;
+
+    let body = recent(&resources, &athlete.token, "?limit=5").await;
+    assert_eq!(body["stale"], false);
+    let shown = ids(&body);
+    assert_eq!(shown.len(), 5, "{shown:?}");
+    assert_eq!(&shown[1..], ["o1", "o2", "o3", "o4"]);
+    assert!(
+        shown[0] == "split-a" || shown[0] == "split-b",
+        "the split workout is one row on top: {shown:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // has_gps: what the stored route read says, never what the list row lacks
 // ---------------------------------------------------------------------------

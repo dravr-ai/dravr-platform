@@ -57,11 +57,12 @@ mod digest_tests {
         triggers, DispatchOutcome, DispatchRequest, NotificationChannelSink, NotificationEvent,
         NotificationService, PushTier, TenantId as CommTenantId, PERSONA_GATED_DATA_KEY,
     };
+    use pierre_providers::core::ActivityQueryParams;
     use pierre_services::notification_digest_scheduler::{
         session_landed, tick, DIGEST_BATCH_PARAM, PERSONA_DIGEST_TYPE,
     };
     use pierre_services::persona_notification_policy_gate::PersonaNotificationPolicyGate;
-    use pierre_tool_runtime::activity_fetch::write_through_served_window;
+    use pierre_tool_runtime::activity_fetch::write_through::write_through_served_window;
     use pierre_tool_runtime::runtime::ToolRuntime;
 
     const CASUAL_P0_WEEKLY: &str = r"
@@ -868,6 +869,7 @@ personas:
             user,
             &tenant,
             "strava",
+            &ActivityQueryParams::default(),
             slice::from_ref(&first_session),
         )
         .await;
@@ -885,6 +887,7 @@ personas:
             user,
             &tenant,
             "strava",
+            &ActivityQueryParams::default(),
             slice::from_ref(&first_session),
         )
         .await;
@@ -902,6 +905,7 @@ personas:
             user,
             &tenant,
             "garmin",
+            &ActivityQueryParams::default(),
             slice::from_ref(&garmin_copy),
         )
         .await;
@@ -926,6 +930,7 @@ personas:
             user,
             &tenant,
             "strava",
+            &ActivityQueryParams::default(),
             &[second_session, first_session],
         )
         .await;

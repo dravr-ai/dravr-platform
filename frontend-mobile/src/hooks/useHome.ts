@@ -4,10 +4,16 @@
 // ABOUTME: React Query hooks behind the Home tab — recent activities, one activity's route, the plan for today, the provider status
 // ABOUTME: A stale activity answer is followed up on the HOME_STALE_REFETCH_DELAYS_MS schedule, which ends, and only while the app is in use
 
-import { useEffect, useRef, useState } from 'react';
-import { focusManager, useQuery } from '@tanstack/react-query';
-import { HOME_STALE_REFETCH_DELAYS_MS, QUERY_KEYS } from '@pierre/shared-constants';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { focusManager, useQuery, useQueryClient, type Query } from '@tanstack/react-query';
+import {
+  HOME_ROUTE_UNAVAILABLE_RECHECK_DELAYS_MS,
+  HOME_STALE_REFETCH_DELAYS_MS,
+  QUERY_KEYS,
+} from '@pierre/shared-constants';
+import type { ActivityRouteResponse } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
+import { classifyApiError } from '@pierre/ui-logic';
 import { athleteApi, oauthApi } from '../services/api';
 
 /**
@@ -49,11 +55,15 @@ const NO_ANSWER = { dataUpdatedAt: 0, errorUpdateCount: 0 } as const;
  * One schedule runs at a time, on one timer. A stale answer from elsewhere —
  * a refocus, a pull to refresh — changes nothing while a schedule is
  * running, and starts a schedule once none is: an ended schedule is ended
- * for the answer it ended on, never for the ones after it. An answer the
- * cache already holds when the screen mounts, restored from disk or left by
- * an earlier visit, is judged like any other.
+ * for the answer it ended on, never for the ones after it. The athlete's
+ * `retry` after a failed sync is the exception: the refresh it asks the
+ * server for is what the screen waits on now, so it drops the running
+ * schedule and its answer starts one of its own. An answer the cache already
+ * holds when the screen mounts, restored from disk or left by an earlier
+ * visit, is judged like any other.
  */
 export function useRecentActivities() {
+  const queryClient = useQueryClient();
   const query = useQuery({
     // Home asks for the server's default of five; the key says so with a null.
     queryKey: QUERY_KEYS.home.recentActivities(),
@@ -175,9 +185,35 @@ export function useRecentActivities() {
     }
   }, [dataUpdatedAt, errorUpdateCount, stale, refetch]);
 
+  const retry = useCallback(() => {
+    // Forget the running schedule, so the retry's own answer is judged as
+    // the first of a new one.
+    if (timer.current !== null) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+    unsubscribeFocus.current?.();
+    unsubscribeFocus.current = null;
+    phase.current = 'none';
+    asked.current = 0;
+    awaiting.current = false;
+    setStaleRefetch('none');
+    // Written into the entry the screen reads; a failed retry leaves the rows
+    // it had.
+    queryClient
+      .fetchQuery({
+        queryKey: QUERY_KEYS.home.recentActivities(),
+        queryFn: () => athleteApi.getRecentActivities(undefined, { retry: true }),
+        staleTime: 0,
+      })
+      .catch(() => undefined);
+  }, [queryClient]);
+
   return {
     activities: query.data?.activities ?? [],
     asOf: query.data?.as_of ?? null,
+    /** The provider whose latest refresh failed after its last good sync, or null. */
+    syncFailure: query.data?.sync_failure ?? null,
     stale,
     staleRefetch,
     // What the page may say is under way. The server answers `stale` only
@@ -192,7 +228,57 @@ export function useRecentActivities() {
     isError: query.isError,
     isRefetching: query.isRefetching,
     refetch,
+    /** The athlete's retry after a failed sync: the server refreshes the failing provider now. */
+    retry,
   };
+}
+
+/**
+ * Whether a failed route read is asked once more before the map says so.
+ *
+ * Once, not the client's default twice with backoff: a route read can reach
+ * the athlete's provider, the route request is bounded by
+ * `ACTIVITY_ROUTE_REQUEST_TIMEOUT_MS` (30 s, `@pierre/api-client`) rather
+ * than the five minutes the phone's transport gives a chat turn, and each
+ * attempt holds the map on its loading line. After one retry the map says it
+ * could not be loaded and offers a retry of its own. An authorization
+ * refusal, or a 404 for an activity that is not the caller's, is the server's
+ * answer and is not asked again.
+ */
+function retryRouteRead(failureCount: number, error: Error): boolean {
+  const { kind } = classifyApiError(error);
+  if (kind === 'unauthorized' || kind === 'forbidden' || kind === 'notFound') {
+    return false;
+  }
+  return failureCount < 1;
+}
+
+/**
+ * How long a route answer stays fresh: a drawn route or a settled
+ * `too_short` for good — a completed activity's route never changes and the
+ * server stores it after the first read — and every other answer not at all.
+ * `unavailable` is a read that did not settle anything yet, and a `no_gps`
+ * held while the row still says `has_gps: true` is one the server has since
+ * taken back (the query is disabled once the row agrees), so both are asked
+ * again whenever the screen mounts or the app comes back to the foreground.
+ */
+export function routeAnswerStaleTime(query: Query<ActivityRouteResponse>): number {
+  const answer = query.state.data;
+  return answer !== undefined && (answer.route !== null || answer.reason === 'too_short') ? Infinity : 0;
+}
+
+/**
+ * When an `unavailable` route answer is asked again on its own: after each
+ * wait of `HOME_ROUTE_UNAVAILABLE_RECHECK_DELAYS_MS`, counted in answers, and
+ * then never — a schedule with an end, never an interval. The server's read
+ * keeps running past the answer it gave within its bound, and stores what
+ * the provider says, so the next ask can draw it.
+ */
+export function routeRecheckInterval(query: Query<ActivityRouteResponse>): number | false {
+  if (query.state.data?.reason !== 'unavailable') {
+    return false;
+  }
+  return HOME_ROUTE_UNAVAILABLE_RECHECK_DELAYS_MS[query.state.dataUpdateCount - 1] ?? false;
 }
 
 /**
@@ -203,23 +289,38 @@ export function useRecentActivities() {
  * GPS, the answer the row already carries — or the caller draws from the
  * row's own polyline. Every other row may have a route, one whose route was
  * never read included: most providers' activity lists carry no position, so
- * this answer, not the flag, is what says whether there is a track. A
- * completed activity's route never changes and the server stores it after
- * the first read, so the answer is never considered stale.
+ * this answer, not the flag, is what says whether there is a track. A drawn
+ * route is kept for good; `unavailable` is asked again on its own a bounded
+ * number of times ({@link routeRecheckInterval}), in the foreground, and at
+ * the athlete's `retry`, which the server reads past its stored answer.
  */
 export function useActivityRoute(provider: string, activityId: string, enabled: boolean) {
+  const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: QUERY_KEYS.home.activityRoute(provider, activityId),
     queryFn: () => athleteApi.getActivityRoute(provider, activityId),
     enabled,
-    staleTime: Infinity,
+    staleTime: routeAnswerStaleTime,
+    refetchInterval: routeRecheckInterval,
+    retry: retryRouteRead,
   });
+  const retry = useCallback(() => {
+    queryClient
+      .fetchQuery({
+        queryKey: QUERY_KEYS.home.activityRoute(provider, activityId),
+        queryFn: () => athleteApi.getActivityRoute(provider, activityId, { retry: true }),
+        staleTime: 0,
+      })
+      .catch(() => undefined);
+  }, [queryClient, provider, activityId]);
 
   return {
     route: query.data?.route ?? null,
     reason: query.data?.reason ?? null,
     isError: query.isError,
-    refetch: query.refetch,
+    /** True while a read of the route is in flight, the retry's included. */
+    isFetching: query.isFetching,
+    retry,
   };
 }
 

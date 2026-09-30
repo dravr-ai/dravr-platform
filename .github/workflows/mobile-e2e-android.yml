@@ -22,6 +22,9 @@ on:
       - 'packages/shared-types/**'
       - 'packages/ui-logic/**'
       - 'scripts/ci/mobile-e2e-batch.sh'
+      # The scraper double and its control API the Home sync flow scripts.
+      - 'frontend/e2e-real/sciotte-double.ts'
+      - 'frontend/e2e-real/home-sync-control.ts'
       - '.github/workflows/mobile-e2e-android.yml'
   schedule:
     - cron: '0 6 * * *'  # 06:00 UTC nightly (02:00 EDT / 01:00 EST)
@@ -233,6 +236,11 @@ jobs:
           PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
           PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
           PIERRE_LLM_MODEL: "ci-test-model"
+          # home-sync/01 connects the Maestro athlete's Strava through a
+          # scripted stand-in for the sciotte scraper on this port.
+          DRAVR_SCIOTTE_REMOTE_URL: "http://127.0.0.1:8097"
+          # The route request's own bound, shortened as the web e2e-real lane does.
+          PIERRE_HOME_ROUTE_ANSWER_SECS: "5"
 
       - name: Seed test user for Maestro tests
         run: |
@@ -257,6 +265,27 @@ jobs:
           DATABASE_URL: "sqlite:${{ github.workspace }}/data/maestro-android-test.db"
           PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
           RUST_LOG: "info"
+
+      # home-sync/01 scripts the scraper through this process: it runs the
+      # sciotte double on 8097 and a control API on 8098 that the flow's
+      # runScript steps call from the host, and it writes a past sync time
+      # into the server's database, so it is given that file.
+      - name: Start the scraper double for the Home sync flow
+        working-directory: frontend
+        run: |
+          nohup bun e2e-real/home-sync-control.ts > /tmp/home-sync-control.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8098/health > /dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8098/health
+        env:
+          PIERRE_URL: "http://127.0.0.1:8081"
+          SCIOTTE_DOUBLE_PORT: "8097"
+          SCIOTTE_CONTROL_PORT: "8098"
+          E2E_REAL_DATABASE_PATH: "${{ github.workspace }}/data/maestro-android-test.db"
+          HOME_SYNC_EMAIL: "mobiletest@pierre.dev"
+          HOME_SYNC_PASSWORD: "MobileTest1234"
 
       - name: Enable KVM for Android emulator
         run: |
@@ -355,7 +384,11 @@ jobs:
           # second is the check carnet#353 (keyboard covering the field on a short screen)
           # made fail; FormScrollView fixed it, and login/07 is here to keep it fixed.
           echo "Running critical-path subset with per-test retry..."
-          CRITICAL_TESTS="login/01-show-login-screen.yaml login/02-show-email-password-inputs.yaml login/06-successful-login.yaml login/07-invalid-credentials.yaml settings/06-hallucinated-stats.yaml chat/01-basic-visibility.yaml store/04-search-functionality.yaml store/10-pull-to-refresh.yaml voice-input/01-button-visibility.yaml"
+          # home-sync/01 runs last: it connects the shared Maestro athlete's Strava
+          # through the scraper double, and each of its attempts resets that
+          # athlete's activity state before it starts. Its copy assertions accept
+          # English and French, so the chrome's language does not decide it.
+          CRITICAL_TESTS="login/01-show-login-screen.yaml login/02-show-email-password-inputs.yaml login/06-successful-login.yaml login/07-invalid-credentials.yaml settings/06-hallucinated-stats.yaml chat/01-basic-visibility.yaml store/04-search-functionality.yaml store/10-pull-to-refresh.yaml voice-input/01-button-visibility.yaml home-sync/01-sync-failed-retry-lands-rides-and-map.yaml"
 
           # The list is unconditional now, so an empty one means someone edited it to
           # nothing — which under the guard below would silently report a green run of
@@ -527,6 +560,7 @@ jobs:
             frontend-mobile/.maestro/
             /tmp/android-crash.txt
             /tmp/pierre-server.log
+            /tmp/home-sync-control.log
             /tmp/android-summary.txt
             /home/runner/.maestro/tests/
           retention-days: 1

@@ -239,6 +239,30 @@ match database {
 EOF
 }
 
+# A converged pair whose shared SQL moved into the trait module's own
+# submodule (repositories/<name>/sql.rs) is still one copy: editing it passes.
+case_converged_pair_with_sql_submodule_passes() {
+    local r="$1"
+    mkdir -p "$r/crates/pierre-database/src/repositories/split"
+    echo 'pub mod sql;' > "$r/crates/pierre-database/src/repositories/split.rs"
+    cat > "$r/crates/pierre-database/src/repositories/split/sql.rs" <<'EOF'
+pub(crate) const PICK_SPLIT_SQL: &str = "SELECT a FROM t WHERE id = $1";
+EOF
+    echo 'use crate::repositories::split::sql::PICK_SPLIT_SQL; impl_split_repository!(Database);' \
+        > "$r/crates/pierre-database/src/database/split.rs"
+    echo 'use crate::repositories::split::sql::PICK_SPLIT_SQL; impl_split_repository!(PostgresDatabase);' \
+        > "$r/crates/pierre-database/src/backends/postgres/split.rs"
+}
+
+# A submodule holding shared SQL does not excuse a side that still spells out
+# its own statement.
+case_sql_submodule_does_not_excuse_a_duplicate_side() {
+    local r="$1"
+    case_converged_pair_with_sql_submodule_passes "$r"
+    echo 'use crate::repositories::split::sql::PICK_SPLIT_SQL; sqlx::query("SELECT a FROM t WHERE id = $1");' \
+        > "$r/crates/pierre-database/src/backends/postgres/split.rs"
+}
+
 run_case new_duplicate_pair_fails 1
 run_case editing_converged_pair_passes 0
 run_case lock_clause_literal_is_not_sql 0
@@ -250,6 +274,8 @@ run_case differently_named_half_converted_pair_fails 1
 run_case nested_sqlite_impl_pair_fails 1
 run_case pair_outside_the_database_crate_fails 1
 run_case query_time_backend_split_fails 1
+run_case converged_pair_with_sql_submodule_passes 0
+run_case sql_submodule_does_not_excuse_a_duplicate_side 1
 
 # A base the diff cannot resolve — the all-zeros sha CI passes on a branch's
 # first push, or a ref a fresh worktree lacks — must not read as "nothing

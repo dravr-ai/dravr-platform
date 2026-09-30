@@ -146,6 +146,7 @@ export { addCivilDays, mondayOf, planDayOn, phaseWeekOn } from './plan-calendar.
 export type {
   HomeActivity,
   RecentActivitiesResponse,
+  SyncFailure,
   ActivityRouteUnavailableReason,
   ActivityRouteResponse,
   TrainingPlanResponse,

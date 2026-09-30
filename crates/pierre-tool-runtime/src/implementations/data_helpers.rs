@@ -211,20 +211,42 @@ pub fn provider_unavailable_note(display_name: &str) -> Value {
     })
 }
 
-/// Why the elected provider's window was served by the athlete's other
-/// connections, keyed by that provider's backend.
+/// Build the `provider_unavailable` sidecar for a window served from the
+/// elected provider's own cache after its live read failed.
+///
+/// The rows are the provider's, as the platform last synced them, so nothing
+/// is missing but what it recorded since: the note says that, keeps the
+/// connection intact (no reconnect is owed), and tells the agent not to read
+/// the window's end as the athlete's last session. Same key and shape as
+/// [`provider_unavailable_note`], so it reaches the model by the same routes.
+#[must_use]
+pub fn provider_stale_note(display_name: &str) -> Value {
+    json!({
+        "provider": display_name,
+        "note": format!(
+            "{display_name} could not be read just now, so the activities above are what was last synced from it: sessions recorded since may be missing, and its connection is intact, so do not ask the athlete to reconnect it. Answer the question from the activities shown, then add one short sentence that the newest {display_name} sessions may not be in this answer."
+        ),
+    })
+}
+
+/// Why the elected provider's window was not its own live read, keyed by that
+/// provider's backend: the athlete's other connections served it, or its own
+/// cached window did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PrimaryStandIn {
     /// Its grant or session is dead: the athlete must reconnect it.
     Dead(String),
     /// It could not answer just now, and its connection stands.
     Unreachable(String),
+    /// Its live read failed, or answered nothing over a window the cache
+    /// holds its activities in, and its own cached window answered instead.
+    Stale(String),
 }
 
 impl PrimaryStandIn {
     /// The sidecar the served window carries for it, and the key it rides
     /// under: `reconnect_required` for a dead provider, `provider_unavailable`
-    /// for one that could not answer.
+    /// for one that could not answer or was served from its cache.
     #[must_use]
     pub fn caveat(&self) -> (&'static str, Value) {
         match self {
@@ -235,6 +257,10 @@ impl PrimaryStandIn {
             Self::Unreachable(backend) => (
                 "provider_unavailable",
                 provider_unavailable_note(user_facing_name(backend)),
+            ),
+            Self::Stale(backend) => (
+                "provider_unavailable",
+                provider_stale_note(user_facing_name(backend)),
             ),
         }
     }

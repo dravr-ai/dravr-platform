@@ -105,6 +105,7 @@ describe('parseRecentActivitiesResponse', () => {
     expect(parseRecentActivitiesResponse({ activities: [], as_of: null, stale: false })).toEqual({
       activities: [],
       as_of: null,
+      sync_failure: null,
       stale: false,
     });
   });
@@ -117,6 +118,65 @@ describe('parseRecentActivitiesResponse', () => {
     expect(parsed?.activities[0].summary_polyline).toBeNull();
     expect(parsed?.as_of).toBeNull();
     expect(parsed?.stale).toBe(true);
+  });
+
+  it("reads the failed sync with its provider and that provider's last good sync", () => {
+    const failed = parseRecentActivitiesResponse({
+      activities: [outdoorRide],
+      as_of: '2026-09-29T14:02:00Z',
+      sync_failure: {
+        provider: 'strava',
+        provider_name: 'Strava',
+        failed_at: '2026-09-29T14:04:00Z',
+        last_synced_at: '2026-09-29T05:15:00Z',
+      },
+      stale: false,
+    });
+    expect(failed?.sync_failure).toEqual({
+      provider: 'strava',
+      provider_name: 'Strava',
+      failed_at: '2026-09-29T14:04:00Z',
+      last_synced_at: '2026-09-29T05:15:00Z',
+    });
+    expect(failed?.as_of).toBe('2026-09-29T14:02:00Z');
+  });
+
+  it('reads an omitted sync_failure, and a provider never synced well, as null', () => {
+    expect(parseRecentActivitiesResponse({ activities: [], as_of: null, stale: false })?.sync_failure).toBeNull();
+    expect(
+      parseRecentActivitiesResponse({ activities: [], as_of: null, sync_failure: null, stale: false })?.sync_failure,
+    ).toBeNull();
+    expect(
+      parseRecentActivitiesResponse({
+        activities: [],
+        as_of: null,
+        sync_failure: {
+          provider: 'strava',
+          provider_name: 'Strava',
+          failed_at: '2026-09-29T14:04:00Z',
+          last_synced_at: null,
+        },
+        stale: true,
+      })?.sync_failure?.last_synced_at,
+    ).toBeNull();
+  });
+
+  it.each([
+    ['a bare instant', '2026-09-29T14:04:00Z'],
+    ['no provider', { provider: '', provider_name: 'Strava', failed_at: '2026-09-29T14:04:00Z', last_synced_at: null }],
+    ['no provider name', { provider: 'strava', failed_at: '2026-09-29T14:04:00Z', last_synced_at: null }],
+    [
+      'a failed_at that is not an instant',
+      { provider: 'strava', provider_name: 'Strava', failed_at: 'earlier', last_synced_at: null },
+    ],
+    [
+      'a last_synced_at that is not an instant',
+      { provider: 'strava', provider_name: 'Strava', failed_at: '2026-09-29T14:04:00Z', last_synced_at: 7 },
+    ],
+  ])('refuses a sync_failure with %s', (_label, syncFailure) => {
+    expect(
+      parseRecentActivitiesResponse({ activities: [], as_of: null, sync_failure: syncFailure, stale: false }),
+    ).toBeNull();
   });
 
   it('refuses the whole list when one row is malformed', () => {
@@ -184,6 +244,14 @@ describe('parseActivityRouteResponse', () => {
       expect(parseActivityRouteResponse({ route: null, reason })).toEqual({ route: null, reason });
     },
   );
+
+  it('reads a route that could not be read just now as unavailable, not as no GPS', () => {
+    expect(ACTIVITY_ROUTE_UNAVAILABLE_REASONS).toContain('unavailable');
+    expect(parseActivityRouteResponse({ route: null, reason: 'unavailable' })).toEqual({
+      route: null,
+      reason: 'unavailable',
+    });
+  });
 
   it('refuses a body that sets both, neither, or an unknown reason', () => {
     expect(parseActivityRouteResponse({ route, reason: 'no_gps' })).toBeNull();

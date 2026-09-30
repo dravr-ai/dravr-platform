@@ -50,7 +50,7 @@ use pierre_fitness_compute::{encode_polyline, DEFAULT_PRIVACY_RADIUS_METERS};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_mcp_server::services::activity_route::{
-    HOME_ROUTE_MAX_POINTS, UNPROVEN_NO_GPS_RECHECK_HOURS,
+    HOME_ROUTE_MAX_POINTS, UNREAD_ROUTE_RECHECK_MINUTES,
 };
 use pierre_routes_auth::OAuthService;
 use pierre_services::provider_revocation::DisconnectReason;
@@ -299,25 +299,28 @@ async fn expire_route_reads(resources: &ServerContext, user_id: Uuid) {
     }
 }
 
-/// Assert the activity's stored read is an unproven `no_gps` that expires a
-/// recheck period after it was made, somewhere between `before` and now.
-async fn assert_stored_unproven_no_gps(
+/// Assert the activity's stored read is an `unavailable` answer that expires
+/// a recheck period after it was made, somewhere between `before` and now.
+async fn assert_stored_unavailable(
     resources: &Arc<ServerContext>,
     athlete: &Athlete,
     provider: &str,
     activity_id: &str,
     before: DateTime<Utc>,
 ) {
-    let recheck = Duration::hours(UNPROVEN_NO_GPS_RECHECK_HOURS);
+    let recheck = Duration::minutes(UNREAD_ROUTE_RECHECK_MINUTES);
     let Some(StoredRouteTrack::Unavailable {
         source,
         reason,
         expires_at: Some(expires_at),
     }) = stored(resources, athlete, provider, activity_id).await
     else {
-        panic!("{activity_id}: expected an expiring no_gps read");
+        panic!("{activity_id}: expected an expiring unavailable read");
     };
-    assert_eq!((source.as_str(), reason.as_str()), ("streams", "no_gps"));
+    assert_eq!(
+        (source.as_str(), reason.as_str()),
+        ("streams", "unavailable")
+    );
     assert!(
         before + recheck <= expires_at && expires_at <= Utc::now() + recheck,
         "{activity_id} expires {expires_at}, a recheck period after the read"
@@ -453,6 +456,77 @@ async fn mock_strava_serving(
     (format!("http://{addr}"), hits)
 }
 
+/// A Strava-shaped mock whose streams endpoint answers `404`, as Strava does
+/// for a manual entry: the activity exists and holds no samples.
+async fn mock_strava_manual_entry() -> (String, Arc<Hits>) {
+    let hits = Arc::new(Hits::default());
+    let detail_hits = Arc::clone(&hits);
+    let stream_hits = Arc::clone(&hits);
+    let app = Router::new()
+        .route(
+            "/activities/{id}",
+            get(move || {
+                let hits = Arc::clone(&detail_hits);
+                async move {
+                    hits.detail.fetch_add(1, Ordering::SeqCst);
+                    Json(json!({
+                        "id": 55_021,
+                        "name": "Spin class",
+                        "type": "Ride",
+                        "sport_type": "Ride",
+                        "start_date": (Utc::now() - Duration::days(2)).to_rfc3339(),
+                        "elapsed_time": 3_600,
+                        "distance": 30_000.0,
+                        "manual": true
+                    }))
+                }
+            }),
+        )
+        .route(
+            "/activities/{id}/streams",
+            get(move || {
+                let hits = Arc::clone(&stream_hits);
+                async move {
+                    hits.streams.fetch_add(1, Ordering::SeqCst);
+                    (
+                        HttpStatus::NOT_FOUND,
+                        Json(json!({
+                            "message": "Resource Not Found",
+                            "errors": [{ "resource": "Activity", "field": "", "code": "not found" }]
+                        })),
+                    )
+                }
+            }),
+        );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    (format!("http://{addr}"), hits)
+}
+
+/// A mock of a provider API that counts every request it is sent and
+/// answers none of them usefully: a provider integration with no stream
+/// source must never be asked for a route.
+async fn mock_counting_every_request() -> (String, Arc<AtomicUsize>) {
+    let requests = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&requests);
+    let app = Router::new().fallback(move || {
+        let counted = Arc::clone(&counted);
+        async move {
+            counted.fetch_add(1, Ordering::SeqCst);
+            HttpStatus::INTERNAL_SERVER_ERROR
+        }
+    });
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    (format!("http://{addr}"), requests)
+}
+
 /// A keyed stream set for `track`, climbing 0.3 m a sample, or with no GPS
 /// channel at all when `track` is empty (a trainer ride).
 fn streams_for(track: &[(f64, f64)]) -> Value {
@@ -482,13 +556,18 @@ fn strava_at(api_base: String) -> EnvGuard {
 }
 
 async fn link_strava(resources: &Arc<ServerContext>, athlete: &Athlete) {
+    link_oauth(resources, athlete, "strava").await;
+}
+
+/// Connect `provider` over OAuth with a live access token.
+async fn link_oauth(resources: &Arc<ServerContext>, athlete: &Athlete, provider: &str) {
     let repos = &resources.common.repos;
     repos
         .provider_connections
         .register_connection(
             athlete.user_id,
             athlete.tenant,
-            "strava",
+            provider,
             &ConnectionType::OAuth,
             None,
         )
@@ -501,7 +580,7 @@ async fn link_strava(resources: &Arc<ServerContext>, athlete: &Athlete) {
             id: Uuid::new_v4().to_string(),
             user_id: athlete.user_id,
             tenant_id: athlete.tenant.to_string(),
-            provider: "strava".to_owned(),
+            provider: provider.to_owned(),
             // >= 40 chars and not "at_"-prefixed: the provider's token validation.
             access_token: "strava_access_token_0123456789abcdef0123456789".to_owned(),
             refresh_token: Some("strava_refresh".to_owned()),
@@ -745,13 +824,109 @@ async fn a_trainer_ride_answers_no_gps_and_is_not_read_again() {
     assert!(!listed_has_gps(&resources, &athlete.token, "55002").await);
 }
 
+/// A manual Strava entry has no samples: Strava's streams endpoint answers
+/// `404`. That is Strava's word that nothing was recorded, so it settles
+/// `no_gps` for good, instead of "map could not be loaded" and a detail and a
+/// streams call against the app-wide rate limit every ten minutes.
+#[tokio::test]
+#[serial]
+async fn a_manual_strava_entry_whose_streams_are_a_404_answers_no_gps_and_stands() {
+    let (api_base, hits) = mock_strava_manual_entry().await;
+    let _env = strava_at(api_base);
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "route-manual").await;
+    link_strava(&resources, &athlete).await;
+    cache(
+        &resources,
+        athlete.user_id,
+        athlete.tenant,
+        "strava",
+        &[ride_without_position("55021")],
+    )
+    .await;
+
+    let (status, body) = route_of(&resources, &athlete.token, "strava", "55021").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body, json!({ "route": null, "reason": "no_gps" }));
+    assert_eq!(hits.counts(), (1, 1));
+    assert_eq!(
+        stored(&resources, &athlete, "strava", "55021").await,
+        Some(StoredRouteTrack::Unavailable {
+            source: "streams".to_owned(),
+            reason: "no_gps".to_owned(),
+            expires_at: None,
+        }),
+        "a streams 404 settles the answer: it never expires"
+    );
+    assert!(!listed_has_gps(&resources, &athlete.token, "55021").await);
+    let (_, again) = route_of(&resources, &athlete.token, "strava", "55021").await;
+    assert_eq!(again, body);
+    assert_eq!(hits.counts(), (1, 1), "never read again");
+}
+
+/// WHOOP serves a workout without samples, whatever it recorded: the
+/// integration has no stream source. Its route is settled `no_gps` without a
+/// single request to WHOOP, and stands — never "map could not be loaded"
+/// with a WHOOP read every ten minutes.
+#[cfg(feature = "provider-whoop")]
+#[tokio::test]
+#[serial]
+async fn a_provider_with_no_stream_source_answers_no_gps_without_a_read() {
+    let (api_base, requests) = mock_counting_every_request().await;
+    let _env = EnvGuard::set(&[
+        ("PIERRE_WHOOP_API_BASE_URL", api_base.clone()),
+        ("PIERRE_WHOOP_TOKEN_URL", format!("{api_base}/oauth/token")),
+        ("WHOOP_CLIENT_ID", "whoop_client".to_owned()),
+        ("WHOOP_CLIENT_SECRET", "whoop_secret".to_owned()),
+    ]);
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "route-whoop").await;
+    link_oauth(&resources, &athlete, "whoop").await;
+    let workout = ActivityBuilder::new(
+        "whoop-7",
+        "Functional fitness",
+        SportType::Workout,
+        Utc::now() - Duration::days(1),
+        2_700,
+        "whoop",
+    )
+    .build();
+    cache(
+        &resources,
+        athlete.user_id,
+        athlete.tenant,
+        "whoop",
+        &[workout],
+    )
+    .await;
+
+    let (status, body) = route_of(&resources, &athlete.token, "whoop", "whoop-7").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body, json!({ "route": null, "reason": "no_gps" }));
+    assert_eq!(
+        requests.load(Ordering::SeqCst),
+        0,
+        "WHOOP was asked nothing"
+    );
+    assert_eq!(
+        stored(&resources, &athlete, "whoop", "whoop-7").await,
+        Some(StoredRouteTrack::Unavailable {
+            source: "streams".to_owned(),
+            reason: "no_gps".to_owned(),
+            expires_at: None,
+        })
+    );
+    assert!(!listed_has_gps(&resources, &athlete.token, "whoop-7").await);
+    assert_eq!(requests.load(Ordering::SeqCst), 0);
+}
+
 // ---------------------------------------------------------------------------
-// A detail read with no stream set proves nothing: its no_gps expires
+// A detail read with no stream set proves nothing: it is unavailable, briefly
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
 #[serial]
-async fn a_mirror_detail_read_with_no_route_is_read_again_once_its_answer_expires() {
+async fn a_mirror_detail_read_with_no_route_is_unavailable_and_read_again_once_it_expires() {
     let recorded = weaving_track(900, 0.0);
     let (scraper, reads) = mock_scraper_missing_the_route_first(&recorded, 1).await;
     let _env = EnvGuard::set(&[("DRAVR_SCIOTTE_REMOTE_URL", scraper)]);
@@ -770,12 +945,12 @@ async fn a_mirror_detail_read_with_no_route_is_read_again_once_its_answer_expire
     let before = Utc::now();
     let (status, body) = route_of(&resources, &athlete.token, "strava", "m2").await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body, json!({ "route": null, "reason": "no_gps" }));
+    assert_eq!(body, json!({ "route": null, "reason": "unavailable" }));
     assert_eq!(reads.load(Ordering::SeqCst), 1);
-    assert_stored_unproven_no_gps(&resources, &athlete, "sciotte", "m2", before).await;
+    assert_stored_unavailable(&resources, &athlete, "sciotte", "m2", before).await;
     assert!(
-        !listed_has_gps(&resources, &athlete.token, "m2").await,
-        "until it expires, the stored answer is what the list says"
+        listed_has_gps(&resources, &athlete.token, "m2").await,
+        "a read that settled nothing never tells the list the ride has no GPS"
     );
     let (_, again) = route_of(&resources, &athlete.token, "strava", "m2").await;
     assert_eq!(again, body);
@@ -809,7 +984,7 @@ async fn a_mirror_detail_read_with_no_route_is_read_again_once_its_answer_expire
 
 #[tokio::test]
 #[serial]
-async fn a_streams_request_that_failed_answers_no_gps_until_it_expires() {
+async fn a_streams_request_that_failed_answers_unavailable_until_it_expires() {
     let recorded = weaving_track(900, 0.0);
     let (api_base, hits) = mock_strava_failing_streams_first(streams_for(&recorded), 1).await;
     let _env = strava_at(api_base);
@@ -828,9 +1003,10 @@ async fn a_streams_request_that_failed_answers_no_gps_until_it_expires() {
     let before = Utc::now();
     let (status, body) = route_of(&resources, &athlete.token, "strava", "55011").await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body, json!({ "route": null, "reason": "no_gps" }));
+    assert_eq!(body, json!({ "route": null, "reason": "unavailable" }));
     assert_eq!(hits.counts(), (1, 1));
-    assert_stored_unproven_no_gps(&resources, &athlete, "strava", "55011", before).await;
+    assert_stored_unavailable(&resources, &athlete, "strava", "55011", before).await;
+    assert!(listed_has_gps(&resources, &athlete.token, "55011").await);
 
     expire_route_reads(&resources, athlete.user_id).await;
     let (status, body) = route_of(&resources, &athlete.token, "strava", "55011").await;

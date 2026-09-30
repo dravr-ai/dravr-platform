@@ -221,6 +221,7 @@ user_owned_tables!(
     "activity_backfill_coverage",
     "activity_backfill_jobs",
     "activity_fetch_freshness",
+    "activity_fetch_failures",
     "backfill_push_log",
     "sleep_sessions",
     "recovery_metrics",

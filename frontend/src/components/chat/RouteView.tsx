@@ -35,6 +35,7 @@ export default function RouteView({ view }: { view: RouteViewData }) {
   const { t } = useTranslation();
   const { scheme } = useTheme();
   const container = useRef<HTMLDivElement | null>(null);
+  const figure = useRef<HTMLElement | null>(null);
   const map = useRef<MapLibreMap | null>(null);
 
   const track = useMemo(() => trackGeometry(view.coordinates), [view.coordinates]);
@@ -57,6 +58,8 @@ export default function RouteView({ view }: { view: RouteViewData }) {
   useEffect(() => {
     const node = container.current;
     if (!node) return;
+    // The figure the map sits in, rendered with it.
+    const frame = figure.current;
 
     let live = true;
     let instance: MapLibreMap | null = null;
@@ -104,11 +107,23 @@ export default function RouteView({ view }: { view: RouteViewData }) {
 
       created.addControl(new AttributionControl({ compact: true }), 'bottom-left');
       created.addControl(new NavigationControl({ showCompass: false }), 'bottom-right');
+      // The compact attribution opens itself expanded on load, and on a phone-
+      // width card the open pill covered the lower third of the route. It is
+      // folded on the map's one load and stays one tap away behind its button.
+      created.on('load', () => {
+        node
+          .querySelector('.maplibregl-ctrl-attrib')
+          ?.classList.remove('maplibregl-compact-show');
+      });
 
       // A style swap discards every source and layer with it, so the track is
-      // painted on each style load rather than once after the first.
+      // painted on each style load rather than once after the first. The
+      // figure says once it is — `data-route-drawn` — since the canvas alone
+      // cannot tell a drawn route from an empty map, which is what the
+      // athlete got when the tile worker could not load.
       created.on('style.load', () => {
         addRouteLayers(created, track, climbs, paint.current.ink);
+        frame?.setAttribute('data-route-drawn', 'true');
       });
     })();
 
@@ -116,6 +131,7 @@ export default function RouteView({ view }: { view: RouteViewData }) {
       live = false;
       instance?.remove();
       map.current = null;
+      frame?.removeAttribute('data-route-drawn');
     };
   }, [bounds, climbs, track]);
 
@@ -137,7 +153,7 @@ export default function RouteView({ view }: { view: RouteViewData }) {
     : t('chat.routeAlt');
 
   return (
-    <figure className="my-4" aria-label={label}>
+    <figure ref={figure} className="my-4" aria-label={label}>
       {view.title && (
         <figcaption className="mb-2 text-sm font-medium text-on-surface">{view.title}</figcaption>
       )}

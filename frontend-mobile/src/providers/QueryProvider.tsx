@@ -3,16 +3,24 @@
 
 import React, { useMemo, useRef } from 'react';
 import { AppState, type AppStateStatus, Platform, View } from 'react-native';
-import { MutationCache, QueryClient, focusManager } from '@tanstack/react-query';
+import {
+  MutationCache,
+  QueryClient,
+  defaultShouldDehydrateQuery,
+  focusManager,
+  type Query,
+} from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import Toast from 'react-native-toast-message';
 import {
   IdleWatch,
   QUERY_FOCUS_POLICY,
+  QUERY_KEYS,
   idleAbort,
   registerIdleWatch,
   resetIdleAbort,
 } from '@pierre/shared-constants';
+import type { ActivityRouteResponse } from '@pierre/shared-types';
 import {
   classifyApiError,
   describeApiError,
@@ -29,6 +37,30 @@ import { useTranslation } from '@pierre/i18n';
 
 interface QueryProviderProps {
   children: React.ReactNode;
+}
+
+/**
+ * Whether a query is written to disk: every one the default keeps, except a
+ * Home route answer without a route.
+ *
+ * A drawn route never changes and is worth carrying across launches. An
+ * answer without one can be taken back by the server — `unavailable` is a
+ * read that has not settled yet, and on 2026-09-29 a failing scraper had
+ * `no_gps` stored for rides that recorded GPS — and one restored from disk
+ * would be read as current on every launch, for up to the cache's seven
+ * days, while the server says otherwise. Left in memory, it is asked again
+ * on the next launch.
+ */
+export function persistsQuery(query: Query): boolean {
+  if (!defaultShouldDehydrateQuery(query)) {
+    return false;
+  }
+  const [scope, resource] = query.queryKey;
+  const [homeScope, routeResource] = QUERY_KEYS.home.activityRoutes;
+  if (scope !== homeScope || resource !== routeResource) {
+    return true;
+  }
+  return (query.state.data as ActivityRouteResponse | undefined)?.route != null;
 }
 
 /**
@@ -222,9 +254,13 @@ export function QueryProvider({ children }: QueryProviderProps) {
         maxAge: CACHE_TIMES.MAX_CACHE_AGE,
         // Changing the buster drops every persisted query. It moves whenever a
         // cached response changes shape, so a new bundle never renders a
-        // response its components no longer read: v2 is the group health flag
-        // `evidence` and the weekly report's `fresh_members`.
-        buster: 'v2',
+        // response its components no longer read: v2 was the group health
+        // flag `evidence` and the weekly report's `fresh_members`; v3 is
+        // Home's `sync_failure`, and it drops the `no_gps` route answers the
+        // 2026-09-29 scraper outage left on phones — the server has since
+        // taken them back.
+        buster: 'v3',
+        dehydrateOptions: { shouldDehydrateQuery: persistsQuery },
       }}
     >
       <View

@@ -434,6 +434,21 @@ pub trait FitnessProvider: Send + Sync {
         self.get_activity(id).await
     }
 
+    /// Whether this integration reads an activity's recorded samples at all:
+    /// whether [`get_activity_with_streams`](Self::get_activity_with_streams)
+    /// has a sample source behind it.
+    ///
+    /// `false` by default, and for every integration that inherits the
+    /// streams-less default below: WHOOP, COROS, Terra and the direct Garmin
+    /// API serve an activity without samples, whatever it recorded
+    /// (registre#6 tracks the roster). A caller that needs a track asks this
+    /// before spending a detail read that can never carry one — the Home
+    /// route read settles such an activity as having no track to draw instead
+    /// of retrying a read that cannot succeed.
+    fn serves_activity_streams(&self) -> bool {
+        false
+    }
+
     /// Get one activity with its per-second time-series streams attached,
     /// where the provider integration has a sample source.
     ///
@@ -448,6 +463,12 @@ pub trait FitnessProvider: Send + Sync {
     /// [`crate::models::TimeSeriesData`] cannot be attached to a built
     /// [`Activity`], so overrides populate it on the builder inside their
     /// own fetch.
+    ///
+    /// On an integration that [serves streams](Self::serves_activity_streams)
+    /// the two absent answers are kept apart: a stream set of zero samples
+    /// ([`no_recorded_samples`]) is the provider saying the activity recorded
+    /// none — a manual entry, a ride without a sensor — while `None` is a
+    /// read that did not reach the samples, which proves nothing about them.
     async fn get_activity_with_streams(&self, id: &str) -> AppResult<Activity> {
         self.get_activity_detailed(id).await
     }
@@ -458,8 +479,9 @@ pub trait FitnessProvider: Send + Sync {
     /// and needs only its samples: where a provider serves streams on their
     /// own endpoint this is one round trip, where
     /// [`get_activity_with_streams`](Self::get_activity_with_streams) pays two.
-    /// The default reads the series off that fuller fetch. `Ok(None)` is an
-    /// activity recorded without samples, or a provider with no stream source.
+    /// The default reads the series off that fuller fetch. `Ok(None)` is a
+    /// provider with no stream source; an activity the provider holds no
+    /// samples for is a stream set of zero samples ([`no_recorded_samples`]).
     async fn get_activity_streams(&self, id: &str) -> AppResult<Option<TimeSeriesData>> {
         Ok(self
             .get_activity_with_streams(id)
@@ -578,6 +600,30 @@ pub fn planned_workouts_unsupported(provider: &str) -> AppError {
     ))
 }
 
+/// The stream set of an activity its provider holds no samples for: zero
+/// samples on every channel.
+///
+/// The answer a streams read gives when it reached the provider and the
+/// provider has nothing — Strava's streams endpoint answering `404` for a
+/// manual entry, or a stream set without a single channel, a scraped detail
+/// whose route holds no coordinates. It is kept apart from `None`, a read
+/// that never reached the samples, so a caller can tell "recorded no GPS"
+/// from "could not read it just now".
+#[must_use]
+pub const fn no_recorded_samples() -> TimeSeriesData {
+    TimeSeriesData {
+        timestamps: Vec::new(),
+        heart_rate: None,
+        power: None,
+        cadence: None,
+        speed: None,
+        altitude: None,
+        temperature: None,
+        gps_coordinates: None,
+        distance: None,
+    }
+}
+
 /// Provider factory for creating instances
 pub trait ProviderFactory: Send + Sync {
     /// Create a new provider instance with the given configuration.
@@ -688,6 +734,12 @@ impl FitnessProvider for TenantProvider {
     // endpoint (Strava, Garmin) to its summary shape — laps and splits gone.
     async fn get_activity_detailed(&self, id: &str) -> AppResult<Activity> {
         self.inner.get_activity_detailed(id).await
+    }
+
+    // Same rule as the detail forward above: without it, every tenant-scoped
+    // provider would report no stream source.
+    fn serves_activity_streams(&self) -> bool {
+        self.inner.serves_activity_streams()
     }
 
     // Same rule as the detail forward above: without it, every tenant-scoped

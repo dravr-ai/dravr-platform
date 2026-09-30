@@ -27,7 +27,8 @@ use pierre_providers::core::ActivityQueryParams;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use crate::activity_fetch::{activity_cache_retention_days, write_through_activity_cache};
+use crate::activity_fetch::activity_cache_retention_days;
+use crate::activity_fetch::write_through::{write_through_activity_cache, WriteThrough};
 use crate::group_activity_cache::fetch_member_activities;
 use crate::implementations::stored_physiology::member_athlete_inputs;
 use crate::protocol::AuthService;
@@ -152,7 +153,10 @@ impl ActivityMergeStrategy for AllProvidersMerge {
                         tenant_id,
                         &provider_name,
                         &fetched.activities,
-                        activity_cache_retention_days(),
+                        WriteThrough {
+                            retention_days: activity_cache_retention_days(),
+                            read: &params,
+                        },
                     )
                     .await;
                 } else {

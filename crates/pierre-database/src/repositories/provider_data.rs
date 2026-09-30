@@ -23,7 +23,8 @@
 //!   in `best_effort_scans`, and how far the walk of the provider's history
 //!   for them got in `personal_best_seeds`, so a reconnect walks it again;
 //! - the sync state that describes those rows: `sync_state` cursors,
-//!   `activity_fetch_freshness` marks, `activity_backfill_coverage` depth and
+//!   `activity_fetch_freshness` marks, `activity_fetch_failures` records,
+//!   `activity_backfill_coverage` depth and
 //!   owed `activity_backfill_jobs`. Left behind, they would tell a reconnect
 //!   that an emptied cache is fresh and fully backfilled, and it would never
 //!   read the history again.
@@ -33,7 +34,8 @@
 //!
 //! Every id column compared here is `TEXT` on both engines except in
 //! `personal_best_efforts`, `best_effort_scans`, `personal_best_seeds`,
-//! `activity_fetch_freshness` and `activity_backfill_coverage` (both ids) and
+//! `activity_fetch_freshness`, `activity_fetch_failures` and
+//! `activity_backfill_coverage` (both ids) and
 //! `activity_backfill_jobs` (`tenant_id`), which are `uuid` on Postgres. Those
 //! compare `CAST(column AS TEXT)` against the hyphenated id, the same shape
 //! [`super::user_references`] uses, so one statement serves both engines.
@@ -93,7 +95,7 @@ macro_rules! provider_sources {
 
 /// What a user's disconnect deletes, in order: `(table, statement)`, each
 /// statement binding `$1` user id, `$2` tenant id and `$3` provider.
-pub(crate) const USER_PROVIDER_PURGE_SQL: [(&str, &str); 15] = [
+pub(crate) const USER_PROVIDER_PURGE_SQL: [(&str, &str); 16] = [
     (
         "data_point_series",
         concat!("DELETE FROM data_point_series WHERE ", user_sources!()),
@@ -156,6 +158,13 @@ pub(crate) const USER_PROVIDER_PURGE_SQL: [(&str, &str); 15] = [
         ),
     ),
     (
+        "activity_fetch_failures",
+        concat!(
+            "DELETE FROM activity_fetch_failures WHERE ",
+            user_rows_cast!()
+        ),
+    ),
+    (
         "activity_backfill_coverage",
         concat!(
             "DELETE FROM activity_backfill_coverage WHERE ",
@@ -179,7 +188,7 @@ pub(crate) const USER_PROVIDER_PURGE_SQL: [(&str, &str); 15] = [
 /// provider's terms can require across the whole platform (WHOOP API Terms
 /// §7), and are reachable only from the super-admin route that audits the
 /// call. No tenant- or user-facing path may run them.
-pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 15] = [
+pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 16] = [
     (
         "data_point_series",
         concat!("DELETE FROM data_point_series WHERE ", provider_sources!()),
@@ -235,6 +244,13 @@ pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 15] = [
         "activity_fetch_freshness",
         concat!(
             "DELETE FROM activity_fetch_freshness WHERE ",
+            provider_rows!()
+        ),
+    ),
+    (
+        "activity_fetch_failures",
+        concat!(
+            "DELETE FROM activity_fetch_failures WHERE ",
             provider_rows!()
         ),
     ),

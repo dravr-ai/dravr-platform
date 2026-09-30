@@ -34,7 +34,7 @@ use axum::http::{Request, StatusCode};
 use axum::routing::get;
 use axum::{Json, Router};
 use chrono::Utc;
-use pierre_core::models::{TenantId, UserOAuthToken};
+use pierre_core::models::{ActivityBuilder, SportType, TenantId, UserOAuthToken};
 use pierre_database::repositories::{PersonalBest, PersonalBestSeed};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::strava_webhook_gate::{
@@ -487,14 +487,40 @@ async fn unknown_owner_is_acknowledged_and_nothing_is_fetched() {
     );
 }
 
-/// A delete aspect has nothing to fetch: acknowledged, no provider call, no
-/// turn spawned.
+/// A delete aspect has nothing to fetch: it evicts the deleted activity's
+/// cached row, and only that one, without a single provider call. A row kept
+/// past its deletion stays on Home and in the coach's answers, and an empty
+/// refresh of its window reads as a failed sync for as long as it is cached.
 #[tokio::test]
 #[serial]
-async fn delete_aspect_is_acknowledged_without_a_fetch() {
+async fn delete_aspect_evicts_the_cached_activity_without_a_fetch() {
     let (api_base, mock) = mock_strava().await;
     let (resources, _env) = context_pointed_at(&api_base).await;
     let (user_id, tenant_id) = seed_linked_athlete(&resources).await;
+    let ride = |id: &str, hours_ago: i64| {
+        ActivityBuilder::new(
+            id,
+            "Morning ride",
+            SportType::Ride,
+            Utc::now() - chrono::Duration::hours(hours_ago),
+            3_600,
+            "strava",
+        )
+        .build()
+    };
+    resources
+        .common
+        .repos
+        .activity_cache
+        .upsert_activities(
+            user_id,
+            &tenant_id,
+            "strava",
+            &[ride("9001", 5), ride("9002", 30)],
+        )
+        .await
+        .unwrap();
+    assert_eq!(cached_strava_rows(&resources, user_id, &tenant_id).await, 2);
 
     let status = post_event(
         &resources,
@@ -502,14 +528,27 @@ async fn delete_aspect_is_acknowledged_without_a_fetch() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(
-        resources.common.turns.len(),
-        0,
-        "a delete spawns no sync turn"
-    );
+    await_spawned_turns(&resources).await;
 
-    assert_eq!(mock.hits.load(Ordering::SeqCst), 0);
-    assert_eq!(cached_strava_rows(&resources, user_id, &tenant_id).await, 0);
+    assert_eq!(mock.hits.load(Ordering::SeqCst), 0, "nothing is fetched");
+    let cache = &resources.common.repos.activity_cache;
+    assert!(
+        cache
+            .get_cached_activity(user_id, &tenant_id, "strava", "9001")
+            .await
+            .unwrap()
+            .is_none(),
+        "the deleted activity is evicted"
+    );
+    assert!(
+        cache
+            .get_cached_activity(user_id, &tenant_id, "strava", "9002")
+            .await
+            .unwrap()
+            .is_some(),
+        "the other rides stay"
+    );
+    assert_eq!(cached_strava_rows(&resources, user_id, &tenant_id).await, 1);
 }
 
 /// A body Strava would never send is refused rather than acknowledged.

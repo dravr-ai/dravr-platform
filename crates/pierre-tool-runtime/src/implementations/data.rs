@@ -37,10 +37,14 @@ use crate::activity_backfill::{
     backfill_inline_and_serve, is_historical_backfill_window, provider_tenant_id_str,
     spawn_activity_backfill, ActivityBackfillJob, InlineHistoricalServe,
 };
+use crate::activity_fetch::sync_verdict::{
+    judge_live_read, record_head_outcome, HeadRead, HeadVerdict, LiveRead,
+};
+use crate::activity_fetch::write_through::write_through_served_window;
 use crate::activity_fetch::{
     activity_date_span, historical_depth_covered, maybe_merge_other_connections,
-    read_cached_window, serve_historical_window, serve_without_primary, sort_activities,
-    touch_connection_used, write_through_served_window,
+    read_cached_window, serve_historical_window, serve_stale_activities, serve_without_primary,
+    sort_activities, touch_connection_used,
 };
 use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
@@ -798,7 +802,12 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 }
             } else {
                 // Recent window, or a deep window on a fast OAuth API provider —
-                // authenticate and fetch from the provider inline.
+                // authenticate and fetch from the provider inline. The answer is
+                // judged like every other live list read: a read that failed, or
+                // an empty answer over rows the cache holds for this window (a
+                // scrape whose page died answers exactly that as a success), is
+                // recorded as a failed sync and answered from the provider's own
+                // cached window with a caveat, never as "no activities".
                 let executor = UniversalExecutor::new(context.resources.clone());
                 let attempt_started_at = Utc::now();
                 let authenticated = executor
@@ -812,24 +821,76 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
 
                 match authenticated {
                     Ok(provider) => {
-                        match provider.get_activities_with_params(&query_params).await {
-                            Ok(activities) => (activities, Some(provider)),
+                        let read = judge_live_read(
+                            &context.resources,
+                            LiveRead {
+                                provider_slug: &provider_name,
+                                user_id: context.user_id,
+                                tenant_id: tenant_id_str.as_deref(),
+                                params: &query_params,
+                                attempt_started_at,
+                            },
+                            provider.as_ref(),
+                        )
+                        .await;
+                        if context.tenant_id.is_some() {
+                            record_head_outcome(
+                                &context.resources,
+                                context.user_id,
+                                tenant_id,
+                                &provider_name,
+                                &query_params,
+                                &read,
+                            )
+                            .await;
+                        }
+                        let live = match read {
+                            Ok(HeadRead {
+                                activities,
+                                verdict: HeadVerdict::Complete | HeadVerdict::Incomplete,
+                            }) => Ok(activities),
+                            Ok(HeadRead {
+                                verdict: HeadVerdict::EmptyOverCached { cached },
+                                ..
+                            }) => Err(format!(
+                                "{display_provider} answered with no activities for a window \
+                                 the platform holds {cached} of its activities in"
+                            )),
+                            Err(e) if e.provider_auth_required_provider().is_none() => {
+                                Err(e.to_string())
+                            }
                             Err(e) => {
-                                if let Some(tenant) = tenant_id_str.as_deref() {
-                                    executor
-                                        .auth_service
-                                        .react_to_trainingpeaks_refusal(
-                                            context.user_id,
-                                            tenant,
-                                            provider.as_ref(),
-                                            &e,
-                                            attempt_started_at,
-                                        )
-                                        .await;
-                                }
                                 return Ok(ToolResult::error(json!({
                                     "error": format!("Failed to fetch activities: {e}"),
                                 })));
+                            }
+                        };
+                        match live {
+                            Ok(activities) => (activities, Some(provider)),
+                            Err(reason) => {
+                                let cached_rows = if context.tenant_id.is_some() {
+                                    serve_stale_activities(
+                                        &context.resources,
+                                        &provider_name,
+                                        context.user_id,
+                                        tenant_id,
+                                        &query_params,
+                                    )
+                                    .await
+                                } else {
+                                    None
+                                };
+                                let Some(cached_rows) = cached_rows else {
+                                    return Ok(ToolResult::error(json!({
+                                        "error": format!("Failed to fetch activities: {reason}"),
+                                    })));
+                                };
+                                // The rows are the provider's own, as last synced:
+                                // nothing to write back, no serve to record, no
+                                // response to cache, and the caveat says the newest
+                                // sessions may be missing.
+                                stood_in = Some(PrimaryStandIn::Stale(provider_name.clone()));
+                                (cached_rows, None)
                             }
                         }
                     }
@@ -900,6 +961,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     context.user_id,
                     &tenant_id,
                     &provider_name,
+                    &query_params,
                     &activities,
                 )
                 .await;

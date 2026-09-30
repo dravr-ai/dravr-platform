@@ -55,8 +55,8 @@ use pierre_core::models::{
 };
 use pierre_database::backends::factory::Database;
 use pierre_database::repositories::{
-    ActivityBackfillJobRow, BackfillCoverage, PersonalBest, PersonalBestSeed, ProviderDataPurge,
-    StoredRouteTrack, SyncCursorRow,
+    ActivityBackfillJobRow, ActivityFetchFailure, ActivityFetchFailureRecord, BackfillCoverage,
+    PersonalBest, PersonalBestSeed, ProviderDataPurge, StoredRouteTrack, SyncCursorRow,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_enforme::traits::timeseries_store::TimeSeriesPointStore;
@@ -83,7 +83,7 @@ const SEEDED_POINTS: u64 = 2;
 /// Tables one seeded scope holds exactly one row in. `activity_backfill_jobs`
 /// is apart: it is unique per `(user, provider)` across tenants, so an
 /// athlete holds at most one WHOOP job wherever they are.
-const ONE_ROW_TABLES: [&str; 13] = [
+const ONE_ROW_TABLES: [&str; 14] = [
     "sleep_sessions",
     "recovery_metrics",
     "health_snapshots",
@@ -96,6 +96,7 @@ const ONE_ROW_TABLES: [&str; 13] = [
     "personal_best_seeds",
     "sync_state",
     "activity_fetch_freshness",
+    "activity_fetch_failures",
     "activity_backfill_coverage",
 ];
 
@@ -407,6 +408,22 @@ async fn seed_provider_rows(
     repos
         .activity_cache
         .record_activity_fetch(user_id, &tenant, provider, now)
+        .await
+        .unwrap();
+    repos
+        .activity_cache
+        .record_activity_fetch_failure(
+            user_id,
+            &tenant,
+            provider,
+            &ActivityFetchFailureRecord {
+                failed_at: now,
+                failure: ActivityFetchFailure::FetchError,
+                consecutive: 1,
+                streak: 1,
+                streak_started_at: now,
+            },
+        )
         .await
         .unwrap();
     repos

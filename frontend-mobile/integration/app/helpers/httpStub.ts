@@ -15,6 +15,8 @@ export interface RecordedRequest {
   headers: Record<string, string>;
   /** Parsed JSON body, or `undefined` for a body-less request. */
   body: unknown;
+  /** The request's own timeout in milliseconds, as the client set it. */
+  timeout: number | undefined;
 }
 
 /** What the stubbed server answers with. */
@@ -148,6 +150,7 @@ export function installHttpStub(routes: StubRoutes): HttpStub {
       url: urlOf(config),
       headers: headersOf(config),
       body: bodyOf(config),
+      timeout: config.timeout,
     };
     requests.push(request);
 
@@ -200,6 +203,8 @@ export function installHttpStub(routes: StubRoutes): HttpStub {
       url,
       headers,
       body: typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : init?.body,
+      // The chat turn's fetch is bounded by its abort signal, not a timeout.
+      timeout: undefined,
     };
     requests.push(request);
 

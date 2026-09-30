@@ -334,6 +334,12 @@ jest.mock('@maplibre/maplibre-react-native', () => {
   };
 });
 
+// The native side of the map, as the loader probes it. The route card is
+// required only where `TurboModuleRegistry.get` finds MapLibre's map view
+// module, so the package mock above stands in for a runtime that links it in;
+// a test of a runtime without it (Expo Go) deletes this entry.
+require('react-native').NativeModules.MLRNMapViewModule = {};
+
 // Mock expo-router - the routing hooks screens use, and a Stack.Screen that
 // renders the native header's parts so a test can reach them. A test that
 // needs its own router builds its mock from the same factory.

@@ -28,7 +28,7 @@ export default function InstallAppBanner() {
   return (
     <div
       data-testid="install-banner"
-      className="flex items-center gap-3 border-b ghost-border bg-surface-container-low/80 px-4 py-2"
+      className="flex items-center gap-3 border-b ghost-border bg-surface-container-low/80 px-4 py-2 md:ml-[var(--shell-aside-width,0px)]"
     >
       <svg
         className="h-5 w-5 flex-shrink-0 text-primary"

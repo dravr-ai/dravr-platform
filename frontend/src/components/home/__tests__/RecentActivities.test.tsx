@@ -16,12 +16,14 @@ import type {
 } from '@pierre/shared-types';
 import { ThemeProvider } from '../../../hooks/useTheme';
 import { RecentActivities } from '../RecentActivities';
-import { DRAFT_DATE, formatInstant, formatNameList } from '../homeFormat';
+import { DRAFT_DATE, formatInstant, formatNameList, formatSyncTime } from '../homeFormat';
 import { activity, providerStatus, recentResponse, routeView, ROUTE_COORDINATES } from './homeFixtures';
 
 const api = vi.hoisted(() => ({
-  getRecentActivities: vi.fn<() => Promise<RecentActivitiesResponse>>(),
-  getActivityRoute: vi.fn<(provider: string, id: string) => Promise<ActivityRouteResponse>>(),
+  getRecentActivities:
+    vi.fn<(limit?: number, options?: { retry?: boolean }) => Promise<RecentActivitiesResponse>>(),
+  getActivityRoute:
+    vi.fn<(provider: string, id: string, options?: { retry?: boolean }) => Promise<ActivityRouteResponse>>(),
   getProvidersStatus: vi.fn<() => Promise<ProvidersStatusResponse>>(),
 }));
 
@@ -273,16 +275,131 @@ describe('RecentActivities', () => {
     expect(maps.constructed).toHaveLength(0);
   });
 
-  it('says the map could not be loaded when the route read fails, and retries on request', async () => {
+  it('says the map could not be loaded when the route read fails twice, and retries on request', async () => {
     api.getRecentActivities.mockResolvedValue(recentResponse({ activities: [activity({ id: 'broken' })] }));
-    api.getActivityRoute.mockRejectedValueOnce(new Error('boom'));
+    // The route query asks once more before it gives up, never the client's default three times.
+    api.getActivityRoute.mockRejectedValueOnce(new Error('boom')).mockRejectedValueOnce(new Error('boom'));
     renderSection();
 
-    const failed = await screen.findByTestId('home-route-failed');
+    const failed = await screen.findByTestId('home-route-failed', {}, { timeout: 4000 });
+    expect(api.getActivityRoute).toHaveBeenCalledTimes(2);
     expect(failed).toHaveTextContent("The map couldn't be loaded.");
     api.getActivityRoute.mockResolvedValueOnce({ route: routeView('Morning run'), reason: null });
     await userEvent.click(within(failed).getByRole('button', { name: 'Retry' }));
     expect(await screen.findByRole('figure', { name: 'Map of the recorded route: Morning run' })).toBeInTheDocument();
+  });
+
+  it('says the map could not be read when the route endpoint answers unavailable, and retries past it on request', async () => {
+    api.getRecentActivities.mockResolvedValue(recentResponse({ activities: [activity({ id: 'unread' })] }));
+    api.getActivityRoute.mockResolvedValueOnce({ route: null, reason: 'unavailable' });
+    renderSection();
+
+    const failed = await screen.findByTestId('home-route-failed');
+    expect(failed).toHaveTextContent("The map couldn't be loaded.");
+    expect(screen.queryByText('Loading the map…')).toBeNull();
+    expect(screen.queryByText('This activity recorded no GPS track.')).toBeNull();
+    // Only a retry the server reads past its stored `unavailable` can draw a
+    // route inside the answer's ten minutes: the retry has to say it is one.
+    api.getActivityRoute.mockResolvedValueOnce({ route: routeView('Morning run'), reason: null });
+    await userEvent.click(within(failed).getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('figure', { name: 'Map of the recorded route: Morning run' })).toBeInTheDocument();
+    expect(api.getActivityRoute).toHaveBeenCalledTimes(2);
+    expect(api.getActivityRoute).toHaveBeenLastCalledWith('strava', 'unread', { retry: true });
+  });
+
+  it('shows the map loading while its retry is in flight, and the failure again when the provider still fails', async () => {
+    api.getRecentActivities.mockResolvedValue(recentResponse({ activities: [activity({ id: 'flaky' })] }));
+    api.getActivityRoute.mockResolvedValueOnce({ route: null, reason: 'unavailable' });
+    renderSection();
+
+    const failed = await screen.findByTestId('home-route-failed');
+    let answer: (response: ActivityRouteResponse) => void = () => undefined;
+    api.getActivityRoute.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    await userEvent.click(within(failed).getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText('Loading the map…')).toBeInTheDocument();
+    expect(screen.queryByTestId('home-route-failed')).toBeNull();
+
+    answer({ route: null, reason: 'unavailable' });
+    expect(await screen.findByTestId('home-route-failed')).toHaveTextContent("The map couldn't be loaded.");
+  });
+
+  it('names the provider whose sync failed, dates the page from its last good sync once, and retries the sync', async () => {
+    api.getRecentActivities.mockResolvedValueOnce(
+      recentResponse({
+        // Garmin synced this morning; Strava's refresh failed after its own
+        // last good sync the evening before.
+        as_of: '2026-09-29T08:02:00Z',
+        sync_failure: {
+          provider: 'strava',
+          provider_name: 'Strava',
+          failed_at: '2026-09-29T14:04:00Z',
+          last_synced_at: '2026-09-28T21:15:00Z',
+        },
+      }),
+    );
+    renderSection();
+
+    const failed = await screen.findByTestId('home-sync-failed');
+    expect(failed).toHaveAttribute('role', 'alert');
+    expect(failed).toHaveTextContent('Strava · Sync failed');
+    expect(failed).not.toHaveTextContent(/Last synced/);
+    const synced = screen.getAllByText(/Last synced: /);
+    expect(synced).toHaveLength(1);
+    expect(synced[0]).toHaveTextContent(`Last synced: ${formatSyncTime('2026-09-28T21:15:00Z', 'en')}`);
+    const retry = within(failed).getByTestId('home-sync-retry');
+    expect(retry).toHaveClass('touch-target');
+
+    // The retry's own answer is what the real server sends: the refresh it
+    // started is running, the failure it has not superseded yet still stands.
+    api.getRecentActivities.mockResolvedValueOnce(
+      recentResponse({
+        stale: true,
+        sync_failure: {
+          provider: 'strava',
+          provider_name: 'Strava',
+          failed_at: '2026-09-29T14:04:00Z',
+          last_synced_at: '2026-09-28T21:15:00Z',
+        },
+      }),
+    );
+    await userEvent.click(retry);
+    await waitFor(() => expect(api.getRecentActivities).toHaveBeenCalledTimes(2));
+    expect(api.getRecentActivities).toHaveBeenLastCalledWith(undefined, { retry: true });
+    // While that refresh runs the card says so, and not that the sync failed.
+    expect(await screen.findByText('Checking your provider for new activities…')).toBeInTheDocument();
+    expect(screen.queryByTestId('home-sync-failed')).toBeNull();
+  });
+
+  it('keeps the rows on the page under a failed sync', async () => {
+    api.getRecentActivities.mockResolvedValue(
+      recentResponse({
+        sync_failure: {
+          provider: 'strava',
+          provider_name: 'Strava',
+          failed_at: '2026-09-29T14:04:00Z',
+          last_synced_at: '2026-09-28T21:15:00Z',
+        },
+      }),
+    );
+    renderSection();
+
+    await screen.findByTestId('home-sync-failed');
+    expect(screen.getByTestId('home-activity-latest')).toBeInTheDocument();
+    expect(screen.getAllByTestId('home-activity-row')).toHaveLength(4);
+  });
+
+  it('says nothing about a failed sync when the last attempt succeeded', async () => {
+    api.getRecentActivities.mockResolvedValue(recentResponse({ sync_failure: null }));
+    const { settled } = renderSection();
+
+    expect(await screen.findByText(/^Last synced: /)).toBeInTheDocument();
+    await settled();
+    expect(screen.queryByTestId('home-sync-failed')).toBeNull();
   });
 
   it('asks an athlete with no provider to connect one, and leads to the connections pane', async () => {

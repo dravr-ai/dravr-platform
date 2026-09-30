@@ -53,5 +53,7 @@ export default defineConfig({
 
   // No webServer — these specs require a real Pierre server already running
   // on port 8081 with seeded admin/coaches/demo data. The runner fails loudly
-  // if the server isn't up, by design.
+  // if the server isn't up, by design. home-sync.real.spec.ts needs its own
+  // server — one pointed at the scraper double it starts — so locally it runs
+  // through scripts/e2e-home-sync-local.sh, which boots one.
 });

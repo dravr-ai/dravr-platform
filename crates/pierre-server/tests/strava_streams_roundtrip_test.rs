@@ -86,8 +86,10 @@ struct StreamsHits {
 }
 
 /// Mock Strava serving the detail endpoint and the streams endpoint, which
-/// answers `streams` or a 404 when there is none.
-async fn provider_serving(streams: Option<Value>) -> (StravaProvider, Arc<StreamsHits>) {
+/// answers `streams`, or the error status Strava answered with.
+async fn provider_serving(
+    streams: Result<Value, StatusCode>,
+) -> (StravaProvider, Arc<StreamsHits>) {
     let streams_hits = Arc::new(StreamsHits::default());
     let recorder = Arc::clone(&streams_hits);
 
@@ -105,10 +107,9 @@ async fn provider_serving(streams: Option<Value>) -> (StravaProvider, Arc<Stream
                         .lock()
                         .unwrap()
                         .push(query.get("keys").cloned().unwrap_or_default());
-                    streams.map_or_else(
-                        || StatusCode::NOT_FOUND.into_response(),
-                        |streams| Json(streams).into_response(),
-                    )
+                    streams.map_or_else(IntoResponse::into_response, |streams| {
+                        Json(streams).into_response()
+                    })
                 }
             }),
         );
@@ -143,9 +144,15 @@ async fn provider_serving(streams: Option<Value>) -> (StravaProvider, Arc<Stream
     (provider, streams_hits)
 }
 
-/// Mock Strava serving the ride's stream set, or a 404 on the streams route.
+/// Mock Strava serving the ride's stream set, or a 404 on the streams route —
+/// Strava's answer for an activity with no samples, such as a manual entry.
 async fn provider_with_streams(serve_streams: bool) -> (StravaProvider, Arc<StreamsHits>) {
-    provider_serving(serve_streams.then(streams_payload)).await
+    provider_serving(if serve_streams {
+        Ok(streams_payload())
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    })
+    .await
 }
 
 use axum::response::IntoResponse;
@@ -188,8 +195,12 @@ async fn with_streams_attaches_real_samples_and_handles_dropouts() {
     assert_eq!(gps[2], (45.503, -73.603));
 }
 
+/// Strava's `404` on the streams route is its answer for an activity with no
+/// samples — a manual entry. It comes back as a stream set of zero samples
+/// with no GPS channel, which a route read settles as "no GPS", never as a
+/// read that failed and must be retried.
 #[tokio::test]
-async fn a_streams_failure_degrades_to_the_plain_activity() {
+async fn a_streams_404_is_a_stream_set_of_zero_samples() {
     ensure_http_clients_initialized();
     let (provider, hits) = provider_with_streams(false).await;
 
@@ -203,9 +214,41 @@ async fn a_streams_failure_degrades_to_the_plain_activity() {
         1,
         "the streams fetch was tried"
     );
+    let streams = activity
+        .time_series_data()
+        .expect("Strava said the activity has no samples");
+    assert!(streams.timestamps.is_empty(), "no fabricated samples");
+    assert!(streams.gps_coordinates.is_none(), "no fabricated track");
+    assert!(provider.serves_activity_streams());
+    assert_eq!(activity.name(), "Streams ride");
+
+    let samples = provider
+        .get_activity_streams("4242")
+        .await
+        .expect("a 404 is an answer, not an error");
+    assert!(samples.is_some_and(|s| s.timestamps.is_empty()));
+}
+
+/// A streams request Strava could not serve just now carries no stream set:
+/// the activity is served without one, which proves nothing about what it
+/// recorded.
+#[tokio::test]
+async fn a_streams_failure_degrades_to_the_plain_activity() {
+    ensure_http_clients_initialized();
+    let (provider, hits) = provider_serving(Err(StatusCode::SERVICE_UNAVAILABLE)).await;
+
+    let activity = provider
+        .get_activity_with_streams("4242")
+        .await
+        .expect("activity still served");
+
+    assert!(
+        hits.count.load(Ordering::Relaxed) >= 1,
+        "the streams fetch was tried"
+    );
     assert!(
         activity.time_series_data().is_none(),
-        "no fabricated streams on a 404"
+        "no stream set for a streams request that failed"
     );
     assert_eq!(activity.name(), "Streams ride");
 }
@@ -235,7 +278,7 @@ async fn the_detail_tier_never_pays_for_streams() {
 #[tokio::test]
 async fn a_run_stream_fills_the_cumulative_distance_channel() {
     ensure_http_clients_initialized();
-    let (provider, hits) = provider_serving(Some(run_streams_payload())).await;
+    let (provider, hits) = provider_serving(Ok(run_streams_payload())).await;
 
     let activity = provider
         .get_activity_with_streams("4242")

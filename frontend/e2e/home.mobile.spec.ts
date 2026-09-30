@@ -381,3 +381,50 @@ test.describe('Signed-out screens — mobile viewport', () => {
     await context.setOffline(false);
   });
 });
+
+test.describe('Athlete Home — mobile viewport, a drawn latest map', () => {
+  test('a drawn latest map keeps its attribution folded, so the route stays in view at phone width', async ({ page }) => {
+    // Served locally so the map loads its style, draws the route and fires
+    // the load the fold waits for; a refused style never loads at all.
+    await setupDashboardMocks(page, { role: 'user', email: 'alice@acme.com', displayName: 'Alice Test' });
+    await mockHome(page);
+    await page.route(/openfreemap\.org/, (route) =>
+      /\/styles\//.test(route.request().url())
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              version: 8,
+              // One empty source carrying the basemap's credit, so the
+              // attribution control has text to show, as it does on OSM tiles.
+              sources: {
+                credit: {
+                  type: 'geojson',
+                  data: { type: 'FeatureCollection', features: [] },
+                  attribution: '© OpenStreetMap contributors',
+                },
+              },
+              layers: [
+                { id: 'background', type: 'background', paint: { 'background-color': '#101418' } },
+                { id: 'credit', type: 'line', source: 'credit' },
+              ],
+            }),
+          })
+        : route.abort(),
+    );
+    await page.route('**/api/me/activities/recent**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ activities: ACTIVITIES.slice(1), as_of: '2026-09-24T08:15:00Z', stale: false }),
+      });
+    });
+    await loginToDashboard(page, { email: 'alice@acme.com', password: 'password123' });
+    await expect(page.getByTestId('home-page')).toBeVisible();
+    const map = page.getByTestId('home-activity-latest').locator('figure');
+    await expect(map).toHaveAttribute('data-route-drawn', 'true', { timeout: 20_000 });
+    const attribution = map.locator('.maplibregl-ctrl-attrib');
+    await expect(attribution).toHaveClass(/maplibregl-compact/);
+    await expect(attribution).not.toHaveClass(/maplibregl-compact-show/);
+  });
+});

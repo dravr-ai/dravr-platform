@@ -231,8 +231,12 @@ describe('RouteView', () => {
       ['navigation', 'false'],
     ]);
 
-    // Nothing is drawn until the basemap style is up.
+    // Nothing is drawn until the basemap style is up, and the figure does not
+    // claim a drawn route before it is: a blank map with its controls looks
+    // exactly like a map still waiting for its style.
+    const figure = screen.getByRole('figure');
     expect(harness.layers).toHaveLength(0);
+    expect(figure).not.toHaveAttribute('data-route-drawn');
     harness.handlers.get('style.load')?.();
     expect(harness.layers.map((layer) => layer.id)).toEqual([
       'route-casing',
@@ -240,6 +244,7 @@ describe('RouteView', () => {
       'route-climb',
     ]);
     expect(paintFor('route-line')['line-color']).toBe(BOREAL.dark.primary);
+    expect(figure).toHaveAttribute('data-route-drawn', 'true');
   });
 
   it('points MapLibre at the bundled tile worker before it builds the map', async () => {

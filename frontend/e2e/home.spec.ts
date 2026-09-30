@@ -139,6 +139,18 @@ interface HomeAnswers {
   connected?: boolean;
   /** The whole provider list, for a spec that needs more than one Strava. */
   providers?: Array<Record<string, unknown>>;
+  /** The route answers in order, the last repeating; a drawn route when absent. */
+  routes?: Array<Record<string, unknown>>;
+  /**
+   * The answers to the athlete's route retry (`?retry=true`), which the server
+   * reads past its stored answer; the plain answers when absent.
+   */
+  retriedRoutes?: Array<Record<string, unknown>>;
+  /**
+   * The answers to the athlete's sync retry (`?retry=true`), which the server
+   * refreshes past its pause; the plain answers when absent.
+   */
+  retriedRecent?: Array<Record<string, unknown>>;
 }
 
 /**
@@ -148,9 +160,14 @@ interface HomeAnswers {
  * Returns the recent-activities call counter and the route calls seen.
  */
 async function mockHome(page: Page, answers: HomeAnswers = {}) {
-  const recent = answers.recent ?? [{ activities: ACTIVITIES, as_of: '2026-09-24T08:15:00Z', stale: false }];
+  const recent = answers.recent ?? [
+    { activities: ACTIVITIES, as_of: '2026-09-24T08:15:00Z', sync_failure: null, stale: false },
+  ];
+  const routes = answers.routes ?? [{ route: ROUTE, reason: null }];
+  const retriedRoutes = answers.retriedRoutes ?? routes;
+  const retriedRecent = answers.retriedRecent ?? recent;
   const providers = answers.providers ?? [provider('strava', 'Strava', { connected: answers.connected ?? true })];
-  const calls = { recent: 0, routes: [] as string[] };
+  const calls = { recent: 0, retriedRecent: 0, routes: [] as string[] };
   await page.route('**/api/providers', async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ providers }) });
   });
@@ -162,17 +179,27 @@ async function mockHome(page: Page, answers: HomeAnswers = {}) {
     });
   });
   await page.route('**/api/me/activities/recent**', async (route) => {
-    const body = recent[Math.min(calls.recent, recent.length - 1)];
-    calls.recent += 1;
+    const retried = new URL(route.request().url()).searchParams.get('retry') === 'true';
+    const body = retried
+      ? retriedRecent[Math.min(calls.retriedRecent, retriedRecent.length - 1)]
+      : recent[Math.min(calls.recent, recent.length - 1)];
+    if (retried) {
+      calls.retriedRecent += 1;
+    } else {
+      calls.recent += 1;
+    }
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   });
-  await page.route('**/api/me/activities/*/*/route', async (route) => {
-    calls.routes.push(new URL(route.request().url()).pathname);
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ route: ROUTE, reason: null }),
-    });
+  await page.route('**/api/me/activities/*/*/route**', async (route) => {
+    const url = new URL(route.request().url());
+    const retried = url.searchParams.get('retry') === 'true';
+    const plainReads = calls.routes.filter((path) => !path.endsWith('?retry=true')).length;
+    const retriedReads = calls.routes.length - plainReads;
+    const body = retried
+      ? retriedRoutes[Math.min(retriedReads, retriedRoutes.length - 1)]
+      : routes[Math.min(plainReads, routes.length - 1)];
+    calls.routes.push(`${url.pathname}${url.search}`);
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   });
   // Keep the map hermetic: the basemap is a third-party tile server, and the
   // figure, its caption and the source line are what the page owns.
@@ -356,6 +383,35 @@ test.describe('Athlete Home', () => {
     await expect(banner).toBeVisible();
   });
 
+  test('the strips above the dashboard start right of the rail, so none of their text runs under it', async ({ page, context }) => {
+    await signInAthlete(page);
+    await mockHome(page);
+    await mockConversationCreate(page);
+    await login(page);
+    await expect(page.getByTestId('home-activity-row')).toHaveCount(4);
+
+    const railRight = async () => {
+      const rail = await page.getByTestId('icon-rail').boundingBox();
+      expect(rail).not.toBeNull();
+      return (rail?.x ?? 0) + (rail?.width ?? 0);
+    };
+    const startsAfterRail = async (testId: string) => {
+      const strip = await page.getByTestId(testId).boundingBox();
+      expect(strip).not.toBeNull();
+      expect(strip?.x ?? 0).toBeGreaterThanOrEqual(await railRight());
+    };
+
+    // Chromium offers an install the page defers; the banner answers it.
+    await page.evaluate(() => window.dispatchEvent(new Event('beforeinstallprompt')));
+    await expect(page.getByTestId('install-banner')).toBeVisible();
+    await startsAfterRail('install-banner');
+
+    await context.setOffline(true);
+    await expect(page.getByTestId('offline-banner')).toBeVisible();
+    await startsAfterRail('offline-banner');
+    await context.setOffline(false);
+  });
+
   test('a healthy connection raises no reconnect banner on any tab', async ({ page }) => {
     await signInAthlete(page);
     await mockHome(page);
@@ -467,5 +523,92 @@ test.describe('Athlete Home', () => {
     await page.clock.fastForward(delays[delays.length - 1]);
     await expect(section).toContainText('Last synced:');
     expect(calls.recent).toBe(delays.length + 1);
+  });
+
+  // The server's contract after a failed sync: while the failing provider is
+  // paused its answer is not stale and names the failure; the retry's own
+  // answer is stale — the refresh it started is running — and still names
+  // it; the schedule's first follow-up, one delay after the retry, brings the
+  // fresh answer that clears it.
+  test.describe('in UTC, so the sync time on the card is the one the answer carries', () => {
+    test.use({ timezoneId: 'UTC' });
+
+    test('a failed sync names its provider and last good sync once, and a retry clears it on the schedule', async ({ page }) => {
+      await page.clock.install({ time: new Date('2026-09-24T12:10:00Z') });
+      await signInAthlete(page);
+      const failure = {
+        provider: 'strava',
+        provider_name: 'Strava',
+        failed_at: '2026-09-24T12:04:00Z',
+        last_synced_at: '2026-09-24T06:15:00Z',
+      };
+      const calls = await mockHome(page, {
+        recent: [
+          { activities: ACTIVITIES, as_of: '2026-09-24T08:15:00Z', sync_failure: failure, stale: false },
+          { activities: ACTIVITIES, as_of: '2026-09-24T12:30:00Z', sync_failure: null, stale: false },
+        ],
+        retriedRecent: [{ activities: ACTIVITIES, as_of: '2026-09-24T08:15:00Z', sync_failure: failure, stale: true }],
+      });
+      await login(page);
+
+      const section = page.getByTestId('home-activities');
+      const failed = page.getByTestId('home-sync-failed');
+      await expect(failed).toBeVisible();
+      await expect(failed).toHaveAttribute('role', 'alert');
+      await expect(failed).toContainText('Strava · Sync failed');
+      await expect(failed).not.toContainText('Last synced');
+      // One time on the card: Strava's own last good sync, not the newest sync of any provider.
+      await expect(section.getByText(/Last synced:/)).toHaveCount(1);
+      await expect(section.getByText(/Last synced:/)).toContainText('06:15');
+      await expect(page.getByTestId('home-activity-row')).toHaveCount(4);
+      expect(calls.recent).toBe(1);
+
+      await failed.getByTestId('home-sync-retry').click();
+      await expect.poll(() => calls.retriedRecent).toBe(1);
+      await expect(section).toContainText('Checking your provider for new activities…');
+      await expect(failed).toHaveCount(0);
+
+      await page.mouse.move(40, 40);
+      await page.clock.fastForward(HOME_STALE_REFETCH_DELAYS_MS[0]);
+      await expect.poll(() => calls.recent).toBe(2);
+      await expect(failed).toHaveCount(0);
+      await expect(section).toContainText('Last synced:');
+      await expect(section).not.toContainText('Checking your provider for new activities…');
+    });
+  });
+
+  // The server keeps an `unavailable` answer for ten minutes: a plain re-ask
+  // gets it again, and only the retry, which it reads past, can draw.
+  test('a route the server could not read says so and draws the map once a retry reads past it', async ({ page }) => {
+    await signInAthlete(page);
+    const calls = await mockHome(page, {
+      routes: [{ route: null, reason: 'unavailable' }],
+      retriedRoutes: [{ route: ROUTE, reason: null }],
+    });
+    await login(page);
+
+    const latest = page.getByTestId('home-activity-latest');
+    const failed = latest.getByTestId('home-route-failed');
+    await expect(failed).toContainText("The map couldn't be loaded.");
+    await expect(latest).not.toContainText('Loading the map…');
+    await expect(latest).not.toContainText('This activity recorded no GPS track.');
+
+    await failed.getByRole('button', { name: 'Retry' }).click();
+    await expect(page.getByRole('figure', { name: 'Map of the recorded route: Long ride' })).toBeVisible();
+    expect(calls.routes.filter((path) => path.endsWith('/act-5/route?retry=true'))).toHaveLength(1);
+  });
+
+  test('a retried route the provider still cannot serve keeps saying the map could not be loaded', async ({ page }) => {
+    await signInAthlete(page);
+    const calls = await mockHome(page, { routes: [{ route: null, reason: 'unavailable' }] });
+    await login(page);
+
+    const latest = page.getByTestId('home-activity-latest');
+    const failed = latest.getByTestId('home-route-failed');
+    await expect(failed).toBeVisible();
+    await failed.getByRole('button', { name: 'Retry' }).click();
+    await expect.poll(() => calls.routes.filter((path) => path.endsWith('?retry=true')).length).toBe(1);
+    await expect(latest.getByTestId('home-route-failed')).toContainText("The map couldn't be loaded.");
+    await expect(latest).not.toContainText('This activity recorded no GPS track.');
   });
 });

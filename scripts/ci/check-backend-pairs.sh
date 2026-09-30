@@ -209,7 +209,15 @@ is_converged() {
     local trait_file
     trait_file="$(trait_module_for "$pair")"
     [[ -n "$trait_file" ]] || return 1
-    grep -qE '^pub\(crate\) const [A-Z0-9_]+_SQL|^macro_rules! [a-z0-9_]+_sql' "$trait_file" || return 1
+    # The shared SQL may sit in the trait module's own submodules
+    # (repositories/<name>/sql.rs) once the module outgrows the size budget:
+    # that is still one copy, reached from both impls through the module path.
+    local shared=("$trait_file")
+    local subdir="${trait_file%.rs}"
+    if [[ -d "$subdir" ]]; then
+        while IFS= read -r sub; do shared+=("$sub"); done < <(find "$subdir" -name '*.rs' -type f | sort)
+    fi
+    grep -qE '^pub\(crate\) const [A-Z0-9_]+_SQL|^macro_rules! [a-z0-9_]+_sql' "${shared[@]}" || return 1
     local side stripped
     for side in "$SQLITE_DIR/${pair%%|*}" "$PG_DIR/${pair##*|}"; do
         # An impl that still spells out its own statements has not converged,

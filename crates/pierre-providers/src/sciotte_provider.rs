@@ -26,8 +26,8 @@ use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 use crate::core::{
-    planned_workouts_unsupported, ActivityQueryParams, FitnessProvider, OAuth2Credentials,
-    ProviderConfig, ProviderFactory,
+    no_recorded_samples, planned_workouts_unsupported, ActivityQueryParams, FitnessProvider,
+    OAuth2Credentials, ProviderConfig, ProviderFactory,
 };
 use crate::coros_self_report::feel_from_coros;
 use crate::errors::{AppError, AppResult, ErrorCode};
@@ -512,7 +512,7 @@ fn convert_activity(sciotte: &SciotteActivity, target: SciotteTarget) -> Activit
     .start_longitude_opt(sciotte.start_longitude)
     .splits_opt(splits)
     .laps_opt(laps)
-    .time_series_data_opt(sciotte.route.as_ref().and_then(route_to_time_series))
+    .time_series_data_opt(sciotte.route.as_ref().map(route_to_time_series))
     .perceived_exertion_opt(perceived_exertion)
     .feel_opt(feel)
     .comments_opt(comments)
@@ -561,11 +561,20 @@ fn convert_comment(comment: &SciotteComment) -> ActivityComment {
 /// API providers fill from device streams stay absent here. `timestamps` hold
 /// sample indices: the scraped track has no time axis, and indices are the
 /// same fallback the Strava and intervals.icu conversions use for a stream set
-/// whose provider omits one. A track without coordinates yields `None` rather
-/// than an empty series.
-fn route_to_time_series(route: &SciotteRouteTrack) -> Option<TimeSeriesData> {
+/// whose provider omits one.
+///
+/// The two ways a detail answer can lack a route mean different things, and
+/// the conversion keeps them apart. No `route` at all is the scraper not
+/// having read one — a page read before its map rendered, a detail read past
+/// the navigation budget — and the activity carries no time series, which
+/// proves nothing. A `route` whose coordinate list is empty is the scraper
+/// saying it read the page and the activity recorded no GPS (a trainer ride):
+/// it becomes a stream set of zero samples, the same answer Strava's streams
+/// give for a ride without a `latlng` channel, and the route read settles
+/// `no_gps` on it.
+fn route_to_time_series(route: &SciotteRouteTrack) -> TimeSeriesData {
     if route.coordinates.is_empty() {
-        return None;
+        return no_recorded_samples();
     }
 
     // cageux's altitude channel is f32. Elevation in metres spans roughly
@@ -591,7 +600,7 @@ fn route_to_time_series(route: &SciotteRouteTrack) -> Option<TimeSeriesData> {
         None => None,
     };
 
-    Some(TimeSeriesData {
+    TimeSeriesData {
         timestamps: (0..route.coordinates.len())
             .map(|i| u32::try_from(i).unwrap_or(u32::MAX))
             .collect(),
@@ -603,7 +612,7 @@ fn route_to_time_series(route: &SciotteRouteTrack) -> Option<TimeSeriesData> {
         temperature: None,
         gps_coordinates: Some(route.coordinates.clone()),
         distance: None,
-    })
+    }
 }
 
 /// Translate sciotte's [`SciotteSplit`] into cageux's [`Split`] — same
@@ -778,6 +787,16 @@ impl FitnessProvider for SciotteProvider {
 
     fn head_complete(&self) -> bool {
         self.head_complete.load(Ordering::Relaxed)
+    }
+
+    // A scraped Strava, Garmin or COROS detail folds the page's recorded
+    // track into the activity's streams (`route_to_time_series`); a
+    // TrainingPeaks calendar workout carries no track at all.
+    fn serves_activity_streams(&self) -> bool {
+        !matches!(
+            SciotteTarget::from_backend_name(self.provider_name),
+            SciotteTarget::TrainingPeaks
+        )
     }
 
     async fn get_activities_cursor(

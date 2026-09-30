@@ -20,15 +20,17 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use pierre_core::civil_time::resolve_zone;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::refresh::DataFreshness;
-use pierre_core::models::{Activity, TenantId};
-use pierre_database::repositories::{ActivityCacheRepository, BackfillCoverage};
+use pierre_core::models::{Activity, ConnectionStatus, TenantId};
+use pierre_database::repositories::BackfillCoverage;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig, FragmentReport};
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::capture_sweep::FLAG_REASON;
 use crate::context::ToolExecutionContext;
 use crate::protocol::auth::AuthService;
+use crate::protocol::reauth_notice::flag_needs_reauth;
 use crate::protocol::types::{auth_required_provider, UniversalResponse};
 use crate::runtime::ToolRuntime;
 use pierre_providers::backend_resolver;
@@ -37,8 +39,13 @@ use serde_json::Value;
 /// The session a cache write lands, and the `per_session` persona digest it sends
 #[cfg(feature = "client-notifications")]
 mod session_landing;
-#[cfg(feature = "client-notifications")]
-use session_landing::{deliver_session_digest, lands_a_session};
+/// Whether a live list read counts as a sync, and what a failed one records
+pub mod sync_verdict;
+/// The activity cache's write-through, and what a write says about freshness
+pub mod write_through;
+
+use sync_verdict::{read_provider_head, record_head_outcome, sync_backoff_until, HeadVerdict};
+use write_through::{write_through_activity_cache, WriteThrough};
 
 /// Read limit for the single deterministic durable-cache read on the historical
 /// backfill path.
@@ -206,8 +213,12 @@ pub struct FallbackServe {
 /// caveat; only when this returns `None` — no other connection produced a
 /// single row — does the turn become the primary's failure alone.
 ///
-/// Health-aware: a sibling already flagged `needs_reauth`/`revoked` is skipped
-/// instead of fetched into the same failure. Cross-tenant like the peer path, so
+/// Health-aware: a sibling already flagged `needs_reauth` is not fetched into the
+/// same failure; its durable cache answers instead, exactly as
+/// [`fetch_provider_activities`] answers the refusal that flagged it — so the
+/// second read of a turn serves the rows the first one did, rather than losing
+/// them to the flag the first read raised. A `revoked` sibling is skipped: the
+/// athlete withdrew that access. Cross-tenant like the peer path, so
 /// a provider connected under the athlete's own tenant answers from a group
 /// conversation. A deep historical window on a scrape-backed mirror reads that
 /// sibling's durable cache rather than scraping inline — the historical branch
@@ -236,7 +247,7 @@ pub async fn serve_without_primary(
     // it resolves to) are fetched once instead of returning every session twice.
     let mut asked: Vec<String> = vec![primary_backend.to_owned()];
     for conn in &connections {
-        if conn.status.requires_reauth() {
+        if conn.status == ConnectionStatus::Revoked {
             continue;
         }
         let canonical = backend_resolver::resolve_backend(
@@ -250,7 +261,19 @@ pub async fn serve_without_primary(
             continue;
         }
         asked.push(canonical.clone());
-        let fetched = if is_historical && backend_resolver::is_mirror_backend(&canonical) {
+        let fetched = if conn.status.requires_reauth() {
+            let Ok(conn_tenant) = TenantId::parse_str(&conn.tenant_id) else {
+                continue;
+            };
+            serve_stale_activities(
+                &context.resources,
+                &canonical,
+                context.user_id,
+                conn_tenant,
+                params,
+            )
+            .await
+        } else if is_historical && backend_resolver::is_mirror_backend(&canonical) {
             let Ok(conn_tenant) = TenantId::parse_str(&conn.tenant_id) else {
                 continue;
             };
@@ -412,6 +435,10 @@ const STALE_HEAD_REFRESH_DAYS: i64 = 30;
 /// there is no live head it could be missing, and refreshing one would re-scrape
 /// history that cannot have changed.
 ///
+/// A head whose last refreshes failed is read again only once
+/// [`sync_backoff_until`](sync_verdict::sync_backoff_until) allows it: a provider that keeps failing is not
+/// scraped on every turn and every Home load.
+///
 /// Best-effort. A failed refresh leaves the cached window exactly as it was —
 /// slightly old data beats no data, which is the same posture
 /// [`fetch_provider_activities`] already takes on a provider blip.
@@ -438,8 +465,22 @@ pub async fn refresh_stale_head(
     if matches!(freshness, DataFreshness::Fresh | DataFreshness::Recent) {
         return;
     }
+    let failure = runtime
+        .repos()
+        .activity_cache
+        .latest_activity_fetch_failure(user_id, &tenant_id, provider_slug)
+        .await
+        .unwrap_or(None);
+    if let Some(retry_at) = sync_backoff_until(failure, last_sync, Utc::now()) {
+        info!(
+            user_id = %user_id,
+            provider = %provider_slug,
+            %retry_at,
+            "activity head is stale, but its last refreshes failed; backing off before reading it again"
+        );
+        return;
+    }
 
-    let head_after = Utc::now().timestamp() - STALE_HEAD_REFRESH_DAYS * 86_400;
     info!(
         user_id = %user_id,
         provider = %provider_slug,
@@ -447,14 +488,36 @@ pub async fn refresh_stale_head(
         freshness = freshness.label(),
         "activity head is stale; re-reading the recent window before grounding"
     );
+    let Some(live) = refresh_head(runtime, provider_slug, user_id, tenant_id).await else {
+        return;
+    };
 
+    merge_live_head(served, live);
+}
+
+/// Re-read a provider's recent head — the last [`STALE_HEAD_REFRESH_DAYS`] —
+/// live, whatever its freshness, and write it through.
+///
+/// The read under [`refresh_stale_head`], for a caller that has already
+/// decided the head needs it: the Home page refreshes a head whose last
+/// refresh failed while it is still inside the freshness bands, and the
+/// athlete's retry reads it inside the failure's pause. What the read
+/// answers counts as a sync, or is recorded as a failed one, exactly as for
+/// every other head read ([`fetch_provider_head`]); a failed read serves the
+/// cached head, `None` when that is empty too.
+pub async fn refresh_head(
+    runtime: &Arc<dyn ToolRuntime>,
+    provider_slug: &str,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> Option<Vec<Activity>> {
     let params = ActivityQueryParams {
-        after: Some(head_after),
+        after: Some(Utc::now().timestamp() - STALE_HEAD_REFRESH_DAYS * 86_400),
         before: None,
         limit: Some(STALE_HEAD_REFRESH_LIMIT),
         offset: None,
     };
-    let Some(live) = fetch_provider_activities(
+    fetch_provider_activities(
         runtime,
         provider_slug,
         user_id,
@@ -462,11 +525,6 @@ pub async fn refresh_stale_head(
         &params,
     )
     .await
-    else {
-        return;
-    };
-
-    merge_live_head(served, live);
 }
 
 /// Fold a live provider read into a cache-served window: the live row wins.
@@ -592,6 +650,13 @@ pub async fn serve_historical_window(
 /// the same window are served stale instead of an empty result — a provider
 /// blip degrades to "slightly old data" rather than "no data". Returns `None`
 /// only when the live fetch fails *and* the cache is empty.
+///
+/// A fetch the provider refused for authentication — a dead scrape session, a
+/// revoked token — is not recorded as a failed sync (see
+/// [`fetch_provider_head`]); it flags the connection `needs_reauth` and sends
+/// the athlete's reconnect notice instead ([`flag_needs_reauth`]). Without
+/// that, the Home refresh that met a dead session said nothing, recorded no
+/// pause, and scraped the dead session again on every Home load.
 pub async fn fetch_provider_activities(
     runtime: &Arc<dyn ToolRuntime>,
     provider_slug: &str,
@@ -599,19 +664,40 @@ pub async fn fetch_provider_activities(
     tenant_id: &str,
     params: &ActivityQueryParams,
 ) -> Option<Vec<Activity>> {
+    let attempt_started_at = Utc::now();
     match fetch_provider_head(runtime, provider_slug, user_id, tenant_id, params).await {
         Ok(activities) => Some(activities),
         Err(e) => {
+            let auth_required = e.provider_auth_required_provider().is_some();
             warn!(
                 user_id = %user_id,
                 provider = %provider_slug,
                 error = %e,
-                auth_required = e.provider_auth_required_provider().is_some(),
+                auth_required,
                 "fetch_provider_activities: live fetch failed; serving cache"
             );
             // Live fetch failed — serve the user's cached activities for this
             // window rather than returning nothing.
             let tenant = TenantId::parse_str(tenant_id).ok()?;
+            if auth_required {
+                if let Err(flag_error) = flag_needs_reauth(
+                    runtime,
+                    user_id,
+                    tenant,
+                    provider_slug,
+                    FLAG_REASON,
+                    attempt_started_at,
+                )
+                .await
+                {
+                    warn!(
+                        user_id = %user_id,
+                        provider = %provider_slug,
+                        error = %flag_error,
+                        "fetch_provider_activities: could not flag the refused connection"
+                    );
+                }
+            }
             serve_stale_activities(runtime, provider_slug, user_id, tenant, params).await
         }
     }
@@ -631,14 +717,28 @@ pub async fn fetch_provider_activities(
 /// sweep fetch and a chat turn's fetch can never disagree about upsert, prune
 /// or freshness.
 ///
-/// A read the provider answered also re-arms a connection flagged
-/// `needs_reauth` ([`rearm_after_live_read`]), for every caller alike: the
-/// credential that just served is the one the flag doubted.
+/// Only an answer the provider vouched for counts as a sync. A read that
+/// failed (other than for authentication, which the reconnect path reports),
+/// a capture missing its list head, and an empty answer over a window the
+/// cache holds activities in ([`implausibly_empty`](sync_verdict::implausibly_empty)) each leave freshness
+/// where the last good fetch put it, and a read of the list head records the
+/// attempt instead ([`record_sync_failure`](sync_verdict::record_sync_failure)): the head then still reads
+/// stale, so a later Home load or turn refreshes it again once the failure's
+/// pause is over ([`sync_backoff_until`](sync_verdict::sync_backoff_until)), and Home can say the sync failed.
+/// On 2026-09-29 a scrape that failed answered `count=0` as a success, was
+/// stamped fresh, and nothing looked again for four hours while the day's
+/// activities sat unseen.
+///
+/// A read the provider answered with a list it did not reject also re-arms a
+/// connection flagged `needs_reauth` ([`rearm_after_live_read`](sync_verdict::rearm_after_live_read)), for every
+/// caller alike: the credential that just served is the one the flag doubted.
 ///
 /// # Errors
 ///
 /// Returns [`AppError::provider_auth_required`] when the connection is
-/// non-recoverably dead, and the provider's own error otherwise.
+/// non-recoverably dead, an external-service error when the provider answered
+/// with nothing over cached activities, and the provider's own error
+/// otherwise.
 pub async fn fetch_provider_head(
     runtime: &Arc<dyn ToolRuntime>,
     provider_slug: &str,
@@ -646,115 +746,54 @@ pub async fn fetch_provider_head(
     tenant_id: &str,
     params: &ActivityQueryParams,
 ) -> AppResult<Vec<Activity>> {
-    let auth_service = AuthService::new(Arc::clone(runtime));
-    // Taken before the credential is read, so a reconnect that lands while
-    // the fetch is in flight is newer than any failure it reports.
-    let attempt_started_at = Utc::now();
-    let provider = auth_service
-        .create_authenticated_provider(provider_slug, user_id, Some(tenant_id))
-        .await
-        .map_err(|response| provider_auth_failure(provider_slug, &response))?;
-
-    let activities = match provider.get_activities_with_params(params).await {
-        Ok(activities) => activities,
-        Err(e) => {
-            auth_service
-                .react_to_trainingpeaks_refusal(
-                    user_id,
-                    tenant_id,
-                    provider.as_ref(),
-                    &e,
-                    attempt_started_at,
-                )
-                .await;
-            return Err(e);
-        }
-    };
-
-    // The provider answered through the stored credential, which is what a
-    // `needs_reauth` flag says it cannot do. This sits ahead of the head gate
-    // below because a capture missing its head is incomplete, not
-    // unauthenticated: the provider accepted the credential before it read
-    // anything at all.
-    rearm_after_live_read(runtime, user_id, tenant_id, provider.name()).await;
-
-    // A capture whose head the provider never saw is served, not persisted.
-    // The write-through moves every row's `synced_at` and the fetch mark to
-    // now, and `DataFreshness` then reads the days it missed as a quiet week
-    // — the masking carnet#149 paid for. Leaving the cache untouched keeps the
-    // next ask a live fetch, which is the only thing that can fill the head.
-    if !provider.head_complete() {
+    let tenant = TenantId::parse_str(tenant_id).ok();
+    let read = read_provider_head(runtime, provider_slug, user_id, tenant_id, params).await;
+    if let Some(tenant) = tenant {
+        record_head_outcome(runtime, user_id, tenant, provider_slug, params, &read).await;
+    }
+    let head = read?;
+    if let HeadVerdict::EmptyOverCached { cached } = head.verdict {
+        return Err(AppError::external_service(
+            provider_slug,
+            format!(
+                "answered with no activities over a window the cache holds {cached} of its \
+                 activities in; not counted as a sync"
+            ),
+        ));
+    }
+    if head.verdict == HeadVerdict::Incomplete {
+        // A capture whose head the provider never saw is served, not persisted.
+        // The write-through moves every row's `synced_at` and the fetch mark to
+        // now, and `DataFreshness` then reads the days it missed as a quiet week
+        // — the masking carnet#149 paid for. Leaving the cache untouched keeps
+        // the next ask a live fetch, which is the only thing that can fill the
+        // head.
         warn!(
             user_id = %user_id,
             provider = %provider_slug,
-            count = activities.len(),
+            count = head.activities.len(),
             "fetch_provider_head: capture is missing the list head; served without write-through"
         );
-        return Ok(activities);
+        return Ok(head.activities);
     }
 
     // Warm the stale-while-revalidate cache so the next outage serves these.
-    if let Ok(tenant) = TenantId::parse_str(tenant_id) {
+    if let Some(tenant) = tenant {
+        let auth_service = AuthService::new(Arc::clone(runtime));
         write_through_activity_cache(
             &auth_service,
             user_id,
             tenant,
             provider_slug,
-            &activities,
-            activity_cache_retention_days(),
+            &head.activities,
+            WriteThrough {
+                retention_days: activity_cache_retention_days(),
+                read: params,
+            },
         )
         .await;
     }
-    Ok(activities)
-}
-
-/// Re-arm a connection flagged `needs_reauth` once its stored credential has
-/// served a live read.
-///
-/// A flag is a verdict one failed attempt reached, and nothing else revisits
-/// it for a scrape session: those are never refreshed, so the re-arm a
-/// successful token refresh performs never runs for them. A connection flagged
-/// over an answer that was not the session dying (on 2026-09-25 the capture
-/// sweep flagged one over a single `401` from a scraper instance that had not
-/// seen the session import) then stays flagged while every later read through
-/// the same session succeeds, and the sweep and the athlete's Home page, which
-/// act on `active` connections only, stop refreshing it.
-///
-/// `backend` is the provider that served the read, by the key its connection
-/// row is stored under: the provider's own name, never the name the caller
-/// asked for, which may be the user-facing half of a mirror pair. Only a
-/// `needs_reauth` row flips; a `revoked` or `active` one is left as it is.
-///
-/// Best-effort: the read has already succeeded, so a failed write is logged
-/// and the activities are served regardless.
-async fn rearm_after_live_read(
-    runtime: &Arc<dyn ToolRuntime>,
-    user_id: Uuid,
-    tenant_id: &str,
-    backend: &str,
-) {
-    let Ok(tenant) = TenantId::parse_str(tenant_id) else {
-        return;
-    };
-    match runtime
-        .repos()
-        .provider_connections
-        .mark_active_if_needs_reauth(user_id, tenant, backend)
-        .await
-    {
-        Ok(true) => info!(
-            user_id = %user_id,
-            provider = %backend,
-            "connection re-armed: a live read through its stored credential succeeded"
-        ),
-        Ok(false) => {}
-        Err(e) => warn!(
-            user_id = %user_id,
-            provider = %backend,
-            error = %e,
-            "connection re-arm after a live read failed; its status is left as it was"
-        ),
-    }
+    Ok(head.activities)
 }
 
 /// Type a failed `create_authenticated_provider`, preserving the auth shape.
@@ -778,6 +817,27 @@ pub(crate) fn provider_auth_failure(provider_slug: &str, response: &UniversalRes
     )
 }
 
+/// The `[start, end]` of cached rows a read of `params` covers.
+///
+/// Honors the request's `before` upper bound. A historical query like "2022
+/// races" (after=2022, before=2023) must read the bounded [after, before]
+/// window — reading [after, now] would return recent rows that fall inside
+/// the open window and mask whether the deep history is actually cached.
+pub(crate) fn cached_window_bounds(
+    params: &ActivityQueryParams,
+    now: DateTime<Utc>,
+) -> (DateTime<Utc>, DateTime<Utc>) {
+    let end = params
+        .before
+        .and_then(|ts| Utc.timestamp_opt(ts, 0).single())
+        .unwrap_or(now);
+    let start = params
+        .after
+        .and_then(|ts| Utc.timestamp_opt(ts, 0).single())
+        .unwrap_or_else(|| now - Duration::days(STALE_FALLBACK_WINDOW_DAYS));
+    (start, end)
+}
+
 /// Read a provider's cached activities for the request window from the durable
 /// activity cache, newest first.
 ///
@@ -792,20 +852,7 @@ pub(crate) async fn read_cached_window(
     tenant: TenantId,
     params: &ActivityQueryParams,
 ) -> Option<Vec<Activity>> {
-    let now = Utc::now();
-    // Honor the request's `before` upper bound. A historical query like
-    // "2022 races" (after=2022, before=2023) must read the bounded [after,
-    // before] window — reading [after, now] would return recent rows that fall
-    // inside the open window and mask whether the deep history is actually
-    // cached.
-    let end = params
-        .before
-        .and_then(|ts| Utc.timestamp_opt(ts, 0).single())
-        .unwrap_or(now);
-    let start = params
-        .after
-        .and_then(|ts| Utc.timestamp_opt(ts, 0).single())
-        .unwrap_or_else(|| now - Duration::days(STALE_FALLBACK_WINDOW_DAYS));
+    let (start, end) = cached_window_bounds(params, Utc::now());
     let limit = params
         .limit
         .and_then(|l| i64::try_from(l).ok())
@@ -831,19 +878,54 @@ pub(crate) async fn read_cached_window(
     }
 }
 
-/// Read a provider's cached activities after a failed live fetch, newest first.
-///
-/// Thin wrapper over [`read_cached_window`] that logs the stale-serve. Only
-/// invoked after a live fetch failure, so any non-empty result is strictly
-/// better than the empty fallback.
-async fn serve_stale_activities(
+/// The page of a provider's cached window `params` names: the window read by
+/// [`read_cached_window`] with `params.offset` rows skipped, so a later page
+/// served from the cache is that page and never the first one again. `None`
+/// when the page holds nothing.
+async fn read_cached_page(
     runtime: &Arc<dyn ToolRuntime>,
     provider_slug: &str,
     user_id: Uuid,
     tenant: TenantId,
     params: &ActivityQueryParams,
 ) -> Option<Vec<Activity>> {
-    let cached = read_cached_window(runtime, provider_slug, user_id, tenant, params).await;
+    let skip = params.offset.unwrap_or(0);
+    if skip == 0 {
+        return read_cached_window(runtime, provider_slug, user_id, tenant, params).await;
+    }
+    let through_page = ActivityQueryParams {
+        limit: Some(
+            params
+                .limit
+                .unwrap_or_else(|| usize::try_from(STALE_FALLBACK_LIMIT).unwrap_or(usize::MAX))
+                .saturating_add(skip),
+        ),
+        offset: None,
+        ..params.clone()
+    };
+    let page: Vec<Activity> =
+        read_cached_window(runtime, provider_slug, user_id, tenant, &through_page)
+            .await?
+            .into_iter()
+            .skip(skip)
+            .collect();
+    (!page.is_empty()).then_some(page)
+}
+
+/// Read a provider's cached activities after a failed live fetch, newest first.
+///
+/// Thin wrapper over [`read_cached_page`] that logs the stale-serve. Only
+/// invoked after a live fetch failure, so any non-empty result is strictly
+/// better than the empty fallback. `pub` for the chat tool's primary read,
+/// which lives behind the `tools-data` feature.
+pub async fn serve_stale_activities(
+    runtime: &Arc<dyn ToolRuntime>,
+    provider_slug: &str,
+    user_id: Uuid,
+    tenant: TenantId,
+    params: &ActivityQueryParams,
+) -> Option<Vec<Activity>> {
+    let cached = read_cached_page(runtime, provider_slug, user_id, tenant, params).await;
     if let Some(ref activities) = cached {
         warn!(
             user_id = %user_id,
@@ -893,199 +975,6 @@ pub async fn fetch_recent_activities_all_providers(
         }
     }
     all
-}
-
-/// Warm the provider-agnostic activity cache after a successful live fetch so
-/// the next outage serves these rows stale-while-revalidate. Shared with the
-/// group snapshot builder through the `activity_cache` repo.
-///
-/// `retention_days` is the per-transaction prune window: after the upsert,
-/// rows older than `now - retention_days` are garbage-collected. Recent-fetch
-/// callers pass [`activity_cache_retention_days`] (the deployment default);
-/// a historical backfill passes a deeper window so the season it just wrote is
-/// not immediately pruned. Pruning is keyed by `(user_id, tenant_id)` across
-/// all providers, so the retention floor for durable history is whatever the
-/// *widest-window* writer uses.
-/// Returns the count of net distinct rows persisted (deduped by `activity_id`),
-/// or `None` when the upsert itself failed. The historical backfill surfaces
-/// this honest figure in its completion notice; recent-fetch callers ignore it.
-///
-/// A write that lands a new training session delivers the athlete's
-/// `per_session` persona digest (see [`lands_a_session`]).
-pub(crate) async fn write_through_activity_cache(
-    auth_service: &AuthService,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    provider: &str,
-    activities: &[Activity],
-    retention_days: i64,
-) -> Option<u64> {
-    let data = auth_service.runtime().data();
-    let cache = data.repos().activity_cache.clone();
-    #[cfg(feature = "client-notifications")]
-    let landed = lands_a_session(
-        auth_service.runtime(),
-        user_id,
-        &tenant_id,
-        provider,
-        activities,
-    )
-    .await;
-    let persisted = match cache
-        .upsert_activities(user_id, &tenant_id, provider, activities)
-        .await
-    {
-        Ok(count) => count,
-        Err(e) => {
-            info!(user_id = %user_id, provider = %provider, error = %e, "Activity cache: write-through failed");
-            return None;
-        }
-    };
-    let cutoff = Utc::now() - Duration::days(retention_days);
-    prune_and_realign_coverage(cache.as_ref(), user_id, tenant_id, provider, cutoff).await;
-    stamp_fetch_freshness(cache.as_ref(), user_id, tenant_id, provider).await;
-    #[cfg(feature = "client-notifications")]
-    if landed {
-        deliver_session_digest(auth_service.runtime(), user_id, tenant_id);
-    }
-    Some(persisted)
-}
-
-/// Prune below `cutoff`, then raise any coverage floor the prune just falsified.
-///
-/// The two writes belong together: a prune that removed rows has deleted
-/// exactly what a deeper coverage record vouches for, and a claim left standing
-/// makes the historical gate serve the now-shallow cache as a complete window
-/// without calling a provider. Best-effort throughout — retention is not worth
-/// failing a fetch over, and a clamp that fails costs one stale claim, which
-/// the next prune retries.
-async fn prune_and_realign_coverage(
-    cache: &dyn ActivityCacheRepository,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    provider: &str,
-    cutoff: DateTime<Utc>,
-) {
-    match cache
-        .prune_activities_before(user_id, &tenant_id, cutoff)
-        .await
-    {
-        Ok(0) => {}
-        Ok(pruned) => {
-            realign_coverage_floor(cache, user_id, tenant_id, provider, cutoff, pruned).await;
-        }
-        Err(e) => {
-            info!(user_id = %user_id, provider = %provider, error = %e, "Activity cache: prune failed");
-        }
-    }
-}
-
-/// Raise coverage floors the prune just falsified. Best-effort: a failed clamp
-/// costs one stale claim, which the next prune retries.
-async fn realign_coverage_floor(
-    cache: &dyn ActivityCacheRepository,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    provider: &str,
-    cutoff: DateTime<Utc>,
-    pruned: u64,
-) {
-    match cache
-        .clamp_backfill_coverage(user_id, &tenant_id, cutoff)
-        .await
-    {
-        Ok(0) => {}
-        Ok(clamped) => info!(
-            user_id = %user_id,
-            provider = %provider,
-            pruned,
-            clamped,
-            "Activity cache: prune raised backfill coverage floors"
-        ),
-        Err(e) => {
-            info!(user_id = %user_id, provider = %provider, error = %e, "Activity cache: coverage clamp failed");
-        }
-    }
-}
-
-/// Record that this fetch happened, independent of how many rows it returned.
-///
-/// The fetch itself is the freshness signal: a provider that answered with
-/// zero activities is exactly as current as one that answered with ten, and
-/// the upserted rows cannot say so. Best-effort — a failed mark costs one
-/// deferred freshness read, never the fetch.
-async fn stamp_fetch_freshness(
-    cache: &dyn ActivityCacheRepository,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    provider: &str,
-) {
-    if let Err(e) = cache
-        .record_activity_fetch(user_id, &tenant_id, provider, Utc::now())
-        .await
-    {
-        info!(user_id = %user_id, provider = %provider, error = %e, "Activity cache: fetch freshness mark failed");
-    }
-}
-
-/// Persist a window `get_activities` just served.
-///
-/// So the stale-while-revalidate path and later turns can answer it without
-/// re-fetching. Best-effort: a cache failure never blocks the response. An empty
-/// window writes nothing.
-///
-/// The caller decides provenance, and only rows a PROVIDER produced belong here.
-/// Two kinds never do:
-///
-/// * Rows a sibling connection produced while the elected provider was auth-dead.
-///   They belong to the providers that produced them — each already wrote its own
-///   through — and filing them under the dead provider's key would have a
-///   reconnect restore history it never recorded.
-/// * Rows the historical branch read out of this very table. Writing them back
-///   changes no data; it only moves their `synced_at` to now.
-///   [`ActivityCacheRepository::latest_activity_sync`] takes the max of that
-///   column, [`DataFreshness`] reads the result as `Fresh`, and
-///   [`refresh_stale_head`] returns early on `Fresh` — so the one path that would
-///   top the head up is disarmed by the act of serving the stale window, and every
-///   later ask re-arms the disarming. A capture that stops then reports itself
-///   current forever: jf@dravr.ai's sciotte capture froze at 2026-08-28 02:59Z and
-///   two days later all 109 cached rows carried one identical `synced_at`, while
-///   `activity_fetch_freshness` still held the last real fetch, five days older.
-///   A stale-head top-up that does reach the provider is written through by
-///   [`fetch_provider_activities`], which is what should move freshness.
-///
-/// `pub` like its siblings here: the only caller is `implementations::data`, which is
-/// behind the `tools-data` feature, so a narrower visibility reads as dead code in a
-/// `--no-default-features` build.
-pub async fn write_through_served_window(
-    runtime: &Arc<dyn ToolRuntime>,
-    user_id: Uuid,
-    tenant_id: &TenantId,
-    provider_slug: &str,
-    activities: &[Activity],
-) {
-    if activities.is_empty() {
-        return;
-    }
-    #[cfg(feature = "client-notifications")]
-    let landed = lands_a_session(runtime, user_id, tenant_id, provider_slug, activities).await;
-    let upserted = runtime
-        .repos()
-        .activity_cache
-        .upsert_activities(user_id, tenant_id, provider_slug, activities)
-        .await;
-    if let Err(e) = &upserted {
-        warn!(
-            user_id = %user_id,
-            provider = %provider_slug,
-            error = %e,
-            "Activity cache: write-through from get_activities failed"
-        );
-    }
-    #[cfg(feature = "client-notifications")]
-    if landed && upserted.is_ok() {
-        deliver_session_digest(runtime, user_id, *tenant_id);
-    }
 }
 
 /// Order a fetched activity list in place by the requested key.

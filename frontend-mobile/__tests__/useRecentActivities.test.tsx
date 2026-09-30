@@ -18,9 +18,12 @@ import type { RecentActivitiesResponse } from '@pierre/shared-types';
 
 import { ACTIVITIES, recentResponse } from '../integration/app/helpers/homeFixtures';
 
-const mockGetRecentActivities = jest.fn<Promise<RecentActivitiesResponse>, []>();
+const mockGetRecentActivities = jest.fn<Promise<RecentActivitiesResponse>, [{ retry?: boolean }?]>();
 jest.mock('../src/services/api', () => ({
-  athleteApi: { getRecentActivities: () => mockGetRecentActivities() },
+  athleteApi: {
+    getRecentActivities: (_limit?: number, options?: { retry?: boolean }) =>
+      options === undefined ? mockGetRecentActivities() : mockGetRecentActivities(options),
+  },
 }));
 
 import { useRecentActivities } from '../src/hooks/useHome';
@@ -88,6 +91,35 @@ afterEach(() => {
   focusManager.setFocused(undefined);
   notifyManager.setScheduler(defaultScheduler);
   jest.useRealTimers();
+});
+
+describe('the retry after a failed sync', () => {
+  it('asks the server to refresh past its pause, and restarts the schedule from the retry', async () => {
+    mockGetRecentActivities.mockResolvedValue(recentResponse({ stale: true, as_of: '2026-09-23T06:00:00Z' }));
+    const { result } = renderRecent();
+    await settle();
+    // Two asks into the schedule: its next ask is a whole third delay away.
+    await elapse(FIRST_DELAY);
+    await elapse(SECOND_DELAY);
+    expect(mockGetRecentActivities).toHaveBeenCalledTimes(3);
+    await elapse(10_000);
+
+    await act(async () => {
+      result.current.retry();
+    });
+    await settle();
+    expect(mockGetRecentActivities).toHaveBeenCalledTimes(4);
+    expect(mockGetRecentActivities).toHaveBeenLastCalledWith({ retry: true });
+    expect(result.current.staleRefetch).toBe('pending');
+
+    // The refresh the retry started is what the screen waits on now.
+    mockGetRecentActivities.mockResolvedValue(recentResponse({ stale: false, as_of: '2026-09-24T09:00:00Z' }));
+    await elapse(FIRST_DELAY - 1);
+    expect(mockGetRecentActivities).toHaveBeenCalledTimes(4);
+    await elapse(1);
+    expect(mockGetRecentActivities).toHaveBeenCalledTimes(5);
+    expect(result.current.staleRefetch).toBe('done');
+  });
 });
 
 describe('the stale follow-up schedule', () => {

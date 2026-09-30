@@ -14,7 +14,9 @@
 //! started is one the Home page does not start again.
 
 use std::collections::HashSet;
+use std::env;
 use std::sync::{Arc, LazyLock, Mutex as StdMutex, PoisonError};
+use std::time::Duration;
 
 use pierre_core::models::TenantId;
 use uuid::Uuid;
@@ -27,6 +29,23 @@ use uuid::Uuid;
 /// revalidation for the same user. Generous relative to a healthy ~2-minute
 /// scrape so it only fires on a genuine stall.
 pub const REVALIDATION_TIMEOUT_SECS: u64 = 240;
+
+/// The bound a background revalidation runs under.
+///
+/// [`REVALIDATION_TIMEOUT_SECS`], or `PIERRE_REVALIDATION_TIMEOUT_SECS` when
+/// it holds a positive number of seconds — for a deployment whose scraper is
+/// slower, and for a suite that drives a scrape which never answers to its
+/// bound.
+#[must_use]
+pub fn revalidation_timeout() -> Duration {
+    Duration::from_secs(
+        env::var("PIERRE_REVALIDATION_TIMEOUT_SECS")
+            .ok()
+            .and_then(|secs| secs.parse::<u64>().ok())
+            .filter(|secs| *secs > 0)
+            .unwrap_or(REVALIDATION_TIMEOUT_SECS),
+    )
+}
 
 /// Tracks which `(user, tenant)` background revalidations are in flight so
 /// concurrent stale-cache chat turns collapse onto a single refresh.

@@ -59,8 +59,8 @@ use tracing::{info, warn};
 use serde_json::json;
 
 use super::core::{
-    ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
-    TokenRefreshCallback,
+    no_recorded_samples, ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig,
+    ProviderFactory, TokenRefreshCallback,
 };
 use crate::activity_paging::pages_for;
 use crate::constants::api_provider_limits;
@@ -465,8 +465,9 @@ impl IntervalsIcuProvider {
     /// # Errors
     ///
     /// Returns [`AppError`] when credentials are missing or the upstream
-    /// HTTP call fails. Returns `Ok(None)` for HTTP 404 (activity has no
-    /// stream data).
+    /// HTTP call fails. HTTP 404 (the activity has no stream data) is a
+    /// stream set of zero samples ([`no_recorded_samples`]): the provider's
+    /// word that nothing was recorded, never a read that failed.
     pub async fn get_streams(&self, activity_id: &str) -> AppResult<Option<TimeSeriesData>> {
         let (_, api_key) = self.require_credentials().await?;
         let url = self.activity_url(activity_id, "/streams.json");
@@ -479,7 +480,7 @@ impl IntervalsIcuProvider {
             AppError::external_service("intervals_icu", format!("get_streams: {e}"))
         })?;
         if response.status() == reqwest::StatusCode::NOT_FOUND {
-            return Ok(None);
+            return Ok(Some(no_recorded_samples()));
         }
         if !response.status().is_success() {
             return Err(AppError::external_service(
@@ -953,6 +954,10 @@ impl FitnessProvider for IntervalsIcuProvider {
         let comments = self.comments_best_effort(id).await;
         map_activity(raw, None, comments)
             .ok_or_else(|| AppError::external_service("intervals_icu", "could not map activity"))
+    }
+
+    fn serves_activity_streams(&self) -> bool {
+        true
     }
 
     // The streams endpoint is a further round trip, so only this tier pays

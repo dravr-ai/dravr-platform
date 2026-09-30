@@ -17,7 +17,6 @@
 //! incident).
 
 use std::sync::Arc;
-use std::time::Duration as StdDuration;
 
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::models::{Activity, RefreshConfig, TenantId};
@@ -29,7 +28,7 @@ use uuid::Uuid;
 use crate::activity_fetch::activity_cache_retention_days;
 use crate::group_fitness::{ActivityMergeStrategy, AllProvidersMerge};
 use crate::protocol::AuthService;
-use crate::revalidation::{RevalidationRegistry, REVALIDATION_TIMEOUT_SECS};
+use crate::revalidation::{revalidation_timeout, RevalidationRegistry};
 use crate::runtime::ToolRuntime;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 
@@ -243,7 +242,7 @@ async fn activity_cache_is_stale(
 /// finished inside that budget.
 ///
 /// Past the budget the task keeps running detached — capped at
-/// [`REVALIDATION_TIMEOUT_SECS`] so a hung scrape releases its slot — and its
+/// [`revalidation_timeout`] so a hung scrape releases its slot — and its
 /// write-through still lands for the next turn. Deduplicated: only one
 /// revalidation runs per `(user, tenant)` at a time; when one is already in
 /// flight this reports "not fresh" rather than waiting on a task it has no
@@ -267,8 +266,9 @@ async fn revalidate_within_budget(
         // Hold the slot for the whole refresh; dropping `guard` frees it.
         let _guard = guard;
         info!(user_id = %user_id, "Activity cache: revalidation started");
+        let bound = revalidation_timeout();
         match timeout(
-            StdDuration::from_secs(REVALIDATION_TIMEOUT_SECS),
+            bound,
             fetch_and_persist_live(&runtime, &providers, user_id, tenant_id),
         )
         .await
@@ -280,7 +280,7 @@ async fn revalidate_within_budget(
             ),
             Err(_elapsed) => warn!(
                 user_id = %user_id,
-                timeout_secs = REVALIDATION_TIMEOUT_SECS,
+                timeout_secs = bound.as_secs(),
                 "Activity cache: revalidation timed out; releasing slot"
             ),
         }

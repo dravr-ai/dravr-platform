@@ -291,16 +291,24 @@ pub async fn fetch_activity_from_provider(
         })
 }
 
-/// Build the authenticated provider both fetch helpers above read through:
-/// the one chokepoint every provider read authenticates at
+/// Build the authenticated provider both fetch helpers above read through.
+///
+/// The one chokepoint every provider read authenticates at
 /// ([`AuthService::create_authenticated_provider`]), so a mirror backend, a
 /// delegated `TrainingPeaks` link and a refreshed token serve these reads as
 /// they serve every other.
 ///
 /// A refusal that says the connection needs reconnecting keeps that shape as
 /// [`AppError::provider_auth_required`]; any other refusal is an
-/// external-service error carrying the refusal's words.
-async fn configured_provider(
+/// external-service error carrying the refusal's words. `pub` for a caller
+/// that asks the provider something before it reads — the Home route read
+/// asks whether it serves streams at all.
+///
+/// # Errors
+///
+/// Returns [`AppError::provider_auth_required`] when the connection needs
+/// reconnecting, and an external-service error for any other refusal.
+pub async fn configured_provider(
     resources: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     provider_name: &str,

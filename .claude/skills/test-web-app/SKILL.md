@@ -125,6 +125,16 @@ only in your head across a 20-surface sweep:
 
 Tools are `mcp__chrome-devtools__*`; short names used below.
 
+`.mcp.json` launches the server with `--isolated`: each session's Chrome gets a throwaway
+profile, deleted when that browser closes. Several sessions on this machine drive
+chrome-devtools at once, and without the flag they share one profile
+(`~/.cache/chrome-devtools-mcp/chrome-profile`), so the second session's first call fails
+with "The browser is already running … Use --isolated". Two consequences: nothing persists
+between runs — no cookies, no login, no localStorage — so every sweep logs in through the UI;
+and a session that still hits that error loaded a `.mcp.json` without the flag (a worktree
+branched or copied from an older checkout) — rebase it onto main, then restart the session,
+since MCP servers are launched once at session start.
+
 1. `new_page` → `http://localhost:5173`
 2. `list_pages` to confirm the target, `select_page` if more than one.
 3. `resize_page` → 1440×900 (desktop baseline; the mobile breakpoint is <768px and gets its

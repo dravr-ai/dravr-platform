@@ -7,6 +7,9 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { RefreshControl, ScrollView, View } from 'react-native';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
+import { QUERY_KEYS } from '@pierre/shared-constants';
+import type { ActivityRouteResponse } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { BrandLockup } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
@@ -34,8 +37,9 @@ export function HomeScreen() {
   // plan, from Connections, from a notification — reads them again so Home
   // shows what changed while it was out of sight: the provider status too,
   // since Connections is where the connect and reconnect prompts send the
-  // athlete. The route answers are left alone: a completed activity's route
-  // does not change.
+  // athlete. A drawn route is left alone — a completed activity's route does
+  // not change — while a route answered without one is asked again on its
+  // own (`routeAnswerStaleTime`), and a pull to refresh re-asks it at once.
   //
   // The three refetches keep their identity, and so does the focus callback:
   // one whose identity changed would be run again by the router while the
@@ -56,12 +60,17 @@ export function HomeScreen() {
     }, [refetchPlan, refetchRecent, refetchProvider]),
   );
 
+  const queryClient = useQueryClient();
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    void Promise.allSettled([refetchPlan(), refetchRecent(), refetchProvider()]).finally(() =>
+    const undrawnRoutes = queryClient.invalidateQueries({
+      queryKey: QUERY_KEYS.home.activityRoutes,
+      predicate: (query) => (query.state.data as ActivityRouteResponse | undefined)?.route === null,
+    });
+    void Promise.allSettled([refetchPlan(), refetchRecent(), refetchProvider(), undrawnRoutes]).finally(() =>
       setRefreshing(false),
     );
-  }, [refetchPlan, refetchRecent, refetchProvider]);
+  }, [queryClient, refetchPlan, refetchRecent, refetchProvider]);
 
   // Every tap on Home asks the agent about what was tapped, in a fresh
   // thread, with the question in the composer and the send left to the athlete.
@@ -109,7 +118,9 @@ export function HomeScreen() {
           isError={recent.isError}
           refreshing={recent.refreshing}
           asOf={recent.asOf}
+          syncFailure={recent.syncFailure}
           onRetry={() => void refetchRecent()}
+          onRetrySync={recent.retry}
           providerConnected={provider.connected}
           syncing={provider.syncing}
           onConnect={() => router.push(CONNECTIONS_ROUTE)}

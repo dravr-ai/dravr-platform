@@ -63,12 +63,36 @@ export interface RecentActivitiesResponse {
    */
   as_of: string | null;
   /**
-   * True when `as_of` is older than the freshness window: the server has
-   * started a background refresh and the client asks again on the
+   * The latest refresh of one of the athlete's providers that failed — a
+   * scrape that errored or never answered, or an answer the server judged
+   * incomplete — with no good sync of that provider after it; null when
+   * every provider's latest attempt succeeded. It names the provider and
+   * that provider's own last good sync, which is how old its rows on the
+   * page are: `as_of` spans every provider.
+   */
+  sync_failure: SyncFailure | null;
+  /**
+   * True when the server started, or found running, a background refresh of
+   * a provider that needs one — past the freshness window, or whose last
+   * refresh failed — and the client asks again on the
    * `HOME_STALE_REFETCH_DELAYS_MS` schedule, stopping at the first answer
-   * that is not stale.
+   * that is not stale. False while a failing provider is paused between
+   * attempts: `sync_failure` says why, and the athlete's retry
+   * (`?retry=true`) refreshes it at once.
    */
   stale: boolean;
+}
+
+/** A provider's latest refresh that failed, with that provider's own last good sync. */
+export interface SyncFailure {
+  /** The provider, by its user-facing slug: `strava`, `garmin`, … */
+  provider: string;
+  /** The provider's name as the athlete reads it: `Strava`. */
+  provider_name: string;
+  /** When the refresh failed, RFC 3339. */
+  failed_at: string;
+  /** When that provider last synced well, RFC 3339; null when it never has. */
+  last_synced_at: string | null;
 }
 
 /**
@@ -77,13 +101,20 @@ export interface RecentActivitiesResponse {
  * - `no_gps` — the activity recorded no GPS track: indoor, trainer, manual.
  * - `too_short` — a track exists, but after the privacy trim at both ends
  *   fewer than two points are left, so the only honest map is none.
+ * - `unavailable` — the route could not be read just now: the provider read
+ *   failed, timed out, or answered without stream data. It says nothing
+ *   about the recording, so `has_gps` stays true. The server keeps this answer
+ *   for 10 minutes (`UNREAD_ROUTE_RECHECK_MINUTES` in pierre-server) and
+ *   reads the route again on a request after that; the athlete's retry
+ *   (`?retry=true`) reads it again at once.
  */
-export type ActivityRouteUnavailableReason = 'no_gps' | 'too_short';
+export type ActivityRouteUnavailableReason = 'no_gps' | 'too_short' | 'unavailable';
 
 /** Every value {@link ActivityRouteUnavailableReason} takes, for exhaustive rendering. */
 export const ACTIVITY_ROUTE_UNAVAILABLE_REASONS: readonly ActivityRouteUnavailableReason[] = [
   'no_gps',
   'too_short',
+  'unavailable',
 ];
 
 /**
@@ -216,7 +247,8 @@ export function parseRecentActivitiesResponse(body: unknown): RecentActivitiesRe
     return null;
   }
   const asOf = nullable(body.as_of, isInstant);
-  if (asOf === undefined) {
+  const syncFailure = parseSyncFailure(body.sync_failure);
+  if (asOf === undefined || syncFailure === undefined) {
     return null;
   }
   const activities: HomeActivity[] = [];
@@ -227,7 +259,37 @@ export function parseRecentActivitiesResponse(body: unknown): RecentActivitiesRe
     }
     activities.push(activity);
   }
-  return { activities, as_of: asOf, stale: body.stale };
+  return { activities, as_of: asOf, sync_failure: syncFailure, stale: body.stale };
+}
+
+/**
+ * A `sync_failure` read as `null` when omitted, `undefined` when present in
+ * any other shape — the caller rejects the whole body on `undefined`.
+ */
+function parseSyncFailure(value: unknown): SyncFailure | null | undefined {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (
+    !isRecord(value) ||
+    typeof value.provider !== 'string' ||
+    value.provider === '' ||
+    typeof value.provider_name !== 'string' ||
+    value.provider_name === '' ||
+    !isInstant(value.failed_at)
+  ) {
+    return undefined;
+  }
+  const lastSynced = nullable(value.last_synced_at, isInstant);
+  if (lastSynced === undefined) {
+    return undefined;
+  }
+  return {
+    provider: value.provider,
+    provider_name: value.provider_name,
+    failed_at: value.failed_at,
+    last_synced_at: lastSynced,
+  };
 }
 
 function parseRouteView(value: unknown): RouteView | null {

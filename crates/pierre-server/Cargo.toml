@@ -336,6 +336,10 @@ subtle = "2.6"
 ed25519-dalek = "2.2"
 # Stripe billing webhook integration test signs payloads against StripeClient.
 dravr-stripe = { workspace = true }
+# The Home sync-truth suite builds its scraper stand-in's answers with the
+# scraper's own types and serializer, so it can only play a shape the scraper
+# can send.
+dravr-sciotte = { workspace = true }
 
 # Flamegraph profiler hook for criterion benches (`-- --profile-time N`).
 # pprof builds on libc signals and does not compile on Windows, and cargo

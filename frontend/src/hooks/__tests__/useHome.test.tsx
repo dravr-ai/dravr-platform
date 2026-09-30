@@ -8,18 +8,21 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider, focusManager, notifyManager } from '@tanstack/react-query';
-import { HOME_STALE_REFETCH_DELAYS_MS } from '@pierre/shared-constants';
+import { HOME_ROUTE_UNAVAILABLE_RECHECK_DELAYS_MS, HOME_STALE_REFETCH_DELAYS_MS } from '@pierre/shared-constants';
 import type {
+  ActivityRouteResponse,
   HomeActivity,
   ProvidersStatusResponse,
   RecentActivitiesResponse,
   TrainingPlanResponse,
 } from '@pierre/shared-types';
-import { useProviderConnection, useRecentActivities, useTrainingPlan } from '../useHome';
+import { useActivityRoute, useProviderConnection, useRecentActivities, useTrainingPlan } from '../useHome';
 
 const api = vi.hoisted(() => ({
-  getRecentActivities: vi.fn<() => Promise<RecentActivitiesResponse>>(),
-  getActivityRoute: vi.fn(),
+  getRecentActivities:
+    vi.fn<(limit?: number, options?: { retry?: boolean }) => Promise<RecentActivitiesResponse>>(),
+  getActivityRoute:
+    vi.fn<(provider: string, id: string, options?: { retry?: boolean }) => Promise<ActivityRouteResponse>>(),
   getTrainingPlan: vi.fn<(locale?: string) => Promise<TrainingPlanResponse>>(),
   getProvidersStatus: vi.fn<() => Promise<ProvidersStatusResponse>>(),
 }));
@@ -47,10 +50,16 @@ function row(id: string, name: string, start_date: string): HomeActivity {
 const OLD_ROW = row('act-1', 'Lake loop', '2026-09-22T11:00:00Z');
 const NEW_ROW = row('act-2', 'Lunch run', '2026-09-24T12:00:00Z');
 
-const STALE: RecentActivitiesResponse = { activities: [OLD_ROW], as_of: '2026-09-23T06:00:00Z', stale: true };
+const STALE: RecentActivitiesResponse = {
+  activities: [OLD_ROW],
+  as_of: '2026-09-23T06:00:00Z',
+  sync_failure: null,
+  stale: true,
+};
 const FRESH: RecentActivitiesResponse = {
   activities: [NEW_ROW, OLD_ROW],
   as_of: '2026-09-24T12:30:00Z',
+  sync_failure: null,
   stale: false,
 };
 
@@ -315,6 +324,64 @@ describe('useRecentActivities', () => {
     expect(api.getRecentActivities).toHaveBeenCalledTimes(4);
   });
 
+  it('restarts the schedule at the retry, which asks the server to refresh past its pause', async () => {
+    api.getRecentActivities.mockResolvedValue(STALE);
+    const { result } = renderHook(() => useRecentActivities(), { wrapper });
+    await flush();
+    // Two asks into the schedule: its next ask is a whole third delay away.
+    await flush(DELAYS[0]);
+    await flush(DELAYS[1]);
+    expect(api.getRecentActivities).toHaveBeenCalledTimes(3);
+    const intoWait = 10_000;
+    await flush(intoWait);
+
+    await act(async () => {
+      result.current.retry();
+    });
+    await flush();
+    expect(api.getRecentActivities).toHaveBeenCalledTimes(4);
+    expect(api.getRecentActivities).toHaveBeenLastCalledWith(undefined, { retry: true });
+    expect(result.current.refreshing).toBe(true);
+
+    // The refresh the retry started is what the page waits on: the next ask
+    // is one first delay after the retry, not what was left of the old wait.
+    api.getRecentActivities.mockResolvedValue(FRESH);
+    await flush(DELAYS[0] - 1);
+    expect(api.getRecentActivities).toHaveBeenCalledTimes(4);
+    await flush(1);
+    expect(api.getRecentActivities).toHaveBeenCalledTimes(5);
+    expect(result.current.data).toEqual(FRESH);
+    expect(result.current.refreshing).toBe(false);
+  });
+
+  it('starts a schedule from a retry made after the last one ended on a paused failure', async () => {
+    const paused: RecentActivitiesResponse = {
+      ...STALE,
+      stale: false,
+      sync_failure: {
+        provider: 'strava',
+        provider_name: 'Strava',
+        failed_at: '2026-09-24T11:58:00Z',
+        last_synced_at: '2026-09-23T06:00:00Z',
+      },
+    };
+    api.getRecentActivities.mockResolvedValue(paused);
+    const { result } = renderHook(() => useRecentActivities(), { wrapper });
+    await flush();
+    await flush(WHOLE_SCHEDULE);
+    expect(api.getRecentActivities).toHaveBeenCalledTimes(1);
+
+    api.getRecentActivities.mockResolvedValueOnce({ ...paused, stale: true }).mockResolvedValue(FRESH);
+    await act(async () => {
+      result.current.retry();
+    });
+    await flush();
+    expect(result.current.refreshing).toBe(true);
+    await flush(DELAYS[0]);
+    expect(api.getRecentActivities).toHaveBeenCalledTimes(3);
+    expect(result.current.data).toEqual(FRESH);
+  });
+
   it('cancels the pending ask when the page goes away, before the first and in the middle of a schedule', async () => {
     api.getRecentActivities.mockResolvedValue(STALE);
     const first = renderHook(() => useRecentActivities(), { wrapper });
@@ -330,6 +397,125 @@ describe('useRecentActivities', () => {
     second.unmount();
     await flush(WHOLE_SCHEDULE * 2);
     expect(api.getRecentActivities).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('useActivityRoute', () => {
+  const UNAVAILABLE: ActivityRouteResponse = { route: null, reason: 'unavailable' };
+  const RECHECKS = HOME_ROUTE_UNAVAILABLE_RECHECK_DELAYS_MS;
+
+  beforeEach(() => {
+    // React Query follows an answer up on an interval timer.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    vi.setSystemTime(new Date('2026-09-24T12:00:00Z'));
+  });
+
+  it('asks an unavailable route again after each recheck delay, then stops', async () => {
+    api.getActivityRoute.mockResolvedValue(UNAVAILABLE);
+    const { result } = renderHook(() => useActivityRoute('strava', 'act-9', true), { wrapper });
+    await flush();
+    expect(api.getActivityRoute).toHaveBeenCalledTimes(1);
+
+    for (const [index, delay] of RECHECKS.entries()) {
+      await flush(delay - 1);
+      expect(api.getActivityRoute).toHaveBeenCalledTimes(index + 1);
+      await flush(1);
+      expect(api.getActivityRoute).toHaveBeenCalledTimes(index + 2);
+    }
+    // A schedule with an end: an open page asks nothing more.
+    await flush(RECHECKS.reduce((sum, delay) => sum + delay, 0) * 4);
+    expect(api.getActivityRoute).toHaveBeenCalledTimes(RECHECKS.length + 1);
+    expect(result.current.data).toEqual(UNAVAILABLE);
+  });
+
+  it('draws the route the server stored after its first answer, and asks nothing more', async () => {
+    const drawn: ActivityRouteResponse = {
+      route: {
+        coordinates: [
+          [45.5, -73.6],
+          [45.51, -73.61],
+        ],
+        bounds: { min_latitude: 45.5, max_latitude: 45.51, min_longitude: -73.61, max_longitude: -73.6 },
+        elevation_meters: null,
+        distances_meters: null,
+        climbs: [],
+        title: 'Sortie',
+        source_tool: 'strava',
+      },
+      reason: null,
+    };
+    api.getActivityRoute.mockResolvedValueOnce(UNAVAILABLE).mockResolvedValue(drawn);
+    const { result } = renderHook(() => useActivityRoute('strava', 'act-9', true), { wrapper });
+    await flush();
+    await flush(RECHECKS[0]);
+    expect(result.current.data).toEqual(drawn);
+    await flush(RECHECKS[1] * 4);
+    expect(api.getActivityRoute).toHaveBeenCalledTimes(2);
+  });
+
+  // 2026-09-29: a failing scraper had the server store `no_gps` for rides
+  // that recorded GPS, and the list said `has_gps: false` with it. The server
+  // has since deleted those rows, so the list says `has_gps: true` again —
+  // and a tab left open since must ask the route again, not keep the old
+  // answer as settled.
+  it('asks a held no_gps route again once the list says the activity has GPS again', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const shared = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const drawn: ActivityRouteResponse = {
+      route: {
+        coordinates: [
+          [45.5, -73.6],
+          [45.51, -73.61],
+        ],
+        bounds: { min_latitude: 45.5, max_latitude: 45.51, min_longitude: -73.61, max_longitude: -73.6 },
+        elevation_meters: null,
+        distances_meters: null,
+        climbs: [],
+        title: 'Sortie',
+        source_tool: 'strava',
+      },
+      reason: null,
+    };
+    api.getActivityRoute.mockResolvedValueOnce({ route: null, reason: 'no_gps' }).mockResolvedValue(drawn);
+    const { result, rerender } = renderHook(
+      ({ hasGps }: { hasGps: boolean }) => useActivityRoute('strava', 'act-9', hasGps),
+      { wrapper: shared, initialProps: { hasGps: true } },
+    );
+    await flush();
+    expect(result.current.data).toEqual({ route: null, reason: 'no_gps' });
+
+    rerender({ hasGps: false });
+    await flush();
+    rerender({ hasGps: true });
+    await flush();
+    expect(api.getActivityRoute).toHaveBeenCalledTimes(2);
+    expect(result.current.data).toEqual(drawn);
+  });
+
+  it('retries past a stored unavailable answer, and says a read is in flight meanwhile', async () => {
+    api.getActivityRoute.mockResolvedValueOnce(UNAVAILABLE);
+    const { result } = renderHook(() => useActivityRoute('strava', 'act-9', true), { wrapper });
+    await flush();
+    let answer: (response: ActivityRouteResponse) => void = () => undefined;
+    api.getActivityRoute.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+
+    await act(async () => {
+      result.current.retry();
+    });
+    expect(api.getActivityRoute).toHaveBeenLastCalledWith('strava', 'act-9', { retry: true });
+    expect(result.current.isFetching).toBe(true);
+    await act(async () => {
+      answer(UNAVAILABLE);
+    });
+    await flush();
+    expect(result.current.isFetching).toBe(false);
   });
 });
 

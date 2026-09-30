@@ -54,9 +54,9 @@ use tokio::time::sleep;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::activity_fetch::write_through::{write_through_activity_cache, WriteThrough};
 use crate::activity_fetch::{
     activity_cache_retention_days, read_cached_window, serve_historical_window,
-    write_through_activity_cache,
 };
 use crate::protocol::reauth_notice::{flag_needs_reauth, ReauthNotice};
 use crate::protocol::types::auth_required_provider;
@@ -612,7 +612,8 @@ enum BackfillFetch {
 /// A capture whose head the provider never saw (`FitnessProvider::head_complete`
 /// is `false`: a scraped walk that carries every complete week and missed the
 /// in-progress one) is declined on the same rule as every other write-through
-/// site. The upsert moves each row's `synced_at` to now, `latest_activity_sync`
+/// site. The upsert of a capture that covers the head moves each row's
+/// `synced_at` to now, `latest_activity_sync`
 /// then reads Fresh, and `refresh_stale_head` stands down for hours while the
 /// week the capture missed is served as a quiet one (carnet#149); recording
 /// coverage on top would make the historical gate serve that window from cache
@@ -884,7 +885,10 @@ async fn persist_backfill_activities(
         job.tenant_id,
         &job.provider_name,
         activities,
-        retention_days,
+        WriteThrough {
+            retention_days,
+            read: &job.query_params,
+        },
     )
     .await
     else {

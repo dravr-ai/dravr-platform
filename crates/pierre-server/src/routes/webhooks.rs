@@ -1,5 +1,5 @@
 // ABOUTME: Webhook endpoints for provider push events (WHOOP, Strava) — validate, resolve the owner, sync
-// ABOUTME: A Strava event fetches the owner's recent activities and scans new runs for records; WHOOP runs the health sync
+// ABOUTME: A Strava write fetches the owner's recent activities and scans new runs; a delete evicts the cached row; WHOOP runs the health sync
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -195,8 +195,10 @@ impl WebhookRoutes {
     /// owner is resolved from the Strava athlete id and their recent
     /// activities are fetched through the platform's OAuth activity path on
     /// the drain-tracked spawner (see [`sync_strava_owner`]); the fetch writes
-    /// through to the activity cache with the freshness mark. Deletes and
-    /// athlete events are acknowledged and not fetched.
+    /// through to the activity cache with the freshness mark. A delete
+    /// evicts the activity's cached row on the same spawner
+    /// ([`evict_deleted_strava_activity`]) and fetches nothing; athlete
+    /// events are acknowledged and left alone.
     ///
     /// An event whose `subscription_id` is not one this deployment
     /// registered is refused with 403, and every event with 503 while
@@ -226,6 +228,13 @@ impl WebhookRoutes {
             return refusal;
         }
 
+        if event.is_activity_delete() {
+            let resources = Arc::clone(resources);
+            resources.common.turns.clone().spawn(Box::pin(async move {
+                evict_deleted_strava_activity(&resources, &event).await;
+            }));
+            return StatusCode::OK;
+        }
         if !event.is_activity_write() {
             return StatusCode::OK;
         }
@@ -426,6 +435,45 @@ async fn sync_strava_owner(resources: &Arc<ServerContext>, event: &StravaWebhook
     }
 }
 
+/// Remove the cached row of an activity the athlete deleted on Strava.
+///
+/// Nothing is fetched: the activity is gone, and the cache is the only copy
+/// left. Kept, the row would stay on Home and in the coach's answers, and
+/// every later refresh of its window that Strava answers empty — the athlete
+/// deleted their only ride of the month — would be judged an empty answer
+/// over cached rides and reported as a failed sync.
+async fn evict_deleted_strava_activity(resources: &ServerContext, event: &StravaWebhookEvent) {
+    let owner_id = event.owner_id.to_string();
+    let Some((user_id, tenant_id)) = resolve_owner(resources, "strava", &owner_id).await else {
+        return;
+    };
+    let Ok(tenant) = TenantId::parse_str(&tenant_id) else {
+        warn!(user_id = %user_id, "webhook owner carries an unparseable tenant id");
+        return;
+    };
+    let activity_id = event.object_id.to_string();
+    match resources
+        .common
+        .repos
+        .activity_cache
+        .delete_cached_activity(user_id, &tenant, "strava", &activity_id)
+        .await
+    {
+        Ok(removed) => info!(
+            user_id = %user_id,
+            activity_id = %activity_id,
+            removed,
+            "Strava webhook: deleted activity evicted from the cache"
+        ),
+        Err(e) => warn!(
+            user_id = %user_id,
+            activity_id = %activity_id,
+            error = %e,
+            "Strava webhook: deleted activity could not be evicted from the cache"
+        ),
+    }
+}
+
 /// Record what a webhook-triggered Strava fetch landed: stamp `last_sync`,
 /// re-arm the sync-failure notice, tell the athlete's SSE stream when the
 /// window held activities, then scan the new runs for personal records.
@@ -598,11 +646,16 @@ impl StravaWebhookEvent {
     /// Whether the event announces an activity that now exists on Strava.
     ///
     /// Only an activity create or update has something to fetch; a delete
-    /// and every athlete event (deauthorization) are acknowledged and left
-    /// alone.
+    /// ([`Self::is_activity_delete`]) and every athlete event
+    /// (deauthorization) do not.
     fn is_activity_write(&self) -> bool {
         self.object_type == "activity"
             && (self.aspect_type == "create" || self.aspect_type == "update")
+    }
+
+    /// Whether the event announces an activity the athlete deleted on Strava.
+    fn is_activity_delete(&self) -> bool {
+        self.object_type == "activity" && self.aspect_type == "delete"
     }
 
     /// Unix timestamp where the fetch window for this event opens.

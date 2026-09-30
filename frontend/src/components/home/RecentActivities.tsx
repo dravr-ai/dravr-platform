@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The Home page's recent activities — the latest on the chat's live map, the four before it as route sketches
-// ABOUTME: A tap drafts "analyze my activity" in a new chat; no provider, no GPS and no rows are each said in words
+// ABOUTME: A tap drafts "analyze my activity" in a new chat; no provider, no GPS, no rows and a failed sync are each said in words
 
 import { useMemo, type ReactNode } from 'react';
 import { clsx } from 'clsx';
@@ -102,11 +102,17 @@ function LatestMap({ activity }: { activity: HomeActivity }) {
   if (!activity.has_gps) {
     return <p className="py-3 text-sm text-on-surface-variant">{t('chat.routeNoTrack')}</p>;
   }
-  if (route.data === undefined) {
-    return route.isError ? (
+  // A read that failed, or one the server could not make just now
+  // (`unavailable`), is the same sentence and the same retry: neither says
+  // anything about whether the activity recorded a route. While a read is
+  // in flight — the retry's included — the map says it is loading, so a
+  // retry is seen to do something.
+  if (route.data === undefined || route.data.reason === 'unavailable') {
+    const failed = route.isError || route.data?.reason === 'unavailable';
+    return failed && !route.isFetching ? (
       <EmptyState
         data-testid="home-route-failed"
-        action={{ label: t('common.retry'), onClick: () => void route.refetch() }}
+        action={{ label: t('common.retry'), onClick: route.retry }}
       >
         {t('home.activities.routeFailed')}
       </EmptyState>
@@ -196,12 +202,36 @@ export function RecentActivities({ onNavigate, onOpenChatDraft }: RecentActiviti
   const recent = useRecentActivities();
   const providers = useProviderConnection();
 
-  const asOf = recent.data?.as_of ?? null;
+  // One time on the card, once: while a refresh runs, that it is checking;
+  // after a failed sync, when the provider that failed last synced well —
+  // its rows are that old, whatever another provider did since; otherwise
+  // the last sync across every provider. The failure itself is said in its
+  // own line with its retry, and is not shown while a new attempt runs.
+  const failure = recent.data?.sync_failure ?? null;
+  const lastGood = failure !== null ? failure.last_synced_at : (recent.data?.as_of ?? null);
   const status = recent.refreshing
     ? t('home.activities.refreshing')
-    : asOf !== null
-      ? t('home.activities.syncedAt', { time: formatSyncTime(asOf, language) })
+    : lastGood !== null
+      ? t('home.activities.syncedAt', { time: formatSyncTime(lastGood, language) })
       : undefined;
+  const syncFailed =
+    failure !== null && !recent.refreshing ? (
+      <p
+        role="alert"
+        data-testid="home-sync-failed"
+        className="mb-2 rounded-lg bg-error/15 px-3 py-2 text-sm text-on-error-container"
+      >
+        {failure.provider_name} · {t('providers.syncFailed')}{' '}
+        <button
+          type="button"
+          onClick={recent.retry}
+          data-testid="home-sync-retry"
+          className="rounded font-medium underline underline-offset-2 focus-ring touch-target"
+        >
+          {t('common.retry')}
+        </button>
+      </p>
+    ) : null;
   const activities = recent.data?.activities ?? [];
   const noProvider = providers.loaded && !providers.connected;
   const connectPrompt = (
@@ -261,6 +291,7 @@ export function RecentActivities({ onNavigate, onOpenChatDraft }: RecentActiviti
 
   return (
     <Section title={t('home.activities.heading')} headingLevel={3} description={status} data-testid="home-activities">
+      {syncFailed}
       {body}
     </Section>
   );

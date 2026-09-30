@@ -175,6 +175,7 @@ export function recentResponse(overrides: Partial<RecentActivitiesResponse> = {}
   return {
     activities: fiveActivities(),
     as_of: '2026-09-24T08:15:00Z',
+    sync_failure: null,
     stale: false,
     ...overrides,
   };

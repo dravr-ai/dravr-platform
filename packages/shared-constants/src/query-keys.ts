@@ -60,6 +60,8 @@ export const QUERY_KEYS = {
      */
     activityRoute: (provider: string, activityId: string) =>
       ['home', 'activity-route', provider, activityId] as const,
+    /** Every activity's route: the prefix a pull to refresh or a persister filters on. */
+    activityRoutes: ['home', 'activity-route'] as const,
     /**
      * The active plan for today. Keyed by locale because the server names the
      * plan's flavour in it — a language switch is a different card.

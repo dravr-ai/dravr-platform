@@ -4504,6 +4504,7 @@ dependencies = [
  "dirs 5.0.1",
  "dravr-contremaitre",
  "dravr-equilibre",
+ "dravr-sciotte",
  "dravr-stripe",
  "dravr-tronc",
  "ed25519-dalek",

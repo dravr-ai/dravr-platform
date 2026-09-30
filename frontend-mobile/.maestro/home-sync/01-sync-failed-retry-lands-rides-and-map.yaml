@@ -1,0 +1,130 @@
+# ABOUTME: Real backend, scripted scraper: a good sync, then a failing one Home names with its last good time, a retry that lands the day's ride
+# ABOUTME: Then the latest map answers unavailable and its own retry reads the route into the map's container; needs frontend/e2e-real/home-sync-control.ts beside the server
+
+# The mobile half of frontend/e2e-real/home-sync.real.spec.ts. Everything
+# between the app and the scraper is the real product — the Pierre server,
+# its Home refresh, the stale schedule and the persisted query cache on the
+# device — and only the scraper is the double, scripted over HTTP through
+# control.js. The server must run with DRAVR_SCIOTTE_REMOTE_URL naming the
+# double (port 8097), and the control process with E2E_REAL_DATABASE_PATH
+# naming the server's SQLite file: scripts/e2e-home-sync-local.sh --mobile
+# boots that stack, and the Android E2E lane runs this flow against its own.
+# Copy is asserted in English or French — the two the chrome resolves to on a
+# fresh install — and everything else by test id.
+
+appId: ai.dravr.app
+
+---
+# A good sync of two rides, moved five hours back, then a scraper that fails
+# every read.
+- runScript:
+    file: control.js
+    env:
+      ACTION: setup
+- runFlow:
+    file: ../helpers/launch-app.yaml
+- runFlow:
+    file: ../helpers/login.yaml
+
+# The load refreshes the stale head; the scraper fails, and Home says so,
+# naming the provider, with the rides of the last good sync kept and that
+# sync's time on the line below.
+- scrollUntilVisible:
+    element:
+      id: "home-section-activities"
+    direction: DOWN
+    timeout: 15000
+- extendedWaitUntil:
+    visible:
+      id: "home-activities-sync-failed"
+    timeout: 60000
+- assertVisible:
+    text: "Strava · (Sync failed|La synchronisation a échoué)"
+- assertVisible:
+    id: "home-activities-synced-at"
+    text: "(Last synced: |Dernière synchronisation : )${output.homeSync.lastGoodClock}"
+# A ride is a button whose name and figures iOS reads as one label, so its
+# name is matched as the start of that label.
+- assertVisible:
+    text: "${output.homeSync.older}.*"
+- assertNotVisible:
+    text: "${output.homeSync.recovered}.*"
+- takeScreenshot: "home-sync-failed"
+
+# The scraper recovers with the day's ride; its route read still fails. The
+# retry reads the scraper at once and lands the ride on top.
+- runScript:
+    file: control.js
+    env:
+      ACTION: recover
+- assertTrue:
+    condition: ${output.homeSync.failedReads >= 1}
+    label: "the failed sync read the scraper"
+- tapOn:
+    id: "home-activities-sync-retry"
+- extendedWaitUntil:
+    visible:
+      text: "${output.homeSync.recovered}.*"
+    timeout: 30000
+- assertNotVisible:
+    id: "home-activities-sync-failed"
+- runScript:
+    file: control.js
+    env:
+      ACTION: reads
+- assertTrue:
+    condition: ${output.homeSync.listReads >= 1}
+    label: "the retry itself read the scraper"
+
+# The latest map could not be read: it says so, never "no GPS", with its own
+# retry. Once the scraper reads routes again, that retry reads the route.
+- scrollUntilVisible:
+    element:
+      id: "home-latest-map-failed"
+    direction: DOWN
+    timeout: 30000
+- assertVisible:
+    text: ".*(The map couldn't be loaded\\.|Impossible de charger la carte\\.).*"
+- assertNotVisible:
+    id: "home-latest-no-track"
+- takeScreenshot: "home-map-unavailable"
+- runScript:
+    file: control.js
+    env:
+      ACTION: routes
+- tapOn:
+    id: "home-latest-map-retry"
+# The route is read: the map's container replaces the failure. What is inside
+# it depends on the runtime — a build with MapLibre linked in draws the map;
+# Expo Go, which this flow runs in, has no native map module, so the container
+# says the map cannot be drawn. Either way it is never the failed read again,
+# and never "no GPS": the activity has a track.
+- extendedWaitUntil:
+    visible:
+      id: "home-latest-map"
+    timeout: 30000
+- assertNotVisible:
+    id: "home-latest-map-failed"
+- assertNotVisible:
+    id: "home-latest-no-track"
+# A runtime that cannot draw the map must not report it as an error at all:
+# in a dev build a fatal or a caught render error is a full-screen overlay
+# over the whole tab.
+- assertNotVisible:
+    text: "(Uncaught Error|Render Error)"
+- runFlow:
+    when:
+      visible:
+        id: "home-latest-map-unavailable"
+    commands:
+      - assertVisible:
+          id: "home-latest-map-unavailable"
+          text: "(The map couldn't be loaded\\.|Impossible de charger la carte\\.)"
+- runScript:
+    file: control.js
+    env:
+      ACTION: reads
+- assertTrue:
+    condition: ${output.homeSync.detailReads >= 1}
+    label: "the map's retry read the scraper past the stored answer"
+- takeScreenshot: "home-sync-recovered"

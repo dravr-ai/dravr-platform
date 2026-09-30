@@ -279,6 +279,122 @@ describe('the Home tab over the wire', () => {
     expect(await screen.findByTestId('home-latest-map-failed')).toBeTruthy();
   });
 
+  // The server keeps an `unavailable` answer for ten minutes: a plain re-ask
+  // gets it again. Only the retry, which the server reads past, can draw it.
+  it('says the map failed when the server could not read the route just now, and draws it on a retry past it', async () => {
+    stub = installHttpStub(
+      homeServer({
+        [RECENT_URL]: { data: recentResponse({ activities: [ACTIVITIES[0]] }) },
+        [LATEST_ROUTE_URL]: { data: { route: null, reason: 'unavailable' } },
+        [`${LATEST_ROUTE_URL}?retry=true`]: { data: LATEST_ROUTE_RESPONSE },
+      }),
+    );
+    const screen = renderHome();
+
+    expect(await screen.findByTestId('home-latest-map-failed')).toHaveTextContent(/^The map couldn't be loaded\./);
+    expect(screen.queryByTestId('home-latest-no-track')).toBeNull();
+    fireEvent.press(screen.getByTestId('home-latest-map-retry'));
+    expect(await screen.findByTestId('route-track')).toBeTruthy();
+    const routeReads = stub.requestsFor('GET').filter((request) => request.url.includes('/strava/9001/route'));
+    expect(routeReads.map((request) => request.url)).toEqual([
+      '/api/me/activities/strava/9001/route',
+      '/api/me/activities/strava/9001/route?retry=true',
+    ]);
+    // A stalled connection gives up at the route's own bound, never the five
+    // minutes the phone's transport gives a chat turn.
+    expect(routeReads.every((request) => request.timeout === 30_000)).toBe(true);
+  });
+
+  it('keeps saying the map could not be loaded when the retried read fails too, never that it has no GPS', async () => {
+    stub = installHttpStub(
+      homeServer({
+        [RECENT_URL]: { data: recentResponse({ activities: [ACTIVITIES[0]] }) },
+        [LATEST_ROUTE_URL]: { data: { route: null, reason: 'unavailable' } },
+        [`${LATEST_ROUTE_URL}?retry=true`]: { data: { route: null, reason: 'unavailable' } },
+      }),
+    );
+    const screen = renderHome();
+
+    await screen.findByTestId('home-latest-map-failed');
+    fireEvent.press(screen.getByTestId('home-latest-map-retry'));
+    await waitFor(() =>
+      expect(stub.requestsFor('GET').some((request) => request.url.endsWith('/route?retry=true'))).toBe(true),
+    );
+    expect(await screen.findByTestId('home-latest-map-failed')).toHaveTextContent(/^The map couldn't be loaded\./);
+    expect(screen.queryByTestId('home-latest-no-track')).toBeNull();
+  });
+
+  // The server's contract after a failed sync: while the failing provider is
+  // paused its answer is not stale and carries the failure; the retry's own
+  // answer is stale — the refresh it started is running — and still carries
+  // it; the first fresh answer on the schedule is the one that clears it.
+  it('says which sync failed, keeps the rows, and a retry clears it on the first fresh answer', async () => {
+    jest.useFakeTimers();
+    const failure = {
+      provider: 'strava',
+      provider_name: 'Strava',
+      failed_at: '2026-09-29T14:04:00Z',
+      last_synced_at: '2026-09-29T05:15:00Z',
+    };
+    let followUps = 0;
+    stub = installHttpStub(
+      homeServer({
+        [RECENT_URL]: () => {
+          followUps += 1;
+          return followUps === 1
+            ? { data: recentResponse({ sync_failure: failure }) }
+            : { data: recentResponse({ as_of: '2026-09-29T14:30:00Z', sync_failure: null }) };
+        },
+        [`${RECENT_URL}?retry=true`]: { data: recentResponse({ stale: true, sync_failure: failure }) },
+      }),
+    );
+    const screen = renderHome();
+
+    const failed = await screen.findByTestId('home-activities-sync-failed');
+    expect(failed).toHaveTextContent(/^Strava · Sync failed/);
+    expect(screen.getByTestId('home-activities-synced-at')).toHaveTextContent(/^Last synced: /);
+    expect(screen.getByTestId(`home-activity-${ACTIVITIES[0].provider}-${ACTIVITIES[0].id}`)).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('home-activities-sync-retry'));
+    await elapse(0);
+    expect(screen.getByTestId('home-activities-refreshing')).toBeTruthy();
+    expect(screen.queryByTestId('home-activities-sync-failed')).toBeNull();
+
+    // The schedule restarts from the retry: its first follow-up lands the fresh answer.
+    await elapse(HOME_STALE_REFETCH_DELAYS_MS[0]);
+    expect(followUps).toBe(2);
+    expect(screen.queryByTestId('home-activities-sync-failed')).toBeNull();
+    expect(screen.queryByTestId('home-activities-refreshing')).toBeNull();
+    expect(stub.requestsFor('GET').filter((request) => request.url === `${RECENT_PATH}?retry=true`)).toHaveLength(1);
+  });
+
+  it('keeps saying the sync failed through the stale schedule while the retried refresh keeps failing', async () => {
+    jest.useFakeTimers();
+    const failure = {
+      provider: 'strava',
+      provider_name: 'Strava',
+      failed_at: '2026-09-29T14:04:00Z',
+      last_synced_at: '2026-09-29T05:15:00Z',
+    };
+    stub = installHttpStub(
+      homeServer({
+        // Paused between attempts: not stale, and the failure stands.
+        [RECENT_URL]: { data: recentResponse({ sync_failure: { ...failure, failed_at: '2026-09-29T14:06:00Z' } }) },
+        [`${RECENT_URL}?retry=true`]: { data: recentResponse({ stale: true, sync_failure: failure }) },
+      }),
+    );
+    const screen = renderHome();
+
+    await screen.findByTestId('home-activities-sync-failed');
+    fireEvent.press(screen.getByTestId('home-activities-sync-retry'));
+    await elapse(0);
+    expect(screen.getByTestId('home-activities-refreshing')).toBeTruthy();
+
+    await elapse(HOME_STALE_REFETCH_DELAYS_MS[0]);
+    expect(await screen.findByTestId('home-activities-sync-failed')).toHaveTextContent(/^Strava · Sync failed/);
+    expect(screen.queryByTestId('home-activities-refreshing')).toBeNull();
+  });
+
   it('points an athlete with nothing connected at Connections', async () => {
     stub = installHttpStub(
       homeServer({

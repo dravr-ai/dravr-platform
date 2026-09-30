@@ -9,13 +9,14 @@
 
 use super::circuit_breaker::CircuitBreaker;
 use super::core::{
-    ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, TokenRefreshCallback,
+    no_recorded_samples, ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig,
+    TokenRefreshCallback,
 };
 use super::errors::provider::ProviderError;
 use crate::activity_paging::pages_for;
 use crate::constants::oauth::STRAVA_DEFAULT_SCOPES;
 use crate::constants::{api_provider_limits, oauth_providers};
-use crate::errors::{AppError, AppResult};
+use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::{
     activity::{Lap, Split},
@@ -166,6 +167,22 @@ impl StravaProvider {
     where
         T: for<'de> Deserialize<'de>,
     {
+        self.api_request_reading(endpoint, Self::missing_resource)
+            .await
+    }
+
+    /// [`Self::api_request`] with the endpoint's own reading of a non-success
+    /// body (`vendor_error`, given the status, the body and the URL), for an
+    /// endpoint whose `404` is an answer rather than a missing resource.
+    ///
+    /// A resource the provider answered is missing
+    /// ([`ErrorCode::ResourceNotFound`]) counts as a success for the circuit
+    /// breaker: the API answered.
+    async fn api_request_reading<T, F>(&self, endpoint: &str, vendor_error: F) -> AppResult<T>
+    where
+        T: for<'de> Deserialize<'de>,
+        F: Fn(reqwest::StatusCode, &str, &str) -> Option<AppError> + Send + Sync,
+    {
         info!("Starting API request to endpoint: {endpoint}");
 
         // Check circuit breaker before making request
@@ -199,13 +216,16 @@ impl StravaProvider {
             &access_token,
             oauth_providers::STRAVA,
             &retry_config,
-            |status, text| Self::missing_resource(status, text, &url),
+            |status, text| vendor_error(status, text, &url),
         )
         .await;
 
         // Record success/failure for circuit breaker
         match &result {
             Ok(_) => self.circuit_breaker.record_success(),
+            Err(e) if e.code == ErrorCode::ResourceNotFound => {
+                self.circuit_breaker.record_success();
+            }
             Err(_) => self.circuit_breaker.record_failure(),
         }
 
@@ -482,9 +502,10 @@ impl StravaProvider {
     ///
     /// Two round trips by design — see
     /// [`FitnessProvider::get_activity_with_streams`] for why the detail
-    /// tier never pays the second one. Best-effort on the streams half: a
-    /// streams failure (activity recorded without samples, a 404 on manual
-    /// entries) degrades to the plain detail activity.
+    /// tier never pays the second one. An activity recorded without samples
+    /// (a `404` on a manual entry) carries a stream set of zero samples.
+    /// Best-effort on the streams half otherwise: a streams request that
+    /// failed degrades to the plain detail activity, with no stream set.
     async fn get_activity_details_with_streams(&self, id: &str) -> AppResult<Activity> {
         let endpoint = format!("activities/{id}");
         let detailed_activity: DetailedActivityResponse = self.api_request(&endpoint).await?;
@@ -499,13 +520,34 @@ impl StravaProvider {
     }
 
     /// Fetch one activity's keyed stream set and fold it into a series: one
-    /// round trip, `None` for an activity Strava holds no samples for.
+    /// round trip.
+    ///
+    /// An activity Strava holds no samples for — its streams endpoint answers
+    /// `404` for a manual entry, or a set without a single channel — is a
+    /// stream set of zero samples ([`no_recorded_samples`]): Strava's own
+    /// word that nothing was recorded, which a route read settles as no GPS.
+    /// Every other failure is the read's error.
     async fn fetch_streams(&self, id: &str) -> AppResult<Option<TimeSeriesData>> {
         let endpoint = format!(
             "activities/{id}/streams?keys=time,distance,heartrate,watts,cadence,velocity_smooth,altitude,temp,latlng&key_by_type=true"
         );
-        let set: StravaStreamSet = self.api_request(&endpoint).await?;
-        Ok(Self::streams_to_time_series(set))
+        match self
+            .api_request_reading::<StravaStreamSet, _>(&endpoint, Self::streams_absent)
+            .await
+        {
+            Ok(set) => Ok(Some(
+                Self::streams_to_time_series(set).unwrap_or_else(no_recorded_samples),
+            )),
+            Err(e) if e.code == ErrorCode::ResourceNotFound => Ok(Some(no_recorded_samples())),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// A streams request answered `404`: the activity has no samples on
+    /// Strava, not a request that failed.
+    fn streams_absent(status: reqwest::StatusCode, _text: &str, url: &str) -> Option<AppError> {
+        (status == reqwest::StatusCode::NOT_FOUND)
+            .then(|| AppError::not_found(format!("Strava streams at {url}")))
     }
 
     /// Fetch activities with optional detailed data enrichment
@@ -822,6 +864,10 @@ impl FitnessProvider for StravaProvider {
         // moment cageux grows the corresponding accessors (no server-side
         // plumbing change needed).
         self.get_activity_details(id).await
+    }
+
+    fn serves_activity_streams(&self) -> bool {
+        true
     }
 
     async fn get_activity_with_streams(&self, id: &str) -> AppResult<Activity> {

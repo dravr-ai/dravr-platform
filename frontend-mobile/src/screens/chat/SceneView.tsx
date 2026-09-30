@@ -17,6 +17,7 @@ import type {
 import { useTranslation } from '@pierre/i18n';
 
 import { useThemeColors } from '../../constants/theme';
+import { loadRouteCard, mapLibreLinked } from './routeCardLoader';
 // Deferred on purpose. `@maplibre/maplibre-react-native` is a NATIVE module, so
 // importing the card at module scope makes every screen that reaches this file
 // pay for it at launch — and a runtime without the native side linked in (Expo
@@ -25,20 +26,22 @@ import { useThemeColors } from '../../constants/theme';
 // rendered keeps the app bootable everywhere and costs a frame only where a map
 // is genuinely being drawn.
 //
-// A `require` inside the promise rather than `import()`: Metro evaluates a
+// A `require` inside the loader rather than `import()`: Metro evaluates a
 // module on its first `require`, so the native module still loads only when a
-// map is drawn, and a throw while loading it still rejects the promise the
-// boundary below catches. Jest's module VM cannot run a dynamic `import()` at
-// all, which left every map on every surface untestable.
+// map is drawn. Jest's module VM cannot run a dynamic `import()` at all, which
+// left every map on every surface untestable. The loader checks that MapLibre
+// is linked in before it requires the card, and rejects rather than resolving
+// an empty module when the card cannot be had — see `loadRouteCard` for why a
+// throw alone never reaches the boundary under Metro.
 const RouteView = React.lazy(() =>
-  Promise.resolve().then(() => require('./RouteView') as typeof import('./RouteView')),
+  loadRouteCard(mapLibreLinked, () => require('./RouteView') as typeof import('./RouteView')),
 );
 
 /**
  * Keeps a missing map from taking the thread down with it.
  *
- * The route card needs a native module. Where it is not linked in, loading it
- * throws — and an unclaimed throw inside a message list unmounts the whole
+ * The route card needs a native module. Where it is not linked in, the loader
+ * rejects — and an unclaimed throw inside a message list unmounts the whole
  * conversation, so an athlete loses every reply to one undrawable map. This
  * catches that and prints the same sentence the card prints when an activity
  * recorded no track: the reply is still readable, and the prose around the map
@@ -86,6 +89,12 @@ function RouteUnavailable() {
  * the section's content. `unavailable` replaces the thread's sentence when the
  * map cannot be drawn at all: Home knows the activity has a track, so it says
  * the map failed rather than that there was nothing to map.
+ *
+ * A runtime without MapLibre's native side is known before anything renders,
+ * so it gets the sentence directly. It is not an error: sent through the
+ * boundary, React would report it as a caught render error, which a dev
+ * build puts up as a full-screen overlay over the whole tab. The boundary is
+ * for a load that fails where the native side is there.
  */
 export function LazyRouteView({
   route,
@@ -96,6 +105,9 @@ export function LazyRouteView({
   fallback?: React.ReactNode;
   unavailable?: React.ReactNode;
 }) {
+  if (!mapLibreLinked()) {
+    return <>{unavailable ?? <RouteUnavailable />}</>;
+  }
   return (
     <RouteBoundary unavailable={unavailable}>
       <React.Suspense fallback={fallback}>

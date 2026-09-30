@@ -90,6 +90,24 @@ export const CHANNEL_LINK_POLL_INTERVAL_MS = 3000;
 export const HOME_STALE_REFETCH_DELAYS_MS: readonly number[] = [15000, 30000, 60000, 150000];
 
 /**
+ * The waits before a Home route answered `unavailable` is asked again on its
+ * own, each measured from the answer before it.
+ *
+ * The server answers `unavailable` within its 25-second bound while the
+ * provider read it started keeps running — a queued scrape can take minutes —
+ * and stores what that read says. So a map or sketch left `unavailable` asks
+ * once more half a minute later, then once more a minute and a half after
+ * that, and is drawn if the read has landed. An `unavailable` the server
+ * stored for a read that failed is answered from its store, without reaching
+ * the provider.
+ *
+ * A schedule with an end, never an interval: two extra requests at most per
+ * route, only while the page is in use, and none once an answer draws or
+ * settles the route.
+ */
+export const HOME_ROUTE_UNAVAILABLE_RECHECK_DELAYS_MS: readonly number[] = [30000, 90000];
+
+/**
  * The query defaults that encode the focus contract.
  *
  * Spread into each client's `QueryClient` `defaultOptions.queries`, ahead of

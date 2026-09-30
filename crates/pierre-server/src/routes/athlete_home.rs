@@ -19,7 +19,14 @@
 //!   and the answer says so (`stale`), so the client asks once more a little
 //!   later. A scrape session flagged `needs_reauth` is refreshed too, on the
 //!   throttle `pierre_tool_runtime::reauth_retry` holds: a read it serves
-//!   re-arms it.
+//!   re-arms it. A refresh that failed — the provider errored or timed out,
+//!   or answered with a list it did not vouch for — moves no freshness, and
+//!   the answer names the provider, when it failed and when that provider
+//!   last synced well (`sync_failure`). A provider whose last refresh failed
+//!   is refreshed again whatever its freshness, once the failure's pause is
+//!   over (`pierre_tool_runtime::activity_fetch::sync_verdict::sync_backoff_until`), so a
+//!   failing scraper is not scraped on every load; `?retry=true` — the
+//!   athlete's own retry — refreshes it at once.
 //!   Each row's `has_gps` is `false` only when the activity's stored route
 //!   read found no GPS; a row whose route has not been read says `true`,
 //!   because a list row cannot settle it: only some providers' list
@@ -29,8 +36,10 @@
 //! - `GET /api/me/activities/{provider}/{activity_id}/route` — one cached
 //!   activity's privacy-trimmed route, in the shape both clients' map already
 //!   draws. Read once per activity, and its outcome — drawn or not — is what
-//!   the list's `has_gps` reads; a `no_gps` the read could not prove expires
-//!   and is read again. See [`crate::services::activity_route`].
+//!   the list's `has_gps` reads. A read that failed, timed out or carried no
+//!   stream set answers `unavailable`, never `no_gps`, and is read again
+//!   minutes later, or at once for `?retry=true`. See
+//!   [`crate::services::activity_route`].
 //! - `GET /api/me/training-plan?locale=xx` — what `/plan` shows, as the
 //!   structured plan card: the athlete's one active season, whichever agent
 //!   laid it, projected on the athlete's own "today".
@@ -39,7 +48,6 @@
 
 use std::cmp::Reverse;
 use std::sync::Arc;
-use std::time::Duration as StdDuration;
 
 use axum::extract::{Path, Query, State};
 use axum::routing::get;
@@ -51,7 +59,9 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     Activity, ConnectionStatus, DataFreshness, ProviderConnection, TenantId,
 };
-use pierre_database::repositories::{sport_type_string, CachedActivityRow, StoredRouteOutcome};
+use pierre_database::repositories::{
+    sport_type_string, ActivityFetchFailure, CachedActivityRow, StoredRouteOutcome,
+};
 use pierre_fitness_compute::route_track::{trimmed_overview_polyline, RouteTrack, RouteTrackError};
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_providers::backend_resolver::{backend_pair_for, user_facing_name};
@@ -59,9 +69,10 @@ use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_services::locale::user_locale;
 use pierre_services::personas::resolve_persona_locale;
 use pierre_services::plan_card::{try_load_plan_card, PlanCard};
-use pierre_tool_runtime::activity_fetch::{activity_cache_retention_days, refresh_stale_head};
+use pierre_tool_runtime::activity_fetch::sync_verdict::{record_sync_failure, sync_backoff_until};
+use pierre_tool_runtime::activity_fetch::{activity_cache_retention_days, refresh_head};
 use pierre_tool_runtime::reauth_retry::{claim_scrape_session_retry, retries_flagged_session};
-use pierre_tool_runtime::revalidation::{RevalidationRegistry, REVALIDATION_TIMEOUT_SECS};
+use pierre_tool_runtime::revalidation::{revalidation_timeout, RevalidationRegistry};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde::{Deserialize, Serialize};
 use tokio::time::timeout;
@@ -98,6 +109,20 @@ pub struct RecentActivitiesQuery {
     /// absent.
     #[serde(default)]
     pub limit: Option<i64>,
+    /// The athlete's own retry after a failed sync: a provider whose last
+    /// refresh failed is refreshed now, even inside the pause a failure
+    /// otherwise earns it.
+    #[serde(default)]
+    pub retry: bool,
+}
+
+/// Query parameters for `GET /api/me/activities/{provider}/{activity_id}/route`.
+#[derive(Debug, Deserialize)]
+pub struct ActivityRouteQuery {
+    /// The athlete's own retry after an `unavailable` answer: the provider is
+    /// read again even when that answer is still stored.
+    #[serde(default)]
+    pub retry: bool,
 }
 
 /// One activity on the Home list.
@@ -191,26 +216,48 @@ pub struct RecentActivitiesResponse {
     /// across every provider; `null` when none ever has. For display: it is
     /// not what staleness is judged by.
     pub as_of: Option<DateTime<Utc>>,
-    /// `true` when a provider this load refreshes is past the freshness bands
-    /// (or never fetched), judged by that provider's own last fetch — an
-    /// active connection, or a flagged scrape session whose throttled retry
-    /// this load claimed. A background refresh is then running, and the client
-    /// may ask once more. So `stale` can be `true` while `as_of` is recent: a
-    /// fresh provider does not make a stale one current.
+    /// `true` when this load started, or found running, a refresh of a
+    /// provider that needs one: past the freshness bands (or never fetched),
+    /// judged by that provider's own last fetch, or whose last refresh failed
+    /// — an active connection, or a flagged scrape session whose throttled
+    /// retry this load claimed. The client may ask once more. So `stale` can
+    /// be `true` while `as_of` is recent: a fresh provider does not make a
+    /// stale one current. `false` while a failing provider is paused between
+    /// attempts: nothing is running, and `sync_failure` says why.
     pub stale: bool,
+    /// The newest refresh of one of the providers this load judges that
+    /// failed while no good sync of that provider has come since; `null` when
+    /// none has. It names that provider and its own last good sync, which is
+    /// how old its rows on the page are — `as_of` spans every provider.
+    pub sync_failure: Option<SyncFailure>,
+}
+
+/// A provider's latest refresh that failed, with that provider's own last
+/// good sync.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SyncFailure {
+    /// The provider, by its user-facing slug.
+    pub provider: String,
+    /// The provider's name as the athlete reads it (`Strava`).
+    pub provider_name: String,
+    /// When the refresh failed.
+    pub failed_at: DateTime<Utc>,
+    /// When that provider last synced well; `null` when it never has.
+    pub last_synced_at: Option<DateTime<Utc>>,
 }
 
 /// Body of `GET /api/me/activities/{provider}/{activity_id}/route`: exactly
 /// one of `route` and `reason` is non-null.
 ///
-/// Either answer is stored, and the recent list reads the stored one: after a
-/// `no_gps` answer the activity's row says `has_gps: false`, until that
-/// answer expires when the read behind it could not prove it.
+/// Every answer is stored, and the recent list reads the stored one: after a
+/// `no_gps` answer the activity's row says `has_gps: false`. An `unavailable`
+/// answer expires within minutes and leaves `has_gps` true.
 #[derive(Debug, Clone, Serialize)]
 pub struct ActivityRouteResponse {
     /// The drawable route.
     pub route: Option<RouteView>,
-    /// Why there is no route: `no_gps` or `too_short`.
+    /// Why there is no route: `no_gps` or `too_short`, which a read settled,
+    /// or `unavailable`, which no read has yet: ask again later, or retry.
     pub reason: Option<&'static str>,
 }
 
@@ -260,29 +307,63 @@ async fn get_recent_activities(
         .provider_connections
         .get_for_user(user_id, Some(tenant_id))
         .await?;
-    let rows = repos
-        .activity_cache
-        .get_cached_activity_rows(
-            user_id,
-            &tenant_id,
-            now - Duration::days(activity_cache_retention_days()),
-            now,
-            limit * copies_per_workout(connections.len()),
-        )
-        .await?;
+    // The limit is clamped to at least one, so it always converts.
+    let shown = usize::try_from(limit).unwrap_or_default();
+    let activities = recent_workouts(
+        &resources,
+        user_id,
+        &tenant_id,
+        now,
+        shown,
+        limit * copies_per_workout(connections.len()),
+    )
+    .await?;
     let as_of = repos
         .activity_cache
         .latest_activity_sync_any(user_id, &tenant_id)
         .await?;
-    let plan = stale_refresh_plan(&resources, user_id, tenant_id, connections).await?;
+    let plan = stale_refresh_plan(&resources, user_id, tenant_id, connections, query.retry).await?;
+    let sync_failure = plan.failure.clone();
     let stale = start_stale_refresh(&resources, user_id, tenant_id, plan).await;
-    // The limit is clamped to at least one, so it always converts.
-    let shown = usize::try_from(limit).unwrap_or_default();
     Ok(Json(RecentActivitiesResponse {
-        activities: home_activities(rows, shown),
+        activities,
         as_of,
         stale,
+        sync_failure,
     }))
+}
+
+/// The newest `limit` workouts in the athlete's cache, one Home row each.
+///
+/// The first read takes `first_read` rows — `limit` per connection, room for
+/// each connection's copy of every workout. A connection can also hold
+/// several rows of one workout (a ride auto-split into two uploads), so when
+/// the rows read merge into fewer than `limit` workouts and the read came
+/// back full, the cache holds more: the read is repeated at twice the size
+/// until `limit` workouts are found or the retention window is exhausted.
+async fn recent_workouts(
+    resources: &ServerContext,
+    user_id: Uuid,
+    tenant_id: &TenantId,
+    now: DateTime<Utc>,
+    limit: usize,
+    first_read: i64,
+) -> AppResult<Vec<HomeActivity>> {
+    let since = now - Duration::days(activity_cache_retention_days());
+    let mut read = first_read.max(1);
+    loop {
+        let rows = resources
+            .repos()
+            .activity_cache
+            .get_cached_activity_rows(user_id, tenant_id, since, now, read)
+            .await?;
+        let exhausted = usize::try_from(read).is_ok_and(|asked| rows.len() < asked);
+        let workouts = home_activities(rows, limit);
+        if workouts.len() >= limit || exhausted {
+            return Ok(workouts);
+        }
+        read = read.saturating_mul(2);
+    }
 }
 
 /// How many cached copies of each workout the recent read makes room for:
@@ -365,30 +446,40 @@ fn is_stale(as_of: Option<DateTime<Utc>>) -> bool {
 /// successful fetch.
 #[derive(Debug, Default)]
 struct StaleRefreshPlan {
-    /// Active connections whose own head is stale.
+    /// Active connections whose own head needs a refresh.
     active: Vec<String>,
-    /// Scrape sessions flagged `needs_reauth` whose own head is stale: each is
-    /// refreshed only when its throttled retry can be claimed.
+    /// Scrape sessions flagged `needs_reauth` whose own head needs a refresh:
+    /// each is refreshed only when its throttled retry can be claimed.
     flagged: Vec<String>,
+    /// The newest failed refresh among the judged providers that no good
+    /// sync of the same provider has superseded.
+    failure: Option<SyncFailure>,
 }
 
-/// Judge each of the athlete's connections by its own last successful fetch.
+/// Judge each of the athlete's connections by its own last successful fetch,
+/// and find the newest refresh of theirs that failed since.
 ///
 /// Per provider, not across them: the newest fetch of any provider says
 /// nothing about another's, and judging by it let a fresh connection hide a
 /// stale one for as long as the fresh one kept syncing. An active connection
-/// whose head is stale is refreshed. A connection flagged `needs_reauth` is
-/// refreshed only when it is a scrape session
-/// ([`retries_flagged_session`]), since one failed read can be the scraper's
-/// and not the session's; a flagged OAuth grant is dead until the athlete
-/// reconnects, and a revoked connection is theirs to restore.
+/// is refreshed when its head is stale, or when its last refresh failed —
+/// whoever made that refresh, a Home load, a chat turn or the webhook, the
+/// head it did not bring in is missing — unless that failure's pause is not
+/// over ([`sync_backoff_until`]) and this is not the athlete's own `retry`.
+/// A connection flagged `needs_reauth` is refreshed on the same terms only
+/// when it is a scrape session ([`retries_flagged_session`]), since one
+/// failed read can be the scraper's and not the session's; a flagged OAuth
+/// grant is dead until the athlete reconnects, and a revoked connection is
+/// theirs to restore.
 async fn stale_refresh_plan(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant_id: TenantId,
     connections: Vec<ProviderConnection>,
+    retry: bool,
 ) -> AppResult<StaleRefreshPlan> {
     let cache = &resources.repos().activity_cache;
+    let now = Utc::now();
     let mut plan = StaleRefreshPlan::default();
     for connection in connections {
         let bucket = match connection.status {
@@ -401,7 +492,34 @@ async fn stale_refresh_plan(
         let last_sync = cache
             .latest_activity_sync(user_id, &tenant_id, &connection.provider)
             .await?;
-        if is_stale(last_sync) {
+        let recorded = cache
+            .latest_activity_fetch_failure(user_id, &tenant_id, &connection.provider)
+            .await?;
+        let failed = recorded
+            .filter(|failure| last_sync.is_none_or(|synced| failure.failed_at > synced))
+            .map(|failure| failure.failed_at);
+        if let Some(failed_at) = failed {
+            if plan
+                .failure
+                .as_ref()
+                .is_none_or(|newest| failed_at > newest.failed_at)
+            {
+                let provider = user_facing_name(&connection.provider);
+                plan.failure = Some(SyncFailure {
+                    provider: provider.to_owned(),
+                    provider_name: resources
+                        .fitness
+                        .provider_registry
+                        .get_descriptor(provider)
+                        .map_or_else(|| provider.to_owned(), |d| d.display_name().to_owned()),
+                    failed_at,
+                    last_synced_at: last_sync,
+                });
+            }
+        }
+        let due = is_stale(last_sync) || failed.is_some();
+        let paused = !retry && sync_backoff_until(recorded, last_sync, now).is_some();
+        if due && !paused {
             bucket.push(connection.provider);
         }
     }
@@ -433,6 +551,7 @@ async fn start_stale_refresh(
     let StaleRefreshPlan {
         active: mut providers,
         flagged,
+        ..
     } = plan;
     if providers.is_empty() && flagged.is_empty() {
         return false;
@@ -451,40 +570,96 @@ async fn start_stale_refresh(
         return false;
     }
     resources.common.turns.spawn(async move {
-        let refresh = refresh_providers(&runtime, user_id, tenant_id, &providers);
-        if timeout(StdDuration::from_secs(REVALIDATION_TIMEOUT_SECS), refresh)
-            .await
-            .is_err()
-        {
+        let started_at = Utc::now();
+        let bound = revalidation_timeout();
+        let mut checked = Vec::with_capacity(providers.len());
+        let refresh = refresh_providers(&runtime, user_id, tenant_id, &providers, &mut checked);
+        if timeout(bound, refresh).await.is_err() {
             warn!(
                 %user_id,
-                timeout_secs = REVALIDATION_TIMEOUT_SECS,
+                timeout_secs = bound.as_secs(),
                 "home: activity refresh timed out; releasing its slot"
             );
+            let unanswered = TimedOut {
+                providers: &providers,
+                checked: &checked,
+                started_at,
+            };
+            record_timed_out(&runtime, user_id, tenant_id, unanswered).await;
         }
         drop(slot);
     });
     true
 }
 
-/// Top up each provider's recent head, one after the other.
+/// Re-read each provider's recent head, one after the other, naming each in
+/// `checked` once its read has finished — succeeded or failed, it has
+/// recorded its own outcome. The plan has already judged each one due, so
+/// the head is read whatever its freshness ([`refresh_head`]).
 async fn refresh_providers(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
     providers: &[String],
+    checked: &mut Vec<String>,
 ) {
     for provider in providers {
         // The refresh writes through to the cache; the rows it returns are
         // what the next request reads, so nothing is kept here.
-        let mut refreshed = Vec::new();
-        refresh_stale_head(runtime, provider, user_id, tenant_id, None, &mut refreshed).await;
+        let refreshed = refresh_head(runtime, provider, user_id, tenant_id).await;
         debug!(
             %user_id,
             provider = %provider,
-            fetched = refreshed.len(),
+            fetched = refreshed.map_or(0, |rows| rows.len()),
             "home: provider head checked"
         );
+        checked.push(provider.clone());
+    }
+}
+
+/// The providers a bounded refresh was asked to read, those it finished, and
+/// when it began.
+struct TimedOut<'a> {
+    providers: &'a [String],
+    checked: &'a [String],
+    started_at: DateTime<Utc>,
+}
+
+/// Record a failed sync for every provider the refresh did not finish before
+/// its timeout: the read in flight was dropped, so nothing else records that
+/// it never answered, and the ones after it were never asked — the sync this
+/// load started did not happen for them either. A provider whose sync has
+/// landed since the refresh began is left alone: the read that was cut off
+/// had already written its rows and its mark, and a failure recorded after
+/// them would report a sync that worked as one that did not. Best-effort,
+/// like every failure record.
+async fn record_timed_out(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    unanswered: TimedOut<'_>,
+) {
+    let cache = &runtime.repos().activity_cache;
+    for provider in unanswered
+        .providers
+        .iter()
+        .filter(|p| !unanswered.checked.contains(p))
+    {
+        let synced = cache
+            .latest_activity_sync(user_id, &tenant_id, provider)
+            .await
+            .unwrap_or(None);
+        if synced.is_some_and(|synced| synced >= unanswered.started_at) {
+            continue;
+        }
+        record_sync_failure(
+            runtime,
+            user_id,
+            tenant_id,
+            provider,
+            ActivityFetchFailure::FetchError,
+        )
+        .await;
     }
 }
 
@@ -492,6 +667,7 @@ async fn get_activity_route(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Path((provider, activity_id)): Path<(String, String)>,
+    Query(query): Query<ActivityRouteQuery>,
 ) -> AppResult<Json<ActivityRouteResponse>> {
     let user_id = auth.user_id;
     let tenant_id = active_tenant(&auth)?;
@@ -500,12 +676,14 @@ async fn get_activity_route(
     let runtime = into_runtime(&resources);
     let outcome = activity_route(
         &runtime,
+        &resources.common.turns,
         tenant_id,
         user_id,
         CachedActivityRef {
             provider: &stored_provider,
             activity: &activity,
         },
+        query.retry,
     )
     .await?;
     Ok(Json(match outcome {

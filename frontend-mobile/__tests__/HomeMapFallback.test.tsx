@@ -5,7 +5,7 @@
 // ABOUTME: Loading the native module throws there; the route boundary must catch it rather than unmount the whole tab
 
 import React from 'react';
-import { render } from '@testing-library/react-native';
+import { render, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { LATEST_ROUTE_RESPONSE, PLAN_RESPONSE, recentResponse } from '../integration/app/helpers/homeFixtures';
@@ -54,6 +54,10 @@ describe('Home without a native map', () => {
     expect(await screen.findByTestId('home-latest-map-unavailable')).toHaveTextContent(
       "The map couldn't be loaded.",
     );
+    // Inside the map's own container: the section keeps its place on the page.
+    expect(
+      within(screen.getByTestId('home-latest-map')).getByTestId('home-latest-map-unavailable'),
+    ).toBeTruthy();
     expect(screen.queryByText('This activity recorded no GPS track.')).toBeNull();
     expect(screen.queryByTestId('route-track')).toBeNull();
     // The rest of Home is still there.

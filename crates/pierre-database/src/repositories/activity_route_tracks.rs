@@ -48,10 +48,11 @@ pub enum StoredRouteTrack {
     Unavailable {
         /// The read that established it (`summary_polyline` or `streams`).
         source: String,
-        /// Why there is no track (`no_gps` or `too_short`).
+        /// Why there is no track (`no_gps` or `too_short`), or
+        /// `unavailable` when the read did not settle it.
         reason: String,
-        /// When the answer is read again, for one the read could not prove;
-        /// `None` for an answer that stands.
+        /// When the answer is read again, for one no read settled; `None` for
+        /// an answer that stands.
         expires_at: Option<DateTime<Utc>>,
     },
 }
@@ -68,7 +69,8 @@ pub enum StoredRouteOutcome {
     Drawn,
     /// No drawable track, and why.
     Unavailable {
-        /// Why there is no track (`no_gps` or `too_short`).
+        /// Why there is no track (`no_gps` or `too_short`), or
+        /// `unavailable` when the read did not settle it.
         reason: String,
     },
 }

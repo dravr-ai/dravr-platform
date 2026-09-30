@@ -876,8 +876,8 @@ impl RemoteSciotteClient {
     ///
     /// Returns an error on transport failure, a non-success status (e.g. the
     /// service no longer holds the session — the caller re-imports and retries,
-    /// or the service shed the request under backpressure), or an unparseable
-    /// body.
+    /// or the service shed the request under backpressure), an unparseable
+    /// body, or a body whose `count` disagrees with the rows it carries.
     pub async fn get_activities(
         &self,
         session_id: &str,
@@ -918,10 +918,22 @@ impl RemoteSciotteClient {
         if !sent.response.status().is_success() {
             return Err(scrape_failure("activities", sent).await);
         }
-        sent.response
+        let list = sent
+            .response
             .json::<ActivitiesResponse>()
             .await
-            .map_err(|e| AppError::internal(format!("sciotte activities decode: {e}")))
+            .map_err(|e| AppError::internal(format!("sciotte activities decode: {e}")))?;
+        // A body that disagrees with itself was cut or mangled on the way; a
+        // list read from it could be missing the athlete's newest activities
+        // and would still be written through as a sync.
+        if list.count != list.activities.len() {
+            return Err(AppError::internal(format!(
+                "sciotte activities announced {} activities and carried {}",
+                list.count,
+                list.activities.len()
+            )));
+        }
+        Ok(list)
     }
 
     /// GET `/api/planned-workouts` — read the workouts planned on the

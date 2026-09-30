@@ -163,7 +163,7 @@ export const ACTIVITIES: HomeActivity[] = [
 ];
 
 export function recentResponse(overrides: Partial<RecentActivitiesResponse> = {}): RecentActivitiesResponse {
-  return { activities: ACTIVITIES, as_of: '2026-09-24T08:30:00Z', stale: false, ...overrides };
+  return { activities: ACTIVITIES, as_of: '2026-09-24T08:30:00Z', sync_failure: null, stale: false, ...overrides };
 }
 
 /** The latest activity's stored route, the shape the chat map already draws. */

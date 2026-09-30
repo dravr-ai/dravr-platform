@@ -582,6 +582,19 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   const railWidth = 72;
   const asideWidth = isAdminUser ? (sidebarCollapsed ? 72 : sidebarWidth) : railWidth;
 
+  // The rail and the admin sidebar are fixed to the left edge from md up, so
+  // the strips App mounts above the dashboard (offline, install, impersonation)
+  // would run under them. The live width is published for those strips while
+  // the dashboard is mounted, and withdrawn with it: sign-in and onboarding
+  // have no rail, and their strips start at the edge.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty('--shell-aside-width', `${asideWidth}px`);
+    return () => {
+      root.style.removeProperty('--shell-aside-width');
+    };
+  }, [asideWidth]);
+
   // Desktop only: the sidebar itself is hidden below md. Expanded, the toggle
   // ends the lockup row, where a sidebar keeps it; collapsed, no row is wide
   // enough, so it joins the footer's column of icon buttons.

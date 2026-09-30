@@ -33,7 +33,9 @@ jest.mock('../src/utils/mmkvStorage', () => ({
   clearQueryCache: jest.fn(),
 }));
 
-import { QueryProvider } from '../src/providers/QueryProvider';
+import { QueryClient } from '@tanstack/react-query';
+import { QUERY_KEYS } from '@pierre/shared-constants';
+import { persistsQuery, QueryProvider } from '../src/providers/QueryProvider';
 
 function MutationTrigger({ error }: { error: Error }) {
   const mutation = useMutation({
@@ -315,5 +317,51 @@ describe('QueryProvider query retry policy', () => {
     });
 
     expect(attempt).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('what the persister writes to disk', () => {
+  function cached(queryKey: readonly unknown[], data: unknown) {
+    const client = new QueryClient();
+    client.setQueryData(queryKey, data);
+    const query = client.getQueryCache().find({ queryKey });
+    if (query === undefined) {
+      throw new Error('the query was not cached');
+    }
+    return query;
+  }
+
+  const drawn = {
+    route: {
+      coordinates: [
+        [45.5, -73.6],
+        [45.51, -73.61],
+      ],
+      bounds: { min_latitude: 45.5, max_latitude: 45.51, min_longitude: -73.61, max_longitude: -73.6 },
+      elevation_meters: null,
+      distances_meters: null,
+      climbs: [],
+      title: null,
+      source_tool: 'strava',
+    },
+    reason: null,
+  };
+
+  it('keeps a drawn route, which never changes', () => {
+    expect(persistsQuery(cached(QUERY_KEYS.home.activityRoute('strava', '1'), drawn))).toBe(true);
+  });
+
+  it('leaves out a route answer the server can take back, so a launch asks again', () => {
+    for (const reason of ['no_gps', 'unavailable', 'too_short']) {
+      expect(persistsQuery(cached(QUERY_KEYS.home.activityRoute('strava', '1'), { route: null, reason }))).toBe(false);
+    }
+  });
+
+  it('keeps every other answer the default keeps', () => {
+    expect(persistsQuery(cached(QUERY_KEYS.home.recentActivities(), { activities: [] }))).toBe(true);
+    const client = new QueryClient();
+    client.getQueryCache().build(client, { queryKey: ['never-answered'] });
+    const pending = client.getQueryCache().find({ queryKey: ['never-answered'] });
+    expect(pending && persistsQuery(pending)).toBe(false);
   });
 });

@@ -68,6 +68,70 @@ pub struct CaptureFreshness {
     pub last_fetch_at: Option<DateTime<Utc>>,
 }
 
+/// Why an activity fetch did not count as a sync.
+///
+/// Only a provider answer that vouches for its list moves freshness. Each
+/// of these leaves freshness where it was and is recorded instead, so the
+/// head stays stale — the next load refreshes it again — and Home can say
+/// the attempt failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActivityFetchFailure {
+    /// The provider could not be reached or refused the read: a transport
+    /// error, a scrape error, a timeout.
+    FetchError,
+    /// The provider answered, but said its capture never read the list head
+    /// (`head_complete: false`), so the newest activities may be missing.
+    HeadIncomplete,
+    /// The provider answered with no activities for a window the cache holds
+    /// activities in. Activities do not vanish from a provider between two
+    /// reads, so an empty answer over them is a failed read presented as
+    /// success, not an honest zero.
+    EmptyOverCached,
+}
+
+impl ActivityFetchFailure {
+    /// The slug the stored row carries.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::FetchError => "fetch_error",
+            Self::HeadIncomplete => "head_incomplete",
+            Self::EmptyOverCached => "empty_over_cached",
+        }
+    }
+
+    /// The failure a stored slug names, or `None` for a slug this build does
+    /// not write.
+    #[must_use]
+    pub fn from_slug(slug: &str) -> Option<Self> {
+        match slug {
+            "fetch_error" => Some(Self::FetchError),
+            "head_incomplete" => Some(Self::HeadIncomplete),
+            "empty_over_cached" => Some(Self::EmptyOverCached),
+            _ => None,
+        }
+    }
+}
+
+/// The last recorded fetch of a provider that did not count as a sync.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActivityFetchFailureRecord {
+    /// When it happened.
+    pub failed_at: DateTime<Utc>,
+    /// Why it did not count as a sync.
+    pub failure: ActivityFetchFailure,
+    /// How many fetches in a row had failed when it was recorded: counted
+    /// from the provider's last good fetch, so the first failure after a
+    /// sync is `1`.
+    pub consecutive: u32,
+    /// How many of those, ending with this one, failed for this same
+    /// reason: `1` when the one before it failed otherwise or was a sync.
+    pub streak: u32,
+    /// When the first failure of that streak happened; `failed_at` itself
+    /// for a streak of one.
+    pub streak_started_at: DateTime<Utc>,
+}
+
 /// A cached activity with the provider key its row is stored under and what
 /// its stored route read settled.
 ///
@@ -110,6 +174,27 @@ pub trait ActivityCacheRepository: Send + Sync {
         tenant_id: &TenantId,
         provider: &str,
         activities: &[Activity],
+    ) -> AppResult<u64> {
+        self.upsert_activities_synced_at(user_id, tenant_id, provider, activities, Utc::now())
+            .await
+    }
+
+    /// [`Self::upsert_activities`] with the `synced_at` every written row
+    /// carries named by the caller.
+    ///
+    /// A row's `synced_at` is part of the provider's freshness
+    /// ([`Self::latest_activity_sync`] takes its maximum), so only a read of
+    /// the provider's list head may write `now`. A read that did not reach
+    /// the head — a closed historical window, a later page — writes the
+    /// head's own last sync instead, and so lands its rows without making
+    /// the head look current.
+    async fn upsert_activities_synced_at(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        activities: &[Activity],
+        synced_at: DateTime<Utc>,
     ) -> AppResult<u64>;
 
     /// Fetch cached activities for a user within `[start, end]`, newest first.
@@ -150,6 +235,33 @@ pub trait ActivityCacheRepository: Send + Sync {
         provider: &str,
         activity_id: &str,
     ) -> AppResult<Option<Activity>>;
+
+    /// Delete one cached activity the athlete deleted on its provider.
+    ///
+    /// A row the provider no longer holds must not outlive it: the Home list
+    /// and the coach would keep serving it, and an empty answer for its
+    /// window would read as a failed sync ("the cache holds activities
+    /// here") every time the head is refreshed. Returns the number of rows
+    /// removed: `0` when the activity was never cached.
+    async fn delete_cached_activity(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        activity_id: &str,
+    ) -> AppResult<u64>;
+
+    /// Delete one provider's cached activities for a user that started
+    /// within `[start, end]`: the rows a list read of that window vouched the
+    /// provider no longer holds. Returns the number of rows removed.
+    async fn delete_cached_activities_between(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> AppResult<u64>;
 
     /// Delete every cached activity a provider contributed for a user.
     ///
@@ -210,6 +322,34 @@ pub trait ActivityCacheRepository: Send + Sync {
         provider: &str,
         fetched_at: DateTime<Utc>,
     ) -> AppResult<()>;
+
+    /// Record that a provider activity fetch did not count as a sync, as
+    /// `record` describes it. A later failure overwrites the record.
+    ///
+    /// Written instead of [`Self::record_activity_fetch`], never beside it:
+    /// freshness stays where the last good fetch left it, so the head reads
+    /// stale and is refreshed again.
+    ///
+    /// The record's counts include this failure; the caller counts them from
+    /// the record it replaces.
+    async fn record_activity_fetch_failure(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        record: &ActivityFetchFailureRecord,
+    ) -> AppResult<()>;
+
+    /// The last fetch of a provider that did not count as a sync, or `None`
+    /// when none is recorded. Whether it is still the provider's current
+    /// state is the caller's comparison with [`Self::latest_activity_sync`]:
+    /// a failure older than the last good fetch has been superseded.
+    async fn latest_activity_fetch_failure(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+    ) -> AppResult<Option<ActivityFetchFailureRecord>>;
 
     /// Delete a user's cached activities whose `start_date` is older than
     /// `cutoff` (retention pruning). Returns the number of rows removed.
@@ -288,226 +428,8 @@ pub trait ActivityCacheRepository: Send + Sync {
     async fn capture_freshness_snapshot(&self, limit: i64) -> AppResult<Vec<CaptureFreshness>>;
 }
 
-/// Insert or overwrite one cached activity.
-///
-/// `$n` placeholders throughout this module: sqlx accepts them on `SQLite` as
-/// well as Postgres. `cached_activities` types its ids as TEXT on both
-/// engines, so its statements need no cast; its timestamps bind as
-/// `DateTime<Utc>` on both — sqlx-sqlite encodes one as
-/// `to_rfc3339_opts(AutoSi, false)`, the text the column's earlier writes
-/// hold, so the lexical order the reads rely on is unchanged.
-pub(crate) const UPSERT_CACHED_ACTIVITY_SQL: &str = r"
-    INSERT INTO cached_activities (id, user_id, tenant_id, provider, activity_id, sport_type, start_date, synced_at, data_json)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-    ON CONFLICT(user_id, tenant_id, provider, activity_id) DO UPDATE SET
-        sport_type = EXCLUDED.sport_type,
-        start_date = EXCLUDED.start_date,
-        synced_at = EXCLUDED.synced_at,
-        data_json = EXCLUDED.data_json";
-
-/// Cached activities for a user within a window, newest first; `$5` NULL
-/// means every provider. The parameter is bound once and named twice: both
-/// engines give one bind to every occurrence of the same `$n`.
-pub(crate) const GET_CACHED_ACTIVITIES_SQL: &str = r"
-    SELECT data_json
-    FROM cached_activities
-    WHERE user_id = $1 AND tenant_id = $2 AND start_date >= $3 AND start_date <= $4
-      AND ($5 IS NULL OR provider = $5)
-    ORDER BY start_date DESC
-    LIMIT $6";
-
-/// Cached activities across every provider within a window, newest first,
-/// with the provider key each row is stored under and the outcome of its
-/// stored route read.
-///
-/// The route read is joined on the whole key of `activity_route_tracks`. Its
-/// tenant and user are the bound parameters themselves, named in the join as
-/// in the filter, so a read stored for the same provider and activity id
-/// under another tenant or another user never reaches a row. LEFT JOIN, not
-/// INNER: an activity whose route has not been read keeps its row, with both
-/// route columns NULL, and so does one whose stored read has expired — its
-/// `expires_at` is not after `$6` (now) — because that read is to be made
-/// again. The track itself is not selected. Every id column on both tables is
-/// TEXT on both engines, so the join carries no cast.
-pub(crate) const GET_CACHED_ACTIVITY_ROWS_SQL: &str = r"
-    SELECT ca.provider, ca.data_json,
-           rt.source AS route_source,
-           rt.unavailable_reason AS route_unavailable_reason
-    FROM cached_activities ca
-    LEFT JOIN activity_route_tracks rt
-           ON rt.tenant_id = $2
-          AND rt.user_id = $1
-          AND rt.provider = ca.provider
-          AND rt.activity_id = ca.activity_id
-          AND (rt.expires_at IS NULL OR rt.expires_at > $6)
-    WHERE ca.user_id = $1 AND ca.tenant_id = $2
-      AND ca.start_date >= $3 AND ca.start_date <= $4
-    ORDER BY ca.start_date DESC
-    LIMIT $5";
-
-/// One cached activity, by the table's uniqueness key.
-pub(crate) const GET_CACHED_ACTIVITY_SQL: &str = r"
-    SELECT data_json
-    FROM cached_activities
-    WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND activity_id = $4";
-
-/// Latest `synced_at` a provider's cached rows carry for a user.
-pub(crate) const LATEST_PROVIDER_SYNC_SQL: &str = r"
-    SELECT synced_at
-    FROM cached_activities
-    WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
-    ORDER BY synced_at DESC
-    LIMIT 1";
-
-/// Latest `synced_at` any cached row carries for a user.
-pub(crate) const LATEST_ANY_SYNC_SQL: &str = r"
-    SELECT synced_at
-    FROM cached_activities
-    WHERE user_id = $1 AND tenant_id = $2
-    ORDER BY synced_at DESC
-    LIMIT 1";
-
-/// Delete every cached activity one provider contributed for a user.
-pub(crate) const DELETE_PROVIDER_ACTIVITIES_SQL: &str = r"
-    DELETE FROM cached_activities
-    WHERE user_id = $1 AND tenant_id = $2 AND provider = $3";
-
-/// Delete a user's cached activities that started before a cutoff.
-pub(crate) const PRUNE_ACTIVITIES_SQL: &str = r"
-    DELETE FROM cached_activities
-    WHERE user_id = $1 AND tenant_id = $2 AND start_date < $3";
-
-/// The most recent fetch mark for a user, optionally scoped to one provider.
-///
-/// `activity_fetch_freshness` and `activity_backfill_coverage` type
-/// `tenant_id`/`user_id` as UUID on Postgres, to match `users.id`, and as
-/// TEXT on `SQLite`; the id binds the hyphenated string on both and `$uuid`
-/// is the cast Postgres needs on it (`"::uuid"`), `""` on `SQLite`.
-macro_rules! latest_fetch_mark_sql {
-    ($uuid:literal) => {
-        concat!(
-            "SELECT fetched_at FROM activity_fetch_freshness \
-             WHERE user_id = $1",
-            $uuid,
-            " AND tenant_id = $2",
-            $uuid,
-            " AND ($3 IS NULL OR provider = $3) \
-             ORDER BY fetched_at DESC LIMIT 1"
-        )
-    };
-}
-pub(crate) use latest_fetch_mark_sql;
-
-/// Record a successful fetch; a later fetch overwrites the mark.
-macro_rules! record_activity_fetch_sql {
-    ($uuid:literal) => {
-        concat!(
-            "INSERT INTO activity_fetch_freshness (tenant_id, user_id, provider, fetched_at) \
-             VALUES ($1",
-            $uuid,
-            ", $2",
-            $uuid,
-            ", $3, $4) \
-             ON CONFLICT (tenant_id, user_id, provider) DO UPDATE SET \
-                 fetched_at = EXCLUDED.fetched_at"
-        )
-    };
-}
-pub(crate) use record_activity_fetch_sql;
-
-/// Raise every coverage floor below a cutoff and clear its feed-end flag.
-/// `hit_feed_end` is BOOLEAN on Postgres and an INTEGER 0/1 on `SQLite`,
-/// which reads the `FALSE` keyword as 0.
-macro_rules! clamp_backfill_coverage_sql {
-    ($uuid:literal) => {
-        concat!(
-            "UPDATE activity_backfill_coverage \
-             SET oldest_reached_ts = $1, hit_feed_end = FALSE, updated_at = $2 \
-             WHERE user_id = $3",
-            $uuid,
-            " AND tenant_id = $4",
-            $uuid,
-            " AND oldest_reached_ts < $1"
-        )
-    };
-}
-pub(crate) use clamp_backfill_coverage_sql;
-
-/// Record how deep a backfill reached; overwrites any prior row.
-macro_rules! upsert_backfill_coverage_sql {
-    ($uuid:literal) => {
-        concat!(
-            "INSERT INTO activity_backfill_coverage \
-                 (tenant_id, user_id, provider, oldest_reached_ts, hit_feed_end, updated_at, \
-                  capture_version) \
-             VALUES ($1",
-            $uuid,
-            ", $2",
-            $uuid,
-            ", $3, $4, $5, $6, $7) \
-             ON CONFLICT (tenant_id, user_id, provider) DO UPDATE SET \
-                 oldest_reached_ts = EXCLUDED.oldest_reached_ts, \
-                 hit_feed_end = EXCLUDED.hit_feed_end, \
-                 updated_at = EXCLUDED.updated_at, \
-                 capture_version = EXCLUDED.capture_version"
-        )
-    };
-}
-pub(crate) use upsert_backfill_coverage_sql;
-
-/// The coverage row for one `(tenant, user, provider)`.
-macro_rules! get_backfill_coverage_sql {
-    ($uuid:literal) => {
-        concat!(
-            "SELECT oldest_reached_ts, hit_feed_end, capture_version \
-             FROM activity_backfill_coverage \
-             WHERE tenant_id = $1",
-            $uuid,
-            " AND user_id = $2",
-            $uuid,
-            " AND provider = $3"
-        )
-    };
-}
-pub(crate) use get_backfill_coverage_sql;
-
-/// Every active connection with its last use and its last successful fetch.
-///
-/// On Postgres the join legs straddle a type split: `provider_connections`
-/// types `tenant_id`/`user_id` as TEXT, `activity_fetch_freshness` as UUID. The
-/// cast direction is load-bearing. Casting the TEXT side UP
-/// (`pc.user_id::uuid`) throws `invalid input syntax for type uuid` on the
-/// first non-UUID-shaped value and takes the whole report down; casting the
-/// UUID side DOWN to text can never fail, because every UUID renders. So a
-/// tenant whose id is not UUID-shaped simply matches nothing and is reported
-/// as never-fetched — which is the truth for it, since the UUID column could
-/// not have held a row for it either. `$text` is that cast (`"::text"`); on
-/// `SQLite` every identifier column is TEXT and it is `""`.
-///
-/// LEFT JOIN, not INNER: a connection with no freshness row at all has never
-/// had a successful fetch recorded, which is the most alarming state this
-/// can report and the one an INNER JOIN would delete. `NULLS LAST` is what
-/// `SQLite` already does for `DESC`, and what Postgres does only when told.
-macro_rules! capture_freshness_snapshot_sql {
-    ($text:literal) => {
-        concat!(
-            "SELECT pc.tenant_id, pc.user_id, pc.provider, pc.last_used_at, f.fetched_at \
-             FROM provider_connections pc \
-             LEFT JOIN activity_fetch_freshness f \
-                    ON f.user_id",
-            $text,
-            " = pc.user_id \
-                   AND f.tenant_id",
-            $text,
-            " = pc.tenant_id \
-                   AND f.provider = pc.provider \
-             WHERE pc.status = 'active' \
-             ORDER BY pc.last_used_at DESC NULLS LAST \
-             LIMIT $1"
-        )
-    };
-}
-pub(crate) use capture_freshness_snapshot_sql;
+/// The statements both backends run, shared or cast per engine
+pub(crate) mod sql;
 
 /// String form of an activity's sport type for the indexed column.
 ///
@@ -552,6 +474,38 @@ where
 {
     row.try_get(column)
         .map_err(|e| AppError::database(format!("activity col {column}: {e}")))
+}
+
+/// The failure record one `activity_fetch_failures` row holds.
+///
+/// # Errors
+/// Returns a database error when a column is missing or does not decode.
+pub(crate) fn fetch_failure_from_row<R>(row: &R) -> AppResult<ActivityFetchFailureRecord>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    i32: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let count = |column: &str| -> AppResult<u32> {
+        let value: i32 = row
+            .try_get(column)
+            .map_err(|e| AppError::database(format!("fetch failure col {column}: {e}")))?;
+        Ok(u32::try_from(value).unwrap_or(1))
+    };
+    let reason: String = row
+        .try_get("reason")
+        .map_err(|e| AppError::database(format!("fetch failure col reason: {e}")))?;
+    let failure = ActivityFetchFailure::from_slug(&reason)
+        .ok_or_else(|| AppError::database(format!("fetch failure reason {reason:?} is unknown")))?;
+    Ok(ActivityFetchFailureRecord {
+        failed_at: timestamp_column(row, "failed_at")?,
+        failure,
+        consecutive: count("consecutive")?,
+        streak: count("streak")?,
+        streak_started_at: timestamp_column(row, "streak_started_at")?,
+    })
 }
 
 /// Deserialize the stored `Activity` out of one `data_json` row.
@@ -694,16 +648,16 @@ macro_rules! impl_activity_cache_repository {
 
         #[async_trait::async_trait]
         impl ActivityCacheRepository for $ty {
-            async fn upsert_activities(
+            async fn upsert_activities_synced_at(
                 &self,
                 user_id: Uuid,
                 tenant_id: &TenantId,
                 provider: &str,
                 activities: &[Activity],
+                synced_at: DateTime<Utc>,
             ) -> AppResult<u64> {
                 let user_id_str = user_id.to_string();
                 let tenant_str = tenant_id.to_string();
-                let now = Utc::now();
                 // Count NET DISTINCT rows persisted, not raw input length. A provider feed
                 // can return the same `activity_id` twice in one batch; each ON CONFLICT
                 // upsert overwrites the prior copy, so the input length overstates the
@@ -727,7 +681,7 @@ macro_rules! impl_activity_cache_repository {
                         .bind(activity.id())
                         .bind(&sport)
                         .bind(activity.start_date())
-                        .bind(now)
+                        .bind(synced_at)
                         .bind(&data_json)
                         .execute(self.pool())
                         .await
@@ -872,6 +826,90 @@ macro_rules! impl_activity_cache_repository {
                         AppError::database(format!("Failed to record activity fetch: {e}"))
                     })?;
                 Ok(())
+            }
+
+            async fn record_activity_fetch_failure(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+                record: &ActivityFetchFailureRecord,
+            ) -> AppResult<()> {
+                sqlx::query(record_activity_fetch_failure_sql!($uuid))
+                    .bind(tenant_id.to_string())
+                    .bind(user_id.to_string())
+                    .bind(provider)
+                    .bind(record.failed_at)
+                    .bind(record.failure.as_str())
+                    .bind(i32::try_from(record.consecutive).unwrap_or(i32::MAX))
+                    .bind(i32::try_from(record.streak).unwrap_or(i32::MAX))
+                    .bind(record.streak_started_at)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to record activity fetch failure: {e}"))
+                    })?;
+                Ok(())
+            }
+
+            async fn latest_activity_fetch_failure(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+            ) -> AppResult<Option<ActivityFetchFailureRecord>> {
+                let row = sqlx::query(latest_fetch_failure_sql!($uuid))
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read activity fetch failure: {e}"))
+                    })?;
+                row.map(|r| fetch_failure_from_row(&r)).transpose()
+            }
+
+            async fn delete_cached_activity(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+                activity_id: &str,
+            ) -> AppResult<u64> {
+                let result = sqlx::query(DELETE_CACHED_ACTIVITY_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .bind(activity_id)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to delete cached activity: {e}"))
+                    })?;
+                Ok(result.rows_affected())
+            }
+
+            async fn delete_cached_activities_between(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+                start: DateTime<Utc>,
+                end: DateTime<Utc>,
+            ) -> AppResult<u64> {
+                let result = sqlx::query(DELETE_CACHED_ACTIVITIES_BETWEEN_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .bind(start)
+                    .bind(end)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to delete cached activities: {e}"))
+                    })?;
+                Ok(result.rows_affected())
             }
 
             async fn delete_provider_activities(

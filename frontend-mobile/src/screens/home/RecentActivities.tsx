@@ -2,11 +2,11 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The Home "Recent activities" section — the latest on a live map, the four before it with a route sketch
-// ABOUTME: No GPS in the recording and a stale cache are each said in words; a tap opens a chat drafted about the activity
+// ABOUTME: No GPS in the recording, a stale cache and a failed sync are each said in words; a tap opens a chat drafted about the activity
 
-import React from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
-import type { HomeActivity } from '@pierre/shared-types';
+import React, { useEffect } from 'react';
+import { AccessibilityInfo, ActivityIndicator, Platform, Pressable, Text, View } from 'react-native';
+import type { HomeActivity, SyncFailure } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { EmptyState, Section } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
@@ -57,10 +57,15 @@ function LatestMap({ activity }: { activity: HomeActivity }) {
       </View>
     );
   }
-  if (route.isError) {
+  // A read that failed, or one the server could not make just now
+  // (`unavailable`), is the same sentence and the same retry: neither says
+  // anything about whether the activity recorded a route. While a read is in
+  // flight — the retry's included — the map says it is loading, so a retry
+  // is seen to do something.
+  if ((route.isError || route.reason === 'unavailable') && !route.isFetching) {
     return (
       <EmptyState
-        action={{ label: t('common.retry'), onPress: () => void route.refetch(), testID: 'home-latest-map-retry' }}
+        action={{ label: t('common.retry'), onPress: route.retry, testID: 'home-latest-map-retry' }}
         testID="home-latest-map-failed"
       >
         {t('home.activities.routeFailed')}
@@ -124,6 +129,8 @@ function ActivityButton({
 /**
  * Where the list stands against the provider: checking while the server says
  * a refresh is running, otherwise when it last synced — the web page's rule.
+ * After a failed sync that time is the failing provider's own last good one,
+ * which the caller passes as `asOf`: the page says a time once.
  */
 function SyncLine({ refreshing, asOf }: { refreshing: boolean; asOf: string | null }) {
   const { t, language } = useTranslation();
@@ -146,6 +153,43 @@ function SyncLine({ refreshing, asOf }: { refreshing: boolean; asOf: string | nu
   );
 }
 
+/**
+ * The latest refresh of one provider failed: said plainly, naming it, with a
+ * retry that asks the server to refresh it now. When it last synced well is
+ * the sync line's to say, once.
+ *
+ * Read once when it appears: TalkBack reads the polite live region, and iOS,
+ * which has no live region, has VoiceOver told in words. The retry is a
+ * full-height button, not a word inside a line.
+ */
+function SyncFailed({ failure, onRetry }: { failure: SyncFailure; onRetry: () => void }) {
+  const { t } = useTranslation();
+  const message = `${failure.provider_name} · ${t('providers.syncFailed')}`;
+  useEffect(() => {
+    if (Platform.OS === 'ios') {
+      AccessibilityInfo.announceForAccessibility(message);
+    }
+  }, [message, failure.failed_at]);
+  return (
+    <View
+      className="mx-4 mb-2 flex-row flex-wrap items-center rounded-lg bg-error/15 px-3"
+      accessibilityRole="alert"
+      accessibilityLiveRegion="polite"
+      testID="home-activities-sync-failed"
+    >
+      <Text className="py-2 text-sm text-on-error-container">{message}</Text>
+      <Pressable
+        onPress={onRetry}
+        accessibilityRole="button"
+        className="ml-1 min-h-11 justify-center px-2"
+        testID="home-activities-sync-retry"
+      >
+        <Text className="text-sm font-medium text-on-error-container underline">{t('common.retry')}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 interface RecentActivitiesProps {
   activities: HomeActivity[];
   /** False until the first answer; stays false while a read is pending, paused offline, or failed. */
@@ -157,7 +201,12 @@ interface RecentActivitiesProps {
    */
   refreshing: boolean;
   asOf: string | null;
+  /** The provider whose latest refresh failed after its own last good sync, or null. */
+  syncFailure: SyncFailure | null;
+  /** Read the list again, after a read of it failed. */
   onRetry: () => void;
+  /** The athlete's retry after a failed sync: the server refreshes the failing provider now. */
+  onRetrySync: () => void;
   /**
    * Whether any fitness provider is connected, from the provider status —
    * the activity list carries no such flag. `null` until the status answers.
@@ -193,7 +242,9 @@ export function RecentActivities({
   isError,
   refreshing,
   asOf,
+  syncFailure,
   onRetry,
+  onRetrySync,
   providerConnected,
   syncing,
   onConnect,
@@ -271,7 +322,12 @@ export function RecentActivities({
 
   return (
     <Section title={t('home.activities.heading')} testID="home-section-activities">
-      {hasData ? <SyncLine refreshing={refreshing} asOf={asOf} /> : null}
+      {hasData ? (
+        <SyncLine refreshing={refreshing} asOf={syncFailure !== null ? syncFailure.last_synced_at : asOf} />
+      ) : null}
+      {hasData && syncFailure !== null && !refreshing ? (
+        <SyncFailed failure={syncFailure} onRetry={onRetrySync} />
+      ) : null}
       {body}
       {isError && hasData ? (
         <EmptyState

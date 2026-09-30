@@ -173,6 +173,12 @@ jobs:
           PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
           PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
           PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
+          # home-sync.real.spec.ts starts a scripted stand-in for the sciotte
+          # scraper on this port and connects its athlete's Strava through it.
+          DRAVR_SCIOTTE_REMOTE_URL: "http://127.0.0.1:8097"
+          # The route request's own bound, shortened so the spec's hung-detail
+          # case answers in seconds; the spec reads the same value below.
+          PIERRE_HOME_ROUTE_ANSWER_SECS: "5"
 
       - name: Start Vite dev server for e2e-real
         working-directory: frontend
@@ -193,6 +199,10 @@ jobs:
           FRONTEND_URL: "http://localhost:5173"
           ADMIN_EMAIL: "admin@example.com"
           ADMIN_PASSWORD: "AdminPassword123"
+          # home-sync.real.spec.ts moves an athlete's last sync into the past
+          # in the database the server above runs on.
+          E2E_REAL_DATABASE_PATH: "${{ github.workspace }}/data/e2e-real.db"
+          PIERRE_HOME_ROUTE_ANSWER_SECS: "5"
 
       - name: Stop e2e-real servers
         if: always()
