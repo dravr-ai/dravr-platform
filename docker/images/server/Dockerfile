@@ -146,7 +146,13 @@ FROM --platform=linux/amd64 debian:trixie-slim
 # findings, since Trivy reports each once for nodejs, libnode115 and
 # libnode-dev. Gated two consecutive dev deploys on 2026-09-27 (571b471dd and
 # 3c4257b9e, neither touching a Docker file) with deb13u2 installed.
-ARG APT_SECURITY_EPOCH=2026-09-27
+# openssl 3.5.7-1~deb13u3 closes CVE-2026-75804 (denial of service through
+# unenforced QUIC limits) and CVE-2026-84782 (information disclosure): eight
+# HIGH findings, each CVE once for libssl-dev, libssl3t64, openssl and
+# openssl-provider-legacy. Gated two consecutive dev deploys on 2026-09-30
+# (01f236f2f and 1d9673d3a, neither touching a Docker file); the 1d9673d3a run
+# echoes "apt security epoch: 2026-09-27" with deb13u2 installed.
+ARG APT_SECURITY_EPOCH=2026-09-30
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
