@@ -507,6 +507,54 @@ check_validation_marker() {
                                 "./scripts/ci/pre-push-validate.sh"
 }
 
+# Every squash to main is reviewed against docs/coding-standards.md first (carnet#660, JF
+# 2026-09-30), and the landing commit says so with a `Reviewed-Standards:` trailer. A direct
+# bug-fix push may land before its review, so this caps rather than blocks: at 8, level with an
+# unpushed commit, because both are landed work with a step still owed.
+#
+# Authorship is the hard part, and git cannot answer it — every session commits as the same
+# author. The transcript can: `git commit` prints `[<branch> <sha>] <subject>` into the session's
+# own tool output, so a sha seen there is one this session made. Only those reachable from
+# origin/main count; feature-branch commits never land as themselves (the squash does). A later
+# commit's `Reviewed-Standards: <sha> covers <short sha>…` clears the commits it names.
+sha_listed() { # <full sha> <newline-separated short shas> — a match on any prefix
+    local c
+    while IFS= read -r c; do
+        [ -n "$c" ] || continue
+        case $1 in "$c"*) return 0 ;; esac
+    done <<< "$2"
+    return 1
+}
+
+check_unreviewed() {
+    local tx start sha full covers owed="" n
+    tx=$(transcript_path 2>/dev/null) || return 0
+    git rev-parse --verify -q origin/main >/dev/null 2>&1 || return 0
+    start=$(session_started_epoch 2>/dev/null || true)
+    covers=$(git log -500 --format=%B origin/main 2>/dev/null \
+        | sed -n 's/^Reviewed-Standards: [0-9a-f]* covers //p' | tr ' ' '\n' | grep -E '^[0-9a-f]{7,40}$' || true)
+    while IFS= read -r sha; do
+        [ -n "$sha" ] || continue
+        full=$(git rev-parse --verify -q "$sha^{commit}" 2>/dev/null) || continue
+        git merge-base --is-ancestor "$full" origin/main 2>/dev/null || continue
+        if [ -n "$start" ] && [ "$(git log -1 --format=%ct "$full")" -lt "$start" ] 2>/dev/null; then
+            continue
+        fi
+        # A here-string, not a pipe: under pipefail a grep -q that exits on its first match can
+        # SIGPIPE the writer and turn a found trailer into a miss.
+        grep -q '^Reviewed-Standards: ' <<< "$(git log -1 --format=%B "$full")" && continue
+        sha_listed "$full" "$covers" && continue
+        case " $owed " in *" ${full:0:9} "*) continue ;; esac
+        owed="$owed ${full:0:9}"
+    done <<< "$(grep -oE '\[(detached HEAD|[A-Za-z0-9._/-]+)( \(root-commit\))? [0-9a-f]{7,40}\]' "$tx" 2>/dev/null \
+                | sed -E 's/.* ([0-9a-f]{7,40})\]$/\1/' | sort -u)"
+    owed=${owed# }
+    [ -n "$owed" ] || return 0
+    n=$(printf '%s' "$owed" | wc -w | tr -d ' ')
+    cap 8 "❌" "$n pushed commit(s) with no Reviewed-Standards trailer ($owed)" \
+          "run the review-standards skill over them, then land the follow-up with 'Reviewed-Standards: <sha> covers $owed'"
+}
+
 # ------------------------------------------------------------------ checks · carnet
 # A claim whose issue is already closed is not held. The close that should have dropped its line
 # can have run where this ledger could not see it: under another account before the ledgers were
@@ -1048,6 +1096,7 @@ run_checks() {
     check_stash
     check_branch_cleanup
     check_validation_marker
+    check_unreviewed
     check_carnet_held
     check_carnet_filed
     check_limitation_markers

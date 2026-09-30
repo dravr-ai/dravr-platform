@@ -17,6 +17,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'deny.toml'
+      - 'AGENTS.md'
       - 'scripts/ci/**'
       # check-gh-cli.sh runs at every session start and is in the shellcheck job below.
       - 'scripts/setup/**'
@@ -61,6 +62,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'deny.toml'
+      - 'AGENTS.md'
       - 'scripts/ci/**'
       # check-gh-cli.sh runs at every session start and is in the shellcheck job below.
       - 'scripts/setup/**'
@@ -301,6 +303,7 @@ jobs:
           ./scripts/ci/check-workflow-test-targets.test.sh
           ./scripts/ci/check-hosted-css.test.sh
           ./scripts/ci/check-log-email-redaction.test.sh
+          ./scripts/ci/check-agents-md-budget.test.sh
           bash .build/validation/test-test-module-lines.sh
           ./scripts/ci/check-satellite-drift.sh --offline
 
@@ -311,6 +314,12 @@ jobs:
       # core.hooksPath skips it; this is the backstop on every crates/ push.
       - name: Workflow test targets
         run: ./scripts/ci/check-workflow-test-targets.sh
+
+      # AGENTS.md loads into every session; carnet#660 cut it from 76.8 KB to
+      # what an implementing agent needs to act. The budget keeps it there:
+      # a standard goes to docs/coding-standards.md, a procedure to a skill.
+      - name: AGENTS.md size budget
+        run: ./scripts/ci/check-agents-md-budget.sh
 
       # The dev scripts decide which processes a stop may kill and which files a
       # tunnel may rewrite, so a quoting or word-splitting slip there reaches a

@@ -74,7 +74,7 @@ pub trait TenantRepository: Send + Sync {
 
 **Total:** ~135 methods split into focused responsibilities
 
-## Coding Directives (CLAUDE.md + Refactoring Standards)
+## Coding Directives (docs/coding-standards.md + Refactoring Standards)
 
 **CRITICAL - Zero Tolerance:**
 - ❌ NO direct DatabaseProvider trait usage (trait removed)

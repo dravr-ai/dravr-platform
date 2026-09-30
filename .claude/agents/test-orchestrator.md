@@ -67,7 +67,7 @@ When user requests comprehensive testing:
    - Kill any hung processes via KillBash
    - Verify temp files cleaned up
 
-## Coding Directives (CLAUDE.md)
+## Coding Directives (docs/coding-standards.md)
 
 **CRITICAL - Testing Standards:**
 - ❌ NO tests with external dependencies (mock OAuth providers)

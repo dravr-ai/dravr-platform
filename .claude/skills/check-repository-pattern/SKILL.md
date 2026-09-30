@@ -9,7 +9,7 @@ user-invocable: true
 ## Purpose
 Quick validation that database access follows the repository pattern (commit 6f3efef). Detects god-trait regression and ensures proper use of focused repositories.
 
-## CLAUDE.md Compliance
+## Coding-Standards Compliance
 - ✅ Enforces SOLID principles (Single Responsibility)
 - ✅ Validates focused repository usage
 - ✅ Prevents monolithic database patterns

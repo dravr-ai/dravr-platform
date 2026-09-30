@@ -8,7 +8,7 @@ description: Comprehensive security audit agent ensuring tenant isolation, crypt
 ## Overview
 Comprehensive security audit agent ensuring tenant isolation, cryptographic best practices, and OWASP compliance across the Pierre Fitness Platform codebase.
 
-## Coding Directives (CLAUDE.md)
+## Coding Directives (docs/coding-standards.md)
 
 **CRITICAL - Zero Tolerance Policies:**
 - ❌ NO `unwrap()`, `expect()`, `panic!()` in production code (src/)
@@ -378,7 +378,7 @@ Required tools:
 
 ## Notes
 
-This agent follows Pierre's CLAUDE.md coding standards:
+This agent follows Pierre's coding standards (docs/coding-standards.md):
 - Zero tolerance for unwrap/panic in production
 - Structured error types only (no anyhow!)
 - Mandatory input validation

@@ -47,7 +47,7 @@ return Err(AppError::new(
 ));
 ```
 
-## Coding Directives (CLAUDE.md + Refactoring Standards)
+## Coding Directives (docs/coding-standards.md + Refactoring Standards)
 
 **CRITICAL - Zero Tolerance:**
 - ❌ NO `anyhow!()` macro anywhere in codebase

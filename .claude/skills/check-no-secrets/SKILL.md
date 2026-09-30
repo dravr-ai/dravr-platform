@@ -9,7 +9,7 @@ user-invocable: true
 ## Purpose
 Scans codebase for accidentally committed secrets, credentials, API keys, and sensitive data. Prevents catastrophic security breaches.
 
-## CLAUDE.md Compliance
+## Coding-Standards Compliance
 - ✅ Enforces no hardcoded secrets
 - ✅ Validates environment variable usage
 - ✅ Checks git history for leaked credentials

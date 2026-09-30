@@ -9,10 +9,10 @@ user-invocable: true
 ## Purpose
 Validates that user-supplied inputs are properly bounded and validated before use. Catches division-by-zero, unbounded pagination, missing cache key components, and numeric range violations.
 
-## CLAUDE.md Compliance
+## Coding-Standards Compliance
 - ✅ Enforces Security Engineering Rules: Input Domain Validation
 - ✅ Prevents divide-by-zero panics from user input
-- ✅ Validates pagination bounds per CLAUDE.md
+- ✅ Validates pagination bounds per docs/coding-standards.md
 - ✅ Checks cache key completeness for tenant isolation
 
 ## Usage

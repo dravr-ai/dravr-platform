@@ -9,7 +9,7 @@ user-invocable: true
 ## Purpose
 Generates TypeScript type definitions for the SDK from Rust tool schemas, ensuring type safety between server and client.
 
-## CLAUDE.md Compliance
+## Coding-Standards Compliance
 - ✅ Automated type generation (no manual sync)
 - ✅ Validates type consistency
 - ✅ Prevents type drift between Rust and TypeScript

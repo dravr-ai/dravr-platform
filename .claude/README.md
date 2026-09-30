@@ -317,9 +317,9 @@ Claude, run test-multitenant-isolation skill
 Claude, run the security auditor agent focusing on database scoping
 ```
 
-## 📋 CLAUDE.md Compliance
+## 📋 Coding-Standards Compliance
 
-All agents and skills enforce Pierre's coding standards from `.claude/CLAUDE.md`:
+All agents and skills enforce Pierre's coding standards from `docs/coding-standards.md`:
 
 ### Zero Tolerance Policies
 - ❌ NO `unwrap()`, `expect()`, `panic!()` in production code (src/)
@@ -422,7 +422,7 @@ Create `.claude/skills/my-skill.md`:
 ## Purpose
 [Clear one-sentence description]
 
-## CLAUDE.md Compliance
+## Coding-Standards Compliance
 - ✅ [Relevant coding standard]
 - ✅ [Relevant testing standard]
 
@@ -451,7 +451,7 @@ Create `.claude/agents/my-agent.md`:
 ## Overview
 [Comprehensive description of agent purpose]
 
-## Coding Directives (CLAUDE.md)
+## Coding Directives (docs/coding-standards.md)
 [Relevant Pierre coding standards]
 
 ## Tasks
@@ -482,7 +482,7 @@ Create `.claude/agents/my-agent.md`:
 
 When adding new agents or skills:
 
-1. **Follow CLAUDE.md standards** - All code must comply with Pierre's zero-tolerance policies
+1. **Follow docs/coding-standards.md** - All code must comply with Pierre's zero-tolerance policies
 2. **Document thoroughly** - Include purpose, usage, commands, and success criteria
 3. **Test comprehensively** - Validate the skill/agent works as documented
 4. **Update this README** - Add your skill/agent to the tables above
@@ -490,7 +490,7 @@ When adding new agents or skills:
 
 ## 📚 Related Documentation
 
-- `.claude/CLAUDE.md` - CLAUDE.md compliance checklist
+- `docs/coding-standards.md` - coding standards checklist
 - `scripts/ci/validation-patterns.toml` - Architectural validation patterns
 
 ## 💡 Tips for Claude Code Users

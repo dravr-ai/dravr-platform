@@ -6,7 +6,7 @@
 # Copyright (c) 2026 dravr.ai
 """Log redaction gate for email addresses.
 
-The policy (CLAUDE.md "Logging hygiene"): an email address is PII, so it is
+The policy (docs/coding-standards.md "Logging hygiene"): an email address is PII, so it is
 DEBUG-level or redacted with ``pierre_middleware::redaction::mask_email`` at
 INFO and above. The line-oriented ``rg`` checks beside this one in
 ``architectural-validation.sh`` cannot enforce that, because rustfmt wraps any

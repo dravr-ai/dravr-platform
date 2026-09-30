@@ -893,6 +893,46 @@ check "score 9 does not block" "" "$(gate false | jq -r '.decision // empty')"
 check "score 9 is still a cap in the report" 9 "$(run "$R" | jq -r .score)"
 rm -f "$R/scratch.md"
 
+# ---- review trailer (carnet#660): a commit this session pushed to main without a
+# `Reviewed-Standards:` trailer caps at 8. Authorship comes from the transcript's `git commit`
+# output, so a commit the transcript never printed is a peer's and caps nothing.
+echo "=== pushed commits owe a standards review ==="
+unreviewed() { run "$R" | jq '[.caps[] | select(.evidence | test("Reviewed-Standards"))] | length'; }
+land() { # <file> <message> — commit, push to main, and print what `git commit` prints
+    echo "$1" > "$R/$1" && git -C "$R" add "$1"
+    git -C "$R" commit -q -m "$2"
+    git -C "$R" push -q origin HEAD:refs/heads/main 2>/dev/null
+    git -C "$R" fetch -q origin 2>/dev/null
+    printf '[main %s] %s' "$(git -C "$R" rev-parse --short=9 HEAD)" "${2%%$'\n'*}"
+}
+mkdir -p "$CFG/projects/fixture"
+TX="$CFG/projects/fixture/$SID.jsonl"
+printf '%s\n' '{"type":"user","message":{"content":"Fix it on main"}}' > "$TX"
+baseline_now "$R"
+peer=$(land peer.txt "fix: a peer's commit")
+check "a pushed commit the transcript never printed is not this session's" 0 "$(unreviewed)"
+mine=$(land mine.txt "fix: an unreviewed bug fix")
+jq -cn --arg o "$mine" '{type:"user",message:{content:[{type:"tool_result",content:$o}]}}' >> "$TX"
+check "this session's pushed commit with no trailer caps" 1 "$(unreviewed)"
+check "and caps at 8" 8 "$(run "$R" | jq '[.caps[] | select(.evidence | test("Reviewed-Standards")) | .cap | tonumber] | min')"
+short=$(git -C "$R" rev-parse --short=9 HEAD)
+follow=$(land follow.txt "review: apply coding standards
+
+Reviewed-Standards: abc123def456 covers $short")
+jq -cn --arg o "$follow" '{type:"user",message:{content:[{type:"tool_result",content:$o}]}}' >> "$TX"
+check "a follow-up naming it in 'covers' clears it, and carries its own trailer" 0 "$(unreviewed)"
+reviewed=$(land reviewed.txt "fix: reviewed before it landed
+
+Reviewed-Standards: abc123def456")
+jq -cn --arg o "$reviewed" '{type:"user",message:{content:[{type:"tool_result",content:$o}]}}' >> "$TX"
+check "a commit carrying the trailer owes nothing" 0 "$(unreviewed)"
+detached=$(land detached.txt "fix: committed on a detached HEAD")
+detached="[detached HEAD ${detached#\[main }"
+jq -cn --arg o "$detached" '{type:"user",message:{content:[{type:"tool_result",content:$o}]}}' >> "$TX"
+check "a commit made on a detached HEAD and pushed to main is this session's too" 1 "$(unreviewed)"
+rm -f "$TX"; rm -f "$STATE/bilan/"*.baseline*
+[ -n "$peer" ] || bad "the peer fixture printed nothing"
+
 rm -rf "$(dirname "$R")"
 printf '\n%s passed · %s failed\n\n' "$PASS" "$FAIL"
 [ "$FAIL" = 0 ]

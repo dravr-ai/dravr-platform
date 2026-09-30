@@ -9,7 +9,7 @@ user-invocable: true
 ## Purpose
 Quick validation that error handling follows the unified AppResult/AppError pattern (commit b592b5e). Detects anyhow regression and ensures proper use of ErrorCode enum.
 
-## CLAUDE.md Compliance
+## Coding-Standards Compliance
 - ✅ Enforces structured error types (no anyhow)
 - ✅ Validates ErrorCode usage
 - ✅ Prevents error handling regression

@@ -7,9 +7,9 @@ user-invocable: true
 # Strict Clippy Check Skill
 
 ## Purpose
-Enforces Pierre's zero-tolerance code quality policy using Clippy with strict lints. All warnings are treated as errors per CLAUDE.md standards.
+Enforces Pierre's zero-tolerance code quality policy using Clippy with strict lints. All warnings are treated as errors per docs/coding-standards.md standards.
 
-## CLAUDE.md Compliance
+## Coding-Standards Compliance
 - ✅ Enforces zero tolerance for `unwrap()`, `expect()`, `panic!()`
 - ✅ Validates no `anyhow::anyhow!()` usage
 - ✅ Checks for proper error handling patterns
@@ -22,7 +22,7 @@ Run the **scoped** check during development on the crate you touched:
 - During code reviews
 
 Do NOT run the full-workspace `--all-targets` clippy locally as a pre-push gate.
-Per CLAUDE.md, that ~25-minute run is CI's job (`preflight-clippy` + `clippy`
+Per AGENTS.md (the push block), that ~25-minute run is CI's job (`preflight-clippy` + `clippy`
 jobs fire on every push). The local gate is `./scripts/ci/pre-push-validate.sh`.
 
 ## Prerequisites
@@ -130,7 +130,7 @@ let user_id = user_id.ok_or(AppError::MissingUserId)?;
 
 ### Issue: `anyhow::anyhow!()` detected
 ```rust
-// ❌ Bad (CLAUDE.md violation)
+// ❌ Bad (coding-standards violation)
 return Err(anyhow::anyhow!("Database connection failed"));
 
 // ✅ Good (use structured errors)
@@ -171,7 +171,7 @@ pub fn calculate_vdot(distance: f64, time: f64) -> Result<f64, AlgorithmError> {
 
 ## Allowed Exceptions
 
-Per CLAUDE.md, certain patterns are allowed in specific contexts:
+Per docs/coding-standards.md, certain patterns are allowed in specific contexts:
 
 ### Test Files
 ```rust

@@ -8,7 +8,7 @@ description: Validates MCP and A2A protocol compliance, ensuring JSON-RPC 2.0 an
 ## Overview
 Validates Model Context Protocol (MCP) and Agent-to-Agent (A2A) protocol compliance, ensuring Pierre adheres to JSON-RPC 2.0, OAuth 2.0 (RFC 6749, RFC 7591), and protocol specifications.
 
-## Coding Directives (CLAUDE.md)
+## Coding Directives (docs/coding-standards.md)
 
 **CRITICAL - Zero Tolerance Policies:**
 - ❌ NO `unwrap()`, `expect()`, `panic!()` in protocol handlers

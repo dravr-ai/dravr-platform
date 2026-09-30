@@ -1,15 +1,15 @@
 ---
 name: validate-architecture
-description: Validates architectural patterns and code quality per CLAUDE.md, detects anti-patterns and design violations
+description: Validates architectural patterns and code quality per docs/coding-standards.md, detects anti-patterns and design violations
 user-invocable: true
 ---
 
 # Validate Architecture Skill
 
 ## Purpose
-Validates architectural patterns and code quality standards per CLAUDE.md. Detects anti-patterns, placeholders, and violations of Pierre's design principles.
+Validates architectural patterns and code quality standards per docs/coding-standards.md. Detects anti-patterns, placeholders, and violations of Pierre's design principles.
 
-## CLAUDE.md Compliance
+## Coding-Standards Compliance
 - ✅ Enforces zero tolerance policies (no unwrap, no anyhow!, no placeholders)
 - ✅ Validates architectural patterns (DI, resource management)
 - ✅ Checks algorithm isolation (enum-based DI)
@@ -53,7 +53,7 @@ rg "\.unwrap\(\)|\.expect\(|panic!\(" src/ --type rust -n | \
 
 #### Error Handling Anti-Patterns
 ```bash
-# Check for anyhow::anyhow! (FORBIDDEN per CLAUDE.md)
+# Check for anyhow::anyhow! (FORBIDDEN per docs/coding-standards.md)
 rg "anyhow::anyhow!|\\banyhow!\(" src/ --type rust -n
 
 # Verify structured error types
@@ -200,7 +200,7 @@ ARCHITECTURAL VALIDATION: FAILED
 ### 6. SQL Injection Detection
 Catches `format!()` used to build SQL queries:
 ```bash
-# Check for format! SQL construction (FORBIDDEN per CLAUDE.md Security Rules)
+# Check for format! SQL construction (FORBIDDEN per docs/coding-standards.md Security Rules)
 echo "🛡️ Checking for format! SQL injection risks..."
 rg "format!\(.*(?:SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER)" src/ --type rust -n && \
   echo "❌ SECURITY: format! used in SQL query construction!" || \
@@ -255,7 +255,7 @@ rg "static.*OAuth|static.*Config|LazyLock.*OAuth" src/ --type rust -n | \
 - `scripts/ci/architectural-validation.sh` - Main validation script
 - `scripts/ci/validation-patterns.toml` - Pattern definitions (539 lines)
 - `scripts/ci/parse-validation-patterns.py` - Pattern parser
-- `.claude/CLAUDE.md` - CLAUDE.md standards
+- `docs/coding-standards.md` - coding standards
 
 ## Related Skills
 - `strict-clippy-check` - Code quality linting

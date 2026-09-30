@@ -209,71 +209,14 @@ A prompt that only asks about an issue claims nothing: a question never reaches 
 
 <important if="you are about to report a completion number, or you think the work is done">
 
-**The number is `bilan`'s number, not yours.** It used to be narrated — it came from the
-session's own account of itself — so a session that *believed* it was finished reported 8 or 10
-while it still held open carnet issues, had commits sitting unpushed, or had left a dev stack
-holding 8081. Every one of those is machine-checkable.
+**The number is `bilan`'s number, not yours.** Run it before you give a number, and report what it prints; if you think a cap is wrong, say so and still report the script's number.
 
 ```bash
 .agents/skills/bilan/bilan.sh          # run it BEFORE you give a number
 .agents/skills/bilan/bilan.sh sweep    # what a session that died left behind
 ```
 
-The score is `min()` over caps, and each cap prints its own evidence and remedy: a held carnet
-issue or an unregistered `LIMITATION` marker caps at **6**, uncommitted tracked files at **7**,
-unpushed commits at **8**. One open issue holds the whole session at 6 no matter how much else
-landed.
-
-**CI is reported, never scored.** A shared checkout has one HEAD and ten sessions, and every
-session commits as the same author, so whose commit the tip is cannot be recovered from git. Two
-attempts to attribute it both misfired onto other people — the first capped the whole fleet at 5
-over one peer's red; the second graded a session on a peer's tip that landed after its own push.
-The verdict is printed because it is worth seeing; the number stays about work this session can
-act on. For CI on your own commit, ask for that sha by name.
-
-- **A peer's uncommitted files in the shared checkout are not yours, and do not cap you.** Files
-  already dirty when the session opened are excluded automatically (the SessionStart hook records
-  them). For a peer editing *during* your session, `bilan.sh ack --why "…"` clears the cap and
-  keeps the reason in the report; it returns the moment one more file is dirtied. Never commit or
-  revert them.
-- **An issue you filed is work you owe.** `carnet.sh create` records it; it caps at 6 until you
-  close it with the fix. A session does not file its way out of work — fix first, file only the
-  residue, and if something truly cannot be fixed here, put that decision in front of ChefFamille.
-  **The exception is a registered limitation**, which the register contract requires to stay open:
-  an issue labelled `limitation` that a `LIMITATION(registre#n)` marker names, in a file the
-  register scans, is a register entry, not deferred work, and is reported as a note instead of
-  capping. Both halves are required — a label alone still caps, so this is not a way to relabel a
-  bug out of the score. The register scans `scan_dirs` in `registre.toml` and never a test tree,
-  so a gap in test coverage is marked on the production item it leaves uncovered.
-- **A loop ends at bilan 10, or at a blocker named to ChefFamille — never at a filed issue.**
-  *Blocked* means a credential the session does not hold, an issue a live peer holds, an
-  external dependency, or a product decision only ChefFamille makes; size, the hour, and "not in
-  the issues the prompt named" are not blockers. **Residue the work itself surfaces is in scope
-  by default** — a gate you extend, a rename you make visible, a bug a converted pair exposes —
-  and the session that found it converts or fixes it before it wraps up. **Run bilan before
-  writing the summary, not after:** if it prints less than 10, the cap it names is the next
-  action, and the summary waits. (2026-09-19: a session extended the pairs gate, saw the seven
-  pairs it newly revealed, filed them at 23:15 as "outside the two named issues", and stopped at
-  6 — every one of those was work it could do.)
-- **Background tasks and subagents still running cap at 7.** They leave no trace in git, the
-  ledger or CI, and closing the session loses them. Session-scoped: your terminal, your tasks.
-- **`--cheap` and the full run give the same number** — the only difference is whether the CI
-  line is printed.
-- **Report what it prints.** If you think a cap is wrong, say so in words *and still report the
-  script's number* — arguing with the measurement is a conversation, overriding it silently is
-  the failure this exists to stop.
-- **Failures never deduct.** A red that is now green, a mistake found and fixed, a rough path:
-  none of it lowers the number. It measures completion, and only completion. Friction counts
-  (tool errors, interrupts, denials) are printed for context and cap nothing.
-- **Nothing blocks you. bilan is an instrument, not a gate.** The Stop hook is disarmed
-  (2026-09-09, ChefFamille's call). It graded the checkout's HEAD without asking whether the
-  session had contributed to it, so one peer's red CI capped every session in the shared main
-  worktree at 5 and the gate blocked all of them over a commit none had made — each block
-  spending a session's last turn arguing with someone else's number, after which it idled. An
-  evening went that way. Run bilan yourself; the score reaches you through the status line and
-  through `/bilan`, and never by interrupting you.
-- It answers *finished*, never *good*. A green bilan on a wrong implementation is still wrong —
-  that is what `/code-review` is for.
+The score is `min()` over caps, each printing its evidence and remedy: a held or filed carnet issue, or an unregistered `LIMITATION` marker, caps at **6**; uncommitted files and running background tasks at **7**; unpushed commits, and pushed commits with no `Reviewed-Standards:` trailer, at **8**. A loop ends at 10 or at a blocker named to ChefFamille, never at a filed issue: fix first, and file only what truly cannot be fixed here. *Blocked* means a credential the session does not hold, an issue a live peer holds, an external dependency, or a product decision only ChefFamille makes; size, the hour, and "not in the issues the prompt named" are not blockers. Residue the work surfaces is in scope. A peer's uncommitted files in the shared checkout are not yours: never commit or revert them (`bilan.sh ack --why "…"` clears the cap). Run bilan before writing the summary; if it prints less than 10, the cap it names is the next action. It measures *finished*, never *good*. The `bilan` skill has the full contract: peer files and `ack`, registered limitations, why CI is reported but never scored.
 </important>
 
 <important if="you are committing, branching, merging, or cleaning up git branches">
@@ -292,6 +235,7 @@ act on. For CI on your own commit, ask for that sha by name.
   git worktree remove <worktree-path>   # if a worktree was used
   ```
 - Do not reference AI assistance in git commit messages.
+- **Every squash to main is reviewed first (carnet#660).** After the branch's gate and tests pass, run the `review-standards` skill over `origin/main...HEAD`. It applies `docs/coding-standards.md` in fix mode, and you commit its fixes on the branch. The squash message then ends with the trailer it prints: `Reviewed-Standards: <blob sha of docs/coding-standards.md>`. A direct bug-fix push gets the same review whenever it can wait. A pushed commit with no trailer caps bilan at 8 and never blocks the push; clear it by reviewing that commit and landing the follow-up with `Reviewed-Standards: <sha> covers <short sha>…`.
 </important>
 
 <important if="you are about to push, or have just pushed, to a remote branch">
@@ -300,36 +244,12 @@ act on. For CI on your own commit, ask for that sha by name.
 
 - Do NOT run `cargo fmt`/`cargo check`/`cargo clippy --all-targets --all-features` ad-hoc as a pre-push gate — CI's `clippy` job runs the full workspace on every push. Per-crate clippy on the crate you're editing is fine during development.
 - Never fake/create the `.git/validation-passed` marker.
-- **Warnings are denied through Cargo's `build.warnings`, never `-D warnings`** — `CARGO_BUILD_WARNINGS=deny` in CI env, pre-push, the shared `.build` hook, and every documented clippy command. Lint *levels* in `Cargo.toml` are unchanged; only the mechanism moved. Under `-D warnings` a warn-level lint is a compile error, so its crate emits no rmeta and every dependent goes unlinted; under `build.warnings` the crate still builds, dependents are linted in the same run, and cargo fails once at the end. It also leaves the fingerprint alone: `RUSTFLAGS` and clippy's `-- -D warnings` both force a re-check of every workspace crate when they change, `build.warnings` shares the plain `cargo clippy`/rust-analyzer cache. Two traps, both guarded — do not route around the guards:
-  - **Cargo < 1.97 silently ignores the key** and passes every warning. The pin is 1.98.1, but a Homebrew cargo ahead of rustup on PATH (or a shell outside the repo, where rustup's default applies) is older; `scripts/ci/clippy-workspace.py`, `pre-push-validate.sh` and the `.build` hook refuse to run on one.
-  - **With `--message-format=json`, cargo 1.98.1 exits 0 over warnings despite `build.warnings=deny`** (human format exits 101). Anything that reads cargo's JSON must fail on warnings itself — `clippy-workspace.py` does, and its self-test (`clippy-workspace.test.sh`) proves it.
-- **A gate that reads a tool's OUTPUT passes when the tool crashes.** GitHub's default shell is `bash -e`, **not** `pipefail`, so `cmd | tee log` returns *tee's* status and a crashed `cmd` is invisible; a step that then greps `log` for a **finding** finds none and reports success. This is not hypothetical: `deadlock-analysis` ran for nine months that way, crashing in 30s and reporting green on every run of its life (carnet#399), and `cargo tree -d | grep … || true` had the same hole (carnet#400). Three rules when writing one:
-  - **Gate on exit status, separately from the grep.** `if ! out="$(cmd 2>&1)"; then …fail…; fi`, then grep `$out`. Never pipe the tool straight into the thing that judges it.
-  - **Fail closed on a scan that verified nothing** — the model is `scripts/ci/check-lockfile-duplicates.sh`, which exits 1 when the lockfile holds no ecosystem crate at all. A smoke test that gets empty output, a scan that resolved no packages, a grep over a file the tool never wrote: each must fail, not pass.
-  - **Grep for a success marker, never for a finding.** Absence of a finding is indistinguishable from absence of a run; absence of a success marker is not. (`examples-validation.yml`'s `agent-discovery` step pipes into `tee` but greps for a success string, so it fails closed by luck of that choice — it still discards the binary's exit status.)
-- Locally, only the tiers whose files changed run: Tier 0 `cargo fmt --all -- --check`, Tier 1 `scripts/ci/architectural-validation.sh`, Tier 1-shared `.build/validation/validate.sh` (compile-free, every push; the fleet-wide text scans plus `validation-patterns.local.toml`; its unwrap/expect/panic, mock and underscore-name scans skip a file's trailing `#[cfg(test)] mod tests` through `.build/validation/test-module-lines.sh` (ADR-027), so an in-module unit test may `unwrap`/`expect`/`panic!` like one under `tests/`; `[test_modules] enforce_layout = true` fails any file whose test module is not a trailing inline module — the pre-push hook skips this script for repos that own `pre-push-validate.sh`, so this tier and the fast-gate step are the only places it runs), Tier 1b `scripts/ci/check-contremaitre-sync.sh` (compile-free locale + notify-event + MCP-tool-list drift check vs the pinned dravr-contremaitre catalogues), Tier 1c `scripts/ci/check-phantom-surfaces.sh` (compile-free; fails when the diff adds a trait with no implementor, an api-client method with no production caller, an api-client method only one client calls, or an `/api/` route no client mentions — that last one is satisfied by a `LIMITATION(registre#issue):` marker at the route's own declaration naming that route, which the run then prints with its issue number), Tier 1d `scripts/ci/check-turn-envelope.sh` (compile-free; fails on a reintroduced `is_messaging`/`ChannelProfile`, a reply block only one client renders, a hand-rolled `fetch()` at `/api/chat`, or a stale `surface-capabilities.generated.ts`), Tier 1e changed server-test clippy (`CARGO_BUILD_WARNINGS=deny cargo clippy -p pierre_mcp_server --test <name>` on exactly the top-level `crates/pierre-server/tests/` files the push touched — zero cost when it touched none; `common.rs`/`helpers/` stay CI-covered), Tier 1e-move `scripts/ci/check-moved-symbols.sh` (compile-free; fails when the diff removes or moves a `pub` item while any file still imports its old module path — the symbol-move blind spot of carnet#197), Tier 1f `--no-default-features` probe (`CARGO_BUILD_WARNINGS=deny cargo check -p <crate> --no-default-features` on changed probe crates — catches an item whose sole caller is feature-gated before CI's feature-profiles job does; probe set and exclusions are documented in the script), Tier 1g `scripts/ci/check-permission-denied-messages.sh` (compile-free; `sanitized_message()` ships `ErrorCode::PermissionDenied` messages to the client verbatim, so every construction site must match the reviewed inventory `scripts/ci/permission-denied-messages.txt` — a new refusal fails the push until someone reads it and adds its line, a stale line fails when its site goes away, and a message the scan cannot resolve to a literal fails loudly rather than passing as "in sync"), Tier 1h `scripts/ci/check-async-lock-guards.sh` (compile-free, whole-tree; fails when a named `tokio::sync` guard is still live at a second acquisition of the same lock, or across an awaited call on the lock's own receiver — tokio's RwLock is write-preferring with a FIFO queue, so a task that holds a read guard and awaits `write()` waits for itself and every later reader and writer queues behind it, killing the lock for the life of the process. Neither `!Send` nor `clippy::await_holding_lock` fires on a tokio guard, and no static analyser models async guards at all, so this is the only gate on that shape. Fix by dropping the guard or closing its scope first; `scripts/ci/check-async-lock-guards.test.sh` pins both catch cases and five no-false-positive ones), Tier 1i `scripts/ci/check-declared-parameters.sh` (compile-free; fails when a tool's rejection message names a parameter no schema in that module declares — a handler that hard-requires an undeclared parameter fails every schema-following caller on every call, and a rename that moves the schema key plus the handler's `.get()` leaves the message behind. Attribution is per tool, shared with check-contremaitre-sync.sh Check 7 via `scripts/ci/tool_schema_properties.py`, which asserts its own premise — it fails when a file declares properties after its final `tool_definition`, or when a tool name is not a readable literal, rather than silently shrinking its coverage. A rejection in a helper file that names no tool — `recipes/inner.rs` holds handlers whose schemas are in `recipes/mod.rs` — falls back to that module's combined declarations and is reported as module-scoped), Tier 1k `scripts/ci/check-i18n-keys.sh` (compile-free; fails when a client calls `t('a.b')` with a key the shared en catalogue does not carry. Locale parity compares the five locales to each other, so a key deleted from all five stays in parity while every caller renders the raw key string to the athlete — `app.weeklyReport` shipped as the literal heading of the mobile group insights panel in every language that way. Comments and dynamic `` t(`a.${b}`) `` calls are reported, never failed on; a scan that resolves no call sites fails closed rather than passing), Tier 1l `scripts/ci/check-hosted-css.sh` (compile-free, needs bun; every server-rendered hosted page — OAuth, hosted provider login, channel picker, messaging link, device approval — embeds one stylesheet generated from the Boreal tokens, `crates/pierre-core/src/hosted_page.css`, because the crates cannot run the generator. The gate regenerates it with `cd packages/shared-constants && bun run generate:hosted-css` and fails when the committed file is behind the tokens, when the generator writes nothing, or when a hosted template carries its own `<style>`, inline style or retired palette; the generator itself refuses to write a pairing under 4.5:1 for text or 3:1 for graphics. CI's fast-gate runs the same script), Tier 1m `scripts/ci/check-workflow-test-targets.sh` (compile-free; fails when a `cargo ... --test <name>` in `.github/workflows` names a test target the workspace does not have — a `tests/<name>.rs`, a `tests/<name>/main.rs`, or a `[[test]]` name, searched only in the packages the command's `-p`/`--workspace` selects. cargo refuses the whole command over one dead name, and a push that moves a test file never runs the cron lane naming it: `llm-live-cron.yml` went red six nights running over a file moved to dravr-embacle (carnet#474). Runtime-built names (`--test "$target"`) are reported, never failed on; a scan that resolves no reference fails closed. Runs when a workflow, a `crates/*/tests/` file or a manifest changes; CI's fast-gate runs it on every crates push), Tier 5 frontend, Tier 6 SDK, Tier 7 mobile.
-- **A new chat surface, reply block, or notification screen is generated, not written.** `GET /api/surfaces/capabilities` serves the `SurfaceProfile::resolve` table; `cd packages/shared-constants && bun run generate` rewrites `src/surface-capabilities.generated.ts` from a running server, exactly as `packages/mcp-types` regenerates from the tool registry. Both clients read that file — the registry's per-surface `blocks` column, the notification screen vocabulary — so Tier 1d fails the push while it is behind the Rust source.
-- **Branch-lane coverage contract (decided 2026-08-31, carnet#154):** `ci-postgres.yml` runs the full server test suite (~690 files, ~21-24 min) on `main`, `schedule`, `workflow_dispatch`, and `feature/*`, `features/*` or `claude/*` refs only. Both feature spellings are covered deliberately: the orchestrator hands sessions `features/<name>` branches, and while only `feature/**` was listed those pushes fired NO verdict lane at all (two parallel sessions ran uncovered on 2026-09-17). `claude/*` joined the full lane on 2026-09-27 (ChefFamille's call): Claude Code sessions push whole slices on that prefix, so those branches get the full verdict before they squash onto main. A push on `fix/*`/`debug/*`/`copilot/*` runs the 8-file `*_postgresql_test.rs` smoke — a green `CI: Backend (PostgreSQL)` there means the smoke ran, NOT the suite. Per-push coverage on those refs = that smoke + `changed-server-tests` (SQLite, exactly this push's server test files) + `leaf-crate-tests` (every non-server crate). For a full verdict on any ref, dispatch ci-postgres. Coverage (~65 min, batched) is a SQLite run that fires weekly (Sunday 03:17 UTC), on `workflow_dispatch`, and on PRs — never on push, so it holds no slot during a main burst — and it is not a PG gate.
-- CI fires parallel jobs on push (`ci-backend.yml`: `fast-gate` ~30s, `preflight-clippy` ~3–5min, `clippy` ~10–12min gating `release-binary`, `security-audit`, `doc-tests`, `contremaitre-sync` ~5min, `release-binary`; plus `ci-postgres.yml`, `integration-tests.yml`, `frontend-tests.yml`, `sdk-tests.yml`, `mobile-unit-tests.yml`, `mcp-compliance.yml`, each path-scoped). `cancel-in-progress` behaviour differs per workflow and it matters when diagnosing a missing run. **Protected on main:** every test-verdict push lane (`ci-backend.yml`, `ci-postgres.yml`, `frontend-tests.yml`, `mobile-unit-tests.yml`, `ci-redis.yml`, `integration-tests.yml`, `sdk-tests.yml`, `mcp-compliance.yml`, … — `grep -l 'github.sha ||' .github/workflows/*.yml` is the live list) appends `github.sha` to the concurrency group when the ref is `main` (`...${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}`), so every commit gets its own group and nothing cancels or evicts another's verdict. `cancel-in-progress: false` alone is NOT protection: it keeps a running run alive, but a group holds one waiting run and the next push replaces it with zero jobs started — under a ref-only group `ci-postgres.yml` lost 9 of 84 main verdicts that way (carnet#169; runs 33450894413, 33552222435, 33555424548). **Still evictable on main, by design:** `chat-conversation-eval.yml` groups by ref alone with `cancel-in-progress: false`, so its push run can be replaced while it waits behind a live-llm run; `terraform.yml` (`terraform-state`) also groups without the sha, because a newer plan superseding a waiting one is the intended behaviour, not a lost verdict. So a missing `ci-backend`/`ci-postgres` run on main is NOT a cancellation and needs another explanation (usually the commit was not the tip of its push — see below), while a missing `chat-conversation-eval` run may well be. Read the workflow's `group:` expression before blaming cancellation.
-
-**A push's CI run belongs to the TIP, not to each commit.** GitHub fires one run per push, so a push carrying three commits produces one run, on the third. That run tests the tip's TREE — which contains all three — so a break that survives to the tip IS caught normally. Main's health is covered.
-
-What a burst does NOT give you is per-commit validation, and that costs you in two places: `git bisect` can land on a tree nothing ever ran, and reverting one commit out of a burst produces a combination no run has seen. A commit broken and then fixed inside the same burst is invisible, which is harmless.
-
-**Do NOT push commits one at a time to get per-commit runs.** `8897e9312` exists because burst pushes queued one deploy per push — 60 commits on 2026-08-26 became 44 image builds, each a full cargo-chef build pulling the multi-GB registry buildcache back as billed egress. Batching is the cheap direction and the fix now collapses bursts deliberately.
-
-**The real exposure is the window, not the batching.** On 2026-08-28 a commit adding a 13th system prompt without updating the counts that pin it went up in a burst; the tip's run reported `failure` correctly — 31 minutes later. Nothing was red in between because the run was still in flight, and nobody was watching it. An unrelated feature branch hit the break first. So: after pushing to main, watch the run to terminal (below). That is what would have caught it, not a different push shape.
-
-**When a run is genuinely ABSENT** — no row for that SHA at all — do not reach for "it was cancelled" without checking; on `ci-backend`/`frontend-tests` a main commit cannot be cancelled, so the explanation is that the SHA was never a push tip:
-
-```bash
-git log --oneline <base>..origin/main        # every sha that landed
-gh run list --branch main --limit 15 --json headSha,conclusion,status
-```
+- Do not push commits one at a time to get per-commit runs; a push's CI run belongs to its tip, so batch, then watch that run to a terminal status.
+- What each tier and lane checks, the branch-lane coverage contract, concurrency groups and the burst history: [`scripts/ci/README.md`](scripts/ci/README.md). Rules for writing a gate that cannot pass on a crash: `docs/coding-standards.md`.
 
 **Push is the start of validation, not the end.** After every push, watch CI for the pushed commit until all relevant workflows reach a terminal status. If any fails, fix the underlying issue and re-push in the same session — work is not "done" until CI is green on the head commit (cancelled runs for older commits don't count).
 
-**Private dravr repos can run out of Actions minutes** (the org is on GitHub's free plan; it happened 2026-09-22). A private repo's run then sits `queued`, or fails with "The job was not started because recent account payments have failed…" and zero steps — a bill, not a broken build. The procedure is ChefFamille's (carnet#534): **public → CI → private**, and a red CI leaves the repo private until a new push. Never hand-roll it — `.agents/skills/private-ci/private-ci.sh check` says whether the limit is hit, `run <repo> <checkout> [--release …]` scans the whole history for secrets first, and flips back to private on any exit. It refuses dravr-carnet and dravr-vault. dravr-platform, dravr-embacle and dravr-tronc are public and unaffected.
+**Private dravr repos can run out of Actions minutes** (queued forever, or "recent account payments have failed" with zero steps). That is a bill, not a broken build: `.agents/skills/private-ci/private-ci.sh check`, then `run` — never by hand. It refuses dravr-carnet and dravr-vault.
 
 CI monitoring — use the first that works, NEVER ask the user for a GitHub token:
 1. WebFetch `https://github.com/dravr-ai/dravr-platform/actions?query=branch%3A<branch>` (no PAT quota). Its prose summary is not a verdict — "most workflows succeeded" has hidden a red; confirm a conclusion below before calling anything green.
@@ -340,71 +260,20 @@ CI monitoring — use the first that works, NEVER ask the user for a GitHub toke
 Forbidden: `gh run watch`, background poll loops, any cadence < 60s. For long waits, use `ScheduleWakeup` to re-check after a fixed delay.
 </important>
 
-<important if="you are writing error handling in production code (src/)">
+<important if="you are writing, changing or reviewing code in any language">
 
-- **`anyhow!` / `anyhow::anyhow!` / `anyhow::Error::msg` are FORBIDDEN in every position (return, `map_err`, `ok_or_else`) — CI fails on detection, zero tolerance.** Use structured enums (`AppError`, `DatabaseError`, `ProviderError`); add a new variant if none fits. Convert via `.into()`/`?`/`.context()` so the base error stays a structured type. See `crates/pierre-server/src` error modules for the canonical patterns.
-- `?` for propagation, `Result<T,E>` for fallible ops, `Option<T>` for maybe-absent values.
-- `unwrap()` only in tests, compile-time-valid static data, or binary `main()`. `expect()` only to document invariants that cannot fail (static data, `main()` env setup) — never for runtime-possible errors. `panic!()` only in test assertions or unrecoverable binary errors.
+The coding standards live in [`docs/coding-standards.md`](docs/coding-standards.md), and the `review-standards` skill applies them to your diff before the squash. Write the code that works first; the review makes it good. These hard stops are here because they cost too much to undo even when a reviewer catches them later:
+
+- Never log a secret (access/refresh tokens, API keys, passwords, client secrets). URLs go through `pierre_core::redaction::redact_url`.
+- Never `format!()` SQL; use parameterized queries.
+- Every query on a table with a `tenant_id` column filters on it; a table without one is scoped by `user_id`.
+- Never write a migration that renames or drops a column without asking first: an applied migration is immutable, and a rename makes a rollback deploy unsafe.
+- Never `anyhow!` in `src/`; never skip, ignore or comment out a test.
+- Never ship a stub: no placeholder `Ok(vec![])`, fabricated data or confession comment. Implement it, register a `LIMITATION(registre#n):`, or STOP and tell the user.
+- Never rewrite an existing implementation from scratch to fix a bug; STOP and get explicit permission first.
 </important>
 
-<important if="you are writing auth, multi-tenant data access, OAuth, logging, or any security-sensitive code">
-
-- **Authorization ≠ authentication.** Every admin/coach/write endpoint checks role/permission, not just a valid session. Super-admin minting requires existing super-admin credentials. API-key create/revoke/list verify ownership via `user_id` — the `api_keys` table has no `tenant_id` column, so isolation there is transitive through `users.tenant_id` and the handler check is what enforces it.
-- **Multi-tenant isolation.** Every query against a table that carries a `tenant_id` column includes it in the WHERE clause. Where the table has none (54 of 133 do not), the query is scoped by `user_id` — a strictly narrower key, since a user belongs to one tenant — and the handler still checks ownership before returning the row. The only rows reachable without either key are (a) globally-shared reference data that is the same for every tenant (`weather_cache`, `yoga_poses`, `stretching_exercises`, `system_settings`, `coach_versions`) and (b) rows addressed by an unguessable secret the caller had to already hold (`user_mcp_tokens.token_hash`, session tokens, task ids). Anything else needs one of the two keys — adding a tenant-scoped table without a `tenant_id` column is the thing to push back on. OAuth tokens, API keys, LLM credentials are per-tenant (never global/shared). Cache keys include `tenant_id`. Config write/delete and admin tools modifying agent/user data verify tenant membership first.
-- **OAuth/protocol.** `state` is cryptographically random and validated on callback. PKCE enforced for public clients. Grant types restricted per-client. Token endpoints validate `redirect_uri` matches authorization. `.well-known/` returns spec-compliant metadata.
-- **Logging hygiene.** NEVER log access/refresh tokens, API keys, passwords, client secrets. PII (email, IP, UA) is DEBUG-level or redacted at INFO+. Auth failures → WARN, breaches → ERROR.
-- **Canonical redaction (do not hand-roll).** URL credentials → `pierre_core::redaction::redact_url` (the only allowed redactor). HTTP request/response PII → the `middleware::redaction` layer (installed; don't bypass). Email for operator logs → `middleware::redaction::mask_email`. "Is this secret loaded?" → mirror `OAuthProviderConfig::secret_fingerprint` (SHA256 first 8 hex + length); never log the raw value.
-- **Forbidden logging patterns** (enforced by `scripts/ci/architectural-validation.sh`): log/print macros referencing `Database URL`/`database_url`/`connection_string` without `redact_url` on the same line; interpolating vars named `password`/`client_secret`/`jwt_secret`/`encryption_key`/`access_token`/`refresh_token`; `{:?}`/`{:#?}` of `ServerConfig`/`DatabaseConfig`/`DatabaseUrl`/`OAuthProviderConfig`/`FirebaseConfig`/`WeatherServiceConfig`/`OAuth2ServerConfig` (they derive `Debug` but hold secrets — log only the fields you need).
-- **Template/query safety.** Never `format!()` SQL — use parameterized queries (`$1`,`$2`). Escape server-rendered HTML with `html_escape::encode_text`. Percent-encode URL params with `urlencoding::encode`. User-facing errors carry no stack traces or internal details.
-</important>
-
-<important if="you are validating numeric input, pagination, or doing division">
-
-- Any divisor is checked for zero first (`.max(1)` or explicit guard) before dividing.
-- Pagination params have min/max bounds (e.g. limit clamped to `1..=100`).
-- User-supplied numeric inputs are validated against domain-specific ranges. Do not hard-code magic values.
-</important>
-
-<important if="you are writing or modifying Rust code">
-
-Default to idiomatic Rust; the project-enforced specifics:
-- **No absolute paths** — `clippy::absolute_paths = "deny"` in `Cargo.toml`. Use `use` imports at the top; avoid inline `crate::...`/`std::...` paths except for name collisions. Flat module hierarchies.
-- **No `#[allow(clippy::...)]`** except validated type-conversion casts (`cast_possible_truncation`, `cast_sign_loss`, `cast_precision_loss`). Fix the underlying issue instead of silencing.
-- **Binary roots carry `#![deny(dead_code_pub_in_binary)]`** — a `pub` item a binary never uses is reachable from nowhere; move it into a library or delete it. It is crate-level on each binary root on purpose: in `[workspace.lints]` it also fires on every library, because `--all-targets` builds each lib's unit-test harness as a binary (826 errors in `pierre-core` the one time it was tried). A new binary gets the same attribute.
-- Clone the Arc, never its contents (`arc.clone()`); Arc/Rc clones need no comment, but justify non-obvious value clones. Document every `Arc<T>` with its sharing reason (async Tokio usually needs Arc over Rc); prefer `&T`/`Cow<T>` when lifetimes allow. Prefer `Arc<RwLock<T>>` for read-heavy state.
-- `std::sync::LazyLock` for lazy statics, `OnceLock` for one-time init. Always handle `JoinHandle` results (don't swallow panics).
-- Newtype pattern for domain ids; `enum` over boolean state flags. Small focused functions; `std` over external crates when sufficient.
-- **Binary size: keep `pierre_mcp_server` <= 90MB** (CI's `release-binary` job builds the image's exact fat-LTO invocation — `--profile release-lto`, the shipped feature set — and sizes that binary: 83MB on 2026-09-19. Raised from 80 on 2026-09-03 when main had sat at exactly 80MB for four runs; a one-day 95 on 2026-09-18 covered a thin-LTO default-feature build that nothing deployed, and went back to 90 once the gate measured what ships, carnet#471). Watch large deps; use feature flags to drop unused code; document any justified exception.
-</important>
-
-<important if="you are writing comments, naming things, or scoping the size of a change">
-
-- Every code file opens with a 2-line comment, each line prefixed `ABOUTME: ` (greppable).
-- Comments are evergreen — describe code as it is, not how it changed. Never delete a comment unless provably false.
-- Never name things `improved`/`new`/`enhanced`; no placeholder/`dead_code`/mock/`_`-prefixed vars; no "in future versions"/"implement later"/"fall back" stubs — implement the real thing.
-- Make the smallest reasonable change. Prefer simple/maintainable over clever — but correctness wins ties: smallest means least code, never the flimsier algorithm. Match surrounding style.
-- **Never rewrite an existing implementation from scratch to fix a bug/error — STOP and get explicit permission first.**
-</important>
-
-<important if="you are implementing a new function, handler, trait method, provider capability, or API endpoint">
-
-A stub that compiles is worse than an honest error — it passes `.is_ok()` tests and hides for months (the 2026-07 audit found ~11: in-memory OAuth store, fabricated JWT expiry, all-zero WHOOP stats, a "disconnect" that revoked nothing, a webhook that broadcast to everyone). Do not ship one:
-
-- **Never return empty/default/fabricated data as a placeholder.** `Ok(vec![])`, `Ok(None)`, an all-zero struct, `""` arguments, a hardcoded id, or `_`-prefixed params that silently ignore the input you were handed — each is a stub *unless it is the genuinely correct result of a real, documented limitation*, and then the comment says so factually **and registers it**: `LIMITATION(registre#issue):` naming the limited item on the marker line, backed by an issue in the **private** `dravr-ai/dravr-carnet` tracker (labels `limitation` + the repo name, title prefixed `[platform]`) — registers are **per project**, so `dravr-*` shares dravr-carnet while every other project names its own; the gates are the Apache-2.0 [llm-registre](https://github.com/dravr-ai/llm-registre) tool, pointed at the tracker by `registre.toml`. **Run the `register-limitation` skill — it walks the whole procedure.** **This repo is PUBLIC — limitation and phase-review issues never go on dravr-platform itself, and issue bodies naming security residuals must never be public.** An honest gap without a marker is invisible debt — the 2026-08 audit found a text-budget floor and a whole capability surface that hid for months behind factually-worded comments. The push gates check a marker's shape only; the weekly `Monitor: Limitation Register Reconciliation` lane (llm-registre `--verify-tracker`) reds on any marker whose issue is closed, missing or unlabelled — **fixing a gap means deleting its marker in the same change that closes the issue** (four markers outlived their closed issues until carnet#378).
-- **Confession comments are banned and CI-gated** (`scripts/ci/architectural-validation.sh` "Functional Stub / Confession Comment Detection"): "for now", "not yet implemented", "in a real implementation", "would be … in production", "return empty … for now", "implement later", "trigger … for all". Deferral prose is gated the same way: "is the follow-up", "in a follow-up commit/change/PR", "not yet wired", "not (yet) threaded through" — registered `LIMITATION(registre#issue):` lines are the only exemption. If you're about to write one, you're stubbing — implement the real thing or STOP and surface the gap.
-- **Every advertised capability needs a real backing impl in the *same* change** — a new MCP tool, agent-card flag, API endpoint, or trait method must do real work in every backend. No advertised-but-empty surfaces.
-- **Consume what you declare (the dual rule).** A capability predicate, enum variant, or trait method whose only callers are tests is a phantom surface — wire a production consumer in the same change, or register it with a `LIMITATION(registre#issue):` marker line naming the item. CI's "Phantom Capability Surface Detection" enforces this for the canot messaging surface (`supports_*`/`max_*` predicates, `MessageContent` variants). Pre-push **Tier 1c** (`scripts/ci/check-phantom-surfaces.sh`) extends it to four more cases, compile-free: a Rust trait with zero implementors anywhere, a `@pierre/api-client` domain method with zero production callers, a domain method reached from one in-app client but not the other, and an `/api/` route the diff adds that no client mentions. The route case honours the marker this rule already asks for: a `LIMITATION(registre#issue):` line at the route's own declaration naming that route registers it, and the run prints the issue number every time so a registered gap stays visible instead of disappearing into a pass. The marker must name the route, so one marker cannot silence a file. The caller pools are split per surface for that last one — pooled into a single list, a method called from web alone read as consumed, which is how every client parity gap in the 2026-08 survey passed green. It gates the *diff* — a newly added phantom, or a live file dropping its last caller of a method the other client still uses, fails the push — and reports the standing stock without blessing it.
-- **Dark launches are ledgered.** A feature that ships disarmed (flag off, shadow/observe mode, Log-only phase) gets an entry in `feature-phases.yaml` (surface, current state, arming criterion, `review_by` date) in the same change; the weekly "Monitor: Feature Phase Review" workflow opens an issue when the date passes, so Phase 1 cannot silently become forever.
-- **Test for content, not success.** New functionality needs a test asserting a concrete non-trivial result (`assert_eq!(x.len(), N)`, real field values) that a returns-empty stub would fail — not just `assert!(res.is_ok())`. Weakening an assertion to accommodate a stub is itself a violation.
-- If you genuinely cannot finish it now, STOP and tell the user. Never leave a silent placeholder behind.
-</important>
-
-<important if="you are writing or running tests, or tempted to skip/ignore one">
-
-- Tests must cover the functionality. Cover error/log output too if errors are expected.
-- **No skipping or ignoring, ever:** Rust `#[ignore]`; JS/TS `.skip()`/`xit()`/`xdescribe()`/`test.skip()`; CI `continue-on-error: true` on test jobs; commenting tests out. If a test fails, fix the code (or the test if the test is wrong), or ask for help — never skip.
-- Every project needs unit, integration, AND e2e tests. Don't mark a test type "not applicable" — only the human saying exactly "I AUTHORIZE YOU TO SKIP WRITING TESTS THIS TIME" waives this.
-- **Mocks only in test code**, documented with reasoning, realistic, and backed by an integration test with the real implementation. Never mock production features.
+<important if="you are validating frontend/, frontend-mobile/ or SDK changes">
 
 Frontend/mobile/SDK validation tiers (run from each subdir):
 
@@ -412,6 +281,15 @@ Frontend/mobile/SDK validation tiers (run from each subdir):
 |---|---|
 | `frontend/` | `bun run type-check` → `bun run lint` → `bun run test -- --run` → `../scripts/ci/pre-push-frontend-tests.sh`; e2e: `bun run test:e2e` |
 | `frontend-mobile/` | `bun run typecheck` → `bun run lint` → `bun run test` → `../scripts/ci/pre-push-mobile-tests.sh`; e2e: `bun run e2e:build && bun run e2e:test` |
+</important>
+
+<important if="you are touching dravr-tronc, a dravr-* satellite pin, or anything mirrored into dravr-contremaitre">
+
+**tronc is the heart: when the fix belongs there, it goes there.** Where the behaviour belongs decides; how many dependencies move is a rollout detail, never a reason for a per-consumer workaround, a per-satellite copy or a platform special case. The procedures load on demand from skills:
+
+- `tronc-release` — releasing dravr-tronc and rolling it out to consumers.
+- `satellite-pins` — `satellites.toml`, the shared bump lane, and pin drift.
+- `contremaitre-mirror` — the notify event, locale string and McpTool changes that must be mirrored into dravr-contremaitre.
 </important>
 
 <important if="you are working in frontend/ or packages/api-client (web API methods)">
@@ -486,77 +364,6 @@ they go stale silently and are read as current, by humans and by you.
 - **Some framing rules in `Methodology/` are CI-enforced, not advisory.** ACWR and load ratios ship as descriptive magnitudes, never injury risk (`scripts/ci/check-contremaitre-sync.sh` Check 4, all five locales); form is banded as a share of the athlete's own CTL, never absolute TSB. Breaking either fails a push — read the note before writing a prompt, tool description, or locale string.
 - `Methodology/README.md` carries the sync contract and a runnable drift check; `Features/README.md` carries the frontmatter contract that `Features.base` selects on. These are enforced by Bases views and human review, not by CI — which is exactly why they need you to follow them.
 - R&D that is not yet committed to goes in `Features/Potential/` with `stage: potential` and a `verdict:`, plus a row in that folder's README index — not in `Work Log/`.
-</important>
-
-<important if="you are adding an abstraction, a dependency, or refactoring an existing system">
-
-This is a pre-1.0 project with zero external API consumers — **no backward compatibility, no deprecation window.** Every rename/move/replacement is a single-commit cutover. Complete deletion, not deprecation: never mark code `// DEPRECATED` or `// TODO remove later` — delete it (file an issue and link it if deletion is blocked).
-
-- **Single source of truth / when adding, remove.** Before adding an abstraction, grep for an existing one with similar purpose; if it exists, use it or delete it in the *same* commit that replaces it. Never leave two systems doing the same job "for compat."
-- **Use the dependency you add (no phantom integrations).** A crate in `Cargo.toml` must have its real API called — implement *its* traits (`Store`/`Provider`/`Repository`), use *its* domain types (not bare primitives mirroring them), and don't re-export types with zero consumers while hand-rolling a parallel implementation. Don't add a direct dep + version pin for a crate that already arrives transitively and you don't call. Test: if I deleted this dependency line, what breaks? "Only a re-export no one reads" = phantom; finish or remove it. (Canonical failure: the `dravr-riviere` case — added + re-exported, but storage hand-rolled `TimeSeriesPointRepository` instead of implementing riviere's `TimeSeriesStore`.)
-- **Forbidden "junk disguised as discipline"** — delete on sight, never add: `KNOWN_OFFENDERS`/`PENDING_*`/`EXEMPT_*` exception arrays in tests; adapter/wrapper types bridging an old trait to a new one (port the body, delete the old); parallel accessors bypassing a canonical config struct; invariant tests policing drift between two systems (delete one system — tests of a *single* system's internal consistency are fine); fallback dispatch paths (`if not found in new, try legacy`); feature flags creating "old mode vs new mode." Test: am I making a pre-existing parallel system *acceptable* rather than replacing it? If so, stop.
-</important>
-
-<important if="you are bumping or releasing a crate that sibling repos consume (e.g. dravr-tronc)">
-
-`dravr-tronc` backs every satellite's `-server`/`-mcp` crate plus the platform's `pierre-server`/`-services`/`-logging`/`-contremaitre`.
-
-**Releasing it is the ordinary move, not a cost to weigh.** `gh workflow run Release -f bump=<patch|minor|major>` in dravr-tronc does the version bump, the tag, the crates.io publish, and then calls `notify-consumers.yml`, which dispatches `tronc-released` at every non-archived org repo. A consumer carrying `tronc-bump.yml` answers by calling tronc's `consumer-bump.yml`, which bumps its own pins, gates on its own CI and squash-merges on green — **so the consumer PRs are machinery, not yours to open.** Enrolment is opt-in: a repo with no `tronc-bump.yml` ignores the dispatch silently, and the fix is to add that ten-line caller, not to hand-bump it forever. (The hand procedure in dravr-vault `Development/Runbooks/Releasing dravr-tronc — Notify Consumers` predates this lane; PRs on sibling repos remain the sanctioned carve-out to the no-PR rule, which governs platform self-merges only.)
-
-**tronc is the heart: when the fix belongs there, it goes there.** How many dependencies move is a rollout detail, never an input to *where* the fix lives. It is not a cost to weigh against an alternative, because the alternative is always worse: a workaround in a consumer, a per-satellite copy of behaviour that should exist once, or a platform-side special case. If every consumer has to be updated, that is the correct outcome — that is what the shared runtime is for. The same rule the architecture block states about single source of truth applies hardest here, since tronc is the one crate every `dravr-*` service inherits.
-
-So the question is never "how expensive is this" but "where does this behaviour belong". Answer that, then do it there. A per-consumer patch to avoid a tronc release is the thing to refuse, including in platform — platform gets no exemption for being the biggest consumer.
-
-Invented cost is how the rule gets broken in practice, so do not price a tronc change from intuition: `mcp_server_instructions` shipped unable to hot-reload for a day because a session asserted the fix "cascades to eleven consumers". It did not — the field was private, touched at five lines, and the public setter kept its signature, so every consumer recompiled untouched (`dravr-tronc` 1.2.0, platform `1145da52c`). Nine platform crates name `dravr-tronc` and all nine inherit `workspace = true`, so a pin move is one edit at the root `Cargo.toml`, not nine.
-
-A satellite that *publishes* to crates.io must republish member crates in dependency order (root lib → `-mcp` → `-server`) so the graph resolves a single version — a local `cargo check` won't catch the skew, only `cargo publish --dry-run` does.
-</important>
-
-<important if="you are adding, removing, or changing a dravr-* satellite pin, or touching a bump lane">
-
-Every satellite pin is declared once in **`satellites.toml`** at the repo root — repo,
-pin transport, gate set, companions, diamonds — and moved by one shared reusable
-workflow, `.github/workflows/satellite-bump.yml`, called locally by a thin
-`.github/workflows/bump-<name>.yml` per satellite. Before this, three satellites had a
-hand-written ~600-line lane each and eight had none, which is how dravr-cageux shipped
-five releases in a week against a pin nobody moved (carnet#419).
-
-- **Adding a satellite**: a stanza in `satellites.toml`, a `bump-<name>.yml` caller
-  (~30 lines; copy `bump-commere.yml`), and a `notify-platform-release.yml` producer
-  half in the satellite repo. `DRAVR_PLATFORM_DISPATCH_TOKEN` is an org secret with
-  visibility `all`, but the org is on GitHub's free plan, where an org secret reaches **public**
-  repos only. A private satellite needs a repo-level secret of the same name (enforme carries
-  one; canot's v0.4.29 announce ran with an empty token and exited 4 — carnet#472), or its
-  release never fires the lane and the pin moves only on the weekly cron.
-- **The version-shaped logic is `scripts/ci/satellite-pin.sh`**, tested by
-  `satellite-pin.test.sh` against a fixture per pin shape. Change the rewriter there,
-  not in YAML, and add the fixture — two rules it must keep: substitute **in place**
-  (architectural-validation.sh:852 needs canot's exact key order) and verify
-  **positively** (a negative check passes when the sed matched nothing).
-- **Never hardcode a manifest path or an alias list.** Pin sites are discovered by
-  grep and aliases resolved from `package = "..."`. A hardcoded path is what killed
-  the photograveur lane for weeks (`89155c33e`); a hardcoded alias list is carnet#323.
-- **Lane ownership is derived, never declared** — `satellite-pin.sh lane <name>` greps
-  the callers. A declared table claimed tronc's chain moved dravr-stripe while nothing
-  did, and suppressed its drift on that basis.
-- `scripts/ci/check-satellite-drift.sh` reads the same file and exits 2 when a pin has
-  no stanza or a stanza has no pin, so the declaration cannot drift from the tree.
-- **Not on this spine:** `contremaitre-bump.yml` (hourly, rev pin, pushes direct to
-  main) and `tronc-bump.yml` (producer-hosted in dravr-tronc, `@main`, serves eleven
-  consumers). Both are deliberate; see their stanza comments.
-
-</important>
-
-<important if="you are adding a notify event, a messaging/locale string, or an McpTool (a platform change that must mirror into dravr-contremaitre)">
-
-The platform is coupled to **dravr-contremaitre** catalogues. The tests policing that coupling (`contremaitre_test`, `notify_catalogue_test`, `messaging_locale_test`, `configuration_mcp_integration_test`) now run on **every push** via the `contremaitre-sync` job in `ci-backend.yml` — they used to be full-suite-only, which meant they first ran *after* the squash landed on main and red main post-merge. Two gates guard this now, but both only help if you mirror the change at authoring time:
-
-- **New `info!(target: "notify", event = "x", …)`** → add `x` (with its `tier` + required fields) to `notify-events.yaml` in `dravr-contremaitre`, **or reuse an already-catalogued event** (cheapest). Else `notify_catalogue_test` fails. The yaml lives in the *pinned* contremaitre rev (resolve via `cargo metadata`), not in-repo.
-- **New messaging/UI string** → author it in **dravr-contremaitre** `strings/<locale>.json`, all 5 locales (fr/en/es/de/pt). `packages/i18n/src/locales/<l>/translation.json` is a byte-identical copy of the pinned rev, regenerated by the pin bump (`scripts/ci/sync-contremaitre-fallback.sh`) and never edited by hand — Tier 1b fails any byte of difference. The same holds for the training catalogue and evidence corpus, which the platform reads from the pinned crate (`dravr_contremaitre::training` / `evidence`) with no copy at all.
-- **New `McpTool`** → update `EXPECTED_TOOLS` in `contremaitre_test.rs` (kept sorted) + the count in `configuration_mcp_integration_test`, give operator-only tools `ADMIN_ONLY` so both discovery surfaces withhold them from non-admins, and regen the TS SDK types from a running server (`cd packages/mcp-types && bun run generate` — admin-gated, so it needs `PIERRE_ADMIN_TOKEN`, `ADMIN_EMAIL`+`ADMIN_PASSWORD`, or `logs/admin-token.txt`) — a changed `input_schema`/description alone reds `CI: TypeScript SDK`.
-- **Editing `dravr-contremaitre` itself** → your change only reaches the platform once `contremaitre-bump.yml` advances the pinned rev (auto-discovers all consumers; runs on `repository_dispatch`/hourly cron). A rev-bump-only commit does **not** auto-deploy — the running binary's compiled-in schema lags until the next deploy.
-
-`scripts/ci/check-contremaitre-sync.sh` (pre-push **Tier 1b**) catches all three drifts *before* you push — compile-free, seconds. Tool names are greppable: every tool declares itself as a literal in `tool_definition("<name>", …)`, so the check enumerates the set from src and diffs it against `EXPECTED_TOOLS`, the count assertion, and the generated `packages/mcp-types/src/tools.ts`. If it ever reports "Tool scan incomplete", a tool was registered with a computed name and the scan can no longer see everything — fix the name or extend the check, never ignore it.
 </important>
 
 <important if="you encounter duplication, stale state, red CI, version drift, or a request that conflicts with existing architecture">

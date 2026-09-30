@@ -8,7 +8,7 @@ description: Validates sports science algorithms (VDOT, TSS, TRIMP, FTP, VO2max)
 ## Overview
 Validates sports science algorithms (VDOT, TSS, TRIMP, FTP, VO2max) for mathematical correctness, physiological plausibility, and consistency with peer-reviewed research. Ensures algorithm configuration system works across all variants.
 
-## Coding Directives (CLAUDE.md)
+## Coding Directives (docs/coding-standards.md)
 
 **CRITICAL - Zero Tolerance Policies:**
 - ❌ NO hardcoded algorithm formulas outside `src/intelligence/algorithms/`

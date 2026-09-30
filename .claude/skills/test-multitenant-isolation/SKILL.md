@@ -9,7 +9,7 @@ user-invocable: true
 ## Purpose
 Validates complete data isolation between tenants to prevent catastrophic data leaks. Tests cross-tenant access attempts and ensures all database queries are properly scoped.
 
-## CLAUDE.md Compliance
+## Coding-Standards Compliance
 - ✅ Tests use synthetic data (no external dependencies)
 - ✅ Deterministic test execution
 - ✅ Tests both success and attack scenarios

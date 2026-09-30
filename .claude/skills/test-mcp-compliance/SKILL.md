@@ -9,7 +9,7 @@ user-invocable: true
 ## Purpose
 Validates Model Context Protocol (MCP) compliance by running the official compliance test suite against the Pierre server.
 
-## CLAUDE.md Compliance
+## Coding-Standards Compliance
 - ✅ Uses existing validation script (no new code)
 - ✅ No external dependencies beyond test suite
 - ✅ Deterministic test execution

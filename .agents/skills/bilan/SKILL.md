@@ -51,6 +51,7 @@ stands. The registered-limitation exemption was one, until 2026-09-21.
 | `LIMITATION(registre#…)` marker added in source naming no live issue — missing, closed, a pull request, or not labelled `limitation` (full run only) | **6** |
 | tracked files modified and uncommitted | **7** |
 | commits not pushed | **8** |
+| commit this session pushed to main (seen in its own `git commit` output) with no `Reviewed-Standards:` trailer and not named by a later `… covers <sha>` (carnet#660) | **8** |
 | todo still `pending` or `in_progress` | **7** |
 | nothing measurable — no commit, no todo | **9** |
 | untracked files, stash created this session, branch whose upstream is gone | **9** |
@@ -251,7 +252,8 @@ on the pid the ledger recorded, since a resumed session keeps its id under a new
 as the same author, so whose commit the tip is cannot be recovered from git. Attributing it was
 tried twice and misfired onto other people both times — capping the whole fleet at 5 over one
 peer's red, then grading a session on a peer's tip that landed after its own push. There is no
-third attempt: the verdict is shown, the number stays about work the session can act on.
+third attempt: the verdict is shown, the number stays about work the session can act on. For CI
+on your own commit, ask for that sha by name.
 
 **Background work is scanned in `<scratchpad>/<session-id>/tasks/` only.** A session reported a
 live CI monitor that bilan did not count, and whether a Monitor writes there has not been

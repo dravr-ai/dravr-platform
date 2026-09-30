@@ -9,7 +9,7 @@ user-invocable: true
 ## Purpose
 Executes comprehensive test suite across all categories: unit, integration, E2E, database, protocols, and intelligence algorithms.
 
-## CLAUDE.md Compliance
+## Coding-Standards Compliance
 - ✅ Runs all deterministic tests
 - ✅ Uses synthetic data (no external dependencies)
 - ✅ Tests both success and error paths

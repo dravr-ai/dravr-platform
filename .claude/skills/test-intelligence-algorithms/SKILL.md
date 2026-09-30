@@ -9,7 +9,7 @@ user-invocable: true
 ## Purpose
 Validates sports science algorithms (VDOT, TSS, TRIMP, FTP, VO2max, Recovery, Nutrition) for mathematical correctness and physiological plausibility.
 
-## CLAUDE.md Compliance
+## Coding-Standards Compliance
 - ✅ Uses synthetic athlete data (no external dependencies)
 - ✅ Deterministic tests with known outcomes
 - ✅ Tests edge cases and error conditions

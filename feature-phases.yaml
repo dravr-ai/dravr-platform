@@ -97,3 +97,8 @@ features:
     current: FeatureKey ProviderExposureNotice defaults off, so a TrainingPeaks or COROS login asks for no account-risk notice and records no acceptance; only the seeded e2e accounts (webtest, mobiletest) are armed. The notices, their five-locale copy, the per-provider acceptance record and the login refusal are complete and run for any account the flag arms, per tenant or per user (pierre-cli tenant|user set-feature --key provider_exposure_notice). WHOOP's owner authorization is not part of this entry: its notice is NoticeAudience::EveryAccount in PROVIDER_NOTICES, asked of every account and gating persistence whatever the flag says (ChefFamille 2026-09-25, carnet#539 point 2)
     advance_when: the first athletes who are not demo accounts are onboarded onto TrainingPeaks or COROS. Arm the flag as a tenant default for their tenant at onboarding (ChefFamille, 2026-09-24 — the demo does not need it, onboarding does), then decide whether it becomes the compile default
     review_by: 2026-10-05
+  - name: agents-md-standards-review
+    surface: docs/coding-standards.md
+    current: two-week pilot of the carnet#660 split — AGENTS.md holds acting rules and seven hard stops, the coding standards live in docs/coding-standards.md and are read only by the review-standards skill before every squash, and bilan caps at 8 on a pushed commit with no Reviewed-Standards trailer
+    advance_when: after two weeks, standards-related CI reds and post-squash rework have not risen and review findings are fixed before merge — then adopt; revert (one commit, the text only moved) if a violation reaches main that the old AGENTS.md would have prevented
+    review_by: 2026-10-14

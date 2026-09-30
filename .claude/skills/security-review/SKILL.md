@@ -9,8 +9,8 @@ user-invocable: true
 ## Purpose
 Comprehensive security review checklist triggered when modifying authentication, authorization, OAuth, admin, or multi-tenant code. Covers the categories identified in the Feb 2026 post-mortem audit.
 
-## CLAUDE.md Compliance
-- ✅ Enforces Security Engineering Rules from CLAUDE.md
+## Coding-Standards Compliance
+- ✅ Enforces Security Engineering Rules from docs/coding-standards.md
 - ✅ Validates authorization boundaries (authn != authz)
 - ✅ Checks multi-tenant isolation patterns
 - ✅ Verifies input validation and logging hygiene
