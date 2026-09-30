@@ -146,13 +146,17 @@ fn test_analytics_tool_schemas() {
         .find(|t| t.name == "analyze_activity")
         .expect("analyze_activity tool should exist");
 
-    assert_eq!(analyze_activity.description, "Perform deep analysis of an individual activity including insights, metrics, and anomaly detection");
+    assert_eq!(
+        analyze_activity.description,
+        "Analyze a single activity: a short summary with insights and recommendations drawn from its distance, elevation gain, heart rate and calories, plus its performance metrics (distance, duration, elevation, average and peak heart rate, calories). An ID that is not found analyzes the most recent activity instead and says so under `auto_selected`."
+    );
 
-    // Check required parameters
+    // Check required parameters: the activity is required; the provider is not,
+    // because the handler falls back to the athlete's default provider.
     let schema = &analyze_activity.input_schema;
     if let Some(required) = &schema.required {
-        assert!(required.contains(&"provider".to_owned()));
         assert!(required.contains(&"activity_id".to_owned()));
+        assert!(!required.contains(&"provider".to_owned()));
     } else {
         panic!("analyze_activity should have required parameters");
     }
