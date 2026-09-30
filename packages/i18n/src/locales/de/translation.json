@@ -1025,6 +1025,11 @@
     "routeAltTitled": "Karte der aufgezeichneten Route: {{title}}",
     "routeClimbCategory": "Kat. {{category}}",
     "routeClimbs": "Anstiege",
+    "routeExitFullScreen": "Vollbild beenden",
+    "routeFullScreen": "Vollbild",
+    "routeLayerSatellite": "Satellit",
+    "routeLayerStandard": "Karte",
+    "routeLayers": "Kartenebene",
     "routeNoTrack": "Diese Aktivität hat keinen GPS-Track aufgezeichnet.",
     "saveChanges": "Änderungen speichern",
     "saving": "Wird gespeichert...",
@@ -1811,8 +1816,45 @@
       "loadFailed": "Deine letzten Aktivitäten konnten nicht geladen werden.",
       "refreshing": "Dein Anbieter wird nach neuen Aktivitäten abgefragt…",
       "syncedAt": "Zuletzt synchronisiert: {{time}}",
-      "analyzeDraft": "Analysiere meine Aktivität vom {{date}} ({{sport}})",
       "sketchAlt": "Skizze der Route"
+    },
+    "activity": {
+      "loadFailed": "Diese Aktivität konnte nicht geladen werden.",
+      "notFound": "Diese Aktivität ist nicht unter deinen synchronisierten Aktivitäten.",
+      "chatHeading": "Fragen zu dieser Aktivität",
+      "askPlaceholder": "Stell deine eigene Frage…",
+      "askAbout": "Zu meiner Aktivität „{{name}}“ vom {{date}}: {{question}}",
+      "splits": "Zwischenzeiten",
+      "laps": "Runden",
+      "figure": {
+        "distance": "Distanz",
+        "duration": "Dauer",
+        "elevationGain": "Höhenmeter",
+        "avgPace": "Ø Pace",
+        "avgSpeed": "Ø Geschwindigkeit",
+        "maxSpeed": "Max. Geschwindigkeit",
+        "avgHeartRate": "Ø Herzfrequenz",
+        "maxHeartRate": "Max. Herzfrequenz",
+        "avgPower": "Ø Leistung",
+        "calories": "Kalorien"
+      },
+      "column": {
+        "time": "Zeit",
+        "pace": "Pace",
+        "speed": "Geschwindigkeit",
+        "heartRate": "HF",
+        "elevation": "Höhe"
+      },
+      "prompt": {
+        "analyzeLabel": "Belastung analysieren",
+        "analyzeText": "Analysiere meine Aktivität „{{name}}“ vom {{date}}: Wie lief diese Belastung?",
+        "compareLabel": "Mit den letzten vergleichen",
+        "compareText": "Wie schneidet meine Aktivität „{{name}}“ vom {{date}} im Vergleich zu meinen letzten Aktivitäten ab?",
+        "recoveryLabel": "Tipps zur Erholung",
+        "recoveryText": "Welche Erholung empfiehlst du mir nach meiner Aktivität „{{name}}“ vom {{date}}?",
+        "adjustLabel": "Was anpassen",
+        "adjustText": "Was sollte ich nach meiner Aktivität „{{name}}“ vom {{date}} in meinen nächsten Einheiten anpassen?"
+      }
     }
   },
   "humanCoach": {

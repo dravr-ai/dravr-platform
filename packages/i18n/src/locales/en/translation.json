@@ -1025,6 +1025,11 @@
     "routeAltTitled": "Map of the recorded route: {{title}}",
     "routeClimbCategory": "Cat {{category}}",
     "routeClimbs": "Climbs",
+    "routeExitFullScreen": "Exit full screen",
+    "routeFullScreen": "Full screen",
+    "routeLayerSatellite": "Satellite",
+    "routeLayerStandard": "Map",
+    "routeLayers": "Map layer",
     "routeNoTrack": "This activity recorded no GPS track.",
     "saveChanges": "Save Changes",
     "saving": "Saving...",
@@ -1811,8 +1816,45 @@
       "loadFailed": "Your recent activities couldn't be loaded.",
       "refreshing": "Checking your provider for new activities…",
       "syncedAt": "Last synced: {{time}}",
-      "analyzeDraft": "Analyze my activity from {{date}} ({{sport}})",
       "sketchAlt": "Sketch of the route"
+    },
+    "activity": {
+      "loadFailed": "This activity couldn't be loaded.",
+      "notFound": "This activity isn't among your synced activities.",
+      "chatHeading": "Ask about this activity",
+      "askPlaceholder": "Ask your own question…",
+      "askAbout": "About my activity “{{name}}” from {{date}}: {{question}}",
+      "splits": "Splits",
+      "laps": "Laps",
+      "figure": {
+        "distance": "Distance",
+        "duration": "Duration",
+        "elevationGain": "Elevation gain",
+        "avgPace": "Avg pace",
+        "avgSpeed": "Avg speed",
+        "maxSpeed": "Max speed",
+        "avgHeartRate": "Avg heart rate",
+        "maxHeartRate": "Max heart rate",
+        "avgPower": "Avg power",
+        "calories": "Calories"
+      },
+      "column": {
+        "time": "Time",
+        "pace": "Pace",
+        "speed": "Speed",
+        "heartRate": "Heart rate",
+        "elevation": "Elevation"
+      },
+      "prompt": {
+        "analyzeLabel": "Analyze this effort",
+        "analyzeText": "Analyze my activity “{{name}}” from {{date}}: how did this effort go?",
+        "compareLabel": "Compare with my recent ones",
+        "compareText": "How does my activity “{{name}}” from {{date}} compare with my recent ones?",
+        "recoveryLabel": "Recovery advice",
+        "recoveryText": "What recovery do you advise after my activity “{{name}}” from {{date}}?",
+        "adjustLabel": "What to adjust",
+        "adjustText": "After my activity “{{name}}” from {{date}}, what should I adjust in my next sessions?"
+      }
     }
   },
   "humanCoach": {

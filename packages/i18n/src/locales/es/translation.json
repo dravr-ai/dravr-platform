@@ -1025,6 +1025,11 @@
     "routeAltTitled": "Mapa de la ruta registrada: {{title}}",
     "routeClimbCategory": "Cat. {{category}}",
     "routeClimbs": "Subidas",
+    "routeExitFullScreen": "Salir de pantalla completa",
+    "routeFullScreen": "Pantalla completa",
+    "routeLayerSatellite": "Satélite",
+    "routeLayerStandard": "Mapa",
+    "routeLayers": "Capa del mapa",
     "routeNoTrack": "Esta actividad no registró ningún track GPS.",
     "saveChanges": "Guardar cambios",
     "saving": "Guardando...",
@@ -1811,8 +1816,45 @@
       "loadFailed": "No se pudieron cargar tus actividades recientes.",
       "refreshing": "Buscando actividades nuevas en tu proveedor…",
       "syncedAt": "Última sincronización: {{time}}",
-      "analyzeDraft": "Analiza mi actividad del {{date}} ({{sport}})",
       "sketchAlt": "Esbozo de la ruta"
+    },
+    "activity": {
+      "loadFailed": "No se pudo cargar esta actividad.",
+      "notFound": "Esta actividad no está entre tus actividades sincronizadas.",
+      "chatHeading": "Pregunta sobre esta actividad",
+      "askPlaceholder": "Haz tu propia pregunta…",
+      "askAbout": "Sobre mi actividad «{{name}}» del {{date}}: {{question}}",
+      "splits": "Parciales",
+      "laps": "Vueltas",
+      "figure": {
+        "distance": "Distancia",
+        "duration": "Duración",
+        "elevationGain": "Desnivel positivo",
+        "avgPace": "Ritmo medio",
+        "avgSpeed": "Velocidad media",
+        "maxSpeed": "Velocidad máx.",
+        "avgHeartRate": "FC media",
+        "maxHeartRate": "FC máx.",
+        "avgPower": "Potencia media",
+        "calories": "Calorías"
+      },
+      "column": {
+        "time": "Tiempo",
+        "pace": "Ritmo",
+        "speed": "Velocidad",
+        "heartRate": "FC",
+        "elevation": "Desnivel"
+      },
+      "prompt": {
+        "analyzeLabel": "Analizar este esfuerzo",
+        "analyzeText": "Analiza mi actividad «{{name}}» del {{date}}: ¿qué tal fue este esfuerzo?",
+        "compareLabel": "Comparar con las recientes",
+        "compareText": "¿Cómo se compara mi actividad «{{name}}» del {{date}} con mis actividades recientes?",
+        "recoveryLabel": "Consejos de recuperación",
+        "recoveryText": "¿Qué recuperación me aconsejas después de mi actividad «{{name}}» del {{date}}?",
+        "adjustLabel": "Qué ajustar",
+        "adjustText": "Después de mi actividad «{{name}}» del {{date}}, ¿qué debería ajustar en mis próximas sesiones?"
+      }
     }
   },
   "humanCoach": {
