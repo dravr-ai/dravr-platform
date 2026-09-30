@@ -8,9 +8,11 @@ use pierre_core::errors::{AppError, AppResult};
 
 use crate::database::Database;
 use crate::repositories::user_onboarding::{
-    impl_user_onboarding_repository, step_record_from_row, SELECT_ONBOARDING_STEPS_SQL,
-    UPSERT_ONBOARDING_STEP_SQL,
+    impl_user_onboarding_repository, step_record_from_row, MEMORY_RESET_STATEMENTS,
+    ONBOARDING_RESET_STATEMENTS, SELECT_ONBOARDING_STEPS_SQL, UPSERT_ONBOARDING_STEP_SQL,
 };
-use crate::repositories::{OnboardingStepRecord, UserOnboardingRepository};
+use crate::repositories::{
+    OnboardingReset, OnboardingResetScope, OnboardingStepRecord, UserOnboardingRepository,
+};
 
 impl_user_onboarding_repository!(Database);

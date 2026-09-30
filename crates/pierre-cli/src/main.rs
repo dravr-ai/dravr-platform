@@ -514,6 +514,9 @@ enum UserCommand {
     /// Remove a user completely over the admin API; every provider grant is revoked first
     Delete(commands::user_admin::DeleteArgs),
 
+    /// Send a user back through onboarding over the admin API; groups and TrainingPeaks are left in place
+    ResetOnboarding(commands::user_admin::ResetOnboardingArgs),
+
     /// Suspend a user (status → suspended); they can no longer log in
     Suspend {
         /// Email of the user
@@ -780,7 +783,7 @@ async fn main() -> Result<()> {
         return commands::provider_data::dispatch(action).await;
     }
 
-    // `user get` / `set` / `disconnect` / `delete` and the three pre-approval
+    // `user get` / `set` / `disconnect` / `delete` / `reset-onboarding` and the three pre-approval
     // verbs are remote, and have to dispatch here for the reason they exist: every other user command
     // holds a repository handle and therefore needs DATABASE_URL plus
     // PIERRE_MASTER_ENCRYPTION_KEY. A deployed environment has neither reachable
@@ -799,6 +802,7 @@ async fn main() -> Result<()> {
                 | UserCommand::ListAllowed { .. }
                 | UserCommand::Disconnect(_)
                 | UserCommand::Delete(_)
+                | UserCommand::ResetOnboarding(_)
         ) {
             return dispatch::dispatch_remote_user(action).await;
         }
@@ -896,7 +900,8 @@ async fn main() -> Result<()> {
             | UserCommand::Disallow { .. }
             | UserCommand::ListAllowed { .. }
             | UserCommand::Disconnect(_)
-            | UserCommand::Delete(_) => {
+            | UserCommand::Delete(_)
+            | UserCommand::ResetOnboarding(_) => {
                 unreachable!("remote user commands dispatch before the database bootstrap")
             }
             UserCommand::SetTier { email, tier, note } => {

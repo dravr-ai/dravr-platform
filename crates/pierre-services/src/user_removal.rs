@@ -182,20 +182,7 @@ impl Interruption {
     /// `cause` is the failure as the caller may show it.
     #[must_use]
     pub fn describe(&self, cause: &str) -> String {
-        let done = if self.disconnected.is_empty() {
-            if self.failed.is_some() {
-                "No other provider was disconnected".to_owned()
-            } else {
-                "No provider was disconnected".to_owned()
-            }
-        } else {
-            let each: Vec<String> = self
-                .disconnected
-                .iter()
-                .map(DisconnectedProvider::describe)
-                .collect();
-            format!("Already disconnected: {}", each.join("; "))
-        };
+        let done = self.describe_disconnected();
         self.failed.as_ref().map_or_else(
             || {
                 format!(
@@ -209,6 +196,27 @@ impl Interruption {
                 )
             },
         )
+    }
+
+    /// The providers disconnected before the failure, as an operator reads
+    /// them; the sentence every interrupted operator action opens its account
+    /// of what was already done with.
+    #[must_use]
+    pub fn describe_disconnected(&self) -> String {
+        if self.disconnected.is_empty() {
+            if self.failed.is_some() {
+                "No other provider was disconnected".to_owned()
+            } else {
+                "No provider was disconnected".to_owned()
+            }
+        } else {
+            let each: Vec<String> = self
+                .disconnected
+                .iter()
+                .map(DisconnectedProvider::describe)
+                .collect();
+            format!("Already disconnected: {}", each.join("; "))
+        }
     }
 }
 
@@ -240,7 +248,7 @@ pub enum ProviderDisconnection {
 /// Disconnect each target in turn through the chokepoint. The first failure
 /// stops the walk and comes back as an [`Interruption`] naming what was
 /// disconnected before it, since the failed one may have revoked upstream.
-async fn disconnect_each(
+pub(crate) async fn disconnect_each(
     disconnector: &dyn ProviderDisconnector,
     user_id: Uuid,
     targets: Vec<HeldProvider>,

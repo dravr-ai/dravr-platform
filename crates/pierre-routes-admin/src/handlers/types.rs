@@ -84,6 +84,18 @@ pub struct DeleteUserRequest {
     pub reason: Option<String>,
 }
 
+/// Onboarding reset request
+#[derive(Debug, Deserialize)]
+pub struct ResetOnboardingRequest {
+    /// Optional reason for the reset (for audit trail)
+    pub reason: Option<String>,
+    /// Also clear everything the agents remember about the user: every fact,
+    /// every agent note, and their own in-app conversations. Chosen per call;
+    /// absent means onboarding state only.
+    #[serde(default)]
+    pub with_memory: bool,
+}
+
 /// Query parameters for listing API keys
 #[derive(Debug, Deserialize)]
 pub struct ListApiKeysQuery {

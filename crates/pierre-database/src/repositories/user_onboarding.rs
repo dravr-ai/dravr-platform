@@ -4,6 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::collections::BTreeMap;
+
 use async_trait::async_trait;
 use pierre_core::errors::{AppError, AppResult};
 
@@ -44,7 +46,119 @@ pub trait UserOnboardingRepository: Send + Sync {
 
     /// Every recorded step state for a user (rows exist only for reached steps).
     async fn get_onboarding_steps(&self, user_id: &str) -> AppResult<Vec<OnboardingStepRecord>>;
+
+    /// Return a user to the state onboarding starts from, in one transaction.
+    ///
+    /// Runs [`ONBOARDING_RESET_STATEMENTS`], then [`MEMORY_RESET_STATEMENTS`]
+    /// when `scope` is [`OnboardingResetScope::WithMemory`]. Nothing a group
+    /// reads is touched; see [`ONBOARDING_RESET_STATEMENTS`] for what counts
+    /// as the user's own. Provider connections are not this method's to
+    /// clear: they are revoked upstream through the disconnect chokepoint.
+    async fn reset_onboarding(
+        &self,
+        user_id: &str,
+        scope: OnboardingResetScope,
+    ) -> AppResult<OnboardingReset>;
 }
+
+/// How much an onboarding reset clears, chosen by the operator per call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OnboardingResetScope {
+    /// The step records, what onboarding captured, and the profile document.
+    OnboardingOnly,
+    /// That, plus everything the agents remember about the user: every fact,
+    /// every agent note, and the user's own in-app conversations.
+    WithMemory,
+}
+
+/// What an onboarding reset changed, by label, for the operator's report.
+/// Labels with no affected row are absent.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct OnboardingReset {
+    /// Rows deleted or updated, keyed by the statement's label.
+    pub rows_changed: BTreeMap<String, u64>,
+}
+
+/// A conversation that is the user's alone.
+///
+/// Theirs, in-app (the web and
+/// mobile clients create with the column's `web` default, messaging threads
+/// carry their channel), bound to no group, and shared with nobody. A
+/// messaging room keeps a per-member row, and an in-app thread can carry other
+/// participants; either is somebody else's history too, so neither matches.
+macro_rules! personal_conversation {
+    () => {
+        "CAST(user_id AS TEXT) = $1 AND group_id IS NULL AND channel_type = 'web' \
+         AND NOT EXISTS (SELECT 1 FROM conversation_participants p \
+         WHERE p.conversation_id = chat_conversations.id AND CAST(p.user_id AS TEXT) <> $1)"
+    };
+}
+
+/// The onboarding half of a reset, as `(label, statement)` pairs.
+///
+/// Each binds the
+/// user id as text to `$1` (every `user_id` here is `TEXT`, `VARCHAR` or
+/// `uuid` depending on table and engine, and each renders the id the same).
+///
+/// - `user_onboarding`: every step record, so each wizard step is pending.
+/// - `user_facts`: what onboarding wrote — the about-you and pillar answers
+///   (`source = 'onboarding'`), anything placed under a pillar, the North Star,
+///   and the PAR-Q medical flags — so pillar coverage reads zero again.
+/// - `user_profiles`: the profile document the calibration and pillar stages
+///   build, which `upsert_profile` replaces whole anyway.
+/// - `chat_conversations.onboarding_state`: a guided walk left open in one of
+///   the user's own threads, so it cannot resume half-way.
+///
+/// Group rows, memberships, invites, the ambient transcript, room threads,
+/// `manages_roster` and the user's tier are never named here. Neither is
+/// `users.coaching_persona`, which a notification gate reads and which the
+/// profile-type step writes again when answered.
+pub const ONBOARDING_RESET_STATEMENTS: &[(&str, &str)] = &[
+    (
+        "user_onboarding",
+        "DELETE FROM user_onboarding WHERE CAST(user_id AS TEXT) = $1",
+    ),
+    (
+        "user_facts (onboarding)",
+        "DELETE FROM user_facts WHERE CAST(user_id AS TEXT) = $1 \
+         AND (source = 'onboarding' OR pillar IS NOT NULL OR kind IN ('north_star', 'medical'))",
+    ),
+    (
+        "user_profiles",
+        "DELETE FROM user_profiles WHERE CAST(user_id AS TEXT) = $1",
+    ),
+    (
+        "chat_conversations.onboarding_state",
+        concat!(
+            "UPDATE chat_conversations SET onboarding_state = NULL WHERE onboarding_state IS NOT NULL AND ",
+            personal_conversation!()
+        ),
+    ),
+];
+
+/// The memory half of a reset.
+///
+/// Run after [`ONBOARDING_RESET_STATEMENTS`] when
+/// the operator asks for it: every remaining fact and agent note about the
+/// user, and their own in-app conversations (messages, verdicts and feedback
+/// cascade with them). Room threads and threads shared with anyone else stay.
+pub const MEMORY_RESET_STATEMENTS: &[(&str, &str)] = &[
+    (
+        "user_facts",
+        "DELETE FROM user_facts WHERE CAST(user_id AS TEXT) = $1",
+    ),
+    (
+        "agent_notes",
+        "DELETE FROM agent_notes WHERE CAST(user_id AS TEXT) = $1",
+    ),
+    (
+        "chat_conversations",
+        concat!(
+            "DELETE FROM chat_conversations WHERE ",
+            personal_conversation!()
+        ),
+    ),
+];
 
 /// Upsert one step's state, stamping `updated_at` from the engine clock.
 ///
@@ -143,6 +257,38 @@ macro_rules! impl_user_onboarding_repository {
                     })?;
 
                 rows.iter().map(step_record_from_row).collect()
+            }
+
+            async fn reset_onboarding(
+                &self,
+                user_id: &str,
+                scope: OnboardingResetScope,
+            ) -> AppResult<OnboardingReset> {
+                let memory: &[(&str, &str)] = match scope {
+                    OnboardingResetScope::OnboardingOnly => &[],
+                    OnboardingResetScope::WithMemory => MEMORY_RESET_STATEMENTS,
+                };
+                let mut tx = self.pool().begin().await.map_err(|e| {
+                    AppError::database(format!("Failed to begin the onboarding reset: {e}"))
+                })?;
+                let mut reset = OnboardingReset::default();
+                for (label, statement) in ONBOARDING_RESET_STATEMENTS.iter().chain(memory) {
+                    let changed = sqlx::query(statement)
+                        .bind(user_id)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| {
+                            AppError::database(format!("Onboarding reset failed on {label}: {e}"))
+                        })?
+                        .rows_affected();
+                    if changed > 0 {
+                        reset.rows_changed.insert((*label).to_owned(), changed);
+                    }
+                }
+                tx.commit().await.map_err(|e| {
+                    AppError::database(format!("Failed to commit the onboarding reset: {e}"))
+                })?;
+                Ok(reset)
             }
         }
     };

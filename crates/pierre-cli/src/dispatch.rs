@@ -106,6 +106,18 @@ pub async fn dispatch_remote_user(action: UserCommand) -> AppResult<()> {
             let id = commands::user_admin::resolve_user_id(&client, &args.email).await?;
             commands::user_admin::delete_user(&client, &id, args.reason.as_deref(), args.yes).await
         }
+        UserCommand::ResetOnboarding(args) => {
+            let client = commands::auth::admin_client(args.server, args.token)?;
+            let id = commands::user_admin::resolve_user_id(&client, &args.email).await?;
+            commands::user_admin::reset_onboarding(
+                &client,
+                &id,
+                args.with_memory,
+                args.reason.as_deref(),
+                args.yes,
+            )
+            .await
+        }
         _ => Err(AppError::internal(
             "dispatch_remote_user received a database-backed user command",
         )),

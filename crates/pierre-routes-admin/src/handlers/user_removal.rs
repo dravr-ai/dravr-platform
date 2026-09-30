@@ -1,5 +1,5 @@
-// ABOUTME: Admin routes that remove a user completely, or disconnect one provider for them
-// ABOUTME: Both go through the provider-disconnect chokepoint, so every grant is revoked at the provider
+// ABOUTME: Admin routes that remove a user completely, disconnect one provider, or reset a user's onboarding
+// ABOUTME: All go through the provider-disconnect chokepoint, so every grant they drop is revoked at the provider
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -38,12 +38,14 @@ use uuid::Uuid;
 use pierre_core::admin::models::ValidatedAdminToken;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::User;
+use pierre_database::repositories::OnboardingResetScope;
+use pierre_services::onboarding_reset::{self, OnboardingResetOutcome};
 use pierre_services::user_removal::{
     self, HeldProvider, Interruption, ProviderDisconnection, UserRemoval,
 };
 
 use super::api_keys::json_response;
-use super::types::{AdminResponse, DeleteUserRequest};
+use super::types::{AdminResponse, DeleteUserRequest, ResetOnboardingRequest};
 use super::users::deny_without_manage_users;
 use crate::context::AdminApiContext;
 
@@ -69,6 +71,17 @@ fn refusal(status: StatusCode, message: String, data: Option<Value>) -> Response
 /// and a message and body naming what was done, so an operator never reads a
 /// partial removal as "nothing happened".
 fn interrupted(user_id: Uuid, interruption: &Interruption) -> Response {
+    interrupted_as(user_id, interruption, Interruption::describe)
+}
+
+/// [`interrupted`], with the operation's own account of what it left alone:
+/// `describe` renders the interruption given the failure as the caller may
+/// show it.
+fn interrupted_as(
+    user_id: Uuid,
+    interruption: &Interruption,
+    describe: fn(&Interruption, &str) -> String,
+) -> Response {
     let error = &interruption.error;
     warn!(
         user_id = %user_id,
@@ -86,7 +99,7 @@ fn interrupted(user_id: Uuid, interruption: &Interruption) -> Response {
         StatusCode::from_u16(error.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     refusal(
         status,
-        interruption.describe(&cause),
+        describe(interruption, &cause),
         to_value(json!({
             "disconnected": interruption.disconnected,
             "failed": interruption.failed,
@@ -359,6 +372,97 @@ pub async fn handle_delete_user(
                 "not_revocable": report.not_revocable,
                 "memberships_removed": report.memberships_removed,
                 "rows_removed": report.rows_removed,
+                "reason": reason,
+            }))
+            .ok(),
+        },
+        StatusCode::OK,
+    )
+    .into_response())
+}
+
+/// `POST /admin/users/{user_id}/onboarding/reset` — send a user back through
+/// onboarding.
+///
+/// Disconnects every provider but `TrainingPeaks` through the chokepoint
+/// (revoked at the provider), then clears the user's onboarding step records,
+/// the facts onboarding captured, the profile document and any guided walk
+/// left open; `with_memory` widens that to every fact, agent note and in-app
+/// conversation of the user's own. Groups, memberships, invites, room threads,
+/// `manages_roster` and the tier are left as they are. A kept `TrainingPeaks`
+/// connection is named, since it keeps the wizard's provider steps hidden. A
+/// reset that fails part-way is answered with the failing step's status and
+/// names what was already disconnected.
+///
+/// # Errors
+///
+/// Returns an invalid-input error for a malformed id, a not-found error for an
+/// unknown user, a permission error for a token below super-admin and an
+/// admin or super-admin account, or for a tenant-scoped token and a user held
+/// outside its tenant, a resource-unavailable error when the user holds a
+/// provider to disconnect and no chokepoint is wired, and a database error
+/// from the reads that precede any change.
+pub async fn handle_reset_user_onboarding(
+    State(context): State<Arc<AdminApiContext>>,
+    Extension(admin_token): Extension<ValidatedAdminToken>,
+    Path(user_id): Path<String>,
+    Json(request): Json<ResetOnboardingRequest>,
+) -> AppResult<Response> {
+    if let Some(denied) = deny_without_manage_users(&admin_token) {
+        return Ok(denied.into_response());
+    }
+
+    let ctx = context.as_ref();
+    let (user_uuid, user) = load_user(ctx, &user_id).await?;
+    require_rank_over_target(&admin_token, &user)?;
+    let held = user_removal::held_providers(&ctx.repos, user_uuid).await?;
+    require_within_token_tenant(ctx, &admin_token, user_uuid, &held).await?;
+    let reason = request.reason.as_deref().unwrap_or("No reason provided");
+    let scope = if request.with_memory {
+        OnboardingResetScope::WithMemory
+    } else {
+        OnboardingResetScope::OnboardingOnly
+    };
+
+    let report = match onboarding_reset::reset_onboarding(
+        &ctx.repos,
+        ctx.provider_disconnector.as_deref(),
+        user_uuid,
+        scope,
+    )
+    .await?
+    {
+        OnboardingResetOutcome::Reset(report) => report,
+        OnboardingResetOutcome::Interrupted(interruption) => {
+            return Ok(interrupted_as(
+                user_uuid,
+                &interruption,
+                onboarding_reset::describe_interruption,
+            ));
+        }
+    };
+
+    info!(
+        user_id = %user_uuid,
+        token_id = %admin_token.token_id,
+        reason = %reason,
+        with_memory = request.with_memory,
+        "Onboarding reset by operator"
+    );
+
+    Ok(json_response(
+        AdminResponse {
+            success: true,
+            message: format!("Onboarding reset for {}", user.email),
+            data: to_value(json!({
+                "user_id": user_uuid.to_string(),
+                "email": user.email,
+                "with_memory": request.with_memory,
+                "disconnected": report.disconnected,
+                "kept_for_groups": report.kept_for_groups,
+                "not_revocable": report.not_revocable,
+                "still_connected": report.still_connected(),
+                "rows_changed": report.rows_changed,
                 "reason": reason,
             }))
             .ok(),

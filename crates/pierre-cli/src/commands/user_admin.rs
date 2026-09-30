@@ -1,4 +1,4 @@
-// ABOUTME: `user get` / `set` / `disconnect` / `delete` — the operator's view of users over the admin API
+// ABOUTME: `user get` / `set` / `disconnect` / `delete` / `reset-onboarding` — the operator's view of users over the admin API
 // ABOUTME: HTTP rather than a direct DB handle, so one binary serves local and deployed alike
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -16,13 +16,14 @@
 //! `get` with no selector lists; `get <email|id>` reads one; `set` writes. The
 //! listing pages with an opaque cursor and prints each page as it arrives, so
 //! `--all` streams rather than accumulating — the table only grows.
-//! `disconnect` and `delete` hand the server's disconnect chokepoint the work,
+//! `disconnect`, `delete` and `reset-onboarding` hand the server's disconnect chokepoint the work,
 //! so every grant they drop is revoked at the provider too.
 
 use std::fmt::Write as _;
 use std::io::{self, Write as _};
 
 use clap::Args;
+use pierre_core::constants::oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
 use serde_json::{json, Value};
 
@@ -285,6 +286,36 @@ pub struct DeleteArgs {
     pub token: Option<String>,
 }
 
+/// `user reset-onboarding` — send a user back through onboarding.
+#[derive(Debug, Args)]
+pub struct ResetOnboardingArgs {
+    /// Email (or user id) of the account
+    #[arg(long)]
+    pub email: String,
+
+    /// Also clear everything the agents remember about the user: every fact,
+    /// every agent note, and their own in-app conversations
+    #[arg(long)]
+    pub with_memory: bool,
+
+    /// Reason recorded with the reset
+    #[arg(long)]
+    pub reason: Option<String>,
+
+    /// Reset for real. Without it, print what would change and exit
+    /// non-zero, changing nothing.
+    #[arg(long)]
+    pub yes: bool,
+
+    /// Server base URL (defaults to the cached login)
+    #[arg(long)]
+    pub server: Option<String>,
+
+    /// Admin token (defaults to the cached login)
+    #[arg(long)]
+    pub token: Option<String>,
+}
+
 /// One `{tenant_id, provider}` entry as a readable line.
 fn provider_line(entry: &Value) -> String {
     format!(
@@ -407,6 +438,99 @@ pub async fn delete_user(
             provider_line(&entry)
         );
     }
+    Ok(())
+}
+
+/// What the reset leaves for the clients to forget: both keep per-user "step
+/// done" flags that only ever move toward done, so a reset account still skips
+/// those steps on a browser or device that already walked them.
+const CLIENT_FLAGS_NOTE: &str = "The web app and the mobile app keep their own per-user step flags: \
+clear the site data for the web app (or use a private window) and sign out of or reinstall the mobile app \
+before walking onboarding again.";
+
+/// Send a user back through onboarding over the admin API.
+///
+/// Without `confirmed`, reads the user and prints what a reset would do — each
+/// provider disconnected (revoked at the provider) or kept because groups rely
+/// on it, and what is cleared — then fails, so a script that forgot `--yes`
+/// exits non-zero having changed nothing.
+///
+/// # Errors
+///
+/// Returns [`AppError::invalid_input`] when not confirmed, and the client's
+/// error when a call fails.
+pub async fn reset_onboarding(
+    client: &RemoteClient,
+    user_id: &str,
+    with_memory: bool,
+    reason: Option<&str>,
+    confirmed: bool,
+) -> AppResult<()> {
+    if !confirmed {
+        let body: Value = client.get_json(&format!("/admin/users/{user_id}")).await?;
+        let user = body.get("data").unwrap_or(&Value::Null);
+        println!(
+            "Would reset onboarding for {} ({}).",
+            field(user, "email"),
+            field(user, "id")
+        );
+        for entry in provider_entries(&body, "connected_providers") {
+            if field(&entry, "provider") == oauth_providers::TRAININGPEAKS {
+                println!(
+                    "  - {} would be kept: groups rely on it, and while it stays the provider steps stay hidden",
+                    provider_line(&entry)
+                );
+            } else {
+                println!(
+                    "  - {} would be disconnected and revoked at the provider",
+                    provider_line(&entry)
+                );
+            }
+        }
+        println!("  - onboarding steps, onboarding facts, the profile document and open guided walks would be cleared");
+        if with_memory {
+            println!("  - every fact, every agent note and the user's own in-app conversations would be deleted");
+        }
+        println!("  Groups, memberships, invites, room threads, manages_roster and the tier are not touched.");
+        println!("Re-run with --yes to reset.");
+        return Err(AppError::invalid_input(
+            "user reset-onboarding not confirmed: nothing was changed (re-run with --yes)",
+        ));
+    }
+
+    let payload = json!({ "reason": reason, "with_memory": with_memory });
+    let body: Value = client
+        .post_json(
+            &format!("/admin/users/{user_id}/onboarding/reset"),
+            &payload,
+        )
+        .await?;
+    println!("{}", message_or_json(&body));
+    for entry in provider_entries(&body, "disconnected") {
+        println!("  - {}", disconnected_line(&entry));
+    }
+    for entry in provider_entries(&body, "kept_for_groups") {
+        println!(
+            "  - {} kept: groups rely on it; the provider steps stay hidden while it is connected",
+            provider_line(&entry)
+        );
+    }
+    for entry in provider_entries(&body, "not_revocable") {
+        println!(
+            "  - {} kept: this server cannot revoke it; the provider steps stay hidden while it is connected",
+            provider_line(&entry)
+        );
+    }
+    if let Some(rows) = body
+        .get("data")
+        .and_then(|d| d.get("rows_changed"))
+        .and_then(Value::as_object)
+    {
+        for (label, count) in rows {
+            println!("  - {label}: {count}");
+        }
+    }
+    println!("{CLIENT_FLAGS_NOTE}");
     Ok(())
 }
 

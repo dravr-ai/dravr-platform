@@ -253,6 +253,8 @@ pub mod oauth_redirects;
 /// Onboarding gate: requires at least one connected fitness provider before
 /// the user can reach chat/agent/MCP tools.
 pub mod onboarding_gate;
+/// Operator reset of one user's onboarding, leaving every group row in place.
+pub mod onboarding_reset;
 /// Outcome evaluator: label due advice from real data + reinforce playbooks
 pub mod outcome_evaluator;
 /// Render a user's proven coaching playbooks into a system-prompt block

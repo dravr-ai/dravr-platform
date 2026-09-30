@@ -292,7 +292,7 @@ impl AdminRoutes {
     }
 
     /// Admin-token-only user routes: the listing, the per-user read and delete,
-    /// and the provider disconnect `pierre-cli` drives. The operations the
+    /// and the provider disconnect and onboarding reset `pierre-cli` drives. The operations the
     /// console shares are in [`Self::token_user_management_routes`].
     fn user_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
@@ -306,6 +306,11 @@ impl AdminRoutes {
             .route(
                 "/admin/users/{user_id}/providers/{provider}",
                 delete(user_removal::handle_disconnect_user_provider),
+            )
+            // Send a user back through onboarding, leaving their groups alone.
+            .route(
+                "/admin/users/{user_id}/onboarding/reset",
+                post(user_removal::handle_reset_user_onboarding),
             )
             .with_state(Arc::clone(&context))
             .merge(Self::token_user_management_routes(context))

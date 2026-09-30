@@ -1,5 +1,5 @@
-// ABOUTME: carnet#502 — an operator disconnects a user's provider, or removes the user, through the chokepoint
-// ABOUTME: Grants revoked upstream under their own app, no row survives, partial failures named, scoped tokens held in
+// ABOUTME: carnet#502 — an operator disconnects a user's provider, removes the user, or resets their onboarding
+// ABOUTME: Grants revoked upstream under their own app, no row survives, partial failures named, groups left standing
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -49,28 +49,29 @@ use pierre_core::models::groups::{
     CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{
-    ConnectionType, Subscription, SubscriptionStatus, Tenant, TenantId, TenantOAuthCredentials,
-    User, UserOAuthToken, UserReferenceKind, UserStatus, UserTier,
+    ConnectionType, Pillar, Subscription, SubscriptionStatus, Tenant, TenantId,
+    TenantOAuthCredentials, User, UserOAuthToken, UserReferenceKind, UserStatus, UserTier,
 };
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
 #[cfg(feature = "postgresql")]
 use pierre_database::repositories::POSTGRES_USER_PURGE;
 use pierre_database::repositories::{
-    CreateSessionParams, EnqueueOutboundParams, InsertMessageParams, UserPurge,
-    DELETION_BLOCKERS_SQL, POSTGRES_ONLY_USER_OWNED_TABLES, SQLITE_USER_PURGE,
+    CreateSessionParams, EnqueueOutboundParams, InsertMessageParams, UpsertUserFactParams,
+    UserPurge, DELETION_BLOCKERS_SQL, POSTGRES_ONLY_USER_OWNED_TABLES, SQLITE_USER_PURGE,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::a2a::client::ClientRegistrationRequest;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 use pierre_routes_admin::auth::service::AdminAuthService;
 use pierre_routes_admin::handlers::strava_pool::{
     handle_list_strava_seats, handle_upsert_strava_pool_app,
 };
-use pierre_routes_admin::handlers::types::DeleteUserRequest;
+use pierre_routes_admin::handlers::types::{DeleteUserRequest, ResetOnboardingRequest};
 use pierre_routes_admin::handlers::user_removal::{
-    handle_delete_user, handle_disconnect_user_provider,
+    handle_delete_user, handle_disconnect_user_provider, handle_reset_user_onboarding,
 };
 use pierre_routes_admin::handlers::users::handle_get_user;
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
@@ -2484,4 +2485,383 @@ async fn a_manage_users_token_cannot_remove_or_disconnect_an_operator() {
     .expect("a super-admin token removes an admin account");
     assert_eq!(removed.status(), StatusCode::OK);
     assert!(repos.users.get_global(admin_id).await.unwrap().is_none());
+}
+
+// --- Onboarding reset -------------------------------------------------------
+
+/// The facts a walked onboarding leaves, plus one the athlete's chat left:
+/// a North Star the about-you step wrote, a pillar answer, a PAR-Q medical
+/// flag an agent tool raised, and a goal the extractor inferred. The first
+/// three are onboarding's; the goal is only memory.
+async fn seed_onboarding_facts(repos: &RepositoryRegistry, user_id: Uuid, tenant_id: TenantId) {
+    let user = user_id.to_string();
+    let facts = [
+        (FactKind::NorthStar, None, FactSource::Onboarding),
+        (
+            FactKind::Preference,
+            Some(Pillar::SleepAndRecovery),
+            FactSource::Conversation,
+        ),
+        (FactKind::Medical, None, FactSource::Coach),
+        (FactKind::Goal, None, FactSource::Conversation),
+    ];
+    for (kind, pillar, source) in facts {
+        repos
+            .memory
+            .upsert_user_fact(&UpsertUserFactParams {
+                tenant_id,
+                user_id: &user,
+                agent_id: None,
+                scope: MemoryScope::User,
+                kind,
+                pillar,
+                predicate_code: PredicateCode::WorkingToward,
+                object: "a sub-3 marathon",
+                confidence: 1.0,
+                source,
+                valid_until: None,
+                source_msg_id: None,
+            })
+            .await
+            .unwrap();
+    }
+}
+
+async fn facts_of(repos: &RepositoryRegistry, user_id: Uuid, tenant_id: TenantId) -> Vec<FactKind> {
+    repos
+        .memory
+        .list_user_facts(tenant_id, &user_id.to_string(), None, None, 100)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|fact| fact.kind)
+        .collect()
+}
+
+/// A conversation of `user_id`'s with a guided walk open in it.
+async fn conversation_mid_walk(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    group_id: Option<Uuid>,
+) -> String {
+    let group = group_id.map(|g| g.to_string());
+    let id = repos
+        .chat
+        .create_conversation(
+            &user_id.to_string(),
+            tenant_id,
+            "thread",
+            "model",
+            None,
+            group.as_deref(),
+        )
+        .await
+        .unwrap()
+        .id;
+    assert!(repos
+        .chat
+        .set_conversation_onboarding_state(&id, Some(r#"{"active":true}"#), tenant_id)
+        .await
+        .unwrap());
+    id
+}
+
+/// A user who walked onboarding: both intake steps recorded, the facts above,
+/// a profile document, and a Strava grant.
+async fn seed_onboarded_user(repos: &RepositoryRegistry, label: &str) -> (Uuid, TenantId) {
+    let (user_id, tenant_id, _) = seed_user(repos, label).await;
+    let user = user_id.to_string();
+    let tenant = tenant_id.to_string();
+    for step in ["profile_type", "parq"] {
+        repos
+            .user_onboarding
+            .set_onboarding_step(&user, step, "complete", None, Some(&tenant))
+            .await
+            .unwrap();
+    }
+    seed_onboarding_facts(repos, user_id, tenant_id).await;
+    repos
+        .profiles
+        .upsert_profile(user_id, json!({ "season": "build" }))
+        .await
+        .unwrap();
+    connect_strava(repos, user_id, tenant_id, None).await;
+    (user_id, tenant_id)
+}
+
+async fn reset_onboarding(
+    context: Arc<AdminApiContext>,
+    token: ValidatedAdminToken,
+    user_id: Uuid,
+    with_memory: bool,
+) -> AppResult<Response> {
+    handle_reset_user_onboarding(
+        State(context),
+        Extension(token),
+        Path(user_id.to_string()),
+        Json(ResetOnboardingRequest {
+            reason: Some("walking onboarding again".to_owned()),
+            with_memory,
+        }),
+    )
+    .await
+}
+
+fn rows_changed(body: &Value) -> BTreeMap<String, u64> {
+    body["data"]["rows_changed"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(label, n)| (label.clone(), n.as_u64().unwrap()))
+        .collect()
+}
+
+#[tokio::test]
+async fn reset_onboarding_clears_what_onboarding_wrote_and_leaves_groups_alone() {
+    let resources = resources().await;
+    let repos = &resources.common.repos;
+    let mut stub = RevokeStub::start().await;
+    let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-coach").await;
+    let owned = seed_group(repos, user_id, tenant_id, "Tuesday riders").await;
+    let (peer_id, peer_tenant, _) = seed_user(repos, "reset-peer").await;
+    let joined = seed_group(repos, peer_id, peer_tenant, "Peer squad").await;
+    join_group(repos, joined, user_id, tenant_id).await;
+    let personal = conversation_mid_walk(repos, user_id, tenant_id, None).await;
+    let room = conversation_mid_walk(repos, user_id, tenant_id, Some(owned)).await;
+
+    let response = reset_onboarding(
+        admin_context(&resources, &stub.url),
+        super_admin_token(),
+        user_id,
+        false,
+    )
+    .await
+    .expect("reset handler");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_json(response).await;
+
+    assert_eq!(
+        rows_changed(&body),
+        BTreeMap::from([
+            ("user_onboarding".to_owned(), 2),
+            ("user_facts (onboarding)".to_owned(), 3),
+            ("user_profiles".to_owned(), 1),
+            ("chat_conversations.onboarding_state".to_owned(), 1),
+        ]),
+        "{body}"
+    );
+    assert_one_strava_revocation(&stub.received(), ENV_CLIENT_ID, ENV_CLIENT_SECRET);
+    assert_eq!(body["data"]["disconnected"][0]["provider"], "strava");
+    assert_eq!(body["data"]["still_connected"], false);
+    assert!(repos
+        .provider_connections
+        .get_for_user(user_id, None)
+        .await
+        .unwrap()
+        .is_empty());
+
+    // Onboarding reads as never walked.
+    assert!(repos
+        .user_onboarding
+        .get_onboarding_steps(&user_id.to_string())
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        facts_of(repos, user_id, tenant_id).await,
+        vec![FactKind::Goal]
+    );
+    assert!(repos.profiles.get_profile(user_id).await.unwrap().is_none());
+
+    // The personal walk is closed; the walk in the group's thread is not.
+    assert_eq!(
+        repos
+            .chat
+            .list_user_onboarding_states(&user_id.to_string(), tenant_id, 10)
+            .await
+            .unwrap()
+            .len(),
+        1,
+        "only the group thread keeps its walk"
+    );
+    for conversation in [&personal, &room] {
+        assert!(repos
+            .chat
+            .get_conversation(conversation, &user_id.to_string(), tenant_id)
+            .await
+            .unwrap()
+            .is_some());
+    }
+
+    // Every group row stands: the one they own, their membership elsewhere.
+    let group = repos
+        .groups
+        .get_group(&owned.to_string(), tenant_id)
+        .await
+        .unwrap()
+        .expect("the owned group survives");
+    assert_eq!(group.owner_id, user_id);
+    assert!(repos
+        .groups
+        .get_member(&joined.to_string(), user_id)
+        .await
+        .unwrap()
+        .is_some());
+    assert!(repos.users.get_global(user_id).await.unwrap().is_some());
+}
+
+#[tokio::test]
+async fn reset_with_memory_deletes_every_fact_and_only_the_users_own_threads() {
+    let resources = resources().await;
+    let repos = &resources.common.repos;
+    let stub = RevokeStub::start().await;
+    let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-memory").await;
+    let owned = seed_group(repos, user_id, tenant_id, "Hill repeats").await;
+    let (peer_id, _, _) = seed_user(repos, "reset-thread-peer").await;
+    let personal = conversation_mid_walk(repos, user_id, tenant_id, None).await;
+    let room = conversation_mid_walk(repos, user_id, tenant_id, Some(owned)).await;
+    let shared = conversation_mid_walk(repos, user_id, tenant_id, None).await;
+    repos
+        .chat
+        .add_participant(
+            &shared,
+            tenant_id,
+            &peer_id.to_string(),
+            &user_id.to_string(),
+        )
+        .await
+        .unwrap();
+    let messaging = conversation_mid_walk(repos, user_id, tenant_id, None).await;
+    assert!(repos
+        .chat
+        .set_conversation_channel(&messaging, &user_id.to_string(), tenant_id, "telegram")
+        .await
+        .unwrap());
+
+    let response = reset_onboarding(
+        admin_context(&resources, &stub.url),
+        super_admin_token(),
+        user_id,
+        true,
+    )
+    .await
+    .expect("reset handler");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_json(response).await;
+    assert_eq!(body["data"]["with_memory"], true);
+    assert_eq!(
+        rows_changed(&body),
+        BTreeMap::from([
+            ("user_onboarding".to_owned(), 2),
+            ("user_facts (onboarding)".to_owned(), 3),
+            ("user_profiles".to_owned(), 1),
+            ("chat_conversations.onboarding_state".to_owned(), 1),
+            ("user_facts".to_owned(), 1),
+            ("chat_conversations".to_owned(), 1),
+        ]),
+        "{body}"
+    );
+    assert!(facts_of(repos, user_id, tenant_id).await.is_empty());
+
+    let user = user_id.to_string();
+    assert!(repos
+        .chat
+        .get_conversation(&personal, &user, tenant_id)
+        .await
+        .unwrap()
+        .is_none());
+    for kept in [&room, &shared, &messaging] {
+        assert!(
+            repos
+                .chat
+                .get_conversation(kept, &user, tenant_id)
+                .await
+                .unwrap()
+                .is_some(),
+            "a group, shared or messaging thread is somebody else's history too"
+        );
+    }
+}
+
+#[tokio::test]
+async fn reset_keeps_trainingpeaks_because_groups_ride_on_it() {
+    let resources = resources().await;
+    let repos = &resources.common.repos;
+    let mut stub = RevokeStub::start().await;
+    let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-tp-coach").await;
+    repos
+        .provider_connections
+        .register_connection(
+            user_id,
+            tenant_id,
+            "sciotte_trainingpeaks",
+            &ConnectionType::OAuth,
+            None,
+        )
+        .await
+        .unwrap();
+
+    let response = reset_onboarding(
+        admin_context(&resources, &stub.url),
+        super_admin_token(),
+        user_id,
+        false,
+    )
+    .await
+    .expect("reset handler");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_json(response).await;
+
+    assert_one_strava_revocation(&stub.received(), ENV_CLIENT_ID, ENV_CLIENT_SECRET);
+    let kept = body["data"]["kept_for_groups"].as_array().unwrap();
+    assert_eq!(kept.len(), 1, "{body}");
+    assert_eq!(kept[0]["provider"], "trainingpeaks");
+    assert_eq!(body["data"]["still_connected"], true);
+    let left: Vec<String> = repos
+        .provider_connections
+        .get_for_user(user_id, None)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|c| c.provider)
+        .collect();
+    assert_eq!(left, vec!["sciotte_trainingpeaks".to_owned()]);
+    assert!(repos
+        .user_onboarding
+        .get_onboarding_steps(&user_id.to_string())
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+#[tokio::test]
+async fn a_manage_users_token_cannot_reset_an_operators_onboarding() {
+    let resources = resources().await;
+    let repos = &resources.common.repos;
+    let mut stub = RevokeStub::start().await;
+    let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-operator").await;
+    promote(repos, user_id, UserRole::Admin).await;
+
+    let refused = reset_onboarding(
+        admin_context(&resources, &stub.url),
+        manage_users_token(),
+        user_id,
+        true,
+    )
+    .await
+    .expect_err("a ManageUsers token must not reset an operator");
+    assert_eq!(refused.code, ErrorCode::PermissionDenied);
+    assert!(stub.received().is_empty(), "nothing may reach Strava");
+    assert_eq!(
+        repos
+            .user_onboarding
+            .get_onboarding_steps(&user_id.to_string())
+            .await
+            .unwrap()
+            .len(),
+        2,
+        "the refused reset touched nothing"
+    );
+    assert_eq!(facts_of(repos, user_id, tenant_id).await.len(), 4);
 }
