@@ -1827,7 +1827,6 @@
       "routeFailed": "Die Karte konnte nicht geladen werden.",
       "loadFailed": "Deine letzten Aktivitäten konnten nicht geladen werden.",
       "fetching": "Deine neuesten Aktivitäten werden abgerufen…",
-      "refreshing": "Dein Anbieter wird nach neuen Aktivitäten abgefragt…",
       "syncedAt": "Zuletzt synchronisiert: {{time}}",
       "analyzeDraft": "Analysiere meine Aktivität vom {{date}} ({{sport}})",
       "sketchAlt": "Skizze der Route"

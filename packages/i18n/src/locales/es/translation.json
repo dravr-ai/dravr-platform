@@ -1827,7 +1827,6 @@
       "routeFailed": "No se pudo cargar el mapa.",
       "loadFailed": "No se pudieron cargar tus actividades recientes.",
       "fetching": "Recuperando tus últimas actividades…",
-      "refreshing": "Buscando actividades nuevas en tu proveedor…",
       "syncedAt": "Última sincronización: {{time}}",
       "analyzeDraft": "Analiza mi actividad del {{date}} ({{sport}})",
       "sketchAlt": "Esbozo de la ruta"
