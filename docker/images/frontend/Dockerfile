@@ -60,7 +60,10 @@ FROM alpine:3.23
 # libcrypto3 and libssl3 from the one source package. Gated the dev deploy on
 # 2026-08-26, on the surface-convergence merge, which touched no Docker file:
 # alpine 3.23.5 shipped the fix and the buildx cache was still serving 3.5.7-r0.
-ARG APK_SECURITY_EPOCH=2026-08-26
+# pcre2 10.49-r0 closes CVE-2026-103111, an out-of-bounds write through a
+# crafted regular expression. Gated the 2026-10-01 dev deploys of b0d760586
+# and c480933f7, which touched no frontend Docker file, with 10.48-r0 installed.
+ARG APK_SECURITY_EPOCH=2026-10-01
 
 # nginx (patched, fixes CVE-2026-9256) + gettext for envsubst (the official nginx
 # image bundled envsubst; plain alpine does not). apk upgrade patches the rest of
