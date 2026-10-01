@@ -543,13 +543,18 @@ module "backend" {
 
       # Sciotte vision login: Hybrid runs the fast CSS/JS selector path first
       # and only falls back to LLM screenshot reasoning when selectors fail
-      # (e.g. a Strava login DOM change). COPILOT_HEADLESS_MODEL is the model
-      # for that vision fallback only — PIERRE_LLM_MODEL shadows it for the chat
-      # provider. It runs claude-opus-4.8 for the heavier vision-reasoning task;
-      # the chat chain's models are set by PIERRE_LLM_MODEL and the
+      # (e.g. a Strava login DOM change). The login runs on the dedicated
+      # scraper service (module "sciotte" below, ADR-021), and the
+      # COPILOT_HEADLESS_MODEL set there is the vision model. This process
+      # holds no Chrome and builds no vision analyzer: here the variable is
+      # only the Copilot headless runner's default, which PIERRE_LLM_MODEL
+      # overrides on every path that builds one
+      # (crates/pierre-llm/src/embacle_provider.rs, unified_model). It is kept
+      # equal to the scraper's value so the two blocks cannot disagree; the
+      # chat chain's models are set by PIERRE_LLM_MODEL and the
       # *_PROVIDER_MODEL variables above.
       DRAVR_SCIOTTE_LOGIN_MODE = "hybrid"
-      COPILOT_HEADLESS_MODEL   = "claude-opus-4.8"
+      COPILOT_HEADLESS_MODEL   = "claude-sonnet-5.5"
 
       # ADR-021 remote toggle: when backend_sciotte_remote is on, sciotte
       # logins/scrapes route to the dedicated scraper service instead of
@@ -1073,8 +1078,12 @@ module "sciotte" {
 
     # Hybrid login: selectors first, vision (Copilot screenshot reasoning) on
     # failure — required for the Strava/Google OAuth path (validated live).
+    # COPILOT_HEADLESS_MODEL is the vision model: the service builds its
+    # analyzer from embacle's CopilotHeadlessConfig::from_env and sends each
+    # screenshot with no per-request model. claude-sonnet-5.5 is the model
+    # the chat primary runs (JF, 2026-10-01).
     DRAVR_SCIOTTE_LOGIN_MODE  = "hybrid"
-    COPILOT_HEADLESS_MODEL    = "claude-opus-4.8"
+    COPILOT_HEADLESS_MODEL    = "claude-sonnet-5.5"
     DRAVR_SCIOTTE_SCRIPTS_DIR = "/sciotte-scripts"
 
     # Same denial as the API pod — embacle defaults to AutoApprove, which
