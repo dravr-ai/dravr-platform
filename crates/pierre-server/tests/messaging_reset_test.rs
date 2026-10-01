@@ -1,5 +1,5 @@
 // ABOUTME: Tests /reset (/nouveau, /new) — the catalogue matches it, and the rotation it performs
-// ABOUTME: The confirmation speaks the stored locale, the session lands on a new thread, the old one is archived off the cap
+// ABOUTME: The confirmation speaks the stored locale, the session lands on a new thread, the old one is archived off the cap; a failed repoint rolls back
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -65,16 +65,24 @@ fn the_catalogue_matches_only_the_explicit_reset_forms() {
 mod reset_locale {
     use crate::common::create_test_server_resources_with_chat_provider;
     use crate::helpers::command_e2e::{CommandE2e, Member, RouterLlm};
+    use crate::helpers::notify_capture::{capture_logs, named, only};
     use dravr_canot::rich_text::{parse_markdown, render_rich_text};
+    use pierre_commands::reset::ResetHandler;
+    use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
     use pierre_config::constants::usage_quotas::DEFAULT_MAX_ACTIVE_CONVERSATIONS;
     use pierre_contremaitre::messaging_strings::{
         DEFAULT_LOCALE, KEY_ARCHIVED_CONVERSATION_QUOTA, KEY_NEW_CONVERSATION_TITLE_PREFIX,
         KEY_RESET_CONFIRM, KEY_RESET_QUOTA, KEY_RESET_WALK_INTERRUPTED,
     };
+    use pierre_core::errors::{AppError, ErrorCode};
+    use pierre_database::backends::factory::DatabaseBackend;
+    use pierre_mcp_server::mcp::resources::ServerContext;
+    use pierre_runtime_context::CommandCtx;
     use serial_test::serial;
     use std::env;
     use std::sync::atomic::Ordering;
     use std::sync::Arc;
+    use tracing::Level;
 
     /// A fresh linked member whose profile locale is `en` — written through
     /// the same repository method `PUT /api/user/locale` uses — primed with
@@ -718,6 +726,301 @@ mod reset_locale {
                 .await
                 .unwrap(),
             DEFAULT_MAX_ACTIVE_CONVERSATIONS
+        );
+    }
+
+    /// A write the database itself refuses, for the two statements a `/reset`
+    /// rollback turns on.
+    ///
+    /// The fault is a trigger in this test's own database, so the handler
+    /// under test runs unmodified against the real repositories and receives
+    /// the error they really produce — message prefix, error code and all. A
+    /// repository double would have to stand in for `MessagingRepository` and
+    /// `ChatRepository` (seventy-odd methods between them) and for the registry
+    /// that holds them, to make two statements fail.
+    #[derive(Clone, Copy)]
+    enum Fault {
+        /// Moving a messaging session onto another conversation.
+        SessionRepoint,
+        /// Deleting a conversation.
+        ConversationDelete,
+    }
+
+    impl Fault {
+        /// The text the refused statement's error carries.
+        const fn marker(self) -> &'static str {
+            match self {
+                Self::SessionRepoint => "injected fault: session repoint",
+                Self::ConversationDelete => "injected fault: conversation delete",
+            }
+        }
+
+        /// The name of the trigger, and of the function behind it on
+        /// `PostgreSQL`.
+        const fn name(self) -> &'static str {
+            match self {
+                Self::SessionRepoint => "fault_session_repoint",
+                Self::ConversationDelete => "fault_conversation_delete",
+            }
+        }
+
+        /// The statement the trigger refuses, as a trigger event clause.
+        const fn event(self) -> &'static str {
+            match self {
+                Self::SessionRepoint => "UPDATE OF pierre_conversation_id ON messaging_sessions",
+                Self::ConversationDelete => "DELETE ON chat_conversations",
+            }
+        }
+
+        /// Install the trigger; every later matching statement fails.
+        async fn install(self, e2e: &CommandE2e) {
+            let (name, event, marker) = (self.name(), self.event(), self.marker());
+            match e2e.resources.agent.database.backend() {
+                DatabaseBackend::SQLite(db) => {
+                    sqlx::query(&format!(
+                        "CREATE TRIGGER {name} BEFORE {event} \
+                         BEGIN SELECT RAISE(ABORT, '{marker}'); END"
+                    ))
+                    .execute(db.pool())
+                    .await
+                    .unwrap();
+                }
+                #[cfg(feature = "postgresql")]
+                DatabaseBackend::PostgreSQL(db) => {
+                    sqlx::query(&format!(
+                        "CREATE FUNCTION {name}() RETURNS trigger LANGUAGE plpgsql \
+                         AS $$ BEGIN RAISE EXCEPTION '{marker}'; END $$"
+                    ))
+                    .execute(db.pool())
+                    .await
+                    .unwrap();
+                    sqlx::query(&format!(
+                        "CREATE TRIGGER {name} BEFORE {event} \
+                         FOR EACH ROW EXECUTE FUNCTION {name}()"
+                    ))
+                    .execute(db.pool())
+                    .await
+                    .unwrap();
+                }
+            }
+        }
+    }
+
+    /// The context the messaging ingress hands `/reset` for a DM from
+    /// `member` on `conversation`, over the real server context.
+    fn reset_ctx(e2e: &CommandE2e, member: &Member, conversation: &str) -> PlatformCommandContext {
+        PlatformCommandContext {
+            user_id: member.user_id,
+            tenant_id: member.home_tenant,
+            channel_type: "telegram".to_owned(),
+            args: vec![],
+            raw_text: "/reset".to_owned(),
+            ctx: Arc::<ServerContext>::clone(&e2e.resources) as Arc<dyn CommandCtx>,
+            locale: "en".to_owned(),
+            is_direct_message: true,
+            ambient_group_fallback: true,
+            conversation_id: Some(conversation.to_owned()),
+            conversation_tenant_id: member.home_tenant,
+            sender_id: Some(member.channel_user_id.clone()),
+            rotation: ConversationRotation::default(),
+            tool_runtime: Arc::<ServerContext>::clone(&e2e.resources),
+        }
+    }
+
+    /// Run `/reset` with the session repoint refused and return the error it
+    /// surfaced, having checked it is the repoint's own — the repository's
+    /// message around the database's refusal — and that no rotation was
+    /// recorded for the surface to follow.
+    async fn reset_with_repoint_refused(
+        e2e: &CommandE2e,
+        member: &Member,
+        conversation: &str,
+    ) -> AppError {
+        Fault::SessionRepoint.install(e2e).await;
+        let ctx = reset_ctx(e2e, member, conversation);
+        let error = ResetHandler
+            .execute(&ctx)
+            .await
+            .expect_err("a /reset whose session cannot be repointed must fail");
+        assert_eq!(error.code, ErrorCode::DatabaseError, "{error}");
+        assert!(
+            error
+                .message
+                .starts_with("Failed to update session conversation: "),
+            "the error is the repoint's own: {error}"
+        );
+        assert!(
+            error.message.contains(Fault::SessionRepoint.marker()),
+            "the error carries the database's refusal: {error}"
+        );
+        assert_eq!(
+            ctx.rotation.taken(),
+            None,
+            "a failed /reset must not tell the surface the athlete moved"
+        );
+        error
+    }
+
+    /// The ids of every thread the athlete is listed with, archived included.
+    async fn listed_ids(e2e: &CommandE2e, member: &Member) -> Vec<String> {
+        e2e.resources
+            .common
+            .repos
+            .chat
+            .list_conversations(&member.user_id.to_string(), member.home_tenant, 50, 0)
+            .await
+            .unwrap()
+            .items
+            .into_iter()
+            .map(|c| c.id)
+            .collect()
+    }
+
+    /// The session cannot be repointed after the old thread was archived and
+    /// the fresh one forged: the athlete is still on the old thread, so the
+    /// fresh one is removed and the old one holds its slot again.
+    ///
+    /// At the cap, so the count pins both halves: a forged thread left behind
+    /// would read one over, an old thread left archived one under.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial]
+    async fn reset_whose_repoint_fails_removes_the_fresh_thread_and_restores_the_old_one() {
+        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        let llm = RouterLlm::new();
+        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
+            .await
+            .unwrap();
+        let e2e = CommandE2e::start(resources, llm).await;
+
+        let cap = usize::try_from(DEFAULT_MAX_ACTIVE_CONVERSATIONS).unwrap();
+        let (member, _session, _baseline, before) = member_owning(&e2e, cap).await;
+        let chat = e2e.resources.common.repos.chat.as_ref();
+        let user = member.user_id.to_string();
+        let mut listed_before = listed_ids(&e2e, &member).await;
+        listed_before.sort();
+        assert_eq!(listed_before.len(), cap, "fixture precondition");
+
+        reset_with_repoint_refused(&e2e, &member, &before).await;
+
+        let mut listed_after = listed_ids(&e2e, &member).await;
+        listed_after.sort();
+        assert_eq!(
+            listed_after, listed_before,
+            "the forged thread is gone and nothing else was removed"
+        );
+        assert!(
+            !chat
+                .is_conversation_archived(&before, &user, member.home_tenant)
+                .await
+                .unwrap(),
+            "the thread the athlete is still on is active again"
+        );
+        assert_eq!(
+            chat.count_conversations(&user, member.home_tenant)
+                .await
+                .unwrap(),
+            DEFAULT_MAX_ACTIVE_CONVERSATIONS,
+            "the athlete holds exactly the slots they held before /reset"
+        );
+        assert_eq!(
+            e2e.conversation_id(&member, member.home_tenant, &member.channel_user_id)
+                .await
+                .as_deref(),
+            Some(before.as_str()),
+            "the session still names the thread it named before /reset"
+        );
+    }
+
+    /// The same failed repoint, and the fresh thread cannot be deleted
+    /// either: the orphan stays, a warning names it, and the old thread is
+    /// restored regardless — without consulting the cap, which the orphan now
+    /// puts the athlete one over — while the error returned is still the
+    /// repoint's.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial]
+    async fn reset_whose_repoint_and_cleanup_both_fail_still_restores_the_old_thread() {
+        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        let llm = RouterLlm::new();
+        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
+            .await
+            .unwrap();
+        let e2e = CommandE2e::start(resources, llm).await;
+
+        let cap = usize::try_from(DEFAULT_MAX_ACTIVE_CONVERSATIONS).unwrap();
+        let (member, _session, _baseline, before) = member_owning(&e2e, cap).await;
+        let chat = e2e.resources.common.repos.chat.as_ref();
+        let user = member.user_id.to_string();
+        let listed_before = listed_ids(&e2e, &member).await;
+        assert_eq!(listed_before.len(), cap, "fixture precondition");
+
+        Fault::ConversationDelete.install(&e2e).await;
+        let (lines, guard) = capture_logs();
+        let error = reset_with_repoint_refused(&e2e, &member, &before).await;
+        drop(guard);
+        assert!(
+            !error.message.contains(Fault::ConversationDelete.marker()),
+            "the failed cleanup must not replace the repoint's error: {error}"
+        );
+
+        let orphans: Vec<String> = listed_ids(&e2e, &member)
+            .await
+            .into_iter()
+            .filter(|id| !listed_before.contains(id))
+            .collect();
+        assert_eq!(
+            orphans.len(),
+            1,
+            "the forged thread could not be removed and is still listed"
+        );
+        let warning = only(
+            &lines,
+            "Reset command: the thread a failed reset forged could not be removed",
+        );
+        assert_eq!(warning.level, Level::WARN);
+        assert_eq!(warning.field("conversation_id"), orphans[0]);
+        assert!(
+            warning
+                .field("error")
+                .contains(Fault::ConversationDelete.marker()),
+            "the warning carries why the cleanup failed: {:?}",
+            warning.fields
+        );
+
+        let repoint = only(
+            &lines,
+            "Reset command: the messaging session could not be repointed",
+        );
+        assert_eq!(repoint.level, Level::WARN);
+        assert_eq!(repoint.field("previous_conversation_id"), before);
+        assert!(
+            named(
+                &lines,
+                "Reset command: the thread a failed reset archived could not be restored",
+            )
+            .is_empty(),
+            "the restore itself succeeded, so nothing reports it failing"
+        );
+
+        assert!(
+            !chat
+                .is_conversation_archived(&before, &user, member.home_tenant)
+                .await
+                .unwrap(),
+            "the thread the athlete is still on is active again"
+        );
+        assert_eq!(
+            chat.count_conversations(&user, member.home_tenant)
+                .await
+                .unwrap(),
+            DEFAULT_MAX_ACTIVE_CONVERSATIONS + 1,
+            "the old thread is restored past the cap the orphan already fills"
+        );
+        assert_eq!(
+            e2e.conversation_id(&member, member.home_tenant, &member.channel_user_id)
+                .await
+                .as_deref(),
+            Some(before.as_str()),
+            "the session still names the thread it named before /reset"
         );
     }
 }

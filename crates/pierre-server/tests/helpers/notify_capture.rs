@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use tracing::field::{Field, Visit};
 use tracing::span::{Attributes, Id, Record};
 use tracing::subscriber::{set_default, DefaultGuard};
-use tracing::{Event, Metadata, Subscriber};
+use tracing::{Event, Level, Metadata, Subscriber};
 
 /// One `target: "notify"` event, with every field rendered as a string.
 ///
@@ -26,6 +26,8 @@ pub struct NotifyEvent {
     /// The catalogued event name (`agent.installed`, `group.created`, …), or
     /// the message of a line [`capture_logs`] recorded.
     pub event: String,
+    /// The level the line was emitted at.
+    pub level: Level,
     /// Every field the emission carried, rendered as text.
     pub fields: HashMap<String, String>,
 }
@@ -133,6 +135,7 @@ impl Subscriber for NotifyCapture {
         };
         self.events.lock().unwrap().push(NotifyEvent {
             event: name,
+            level: *event.metadata().level(),
             fields: visitor.fields,
         });
     }
