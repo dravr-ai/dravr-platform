@@ -12,6 +12,8 @@
 use pierre_core::errors::AppResult;
 use uuid::Uuid;
 
+use super::key_material::{decrypt_stored_secret, StoredSecretKind};
+
 /// Create AAD (Additional Authenticated Data) context for token encryption
 ///
 /// Format: `"{tenant_id}|{user_id}|{provider}|{table}"`
@@ -105,6 +107,8 @@ where
 ///
 /// # Arguments
 /// * `db` - Database implementing `HasEncryption` trait
+/// * `kind` - Which token column the ciphertext was read from; a failure is
+///   reported under it as a key-material failure
 /// * `encrypted_token` - Base64-encoded encrypted token (from database)
 /// * `tenant_id` - Tenant ID (must match encryption context)
 /// * `user_id` - User UUID (must match encryption context)
@@ -129,6 +133,7 @@ where
 /// ```text
 /// let plain_token = shared::encryption::decrypt_oauth_token(
 ///     db,
+///     StoredSecretKind::OAuthAccessToken,
 ///     &encrypted_from_db,
 ///     "tenant-123",
 ///     user_id,
@@ -137,6 +142,7 @@ where
 /// ```
 pub fn decrypt_oauth_token<D>(
     db: &D,
+    kind: StoredSecretKind,
     encrypted_token: &str,
     tenant_id: &str,
     user_id: Uuid,
@@ -146,7 +152,7 @@ where
     D: HasEncryption,
 {
     let aad_context = create_token_aad_context(tenant_id, user_id, provider, "user_oauth_tokens");
-    db.decrypt_data_with_aad(encrypted_token, &aad_context)
+    decrypt_stored_secret(db, kind, encrypted_token, &aad_context)
 }
 
 /// Create AAD context binding an RSA private key to the key id that owns it
@@ -211,7 +217,12 @@ pub fn decrypt_rsa_private_key<D>(db: &D, kid: &str, stored: &str) -> AppResult<
 where
     D: HasEncryption,
 {
-    db.decrypt_data_with_aad(stored, &create_rsa_key_aad_context(kid))
+    decrypt_stored_secret(
+        db,
+        StoredSecretKind::RsaPrivateKey,
+        stored,
+        &create_rsa_key_aad_context(kid),
+    )
 }
 
 /// Trait for databases that support encryption

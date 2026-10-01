@@ -55,6 +55,9 @@ use serde_json::to_string_pretty;
 use pierre_core::admin::jwt::{JwtSigner, JwtVerifier};
 use pierre_core::constants::service_names::{ADMIN_API, PIERRE_MCP_SERVER};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_database::backends::shared::key_material::{
+    RSA_KEYPAIR_LOAD_FAILED, RSA_KEYPAIR_MINTED_OVER_CIPHERTEXT,
+};
 use pierre_database::backends::SecurityRepository;
 use tracing::{error, info};
 
@@ -485,19 +488,23 @@ impl JwksManager {
 
 /// Generate a keypair under [`FIRST_KEYPAIR_KID`] and store it
 /// insert-if-absent; a racing instance's row is left untouched.
+///
+/// Returns the public PEM of the keypair generated here, so the caller can
+/// tell from the row read back whether this instance's insert won.
 async fn store_first_keypair(
     security: &dyn SecurityRepository,
     rsa_key_size_bits: usize,
-) -> AppResult<()> {
+) -> AppResult<String> {
     info!("No persisted RSA keys found, generating the first keypair");
     let mut candidate = JwksManager::new();
     candidate.generate_rsa_key_pair_with_size(FIRST_KEYPAIR_KID, rsa_key_size_bits)?;
     let key = candidate.get_active_key()?;
+    let public_key_pem = key.export_public_key_pem()?;
     security
         .save_rsa_keypair(
             FIRST_KEYPAIR_KID,
             &key.export_private_key_pem()?,
-            &key.export_public_key_pem()?,
+            &public_key_pem,
             key.created_at,
             true,
             i32::try_from(rsa_key_size_bits).map_err(|e| {
@@ -506,7 +513,80 @@ async fn store_first_keypair(
         )
         .await?;
     info!("Stored RSA keypair {FIRST_KEYPAIR_KID} unless a racing instance already had");
-    Ok(())
+    Ok(public_key_pem)
+}
+
+/// Count the rows holding ciphertext before the first keypair is minted; a
+/// failed count refuses the mint, since the answer decides whether a mint is
+/// safe.
+async fn count_ciphertext_before_mint(security: &dyn SecurityRepository) -> AppResult<i64> {
+    security.count_encrypted_rows().await.inspect_err(|e| {
+        error!(
+            event = RSA_KEYPAIR_LOAD_FAILED,
+            error_code = ?e.code,
+            error = %e,
+            "Failed to count encrypted rows before storing the first RSA keypair"
+        );
+    })
+}
+
+/// Say so when the store read back holds a racing instance's first keypair
+/// rather than the one generated here.
+fn report_first_keypair_stored(
+    stored: &[(String, String, String, DateTime<Utc>, bool)],
+    ours: &str,
+) {
+    let won = stored
+        .iter()
+        .any(|(kid, _, public_key_pem, _, _)| kid == FIRST_KEYPAIR_KID && public_key_pem == ours);
+    if !won {
+        info!("Another instance stored RSA keypair {FIRST_KEYPAIR_KID} first; adopting it");
+    }
+}
+
+/// Read the keypairs again on a database that holds `encrypted_rows`
+/// ciphertext rows while this instance found none.
+///
+/// A racing instance that stored its keypair after this one looked is
+/// adopted; its row is what the count saw. A table still empty means the
+/// keypair every live session was signed with is gone (carnet#703): no key
+/// is minted, the refusal logs at `ERROR` under
+/// [`RSA_KEYPAIR_MINTED_OVER_CIPHERTEXT`] and the instance does not boot.
+async fn adopt_racing_keypair_or_refuse(
+    security: &dyn SecurityRepository,
+    encrypted_rows: i64,
+) -> AppResult<Vec<(String, String, String, DateTime<Utc>, bool)>> {
+    let keypairs = load_rsa_keypairs_or_page(security).await?;
+    if keypairs.is_empty() {
+        error!(
+            event = RSA_KEYPAIR_MINTED_OVER_CIPHERTEXT,
+            encrypted_rows,
+            "No JWT signing keypair stored on a database that holds ciphertext; refusing to mint one"
+        );
+        return Err(AppError::config(format!(
+            "No RSA signing keypair is stored, but the database holds {encrypted_rows} \
+             encrypted rows. Restore the original rsa_keypairs row (the carnet#696 \
+             recovery procedure) before booting."
+        )));
+    }
+    info!("Another instance stored RSA keypair {FIRST_KEYPAIR_KID} first; adopting it");
+    Ok(keypairs)
+}
+
+/// Read every persisted RSA keypair, logging a failure under
+/// [`RSA_KEYPAIR_LOAD_FAILED`]: a boot that cannot read its signing keys
+/// aborts before the in-process notifier flushes, so the event is its page.
+async fn load_rsa_keypairs_or_page(
+    security: &dyn SecurityRepository,
+) -> AppResult<Vec<(String, String, String, DateTime<Utc>, bool)>> {
+    security.load_rsa_keypairs().await.inspect_err(|e| {
+        error!(
+            event = RSA_KEYPAIR_LOAD_FAILED,
+            error_code = ?e.code,
+            error = %e,
+            "Failed to read the persisted RSA keypairs"
+        );
+    })
 }
 
 /// Load the persisted RSA keypairs, storing the first one when the table is
@@ -516,22 +596,28 @@ async fn store_first_keypair(
 /// caller cannot sign with a key the store does not hold. The first keypair is
 /// stored under [`FIRST_KEYPAIR_KID`] insert-if-absent and the table is read
 /// again, so instances that boot together all load the same single row and
-/// sign with the same key (carnet#696).
+/// sign with the same key (carnet#696). An empty table on a database that
+/// holds ciphertext is a lost keypair, never a fresh one: nothing is minted
+/// and the boot fails (carnet#703).
 ///
 /// # Errors
 /// Returns an error if a database read or write, key generation or key import
-/// fails
+/// fails, or if no keypair is stored on a database that holds ciphertext
 pub async fn load_or_store_first_keypair(
     security: &dyn SecurityRepository,
     rsa_key_size_bits: usize,
 ) -> AppResult<JwksManager> {
-    let mut keypairs = security.load_rsa_keypairs().await.inspect_err(|e| {
-        error!(error_code = ?e.code, error = %e, "Failed to read the persisted RSA keypairs");
-    })?;
+    let mut keypairs = load_rsa_keypairs_or_page(security).await?;
 
     if keypairs.is_empty() {
-        store_first_keypair(security, rsa_key_size_bits).await?;
-        keypairs = security.load_rsa_keypairs().await?;
+        let encrypted_rows = count_ciphertext_before_mint(security).await?;
+        if encrypted_rows > 0 {
+            keypairs = adopt_racing_keypair_or_refuse(security, encrypted_rows).await?;
+        } else {
+            let ours = store_first_keypair(security, rsa_key_size_bits).await?;
+            keypairs = load_rsa_keypairs_or_page(security).await?;
+            report_first_keypair_stored(&keypairs, &ours);
+        }
     }
 
     info!(

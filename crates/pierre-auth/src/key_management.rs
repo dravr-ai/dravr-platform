@@ -15,7 +15,11 @@ use rand::RngCore;
 use tracing::{error, info};
 
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::redaction::redact_url;
 use pierre_database::backends::factory::Database;
+use pierre_database::backends::shared::key_material::{
+    DEK_MINTED_OVER_CIPHERTEXT, DEK_READ_FAILED, DEK_UNWRAP_FAILED,
+};
 use pierre_database::backends::SecurityRepository;
 use pierre_database::database::generate_encryption_key;
 
@@ -361,6 +365,7 @@ impl KeyManager {
             Err(e) if e.code == ErrorCode::ResourceNotFound => return Ok(1),
             Err(e) => {
                 error!(
+                    event = DEK_READ_FAILED,
                     error_code = ?e.code,
                     error = %e,
                     "Failed to read the active DEK version"
@@ -369,7 +374,15 @@ impl KeyManager {
             }
         };
         value.trim().parse::<u32>().map_err(|e| {
-            AppError::internal(format!("Invalid stored active DEK version '{value}': {e}"))
+            let invalid =
+                AppError::internal(format!("Invalid stored active DEK version '{value}': {e}"));
+            error!(
+                event = DEK_READ_FAILED,
+                error_code = ?invalid.code,
+                error = %invalid,
+                "Stored active DEK version is not a version number"
+            );
+            invalid
         })
     }
 
@@ -407,22 +420,54 @@ impl KeyManager {
     ) -> AppResult<Vec<u8>> {
         let wrapped_base64 = security
             .get_system_secret(&Self::version_secret_name(version))
-            .await?;
-        let wrapped = Self::decode_encrypted_dek(&wrapped_base64)?;
+            .await
+            .inspect_err(|e| {
+                error!(
+                    event = DEK_READ_FAILED,
+                    dek_version = version,
+                    error_code = ?e.code,
+                    error = %e,
+                    "Failed to read a stored DEK version"
+                );
+            })?;
+        let wrapped = Self::decode_encrypted_dek(&wrapped_base64).inspect_err(|e| {
+            error!(
+                event = DEK_READ_FAILED,
+                dek_version = version,
+                error_code = ?e.code,
+                error = %e,
+                "Stored DEK version is not valid base64"
+            );
+        })?;
         let unwrapped = kek.unwrap(&wrapped).await.map_err(|e| {
+            error!(
+                event = DEK_UNWRAP_FAILED,
+                dek_version = version,
+                error_code = ?e.code,
+                error = %e,
+                "Stored DEK failed to unwrap with the key-encryption key"
+            );
             if e.message.contains("Decryption failed") {
                 let database_url =
                     env::var("DATABASE_URL").unwrap_or_else(|_| "unknown".to_owned());
-                AppError::encryption_key_mismatch(&database_url)
+                AppError::encryption_key_mismatch(&redact_url(&database_url))
             } else {
                 e
             }
         })?;
         if unwrapped.len() != 32 {
-            return Err(AppError::internal(format!(
+            let invalid = AppError::internal(format!(
                 "Decrypted DEK v{version} has invalid length: expected 32 bytes, got {}",
                 unwrapped.len()
-            )));
+            ));
+            error!(
+                event = DEK_UNWRAP_FAILED,
+                dek_version = version,
+                error_code = ?invalid.code,
+                error = %invalid,
+                "Stored DEK unwrapped to a key of the wrong length"
+            );
+            return Err(invalid);
         }
         Ok(unwrapped)
     }
@@ -462,8 +507,10 @@ impl KeyManager {
 
     /// Complete initialization after the database is available.
     ///
-    /// Only a definite not-found for the version-1 DEK row counts as a fresh
-    /// database: the bootstrap DEK is then stored insert-if-absent. Either way
+    /// Only a definite not-found for the version-1 DEK row on a database that
+    /// holds no ciphertext counts as a fresh database: the bootstrap DEK is
+    /// then stored insert-if-absent. A missing row beside ciphertext is a lost
+    /// key, and the instance does not boot (carnet#703). Either way
     /// every stored DEK version (1..=active) is then read back and installed,
     /// so racing fresh instances all adopt the one key that landed and the
     /// active version encrypts new data while prior versions stay available
@@ -475,7 +522,8 @@ impl KeyManager {
     ///
     /// # Errors
     ///
-    /// Returns an error if database operations or DEK wrap/unwrap fail.
+    /// Returns an error if database operations or DEK wrap/unwrap fail, or if
+    /// no DEK is stored on a database that holds ciphertext.
     pub async fn complete_initialization(&mut self, database: &mut Database) -> AppResult<()> {
         info!("Completing two-tier key management initialization");
 
@@ -487,6 +535,7 @@ impl KeyManager {
             }
             Err(e) => {
                 error!(
+                    event = DEK_READ_FAILED,
                     error_code = ?e.code,
                     error = %e,
                     "Failed to read the stored DEK; refusing to initialize key management"
@@ -510,9 +559,17 @@ impl KeyManager {
         };
 
         let active_key = versions.remove(&active_version).ok_or_else(|| {
-            AppError::internal(format!(
+            let missing = AppError::internal(format!(
                 "Active DEK version {active_version} not found among loaded versions"
-            ))
+            ));
+            error!(
+                event = DEK_READ_FAILED,
+                dek_version = active_version,
+                error_code = ?missing.code,
+                error = %missing,
+                "Stored active DEK version names no stored key"
+            );
+            missing
         })?;
         self.dek = DatabaseEncryptionKey::from_unwrapped(&active_key)?;
         database.install_dek_versions(active_version, active_key, versions);
@@ -522,7 +579,24 @@ impl KeyManager {
 
     /// Store the bootstrap DEK as version 1 unless another instance already
     /// stored one; the caller then loads whichever key the store holds.
+    ///
+    /// A database with no DEK row should hold no ciphertext either. When it
+    /// does, either a racing instance stored its DEK and wrote ciphertext
+    /// after this one looked, and that DEK is adopted, or the row was lost
+    /// and a key minted here could open none of it: nothing is stored, the
+    /// refusal logs at `ERROR` under [`DEK_MINTED_OVER_CIPHERTEXT`] and the
+    /// instance does not boot (carnet#703).
     async fn store_first_dek(&self, security: &dyn SecurityRepository) -> AppResult<()> {
+        let encrypted_rows = Self::count_ciphertext_before_mint(security).await?;
+        if encrypted_rows > 0 {
+            return Self::adopt_racing_dek_or_refuse(security, encrypted_rows).await;
+        }
+        self.mint_first_dek(security).await
+    }
+
+    /// Store this instance's DEK as version 1 on a database that holds no
+    /// ciphertext, insert-if-absent.
+    async fn mint_first_dek(&self, security: &dyn SecurityRepository) -> AppResult<()> {
         info!("No existing DEK found, storing the bootstrap Database Encryption Key as version 1");
         let wrapped_dek = self.kek.wrap(self.dek.as_bytes()).await?;
         let stored = Self::insert_version_key_if_absent(security, 1, &wrapped_dek).await?;
@@ -532,6 +606,56 @@ impl KeyManager {
             info!("Another instance stored DEK version 1 first; adopting the stored key");
         }
         Ok(())
+    }
+
+    /// Read the version-1 DEK row again on a database that holds
+    /// `encrypted_rows` ciphertext rows: a racing instance's row is adopted,
+    /// a row still missing refuses the boot.
+    async fn adopt_racing_dek_or_refuse(
+        security: &dyn SecurityRepository,
+        encrypted_rows: i64,
+    ) -> AppResult<()> {
+        match security.get_system_secret(Self::V1_SECRET).await {
+            Ok(_) => {
+                info!("Another instance stored DEK version 1 first; adopting the stored key");
+                Ok(())
+            }
+            Err(e) if e.code == ErrorCode::ResourceNotFound => {
+                error!(
+                    event = DEK_MINTED_OVER_CIPHERTEXT,
+                    encrypted_rows,
+                    "No DEK stored on a database that holds ciphertext; refusing to mint one"
+                );
+                Err(AppError::config(format!(
+                    "No Database Encryption Key is stored, but the database holds \
+                     {encrypted_rows} encrypted rows that a new key could not open. \
+                     Restore the original wrapped DEK row in system_secrets (the \
+                     carnet#696 recovery procedure) before booting."
+                )))
+            }
+            Err(e) => {
+                error!(
+                    event = DEK_READ_FAILED,
+                    error_code = ?e.code,
+                    error = %e,
+                    "Failed to read the stored DEK; refusing to initialize key management"
+                );
+                Err(e)
+            }
+        }
+    }
+
+    /// Count the rows holding ciphertext before a DEK is minted; a failed
+    /// count refuses the mint, since the answer decides whether it is safe.
+    async fn count_ciphertext_before_mint(security: &dyn SecurityRepository) -> AppResult<i64> {
+        security.count_encrypted_rows().await.inspect_err(|e| {
+            error!(
+                event = DEK_READ_FAILED,
+                error_code = ?e.code,
+                error = %e,
+                "Failed to count encrypted rows before storing a DEK; refusing to initialize key management"
+            );
+        })
     }
 
     /// Rotate the Database Encryption Key to a fresh active version.

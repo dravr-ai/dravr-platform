@@ -485,7 +485,12 @@ macro_rules! impl_tenant_repository {
                             tenant_id,
                             $lists::read_json(row, "scopes")?,
                             |encrypted, aad| {
-                                HasEncryption::decrypt_data_with_aad(self, encrypted, aad)
+                                decrypt_stored_secret(
+                                    self,
+                                    StoredSecretKind::TenantOAuthClientSecret,
+                                    encrypted,
+                                    aad,
+                                )
                             },
                         )
                     })
@@ -511,7 +516,14 @@ macro_rules! impl_tenant_repository {
                         &row,
                         tenant_id,
                         $lists::read_json(&row, "scopes")?,
-                        |encrypted, aad| HasEncryption::decrypt_data_with_aad(self, encrypted, aad),
+                        |encrypted, aad| {
+                            decrypt_stored_secret(
+                                self,
+                                StoredSecretKind::TenantOAuthClientSecret,
+                                encrypted,
+                                aad,
+                            )
+                        },
                     )
                 })
                 .transpose()

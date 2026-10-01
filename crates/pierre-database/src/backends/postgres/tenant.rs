@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 use crate::backends::postgres::PostgresDatabase;
 use crate::backends::shared::encryption::HasEncryption;
+use crate::backends::shared::key_material::{decrypt_stored_secret, StoredSecretKind};
 use crate::repositories::list_columns::NativeList;
 use crate::repositories::tenants::{
     impl_tenant_repository, tenant_from_row, tenant_oauth_aad, tenant_oauth_credentials_from_row,

@@ -14,6 +14,9 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use pierre_core::errors::{AppError, AppResult};
+use pierre_database::backends::shared::key_material::{
+    report_stored_secret_decrypt_failure, StoredSecretKind,
+};
 use pierre_database::backends::{LlmCredentialRepository, SecurityRepository};
 
 /// Environment variable names for LLM provider API keys
@@ -365,7 +368,12 @@ impl TenantLlmManager {
                 source,
             }),
             Err(e) => {
-                warn!("Failed to decrypt {provider} credentials: {e}");
+                report_stored_secret_decrypt_failure(
+                    StoredSecretKind::LlmApiKey,
+                    &record.api_key_encrypted,
+                    &aad_context,
+                    &e,
+                );
                 None
             }
         }

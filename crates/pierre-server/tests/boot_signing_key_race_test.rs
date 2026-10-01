@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests that boot-time signing keys (RSA keypair, admin JWT secret) are never replaced
-// ABOUTME: A failed read stores nothing, an empty store gets one key, and racing instances converge on it
+// ABOUTME: A failed read stores nothing, an empty store gets one key, racing instances converge on it and page nothing
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -14,7 +14,7 @@
 
 mod common;
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -30,6 +30,10 @@ use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_test_support::db::{create_concurrent_test_db, create_test_db};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
+use tracing::{Event, Level, Subscriber};
+use tracing_subscriber::layer::{Context, SubscriberExt};
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::Layer;
 
 /// Key size for test keypairs; 2048 bits keeps generation fast.
 const TEST_RSA_BITS: usize = 2048;
@@ -261,15 +265,50 @@ async fn concurrent_fresh_boots_sign_with_the_same_keypair() {
     }
 }
 
-/// A security store whose first keypair save is preceded by a whole peer
-/// boot against the same store, as when this instance generated its key
-/// first but a racing instance committed first. The pause before the peer
-/// boot puts the two generations in different seconds, the case a
+/// The step of this instance's first boot that a whole peer boot runs
+/// ahead of.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PeerBootsBefore {
+    /// The keypair save: this instance generated its key first but the
+    /// peer committed first.
+    Save,
+    /// The ciphertext count: the peer's fresh keypair row is in the table
+    /// this instance counts before it mints.
+    Count,
+}
+
+/// A security store that runs a whole peer boot against the same store
+/// just before one step of this instance's first boot. Before a save, the
+/// pause puts the two generations in different seconds, the case a
 /// per-second key id could not converge on.
 struct PeerCommitsFirst<'a> {
     inner: &'a dyn SecurityRepository,
+    before: PeerBootsBefore,
     peer: Mutex<Option<JwksManager>>,
     fired: AtomicBool,
+}
+
+impl<'a> PeerCommitsFirst<'a> {
+    fn new(inner: &'a dyn SecurityRepository, before: PeerBootsBefore) -> Self {
+        Self {
+            inner,
+            before,
+            peer: Mutex::new(None),
+            fired: AtomicBool::new(false),
+        }
+    }
+
+    /// Run the peer's boot once, the first time `step` is reached.
+    async fn peer_boots_before(&self, step: PeerBootsBefore) -> AppResult<()> {
+        if self.before == step && !self.fired.swap(true, Ordering::SeqCst) {
+            if step == PeerBootsBefore::Save {
+                sleep(Duration::from_millis(1100)).await;
+            }
+            let peer = load_or_store_first_keypair(self.inner, TEST_RSA_BITS).await?;
+            *self.peer.lock().await = Some(peer);
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -283,11 +322,7 @@ impl SecurityRepository for PeerCommitsFirst<'_> {
         is_active: bool,
         key_size_bits: i32,
     ) -> AppResult<()> {
-        if !self.fired.swap(true, Ordering::SeqCst) {
-            sleep(Duration::from_millis(1100)).await;
-            let peer = load_or_store_first_keypair(self.inner, TEST_RSA_BITS).await?;
-            *self.peer.lock().await = Some(peer);
-        }
+        self.peer_boots_before(PeerBootsBefore::Save).await?;
         self.inner
             .save_rsa_keypair(
                 kid,
@@ -324,6 +359,10 @@ impl SecurityRepository for PeerCommitsFirst<'_> {
             .update_system_secret(secret_type, new_value)
             .await
     }
+    async fn count_encrypted_rows(&self) -> AppResult<i64> {
+        self.peer_boots_before(PeerBootsBefore::Count).await?;
+        self.inner.count_encrypted_rows().await
+    }
     fn encrypt_data_with_aad(&self, data: &str, aad: &str) -> AppResult<String> {
         self.inner.encrypt_data_with_aad(data, aad)
     }
@@ -335,11 +374,7 @@ impl SecurityRepository for PeerCommitsFirst<'_> {
 #[tokio::test]
 async fn racing_first_boots_converge_when_the_later_key_commits_first() {
     let database = create_test_db().await.unwrap();
-    let store = PeerCommitsFirst {
-        inner: database.as_security_repository(),
-        peer: Mutex::new(None),
-        fired: AtomicBool::new(false),
-    };
+    let store = PeerCommitsFirst::new(database.as_security_repository(), PeerBootsBefore::Save);
 
     let this = load_or_store_first_keypair(&store, TEST_RSA_BITS)
         .await
@@ -367,6 +402,45 @@ async fn racing_first_boots_converge_when_the_later_key_commits_first() {
             "every instance verifies with the stored keypair"
         );
     }
+}
+
+/// Counts the events logged at `ERROR` on this thread while it is the
+/// default subscriber.
+#[derive(Clone, Default)]
+struct ErrorCount(Arc<AtomicUsize>);
+
+impl<S: Subscriber> Layer<S> for ErrorCount {
+    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+        if *event.metadata().level() == Level::ERROR {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+}
+
+#[tokio::test]
+async fn racing_first_boots_on_an_empty_database_page_nothing() {
+    let database = create_test_db().await.unwrap();
+    let store = PeerCommitsFirst::new(database.as_security_repository(), PeerBootsBefore::Count);
+    let errors = ErrorCount::default();
+    let _guard = tracing_subscriber::registry()
+        .with(errors.clone())
+        .set_default();
+
+    let this = load_or_store_first_keypair(&store, TEST_RSA_BITS)
+        .await
+        .unwrap();
+    let peer = store.peer.lock().await.take().expect("the peer booted");
+
+    assert_eq!(
+        active_identity(&this),
+        active_identity(&peer),
+        "the instance that lost the insert signs with the peer's key"
+    );
+    assert_eq!(
+        errors.0.load(Ordering::SeqCst),
+        0,
+        "the peer's fresh keypair row is no lost key: a routine first deploy pages nothing"
+    );
 }
 
 #[tokio::test]

@@ -39,6 +39,7 @@ use pierre_core::models::{
 use uuid::Uuid;
 
 use crate::backends::shared::encryption::{decrypt_oauth_token, HasEncryption};
+use crate::backends::shared::key_material::StoredSecretKind;
 
 /// Store or replace the one token a user holds per tenant and provider. The
 /// caller's `created_at`/`updated_at` are what get stored; on conflict
@@ -389,15 +390,30 @@ where
     let encrypted_access_token: String = row
         .try_get("access_token")
         .map_err(|e| column_error("access_token", e))?;
-    let access_token =
-        decrypt_oauth_token(db, &encrypted_access_token, &tenant_id, user_id, &provider)?;
+    let access_token = decrypt_oauth_token(
+        db,
+        StoredSecretKind::OAuthAccessToken,
+        &encrypted_access_token,
+        &tenant_id,
+        user_id,
+        &provider,
+    )?;
 
     let encrypted_refresh_token: Option<String> = row
         .try_get("refresh_token")
         .map_err(|e| column_error("refresh_token", e))?;
     let refresh_token = encrypted_refresh_token
         .as_deref()
-        .map(|encrypted| decrypt_oauth_token(db, encrypted, &tenant_id, user_id, &provider))
+        .map(|encrypted| {
+            decrypt_oauth_token(
+                db,
+                StoredSecretKind::OAuthRefreshToken,
+                encrypted,
+                &tenant_id,
+                user_id,
+                &provider,
+            )
+        })
         .transpose()?;
 
     Ok(UserOAuthToken {
@@ -747,8 +763,9 @@ macro_rules! impl_oauth_token_repository {
                                 "Failed to get client_secret_encrypted: {e}"
                             ))
                         })?;
-                    HasEncryption::decrypt_data_with_aad(
+                    decrypt_stored_secret(
                         self,
+                        StoredSecretKind::StravaPoolClientSecret,
                         &encrypted,
                         &strava_pool_app_aad(client_id),
                     )

@@ -28,6 +28,8 @@ use pierre_seeders::trainingpeaks_delegation::{
 };
 use tracing::info;
 
+use crate::helpers::jwks::initialize_jwks_manager;
+
 #[non_exhaustive]
 #[derive(Subcommand)]
 pub enum SeedCommand {
@@ -84,6 +86,11 @@ pub async fn dispatch(action: SeedCommand, database_url: &str) -> AppResult<()> 
 /// Repositories over the full two-tier key management (the real DEK), for a
 /// seeder that writes an encrypted `oauth_token`: the token then decrypts in
 /// the server exactly like a real provider connection.
+///
+/// The signing keypair is loaded or stored before anything is seeded, as a
+/// booting server does: a server refuses to mint a keypair on a database
+/// that already holds ciphertext (carnet#703), so a seeder that wrote the
+/// first ciphertext without one would leave a database no server can boot.
 async fn keyed_repositories(
     database_url: &str,
     seeder: &str,
@@ -101,7 +108,9 @@ async fn keyed_repositories(
     )
     .await?;
     key_manager.complete_initialization(&mut database).await?;
-    Ok(Arc::clone(database.repositories()))
+    let repos = Arc::clone(database.repositories());
+    initialize_jwks_manager(&repos).await?;
+    Ok(repos)
 }
 
 async fn dispatch_with_database(action: SeedCommand, database_url: &str) -> AppResult<()> {

@@ -73,6 +73,12 @@ pub trait SecurityRepository: Send + Sync {
     ) -> AppResult<String>;
     /// Update system secret (for rotation)
     async fn update_system_secret(&self, secret_type: &str, new_value: &str) -> AppResult<()>;
+    /// Count the rows that hold ciphertext sealed under a Database Encryption
+    /// Key, across every table that stores one.
+    ///
+    /// Key management asks before it mints a key: a fresh key on a database
+    /// that already holds ciphertext cannot open any of it (carnet#703).
+    async fn count_encrypted_rows(&self) -> AppResult<i64>;
     /// Encrypt data with AAD (Additional Authenticated Data)
     ///
     /// # Errors
@@ -118,6 +124,19 @@ pub(crate) const GET_SYSTEM_SECRET_SQL: &str =
 pub(crate) const UPSERT_SYSTEM_SECRET_SQL: &str = "INSERT INTO system_secrets (secret_type, secret_value, created_at, updated_at) \
              VALUES ($1, $2, $3, $4) \
              ON CONFLICT(secret_type) DO UPDATE SET secret_value = EXCLUDED.secret_value, updated_at = EXCLUDED.updated_at";
+
+/// Rows holding DEK ciphertext, summed over every table that stores one.
+///
+/// A deployment-wide count with no tenant or user key on purpose: the DEK
+/// and the JWT signing keypair are global, so whether any tenant's row holds
+/// ciphertext is the question. Only a number leaves the query.
+pub(crate) const COUNT_ENCRYPTED_ROWS_SQL: &str = r"
+            SELECT (SELECT COUNT(*) FROM user_oauth_tokens)
+                 + (SELECT COUNT(*) FROM rsa_keypairs)
+                 + (SELECT COUNT(*) FROM tenant_oauth_credentials)
+                 + (SELECT COUNT(*) FROM strava_oauth_app_pool)
+                 + (SELECT COUNT(*) FROM user_llm_credentials) AS encrypted_rows
+            ";
 
 /// Emit the whole [`SecurityRepository`] implementation for one backend
 /// type, plus the private read-time upgrade of a plaintext private key.
@@ -287,6 +306,17 @@ macro_rules! impl_security_repository {
                     .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
 
                 Ok(())
+            }
+
+            async fn count_encrypted_rows(&self) -> AppResult<i64> {
+                let row = sqlx::query(COUNT_ENCRYPTED_ROWS_SQL)
+                    .fetch_one(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to count encrypted rows: {e}"))
+                    })?;
+                row.try_get("encrypted_rows")
+                    .map_err(|e| AppError::database(format!("Failed to get encrypted_rows: {e}")))
             }
 
             fn encrypt_data_with_aad(&self, data: &str, aad: &str) -> AppResult<String> {

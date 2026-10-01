@@ -15,7 +15,7 @@ use crate::backends::shared::encryption::{
 };
 use crate::database::Database;
 use crate::repositories::security::{
-    impl_security_repository, SecurityRepository, GET_SYSTEM_SECRET_SQL,
+    impl_security_repository, SecurityRepository, COUNT_ENCRYPTED_ROWS_SQL, GET_SYSTEM_SECRET_SQL,
     INSERT_SYSTEM_SECRET_IF_ABSENT_SQL, LOAD_RSA_KEYPAIRS_SQL, REWRITE_RSA_PRIVATE_KEY_SQL,
     SAVE_RSA_KEYPAIR_SQL, UPSERT_SYSTEM_SECRET_SQL,
 };

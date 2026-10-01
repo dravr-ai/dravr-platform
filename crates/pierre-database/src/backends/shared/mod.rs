@@ -18,3 +18,6 @@ pub mod encryption;
 
 /// Transaction retry patterns (deadlock handling, exponential backoff)
 pub mod transactions;
+
+/// Key-material failure events and the stored-secret decrypt path that reports them
+pub mod key_material;

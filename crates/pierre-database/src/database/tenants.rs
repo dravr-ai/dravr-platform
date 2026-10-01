@@ -12,6 +12,7 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::backends::shared::encryption::HasEncryption;
+use crate::backends::shared::key_material::{decrypt_stored_secret, StoredSecretKind};
 use crate::database::Database;
 use crate::repositories::list_columns::TextList;
 use crate::repositories::tenants::{

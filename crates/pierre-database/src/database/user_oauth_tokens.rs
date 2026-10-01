@@ -14,6 +14,7 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use crate::backends::shared::encryption::{encrypt_oauth_token, HasEncryption};
+use crate::backends::shared::key_material::{decrypt_stored_secret, StoredSecretKind};
 use crate::database::Database;
 use crate::repositories::user_oauth_tokens::{
     impl_oauth_token_repository, strava_pool_app_aad, strava_pool_app_from_row,

@@ -63,7 +63,7 @@ pub const RETRY_AFTER_SECS_DETAIL: &str = "retry_after_secs";
 
 /// Standard error codes used throughout the application
 #[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ErrorCode {
     // Authentication & Authorization
     /// Authentication is required but not provided
