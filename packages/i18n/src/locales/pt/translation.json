@@ -758,7 +758,8 @@
     "brandCoros": "COROS",
     "providerAccountConnected": "A tua conta {{provider}} foi ligada ao Dravr com sucesso.",
     "providerReadyToSync": "Tudo pronto para sincronizar {{provider}}",
-    "oauthAppSetupIntro": "{{provider}} exige que cada utilizador registe a sua própria aplicação de programador. Cria uma em <portal>{{host}}</portal> e usa o URI de redirecionamento indicado abaixo."
+    "oauthAppSetupIntro": "{{provider}} exige que cada utilizador registe a sua própria aplicação de programador. Cria uma em <portal>{{host}}</portal> e usa o URI de redirecionamento indicado abaixo.",
+    "connectedOn": "Ligado em {{date}}"
   },
   "auth": {
     "activatesOnConfirm": "A tua conta fica ativa assim que o endereço for confirmado",
@@ -1626,7 +1627,6 @@
     "clientIdLabel": "ID de cliente:",
     "connectTo": "Ligar a",
     "connectWith": "Ligar com",
-    "connected": "Ligado",
     "couldntConfirm": "Não foi possível confirmar isto agora",
     "couldntLoadStore": "Não foi possível carregar a loja",
     "couldntSearchAgents": "Não foi possível pesquisar agentes",
@@ -2332,7 +2332,7 @@
     "primarySportLabel": "O que praticas mais?",
     "profileTypeIntro": "Como vais usar o Dravr? Isto adapta os agentes que sugerimos. Podes mudar quando quiseres nas Definições.",
     "progressAria": "Progresso da configuração",
-    "providerConnectedPreparing": "Fornecedor ligado — a preparar o teu painel…",
+    "providerConnectedPreparing": "{{provider}} ligado — a preparar o teu painel…",
     "readingActivitiesHint": "Estamos a ler as atividades que o teu fornecedor regista para encontrar os agentes que encaixam na forma como treinas de verdade.",
     "retry": "Tentar de novo",
     "saving": "A guardar…",

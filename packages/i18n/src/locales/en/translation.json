@@ -758,7 +758,8 @@
     "brandCoros": "COROS",
     "providerAccountConnected": "Your {{provider}} account has been successfully connected to Dravr.",
     "providerReadyToSync": "{{provider}} is ready to sync",
-    "oauthAppSetupIntro": "{{provider}} requires each user to register their own developer app. Create one at <portal>{{host}}</portal> and use the redirect URI shown below."
+    "oauthAppSetupIntro": "{{provider}} requires each user to register their own developer app. Create one at <portal>{{host}}</portal> and use the redirect URI shown below.",
+    "connectedOn": "Connected {{date}}"
   },
   "auth": {
     "activatesOnConfirm": "Your account activates as soon as the address is confirmed",
@@ -1626,7 +1627,6 @@
     "clientIdLabel": "Client ID:",
     "connectTo": "Connect to",
     "connectWith": "Connect with",
-    "connected": "Connected",
     "couldntConfirm": "We couldn't confirm that just now",
     "couldntLoadStore": "Couldn't load the store",
     "couldntSearchAgents": "Couldn't search agents",
@@ -2332,7 +2332,7 @@
     "primarySportLabel": "What do you mostly do?",
     "profileTypeIntro": "How will you use Dravr? This tailors the agents we suggest. You can change it anytime in Settings.",
     "progressAria": "Onboarding progress",
-    "providerConnectedPreparing": "Provider connected — preparing your dashboard…",
+    "providerConnectedPreparing": "{{provider}} connected — preparing your dashboard…",
     "readingActivitiesHint": "We're reading the activities your provider tracks to find the agents that fit how you actually train.",
     "retry": "Try again",
     "saving": "Saving…",

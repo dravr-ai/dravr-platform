@@ -758,7 +758,8 @@
     "brandCoros": "COROS",
     "providerAccountConnected": "Ton compte {{provider}} est bien connecté à Dravr.",
     "providerReadyToSync": "Tout est prêt pour synchroniser {{provider}}",
-    "oauthAppSetupIntro": "{{provider}} demande à chaque utilisateur d’enregistrer sa propre application de développeur. Crées-en une sur <portal>{{host}}</portal> et utilise l’URI de redirection indiquée ci-dessous."
+    "oauthAppSetupIntro": "{{provider}} demande à chaque utilisateur d’enregistrer sa propre application de développeur. Crées-en une sur <portal>{{host}}</portal> et utilise l’URI de redirection indiquée ci-dessous.",
+    "connectedOn": "Connecté le {{date}}"
   },
   "auth": {
     "activatesOnConfirm": "Ton compte s’active dès que l’adresse est confirmée",
@@ -1626,7 +1627,6 @@
     "clientIdLabel": "Identifiant client :",
     "connectTo": "Se connecter à",
     "connectWith": "Se connecter avec",
-    "connected": "Connecté",
     "couldntConfirm": "Impossible de confirmer pour le moment",
     "couldntLoadStore": "Impossible de charger la boutique",
     "couldntSearchAgents": "Impossible de chercher des agents",
@@ -2332,7 +2332,7 @@
     "primarySportLabel": "Tu fais surtout quoi ?",
     "profileTypeIntro": "Comment vas-tu utiliser Dravr ? Cela adapte les agents qu'on te propose. Tu peux changer d'avis à tout moment dans les réglages.",
     "progressAria": "Progression de la configuration",
-    "providerConnectedPreparing": "Fournisseur connecté — préparation de ton tableau de bord…",
+    "providerConnectedPreparing": "{{provider}} connecté — préparation de ton tableau de bord…",
     "readingActivitiesHint": "On lit les activités que ton fournisseur enregistre pour trouver les agents qui correspondent à la façon dont tu t’entraînes vraiment.",
     "retry": "Réessayer",
     "saving": "Enregistrement…",
