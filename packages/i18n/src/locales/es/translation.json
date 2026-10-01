@@ -1638,7 +1638,6 @@
     "impersonating": "Estás suplantando a",
     "inYour": "En tu",
     "instructionsLabel": "Instrucciones:",
-    "lastPaymentFor": "Tu último pago del",
     "mayTakeUpTo": "Esto puede tardar hasta {{budget}}",
     "noLimit": "Sin límite",
     "participants": "Participantes",
@@ -2432,6 +2431,31 @@
         "athlete": "elegido por ti"
       },
       "alsoRacing": "También en el calendario"
+    },
+    "limits": {
+      "messagesPerDay": "Mensajes / día",
+      "tokensPerDay": "Tokens / día",
+      "agents": "Agentes",
+      "toolCallsPerDay": "Llamadas a herramientas / día",
+      "includedUsage": "Uso incluido",
+      "perMonth": "{{amount}}/mes"
+    },
+    "subscriptionStatus": {
+      "active": "Activa",
+      "trialing": "En prueba",
+      "pastDue": "Pago vencido",
+      "unpaid": "Impagada",
+      "canceled": "Cancelada",
+      "incomplete": "Incompleta",
+      "incompleteExpired": "Caducada",
+      "paused": "En pausa"
+    },
+    "invoiceStatus": {
+      "draft": "Borrador",
+      "open": "Abierta",
+      "paid": "Pagada",
+      "uncollectible": "Incobrable",
+      "void": "Anulada"
     }
   },
   "profile": {
@@ -2877,7 +2901,15 @@
     "dailyTokens": "tus tokens diarios",
     "messageQuota": "tu cuota de mensajes",
     "percentUsed": "Has usado el {{percent}} % de {{label}} ({{current}}/{{limit}}). Los límites se reinician a las {{time}}.",
-    "weeklyMessages": "tus mensajes semanales"
+    "weeklyMessages": "tus mensajes semanales",
+    "counter": {
+      "dailyMessages": "Mensajes diarios",
+      "dailyTokens": "Tokens diarios",
+      "weeklyTokens": "Tokens semanales",
+      "dailyToolCalls": "Llamadas a herramientas diarias",
+      "dailyConversations": "Conversaciones diarias",
+      "activeCoaches": "Agentes activos"
+    }
   },
   "validation": {
     "confirmPassword": "Confirma tu contraseña",
