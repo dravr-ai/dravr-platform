@@ -438,8 +438,25 @@ pub fn reroutes_headless_turn(error: &AppError) -> bool {
 
 /// The identifier a tool call is recorded under.
 ///
-/// The SDK transport reports the tool's registered name; the ACP adapter sends
-/// only a display title, which is then the best available identifier.
+/// The SDK transport reports the name the Copilot runtime calls the tool by,
+/// which for a tool served over the turn's MCP server is
+/// `<server>-<tool>` (`dravr-get_activities`); the ACP adapter sends only a
+/// display title, which is then the best available identifier. Either way the
+/// platform's own server prefix comes off, so the turn records the name the
+/// registry, the plan card and the plan-saved check all compare against. A
+/// tool from any other server keeps its prefix: it is a different tool.
 pub(crate) fn observed_tool_name(call: &pierre_llm::ObservedToolCall) -> String {
-    call.name.clone().unwrap_or_else(|| call.title.clone())
+    let reported = call.name.as_deref().unwrap_or(&call.title);
+    reported
+        .strip_prefix(PLATFORM_MCP_SERVER_NAME)
+        .and_then(|rest| rest.strip_prefix('-'))
+        .unwrap_or(reported)
+        .to_owned()
 }
+
+/// The name the turn's MCP tool server is registered under.
+///
+/// It namespaces the platform's tools in the model's view, and the Copilot
+/// runtime reports each one back as this name, a hyphen, and the tool's own
+/// name.
+pub const PLATFORM_MCP_SERVER_NAME: &str = "dravr";

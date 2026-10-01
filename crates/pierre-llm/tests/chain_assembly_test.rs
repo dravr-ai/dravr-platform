@@ -197,7 +197,9 @@ fn every_tier_built_assembles_three_deep() {
             primary: Ok(copilot_like()),
             accounts: Vec::new(),
             secondary: Ok(cohere_like()),
+            secondary_accounts: Vec::new(),
             tertiary: Some(Ok(gemini_like())),
+            tertiary_accounts: Vec::new(),
         },
         LlmProviderType::CopilotHeadless,
         LlmProviderType::Cohere,
@@ -217,7 +219,9 @@ fn a_failed_secondary_promotes_the_tertiary() {
             primary: Ok(copilot_like()),
             accounts: Vec::new(),
             secondary: Err(AppError::config("COHERE_API_KEY unset")),
+            secondary_accounts: Vec::new(),
             tertiary: Some(Ok(gemini_like())),
+            tertiary_accounts: Vec::new(),
         },
         LlmProviderType::CopilotHeadless,
         LlmProviderType::Cohere,
@@ -239,7 +243,9 @@ fn a_failed_tertiary_leaves_the_two_tier_chain() {
             primary: Ok(copilot_like()),
             accounts: Vec::new(),
             secondary: Ok(cohere_like()),
+            secondary_accounts: Vec::new(),
             tertiary: Some(Err(AppError::config("GEMINI_API_KEY unset"))),
+            tertiary_accounts: Vec::new(),
         },
         LlmProviderType::CopilotHeadless,
         LlmProviderType::Cohere,
@@ -258,7 +264,9 @@ fn a_failed_tail_runs_the_primary_alone() {
             primary: Ok(copilot_like()),
             accounts: Vec::new(),
             secondary: Err(AppError::config("COHERE_API_KEY unset")),
+            secondary_accounts: Vec::new(),
             tertiary: Some(Err(AppError::config("GEMINI_API_KEY unset"))),
+            tertiary_accounts: Vec::new(),
         },
         LlmProviderType::CopilotHeadless,
         LlmProviderType::Cohere,
@@ -279,7 +287,9 @@ fn a_failed_primary_runs_the_tail_alone() {
             primary: Err(AppError::config("copilot binary missing")),
             accounts: Vec::new(),
             secondary: Ok(cohere_like()),
+            secondary_accounts: Vec::new(),
             tertiary: Some(Ok(gemini_like())),
+            tertiary_accounts: Vec::new(),
         },
         LlmProviderType::CopilotHeadless,
         LlmProviderType::Cohere,
@@ -301,7 +311,9 @@ fn every_tier_failing_is_a_config_error() {
             primary: Err(AppError::config("copilot binary missing")),
             accounts: Vec::new(),
             secondary: Err(AppError::config("COHERE_API_KEY unset")),
+            secondary_accounts: Vec::new(),
             tertiary: None,
+            tertiary_accounts: Vec::new(),
         },
         LlmProviderType::CopilotHeadless,
         LlmProviderType::Cohere,
@@ -327,7 +339,9 @@ fn further_accounts_sit_between_the_primary_and_the_fallback() {
             primary: Ok(copilot_like()),
             accounts: vec![cohere_like()],
             secondary: Ok(gemini_like()),
+            secondary_accounts: Vec::new(),
             tertiary: None,
+            tertiary_accounts: Vec::new(),
         },
         LlmProviderType::CopilotHeadless,
         LlmProviderType::Gemini,
@@ -354,7 +368,9 @@ fn accounts_alone_are_a_tail_when_no_fallback_built() {
             primary: Ok(copilot_like()),
             accounts: vec![cohere_like()],
             secondary: Err(AppError::config("GEMINI_API_KEY unset")),
+            secondary_accounts: Vec::new(),
             tertiary: None,
+            tertiary_accounts: Vec::new(),
         },
         LlmProviderType::CopilotHeadless,
         LlmProviderType::Gemini,
@@ -366,4 +382,119 @@ fn accounts_alone_are_a_tail_when_no_fallback_built() {
         .expect("the second account is still a tier");
     assert_eq!(tail.name(), "cohere");
     assert!(tail.fallback_tail().is_none());
+}
+
+// ---------------------------------------------------------------------------
+// A pooled tier behind another primary: the pool follows its runner
+// ---------------------------------------------------------------------------
+
+/// A Claude-Code-shaped tier or account, by name.
+fn claude_like(name: &'static str) -> EmbacleProvider {
+    EmbacleProvider::from_runner(
+        Box::new(Scripted::new(name, LlmCapabilities::STREAMING)),
+        "Claude Code (scripted)",
+    )
+}
+
+/// The names of a chain's tiers, head first.
+fn tier_names(chain: &ChatProvider) -> Vec<&'static str> {
+    let mut names = vec![chain.name()];
+    let mut tail = chain.fallback_tail();
+    while let Some(tier) = tail {
+        names.push(tier.name());
+        tail = tier.fallback_tail();
+    }
+    names
+}
+
+#[test]
+fn a_fallback_tiers_accounts_sit_right_behind_it() {
+    let chain = ChatProvider::assemble_runtime_chain(
+        ChainTiers {
+            primary: Ok(copilot_like()),
+            accounts: Vec::new(),
+            secondary: Ok(claude_like("claude-code")),
+            secondary_accounts: vec![claude_like("claude-code#2"), claude_like("claude-code#3")],
+            tertiary: Some(Ok(gemini_like())),
+            tertiary_accounts: Vec::new(),
+        },
+        LlmProviderType::CopilotSdk,
+        LlmProviderType::ClaudeCode,
+    )
+    .unwrap();
+
+    assert_eq!(
+        tier_names(&chain),
+        [
+            "copilot_headless",
+            "claude-code",
+            "claude-code#2",
+            "claude-code#3",
+            "gemini"
+        ],
+        "every Claude account is asked before the chain leaves Claude"
+    );
+}
+
+#[test]
+fn a_tertiary_tiers_accounts_end_the_chain() {
+    let chain = ChatProvider::assemble_runtime_chain(
+        ChainTiers {
+            primary: Ok(copilot_like()),
+            accounts: Vec::new(),
+            secondary: Ok(gemini_like()),
+            secondary_accounts: Vec::new(),
+            tertiary: Some(Ok(claude_like("claude-code"))),
+            tertiary_accounts: vec![claude_like("claude-code#2")],
+        },
+        LlmProviderType::CopilotSdk,
+        LlmProviderType::Gemini,
+    )
+    .unwrap();
+
+    assert_eq!(
+        tier_names(&chain),
+        ["copilot_headless", "gemini", "claude-code", "claude-code#2"]
+    );
+}
+
+#[test]
+fn a_promoted_tertiary_keeps_its_accounts() {
+    let chain = ChatProvider::assemble_runtime_chain(
+        ChainTiers {
+            primary: Ok(copilot_like()),
+            accounts: Vec::new(),
+            secondary: Err(AppError::config("GEMINI_API_KEY unset")),
+            secondary_accounts: Vec::new(),
+            tertiary: Some(Ok(claude_like("claude-code"))),
+            tertiary_accounts: vec![claude_like("claude-code#2")],
+        },
+        LlmProviderType::CopilotSdk,
+        LlmProviderType::Gemini,
+    )
+    .unwrap();
+
+    assert_eq!(
+        tier_names(&chain),
+        ["copilot_headless", "claude-code", "claude-code#2"]
+    );
+}
+
+#[test]
+fn a_fallback_that_did_not_build_takes_its_accounts_with_it() {
+    let chain = ChatProvider::assemble_runtime_chain(
+        ChainTiers {
+            primary: Ok(copilot_like()),
+            accounts: Vec::new(),
+            secondary: Err(AppError::config("claude binary missing")),
+            secondary_accounts: vec![claude_like("claude-code#2")],
+            tertiary: Some(Ok(gemini_like())),
+            tertiary_accounts: Vec::new(),
+        },
+        LlmProviderType::CopilotSdk,
+        LlmProviderType::ClaudeCode,
+    )
+    .unwrap();
+
+    assert_eq!(tier_names(&chain), ["copilot_headless", "gemini"]);
 }

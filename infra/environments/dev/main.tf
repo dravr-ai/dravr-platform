@@ -446,7 +446,10 @@ module "backend" {
       # SDK's own: EMBACLE_SDK_PROMPT_TIMEOUT_SECS caps a whole turn (the
       # runtime streams, so a long synthesis is not what trips it) and
       # EMBACLE_SDK_SESSION_TIMEOUT_SECS caps the session handshake. The
-      # headless block now serves only the sciotte vision-login fallback.
+      # headless block serves the sciotte vision-login fallback; either
+      # MCP_TOOL_CALLING flag arms the loopback tool bridge every tier's
+      # tools run over, so neither goes to "false" while its provider is in
+      # the chain.
       COPILOT_SDK_MCP_TOOL_CALLING     = "true"
       COPILOT_SDK_PERMISSION_POLICY    = "deny_all"
       COPILOT_SDK_MAX_HISTORY_TURNS    = "41"

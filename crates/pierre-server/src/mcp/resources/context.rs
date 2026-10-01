@@ -295,10 +295,18 @@ impl ServerContext {
             .admin_config
             .as_ref()
             .map(|c| Arc::clone(c) as Arc<dyn pierre_runtime_context::AdminConfigLookup>);
-        // Mirror the Copilot Headless `COPILOT_HEADLESS_MCP_TOOL_CALLING` toggle:
-        // when set, ACP turns expose Dravr tools natively via the MCP bridge.
-        let mcp_bridge_enabled = env::var("COPILOT_HEADLESS_MCP_TOOL_CALLING")
-            .is_ok_and(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes"));
+        // The bridge follows the Copilot providers' own tool-calling toggles:
+        // either one makes its provider route turns to the headless loop with
+        // no text catalogue in the prompt, so a provider armed without the
+        // bridge would answer with no tools at all.
+        let mcp_bridge_enabled = [
+            "COPILOT_HEADLESS_MCP_TOOL_CALLING",
+            "COPILOT_SDK_MCP_TOOL_CALLING",
+        ]
+        .iter()
+        .any(|flag| {
+            env::var(flag).is_ok_and(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes"))
+        });
         // The tool surface is published on embacle's own loopback listener, so
         // the server no longer needs to know its own reachable address — the
         // subprocess never dials back into `/mcp`.

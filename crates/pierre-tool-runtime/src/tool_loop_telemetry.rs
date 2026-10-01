@@ -12,9 +12,10 @@
 
 use std::time::Instant;
 
+use pierre_core::errors::AppError;
 use pierre_llm::served_tier::ServedTier;
-use pierre_llm::{ChatMessage, ChatResponseWithTools, MessageRole};
-use tracing::info;
+use pierre_llm::{ChatMessage, ChatProvider, ChatResponseWithTools, MessageRole};
+use tracing::{info, warn};
 
 use crate::tool_loop_io::ToolLoopParams;
 
@@ -109,5 +110,27 @@ pub fn log_iteration_response(iteration: usize, latency_ms: i64, response: &Chat
         prompt_tokens = response.usage.as_ref().map_or(0, |u| u.prompt_tokens),
         completion_tokens = response.usage.as_ref().map_or(0, |u| u.completion_tokens),
         "tool loop iteration: provider response received"
+    );
+}
+
+/// Record a headless turn leaving the chain's head for its tail.
+///
+/// The notify event is the one the chain's observer writes when embacle walks
+/// past a tier: this hop happens outside that walk, and without it a head that
+/// fails every tool turn is invisible to the chain-fallthrough alert.
+pub fn note_headless_fallback(from: &ChatProvider, to: &ChatProvider, error: &AppError) {
+    warn!(
+        primary = from.name(),
+        secondary = to.name(),
+        error = %error,
+        "Headless tool loop failed with a provider fault; falling back to the chain's tail"
+    );
+    info!(
+        target: "notify",
+        event = "embacle.fallback_triggered",
+        from_provider = from.name(),
+        to_provider = to.name(),
+        reason = ?error.code,
+        "Runtime LLM fallback engaged on a headless turn fault"
     );
 }

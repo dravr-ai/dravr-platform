@@ -231,16 +231,17 @@ impl EmbacleProvider {
         }
     }
 
-    /// The further accounts of a CLI primary, each an ordinary tier behind
-    /// it: account N is the runner's config with the token found under
-    /// `<CREDENTIAL>_N` (`CLAUDE_CODE_OAUTH_TOKEN_2`, `_3`, …, read until
-    /// the first unset one) set on the child explicitly, named
-    /// `<runner>#N` by [`PooledTier`]. Empty when the runner reads no
-    /// credential from its environment, or no numbered token is set.
+    /// The further accounts of a CLI tier, each an ordinary tier behind
+    /// it wherever it sits in the chain: account N is the runner's config
+    /// with the token found under `<CREDENTIAL>_N`
+    /// (`CLAUDE_CODE_OAUTH_TOKEN_2`, `_3`, …, read until the first unset
+    /// one) set on the child explicitly, named `<runner>#N` by
+    /// [`PooledTier`]. Empty when the runner reads no credential from its
+    /// environment, or no numbered token is set.
     ///
     /// An account whose runner fails to build is skipped with a warning:
-    /// the binary is the primary's, so what breaks one breaks all, and the
-    /// primary's own failure is the one the chain assembly reports.
+    /// the binary is the tier's own, so what breaks one breaks all, and that
+    /// tier's own failure is the one the chain assembly reports.
     ///
     #[must_use]
     pub fn pooled_accounts(runner_type: CliRunnerType, model_override: Option<&str>) -> Vec<Self> {

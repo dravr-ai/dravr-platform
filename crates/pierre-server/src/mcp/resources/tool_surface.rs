@@ -48,6 +48,7 @@ use pierre_tool_runtime::implementations::guided_flow::{
 };
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::tool_loop_io::PLATFORM_MCP_SERVER_NAME;
 use pierre_tool_runtime::tool_results::project_activities_payload;
 use serde_json::Value;
 use tracing::{info, warn};
@@ -353,7 +354,7 @@ impl HostedToolBridge {
                 let host = ToolHost::bind(ToolHostConfig {
                     // Namespaces the tools in the model's view, and is the
                     // prefix the agent reports them back under.
-                    server_name: "dravr".to_owned(),
+                    server_name: PLATFORM_MCP_SERVER_NAME.to_owned(),
                     // Served at `initialize`, which an opting-in agent folds
                     // into its SYSTEM prompt. That is the only route we have
                     // into the system layer of a CLI runner with no

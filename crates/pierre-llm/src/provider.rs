@@ -72,9 +72,17 @@ pub struct ChainTiers {
     pub accounts: Vec<EmbacleProvider>,
     /// `PIERRE_LLM_FALLBACK_PROVIDER`'s provider.
     pub secondary: Result<EmbacleProvider, AppError>,
+    /// The secondary's further accounts, right behind it as the primary's
+    /// are behind the primary: the pool follows its runner wherever the
+    /// runner sits in the chain. They go where the secondary goes — a
+    /// secondary that did not build takes its accounts with it, the binary
+    /// being the same one.
+    pub secondary_accounts: Vec<EmbacleProvider>,
     /// `PIERRE_LLM_TERTIARY_PROVIDER`'s provider, when one is configured that
     /// differs from both other tiers.
     pub tertiary: Option<Result<EmbacleProvider, AppError>>,
+    /// The tertiary's further accounts, right behind it.
+    pub tertiary_accounts: Vec<EmbacleProvider>,
 }
 
 impl ChatProvider {
@@ -146,43 +154,54 @@ impl ChatProvider {
         // `claude-opus-4.8`, Cohere's `command-a-03-2025`, Gemini's
         // `gemini-flash-lite-latest`); the primary's `PIERRE_LLM_MODEL` would
         // 404 on the other vendors' APIs.
-        let secondary_result = EmbacleProvider::from_provider_type(
-            fallback_type,
-            LlmProviderType::fallback_provider_model_from_env().as_deref(),
-        )
-        .await;
+        let secondary_model = LlmProviderType::fallback_provider_model_from_env();
+        let secondary_result =
+            EmbacleProvider::from_provider_type(fallback_type, secondary_model.as_deref()).await;
 
-        let tertiary = match Self::tertiary_type(primary_type, fallback_type) {
+        let tertiary_type = Self::tertiary_type(primary_type, fallback_type);
+        let tertiary_model = LlmProviderType::tertiary_provider_model_from_env();
+        let tertiary = match tertiary_type {
             Some(tertiary_type) => Some(
-                EmbacleProvider::from_provider_type(
-                    tertiary_type,
-                    LlmProviderType::tertiary_provider_model_from_env().as_deref(),
-                )
-                .await,
+                EmbacleProvider::from_provider_type(tertiary_type, tertiary_model.as_deref()).await,
             ),
             None => None,
         };
 
-        // Only a CLI primary pools: its further accounts sit right behind
-        // it, so a spent account moves the turn to the next account before
-        // the chain leaves the runner (carnet#480).
-        let accounts = match primary_type.construction() {
-            ProviderConstruction::Cli(runner_type) => {
-                EmbacleProvider::pooled_accounts(runner_type, None)
-            }
-            _ => Vec::new(),
-        };
-
+        // A CLI tier pools wherever it sits: its further accounts are right
+        // behind it, on the model that tier runs, so a spent account moves
+        // the turn to the next account before the chain leaves the runner
+        // (carnet#480) — as the primary, or behind another primary.
         Self::assemble_runtime_chain(
             ChainTiers {
                 primary: primary_result,
-                accounts,
+                accounts: Self::further_accounts(primary_type, None),
                 secondary: secondary_result,
+                secondary_accounts: Self::further_accounts(
+                    fallback_type,
+                    secondary_model.as_deref(),
+                ),
                 tertiary,
+                tertiary_accounts: tertiary_type
+                    .map(|kind| Self::further_accounts(kind, tertiary_model.as_deref()))
+                    .unwrap_or_default(),
             },
             primary_type,
             fallback_type,
         )
+    }
+
+    /// The further accounts of the tier `kind` names, on `model_override`:
+    /// those of a pooled CLI runner, none for any other construction.
+    fn further_accounts(
+        kind: LlmProviderType,
+        model_override: Option<&str>,
+    ) -> Vec<EmbacleProvider> {
+        match kind.construction() {
+            ProviderConstruction::Cli(runner_type) => {
+                EmbacleProvider::pooled_accounts(runner_type, model_override)
+            }
+            _ => Vec::new(),
+        }
     }
 
     /// The tertiary provider type, when [`LlmProviderType::TERTIARY_PROVIDER_ENV_VAR`]
@@ -229,9 +248,14 @@ impl ChatProvider {
             primary,
             accounts,
             secondary,
+            secondary_accounts,
             tertiary,
+            tertiary_accounts,
         } = tiers;
 
+        let secondary = secondary.map(|tier| Self::followed_by(tier, secondary_accounts));
+        let tertiary =
+            tertiary.map(|built| built.map(|tier| Self::followed_by(tier, tertiary_accounts)));
         let tail = Self::with_accounts(
             accounts,
             Self::tail_tiers(secondary, tertiary, fallback_type),
@@ -282,6 +306,14 @@ impl ChatProvider {
         Ok(Self::Embacle(EmbacleProvider::chain(tiers)?))
     }
 
+    /// A tier with its further accounts right behind it, in order.
+    fn followed_by(tier: EmbacleProvider, accounts: Vec<EmbacleProvider>) -> Vec<EmbacleProvider> {
+        let mut tiers = Vec::with_capacity(accounts.len() + 1);
+        tiers.push(tier);
+        tiers.extend(accounts);
+        tiers
+    }
+
     /// The primary's further accounts lead the tail: a spent account moves the
     /// turn to the next account before the chain leaves the runner. With no
     /// fallback tier built, the accounts alone are the tail.
@@ -305,15 +337,15 @@ impl ChatProvider {
     }
 
     /// The tiers behind the primary: the secondary, then the tertiary when it
-    /// built. `Err` when neither built (the secondary's error, as the one the
-    /// operator configured first).
+    /// built, each with its own further accounts. `Err` when neither built
+    /// (the secondary's error, as the one the operator configured first).
     fn tail_tiers(
-        secondary: Result<EmbacleProvider, AppError>,
-        tertiary: Option<Result<EmbacleProvider, AppError>>,
+        secondary: Result<Vec<EmbacleProvider>, AppError>,
+        tertiary: Option<Result<Vec<EmbacleProvider>, AppError>>,
         fallback_type: LlmProviderType,
     ) -> Result<Vec<EmbacleProvider>, AppError> {
         match tertiary {
-            None => secondary.map(|secondary| vec![secondary]),
+            None => secondary,
             Some(Ok(tertiary)) => Ok(Self::tail_with_tertiary(secondary, tertiary, fallback_type)),
             Some(Err(tertiary_err)) => {
                 Self::tail_without_tertiary(secondary, &tertiary_err, fallback_type)
@@ -324,17 +356,18 @@ impl ChatProvider {
     /// The tertiary built: behind the secondary when that built too, in its
     /// place otherwise.
     fn tail_with_tertiary(
-        secondary: Result<EmbacleProvider, AppError>,
-        tertiary: EmbacleProvider,
+        secondary: Result<Vec<EmbacleProvider>, AppError>,
+        tertiary: Vec<EmbacleProvider>,
         fallback_type: LlmProviderType,
     ) -> Vec<EmbacleProvider> {
         match secondary {
-            Ok(secondary) => {
+            Ok(mut secondary) => {
                 info!(
                     secondary = %fallback_type,
                     "Tertiary LLM fallback initialized; chain is primary -> secondary -> tertiary"
                 );
-                vec![secondary, tertiary]
+                secondary.extend(tertiary);
+                secondary
             }
             Err(secondary_err) => {
                 warn!(
@@ -342,14 +375,14 @@ impl ChatProvider {
                     error = %secondary_err,
                     "Secondary provider failed to initialize; promoting tertiary"
                 );
-                vec![tertiary]
+                tertiary
             }
         }
     }
 
     /// The tertiary did not build: the secondary alone, or nothing.
     fn tail_without_tertiary(
-        secondary: Result<EmbacleProvider, AppError>,
+        secondary: Result<Vec<EmbacleProvider>, AppError>,
         tertiary_err: &AppError,
         fallback_type: LlmProviderType,
     ) -> Result<Vec<EmbacleProvider>, AppError> {
@@ -360,7 +393,7 @@ impl ChatProvider {
                     error = %tertiary_err,
                     "Tertiary provider failed to initialize; running two-tier chain"
                 );
-                Ok(vec![secondary])
+                Ok(secondary)
             }
             Err(secondary_err) => {
                 warn!(

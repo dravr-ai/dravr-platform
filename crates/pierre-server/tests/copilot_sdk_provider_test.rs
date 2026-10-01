@@ -237,6 +237,45 @@ async fn a_tool_the_sdk_transport_names_is_recorded_by_that_name() {
     );
 }
 
+/// The Copilot runtime names a tool served over the turn's MCP server
+/// `<server>-<tool>`. The plan card and the plan-saved check compare the
+/// recorded name to the registry's, so the platform's prefix must be gone.
+#[tokio::test]
+#[serial]
+async fn a_tool_the_runtime_prefixes_with_the_platform_server_is_recorded_bare() {
+    let result = finish(reply(ObservedToolCall {
+        id: "toolu_02".to_owned(),
+        title: "dravr-save_training_plan".to_owned(),
+        status: "Completed".to_owned(),
+        name: Some("dravr-save_training_plan".to_owned()),
+        arguments: None,
+        result: None,
+    }))
+    .await;
+
+    assert_eq!(result.tools_called, vec!["save_training_plan".to_owned()]);
+}
+
+#[tokio::test]
+#[serial]
+async fn a_tool_from_another_server_keeps_its_prefix() {
+    let result = finish(reply(ObservedToolCall {
+        id: "toolu_03".to_owned(),
+        title: "github-get_activities".to_owned(),
+        status: "Completed".to_owned(),
+        name: Some("github-get_activities".to_owned()),
+        arguments: None,
+        result: None,
+    }))
+    .await;
+
+    assert_eq!(
+        result.tools_called,
+        vec!["github-get_activities".to_owned()],
+        "another server's tool is not ours and must not pass for it"
+    );
+}
+
 #[tokio::test]
 #[serial]
 async fn a_tool_the_acp_adapter_only_titles_is_recorded_by_its_title() {

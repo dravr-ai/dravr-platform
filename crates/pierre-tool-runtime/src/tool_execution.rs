@@ -36,7 +36,7 @@ use crate::tool_loop_io::{
 };
 use crate::tool_loop_telemetry::{
     log_iteration_response, log_iteration_start, log_wire_shape, millis_elapsed,
-    served_provider_name,
+    note_headless_fallback, served_provider_name,
 };
 use crate::tool_results::strip_synthetic_function_calls;
 use crate::tool_results::{
@@ -1117,12 +1117,7 @@ async fn run_headless_fallback(
     let Some(secondary) = params.provider.fallback_tail() else {
         return Err(primary_err);
     };
-    warn!(
-        primary = params.provider.name(),
-        secondary = secondary.name(),
-        error = %primary_err,
-        "Headless tool loop failed with a provider fault; falling back to the chain's tail"
-    );
+    note_headless_fallback(params.provider, secondary, &primary_err);
     let fallback_params = ToolLoopParams {
         provider: secondary,
         executor: Arc::clone(&params.executor),
