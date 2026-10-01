@@ -512,7 +512,7 @@ module "backend" {
       DRAVR_SCIOTTE_SCRIPTS_DIR = "/sciotte-scripts"
 
       # WhatsApp non-secret config (phone number ID is not sensitive)
-      META_WHATSAPP_PHONE_NUMBER_ID = "997162370153116"
+      META_WHATSAPP_PHONE_NUMBER_ID = "1323997520799051"
       META_WHATSAPP_VERIFY_TOKEN    = "5aec2c301a90cf03a31e5f5e638f9e38"
 
       # Messenger non-secret config (verify token is the App Secret, not sensitive here)
