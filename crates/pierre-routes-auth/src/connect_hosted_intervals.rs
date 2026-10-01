@@ -23,6 +23,11 @@
 //!    re-renders the form with the reason, keeping the athlete id and never the
 //!    key.
 //!
+//! The form, its labels and every reason it shows are written in the locale
+//! of the athlete the token names, from the dravr-contremaitre catalogue —
+//! the same keys the web and mobile Intervals.icu dialog reads for the field
+//! names and for where to find them.
+//!
 //! Identity (`user_id` + `tenant_id`) comes from the signed token, never from
 //! the form. The token is also what makes the POST unforgeable cross-site: an
 //! HTML form cannot send the `X-CSRF-Token` header, so the path is listed in
@@ -31,9 +36,15 @@
 use std::fmt;
 
 use axum::extract::{Query, State};
-use axum::http::{header, StatusCode};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::Form;
+use pierre_contremaitre::hosted_strings::{
+    KEY_HOSTED_ERROR_INVALID_LINK, KEY_HOSTED_ERROR_MALFORMED_LINK, KEY_HOSTED_ERROR_MISSING_TOKEN,
+    KEY_HOSTED_INTERVALS_API_KEY_REQUIRED, KEY_HOSTED_INTERVALS_ATHLETE_ID_REQUIRED,
+    KEY_HOSTED_INTERVALS_REJECTED, KEY_HOSTED_INTERVALS_SAVE_FAILED,
+    KEY_HOSTED_INTERVALS_UNAVAILABLE,
+};
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::errors::AppError;
 use pierre_middleware::provider_link_token::ProviderLinkTokenClaims;
@@ -44,24 +55,10 @@ use uuid::Uuid;
 
 use crate::connect_hosted::{validate_connect_token, ConnectPageQuery};
 use crate::connect_hosted_templates;
-use crate::intervals_icu::link_intervals_icu_account;
+use crate::hosted_page::{locale_for_reader, PageStrings};
+use crate::intervals_icu::{link_intervals_icu_account, IntervalsLinkError};
+use crate::short_link::preferred_locale;
 use crate::AuthRoutesContext;
-
-/// Shown when the page is opened or posted without a token.
-const MISSING_TOKEN_MESSAGE: &str =
-    "Missing connect token. Please request a fresh link from your chat.";
-
-/// Shown when the token does not verify as a connect token.
-const INVALID_TOKEN_MESSAGE: &str =
-    "This connect link is invalid or has expired. Please request a fresh link from your chat.";
-
-/// Shown when the token verifies but its identity claims do not parse.
-const MALFORMED_TOKEN_MESSAGE: &str =
-    "This connect link is malformed. Please request a fresh link.";
-
-/// Shown when the link could not be stored for a reason of the server's own.
-const SERVER_FAULT_MESSAGE: &str =
-    "We could not save your Intervals.icu connection. Please try again in a moment.";
 
 /// The form the hosted Intervals.icu page posts.
 #[derive(Deserialize)]
@@ -93,23 +90,30 @@ struct ConnectIdentity {
     channel: String,
 }
 
-/// Verify a connect link-token and read its identity, or the message the
-/// athlete is shown instead.
+impl ConnectIdentity {
+    /// The locale this athlete reads on the channel the link was sent to.
+    async fn locale(&self, resources: &AuthRoutesContext) -> String {
+        locale_for_reader(resources, self.user_id, Some(self.tenant_id), &self.channel).await
+    }
+}
+
+/// Verify a connect link-token and read its identity, or the catalogue key
+/// of the message the athlete is shown instead.
 fn connect_identity(
     resources: &AuthRoutesContext,
     token: &str,
 ) -> Result<ConnectIdentity, &'static str> {
     if token.is_empty() {
-        return Err(MISSING_TOKEN_MESSAGE);
+        return Err(KEY_HOSTED_ERROR_MISSING_TOKEN);
     }
     let claims: ProviderLinkTokenClaims =
         validate_connect_token(resources, token).map_err(|e| {
             warn!(error = %e, "Rejected hosted Intervals.icu form: invalid link-token");
-            INVALID_TOKEN_MESSAGE
+            KEY_HOSTED_ERROR_INVALID_LINK
         })?;
     let (Ok(user_id), Ok(tenant_id)) = (Uuid::parse_str(&claims.sub), Uuid::parse_str(&claims.tid))
     else {
-        return Err(MALFORMED_TOKEN_MESSAGE);
+        return Err(KEY_HOSTED_ERROR_MALFORMED_LINK);
     };
     Ok(ConnectIdentity {
         user_id,
@@ -118,20 +122,36 @@ fn connect_identity(
     })
 }
 
+/// The link-error page for a token that names no user, in the browser's
+/// language.
+fn link_error_page(
+    resources: &AuthRoutesContext,
+    headers: &HeaderMap,
+    message_key: &str,
+) -> String {
+    let strings = PageStrings::new(&resources.messaging_strings, preferred_locale(headers));
+    connect_hosted_templates::render_connect_error_page(&strings, message_key)
+}
+
 /// GET `/providers/connect/intervals_icu?token=...` — the API-key form.
 pub async fn handle_intervals_icu_form_page(
     State(resources): State<AuthRoutesContext>,
+    headers: HeaderMap,
     Query(query): Query<ConnectPageQuery>,
 ) -> Response {
     let token = query.token.unwrap_or_default();
     match connect_identity(&resources, &token) {
         Ok(identity) => {
+            let locale = identity.locale(&resources).await;
             info!(
                 user_id = %identity.user_id,
                 channel = %identity.channel,
+                locale = %locale,
                 "Rendered hosted Intervals.icu connect form"
             );
+            let strings = PageStrings::new(&resources.messaging_strings, locale);
             Html(connect_hosted_templates::render_intervals_icu_form(
+                &strings,
                 &token,
                 &identity.channel,
                 "",
@@ -139,8 +159,8 @@ pub async fn handle_intervals_icu_form_page(
             ))
             .into_response()
         }
-        Err(message) => {
-            Html(connect_hosted_templates::render_connect_error_page(message)).into_response()
+        Err(message_key) => {
+            Html(link_error_page(&resources, &headers, message_key)).into_response()
         }
     }
 }
@@ -148,14 +168,15 @@ pub async fn handle_intervals_icu_form_page(
 /// POST `/providers/connect/intervals_icu` — validate, store, and redirect.
 pub async fn handle_intervals_icu_form_submit(
     State(resources): State<AuthRoutesContext>,
+    headers: HeaderMap,
     Form(form): Form<IntervalsIcuConnectForm>,
 ) -> Response {
     let identity = match connect_identity(&resources, &form.token) {
         Ok(identity) => identity,
-        Err(message) => {
+        Err(message_key) => {
             return (
                 StatusCode::UNAUTHORIZED,
-                Html(connect_hosted_templates::render_connect_error_page(message)),
+                Html(link_error_page(&resources, &headers, message_key)),
             )
                 .into_response();
         }
@@ -176,39 +197,65 @@ pub async fn handle_intervals_icu_form_submit(
                 channel = %identity.channel,
                 "Hosted connect: Intervals.icu linked"
             );
+            // The token rides along so the success page is written in the
+            // athlete's locale too.
             let location = format!(
-                "/providers/connect/success?channel={}&target={}",
+                "/providers/connect/success?channel={}&target={}&token={}",
                 encode(&identity.channel),
-                INTERVALS_ICU
+                INTERVALS_ICU,
+                encode(&form.token)
             );
             (StatusCode::SEE_OTHER, [(header::LOCATION, location)]).into_response()
         }
-        Err(e) => refused_form(&form, &identity, &e),
+        Err(e) => refused_form(&resources, &form, &identity, e).await,
     }
 }
 
-/// The form again, with the reason a link attempt failed and the athlete id
-/// refilled — never the key — at the status the failure carries.
-fn refused_form(
+/// The catalogue key wording why a link attempt failed, and the error the
+/// response takes its status from.
+fn refusal(e: IntervalsLinkError) -> (&'static str, AppError) {
+    let key = match &e {
+        IntervalsLinkError::MissingAthleteId => KEY_HOSTED_INTERVALS_ATHLETE_ID_REQUIRED,
+        IntervalsLinkError::MissingApiKey => KEY_HOSTED_INTERVALS_API_KEY_REQUIRED,
+        IntervalsLinkError::Unavailable(_) => KEY_HOSTED_INTERVALS_UNAVAILABLE,
+        // A store that failed is the server's own fault; credentials the
+        // provider would not take are the athlete's to fix, as a rejection is.
+        IntervalsLinkError::Storage(error) if error.is_server_fault() => {
+            KEY_HOSTED_INTERVALS_SAVE_FAILED
+        }
+        IntervalsLinkError::Rejected(_) | IntervalsLinkError::Storage(_) => {
+            KEY_HOSTED_INTERVALS_REJECTED
+        }
+    };
+    (key, e.into())
+}
+
+/// The form again, in the athlete's locale, with the reason a link attempt
+/// failed and the athlete id refilled — never the key — at the status the
+/// failure carries.
+async fn refused_form(
+    resources: &AuthRoutesContext,
     form: &IntervalsIcuConnectForm,
     identity: &ConnectIdentity,
-    e: &AppError,
+    e: IntervalsLinkError,
 ) -> Response {
-    let message = if e.is_server_fault() {
+    let (message_key, e) = refusal(e);
+    if e.is_server_fault() {
         error!(user_id = %identity.user_id, error = %e, "Hosted connect: Intervals.icu link failed");
-        SERVER_FAULT_MESSAGE.to_owned()
     } else {
         warn!(user_id = %identity.user_id, error = %e, "Hosted connect: Intervals.icu credentials refused");
-        e.sanitized_message()
-    };
+    }
     let status = StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::BAD_REQUEST);
+    let locale = identity.locale(resources).await;
+    let strings = PageStrings::new(&resources.messaging_strings, locale);
     (
         status,
         Html(connect_hosted_templates::render_intervals_icu_form(
+            &strings,
             &form.token,
             &identity.channel,
             form.athlete_id.trim(),
-            &message,
+            &strings.get(message_key),
         )),
     )
         .into_response()

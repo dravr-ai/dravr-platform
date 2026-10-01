@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- ABOUTME: Hosted connect picker a chat link opens: pick a provider, then OAuth or the Sciotte credential flow -->
-<!-- ABOUTME: Styled by the shared Boreal sheet the renderer injects; the provider catalogue arrives as embedded JSON -->
+<!-- ABOUTME: Styled by the shared Boreal sheet the renderer injects; cards and strings arrive in the athlete's locale -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 <!-- Copyright (c) 2026 dravr.ai -->
 <!--
@@ -13,38 +13,38 @@
   and sent as `Authorization: Bearer` on every API call. Passwords never leave
   this TLS page — they are not typed into the chat transcript.
 -->
-<html lang="en">
+<html lang="{{LANG}}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">
     <meta name="referrer" content="no-referrer">
     <meta name="color-scheme" content="light dark">
-    <title>Connect a provider - Dravr</title>
+    <title>{{t:hosted.picker.pageTitle}}</title>
     <style>{{HOSTED_PAGE_CSS}}</style>
 </head>
 <body>
     <main class="card">
         <div class="lockup" role="img" aria-label="Dravr"></div>
         <div class="subtitle">
-            Connect your fitness account
+            {{t:hosted.common.subtitle}}
             <br>
-            <span class="pill">Linked from {{CHANNEL_LABEL}}</span>
+            <span class="pill">{{LINKED_FROM}}</span>
         </div>
 
         <div id="error-banner" class="alert alert-error" role="alert" hidden></div>
 
         <!-- Phase: picker -->
         <section id="phase-picker">
-            <h1>Choose a provider</h1>
+            <h1>{{t:hosted.picker.heading}}</h1>
             <div id="provider-list"></div>
-            <p class="fineprint">You'll connect securely here — your password is never shared with this chat.</p>
+            <p class="fineprint">{{t:hosted.picker.securityNote}}</p>
         </section>
 
         <!-- Phase: credentials (Sciotte) -->
         <section id="phase-credentials" hidden>
-            <button type="button" class="btn btn-tertiary back-link" id="cred-back">&larr; Back</button>
-            <h1 id="cred-title">Account</h1>
+            <button type="button" class="btn btn-tertiary back-link" id="cred-back">&larr; {{t:hosted.common.back}}</button>
+            <h1 id="cred-title"></h1>
             <div class="callout" role="note" id="consent-block" hidden>
                 <p class="callout-title">{{CONSENT_TITLE}}</p>
                 <p>{{CONSENT_NOTICE}}</p>
@@ -52,53 +52,53 @@
             </div>
             <form id="login-form" novalidate>
                 <div class="field">
-                    <label for="email" id="email-label">Email</label>
+                    <label for="email" id="email-label">{{t:hosted.common.emailLabel}}</label>
                     <input type="email" id="email" name="email" required autocomplete="email">
                 </div>
                 <div class="field">
-                    <label for="password">Password</label>
+                    <label for="password">{{t:hosted.common.passwordLabel}}</label>
                     <input type="password" id="password" name="password" required autocomplete="current-password">
                 </div>
-                <button type="submit" class="btn btn-primary btn-block" id="submit-login">Log In</button>
+                <button type="submit" class="btn btn-primary btn-block" id="submit-login">{{t:hosted.common.logIn}}</button>
             </form>
-            <p class="fineprint" id="cred-notice">Credentials go directly to the provider — Dravr never stores your password.</p>
+            <p class="fineprint" id="cred-notice"></p>
         </section>
 
         <!-- Phase: OAuth notice (a provider whose notice comes before its
              authorization page: WHOOP's owner authorization) -->
         <section id="phase-oauth-consent" hidden>
-            <button type="button" class="btn btn-tertiary back-link" id="oauth-back">&larr; Back</button>
-            <h1 id="oauth-title">Authorize</h1>
+            <button type="button" class="btn btn-tertiary back-link" id="oauth-back">&larr; {{t:hosted.common.back}}</button>
+            <h1 id="oauth-title"></h1>
             <div class="callout" role="note" id="oauth-consent-block">
                 <p class="callout-title" id="oauth-consent-title"></p>
                 <p id="oauth-consent-body"></p>
                 <label class="check"><input type="checkbox" id="oauth-tos-consent"> <span id="oauth-consent-label"></span></label>
             </div>
-            <button type="button" class="btn btn-primary btn-block" id="oauth-continue" disabled>Continue</button>
+            <button type="button" class="btn btn-primary btn-block" id="oauth-continue" disabled>{{t:hosted.picker.continue}}</button>
         </section>
 
         <!-- Phase: logging-in -->
         <section id="phase-logging-in" hidden>
             <div class="status">
-                <div class="spinner" role="status" aria-label="Logging in"></div>
-                <div id="logging-in-status">Connecting...</div>
-                <p>This may take up to 30 seconds.</p>
+                <div class="spinner" role="status" aria-label="{{t:hosted.common.loggingInAria}}"></div>
+                <div id="logging-in-status"></div>
+                <p>{{t:hosted.common.mayTakeTime}}</p>
             </div>
         </section>
 
         <!-- Phase: two-factor choice -->
         <section id="phase-two-factor" hidden>
-            <button type="button" class="btn btn-tertiary back-link" id="tf-back">&larr; Back</button>
-            <h1>2-Step Verification</h1>
+            <button type="button" class="btn btn-tertiary back-link" id="tf-back">&larr; {{t:hosted.common.back}}</button>
+            <h1>{{t:hosted.common.twoStepTitle}}</h1>
             <div id="two-factor-options" class="actions"></div>
         </section>
 
         <!-- Phase: waiting-approval -->
         <section id="phase-waiting-approval" hidden>
             <div class="status">
-                <div class="spinner" role="status" aria-label="Waiting for approval"></div>
-                <div><strong>Check your phone</strong></div>
-                <p>Tap "Yes" on the notification</p>
+                <div class="spinner" role="status" aria-label="{{t:hosted.common.waitingApprovalAria}}"></div>
+                <div><strong>{{t:hosted.common.checkPhone}}</strong></div>
+                <p>{{t:hosted.common.tapYes}}</p>
             </div>
         </section>
 
@@ -106,21 +106,21 @@
         <section id="phase-number-match" hidden>
             <div class="status">
                 <div class="number-match" id="number-match-digit">--</div>
-                <div><strong>Tap this number on your phone</strong></div>
-                <p>Check the notification on your device</p>
-                <div class="spinner spinner-sm" role="status" aria-label="Waiting"></div>
+                <div><strong>{{t:hosted.common.tapNumber}}</strong></div>
+                <p>{{t:hosted.common.checkNotification}}</p>
+                <div class="spinner spinner-sm" role="status" aria-label="{{t:hosted.common.waitingAria}}"></div>
             </div>
         </section>
 
         <!-- Phase: OTP -->
         <section id="phase-otp" hidden>
-            <h1>Verification Code</h1>
+            <h1>{{t:hosted.common.otpTitle}}</h1>
             <form id="otp-form" novalidate>
                 <div class="field">
-                    <label for="otp-code">Enter the code sent to your device</label>
+                    <label for="otp-code">{{t:hosted.common.otpLabel}}</label>
                     <input type="text" id="otp-code" name="code" required inputmode="numeric" autocomplete="one-time-code">
                 </div>
-                <button type="submit" class="btn btn-primary btn-block" id="submit-otp">Verify</button>
+                <button type="submit" class="btn btn-primary btn-block" id="submit-otp">{{t:hosted.common.verify}}</button>
             </form>
         </section>
 
@@ -128,8 +128,8 @@
         <section id="phase-success" hidden>
             <div class="status">
                 <div class="status-icon status-icon-success" aria-hidden="true">&#10003;</div>
-                <div><strong>Connected!</strong></div>
-                <p id="success-message">Your data is now available. You can return to {{CHANNEL_LABEL}}.</p>
+                <div><strong>{{t:hosted.common.connected}}</strong></div>
+                <p id="success-message">{{DATA_AVAILABLE}}</p>
             </div>
         </section>
 
@@ -137,9 +137,9 @@
         <section id="phase-error" hidden>
             <div class="status">
                 <div class="status-icon status-icon-error" aria-hidden="true">!</div>
-                <div><strong>Something went wrong</strong></div>
+                <div><strong>{{t:hosted.picker.errorTitle}}</strong></div>
                 <p id="error-message"></p>
-                <button type="button" class="btn btn-secondary" id="retry-btn">Back to providers</button>
+                <button type="button" class="btn btn-secondary" id="retry-btn">{{t:hosted.picker.backToProviders}}</button>
             </div>
         </section>
     </main>
@@ -151,14 +151,24 @@
             const CONFIG = {
                 token: "{{LINK_TOKEN}}",
                 channel: "{{CHANNEL}}",
-                channelLabel: "{{CHANNEL_LABEL}}",
                 // Providers JSON embedded server-side (mirrors GET /api/providers):
                 // [{ provider, display_name, description, connected, kind: 'oauth'|'sciotte'|'api_key', target, consent_required, notice?, form_url?, login_identifier }]
                 // `notice` is shown before the credentials (sciotte) or before the
                 // OAuth redirect (oauth) while `consent_required` holds.
                 providers: {{PROVIDERS_JSON}},
+                // `details.reason` of the refusal a lapsed sign-in gets.
+                flowExpiredReason: "{{FLOW_EXPIRED_REASON}}",
+                // The strings the script sets, in the athlete's locale. A
+                // `{0}` in one is the slot `fmt` fills.
+                strings: {{STRINGS_JSON}},
                 timeoutMs: 1200000,
             };
+
+            const S = CONFIG.strings;
+            // Fill a catalogue string's `{0}` slot.
+            function fmt(template, value) {
+                return template.split('{0}').join(value);
+            }
 
             // The Sciotte sub-flow target chosen from the picker
             // ('strava'|'garmin'|'trainingpeaks'|'coros').
@@ -194,7 +204,7 @@
             // refuse it before it is sent.
             function setIdentifier(kind) {
                 const username = kind === 'username';
-                document.getElementById('email-label').textContent = username ? 'Username' : 'Email';
+                document.getElementById('email-label').textContent = username ? S.username : S.email;
                 const field = document.getElementById('email');
                 field.type = username ? 'text' : 'email';
                 field.autocomplete = username ? 'username' : 'email';
@@ -249,12 +259,12 @@
                     const tag = document.createElement('span');
                     tag.className = 'pc-tag' + (p.connected ? ' connected' : '');
                     tag.textContent = p.connected
-                        ? 'Connected'
+                        ? S.tagConnected
                         : (p.kind === 'oauth'
-                            ? 'Authorize'
+                            ? S.tagAuthorize
                             : (p.kind === 'api_key'
-                                ? 'Athlete ID / API key'
-                                : (p.login_identifier === 'username' ? 'Username / password' : 'Email / password')));
+                                ? S.tagApiKey
+                                : (p.login_identifier === 'username' ? S.tagUsernamePassword : S.tagEmailPassword)));
                     btn.appendChild(tag);
                     if (p.connected) {
                         btn.disabled = true;
@@ -312,9 +322,9 @@
                 // Sciotte credential flow.
                 sciotteTarget = p.target || 'strava';
                 sciotteLabel = p.display_name;
-                document.getElementById('cred-title').textContent = sciotteLabel + ' Account';
+                document.getElementById('cred-title').textContent = fmt(S.accountTitle, sciotteLabel);
                 document.getElementById('cred-notice').textContent =
-                    'Credentials go directly to ' + sciotteLabel + ' — Dravr never stores your password.';
+                    fmt(S.credentialsNote, sciotteLabel);
                 setConsent(Boolean(p.consent_required), p.notice);
                 setIdentifier(p.login_identifier);
                 showPhase('credentials');
@@ -323,6 +333,21 @@
 
             // ---- Sciotte state machine (same /api/providers/sciotte/* contract
             //      the web/mobile SciotteLoginModal uses) -----------------------
+            // What a failed sign-in step tells the athlete. The server's own
+            // messages are English and a provider's refusal is in the
+            // provider's words, so the page prints neither: it words every
+            // failure from the strings of the athlete's locale.
+            function failureText(failure) {
+                if (failure.rejected) return fmt(S.signInRejected, sciotteLabel);
+                if (failure.status === 401) return S.linkExpired;
+                if (failure.reason === CONFIG.flowExpiredReason) return S.signInExpired;
+                return fmt(S.signInUnavailable, sciotteLabel);
+            }
+            function showFailure(failure) {
+                document.getElementById('error-message').textContent = failureText(failure || {});
+                showPhase('error');
+            }
+
             async function callApi(path, body) {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), CONFIG.timeoutMs);
@@ -340,8 +365,14 @@
                     let data = null;
                     try { data = text ? JSON.parse(text) : null; } catch (_) { /* non-JSON */ }
                     if (!resp.ok) {
-                        const msg = (data && (data.error || data.message)) || ('HTTP ' + resp.status);
-                        throw new Error(msg);
+                        // The status and the machine-readable reason are all
+                        // the page keeps of a refusal; its prose is not shown.
+                        const err = new Error('sign-in request refused');
+                        err.failure = {
+                            status: resp.status,
+                            reason: data && data.details && data.details.reason,
+                        };
+                        throw err;
                     }
                     return data || {};
                 } finally {
@@ -355,7 +386,8 @@
                     case 'connected':
                         showPhase('success');
                         setTimeout(() => {
-                            const qs = 'channel=' + encodeURIComponent(CONFIG.channel) + '&target=' + encodeURIComponent(sciotteTarget);
+                            const qs = 'channel=' + encodeURIComponent(CONFIG.channel) + '&target=' + encodeURIComponent(sciotteTarget)
+                                + '&token=' + encodeURIComponent(CONFIG.token);
                             window.location.assign('/providers/connect/success?' + qs);
                         }, 1200);
                         break;
@@ -373,12 +405,11 @@
                         setTimeout(() => selectTwoFactor('poll'), 150);
                         break;
                     case 'failed':
-                    default: {
-                        const msg = data.error || 'Login failed';
-                        document.getElementById('error-message').textContent = msg;
-                        showPhase('error');
+                        showFailure({ rejected: true });
                         break;
-                    }
+                    default:
+                        showFailure({});
+                        break;
                 }
             }
 
@@ -404,7 +435,7 @@
                 if (consentRequired && !consent.checked) return;
                 clearError();
                 showPhase('logging-in');
-                setLoggingInStatus('Connecting to ' + sciotteLabel + '...');
+                setLoggingInStatus(fmt(S.connectingTo, sciotteLabel));
                 try {
                     const data = await callApi('/api/providers/sciotte/login', {
                         email: email, password: password, method: 'email', target: sciotteTarget,
@@ -412,8 +443,7 @@
                     });
                     handleLoginResponse(data);
                 } catch (err) {
-                    document.getElementById('error-message').textContent = err.message || 'Login failed';
-                    showPhase('error');
+                    showFailure(err.failure);
                 }
             }
 
@@ -423,14 +453,13 @@
                     showPhase('waiting-approval');
                 } else if (optionId !== 'poll') {
                     showPhase('logging-in');
-                    setLoggingInStatus('Loading...');
+                    setLoggingInStatus(S.loading);
                 }
                 try {
                     const data = await callApi('/api/providers/sciotte/select-2fa', { option_id: optionId });
                     handleLoginResponse(data);
                 } catch (err) {
-                    document.getElementById('error-message').textContent = err.message || 'Verification failed';
-                    showPhase('error');
+                    showFailure(err.failure);
                 }
             }
 
@@ -440,13 +469,12 @@
                 if (!code) return;
                 clearError();
                 showPhase('logging-in');
-                setLoggingInStatus('Verifying code...');
+                setLoggingInStatus(S.verifyingCode);
                 try {
                     const data = await callApi('/api/providers/sciotte/submit-otp', { code: code });
                     handleLoginResponse(data);
                 } catch (err) {
-                    document.getElementById('error-message').textContent = err.message || 'Verification failed';
-                    showPhase('error');
+                    showFailure(err.failure);
                 }
             }
 
@@ -462,9 +490,9 @@
             function openSciotteFallback(target, label, noticeOverride) {
                 sciotteTarget = target;
                 sciotteLabel = label;
-                document.getElementById('cred-title').textContent = label + ' Account';
+                document.getElementById('cred-title').textContent = fmt(S.accountTitle, label);
                 document.getElementById('cred-notice').textContent =
-                    'Credentials go directly to ' + label + ' — Dravr never stores your password.';
+                    fmt(S.credentialsNote, label);
                 setConsent(false);
                 setIdentifier('email');
                 showPhase('credentials');
@@ -492,18 +520,18 @@
 
                 if (ok) {
                     const qs = 'channel=' + encodeURIComponent(CONFIG.channel)
-                        + '&target=' + encodeURIComponent(provider);
+                        + '&target=' + encodeURIComponent(provider)
+                        + '&token=' + encodeURIComponent(CONFIG.token);
                     window.location.assign('/providers/connect/success?' + qs);
                     return true;
                 }
                 // Strava is the only OAuth card with a credential-login fallback.
                 if (provider === 'strava' || provider === 'sciotte') {
-                    openSciotteFallback('strava', 'Strava',
-                        'Strava sign-in didn’t complete — you can connect with your Strava email and password instead.');
+                    openSciotteFallback('strava', 'Strava', S.stravaFallback);
                     return true;
                 }
                 showPhase('picker');
-                showError('That sign-in didn’t complete. Please go back and try again.');
+                showError(S.signInIncomplete);
                 return true;
             }
 

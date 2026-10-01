@@ -1872,6 +1872,92 @@
       }
     }
   },
+  "hosted": {
+    "common": {
+      "subtitle": "Conecta tu cuenta deportiva",
+      "subtitleNamed": "Conecta tu cuenta de {0}",
+      "linkedFrom": "Abierto desde {0}",
+      "yourChatApp": "tu aplicación de mensajería",
+      "back": "Atrás",
+      "accountTitle": "Cuenta de {0}",
+      "emailLabel": "Correo electrónico",
+      "usernameLabel": "Nombre de usuario",
+      "passwordLabel": "Contraseña",
+      "logIn": "Iniciar sesión",
+      "credentialsNote": "Tus credenciales van directamente a {0}: Dravr nunca guarda tu contraseña.",
+      "loggingInAria": "Iniciando sesión",
+      "connectingTo": "Conectando con {0}...",
+      "mayTakeTime": "Puede tardar hasta 30 segundos.",
+      "loading": "Cargando...",
+      "verifyingCode": "Verificando el código...",
+      "twoStepTitle": "Verificación en dos pasos",
+      "waitingApprovalAria": "Esperando la aprobación",
+      "checkPhone": "Mira tu teléfono",
+      "tapYes": "Toca Sí en la notificación",
+      "tapNumber": "Toca este número en tu teléfono",
+      "checkNotification": "Mira la notificación en tu dispositivo",
+      "waitingAria": "Esperando",
+      "otpTitle": "Código de verificación",
+      "otpLabel": "Introduce el código enviado a tu dispositivo",
+      "verify": "Verificar",
+      "connected": "¡Conectado!",
+      "loginFailed": "No se pudo iniciar sesión",
+      "signInRejected": "{0} no ha aceptado ese inicio de sesión. Comprueba tus datos e inténtalo de nuevo.",
+      "signInUnavailable": "Ahora mismo no hemos podido iniciar sesión en {0}. Suele ser algo temporal: inténtalo de nuevo en unos minutos.",
+      "signInExpired": "Este inicio de sesión ya no está activo. Empieza de nuevo.",
+      "tryAgain": "Reintentar"
+    },
+    "picker": {
+      "pageTitle": "Conectar un servicio - Dravr",
+      "heading": "Elige un servicio",
+      "securityNote": "Aquí te conectas de forma segura: tu contraseña nunca se comparte con este chat.",
+      "continue": "Continuar",
+      "dataAvailable": "Tus datos ya están disponibles. Puedes volver a {0}.",
+      "errorTitle": "Algo ha salido mal",
+      "backToProviders": "Volver a los servicios",
+      "tagConnected": "Conectado",
+      "tagAuthorize": "Autorizar",
+      "tagApiKey": "ID de atleta / clave de API",
+      "tagUsernamePassword": "Usuario / contraseña",
+      "tagEmailPassword": "Correo / contraseña",
+      "stravaFallback": "El inicio de sesión en Strava no se completó: puedes conectarte con tu correo y tu contraseña de Strava.",
+      "signInIncomplete": "Ese inicio de sesión no se completó. Vuelve atrás e inténtalo de nuevo."
+    },
+    "login": {
+      "pageTitle": "Conectar tu cuenta - Dravr",
+      "dataAvailable": "Tus datos de {0} ya están disponibles. Puedes volver a {1}."
+    },
+    "intervals": {
+      "pageTitle": "Conectar Intervals.icu - Dravr",
+      "storageNote": "Dravr los comprueba con Intervals.icu antes de guardarlos y almacena la clave cifrada.",
+      "athleteIdRequired": "Introduce tu ID de atleta.",
+      "apiKeyRequired": "Introduce tu clave de API.",
+      "rejected": "Intervals.icu ha rechazado esas credenciales. Comprueba tu ID de atleta y tu clave de API e inténtalo de nuevo.",
+      "unavailable": "Ahora mismo no se puede conectar Intervals.icu. Inténtalo más tarde.",
+      "saveFailed": "No hemos podido guardar tu conexión con Intervals.icu. Inténtalo de nuevo en un momento."
+    },
+    "success": {
+      "pageTitle": "Conectado - Dravr",
+      "heading": "{0} conectado",
+      "headingGeneric": "Cuenta conectada",
+      "dataAvailable": "Tus datos de {0} ya están disponibles en Dravr.",
+      "dataAvailableGeneric": "Tus datos ya están disponibles en Dravr.",
+      "returnToChat": "Puedes volver a {0} para seguir hablando con tu agente.",
+      "autoClose": "Esta ventana se cerrará automáticamente."
+    },
+    "error": {
+      "pageTitle": "Enlace no válido - Dravr",
+      "heading": "No se puede conectar tu cuenta",
+      "missingToken": "Este enlace está incompleto. Pide un enlace nuevo en tu chat.",
+      "invalidLink": "Este enlace no es válido o ha caducado. Pide un enlace nuevo en tu chat.",
+      "malformedLink": "Este enlace está mal formado. Pide un enlace nuevo en tu chat.",
+      "linkAlreadyOpened": "Este enlace ya se ha abierto. Por tu seguridad, cada enlace solo puede abrirse una vez. Pide un enlace nuevo en tu chat.",
+      "loadFailed": "No hemos podido cargar tus conexiones. Inténtalo de nuevo en un momento.",
+      "noticeRequired": "Para conectar este servicio, primero hay que aceptar su aviso. Vuelve atrás, marca el aviso e inténtalo de nuevo.",
+      "oauthStartFailed": "No hemos podido iniciar la conexión con este servicio. Vuelve atrás e inténtalo de nuevo.",
+      "generic": "Algo ha salido mal al conectar tu cuenta. Pide un enlace nuevo en tu chat."
+    }
+  },
   "humanCoach": {
     "attached": "Coach humano asignado",
     "attachedBadge": "Coach asignado",
@@ -2739,7 +2825,7 @@
     "intervalsConnectTitle": "Conectar Intervals.icu",
     "intervalsHideApiKey": "Ocultar la clave de API",
     "intervalsLinkFailed": "No se pudo vincular Intervals.icu. Comprueba tu clave API e inténtalo de nuevo.",
-    "intervalsSettingsPath": "Ajustes → Desarrollador",
+    "intervalsSettingsPath": "Settings → Developer Settings",
     "intervalsShowApiKey": "Mostrar la clave de API",
     "intervalsVerifying": "Verificando…",
     "memoryEmpty": "Todavía no hay datos guardados.",
@@ -2873,7 +2959,8 @@
     "sciotteConnectedDataReady": "Tus datos de {{provider}} ya están disponibles",
     "sciotteProviderCoros": "COROS",
     "sciotteCorosAccount": "Cuenta de COROS",
-    "corosEmail": "Correo de COROS"
+    "corosEmail": "Correo de COROS",
+    "intervalsCredentialsHelp": "Encuentra tu ID de atleta y tu clave de API en Intervals.icu: abre Settings y baja hasta Developer Settings, casi al final de la página."
   },
   "tokens": {
     "activeCount": "{{count}} tokens activos para conexiones de clientes de IA",

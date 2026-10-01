@@ -465,6 +465,22 @@ pub trait MessagingRepository: Send + Sync {
         channel_user_id: &str,
     ) -> AppResult<Option<String>>;
 
+    /// Read the per-channel locale override by the Pierre user behind the
+    /// link rather than by the channel identity.
+    ///
+    /// The same `(tenant, user, channel type)` key
+    /// [`Self::set_channel_link_locale`] writes under, for a caller that knows
+    /// which athlete it is serving and which channel they came from but not
+    /// their id on that channel — a hosted page opened from a chat link.
+    /// `None` when the athlete has no link on that channel, or none of their
+    /// links there carries an override.
+    async fn get_user_channel_link_locale(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+        channel_type: &str,
+    ) -> AppResult<Option<String>>;
+
     /// Set or clear the per-channel-link locale override.
     ///
     /// Pass `None` to clear the override and inherit from `users.locale`.
@@ -852,6 +868,18 @@ pub(crate) const CHANNEL_LINK_LOCALE_SQL: &str = r"
             SELECT locale
             FROM messaging_channel_links
             WHERE tenant_id = $1 AND channel_type = $2 AND channel_user_id = $3
+            ";
+
+/// The locale override of a user's links on one channel type. `/language`
+/// writes every such link at once, so they agree; the most recent link
+/// answers for an athlete who linked a second identity afterwards.
+pub(crate) const USER_CHANNEL_LINK_LOCALE_SQL: &str = r"
+            SELECT locale
+            FROM messaging_channel_links
+            WHERE tenant_id = $1 AND user_id = $2 AND channel_type = $3
+              AND locale IS NOT NULL
+            ORDER BY linked_at DESC
+            LIMIT 1
             ";
 
 /// Set or clear the per-link locale override.

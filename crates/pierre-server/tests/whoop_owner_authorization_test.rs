@@ -305,6 +305,14 @@ async fn the_hosted_picker_shows_whoops_notice_and_carries_its_acceptance() {
     let resources = whoop_server().await;
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = primary_tenant(&resources, user_id).await;
+    // The assertions below read the notice's English text.
+    resources
+        .common
+        .repos
+        .users
+        .update_locale(user_id, "en")
+        .await
+        .unwrap();
     let token = mint_connect_link_token(
         user_id,
         tenant_id.as_uuid(),
@@ -314,7 +322,8 @@ async fn the_hosted_picker_shows_whoops_notice_and_carries_its_acceptance() {
     )
     .unwrap();
 
-    // The picker's WHOOP card carries the notice's English text to show.
+    // The picker's WHOOP card carries the notice to show, in the athlete's
+    // locale.
     let page = AxumTestRequest::get(&format!("/providers/connect?token={token}"))
         .send(routes(&resources))
         .await

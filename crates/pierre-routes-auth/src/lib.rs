@@ -71,6 +71,8 @@ mod connect_hosted_intervals;
 #[cfg(feature = "provider-sciotte")]
 mod connect_hosted_templates;
 mod email_verification;
+#[cfg(feature = "provider-sciotte")]
+mod hosted_page;
 mod intervals_icu;
 mod login;
 mod oauth;
@@ -110,7 +112,7 @@ pub use sciotte::{friendly_login_failure_message, report_login_system_failure};
 #[doc(hidden)]
 pub use sciotte::{
     forget_remote_flow, login_failure_response, remember_remote_flow, remember_remote_flow_for,
-    require_remote_flow, REMOTE_FLOW_TTL_SECS,
+    require_remote_flow, LOGIN_FLOW_EXPIRED_REASON, REMOTE_FLOW_TTL_SECS,
 };
 
 // Re-export the cross-cutting auth DTOs so existing

@@ -125,9 +125,7 @@ export default function IntervalsIcuLinkModal({
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               <p className="text-sm text-on-surface-variant leading-snug">
-                {t('frag.findAthleteIdUnder')}{' '}
-                <span className="text-on-surface font-medium">{t('shell.intervalsSettingsPath')}</span> on
-                intervals.icu.
+                {t('shell.intervalsCredentialsHelp')}
               </p>
 
               <div>

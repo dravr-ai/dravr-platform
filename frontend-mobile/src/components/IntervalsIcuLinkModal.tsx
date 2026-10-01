@@ -87,7 +87,7 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: Interva
         ) : (
           <>
             <Text className="text-sm text-text-secondary mb-4">
-              {t('frag.findAthleteIdUnder')} {t('shell.intervalsSettingsPath')}
+              {t('shell.intervalsCredentialsHelp')}
             </Text>
 
             <Input

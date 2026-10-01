@@ -1872,6 +1872,92 @@
       }
     }
   },
+  "hosted": {
+    "common": {
+      "subtitle": "Verbinde dein Sportkonto",
+      "subtitleNamed": "Verbinde dein {0}-Konto",
+      "linkedFrom": "Geöffnet aus {0}",
+      "yourChatApp": "deiner Chat-App",
+      "back": "Zurück",
+      "accountTitle": "{0}-Konto",
+      "emailLabel": "E-Mail",
+      "usernameLabel": "Benutzername",
+      "passwordLabel": "Passwort",
+      "logIn": "Anmelden",
+      "credentialsNote": "Deine Zugangsdaten gehen direkt an {0} – Dravr speichert dein Passwort nie.",
+      "loggingInAria": "Anmeldung läuft",
+      "connectingTo": "Verbindung mit {0} wird hergestellt...",
+      "mayTakeTime": "Das kann bis zu 30 Sekunden dauern.",
+      "loading": "Wird geladen...",
+      "verifyingCode": "Code wird geprüft...",
+      "twoStepTitle": "Bestätigung in zwei Schritten",
+      "waitingApprovalAria": "Warten auf Freigabe",
+      "checkPhone": "Sieh auf dein Handy",
+      "tapYes": "Tippe in der Benachrichtigung auf Ja",
+      "tapNumber": "Tippe diese Zahl auf deinem Handy an",
+      "checkNotification": "Sieh dir die Benachrichtigung auf deinem Gerät an",
+      "waitingAria": "Warten",
+      "otpTitle": "Bestätigungscode",
+      "otpLabel": "Gib den Code ein, der an dein Gerät gesendet wurde",
+      "verify": "Bestätigen",
+      "connected": "Verbunden!",
+      "loginFailed": "Anmeldung fehlgeschlagen",
+      "signInRejected": "{0} hat diese Anmeldung abgelehnt. Prüfe deine Angaben und versuche es erneut.",
+      "signInUnavailable": "Die Anmeldung bei {0} ist gerade nicht möglich. Das ist meist vorübergehend – versuche es in ein paar Minuten erneut.",
+      "signInExpired": "Diese Anmeldung ist nicht mehr aktiv. Starte die Anmeldung bitte erneut.",
+      "tryAgain": "Erneut versuchen"
+    },
+    "picker": {
+      "pageTitle": "Dienst verbinden - Dravr",
+      "heading": "Wähle einen Dienst",
+      "securityNote": "Hier verbindest du dich sicher – dein Passwort wird nie mit diesem Chat geteilt.",
+      "continue": "Weiter",
+      "dataAvailable": "Deine Daten sind jetzt verfügbar. Du kannst zu {0} zurückkehren.",
+      "errorTitle": "Etwas ist schiefgelaufen",
+      "backToProviders": "Zurück zu den Diensten",
+      "tagConnected": "Verbunden",
+      "tagAuthorize": "Autorisieren",
+      "tagApiKey": "Athleten-ID / API-Schlüssel",
+      "tagUsernamePassword": "Benutzername / Passwort",
+      "tagEmailPassword": "E-Mail / Passwort",
+      "stravaFallback": "Die Anmeldung bei Strava wurde nicht abgeschlossen – du kannst dich stattdessen mit deiner Strava-E-Mail und deinem Passwort verbinden.",
+      "signInIncomplete": "Diese Anmeldung wurde nicht abgeschlossen. Geh zurück und versuche es erneut."
+    },
+    "login": {
+      "pageTitle": "Konto verbinden - Dravr",
+      "dataAvailable": "Deine {0}-Daten sind jetzt verfügbar. Du kannst zu {1} zurückkehren."
+    },
+    "intervals": {
+      "pageTitle": "Intervals.icu verbinden - Dravr",
+      "storageNote": "Dravr prüft beides bei Intervals.icu, bevor es gespeichert wird, und legt den Schlüssel verschlüsselt ab.",
+      "athleteIdRequired": "Gib deine Athleten-ID ein.",
+      "apiKeyRequired": "Gib deinen API-Schlüssel ein.",
+      "rejected": "Intervals.icu hat diese Zugangsdaten abgelehnt. Prüfe deine Athleten-ID und deinen API-Schlüssel und versuche es erneut.",
+      "unavailable": "Intervals.icu kann gerade nicht verbunden werden. Versuche es später erneut.",
+      "saveFailed": "Wir konnten deine Intervals.icu-Verbindung nicht speichern. Versuche es gleich noch einmal."
+    },
+    "success": {
+      "pageTitle": "Verbunden - Dravr",
+      "heading": "{0} verbunden",
+      "headingGeneric": "Konto verbunden",
+      "dataAvailable": "Deine {0}-Daten sind jetzt in Dravr verfügbar.",
+      "dataAvailableGeneric": "Deine Daten sind jetzt in Dravr verfügbar.",
+      "returnToChat": "Du kannst zu {0} zurückkehren und weiter mit deinem Agenten chatten.",
+      "autoClose": "Dieses Fenster schließt sich automatisch."
+    },
+    "error": {
+      "pageTitle": "Link-Fehler - Dravr",
+      "heading": "Dein Konto kann nicht verbunden werden",
+      "missingToken": "Dieser Link ist unvollständig. Fordere in deinem Chat einen neuen Link an.",
+      "invalidLink": "Dieser Link ist ungültig oder abgelaufen. Fordere in deinem Chat einen neuen Link an.",
+      "malformedLink": "Dieser Link ist fehlerhaft. Fordere in deinem Chat einen neuen Link an.",
+      "linkAlreadyOpened": "Dieser Link wurde bereits geöffnet. Zu deiner Sicherheit lässt sich jeder Link nur einmal öffnen. Fordere in deinem Chat einen neuen Link an.",
+      "loadFailed": "Wir konnten deine Verbindungen nicht laden. Versuche es gleich noch einmal.",
+      "noticeRequired": "Um diesen Dienst zu verbinden, muss zuerst sein Hinweis akzeptiert werden. Geh zurück, setze das Häkchen und versuche es erneut.",
+      "oauthStartFailed": "Wir konnten die Verbindung zu diesem Dienst nicht starten. Geh zurück und versuche es erneut.",
+      "generic": "Beim Verbinden deines Kontos ist etwas schiefgelaufen. Fordere in deinem Chat einen neuen Link an."
+    }
+  },
   "humanCoach": {
     "attached": "Menschlicher Coach zugeordnet",
     "attachedBadge": "Coach zugewiesen",
@@ -2739,7 +2825,7 @@
     "intervalsConnectTitle": "Intervals.icu verbinden",
     "intervalsHideApiKey": "API-Schlüssel ausblenden",
     "intervalsLinkFailed": "Intervals.icu konnte nicht verbunden werden. Prüfe deinen API-Schlüssel und versuche es erneut.",
-    "intervalsSettingsPath": "Einstellungen → Entwickler",
+    "intervalsSettingsPath": "Settings → Developer Settings",
     "intervalsShowApiKey": "API-Schlüssel anzeigen",
     "intervalsVerifying": "Wird überprüft…",
     "memoryEmpty": "Noch nichts gespeichert.",
@@ -2873,7 +2959,8 @@
     "sciotteConnectedDataReady": "Deine {{provider}}-Daten sind jetzt verfügbar",
     "sciotteProviderCoros": "COROS",
     "sciotteCorosAccount": "COROS-Konto",
-    "corosEmail": "COROS-E-Mail"
+    "corosEmail": "COROS-E-Mail",
+    "intervalsCredentialsHelp": "Deine Athleten-ID und deinen API-Schlüssel findest du in Intervals.icu: Öffne Settings und scrolle zu Developer Settings, fast ganz unten auf der Seite."
   },
   "tokens": {
     "activeCount": "{{count}} aktive Token für KI-Client-Verbindungen",

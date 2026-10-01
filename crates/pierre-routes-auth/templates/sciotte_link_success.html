@@ -3,24 +3,24 @@
 <!-- ABOUTME: Styled by the shared Boreal sheet the renderer injects; closes itself after a short pause -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 <!-- Copyright (c) 2026 dravr.ai -->
-<html lang="en">
+<html lang="{{LANG}}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">
     <meta name="referrer" content="no-referrer">
     <meta name="color-scheme" content="light dark">
-    <title>Connected - Dravr</title>
+    <title>{{t:hosted.success.pageTitle}}</title>
     <style>{{HOSTED_PAGE_CSS}}</style>
 </head>
 <body>
     <main class="card card-center">
         <div class="lockup" role="img" aria-label="Dravr"></div>
         <div class="status-icon status-icon-success" aria-hidden="true">&#10003;</div>
-        <h1>{{TARGET_LABEL}} Connected</h1>
-        <p>Your {{TARGET_LABEL}} data is now available in Dravr.</p>
-        <p>You can return to {{CHANNEL_LABEL}} to continue chatting with your agent.</p>
-        <p class="fineprint">This window will close automatically.</p>
+        <h1>{{HEADING}}</h1>
+        <p>{{DATA_AVAILABLE}}</p>
+        <p>{{RETURN_TO_CHAT}}</p>
+        <p class="fineprint">{{t:hosted.success.autoClose}}</p>
     </main>
     <script>
         setTimeout(function () {

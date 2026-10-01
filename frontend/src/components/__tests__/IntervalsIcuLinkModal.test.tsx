@@ -36,6 +36,17 @@ describe('IntervalsIcuLinkModal', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it('says where Intervals.icu shows the athlete id and API key, as one catalogue sentence', () => {
+    renderModal();
+    // The whole instruction is one key the hosted connect form reads too; it
+    // names the section Intervals.icu's Settings page actually shows.
+    expect(
+      screen.getByText(
+        'Find your Athlete ID and API key in Intervals.icu: open Settings and scroll down to Developer Settings, near the bottom of the page.'
+      )
+    ).toBeInTheDocument();
+  });
+
   it('links with trimmed athlete id + api key and fires onConnected', async () => {
     vi.mocked(providersApi.linkIntervalsIcu).mockResolvedValue({
       status: 'connected',

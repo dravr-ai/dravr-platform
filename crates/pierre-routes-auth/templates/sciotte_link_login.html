@@ -3,30 +3,30 @@
 <!-- ABOUTME: Styled by the shared Boreal sheet the renderer injects; the script runs the login state machine -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 <!-- Copyright (c) 2026 dravr.ai -->
-<html lang="en">
+<html lang="{{LANG}}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">
     <meta name="referrer" content="no-referrer">
     <meta name="color-scheme" content="light dark">
-    <title>Connect your account - Dravr</title>
+    <title>{{t:hosted.login.pageTitle}}</title>
     <style>{{HOSTED_PAGE_CSS}}</style>
 </head>
 <body>
     <main class="card">
         <div class="lockup" role="img" aria-label="Dravr"></div>
         <div class="subtitle">
-            Connect your {{TARGET_LABEL}} account
+            {{SUBTITLE}}
             <br>
-            <span class="pill">Linked from {{CHANNEL_LABEL}}</span>
+            <span class="pill">{{LINKED_FROM}}</span>
         </div>
 
         <div id="error-banner" class="alert alert-error" role="alert" hidden></div>
 
         <!-- Phase: credentials -->
         <section id="phase-credentials">
-            <h1>{{TARGET_LABEL}} Account</h1>
+            <h1>{{ACCOUNT_TITLE}}</h1>
             <div class="callout" role="note" id="consent-block"{{CONSENT_HIDDEN}}>
                 <p class="callout-title">{{CONSENT_TITLE}}</p>
                 <p>{{CONSENT_NOTICE}}</p>
@@ -38,36 +38,36 @@
                     <input type="{{ID_TYPE}}" id="email" name="email" required autocomplete="{{ID_AUTOCOMPLETE}}" autofocus>
                 </div>
                 <div class="field">
-                    <label for="password">Password</label>
+                    <label for="password">{{t:hosted.common.passwordLabel}}</label>
                     <input type="password" id="password" name="password" required autocomplete="current-password">
                 </div>
-                <button type="submit" class="btn btn-primary btn-block" id="submit-login">Log In</button>
+                <button type="submit" class="btn btn-primary btn-block" id="submit-login">{{t:hosted.common.logIn}}</button>
             </form>
-            <p class="fineprint">Credentials go directly to {{TARGET_LABEL}} — Dravr never stores your password.</p>
+            <p class="fineprint">{{CREDENTIALS_NOTE}}</p>
         </section>
 
         <!-- Phase: logging-in -->
         <section id="phase-logging-in" hidden>
             <div class="status">
-                <div class="spinner" role="status" aria-label="Logging in"></div>
-                <div id="logging-in-status">Connecting to {{TARGET_LABEL}}...</div>
-                <p>This may take up to 30 seconds.</p>
+                <div class="spinner" role="status" aria-label="{{t:hosted.common.loggingInAria}}"></div>
+                <div id="logging-in-status">{{CONNECTING_TO}}</div>
+                <p>{{t:hosted.common.mayTakeTime}}</p>
             </div>
         </section>
 
         <!-- Phase: two-factor choice -->
         <section id="phase-two-factor" hidden>
-            <button type="button" class="btn btn-tertiary back-link" id="tf-back">&larr; Back</button>
-            <h1>2-Step Verification</h1>
+            <button type="button" class="btn btn-tertiary back-link" id="tf-back">&larr; {{t:hosted.common.back}}</button>
+            <h1>{{t:hosted.common.twoStepTitle}}</h1>
             <div id="two-factor-options" class="actions"></div>
         </section>
 
         <!-- Phase: waiting-approval -->
         <section id="phase-waiting-approval" hidden>
             <div class="status">
-                <div class="spinner" role="status" aria-label="Waiting for approval"></div>
-                <div><strong>Check your phone</strong></div>
-                <p>Tap "Yes" on the notification</p>
+                <div class="spinner" role="status" aria-label="{{t:hosted.common.waitingApprovalAria}}"></div>
+                <div><strong>{{t:hosted.common.checkPhone}}</strong></div>
+                <p>{{t:hosted.common.tapYes}}</p>
             </div>
         </section>
 
@@ -75,21 +75,21 @@
         <section id="phase-number-match" hidden>
             <div class="status">
                 <div class="number-match" id="number-match-digit">--</div>
-                <div><strong>Tap this number on your phone</strong></div>
-                <p>Check the notification on your device</p>
-                <div class="spinner spinner-sm" role="status" aria-label="Waiting"></div>
+                <div><strong>{{t:hosted.common.tapNumber}}</strong></div>
+                <p>{{t:hosted.common.checkNotification}}</p>
+                <div class="spinner spinner-sm" role="status" aria-label="{{t:hosted.common.waitingAria}}"></div>
             </div>
         </section>
 
         <!-- Phase: OTP -->
         <section id="phase-otp" hidden>
-            <h1>Verification Code</h1>
+            <h1>{{t:hosted.common.otpTitle}}</h1>
             <form id="otp-form" novalidate>
                 <div class="field">
-                    <label for="otp-code">Enter the code sent to your device</label>
+                    <label for="otp-code">{{t:hosted.common.otpLabel}}</label>
                     <input type="text" id="otp-code" name="code" required autofocus inputmode="numeric" autocomplete="one-time-code">
                 </div>
-                <button type="submit" class="btn btn-primary btn-block" id="submit-otp">Verify</button>
+                <button type="submit" class="btn btn-primary btn-block" id="submit-otp">{{t:hosted.common.verify}}</button>
             </form>
         </section>
 
@@ -97,8 +97,8 @@
         <section id="phase-success" hidden>
             <div class="status">
                 <div class="status-icon status-icon-success" aria-hidden="true">&#10003;</div>
-                <div><strong>Connected!</strong></div>
-                <p id="success-message">Your {{TARGET_LABEL}} data is now available. You can return to {{CHANNEL_LABEL}}.</p>
+                <div><strong>{{t:hosted.common.connected}}</strong></div>
+                <p id="success-message">{{DATA_AVAILABLE}}</p>
             </div>
         </section>
 
@@ -106,9 +106,9 @@
         <section id="phase-error" hidden>
             <div class="status">
                 <div class="status-icon status-icon-error" aria-hidden="true">!</div>
-                <div><strong>Login failed</strong></div>
+                <div><strong>{{t:hosted.common.loginFailed}}</strong></div>
                 <p id="error-message"></p>
-                <button type="button" class="btn btn-secondary" id="retry-btn">Try Again</button>
+                <button type="button" class="btn btn-secondary" id="retry-btn">{{t:hosted.common.tryAgain}}</button>
             </div>
         </section>
     </main>
@@ -121,14 +121,17 @@
                 token: "{{LINK_TOKEN}}",
                 target: "{{TARGET}}",
                 channel: "{{CHANNEL}}",
-                targetLabel: "{{TARGET_LABEL}}",
-                channelLabel: "{{CHANNEL_LABEL}}",
                 // The account must accept the provider's exposure notice before
                 // its credentials are sent (TrainingPeaks, until accepted).
                 consentRequired: {{CONSENT_REQUIRED}},
                 // 20-minute timeout (matches SCIOTTE_TIMEOUT_MS in frontend)
                 timeoutMs: 1200000,
+                // `details.reason` of the refusal a lapsed sign-in gets.
+                flowExpiredReason: "{{FLOW_EXPIRED_REASON}}",
+                // The strings the script sets, in the athlete's locale.
+                strings: {{STRINGS_JSON}},
             };
+            const S = CONFIG.strings;
 
             const phases = ['credentials', 'logging-in', 'two-factor', 'waiting-approval', 'number-match', 'otp', 'success', 'error'];
             function showPhase(name) {
@@ -151,6 +154,21 @@
                 document.getElementById('logging-in-status').textContent = text;
             }
 
+            // What a failed sign-in step tells the athlete. The server's own
+            // messages are English and a provider's refusal is in the
+            // provider's words, so the page prints neither: it words every
+            // failure from the strings of the athlete's locale.
+            function failureText(failure) {
+                if (failure.rejected) return S.signInRejected;
+                if (failure.status === 401) return S.linkExpired;
+                if (failure.reason === CONFIG.flowExpiredReason) return S.signInExpired;
+                return S.signInUnavailable;
+            }
+            function showFailure(failure) {
+                document.getElementById('error-message').textContent = failureText(failure || {});
+                showPhase('error');
+            }
+
             async function callApi(path, body) {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), CONFIG.timeoutMs);
@@ -168,8 +186,14 @@
                     let data = null;
                     try { data = text ? JSON.parse(text) : null; } catch (_) { /* non-JSON response */ }
                     if (!resp.ok) {
-                        const msg = (data && (data.error || data.message)) || ('HTTP ' + resp.status);
-                        throw new Error(msg);
+                        // The status and the machine-readable reason are all
+                        // the page keeps of a refusal; its prose is not shown.
+                        const err = new Error('sign-in request refused');
+                        err.failure = {
+                            status: resp.status,
+                            reason: data && data.details && data.details.reason,
+                        };
+                        throw err;
                     }
                     return data || {};
                 } finally {
@@ -183,7 +207,8 @@
                     case 'connected':
                         showPhase('success');
                         setTimeout(() => {
-                            const qs = 'channel=' + encodeURIComponent(CONFIG.channel) + '&target=' + encodeURIComponent(CONFIG.target);
+                            const qs = 'channel=' + encodeURIComponent(CONFIG.channel) + '&target=' + encodeURIComponent(CONFIG.target)
+                                + '&token=' + encodeURIComponent(CONFIG.token);
                             window.location.assign('/providers/sciotte/success?' + qs);
                         }, 1200);
                         break;
@@ -202,12 +227,11 @@
                         setTimeout(() => selectTwoFactor('poll'), 150);
                         break;
                     case 'failed':
-                    default: {
-                        const msg = data.error || 'Login failed';
-                        document.getElementById('error-message').textContent = msg;
-                        showPhase('error');
+                        showFailure({ rejected: true });
                         break;
-                    }
+                    default:
+                        showFailure({});
+                        break;
                 }
             }
 
@@ -234,7 +258,7 @@
 
                 clearError();
                 showPhase('logging-in');
-                setLoggingInStatus('Connecting to ' + CONFIG.targetLabel + '...');
+                setLoggingInStatus(S.connectingTo);
 
                 try {
                     const data = await callApi('/api/providers/sciotte/login', {
@@ -246,8 +270,7 @@
                     });
                     handleLoginResponse(data);
                 } catch (err) {
-                    document.getElementById('error-message').textContent = err.message || 'Login failed';
-                    showPhase('error');
+                    showFailure(err.failure);
                 }
             }
 
@@ -257,7 +280,7 @@
                     showPhase('waiting-approval');
                 } else if (optionId !== 'poll') {
                     showPhase('logging-in');
-                    setLoggingInStatus('Loading...');
+                    setLoggingInStatus(S.loading);
                 }
                 try {
                     const data = await callApi('/api/providers/sciotte/select-2fa', {
@@ -265,8 +288,7 @@
                     });
                     handleLoginResponse(data);
                 } catch (err) {
-                    document.getElementById('error-message').textContent = err.message || 'Verification failed';
-                    showPhase('error');
+                    showFailure(err.failure);
                 }
             }
 
@@ -276,13 +298,12 @@
                 if (!code) return;
                 clearError();
                 showPhase('logging-in');
-                setLoggingInStatus('Verifying code...');
+                setLoggingInStatus(S.verifyingCode);
                 try {
                     const data = await callApi('/api/providers/sciotte/submit-otp', { code: code });
                     handleLoginResponse(data);
                 } catch (err) {
-                    document.getElementById('error-message').textContent = err.message || 'Verification failed';
-                    showPhase('error');
+                    showFailure(err.failure);
                 }
             }
 

@@ -26,11 +26,12 @@ use crate::AuthRoutesContext;
 
 /// Pick the page locale from the browser's `Accept-Language` header.
 ///
-/// The redirect is unauthenticated so there is no session locale to read; the
+/// A page with no verified user has no stored locale to read — this redirect,
+/// and a hosted connect page whose link-token is missing or invalid; the
 /// primary subtag of the first accepted language is mapped to one of the five
 /// supported locales, defaulting to French (the platform is French-first) for
 /// `fr` and anything unrecognized.
-fn preferred_locale(headers: &HeaderMap) -> &'static str {
+pub fn preferred_locale(headers: &HeaderMap) -> &'static str {
     let primary = headers
         .get(header::ACCEPT_LANGUAGE)
         .and_then(|v| v.to_str().ok())

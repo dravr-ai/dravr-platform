@@ -42,6 +42,55 @@ pub struct IntervalsIcuLinkRequest {
     pub api_key: String,
 }
 
+/// Why an Intervals.icu link attempt did not go through.
+///
+/// The JSON route answers with the [`AppError`] each kind converts into; the
+/// hosted connect form words each kind from the catalogue, in the athlete's
+/// locale, rather than showing that English text.
+#[derive(Debug)]
+pub enum IntervalsLinkError {
+    /// The athlete id field was empty.
+    MissingAthleteId,
+    /// The API key field was empty.
+    MissingApiKey,
+    /// This build cannot create the Intervals.icu provider; the reason.
+    Unavailable(String),
+    /// Intervals.icu did not accept the athlete id + API key; its reason.
+    Rejected(String),
+    /// Setting the credentials or storing the link failed.
+    Storage(AppError),
+}
+
+impl From<AppError> for IntervalsLinkError {
+    fn from(error: AppError) -> Self {
+        Self::Storage(error)
+    }
+}
+
+impl From<IntervalsLinkError> for AppError {
+    fn from(error: IntervalsLinkError) -> Self {
+        match error {
+            IntervalsLinkError::MissingAthleteId => Self::invalid_input("athlete_id is required"),
+            IntervalsLinkError::MissingApiKey => Self::invalid_input("api_key is required"),
+            IntervalsLinkError::Unavailable(reason) => {
+                Self::invalid_input(format!("Intervals.icu provider unavailable: {reason}"))
+            }
+            // A rejection is about the athlete id + API key in *this request
+            // body*, not about the caller's Dravr session — so it must not be
+            // `auth_invalid`. That code maps to HTTP 401, and the shared
+            // api-client response interceptor treats any 401 as a dead
+            // session: it clears stored auth and signs the user out. A
+            // mistyped API key would log the athlete out of Dravr.
+            // `invalid_input` maps to 400, which is what a bad field in a
+            // request body deserves.
+            IntervalsLinkError::Rejected(reason) => Self::invalid_input(format!(
+                "Intervals.icu rejected those credentials — check the athlete id and API key ({reason})"
+            )),
+            IntervalsLinkError::Storage(error) => error,
+        }
+    }
+}
+
 /// Resolve the authenticated `user_id` + active `tenant_id` from request headers.
 async fn authenticate(
     resources: &AuthRoutesContext,
@@ -110,30 +159,30 @@ pub async fn handle_intervals_icu_link(
 ///
 /// # Errors
 ///
-/// Returns [`AppError`] when a field is empty, the provider is unavailable
-/// (feature not compiled in), Intervals.icu rejects the credentials, or the
-/// token or connection cannot be stored.
+/// Returns [`IntervalsLinkError`] when a field is empty, the provider is
+/// unavailable (feature not compiled in), Intervals.icu rejects the
+/// credentials, or the token or connection cannot be stored.
 pub async fn link_intervals_icu_account(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,
     athlete_id: &str,
     api_key: &str,
-) -> Result<Athlete, AppError> {
+) -> Result<Athlete, IntervalsLinkError> {
     let athlete_id = athlete_id.trim().to_owned();
     let api_key = api_key.trim().to_owned();
     if athlete_id.is_empty() {
-        return Err(AppError::invalid_input("athlete_id is required"));
+        return Err(IntervalsLinkError::MissingAthleteId);
     }
     if api_key.is_empty() {
-        return Err(AppError::invalid_input("api_key is required"));
+        return Err(IntervalsLinkError::MissingApiKey);
     }
 
     // Validate the credentials live before persisting them.
     let provider = resources
         .provider_registry
         .create_provider(INTERVALS_ICU)
-        .map_err(|e| AppError::invalid_input(format!("Intervals.icu provider unavailable: {e}")))?;
+        .map_err(|e| IntervalsLinkError::Unavailable(e.to_string()))?;
     provider
         .set_credentials(OAuth2Credentials {
             client_id: athlete_id.clone(),
@@ -144,17 +193,10 @@ pub async fn link_intervals_icu_account(
             scopes: vec![],
         })
         .await?;
-    // A rejection here is about the athlete id + API key in *this request body*,
-    // not about the caller's Dravr session — so it must not be `auth_invalid`.
-    // That code maps to HTTP 401, and the shared api-client response interceptor
-    // treats any 401 as a dead session: it clears stored auth and signs the user
-    // out. A mistyped API key would log the athlete out of Dravr. `invalid_input`
-    // maps to 400, which is what a bad field in a request body deserves.
-    let athlete = provider.get_athlete().await.map_err(|e| {
-        AppError::invalid_input(format!(
-            "Intervals.icu rejected those credentials — check the athlete id and API key ({e})"
-        ))
-    })?;
+    let athlete = provider
+        .get_athlete()
+        .await
+        .map_err(|e| IntervalsLinkError::Rejected(e.to_string()))?;
 
     let now = Utc::now();
     let token = UserOAuthToken {

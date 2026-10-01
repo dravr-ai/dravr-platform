@@ -23,16 +23,29 @@ pub use dravr_canot::rich_text;
 /// `mobile_chat`), or an empty or unknown query parameter.
 const UNNAMED_CHANNEL_LABEL: &str = "your chat app";
 
-/// The name an athlete knows a messaging channel by ("Telegram", "Slack"),
-/// for every page or email that names the chat they came from.
+/// The name an athlete knows a messaging channel by ("Telegram", "Slack").
+///
+/// `None` when the slug names no channel this build compiled: an in-app
+/// surface (`web_chat`, `mobile_chat`), or an empty or unknown query
+/// parameter.
 ///
 /// Read from the channel's own canot descriptor, so no platform crate spells a
-/// channel's name itself. A slug that names no channel, or one whose adapter
-/// this build did not compile, reads as "your chat app".
+/// channel's name itself. A page rendered in the athlete's locale words the
+/// unnamed case from its own catalogue; [`channel_label`] words it in English.
 #[must_use]
-pub fn channel_label(slug: &str) -> &'static str {
+pub fn channel_display_name(slug: &str) -> Option<&'static str> {
     ChannelType::from_str(slug)
         .ok()
         .and_then(descriptor_for)
-        .map_or(UNNAMED_CHANNEL_LABEL, ChannelDescriptor::display_name)
+        .map(ChannelDescriptor::display_name)
+}
+
+/// The name an athlete knows a messaging channel by ("Telegram", "Slack"),
+/// for an email that names the chat they came from.
+///
+/// A slug that names no channel, or one whose adapter this build did not
+/// compile, reads as "your chat app".
+#[must_use]
+pub fn channel_label(slug: &str) -> &'static str {
+    channel_display_name(slug).unwrap_or(UNNAMED_CHANNEL_LABEL)
 }

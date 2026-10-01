@@ -3,21 +3,21 @@
 <!-- ABOUTME: Styled by the shared Boreal sheet the renderer injects; the message is escaped before it lands here -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 <!-- Copyright (c) 2026 dravr.ai -->
-<html lang="en">
+<html lang="{{LANG}}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">
     <meta name="referrer" content="no-referrer">
     <meta name="color-scheme" content="light dark">
-    <title>Link error - Dravr</title>
+    <title>{{t:hosted.error.pageTitle}}</title>
     <style>{{HOSTED_PAGE_CSS}}</style>
 </head>
 <body>
     <main class="card card-center">
         <div class="lockup" role="img" aria-label="Dravr"></div>
         <div class="status-icon status-icon-error" aria-hidden="true">!</div>
-        <h1>Can't connect your account</h1>
+        <h1>{{t:hosted.error.heading}}</h1>
         <p>{{MESSAGE}}</p>
     </main>
 </body>

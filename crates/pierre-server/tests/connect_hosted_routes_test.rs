@@ -49,6 +49,15 @@ async fn test_setup() -> (Arc<ServerContext>, Uuid, TenantId) {
         .first()
         .expect("user has a tenant")
         .id;
+    // These tests pin the pages against their English text; an athlete's own
+    // language is `connect_hosted_locale_test`'s subject.
+    resources
+        .common
+        .repos
+        .users
+        .update_locale(user_id, "en")
+        .await
+        .expect("store the athlete's locale");
     (resources, user_id, tenant_id)
 }
 
@@ -102,12 +111,15 @@ async fn connect_page_without_token_renders_error_page() {
     let (resources, _, _) = test_setup().await;
     let app = AuthRoutes::routes(resources.auth_routes_context());
 
-    let resp = AxumTestRequest::get("/providers/connect").send(app).await;
+    let resp = AxumTestRequest::get("/providers/connect")
+        .header("accept-language", "en")
+        .send(app)
+        .await;
 
     assert_eq!(resp.status(), 200, "error page is a friendly 200 HTML page");
     let body = resp.text();
     assert!(
-        body.contains("Missing connect token"),
+        body.contains("This link is incomplete. Please request a fresh link from your chat."),
         "missing-token copy expected: {body}"
     );
     assert!(
@@ -130,6 +142,7 @@ async fn connect_page_rejects_garbage_token() {
     let app = AuthRoutes::routes(resources.auth_routes_context());
 
     let resp = AxumTestRequest::get("/providers/connect?token=not-a-jwt")
+        .header("accept-language", "en")
         .send(app)
         .await;
 
@@ -166,6 +179,7 @@ async fn connect_page_rejects_narrow_sciotte_token() {
         "/providers/connect?token={}",
         urlencoding::encode(&narrow)
     ))
+    .header("accept-language", "en")
     .send(app)
     .await;
 
@@ -677,7 +691,7 @@ async fn picker_asks_each_provider_for_its_own_notice() {
         "COROS' raw OAuth card, which Pierre cannot complete, is never offered"
     );
     assert!(
-        body.contains("'Username / password'"),
+        body.contains(r#""tagUsernamePassword":"Username / password""#),
         "the picker names the username a TrainingPeaks card asks for"
     );
 
@@ -836,9 +850,11 @@ fn every_channel() -> [ChannelType; 5] {
     channels
 }
 
-/// The body of a GET on an unauthenticated hosted page.
+/// The body of a GET on an unauthenticated hosted page, from a browser that
+/// reads English: a page with no token to name its athlete follows it.
 async fn page(resources: &Arc<ServerContext>, url: &str) -> String {
     let resp = AxumTestRequest::get(url)
+        .header("accept-language", "en")
         .send(AuthRoutes::routes(resources.auth_routes_context()))
         .await;
     assert_eq!(resp.status(), 200, "{url} renders");

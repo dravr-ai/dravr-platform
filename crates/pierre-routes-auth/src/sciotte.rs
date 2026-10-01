@@ -89,6 +89,13 @@ const REMOTE_FLOW_KEY_PROVIDER: &str = "sciotte";
 const NO_PENDING_LOGIN_MESSAGE: &str =
     "This sign-in is no longer active. Please start the sign-in again.";
 
+/// `details.reason` of that refusal: what tells a login UI the sign-in lapsed
+/// rather than failed, without reading the message.
+///
+/// The hosted login pages word every failure in the athlete's own language,
+/// so they act on this and never print [`NO_PENDING_LOGIN_MESSAGE`].
+pub const LOGIN_FLOW_EXPIRED_REASON: &str = "login_flow_expired";
+
 /// Cache key naming one athlete's parked sciotte login flow.
 ///
 /// [`CacheKey`] carries the tenant alongside the user, so an entry is only ever
@@ -243,7 +250,11 @@ pub async fn require_remote_flow(
             "Sciotte continuation has no live flow for this caller — refusing before any \
              call to the service"
         );
-        return Err(AppError::invalid_input(NO_PENDING_LOGIN_MESSAGE));
+        let mut refusal = AppError::invalid_input(NO_PENDING_LOGIN_MESSAGE);
+        refusal.details = Some(Box::new(
+            serde_json::json!({ "reason": LOGIN_FLOW_EXPIRED_REASON }),
+        ));
+        return Err(refusal);
     };
     Ok((flow.flow_id, flow.provider))
 }

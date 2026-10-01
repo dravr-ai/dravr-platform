@@ -12,43 +12,43 @@
   The key is typed here over TLS — never into the chat transcript — and is
   never written back into the page.
 -->
-<html lang="en">
+<html lang="{{LANG}}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">
     <meta name="referrer" content="no-referrer">
     <meta name="color-scheme" content="light dark">
-    <title>Connect Intervals.icu - Dravr</title>
+    <title>{{t:hosted.intervals.pageTitle}}</title>
     <style>{{HOSTED_PAGE_CSS}}</style>
 </head>
 <body>
     <main class="card">
         <div class="lockup" role="img" aria-label="Dravr"></div>
         <div class="subtitle">
-            Connect your fitness account
+            {{t:hosted.common.subtitle}}
             <br>
-            <span class="pill">Linked from {{CHANNEL_LABEL}}</span>
+            <span class="pill">{{LINKED_FROM}}</span>
         </div>
 
         <div id="error-banner" class="alert alert-error" role="alert"{{ERROR_HIDDEN}}>{{ERROR_MESSAGE}}</div>
 
         <section id="phase-api-key">
-            <a class="btn btn-tertiary back-link" href="/providers/connect?token={{LINK_TOKEN_QUERY}}">&larr; Back</a>
-            <h1>Intervals.icu Account</h1>
+            <a class="btn btn-tertiary back-link" href="/providers/connect?token={{LINK_TOKEN_QUERY}}">&larr; {{t:hosted.common.back}}</a>
+            <h1>{{ACCOUNT_TITLE}}</h1>
             <form id="api-key-form" method="post" action="/providers/connect/intervals_icu">
                 <input type="hidden" name="token" value="{{LINK_TOKEN}}">
                 <div class="field">
-                    <label for="athlete_id">Athlete ID</label>
+                    <label for="athlete_id">{{t:shell.intervalsAthleteId}}</label>
                     <input type="text" id="athlete_id" name="athlete_id" value="{{ATHLETE_ID}}" required autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="i123456">
                 </div>
                 <div class="field">
-                    <label for="api_key">API key</label>
+                    <label for="api_key">{{t:shell.intervalsApiKeyLabel}}</label>
                     <input type="password" id="api_key" name="api_key" required autocomplete="off">
                 </div>
-                <button type="submit" class="btn btn-primary btn-block" id="submit-api-key">Connect</button>
+                <button type="submit" class="btn btn-primary btn-block" id="submit-api-key">{{t:shell.intervalsConnectAction}}</button>
             </form>
-            <p class="fineprint">Find both in Intervals.icu under Settings &rarr; Developer Settings. Dravr checks them with Intervals.icu before saving, and stores the key encrypted.</p>
+            <p class="fineprint">{{t:shell.intervalsCredentialsHelp}} {{t:hosted.intervals.storageNote}}</p>
         </section>
     </main>
 </body>

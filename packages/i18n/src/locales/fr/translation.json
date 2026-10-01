@@ -1872,6 +1872,92 @@
       }
     }
   },
+  "hosted": {
+    "common": {
+      "subtitle": "Connecte ton compte sportif",
+      "subtitleNamed": "Connecte ton compte {0}",
+      "linkedFrom": "Ouvert depuis {0}",
+      "yourChatApp": "ton application de messagerie",
+      "back": "Retour",
+      "accountTitle": "Compte {0}",
+      "emailLabel": "E-mail",
+      "usernameLabel": "Nom d’utilisateur",
+      "passwordLabel": "Mot de passe",
+      "logIn": "Se connecter",
+      "credentialsNote": "Tes identifiants vont directement à {0} — Dravr ne conserve jamais ton mot de passe.",
+      "loggingInAria": "Connexion en cours",
+      "connectingTo": "Connexion à {0}...",
+      "mayTakeTime": "Cela peut prendre jusqu’à 30 secondes.",
+      "loading": "Chargement...",
+      "verifyingCode": "Vérification du code...",
+      "twoStepTitle": "Validation en deux étapes",
+      "waitingApprovalAria": "En attente d’approbation",
+      "checkPhone": "Regarde ton téléphone",
+      "tapYes": "Appuie sur Oui dans la notification",
+      "tapNumber": "Appuie sur ce numéro sur ton téléphone",
+      "checkNotification": "Regarde la notification sur ton appareil",
+      "waitingAria": "En attente",
+      "otpTitle": "Code de vérification",
+      "otpLabel": "Saisis le code envoyé sur ton appareil",
+      "verify": "Vérifier",
+      "connected": "Connecté !",
+      "loginFailed": "La connexion a échoué",
+      "signInRejected": "{0} a refusé cette connexion. Vérifie tes informations et réessaie.",
+      "signInUnavailable": "Impossible de te connecter à {0} pour le moment. C’est généralement temporaire — réessaie dans quelques minutes.",
+      "signInExpired": "Cette connexion n’est plus active. Recommence la connexion.",
+      "tryAgain": "Réessayer"
+    },
+    "picker": {
+      "pageTitle": "Connecter un service - Dravr",
+      "heading": "Choisis un service",
+      "securityNote": "Tu te connectes ici en toute sécurité — ton mot de passe n’est jamais partagé avec cette conversation.",
+      "continue": "Continuer",
+      "dataAvailable": "Tes données sont maintenant disponibles. Tu peux retourner dans {0}.",
+      "errorTitle": "Un problème est survenu",
+      "backToProviders": "Retour aux services",
+      "tagConnected": "Connecté",
+      "tagAuthorize": "Autoriser",
+      "tagApiKey": "Identifiant athlète / clé API",
+      "tagUsernamePassword": "Nom d’utilisateur / mot de passe",
+      "tagEmailPassword": "E-mail / mot de passe",
+      "stravaFallback": "La connexion à Strava n’a pas abouti — tu peux te connecter avec ton e-mail et ton mot de passe Strava à la place.",
+      "signInIncomplete": "Cette connexion n’a pas abouti. Reviens en arrière et réessaie."
+    },
+    "login": {
+      "pageTitle": "Connecter ton compte - Dravr",
+      "dataAvailable": "Tes données {0} sont maintenant disponibles. Tu peux retourner dans {1}."
+    },
+    "intervals": {
+      "pageTitle": "Connecter Intervals.icu - Dravr",
+      "storageNote": "Dravr les vérifie auprès d’Intervals.icu avant de les enregistrer, et conserve la clé chiffrée.",
+      "athleteIdRequired": "Saisis ton identifiant athlète.",
+      "apiKeyRequired": "Saisis ta clé API.",
+      "rejected": "Intervals.icu a refusé ces identifiants. Vérifie ton identifiant athlète et ta clé API, puis réessaie.",
+      "unavailable": "Intervals.icu ne peut pas être connecté pour le moment. Réessaie plus tard.",
+      "saveFailed": "Nous n’avons pas pu enregistrer ta connexion Intervals.icu. Réessaie dans un instant."
+    },
+    "success": {
+      "pageTitle": "Connecté - Dravr",
+      "heading": "{0} est connecté",
+      "headingGeneric": "Compte connecté",
+      "dataAvailable": "Tes données {0} sont maintenant disponibles dans Dravr.",
+      "dataAvailableGeneric": "Tes données sont maintenant disponibles dans Dravr.",
+      "returnToChat": "Tu peux retourner dans {0} pour continuer à discuter avec ton agent.",
+      "autoClose": "Cette fenêtre se fermera automatiquement."
+    },
+    "error": {
+      "pageTitle": "Lien invalide - Dravr",
+      "heading": "Impossible de connecter ton compte",
+      "missingToken": "Ce lien est incomplet. Demande un nouveau lien dans ta conversation.",
+      "invalidLink": "Ce lien est invalide ou a expiré. Demande un nouveau lien dans ta conversation.",
+      "malformedLink": "Ce lien est mal formé. Demande un nouveau lien dans ta conversation.",
+      "linkAlreadyOpened": "Ce lien a déjà été ouvert. Pour ta sécurité, chaque lien ne peut être ouvert qu’une seule fois. Demande un nouveau lien dans ta conversation.",
+      "loadFailed": "Nous n’avons pas pu charger tes connexions. Réessaie dans un instant.",
+      "noticeRequired": "Pour connecter ce service, il faut d’abord accepter son avis. Reviens en arrière, coche l’avis et réessaie.",
+      "oauthStartFailed": "Nous n’avons pas pu démarrer la connexion pour ce service. Reviens en arrière et réessaie.",
+      "generic": "Un problème est survenu pendant la connexion de ton compte. Demande un nouveau lien dans ta conversation."
+    }
+  },
   "humanCoach": {
     "attached": "Coach humain rattaché",
     "attachedBadge": "Coach rattaché",
@@ -2739,7 +2825,7 @@
     "intervalsConnectTitle": "Connecter Intervals.icu",
     "intervalsHideApiKey": "Masquer la clé API",
     "intervalsLinkFailed": "Impossible de relier Intervals.icu. Vérifie ta clé API et réessaie.",
-    "intervalsSettingsPath": "Réglages → Développeur",
+    "intervalsSettingsPath": "Settings → Developer Settings",
     "intervalsShowApiKey": "Afficher la clé API",
     "intervalsVerifying": "Vérification…",
     "memoryEmpty": "Aucune info enregistrée pour l’instant.",
@@ -2873,7 +2959,8 @@
     "sciotteConnectedDataReady": "Tes données {{provider}} sont maintenant disponibles",
     "sciotteProviderCoros": "COROS",
     "sciotteCorosAccount": "Compte COROS",
-    "corosEmail": "E-mail COROS"
+    "corosEmail": "E-mail COROS",
+    "intervalsCredentialsHelp": "Trouve ton identifiant athlète et ta clé API dans Intervals.icu : ouvre Settings et descends jusqu’à Developer Settings, vers le bas de la page."
   },
   "tokens": {
     "activeCount": "{{count}} jetons actifs pour les connexions client IA",

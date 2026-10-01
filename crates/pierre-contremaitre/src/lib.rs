@@ -46,6 +46,8 @@ pub mod github;
 pub mod harness_config_document;
 /// Hot-reloadable harness config snapshot (compaction + Tier 6 guardrails)
 pub mod harness_config_registry;
+/// Catalogue keys of the server-rendered hosted connect pages
+pub mod hosted_strings;
 /// Manifest parsing and SHA-256 hash computation for change detection
 pub mod manifest;
 /// Hot-reloadable user-facing messaging strings (channel replies, errors)

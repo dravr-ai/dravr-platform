@@ -32,7 +32,7 @@ five files and every `KEY_*` the registry declares to be present;
 `packages/i18n/__tests__/locale-corpus.test.ts` pins which file each offered locale reads.
 
 **A key is rendered by exactly one side.** Server-rendered keys (`messaging.*`,
-`commands.*`, `notifications.*`, `persona.*` — the ones with a `KEY_*` constant) use
+`commands.*`, `notifications.*`, `persona.*`, `hosted.*` — the ones with a `KEY_*` constant) use
 positional `{0}`, `{1}` placeholders, filled by `format_template` in Rust. Client
 keys use i18next's `{{name}}`. Tier 1b rejects a key that mixes them.
 
@@ -121,7 +121,8 @@ under its namespace, and land it there. The platform receives it when the contre
 pin moves: the bump lane copies the files here and commits them with the pin. Never add
 or edit a string in this package first — the byte-identity check fails the push, and the
 next bump would revert it anyway. A string the server renders also gets a
-`pub const KEY_*` in `messaging_strings.rs` naming the dotted key, and uses `{0}`
+`pub const KEY_*` in `crates/pierre-contremaitre/src` (`messaging_strings.rs`, or
+`hosted_strings.rs` for the hosted connect pages) naming the dotted key, and uses `{0}`
 placeholders; that constant lands in the platform after the pin bump that carries its key.
 
 A string is never written into a component, a constants package or a Rust

@@ -105,6 +105,15 @@ async fn setup(base_url: &str) -> Fixture {
         .first()
         .expect("user has a tenant")
         .id;
+    // These tests pin the pages against their English text; an athlete's own
+    // language is `connect_hosted_locale_test`'s subject.
+    resources
+        .common
+        .repos
+        .users
+        .update_locale(user_id, "en")
+        .await
+        .expect("store the athlete's locale");
 
     let mut config = default_config();
     base_url.clone_into(&mut config.api_base_url);
@@ -307,10 +316,11 @@ async fn form_page_refuses_a_missing_token() {
     let fixture = setup(&base_url).await;
 
     let body = AxumTestRequest::get(FORM_PATH)
+        .header("accept-language", "en")
         .send(fixture.router.clone())
         .await
         .text();
-    assert!(body.contains("Missing connect token"), "{body}");
+    assert!(body.contains("This link is incomplete."), "{body}");
     assert!(
         !body.contains(r#"name="api_key""#),
         "no form without a token"
@@ -339,6 +349,7 @@ async fn form_page_refuses_an_invalid_or_narrow_token() {
 
     for token in ["not-a-jwt", narrow.as_str()] {
         let body = AxumTestRequest::get(&form_url(token))
+            .header("accept-language", "en")
             .send(fixture.router.clone())
             .await
             .text();
@@ -374,9 +385,20 @@ async fn posting_valid_credentials_links_the_account_and_redirects_to_success() 
     drop(guard);
 
     assert_eq!(resp.status(), StatusCode::SEE_OTHER);
-    assert_eq!(
-        resp.header("location"),
-        Some("/providers/connect/success?channel=telegram&target=intervals_icu")
+    // The token rides along, so the success page is written in the athlete's
+    // locale too.
+    let location = format!(
+        "/providers/connect/success?channel=telegram&target=intervals_icu&token={}",
+        urlencoding::encode(&token)
+    );
+    assert_eq!(resp.header("location"), Some(location.as_str()));
+    let success = AxumTestRequest::get(&location)
+        .send(fixture.router.clone())
+        .await
+        .text();
+    assert!(
+        success.contains("<h1>Intervals.icu connected</h1>"),
+        "{success}"
     );
 
     // Validated live, with the athlete id in the path only.
@@ -420,10 +442,11 @@ async fn the_success_page_names_intervals_icu() {
 
     let body =
         AxumTestRequest::get("/providers/connect/success?channel=telegram&target=intervals_icu")
+            .header("accept-language", "en")
             .send(fixture.router.clone())
             .await
             .text();
-    assert!(body.contains("Intervals.icu Connected"), "{body}");
+    assert!(body.contains("Intervals.icu connected"), "{body}");
     assert!(body.contains("return to Telegram"), "{body}");
     stub.abort();
 }
@@ -504,7 +527,12 @@ async fn posting_an_empty_api_key_is_refused_before_intervals_icu_is_called() {
         .await;
 
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-    assert!(resp.text().contains("api_key is required"));
+    let body = resp.text();
+    assert!(body.contains("Enter your API key."), "{body}");
+    assert!(
+        !body.contains("api_key is required"),
+        "the JSON route's error text is not the page's: {body}"
+    );
     assert!(stored_token(&fixture).await.is_none());
     assert!(!stub.is_finished(), "Intervals.icu is never called");
     stub.abort();
@@ -522,12 +550,13 @@ async fn posting_with_a_bad_token_is_rejected_and_stores_nothing() {
                 ("athlete_id", "i123456"),
                 ("api_key", SECRET_KEY),
             ])
+            .header("accept-language", "en")
             .send(fixture.router.clone())
             .await;
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "token {token:?}");
         let body = resp.text();
         assert!(
-            body.contains("Missing connect token") || body.contains("invalid or has expired"),
+            body.contains("This link is incomplete.") || body.contains("invalid or has expired"),
             "token {token:?}: {body}"
         );
         assert!(!body.contains(SECRET_KEY));
@@ -565,6 +594,13 @@ async fn a_web_app_session_cookie_does_not_refuse_the_form_post() {
         .first()
         .expect("user has a tenant")
         .id;
+    resources
+        .common
+        .repos
+        .users
+        .update_locale(user.id, "en")
+        .await
+        .expect("store the athlete's locale");
     let token = mint_connect_link_token(
         user.id,
         tenant_id.as_uuid(),
@@ -595,7 +631,7 @@ async fn a_web_app_session_cookie_does_not_refuse_the_form_post() {
         StatusCode::BAD_REQUEST,
         "the form handler answers, not the CSRF layer: {body}"
     );
-    assert!(body.contains("api_key is required"), "{body}");
+    assert!(body.contains("Enter your API key."), "{body}");
     assert!(
         body.contains(r#"name="athlete_id" value="i123456""#),
         "the form is shown again with the athlete id refilled: {body}"

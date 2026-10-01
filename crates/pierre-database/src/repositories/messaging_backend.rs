@@ -709,6 +709,25 @@ macro_rules! impl_messaging_repository {
                 Ok(locale.flatten())
             }
 
+            async fn get_user_channel_link_locale(
+                &self,
+                tenant_id: TenantId,
+                user_id: &str,
+                channel_type: &str,
+            ) -> AppResult<Option<String>> {
+                sqlx::query_scalar(USER_CHANNEL_LINK_LOCALE_SQL)
+                    .bind(tenant_id)
+                    .bind($ids::bind_text(user_id)?)
+                    .bind(channel_type)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to get the user's channel link locale: {e}"
+                        ))
+                    })
+            }
+
             async fn set_channel_link_locale(
                 &self,
                 tenant_id: TenantId,
