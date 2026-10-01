@@ -88,7 +88,7 @@ test.describe('Spent request budget', () => {
       .click();
 
     await expect(
-      page.getByText('Usage quota reached (10000/10000). Please try again later.'),
+      page.getByText('Usage quota reached (10,000/10,000). Please try again later.'),
     ).toBeVisible();
     await expect(page.getByText('Could not start chat')).toBeVisible();
     await expect(page.getByText('Conversation limit reached')).toHaveCount(0);

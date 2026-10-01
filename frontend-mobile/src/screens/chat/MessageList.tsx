@@ -431,6 +431,12 @@ interface MessageListProps {
    * which case the host fetches them.
    */
   onShowVerdict?: (rows: ClaimVerdict[], messageId: string) => void;
+  /**
+   * Drawn above the transcript, scrolling with it — an activity's map and
+   * figures over the thread about it. With one, the list is always drawn, so
+   * the header stands while the thread loads and before its first message.
+   */
+  header?: React.ReactElement;
 }
 
 export function MessageList({
@@ -451,6 +457,7 @@ export function MessageList({
   onReconnectProvider,
   onActionClick,
   onShowVerdict,
+  header,
 }: MessageListProps) {
   const { t, language } = useTranslation();
   const colors = useThemeColors();
@@ -923,7 +930,7 @@ export function MessageList({
     </ScrollView>
   );
 
-  if (isLoading) {
+  if (header === undefined && isLoading) {
     return (
       <View className="flex-1 items-center justify-center">
         <ActivityIndicator size="large" color={colors.tokens.primary} />
@@ -931,9 +938,21 @@ export function MessageList({
     );
   }
 
-  if ((messages?.length ?? 0) === 0 && !isSending) {
+  if (header === undefined && (messages?.length ?? 0) === 0 && !isSending) {
     return renderEmptyChat();
   }
+
+  const renderFooter = () => {
+    if (isSending) return renderThinkingIndicator();
+    if (isLoading) {
+      return (
+        <View className="items-start py-3" testID="messages-loading">
+          <ActivityIndicator color={colors.tokens.primary} />
+        </View>
+      );
+    }
+    return null;
+  };
 
   return (
     <View style={{ flex: 1 }} testID="messages-list">
@@ -949,7 +968,11 @@ export function MessageList({
         contentContainerStyle={{ padding: spacing.md }}
         showsVerticalScrollIndicator={false}
         onContentSizeChange={onScrollToBottom}
-        ListFooterComponent={isSending ? renderThinkingIndicator : null}
+        // A header's controls — an activity's suggested questions — answer
+        // the first tap with the composer's keyboard up.
+        keyboardShouldPersistTaps={header === undefined ? undefined : 'handled'}
+        ListHeaderComponent={header}
+        ListFooterComponent={isSending || isLoading ? renderFooter : null}
       />
     </View>
   );

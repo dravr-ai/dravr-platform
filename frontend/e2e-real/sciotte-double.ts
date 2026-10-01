@@ -36,6 +36,9 @@ export type ListScript = 'rows' | 'empty' | 'incomplete' | 'fails' | 'busy' | 'd
  *   recorded no GPS;
  * - `fails` — a failed detail read: `500 {"error": <message>}`;
  * - `hangs` — no answer until {@link SciotteDouble.release} or a stop.
+ *
+ * Every detail that answers carries the ride's per-kilometre splits, as the
+ * scraper's detail page does.
  */
 export type DetailScript = 'route' | 'no_route' | 'empty_route' | 'fails' | 'hangs';
 
@@ -57,6 +60,12 @@ export interface ListRead {
   query: URLSearchParams;
 }
 
+/** One detail read the double was asked for: when it arrived and which activity it named. */
+export interface DetailRead {
+  at: number;
+  id: string;
+}
+
 /** Parc La Fontaine, Montréal — where the scripted route starts. */
 const HOME: [number, number] = [45.5259, -73.5697];
 
@@ -68,6 +77,40 @@ function weavingTrack(): [number, number][] {
   ]);
 }
 
+/** One split as the scraper's detail page serves it: `index`, `distance_meters`, `elapsed_time_seconds`, … */
+interface ScrapedSplit {
+  index: number;
+  distance_meters: number;
+  elapsed_time_seconds: number;
+  moving_time_seconds: number;
+  elevation_difference_meters: number;
+  average_speed_mps: number;
+}
+
+/**
+ * The per-kilometre splits a detail page carries for `ride`: whole
+ * kilometres, then the remainder, at a pace that drifts a little from one to
+ * the next so no two rows read alike.
+ */
+function kilometreSplits(ride: ScrapedRide): ScrapedSplit[] {
+  const whole = Math.floor(ride.distance_meters / 1000);
+  const rest = ride.distance_meters - whole * 1000;
+  const lengths = [...Array.from({ length: whole }, () => 1000), ...(rest >= 1 ? [rest] : [])];
+  const meanSpeed = ride.distance_meters / Math.max(ride.duration_seconds, 1);
+  return lengths.map((distance, i) => {
+    const speed = meanSpeed * (1 + 0.04 * Math.sin(i));
+    const seconds = Math.round(distance / speed);
+    return {
+      index: i + 1,
+      distance_meters: distance,
+      elapsed_time_seconds: seconds,
+      moving_time_seconds: seconds,
+      elevation_difference_meters: Math.round(8 * Math.cos(i)),
+      average_speed_mps: Number(speed.toFixed(2)),
+    };
+  });
+}
+
 /** A running double: its script, what it was asked, and how to stop and restart it. */
 export interface SciotteDouble {
   list: ListScript;
@@ -77,6 +120,8 @@ export interface SciotteDouble {
   /** Every list read, in order. */
   readonly listReadLog: () => ListRead[];
   readonly detailReads: () => number;
+  /** Every detail read, in order: the activity it named and when it arrived. */
+  readonly detailReadLog: () => DetailRead[];
   /** Session imports this double answered, across restarts. */
   readonly imports: () => number;
   /** The most reads (list and detail) that were ever in flight on the session at once. */
@@ -137,9 +182,9 @@ async function until(condition: () => boolean, withinMs: number): Promise<boolea
  */
 export async function startSciotteDouble(rides: ScrapedRide[]): Promise<SciotteDouble> {
   const listReadLog: ListRead[] = [];
+  const detailReadLog: DetailRead[] = [];
   const held = new Set<string>();
   const hung: ServerResponse[] = [];
-  let detailReads = 0;
   let detailsAnswered = 0;
   let listsInFlight = 0;
   let inFlight = 0;
@@ -219,11 +264,11 @@ export async function startSciotteDouble(rides: ScrapedRide[]): Promise<SciotteD
     } else if (double.detail === 'fails') {
       scraperError(res, 'detail page timed out');
     } else if (double.detail === 'route') {
-      json(res, 200, { ...ride, route: { coordinates: weavingTrack() } });
+      json(res, 200, { ...ride, splits: kilometreSplits(ride), route: { coordinates: weavingTrack() } });
     } else if (double.detail === 'empty_route') {
-      json(res, 200, { ...ride, route: { coordinates: [] } });
+      json(res, 200, { ...ride, splits: kilometreSplits(ride), route: { coordinates: [] } });
     } else {
-      json(res, 200, ride);
+      json(res, 200, { ...ride, splits: kilometreSplits(ride) });
     }
   };
 
@@ -268,14 +313,15 @@ export async function startSciotteDouble(rides: ScrapedRide[]): Promise<SciotteD
         inFlight -= 1;
       }
     } else if (req.method === 'GET' && path.startsWith('/api/activities/')) {
-      detailReads += 1;
+      const id = decodeURIComponent(path.slice('/api/activities/'.length));
+      detailReadLog.push({ at: Date.now(), id });
       if (!holds) {
         json(res, 401, SESSION_NOT_FOUND);
         return;
       }
       enter();
       try {
-        await activityDetail(res, decodeURIComponent(path.slice('/api/activities/'.length)));
+        await activityDetail(res, id);
       } finally {
         inFlight -= 1;
         detailsAnswered += 1;
@@ -313,7 +359,8 @@ export async function startSciotteDouble(rides: ScrapedRide[]): Promise<SciotteD
     rides,
     listReads: () => listReadLog.length,
     listReadLog: () => [...listReadLog],
-    detailReads: () => detailReads,
+    detailReads: () => detailReadLog.length,
+    detailReadLog: () => [...detailReadLog],
     imports: () => imports,
     maxInFlight: () => maxInFlight,
     walksKilledByADetail: () => walksKilled,

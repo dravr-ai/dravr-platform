@@ -274,9 +274,9 @@ describe('useMessages turn lost while the app was backgrounded', () => {
     expect(rows[2]).toMatchObject({ role: 'user', content: QUESTION });
     expect(rows[3]).toMatchObject({
       isError: true,
-      content: `⚠️ Network request failed\n\n${i18n.t('chat.turnTryAgain')}`,
+      content: `⚠️ ${i18n.t('errors.network')}\n\n${i18n.t('chat.turnTryAgain')}`,
     });
-    expect(result.current.error).toBe('Network request failed');
+    expect(result.current.error).toBe(i18n.t('errors.network'));
   });
 
   it('words the idle note in the athlete\'s language', async () => {
@@ -317,7 +317,7 @@ describe('useMessages turn lost while the app was backgrounded', () => {
         await sending();
       });
       const note = result.current.messages.find(m => m.isError);
-      expect(note?.content).toBe('⚠️ Network request failed\n\nRéessaie.');
+      expect(note?.content).toBe('⚠️ Erreur réseau. Vérifie ta connexion.\n\nRéessaie.');
     } finally {
       await act(async () => {
         await i18n.changeLanguage('en');

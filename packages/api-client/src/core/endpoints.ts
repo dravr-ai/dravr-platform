@@ -271,11 +271,24 @@ export const ENDPOINTS = {
     /** Newest activities from the durable activity cache, across providers (`?limit=`, 1..=20, default 5) */
     RECENT_ACTIVITIES: '/api/me/activities/recent',
     /**
+     * One workout's view: its Home row, the figures the cache holds, its
+     * splits and laps. Addressed by provider and the provider's own id, like
+     * the route below.
+     */
+    ACTIVITY_DETAIL: (provider: string, activityId: string) =>
+      `/api/me/activities/${encodeURIComponent(provider)}/${encodeURIComponent(activityId)}`,
+    /**
      * One activity's privacy-trimmed route. Addressed by provider and the
      * provider's own id, because an id is only unique within its provider.
      */
     ACTIVITY_ROUTE: (provider: string, activityId: string) =>
       `/api/me/activities/${encodeURIComponent(provider)}/${encodeURIComponent(activityId)}/route`,
+    /**
+     * The conversation an activity's view opened about it (`PUT`, body
+     * `{ conversation_id }`, `null` to forget it). Addressed like the view.
+     */
+    ACTIVITY_CONVERSATION: (provider: string, activityId: string) =>
+      `/api/me/activities/${encodeURIComponent(provider)}/${encodeURIComponent(activityId)}/conversation`,
     /** The active plan projected for a card, and the athlete's today (`?locale=`) */
     TRAINING_PLAN: '/api/me/training-plan',
   },

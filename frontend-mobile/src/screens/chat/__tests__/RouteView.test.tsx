@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Unit tests for the mobile route card — coordinate order, camera framing, climb overlay
+// ABOUTME: Unit tests for the mobile route card — coordinate order, camera framing, climb overlay, layers, full screen
 // ABOUTME: A silently transposed track still draws a line, so every assertion here reads real numbers
 
 import React from 'react';
-import { render, screen } from '@testing-library/react-native';
+import { Modal } from 'react-native';
+import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
+import { i18n } from '@pierre/i18n';
+import { MAP_LAYERS, ROUTE_INK, mapLayerStyle } from '@pierre/shared-constants';
 import type { RouteView as RouteBlock } from '@pierre/scene-types';
 
 import RouteView from '../RouteView';
@@ -15,6 +18,52 @@ import RouteView from '../RouteView';
 // "Cat HC", and a mock that printed `chat.routeClimbCategory HC` looked fine.
 
 let mockScheme: 'light' | 'dark' = 'dark';
+
+/**
+ * The device's MMKV store for the picked layer, one map the tests can read and
+ * clear: the jest.setup stand-in gives every `createMMKV` call its own storage,
+ * and the route card opens its store once per process.
+ */
+const mockLayerStore = new Map<string, string>();
+jest.mock('react-native-mmkv', () => ({
+  createMMKV: () => ({
+    getString: (key: string) => mockLayerStore.get(key),
+    set: (key: string, value: string) => {
+      mockLayerStore.set(key, value);
+    },
+  }),
+}));
+
+/**
+ * The published style the card fetches to relabel: OpenFreeMap's place label,
+ * English first, and a road shield that reads no name.
+ */
+const PUBLISHED_STYLE = {
+  version: 8,
+  sources: {},
+  layers: [
+    { id: 'background', type: 'background' },
+    {
+      id: 'label_city',
+      type: 'symbol',
+      source: 'openmaptiles',
+      layout: { 'text-field': ['coalesce', ['get', 'name_en'], ['get', 'name']] },
+    },
+    {
+      id: 'road_shield_us',
+      type: 'symbol',
+      source: 'openmaptiles',
+      layout: { 'text-field': ['to-string', ['get', 'ref']] },
+    },
+  ],
+};
+
+/**
+ * Every style fetch, by URL. A fetch that is never answered leaves the map on
+ * the URL, which is what most tests read; one that is answered hands the map
+ * the relabelled document. Nothing here reaches the network.
+ */
+const fetchStyle = jest.fn<Promise<Response>, [string]>(() => new Promise<Response>(() => {}));
 
 jest.mock('../../../constants/theme', () => ({
   useTheme: () => ({
@@ -61,6 +110,10 @@ function sourceData(testID: string) {
 
 beforeEach(() => {
   mockScheme = 'dark';
+  mockLayerStore.clear();
+  fetchStyle.mockReset();
+  fetchStyle.mockImplementation(() => new Promise<Response>(() => {}));
+  global.fetch = fetchStyle as unknown as typeof fetch;
 });
 
 describe('RouteView track geometry', () => {
@@ -77,27 +130,41 @@ describe('RouteView track geometry', () => {
     ]);
   });
 
-  it('casts the track in white under a line that is thinner than its casing', () => {
+  it('casts the track in opaque white under a line that is thinner than its casing', () => {
     render(<RouteView route={routeBlock()} />);
 
     const casing = screen.getByTestId('route-casing').props.paint;
     const line = screen.getByTestId('route-line').props.paint;
 
     expect(casing['line-color']).toBe('#ffffff');
-    expect(line['line-color']).toBe('#a3d0be');
+    // Over a photograph a translucent casing inherits the pixel under it.
+    expect(casing['line-opacity']).toBeUndefined();
     expect(casing['line-width']).toBeGreaterThan(line['line-width']);
   });
 
-  it('names the tool the track came from', () => {
+  it('draws the route in the one orange, not the theme accent, in both schemes', () => {
     render(<RouteView route={routeBlock()} />);
+    expect(screen.getByTestId('route-line').props.paint['line-color']).toBe('#d9480f');
+    expect(screen.getByTestId('route-line').props.paint['line-color']).not.toBe('#a3d0be');
+    screen.unmount();
 
-    expect(screen.getByText(/get_activity_route/)).toBeTruthy();
+    mockScheme = 'light';
+    render(<RouteView route={routeBlock()} />);
+    expect(screen.getByTestId('route-line').props.paint['line-color']).toBe(ROUTE_INK.track);
+  });
+
+  it('names no source under the map', () => {
+    render(<RouteView route={routeBlock({ source_tool: 'strava' })} />);
+
+    // Where the track came from is not the athlete's concern.
+    expect(screen.queryByText(/source/i)).toBeNull();
+    expect(screen.queryByText(/strava/i)).toBeNull();
   });
 
   it('draws no map and says so when the activity recorded no track', () => {
     render(<RouteView route={routeBlock({ coordinates: [] })} />);
 
-    expect(screen.queryByTestId('maplibre-map')).toBeNull();
+    expect(screen.queryByTestId('route-map')).toBeNull();
     expect(screen.getByText('This activity recorded no GPS track.')).toBeTruthy();
   });
 });
@@ -167,7 +234,7 @@ describe('RouteView climbs', () => {
     render(<RouteView route={climbing} />);
 
     const climb = screen.getByTestId('route-climb').props;
-    expect(climb.paint['line-color']).toBe('#e1e3de');
+    expect(climb.paint['line-color']).toBe(ROUTE_INK.climb);
     expect(climb.paint['line-dasharray']).toEqual([1.4, 1.1]);
     expect(climb.paint['line-width']).toBeGreaterThan(
       screen.getByTestId('route-line').props.paint['line-width'],
@@ -244,28 +311,43 @@ describe('RouteView climbs', () => {
   });
 });
 
+describe('RouteView climb figures', () => {
+  afterEach(async () => {
+    await i18n.changeLanguage('en');
+  });
+
+  it("prints a climb's kilometres and gradient in the athlete's decimal notation", async () => {
+    await i18n.changeLanguage('fr');
+    render(
+      <RouteView
+        route={routeBlock({
+          distances_meters: [0, 12_400, 15_000, 15_500],
+          climbs: [{ start_index: 1, end_index: 2, avg_gradient: 5.3, category: '3' }],
+        })}
+      />,
+    );
+    await act(async () => {});
+
+    // A French athlete reads '42,00 km' in the figures above the map; the
+    // climb list under it speaks the same notation.
+    expect(screen.getByText('km 12,4–15,0')).toBeTruthy();
+    expect(screen.getByText('5,3%')).toBeTruthy();
+    expect(screen.queryByText('km 12.4–15.0')).toBeNull();
+    expect(screen.queryByText('5.3%')).toBeNull();
+  });
+});
+
 describe('RouteView distance', () => {
-  it('prints the total off the last carried distance', () => {
+  /**
+   * The distance series is measured along the drawn GPS line and ends where
+   * the privacy trim cuts it, so its last value is not the activity's
+   * distance: printed, it read 14.4 km under a 10.40 km activity. The card
+   * prints no total, whatever the series carries.
+   */
+  it('prints no total, even off a full distance series', () => {
     render(<RouteView route={routeBlock()} />);
 
-    expect(screen.getByText('3.6 km')).toBeTruthy();
-  });
-
-  /**
-   * The photograveur contract says a parallel series is index-aligned or
-   * absent, never padded. A ragged one would print a distance read off the end
-   * of the array, so the card drops the kilometre marks rather than inventing
-   * them.
-   */
-  it('prints no distance when the series does not align with the track', () => {
-    render(<RouteView route={routeBlock({ distances_meters: [0, 1200] })} />);
-
-    expect(screen.queryByText(/ km$/)).toBeNull();
-  });
-
-  it('prints no distance when the activity recorded none', () => {
-    render(<RouteView route={routeBlock({ distances_meters: null })} />);
-
+    expect(screen.queryByText('3.6 km')).toBeNull();
     expect(screen.queryByText(/ km$/)).toBeNull();
   });
 });
@@ -274,7 +356,7 @@ describe('RouteView chrome', () => {
   it('draws the dark OpenFreeMap sheet on the night canvas', () => {
     render(<RouteView route={routeBlock()} />);
 
-    expect(screen.getByTestId('maplibre-map').props.mapStyle).toBe(
+    expect(screen.getByTestId('route-map').props.mapStyle).toBe(
       'https://tiles.openfreemap.org/styles/dark',
     );
   });
@@ -283,7 +365,7 @@ describe('RouteView chrome', () => {
     mockScheme = 'light';
     render(<RouteView route={routeBlock()} />);
 
-    expect(screen.getByTestId('maplibre-map').props.mapStyle).toBe(
+    expect(screen.getByTestId('route-map').props.mapStyle).toBe(
       'https://tiles.openfreemap.org/styles/positron',
     );
   });
@@ -297,7 +379,7 @@ describe('RouteView chrome', () => {
   it('keeps the attribution and yields every gesture to the thread', () => {
     render(<RouteView route={routeBlock()} />);
 
-    const map = screen.getByTestId('maplibre-map').props;
+    const map = screen.getByTestId('route-map').props;
     expect(map.attribution).toBe(true);
     expect(map.dragPan).toBe(false);
     expect(map.touchZoom).toBe(false);
@@ -314,5 +396,181 @@ describe('RouteView chrome', () => {
     render(<RouteView route={routeBlock()} />);
 
     expect(screen.getByLabelText('Map of the recorded route')).toBeTruthy();
+  });
+});
+
+describe('RouteView layer switcher', () => {
+  function layer(id: string) {
+    const found = MAP_LAYERS.find((candidate) => candidate.id === id);
+    if (found === undefined) throw new Error(`no ${id} layer`);
+    return found;
+  }
+
+  it('offers map, satellite and terrain with no key configured, opening on the map', () => {
+    render(<RouteView route={routeBlock()} />);
+
+    const switcher = screen.getByLabelText('Map layer');
+    expect(within(switcher).getByText('Map')).toBeTruthy();
+    expect(within(switcher).getByText('Satellite')).toBeTruthy();
+    expect(within(switcher).getByText('Terrain')).toBeTruthy();
+    expect(screen.getByTestId('route-layers-map').props.accessibilityState).toEqual({
+      selected: true,
+      checked: true,
+    });
+    expect(screen.getByTestId('route-map').props.mapStyle).toBe(
+      'https://tiles.openfreemap.org/styles/dark',
+    );
+  });
+
+  it('swaps the map to Esri imagery, then Esri topo, printing each credit on the map', () => {
+    render(<RouteView route={routeBlock()} />);
+
+    fireEvent.press(screen.getByTestId('route-layers-satellite'));
+    let style = screen.getByTestId('route-map').props.mapStyle;
+    expect(style).toEqual(mapLayerStyle(layer('satellite'), 'dark'));
+    expect(style.sources.satellite.tiles[0]).toBe(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    );
+    // The native attribution is a button; Esri's credit is printed on the map
+    // itself while the imagery is drawn.
+    expect(screen.getByTestId('route-credit')).toHaveTextContent(
+      'Imagery © Esri, Vantor, Earthstar Geographics',
+    );
+    expect(screen.getByTestId('route-layers-satellite').props.accessibilityState.selected).toBe(true);
+    // The route is still drawn, in the same ink, over the photograph.
+    expect(screen.getByTestId('route-line').props.paint['line-color']).toBe(ROUTE_INK.track);
+
+    fireEvent.press(screen.getByTestId('route-layers-terrain'));
+    style = screen.getByTestId('route-map').props.mapStyle;
+    expect(style).toEqual(mapLayerStyle(layer('terrain'), 'dark'));
+    expect(style.sources.terrain.tiles[0]).toBe(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+    );
+    expect(screen.getByTestId('route-credit')).toHaveTextContent('© Esri, USGS, NOAA');
+    expect(screen.getByTestId('route-layers-terrain').props.accessibilityState.selected).toBe(true);
+    expect(screen.getByTestId('route-layers-satellite').props.accessibilityState.selected).toBe(false);
+
+    fireEvent.press(screen.getByTestId('route-layers-map'));
+    expect(screen.getByTestId('route-map').props.mapStyle).toBe(
+      'https://tiles.openfreemap.org/styles/dark',
+    );
+    // The basemap's OpenStreetMap credit stays behind MapLibre's own button.
+    expect(screen.queryByTestId('route-credit')).toBeNull();
+  });
+});
+
+describe('RouteView full screen', () => {
+  it('opens a full-screen map that takes the gestures, and closes it from its button', () => {
+    render(<RouteView route={routeBlock()} />);
+    expect(screen.queryByTestId('route-fullscreen-map')).toBeNull();
+
+    fireEvent.press(screen.getByLabelText('Full screen'));
+
+    const full = screen.getByTestId('route-fullscreen-map').props;
+    expect(full.dragPan).toBe(true);
+    expect(full.touchZoom).toBe(true);
+    expect(full.attribution).toBe(true);
+    // Same framing as the card it opened from.
+    expect(screen.getAllByTestId('maplibre-camera')[1].props.bounds).toEqual([
+      -73.6, 45.5, -73.57, 45.53,
+    ]);
+    // The inline card still yields its gestures to the thread.
+    expect(screen.getByTestId('route-map').props.dragPan).toBe(false);
+
+    fireEvent.press(screen.getByLabelText('Exit full screen'));
+    expect(screen.queryByTestId('route-fullscreen-map')).toBeNull();
+  });
+
+  it('closes on the system back request and keeps the layer picked full screen', () => {
+    render(<RouteView route={routeBlock()} />);
+    fireEvent.press(screen.getByLabelText('Full screen'));
+
+    fireEvent.press(screen.getByTestId('route-fullscreen-layers-satellite'));
+    expect(typeof screen.getByTestId('route-fullscreen-map').props.mapStyle).toBe('object');
+    expect(screen.getByTestId('route-fullscreen-credit')).toHaveTextContent(/^Imagery © Esri/);
+    fireEvent.press(screen.getByTestId('route-fullscreen-layers-terrain'));
+    expect(screen.getByTestId('route-fullscreen-credit')).toHaveTextContent('© Esri, USGS, NOAA');
+
+    // Android's back button and the iOS dismiss gesture arrive as onRequestClose.
+    fireEvent(screen.UNSAFE_getByType(Modal), 'requestClose');
+    expect(screen.queryByTestId('route-fullscreen-map')).toBeNull();
+    // Back on the card, the picked layer stays picked.
+    expect(typeof screen.getByTestId('route-map').props.mapStyle).toBe('object');
+  });
+});
+
+describe('RouteView layer memory', () => {
+  it('opens on the layer the device last picked, inline and full screen', () => {
+    mockLayerStore.set('dravr.route_map_layer', 'satellite');
+    render(<RouteView route={routeBlock()} />);
+
+    expect(screen.getByTestId('route-layers-satellite').props.accessibilityState).toEqual({
+      selected: true,
+      checked: true,
+    });
+    expect(screen.getByTestId('route-map').props.mapStyle).toEqual(
+      mapLayerStyle(MAP_LAYERS[1], 'dark'),
+    );
+    fireEvent.press(screen.getByLabelText('Full screen'));
+    expect(screen.getByTestId('route-fullscreen-map').props.mapStyle).toEqual(
+      mapLayerStyle(MAP_LAYERS[1], 'dark'),
+    );
+  });
+
+  it('keeps a pick for the next map, and opens on the map layer for an id no longer registered', () => {
+    mockLayerStore.set('dravr.route_map_layer', 'retired-provider');
+    render(<RouteView route={routeBlock()} />);
+    expect(screen.getByTestId('route-map').props.mapStyle).toBe(
+      'https://tiles.openfreemap.org/styles/dark',
+    );
+
+    fireEvent.press(screen.getByTestId('route-layers-terrain'));
+    expect(mockLayerStore.get('dravr.route_map_layer')).toBe('terrain');
+    screen.unmount();
+
+    render(<RouteView route={routeBlock()} />);
+    expect(screen.getByTestId('route-layers-terrain').props.accessibilityState).toEqual({
+      selected: true,
+      checked: true,
+    });
+  });
+});
+
+describe('RouteView basemap labels', () => {
+  afterEach(async () => {
+    await i18n.changeLanguage('en');
+  });
+
+  it("hands the map the published style relabelled in the athlete's language", async () => {
+    await i18n.changeLanguage('fr');
+    mockScheme = 'light';
+    fetchStyle.mockImplementation(async () => ({
+      ok: true,
+      json: async () => PUBLISHED_STYLE,
+    }) as unknown as Response);
+    render(<RouteView route={routeBlock()} />);
+
+    // "Island of Montreal" was name_en: the French tile field comes first now.
+    await act(async () => {});
+    expect(fetchStyle).toHaveBeenCalledWith('https://tiles.openfreemap.org/styles/positron');
+    const style = screen.getByTestId('route-map').props.mapStyle;
+    expect(style.layers[1].layout['text-field']).toEqual([
+      'coalesce',
+      ['get', 'name:fr'],
+      ['get', 'name'],
+    ]);
+    expect(style.layers[2].layout['text-field']).toEqual(['to-string', ['get', 'ref']]);
+  });
+
+  it('keeps drawing the published URL when the style cannot be fetched', async () => {
+    fetchStyle.mockImplementation(async () => {
+      throw new TypeError('Network request failed');
+    });
+    render(<RouteView route={routeBlock()} />);
+    await act(async () => {});
+
+    expect(screen.getByTestId('route-map').props.mapStyle).toBe(
+      'https://tiles.openfreemap.org/styles/dark',
+    );
   });
 });

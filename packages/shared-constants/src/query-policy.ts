@@ -93,19 +93,53 @@ export const HOME_STALE_REFETCH_DELAYS_MS: readonly number[] = [15000, 30000, 60
  * The waits before a Home route answered `unavailable` is asked again on its
  * own, each measured from the answer before it.
  *
- * The server answers `unavailable` within its 25-second bound while the
- * provider read it started keeps running — a queued scrape can take minutes —
- * and stores what that read says. So a map or sketch left `unavailable` asks
- * once more half a minute later, then once more a minute and a half after
- * that, and is drawn if the read has landed. An `unavailable` the server
- * stored for a read that failed is answered from its store, without reaching
- * the provider.
+ * `unavailable` is a read that finished without settling the route; the
+ * server stores it for ten minutes and answers it from its store meanwhile,
+ * unless a read made since — the athlete's retry, from this page or another
+ * device — has stored a route over it. So a map or sketch left `unavailable`
+ * asks once more half a minute later, then once more a minute and a half
+ * after that, and is drawn if such a read has landed. A read still waiting
+ * or running is `pending`, not `unavailable`, and is followed
+ * ({@link HOME_ROUTE_PENDING_SLACK_MS}) rather than rechecked.
  *
  * A schedule with an end, never an interval: two extra requests at most per
  * route, only while the page is in use, and none once an answer draws or
  * settles the route.
  */
 export const HOME_ROUTE_UNAVAILABLE_RECHECK_DELAYS_MS: readonly number[] = [30000, 90000];
+
+/**
+ * The waits between the asks of one route read while the server answers
+ * `pending`, each measured from the answer before it; past the last, the last
+ * repeats.
+ *
+ * `pending` means the read is queued behind the athlete's other reads, or is
+ * still running. The server holds each ask up to its 25-second bound
+ * (`ROUTE_READ_TIMEOUT_SECS` in pierre-server) before saying so, so a
+ * follow-up at once mostly waits on the server rather than polling it; the
+ * waits only space out the asks when a `pending` comes back sooner than that.
+ * The first follow-up is immediate.
+ */
+export const HOME_ROUTE_PENDING_BACKOFF_MS: readonly number[] = [0, 1000, 2000, 4000, 8000];
+
+/**
+ * Milliseconds added to the bound a `pending` answer carries before the read
+ * is given up as `unavailable`.
+ *
+ * Each `pending` names how long the read can still take by the server's own
+ * bounds (`settles_within_secs`: one provider-read bound,
+ * `ROUTE_PROVIDER_READ_TIMEOUT_SECS`, for every read ahead of it in the
+ * athlete's turn and one for its own), and the client keeps asking while the
+ * server keeps saying `pending` within it — a read queued behind several slow
+ * ones is followed for as long as they may take, never cut off by a count of
+ * asks. Only a `pending` that comes back after the bound the answer before
+ * it named, plus this margin, is the server overrunning its own word, and
+ * ends the read `unavailable`. The margin is one route request's timeout
+ * (`ACTIVITY_ROUTE_REQUEST_TIMEOUT_MS` in `@pierre/api-client`): the server
+ * holds an ask that long at most before answering, and the longest backoff
+ * fits inside it.
+ */
+export const HOME_ROUTE_PENDING_SLACK_MS = 30_000;
 
 /**
  * The query defaults that encode the focus contract.

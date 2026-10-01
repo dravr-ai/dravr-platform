@@ -7,6 +7,7 @@
 import { MessageCircle } from 'lucide-react';
 import { useGroupTranscript } from '../../hooks/useGroups';
 import { useTranslation } from '@pierre/i18n';
+import { formatDateTime } from '@pierre/chat-utils';
 
 interface GroupTranscriptPanelProps {
   groupId: string;
@@ -23,7 +24,7 @@ interface GroupTranscriptPanelProps {
  * all land in this one transcript.
  */
 export default function GroupTranscriptPanel({ groupId }: GroupTranscriptPanelProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { transcript, isLoading, isError } = useGroupTranscript(groupId, true);
 
   if (isLoading) {
@@ -71,10 +72,10 @@ export default function GroupTranscriptPanel({ groupId }: GroupTranscriptPanelPr
               <div className="flex items-baseline justify-between gap-2">
                 <span className="text-xs font-medium text-on-surface-variant">
                   {entry.author_display_name ?? entry.author_user_id}
-                  {entry.speaker === 'coach' ? ' · agent' : ''}
+                  {entry.speaker === 'coach' ? ` · ${t('app.agent')}` : ''}
                 </span>
                 <span className="text-xs text-outline">
-                  {new Date(entry.created_at).toLocaleString()}
+                  {formatDateTime(entry.created_at, language)}
                 </span>
               </div>
               <p className="text-sm text-on-surface whitespace-pre-wrap mt-0.5">{entry.content}</p>

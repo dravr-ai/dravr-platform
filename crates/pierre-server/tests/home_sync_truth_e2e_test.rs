@@ -66,7 +66,9 @@ use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::StoredRouteTrack;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
-use pierre_mcp_server::services::activity_route::UNREAD_ROUTE_RECHECK_MINUTES;
+use pierre_mcp_server::services::activity_route::{
+    ROUTE_PROVIDER_READ_TIMEOUT_SECS, ROUTE_TURN_GATHER_MS, UNREAD_ROUTE_RECHECK_MINUTES,
+};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_tool_runtime::activity_fetch::{fetch_provider_activities, fetch_provider_head};
 use pierre_tool_runtime::capture_sweep::{refresh_captures, RefreshOutcome, SweepBudget};
@@ -172,6 +174,8 @@ struct Scraper {
     max_details_in_flight: AtomicUsize,
     /// Detail reads that have answered.
     details_answered: AtomicUsize,
+    /// The activity id of every detail read, in the order they reached it.
+    detail_order: Mutex<Vec<String>>,
     /// Where the stand-in listens, kept across a restart.
     addr: SocketAddr,
     running: Mutex<Option<Instance>>,
@@ -227,6 +231,10 @@ impl Scraper {
 
     fn list_queries(&self) -> Vec<String> {
         self.list_queries.lock().unwrap().clone()
+    }
+
+    fn detail_order(&self) -> Vec<String> {
+        self.detail_order.lock().unwrap().clone()
     }
 
     /// Whether the read names a session this instance holds.
@@ -482,6 +490,7 @@ async fn activity_detail(
     if !scraper.holds(&headers) {
         return session_not_found();
     }
+    scraper.detail_order.lock().unwrap().push(id.clone());
     let answer = {
         let _in_flight = InFlight::enter(&scraper.in_flight, &scraper.max_in_flight);
         let _detail = InFlight::enter(&scraper.details_in_flight, &scraper.max_details_in_flight);
@@ -530,6 +539,7 @@ async fn spawn_scraper(list: ListScript) -> (String, Arc<Scraper>) {
         details_in_flight: AtomicUsize::new(0),
         max_details_in_flight: AtomicUsize::new(0),
         details_answered: AtomicUsize::new(0),
+        detail_order: Mutex::new(Vec::new()),
         addr,
         running: Mutex::new(None),
     });
@@ -645,6 +655,22 @@ async fn route(resources: &Arc<ServerContext>, athlete: &Athlete, id: &str) -> V
         &format!("/api/me/activities/strava/{id}/route"),
     )
     .await
+}
+
+/// One route read a Home list makes as part of its page's burst.
+async fn route_in_burst(resources: &Arc<ServerContext>, athlete: &Athlete, id: &str) -> Value {
+    route_at(
+        resources,
+        athlete,
+        &format!("/api/me/activities/strava/{id}/route?burst=true"),
+    )
+    .await
+}
+
+/// A `pending` answer whose read can still take `secs` by the server's
+/// bounds.
+fn pending_within(secs: u64) -> Value {
+    json!({ "route": null, "reason": "pending", "settles_within_secs": secs })
 }
 
 /// One route read the athlete's retry makes.
@@ -1709,7 +1735,17 @@ async fn synced_for_routes(
     detail: DetailScript,
     bounds: &[(&'static str, String)],
 ) -> (Arc<ServerContext>, Athlete, Arc<Scraper>, TestEnv) {
-    let (url, scraper) = spawn_scraper(ListScript::Rows(two_rides())).await;
+    synced_rides_for_routes(label, two_rides(), detail, bounds).await
+}
+
+/// [`synced_for_routes`] over `rides`.
+async fn synced_rides_for_routes(
+    label: &str,
+    rides: Vec<ScrapedActivity>,
+    detail: DetailScript,
+    bounds: &[(&'static str, String)],
+) -> (Arc<ServerContext>, Athlete, Arc<Scraper>, TestEnv) {
+    let (url, scraper) = spawn_scraper(ListScript::Rows(rides)).await;
     let mut vars = vec![("DRAVR_SCIOTTE_REMOTE_URL", url)];
     vars.extend_from_slice(bounds);
     let env = TestEnv::with(&vars);
@@ -1873,9 +1909,10 @@ async fn an_indoor_ride_as_sciotte_serializes_it_settles_no_gps_and_is_never_rea
 // The route read's bounds
 // ---------------------------------------------------------------------------
 
-/// A detail read slower than the request's bound answers `unavailable` and
-/// stores nothing then; the read keeps going, stores what the scraper says,
-/// and the next request draws it without reading again.
+/// A detail read slower than the request's bound answers `pending` — not
+/// `unavailable`, which only a finished read says — and stores nothing then;
+/// the read keeps going, stores what the scraper says, and the next request
+/// draws it without reading again.
 #[tokio::test]
 #[serial]
 async fn a_route_read_past_its_answer_bound_stores_what_the_scraper_says_later() {
@@ -1892,7 +1929,11 @@ async fn a_route_read_past_its_answer_bound_stores_what_the_scraper_says_later()
         started.elapsed() < StdDuration::from_millis(1_900),
         "answered at its bound"
     );
-    assert_eq!(body, json!({ "route": null, "reason": "unavailable" }));
+    assert_eq!(
+        body,
+        pending_within(ROUTE_PROVIDER_READ_TIMEOUT_SECS),
+        "its own read is running, nothing ahead of it"
+    );
     assert!(
         stored_route(&resources, &athlete, "r2").await.is_none(),
         "a read still running is not a failed one"
@@ -1909,12 +1950,12 @@ async fn a_route_read_past_its_answer_bound_stores_what_the_scraper_says_later()
 }
 
 /// Two route requests at once for one athlete take turns at the scraper. The
-/// one queued behind a slow read answers `unavailable` at its bound without
+/// one queued behind a slow read answers `pending` at its bound without
 /// reading or storing anything, and the slow read is never cut short: it
 /// lands, and the scraper is only ever asked one read at a time.
 #[tokio::test]
 #[serial]
-async fn a_route_read_queued_behind_a_slow_one_answers_unavailable_and_stores_nothing() {
+async fn a_route_read_queued_behind_a_slow_one_answers_pending_and_stores_nothing() {
     let (resources, athlete, scraper, _env) = synced_for_routes(
         "route-queued",
         DetailScript::SlowRoute(2_000),
@@ -1922,13 +1963,21 @@ async fn a_route_read_queued_behind_a_slow_one_answers_unavailable_and_stores_no
     )
     .await;
 
-    let (first, second) = tokio::join!(
+    let mut answers = join_all([
         route(&resources, &athlete, "r2"),
         route(&resources, &athlete, "r1"),
+    ])
+    .await;
+    // One read runs; the other waits behind it, so it can take the running
+    // read's bound and its own.
+    answers.sort_by_key(|body| body["settles_within_secs"].as_u64());
+    assert_eq!(
+        answers,
+        vec![
+            pending_within(ROUTE_PROVIDER_READ_TIMEOUT_SECS),
+            pending_within(2 * ROUTE_PROVIDER_READ_TIMEOUT_SECS),
+        ]
     );
-    let unavailable = json!({ "route": null, "reason": "unavailable" });
-    assert_eq!(first, unavailable);
-    assert_eq!(second, unavailable);
     await_background(&resources).await;
     assert_eq!(scraper.detail_reads(), 1, "the queued request never read");
     let stored = [
@@ -1950,7 +1999,8 @@ async fn a_route_read_queued_behind_a_slow_one_answers_unavailable_and_stores_no
 }
 
 /// A detail read that never answers is given up at the provider bound and
-/// stored `unavailable`; the request itself answered at its own bound.
+/// stored `unavailable`; the request itself answered `pending` at its own
+/// bound, and the next one is answered `unavailable` from the store.
 #[tokio::test]
 #[serial]
 async fn a_detail_read_that_never_answers_is_given_up_and_stored_unavailable() {
@@ -1967,7 +2017,11 @@ async fn a_detail_read_that_never_answers_is_given_up_and_stored_unavailable() {
     let started = Instant::now();
     let body = route(&resources, &athlete, "r2").await;
     assert!(started.elapsed() < StdDuration::from_millis(1_900));
-    assert_eq!(body, json!({ "route": null, "reason": "unavailable" }));
+    assert_eq!(
+        body,
+        pending_within(2),
+        "bounded by the provider read bound"
+    );
     assert!(stored_route(&resources, &athlete, "r2").await.is_none());
 
     await_background(&resources).await;
@@ -1976,7 +2030,185 @@ async fn a_detail_read_that_never_answers_is_given_up_and_stored_unavailable() {
         Some(StoredRouteTrack::Unavailable { ref reason, expires_at: Some(_), .. })
             if reason == "unavailable"
     ));
+    assert_eq!(
+        route(&resources, &athlete, "r2").await,
+        json!({ "route": null, "reason": "unavailable" }),
+        "the read that gave up has finished: now it is unavailable"
+    );
     assert!(has_gps(&home(&resources, &athlete).await, "r2"));
+}
+
+// ---------------------------------------------------------------------------
+// A first Home visit: five route reads at once (carnet#673)
+// ---------------------------------------------------------------------------
+
+/// The route reads a first Home visit over [`five_rides`] makes, the oldest
+/// ride's (`f1`) reaching the server first and the newest's last, each a few
+/// tens of milliseconds after the one before — the worst order the network
+/// can deliver a page's burst in. Answers are returned newest first.
+async fn a_first_visits_route_reads(
+    resources: &Arc<ServerContext>,
+    athlete: &Athlete,
+) -> Vec<(String, Value)> {
+    let reads = (1..=5).map(|n| async move {
+        sleep(StdDuration::from_millis(35 * (n - 1))).await;
+        let id = format!("f{n}");
+        let body = route_in_burst(resources, athlete, &id).await;
+        (id, body)
+    });
+    let mut answers = join_all(reads).await;
+    answers.reverse();
+    answers
+}
+
+/// On 2026-09-30 the newest ride's map was read third of five. The turn now
+/// goes to the newest ride waiting, and a request that finds it free lets its
+/// page's burst queue first, so the big map is read first even when its
+/// request arrived last — and still one read at a time.
+#[tokio::test]
+#[serial]
+async fn the_newest_rides_route_is_read_first_whatever_order_the_page_asked_in() {
+    let (resources, athlete, scraper, _env) = synced_rides_for_routes(
+        "route-order",
+        five_rides(),
+        DetailScript::SlowRoute(150),
+        &[],
+    )
+    .await;
+    assert_eq!(
+        ids(&home(&resources, &athlete).await),
+        ["f5", "f4", "f3", "f2", "f1"],
+        "the page lists the five rides newest first"
+    );
+
+    let answers = a_first_visits_route_reads(&resources, &athlete).await;
+    for (id, body) in &answers {
+        assert!(body["reason"].is_null(), "{id}: {body}");
+        assert!(
+            body["route"]["coordinates"].as_array().unwrap().len() > 2,
+            "{id}: {body}"
+        );
+    }
+    assert_eq!(
+        scraper.detail_order(),
+        ["f5", "f4", "f3", "f2", "f1"],
+        "the newest ride first, then newest to oldest"
+    );
+    assert_eq!(
+        scraper.max_details_in_flight(),
+        1,
+        "the athlete's reads still take one turn at a time"
+    );
+}
+
+/// A read that is not one of a Home page's burst — an activity view's own
+/// map — takes a free turn at once instead of waiting
+/// [`ROUTE_TURN_GATHER_MS`] for a burst that is not coming: the oldest ride's
+/// read, arriving first and alone, is read before a newer ride's burst read
+/// that arrives inside the gather window, which a gathering read would have
+/// handed the turn to.
+#[tokio::test]
+#[serial]
+async fn a_lone_route_read_takes_a_free_turn_without_the_gather_wait() {
+    let (resources, athlete, scraper, _env) = synced_rides_for_routes(
+        "route-lone",
+        five_rides(),
+        DetailScript::SlowRoute(150),
+        &[],
+    )
+    .await;
+
+    let lone = route(&resources, &athlete, "f1");
+    let burst = async {
+        sleep(StdDuration::from_millis(ROUTE_TURN_GATHER_MS / 4)).await;
+        route_in_burst(&resources, &athlete, "f5").await
+    };
+    let (lone, burst) = tokio::join!(lone, burst);
+    assert!(lone["route"].is_object(), "{lone}");
+    assert!(burst["route"].is_object(), "{burst}");
+    assert_eq!(
+        scraper.detail_order(),
+        ["f1", "f5"],
+        "the lone read took the free turn at once"
+    );
+    assert_eq!(scraper.max_details_in_flight(), 1);
+}
+
+/// On 2026-09-30 three of a first visit's five maps said "couldn't be
+/// loaded": their reads were queued behind the others past the request's
+/// bound, and a read that was only waiting answered `unavailable`. A request
+/// that runs out of time before its read finishes answers `pending`, stores
+/// nothing, and the page's next request is answered by the read once it
+/// lands — every route draws, and no ride is read twice.
+#[tokio::test]
+#[serial]
+async fn a_route_read_queued_past_its_bound_is_pending_never_unavailable() {
+    let (resources, athlete, scraper, _env) = synced_rides_for_routes(
+        "route-queued-burst",
+        five_rides(),
+        DetailScript::SlowRoute(1_200),
+        &[("PIERRE_HOME_ROUTE_ANSWER_SECS", "2".to_owned())],
+    )
+    .await;
+
+    let answers = a_first_visits_route_reads(&resources, &athlete).await;
+    assert!(
+        answers[0].1["route"].is_object(),
+        "the newest ride's read finished inside the bound: {:?}",
+        answers[0]
+    );
+    let waiting: Vec<&str> = answers
+        .iter()
+        .filter(|(_, body)| body["reason"] == "pending")
+        .map(|(id, _)| id.as_str())
+        .collect();
+    for (id, body) in answers
+        .iter()
+        .filter(|(_, body)| body["reason"] == "pending")
+    {
+        let within = body["settles_within_secs"].as_u64().unwrap_or(0);
+        assert!(
+            within >= ROUTE_PROVIDER_READ_TIMEOUT_SECS
+                && within % ROUTE_PROVIDER_READ_TIMEOUT_SECS == 0,
+            "{id}: a pending answer carries the reads ahead of it and its own: {body}"
+        );
+    }
+    assert_eq!(
+        waiting,
+        ["f4", "f3", "f2", "f1"],
+        "every read the bound cut off is pending, never unavailable: {answers:?}"
+    );
+    for id in ["f4", "f3", "f2", "f1"] {
+        assert!(
+            !matches!(
+                stored_route(&resources, &athlete, id).await,
+                Some(StoredRouteTrack::Unavailable { .. })
+            ),
+            "{id}: a read that was only waiting is never stored as a failure"
+        );
+    }
+
+    // The page asks again after `pending`, as both clients do.
+    let mut drawn = HashSet::from(["f5".to_owned()]);
+    for _ in 0..20 {
+        if drawn.len() == 5 {
+            break;
+        }
+        for id in ["f4", "f3", "f2", "f1"] {
+            if drawn.contains(id) {
+                continue;
+            }
+            let body = route(&resources, &athlete, id).await;
+            assert_ne!(body["reason"], "unavailable", "{id}: {body}");
+            if body["route"].is_object() {
+                drawn.insert(id.to_owned());
+            }
+        }
+    }
+    assert_eq!(drawn.len(), 5, "every route drew: {drawn:?}");
+    await_background(&resources).await;
+    assert_eq!(scraper.detail_reads(), 5, "each ride read once");
+    assert_eq!(scraper.max_details_in_flight(), 1);
 }
 
 // ---------------------------------------------------------------------------

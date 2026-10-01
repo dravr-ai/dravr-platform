@@ -57,6 +57,7 @@ export { droveReauthentication } from './core/auth-challenge';
 export {
   parseTurnBody,
   readEventStream,
+  TurnFailedError,
   TurnIdleAbortedError,
   TurnRequestError,
 } from './core/turn-stream';

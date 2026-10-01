@@ -97,15 +97,19 @@ export const ROUTE_COORDINATES: Array<[number, number]> = [
   [45.53, -73.62],
 ];
 
-/** The chat's `RouteView`, as the route endpoint answers it for an activity read through `sourceTool`. */
-export function routeView(title: string, sourceTool = 'strava'): RouteView {
+/**
+ * The chat's `RouteView`, as the route endpoint answers it for an activity
+ * read through `sourceTool` — with no title, as the server always sends it:
+ * the Home row and the activity view name the activity above the map.
+ */
+export function routeView(sourceTool = 'strava'): RouteView {
   return {
     coordinates: ROUTE_COORDINATES,
     bounds: { min_latitude: 45.5, max_latitude: 45.53, min_longitude: -73.63, max_longitude: -73.6 },
     elevation_meters: null,
     distances_meters: [0, 1400, 3100, 4500],
     climbs: [],
-    title,
+    title: null,
     source_tool: sourceTool,
   };
 }

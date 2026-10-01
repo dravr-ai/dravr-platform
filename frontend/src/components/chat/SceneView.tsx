@@ -10,6 +10,7 @@ import type {
   TableView,
   TextRole,
 } from '@pierre/scene-types';
+import { useTranslation } from '@pierre/i18n';
 import RouteView from './RouteView';
 
 /**
@@ -126,6 +127,7 @@ function Node({ node }: { node: SceneNode }) {
 
 /** A resolved chart. */
 function ChartView({ scene }: { scene: Scene }) {
+  const { t } = useTranslation();
   const summary = scene.title ?? scene.legend.map((e) => e.label).join(', ');
   return (
     <figure className="my-4">
@@ -140,7 +142,7 @@ function ChartView({ scene }: { scene: Scene }) {
           preserveAspectRatio="xMidYMid meet"
           className="h-auto w-full"
           role="img"
-          aria-label={`Chart: ${summary}`}
+          aria-label={t('chat.chartAria', { summary })}
         >
           {scene.nodes.map((node, i) => (
             // Scene nodes are positional and have no identity of their own; the
@@ -160,9 +162,6 @@ function ChartView({ scene }: { scene: Scene }) {
           ))}
         </ul>
       )}
-      <p className="mt-1 text-xs text-on-surface-variant">
-        source: {scene.source_tool}
-      </p>
     </figure>
   );
 }
@@ -212,9 +211,6 @@ function SceneTable({ view }: { view: TableView }) {
           </tbody>
         </table>
       </div>
-      <p className="mt-1 text-xs text-on-surface-variant">
-        source: {view.source_tool}
-      </p>
     </figure>
   );
 }

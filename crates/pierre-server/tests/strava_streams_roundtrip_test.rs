@@ -1,5 +1,5 @@
 // ABOUTME: Streams round trip — get_activity_with_streams attaches real Strava per-second samples
-// ABOUTME: Pins null handling, GPS dropout dropping, the distance channel, and that the detail tier never pays for streams
+// ABOUTME: Pins null samples kept as gaps, GPS dropout dropping, the distance channel, and that the detail tier never pays for streams
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -51,15 +51,17 @@ fn detail_payload() -> Value {
     })
 }
 
-/// A keyed stream set with a watts dropout (null → 0) and a GPS dropout
-/// (null → dropped from the track, never a (0,0) coordinate).
+/// A keyed stream set with heart-rate, watts, cadence and altitude dropouts
+/// (null → a gap at its own index, never a 0) and a GPS dropout (null →
+/// dropped from the track, never a (0,0) coordinate).
 fn streams_payload() -> Value {
     json!({
         "time": { "data": [0, 1, 2, 3, 4] },
-        "heartrate": { "data": [120, 121, 122, 123, 124] },
+        "heartrate": { "data": [120, 121, null, 123, 124] },
         "watts": { "data": [200, null, 210, 215, 220] },
+        "cadence": { "data": [null, 88, 90, 91, null] },
         "velocity_smooth": { "data": [5.0, 5.1, 5.2, 5.3, 5.4] },
-        "altitude": { "data": [10.0, 10.5, 11.0, 11.5, 12.0] },
+        "altitude": { "data": [10.0, 10.5, 11.0, null, 12.0] },
         "latlng": { "data": [[45.5, -73.6], [45.501, -73.601], null, [45.503, -73.603], [45.504, -73.604]] }
     })
 }
@@ -181,13 +183,27 @@ async fn with_streams_attaches_real_samples_and_handles_dropouts() {
         "Strava's own time stream"
     );
     assert_eq!(
-        stream.heart_rate.as_deref(),
-        Some(&[120, 121, 122, 123, 124][..])
+        stream.heart_rate,
+        Some(vec![Some(120), Some(121), None, Some(123), Some(124)]),
+        "a heart-rate dropout is a gap, never 0 bpm in a zone breakdown"
     );
     assert_eq!(
-        stream.power.as_deref(),
-        Some(&[200, 0, 210, 215, 220][..]),
-        "a watts dropout reads as 0 (no reading), not a hole"
+        stream.power,
+        Some(vec![Some(200), None, Some(210), Some(215), Some(220)]),
+        "a watts dropout is a gap, never a 0 W reading in an average"
+    );
+    assert_eq!(
+        stream.cadence,
+        Some(vec![None, Some(88), Some(90), Some(91), None])
+    );
+    assert_eq!(
+        stream.altitude,
+        Some(vec![Some(10.0), Some(10.5), Some(11.0), None, Some(12.0)])
+    );
+    assert_eq!(
+        stream.speed.as_ref().map(Vec::len),
+        Some(5),
+        "every channel stays index-aligned with the time stream"
     );
     let gps = stream.gps_coordinates.as_ref().expect("gps track");
     assert_eq!(gps.len(), 4, "the GPS dropout is dropped, never (0,0)");
@@ -300,5 +316,83 @@ async fn a_run_stream_fills_the_cumulative_distance_channel() {
         stream.distance.as_deref(),
         Some(&[0.0, 3.2, 6.5, 6.5, 13.1, 16.4][..]),
         "metres from the start, aligned with the time axis; the dropout keeps 6.5"
+    );
+}
+
+/// A keyed stream set whose `time` stream lost its offset at interior index
+/// 2, every other channel carrying a reading there.
+fn untimed_sample_payload() -> Value {
+    json!({
+        "time": { "data": [0, 1, null, 3, 4] },
+        "distance": { "data": [0.0, 5.0, 10.0, null, 20.0] },
+        "heartrate": { "data": [120, 121, 122, 123, 124] },
+        "watts": { "data": [200, 205, 210, 215, 220] },
+        "cadence": { "data": [86, 88, 90, 91, 92] },
+        "velocity_smooth": { "data": [5.0, 5.1, 5.2, 5.3, 5.4] },
+        "altitude": { "data": [10.0, 10.5, 11.0, 11.5, 12.0] },
+        "temp": { "data": [18.0, 18.0, 18.5, 19.0, 19.0] },
+        "latlng": { "data": [[45.5, -73.6], [45.501, -73.601], [45.502, -73.602], [45.503, -73.603], [45.504, -73.604]] }
+    })
+}
+
+/// A sample Strava sent with no time offset has no instant to stand at: it
+/// is dropped from every channel, so the arrays shrink by one, stay aligned,
+/// and no `0 s` is invented for it.
+#[tokio::test]
+async fn an_untimed_sample_is_dropped_from_every_channel() {
+    ensure_http_clients_initialized();
+    let (provider, _hits) = provider_serving(Ok(untimed_sample_payload())).await;
+
+    let activity = provider
+        .get_activity_with_streams("4242")
+        .await
+        .expect("activity with streams");
+    let stream = activity
+        .time_series_data()
+        .expect("streams must be attached");
+
+    assert_eq!(
+        stream.timestamps,
+        vec![0, 1, 3, 4],
+        "the untimed sample is dropped, never read as 0 s"
+    );
+    assert_eq!(
+        stream.heart_rate,
+        Some(vec![Some(120), Some(121), Some(123), Some(124)])
+    );
+    assert_eq!(
+        stream.power,
+        Some(vec![Some(200), Some(205), Some(215), Some(220)])
+    );
+    assert_eq!(
+        stream.cadence,
+        Some(vec![Some(86), Some(88), Some(91), Some(92)])
+    );
+    assert_eq!(
+        stream.speed,
+        Some(vec![Some(5.0), Some(5.1), Some(5.3), Some(5.4)])
+    );
+    assert_eq!(
+        stream.altitude,
+        Some(vec![Some(10.0), Some(10.5), Some(11.5), Some(12.0)])
+    );
+    assert_eq!(
+        stream.temperature,
+        Some(vec![Some(18.0), Some(18.0), Some(19.0), Some(19.0)])
+    );
+    assert_eq!(
+        stream.gps_coordinates,
+        Some(vec![
+            (45.5, -73.6),
+            (45.501, -73.601),
+            (45.503, -73.603),
+            (45.504, -73.604)
+        ]),
+        "the untimed position is dropped with its sample"
+    );
+    assert_eq!(
+        stream.distance.as_deref(),
+        Some(&[0.0, 5.0, 10.0, 20.0][..]),
+        "the reading taken at the untimed sample still carries over the next dropout"
     );
 }

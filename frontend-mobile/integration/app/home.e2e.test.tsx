@@ -49,11 +49,32 @@ import { HOME_ROUTE } from '../../src/navigation/routes';
 
 const PLAN_URL = 'GET /api/me/training-plan?locale=en';
 const RECENT_URL = 'GET /api/me/activities/recent';
-const LATEST_ROUTE_URL = 'GET /api/me/activities/strava/9001/route';
-const TRAIL_ROUTE_URL = 'GET /api/me/activities/intervals_icu/i77/route';
-const GYM_ROUTE_URL = 'GET /api/me/activities/strava/8998/route';
+// Home's route reads are one burst: each carries the `burst` flag the server
+// reads to hand its provider turn to the newest activity first.
+const LATEST_ROUTE_URL = 'GET /api/me/activities/strava/9001/route?burst=true';
+const TRAIL_ROUTE_URL = 'GET /api/me/activities/intervals_icu/i77/route?burst=true';
+const GYM_ROUTE_URL = 'GET /api/me/activities/strava/8998/route?burst=true';
+/** The athlete's retry is read at once, outside any burst. */
+const LATEST_ROUTE_RETRY_URL = 'GET /api/me/activities/strava/9001/route?retry=true';
 const PROVIDERS_URL = 'GET /api/providers';
 const RECENT_PATH = '/api/me/activities/recent';
+
+/**
+ * How long the first map a test file draws may take to appear.
+ *
+ * The route card is loaded on demand behind a Suspense boundary
+ * (`LazyRouteView`), and each test file has its own module registry, so the
+ * first map in a file suspends once: its module graph is required — and
+ * transformed, on a runner whose transform cache is cold — and React then
+ * holds the revealed card back for its Suspense fallback throttle
+ * (`FALLBACK_THROTTLE_MS`, 300 ms in React 19) after the "Loading the map"
+ * fallback committed. The client itself adds no wait: the route's first ask
+ * is immediate (`HOME_ROUTE_PENDING_BACKOFF_MS[0]` is 0) and the stub answers
+ * it at once. Testing Library's 1 s default covers the render around it; the
+ * second second is the card's one-time load. Every later map in the file is
+ * drawn in tens of milliseconds.
+ */
+const FIRST_MAP_TIMEOUT_MS = 2_000;
 
 /** The whole follow-up schedule, first answer to last ask. */
 const SCHEDULE_MS = HOME_STALE_REFETCH_DELAYS_MS.reduce((sum, delay) => sum + delay, 0);
@@ -117,23 +138,26 @@ describe('the Home tab over the wire', () => {
 
   // Turns red if a client stops calling the routes the server serves, adds a
   // `limit` the server would clamp, drops the locale, asks for a route the
-  // row's own polyline already draws, or asks again for one the row says
-  // held no GPS.
+  // row's own polyline already draws, asks again for one the row says held
+  // no GPS, or stops fetching the basemap style it relabels.
   it('reads the plan, the list, the provider status and only the routes it has to ask for', async () => {
     stub = installHttpStub(homeServer());
     const screen = renderHome();
 
-    expect(await screen.findByTestId('route-track')).toBeTruthy();
+    expect(await screen.findByTestId('route-track', {}, { timeout: FIRST_MAP_TIMEOUT_MS })).toBeTruthy();
     await screen.findByTestId('home-activity-sketch-intervals_icu-i77');
-    await waitFor(() => expect(stub.requestsFor('GET')).toHaveLength(6));
+    await waitFor(() => expect(stub.requestsFor('GET')).toHaveLength(7));
 
     const urls = stub.requestsFor('GET').map((request) => request.url).sort();
     expect(urls).toEqual(
       [
-        '/api/me/activities/intervals_icu/i77/route',
+        // The map's published basemap style, fetched once so its place names
+        // can be relabelled in the athlete's language.
+        'https://tiles.openfreemap.org/styles/dark',
+        '/api/me/activities/intervals_icu/i77/route?burst=true',
         '/api/me/activities/recent',
-        '/api/me/activities/strava/8998/route',
-        '/api/me/activities/strava/9001/route',
+        '/api/me/activities/strava/8998/route?burst=true',
+        '/api/me/activities/strava/9001/route?burst=true',
         '/api/me/training-plan?locale=en',
         '/api/providers',
       ].sort(),
@@ -165,7 +189,7 @@ describe('the Home tab over the wire', () => {
     stub = installHttpStub(
       homeServer({
         [RECENT_URL]: { data: recentResponse({ activities: [odd] }) },
-        'GET /api/me/activities/strava/run%2F2026%2009%2020/route': { data: LATEST_ROUTE_RESPONSE },
+        'GET /api/me/activities/strava/run%2F2026%2009%2020/route?burst=true': { data: LATEST_ROUTE_RESPONSE },
       }),
     );
     const screen = renderHome();
@@ -236,7 +260,7 @@ describe('the Home tab over the wire', () => {
     expect(track.coordinates[0]).toEqual([-74.2, 46.1]);
     expect(screen.queryByTestId('home-latest-no-track')).toBeNull();
     expect(stub.requestsFor('GET').map((request) => request.url)).toContain(
-      '/api/me/activities/intervals_icu/i77/route',
+      '/api/me/activities/intervals_icu/i77/route?burst=true',
     );
   });
 
@@ -249,7 +273,7 @@ describe('the Home tab over the wire', () => {
       'This activity recorded no GPS track.',
     );
     expect(stub.requestsFor('GET').map((request) => request.url)).toContain(
-      '/api/me/activities/strava/8998/route',
+      '/api/me/activities/strava/8998/route?burst=true',
     );
   });
 
@@ -264,7 +288,7 @@ describe('the Home tab over the wire', () => {
     await waitFor(() =>
       expect(stub.requestsFor('GET').map((request) => request.url)).toContain('/api/providers'),
     );
-    expect(stub.requestsFor('GET').filter((request) => request.url.endsWith('/route'))).toEqual([]);
+    expect(stub.requestsFor('GET').filter((request) => request.url.includes('/route'))).toEqual([]);
   });
 
   it('says the map failed when the route is not the caller\'s', async () => {
@@ -286,7 +310,7 @@ describe('the Home tab over the wire', () => {
       homeServer({
         [RECENT_URL]: { data: recentResponse({ activities: [ACTIVITIES[0]] }) },
         [LATEST_ROUTE_URL]: { data: { route: null, reason: 'unavailable' } },
-        [`${LATEST_ROUTE_URL}?retry=true`]: { data: LATEST_ROUTE_RESPONSE },
+        [LATEST_ROUTE_RETRY_URL]: { data: LATEST_ROUTE_RESPONSE },
       }),
     );
     const screen = renderHome();
@@ -297,7 +321,7 @@ describe('the Home tab over the wire', () => {
     expect(await screen.findByTestId('route-track')).toBeTruthy();
     const routeReads = stub.requestsFor('GET').filter((request) => request.url.includes('/strava/9001/route'));
     expect(routeReads.map((request) => request.url)).toEqual([
-      '/api/me/activities/strava/9001/route',
+      '/api/me/activities/strava/9001/route?burst=true',
       '/api/me/activities/strava/9001/route?retry=true',
     ]);
     // A stalled connection gives up at the route's own bound, never the five
@@ -310,7 +334,7 @@ describe('the Home tab over the wire', () => {
       homeServer({
         [RECENT_URL]: { data: recentResponse({ activities: [ACTIVITIES[0]] }) },
         [LATEST_ROUTE_URL]: { data: { route: null, reason: 'unavailable' } },
-        [`${LATEST_ROUTE_URL}?retry=true`]: { data: { route: null, reason: 'unavailable' } },
+        [LATEST_ROUTE_RETRY_URL]: { data: { route: null, reason: 'unavailable' } },
       }),
     );
     const screen = renderHome();
@@ -551,7 +575,7 @@ describe('the Home tab over the wire', () => {
             ? { data: recentResponse({ stale: true, as_of: '2026-09-22T06:00:00Z' }) }
             : { data: recentResponse({ activities: [fresher, ...ACTIVITIES.slice(0, 4)], stale: false }) };
         },
-        'GET /api/me/activities/strava/9002/route': { data: LATEST_ROUTE_RESPONSE },
+        'GET /api/me/activities/strava/9002/route?burst=true': { data: LATEST_ROUTE_RESPONSE },
       }),
     );
     const screen = renderHome();

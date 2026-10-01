@@ -248,12 +248,30 @@ fn test_recovery_metrics_model() {
 fn test_time_series_data_model() {
     let time_series = TimeSeriesData {
         timestamps: vec![0, 30, 60, 90, 120], // Every 30 seconds for 2 minutes
-        heart_rate: Some(vec![120, 135, 150, 165, 160]),
-        power: Some(vec![200, 250, 280, 320, 300]),
-        cadence: Some(vec![80, 85, 90, 95, 88]),
-        speed: Some(vec![8.0, 9.5, 11.0, 12.5, 11.8]),
-        altitude: Some(vec![100.0, 105.0, 110.0, 115.0, 118.0]),
-        temperature: Some(vec![20.0, 20.2, 20.5, 20.8, 21.0]),
+        heart_rate: Some(vec![Some(120), Some(135), Some(150), Some(165), Some(160)]),
+        power: Some(vec![Some(200), Some(250), Some(280), Some(320), Some(300)]),
+        cadence: Some(vec![Some(80), Some(85), Some(90), Some(95), Some(88)]),
+        speed: Some(vec![
+            Some(8.0),
+            Some(9.5),
+            Some(11.0),
+            Some(12.5),
+            Some(11.8),
+        ]),
+        altitude: Some(vec![
+            Some(100.0),
+            Some(105.0),
+            Some(110.0),
+            Some(115.0),
+            Some(118.0),
+        ]),
+        temperature: Some(vec![
+            Some(20.0),
+            Some(20.2),
+            Some(20.5),
+            Some(20.8),
+            Some(21.0),
+        ]),
         gps_coordinates: Some(vec![
             (45.5017, -73.5673),
             (45.5020, -73.5670),

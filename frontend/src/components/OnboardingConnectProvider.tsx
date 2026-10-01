@@ -45,8 +45,9 @@ export default function OnboardingConnectProvider({
   // Bridges the gap between Sciotte success and the App-level route flip:
   // ProviderConnectionCards fires `onProviderConnected`, this flag flips on,
   // and the page renders a fullscreen spinner instead of the static
-  // "Connected" badge while the onboarding-status query refetches.
-  const [justConnected, setJustConnected] = useState(false);
+  // "Connected" badge while the onboarding-status query refetches. Holds the
+  // connected provider's name, which the spinner's sentence names.
+  const [justConnected, setJustConnected] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
   // Tracks an in-flight OAuth popup (Strava BYO path). We don't know whether
   // the user has authorised yet — the popup is in a separate window. This is
@@ -112,13 +113,11 @@ export default function OnboardingConnectProvider({
   useEffect(() => {
     if (!justConnected) return undefined;
     const timer = window.setTimeout(() => {
-      setJustConnected(false);
-      setConnectError(
-        'Couldn’t confirm the connection. If you completed the connect flow, refresh the page; otherwise try again.',
-      );
+      setJustConnected(null);
+      setConnectError(t('onboarding.connectionUnconfirmedRefreshPage'));
     }, 30_000);
     return () => window.clearTimeout(timer);
-  }, [justConnected]);
+  }, [justConnected, t]);
 
   // Awaiting-OAuth timeout: 90s gives the user time to read, log in, MFA,
   // and approve in the popup. Beyond that we assume they bailed or got
@@ -144,7 +143,7 @@ export default function OnboardingConnectProvider({
         <div className="flex flex-col items-center gap-4">
           <div className="pierre-spinner w-10 h-10 border-on-surface border-t-transparent" />
           <p className="text-sm text-on-surface-variant">
-            {t('onboarding.providerConnectedPreparing')}
+            {t('onboarding.providerConnectedPreparing', { provider: justConnected })}
           </p>
         </div>
       </div>
@@ -192,7 +191,7 @@ export default function OnboardingConnectProvider({
               <ProviderConnectionCards
                 onConnectProvider={handleConnectProvider}
                 connectingProvider={connectingProvider}
-                onProviderConnected={() => setJustConnected(true)}
+                onProviderConnected={setJustConnected}
                 onOAuthLaunched={(provider) => setAwaitingOAuthFor(provider)}
               />
             </div>

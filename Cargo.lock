@@ -1376,8 +1376,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-cageux"
-version = "0.26.0"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.26.0#91d436e8362e6190d78aa714fa10178d7404024c"
+version = "0.27.0"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.27.0#2d2441a5c675cbb9b7f5b070217a539d2cf8c692"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3811,7 +3811,9 @@ version = "0.3.0"
 dependencies = [
  "axum",
  "chrono",
+ "pierre-config",
  "pierre-fitness-compute",
+ "pierre-providers",
  "serde",
  "serde_json",
  "sqlx",

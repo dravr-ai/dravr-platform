@@ -49,6 +49,7 @@ use pierre_fitness_compute::routes::haversine_meters_between;
 use pierre_fitness_compute::{encode_polyline, DEFAULT_PRIVACY_RADIUS_METERS};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
+use pierre_mcp_server::services::activity_detail::EMPTY_DETAIL_RECHECK_MINUTES;
 use pierre_mcp_server::services::activity_route::{
     HOME_ROUTE_MAX_POINTS, UNREAD_ROUTE_RECHECK_MINUTES,
 };
@@ -299,6 +300,68 @@ async fn expire_route_reads(resources: &ServerContext, user_id: Uuid) {
     }
 }
 
+/// Run `sql` against the test backend, binding `at` then the user's id.
+async fn exec_for_user(resources: &ServerContext, sql: &str, at: DateTime<Utc>, user_id: Uuid) {
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
+            sqlx::query(sql)
+                .bind(at)
+                .bind(user_id.to_string())
+                .execute(sqlite.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(postgres) => {
+            sqlx::query(sql)
+                .bind(at)
+                .bind(user_id.to_string())
+                .execute(postgres.pool())
+                .await
+                .unwrap();
+        }
+    }
+}
+
+/// Move every stored detail read of the user's that has a recheck instant
+/// past it, as the clock would after [`EMPTY_DETAIL_RECHECK_MINUTES`].
+async fn pass_detail_rechecks(resources: &ServerContext, user_id: Uuid) {
+    exec_for_user(
+        resources,
+        "UPDATE cached_activities SET detail_recheck_at = $1 \
+         WHERE user_id = $2 AND detail_recheck_at IS NOT NULL",
+        Utc::now() - Duration::minutes(1),
+        user_id,
+    )
+    .await;
+}
+
+/// The recheck instant stored with one cached activity's detail read: `None`
+/// when it stands (or none is stored).
+async fn detail_recheck_at(
+    resources: &ServerContext,
+    user_id: Uuid,
+    activity_id: &str,
+) -> Option<DateTime<Utc>> {
+    const SQL: &str = "SELECT detail_recheck_at FROM cached_activities \
+                       WHERE user_id = $1 AND activity_id = $2";
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => sqlx::query_scalar(SQL)
+            .bind(user_id.to_string())
+            .bind(activity_id)
+            .fetch_one(sqlite.pool())
+            .await
+            .unwrap(),
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(postgres) => sqlx::query_scalar(SQL)
+            .bind(user_id.to_string())
+            .bind(activity_id)
+            .fetch_one(postgres.pool())
+            .await
+            .unwrap(),
+    }
+}
+
 /// Assert the activity's stored read is an `unavailable` answer that expires
 /// a recheck period after it was made, somewhere between `before` and now.
 async fn assert_stored_unavailable(
@@ -396,16 +459,35 @@ async fn mock_strava(streams: Value) -> (String, Arc<Hits>) {
 /// requests made together are at the provider together unless something
 /// keeps them apart.
 async fn mock_strava_answering_after(streams: Value, latency: StdDuration) -> (String, Arc<Hits>) {
-    mock_strava_serving(streams, latency, 0).await
+    mock_strava_serving(ride_detail(), streams, latency, 0).await
 }
 
 /// [`mock_strava`] whose first `failures` streams requests answer 503, as a
 /// streams request Strava could not serve at that moment does.
 async fn mock_strava_failing_streams_first(streams: Value, failures: usize) -> (String, Arc<Hits>) {
-    mock_strava_serving(streams, StdDuration::ZERO, failures).await
+    mock_strava_serving(ride_detail(), streams, StdDuration::ZERO, failures).await
+}
+
+/// [`mock_strava`] whose detail answer is `detail`.
+async fn mock_strava_detailing(detail: Value, streams: Value) -> (String, Arc<Hits>) {
+    mock_strava_serving(detail, streams, StdDuration::ZERO, 0).await
+}
+
+/// Strava's detail answer for the long ride every Strava case caches.
+fn ride_detail() -> Value {
+    json!({
+        "id": 55_001,
+        "name": "Long ride",
+        "type": "Ride",
+        "sport_type": "Ride",
+        "start_date": (Utc::now() - Duration::days(2)).to_rfc3339(),
+        "elapsed_time": 9_000,
+        "distance": 60_000.0
+    })
 }
 
 async fn mock_strava_serving(
+    detail: Value,
     streams: Value,
     latency: StdDuration,
     failures: usize,
@@ -418,18 +500,11 @@ async fn mock_strava_serving(
             "/activities/{id}",
             get(move || {
                 let hits = Arc::clone(&detail_hits);
+                let detail = detail.clone();
                 async move {
                     hits.detail.fetch_add(1, Ordering::SeqCst);
                     hits.answer_after(latency).await;
-                    Json(json!({
-                        "id": 55_001,
-                        "name": "Long ride",
-                        "type": "Ride",
-                        "sport_type": "Ride",
-                        "start_date": (Utc::now() - Duration::days(2)).to_rfc3339(),
-                        "elapsed_time": 9_000,
-                        "distance": 60_000.0
-                    }))
+                    Json(detail)
                 }
             }),
         )
@@ -703,7 +778,9 @@ async fn a_route_overview_draws_the_map_without_a_provider_call() {
     assert!(body["reason"].is_null());
     let route = &body["route"];
     assert_eq!(route["source_tool"], "strava");
-    assert_eq!(route["title"], "Hill loop");
+    // The map carries no caption: the Home row and the activity view both
+    // name the activity above it, and a caption printed it twice.
+    assert!(route["title"].is_null(), "{route}");
     assert_eq!(route["climbs"], json!([]));
     assert!(
         route["elevation_meters"].is_null(),
@@ -770,7 +847,7 @@ async fn without_an_overview_the_streams_draw_it_once_and_the_next_read_is_store
         distances[0].as_f64().unwrap() >= DEFAULT_PRIVACY_RADIUS_METERS,
         "the line picks the ride up where the trim leaves it"
     );
-    assert_eq!(route["title"], "Long ride");
+    assert!(route["title"].is_null(), "{route}");
     assert!(matches!(
         stored(&resources, &athlete, "strava", "55001").await,
         Some(StoredRouteTrack::Drawn { ref source, .. }) if source == "streams"
@@ -786,6 +863,260 @@ async fn without_an_overview_the_streams_draw_it_once_and_the_next_read_is_store
         hits.counts(),
         (1, 1),
         "the second read costs no provider call"
+    );
+}
+
+/// [`ride_detail`] carrying two splits and one lap, as Strava's detail answer
+/// for a recorded ride does.
+fn ride_detail_with_splits_and_laps() -> Value {
+    let mut detail = ride_detail();
+    detail["splits_metric"] = json!([
+        { "split": 1, "distance": 1_000.0, "elapsed_time": 262, "moving_time": 258,
+          "elevation_difference": 4.5, "average_speed": 3.75 },
+        { "split": 2, "distance": 1_000.0, "elapsed_time": 251, "moving_time": 251,
+          "elevation_difference": -1.5, "average_speed": 4.0 }
+    ]);
+    detail["laps"] = json!([
+        { "id": 7_001, "distance": 60_000.0, "elapsed_time": 9_000, "moving_time": 8_820,
+          "total_elevation_gain": 410.0, "average_speed": 6.75, "max_speed": 14.25,
+          "average_heartrate": 141.0, "max_heartrate": 172.0, "average_watts": 205.0 }
+    ]);
+    detail
+}
+
+/// The activity view's `splits` and `laps` for [`ride_detail_with_splits_and_laps`].
+fn assert_view_shows_the_ride_detail(body: &Value) {
+    assert_eq!(
+        body["splits"],
+        json!([
+            {
+                "index": 1,
+                "distance_meters": 1_000.0,
+                "elapsed_time_seconds": 262,
+                "moving_time_seconds": 258,
+                "elevation_difference_meters": 4.5,
+                "average_speed_mps": 3.75,
+                "average_heart_rate": null
+            },
+            {
+                "index": 2,
+                "distance_meters": 1_000.0,
+                "elapsed_time_seconds": 251,
+                "moving_time_seconds": 251,
+                "elevation_difference_meters": -1.5,
+                "average_speed_mps": 4.0,
+                "average_heart_rate": null
+            }
+        ]),
+        "{body}"
+    );
+    assert_eq!(
+        body["laps"],
+        json!([{
+            "index": 1,
+            "distance_meters": 60_000.0,
+            "elapsed_time_seconds": 9_000,
+            "moving_time_seconds": 8_820,
+            "elevation_gain_meters": 410.0,
+            "average_speed_mps": 6.75,
+            "average_heart_rate": 141,
+            "max_heart_rate": 172,
+            "average_power": 205
+        }]),
+        "{body}"
+    );
+}
+
+/// The detail read a route took carries the ride's splits and laps. They are
+/// kept beside the cached row, so the next list sync — which carries neither
+/// and rewrites the row whole — does not take them from the activity's view,
+/// and the view, finding the detail read, asks the provider nothing.
+#[tokio::test]
+#[serial]
+async fn the_splits_and_laps_a_route_read_carried_survive_the_next_list_sync() {
+    let recorded = weaving_track(900, 0.0);
+    let (api_base, hits) =
+        mock_strava_detailing(ride_detail_with_splits_and_laps(), streams_for(&recorded)).await;
+    let _env = strava_at(api_base);
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "route-splits").await;
+    link_strava(&resources, &athlete).await;
+    let listed = [run_without_overview("55001")];
+    cache(
+        &resources,
+        athlete.user_id,
+        athlete.tenant,
+        "strava",
+        &listed,
+    )
+    .await;
+
+    let (status, route) = route_of(&resources, &athlete.token, "strava", "55001").await;
+    assert_eq!(status, StatusCode::OK, "{route}");
+    assert_eq!(hits.counts(), (1, 1), "one detail read, one streams read");
+
+    // The next list sync writes the list copy again, without splits or laps.
+    cache(
+        &resources,
+        athlete.user_id,
+        athlete.tenant,
+        "strava",
+        &listed,
+    )
+    .await;
+
+    let (status, body) = get_json(
+        &resources,
+        &athlete.token,
+        "/api/me/activities/strava/55001",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_view_shows_the_ride_detail(&body);
+    assert_eq!(
+        hits.counts(),
+        (1, 1),
+        "the view is served from the cache, asking the provider nothing"
+    );
+}
+
+/// A ride whose route comes from its own overview (Strava's
+/// `summary_polyline`) is drawn without any provider call, so no route read
+/// ever reads its detail. Its view reads it, once: the splits and laps show
+/// on the first open, survive the next list sync, and no later open asks the
+/// provider again.
+#[tokio::test]
+#[serial]
+async fn a_ride_drawn_from_its_overview_gets_its_splits_and_laps_from_its_view() {
+    let (api_base, hits) = mock_strava_detailing(
+        ride_detail_with_splits_and_laps(),
+        streams_for(&weaving_track(900, 0.0)),
+    )
+    .await;
+    let _env = strava_at(api_base);
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "overview-splits").await;
+    link_strava(&resources, &athlete).await;
+    let listed = [run_with_overview(
+        "55001",
+        "strava",
+        &weaving_track(300, 0.0),
+    )];
+    cache(
+        &resources,
+        athlete.user_id,
+        athlete.tenant,
+        "strava",
+        &listed,
+    )
+    .await;
+    let view = "/api/me/activities/strava/55001";
+
+    let (status, route) = route_of(&resources, &athlete.token, "strava", "55001").await;
+    assert_eq!(status, StatusCode::OK, "{route}");
+    assert!(route["route"].is_object(), "{route}");
+    assert_eq!(
+        hits.counts(),
+        (0, 0),
+        "the overview draws it: no provider call"
+    );
+
+    let (status, first) = get_json(&resources, &athlete.token, view).await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+    assert_view_shows_the_ride_detail(&first);
+    assert_eq!(hits.counts(), (1, 0), "one detail read, no streams");
+
+    // The next list sync writes the list copy again, without splits or laps.
+    cache(
+        &resources,
+        athlete.user_id,
+        athlete.tenant,
+        "strava",
+        &listed,
+    )
+    .await;
+
+    let (status, again) = get_json(&resources, &athlete.token, view).await;
+    assert_eq!(status, StatusCode::OK, "{again}");
+    assert_view_shows_the_ride_detail(&again);
+    assert_eq!(
+        hits.counts(),
+        (1, 0),
+        "the stored detail answers every later open"
+    );
+
+    // A detail that carried splits and laps settles it: no recheck instant,
+    // and moving every recheck past leaves it answering.
+    assert_eq!(
+        detail_recheck_at(&resources, athlete.user_id, "55001").await,
+        None
+    );
+    pass_detail_rechecks(&resources, athlete.user_id).await;
+    let (status, later) = get_json(&resources, &athlete.token, view).await;
+    assert_eq!(status, StatusCode::OK, "{later}");
+    assert_view_shows_the_ride_detail(&later);
+    assert_eq!(hits.counts(), (1, 0), "a detail with splits stands");
+}
+
+/// A detail read that carried neither splits nor laps answers the view
+/// without a provider read on every open, but only until its recheck: a
+/// provider serves its activity without them when the request carrying them
+/// failed (the Garmin API's `/laps` and `/splits`), so it proves nothing, and
+/// past [`EMPTY_DETAIL_RECHECK_MINUTES`] the next open reads it again.
+#[tokio::test]
+#[serial]
+async fn a_detail_read_with_no_splits_or_laps_is_read_again_after_its_recheck() {
+    let (api_base, hits) =
+        mock_strava_detailing(ride_detail(), streams_for(&weaving_track(900, 0.0))).await;
+    let _env = strava_at(api_base);
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "overview-no-splits").await;
+    link_strava(&resources, &athlete).await;
+    cache(
+        &resources,
+        athlete.user_id,
+        athlete.tenant,
+        "strava",
+        &[run_with_overview(
+            "55001",
+            "strava",
+            &weaving_track(300, 0.0),
+        )],
+    )
+    .await;
+    let view = "/api/me/activities/strava/55001";
+
+    let before = Utc::now();
+    for open in 0..3 {
+        let (status, body) = get_json(&resources, &athlete.token, view).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["splits"], json!([]), "open {open}");
+        assert_eq!(body["laps"], json!([]), "open {open}");
+    }
+    assert_eq!(hits.counts(), (1, 0), "one detail read across three opens");
+    let recheck = detail_recheck_at(&resources, athlete.user_id, "55001")
+        .await
+        .expect("an empty detail is stored with its recheck instant");
+    let interval = Duration::minutes(EMPTY_DETAIL_RECHECK_MINUTES);
+    assert!(
+        recheck >= before + interval && recheck <= Utc::now() + interval,
+        "{recheck} is {EMPTY_DETAIL_RECHECK_MINUTES} minutes after the read"
+    );
+
+    pass_detail_rechecks(&resources, athlete.user_id).await;
+    let (status, body) = get_json(&resources, &athlete.token, view).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        hits.counts(),
+        (2, 0),
+        "past its recheck the detail is read again"
+    );
+    let (_, body) = get_json(&resources, &athlete.token, view).await;
+    assert_eq!(body["laps"], json!([]));
+    assert_eq!(
+        hits.counts(),
+        (2, 0),
+        "the read again answers until its own recheck"
     );
 }
 

@@ -25,5 +25,11 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 pierre-fitness-compute = { version = "0.3.0", path = "../pierre-fitness-compute" }
 
+[dev-dependencies]
+# The unit tests point the real Strava provider at this fixture, so a shape the
+# provider cannot read fails here rather than as a broken map in dev.
+pierre-providers = { version = "0.3.0", path = "../pierre-providers", default-features = false, features = ["provider-strava"] }
+pierre-config = { version = "0.3.0", path = "../pierre-config" }
+
 [lints]
 workspace = true

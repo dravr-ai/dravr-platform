@@ -13,6 +13,7 @@ import type { ReactNode } from 'react';
 import type { AgentFormData } from './coachForm';
 import { Select, Textarea, Radio } from '../ui';
 import { useTranslation } from '@pierre/i18n';
+import { estimatePromptTokens, PROMPT_TOKEN_ESTIMATE_KEY } from '@pierre/ui-logic';
 
 /**
  * Hold the typed budget inside the range the server accepts. A cleared or
@@ -128,7 +129,7 @@ export default function CoachFormModal({
               required
               helpText={
                 formData.system_prompt
-                  ? `~${Math.ceil(formData.system_prompt.length / 4)} tokens (${((Math.ceil(formData.system_prompt.length / 4) / 128000) * 100).toFixed(1)}% of context)`
+                  ? t(PROMPT_TOKEN_ESTIMATE_KEY, estimatePromptTokens(formData.system_prompt))
                   : undefined
               }
             />

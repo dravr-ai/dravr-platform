@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The words and figures the Home tab prints — civil and instant dates, durations, distances, chat drafts
+// ABOUTME: The words and figures the Home tab prints — civil and instant dates, durations, distances, chat drafts, activity names
 // ABOUTME: Pure functions of the app language, so the screen and its tests format a date, a sport and a draft one way
 
 import type { HomeActivity, PlanDay } from '@pierre/shared-types';
 import { activitySportLabelKey } from '@pierre/shared-constants';
 import { formatDuration } from '@pierre/domain-utils';
+import { formatDecimal } from '@pierre/chat-utils';
 
 /** The translator the helpers take; module scope holds no hook. */
 export type Translate = (key: string, options?: Record<string, unknown>) => string;
@@ -86,14 +87,17 @@ export function syncedAtLabel(instant: string, language: string): string {
   }).format(new Date(instant));
 }
 
-/** Metres as the one decimal of a kilometre a route is read in — the same figure the map card prints. */
-export function kilometres(metres: number): string {
-  return `${(metres / METRES_PER_KILOMETRE).toFixed(1)} km`;
+/**
+ * The distance a Home row prints: metres as one decimal of a kilometre, in
+ * the notation of `language` — `92.0 km`, `92,0 km`.
+ */
+export function kilometres(metres: number, language: string): string {
+  return `${formatDecimal(metres / METRES_PER_KILOMETRE, 1, language)} km`;
 }
 
-/** Metres climbed, rounded to the metre. */
-export function climbed(metres: number): string {
-  return `+${Math.round(metres)} m`;
+/** Metres climbed, rounded to the metre, in the notation of `language`. */
+export function climbed(metres: number, language: string): string {
+  return `+${formatDecimal(Math.round(metres), 0, language)} m`;
 }
 
 /**
@@ -107,27 +111,35 @@ export function sportLabel(t: Translate, sportType: string): string {
 
 /**
  * The figures a row prints after its name: distance, then duration, then the
- * climb — only the ones the provider reported. A missing distance is left out
- * rather than printed as zero.
+ * climb — only the ones the provider reported, in the notation of `language`
+ * and the duration in the words of `t` (`45 min 45 s` in French).
+ * A missing distance is left out rather than printed as zero.
  */
-export function activityFigures(activity: HomeActivity): string[] {
+export function activityFigures(t: Translate, activity: HomeActivity, language: string): string[] {
   const figures: string[] = [];
   if (activity.distance_meters !== null && activity.distance_meters > 0) {
-    figures.push(kilometres(activity.distance_meters));
+    figures.push(kilometres(activity.distance_meters, language));
   }
-  figures.push(formatDuration(activity.duration_seconds));
+  figures.push(formatDuration(t, activity.duration_seconds));
   if (activity.elevation_gain_meters !== null && activity.elevation_gain_meters > 0) {
-    figures.push(climbed(activity.elevation_gain_meters));
+    figures.push(climbed(activity.elevation_gain_meters, language));
   }
   return figures;
 }
 
-/** The composer text a tap on an activity opens a new chat with. */
-export function activityDraft(t: Translate, activity: HomeActivity, language: string): string {
-  return t('home.activities.analyzeDraft', {
+/**
+ * How a question about the activity names it: its title — its sport when the
+ * provider stored none — and its day, the two things the agent finds it by.
+ */
+export function activityNaming(
+  t: Translate,
+  activity: HomeActivity,
+  language: string,
+): { name: string; date: string } {
+  return {
+    name: activity.name.trim() || sportLabel(t, activity.sport_type),
     date: instantLongDate(activity.start_date, language),
-    sport: sportLabel(t, activity.sport_type),
-  });
+  };
 }
 
 /** The composer text a tap on a plan day opens a new chat with: the session, or why it is a rest day. */

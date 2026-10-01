@@ -142,17 +142,23 @@ export { parseWorkoutPlan } from './workout-plan.js';
 export type { PlanDayLookup } from './plan-calendar.js';
 export { addCivilDays, mondayOf, planDayOn, phaseWeekOn } from './plan-calendar.js';
 
-// The athlete Home page's reads: recent activities, one activity's route, the plan for today
+// The athlete Home page's reads: recent activities, one activity's view and route, the plan for today
 export type {
+  ActivityDetailResponse,
+  ActivityLap,
+  ActivitySplit,
   HomeActivity,
   RecentActivitiesResponse,
   SyncFailure,
   ActivityRouteUnavailableReason,
+  ActivityRouteAnswer,
+  ActivityRoutePending,
   ActivityRouteResponse,
   TrainingPlanResponse,
 } from './home.js';
 export {
   ACTIVITY_ROUTE_UNAVAILABLE_REASONS,
+  parseActivityDetailResponse,
   parseRecentActivitiesResponse,
   parseActivityRouteResponse,
   parseTrainingPlanResponse,

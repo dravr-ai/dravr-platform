@@ -21,6 +21,7 @@ import {
   COMMAND_FINISH_REASON,
   copyableText,
   countActivities,
+  formatDecimal,
   parseSceneBlocks,
   splitVizMarkers,
   transcriptBlocks,
@@ -182,7 +183,7 @@ const MessageItem = memo(function MessageItem({
   onAskAboutClaim,
   onActionClick,
 }: MessageItemProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   // A row a group thread shows from the room. Another member's, or the
   // coach's reply to another member, speaks from the room's side of the
   // thread under that member's name, whatever its role.
@@ -484,7 +485,7 @@ const MessageItem = memo(function MessageItem({
       )}
       {metadata && !isCommand && (
         <span className="ml-2 text-xs text-outline">
-          {metadata.model}{metadata.executionTimeMs ? ` · ${(metadata.executionTimeMs / 1000).toFixed(1)}s` : ''}
+          {metadata.model}{metadata.executionTimeMs ? ` · ${formatDecimal(metadata.executionTimeMs / 1000, 1, i18n.language)}s` : ''}
         </span>
       )}
     </div>

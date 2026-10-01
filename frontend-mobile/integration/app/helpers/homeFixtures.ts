@@ -1,8 +1,9 @@
-// ABOUTME: Server-shaped Home payloads for the mobile specs — a plan around one Thursday, five activities, their route answers
+// ABOUTME: Server-shaped Home payloads for the mobile specs — a plan around one Thursday, five activities, their routes, one's view
 // ABOUTME: Mirrors the /api/me/... contract: every key present, None as null, the polyline already trimmed by the server
 
 import type { RouteView } from '@pierre/scene-types';
 import type {
+  ActivityDetailResponse,
   ActivityRouteResponse,
   HomeActivity,
   PlanDay,
@@ -166,7 +167,7 @@ export function recentResponse(overrides: Partial<RecentActivitiesResponse> = {}
   return { activities: ACTIVITIES, as_of: '2026-09-24T08:30:00Z', sync_failure: null, stale: false, ...overrides };
 }
 
-/** The latest activity's stored route, the shape the chat map already draws. */
+/** The latest activity's stored route, the shape the chat map already draws — untitled, as the server sends it. */
 export const LATEST_ROUTE: RouteView = {
   coordinates: [
     [45.5, -73.6],
@@ -178,7 +179,7 @@ export const LATEST_ROUTE: RouteView = {
   elevation_meters: null,
   distances_meters: [0, 1200, 2400, 3600],
   climbs: [],
-  title: 'Long ride',
+  title: null,
   source_tool: 'strava',
 };
 
@@ -193,7 +194,7 @@ export const TRAIL_ROUTE: RouteView = {
   elevation_meters: null,
   distances_meters: null,
   climbs: [],
-  title: 'Morning trail',
+  title: null,
   source_tool: 'intervals_icu',
 };
 
@@ -259,4 +260,41 @@ export const PROVIDERS_ONLY_FLAGGED = {
       needs_reauth: false,
     },
   ],
+};
+
+/**
+ * `GET /api/me/activities/strava/9000` — Tempo Thursday's view: the figures
+ * the cache holds for it and two kilometre splits. No power was recorded, so
+ * none is sent.
+ */
+export const TEMPO_DETAIL_RESPONSE: ActivityDetailResponse = {
+  activity: ACTIVITIES[1],
+  average_heart_rate: 158,
+  max_heart_rate: 176,
+  average_speed_mps: 1000 / 295,
+  max_speed_mps: 5.1,
+  average_power: null,
+  calories: 712,
+  splits: [
+    {
+      index: 1,
+      distance_meters: 1000,
+      elapsed_time_seconds: 300,
+      moving_time_seconds: 298,
+      elevation_difference_meters: 6,
+      average_speed_mps: 1000 / 298,
+      average_heart_rate: 151,
+    },
+    {
+      index: 2,
+      distance_meters: 1000,
+      elapsed_time_seconds: 290,
+      moving_time_seconds: null,
+      elevation_difference_meters: -4,
+      average_speed_mps: 1000 / 290,
+      average_heart_rate: 160,
+    },
+  ],
+  laps: [],
+  conversation_id: null,
 };

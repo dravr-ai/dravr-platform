@@ -31,4 +31,7 @@ export { useLanguageSwitcher } from './useLanguageSwitcher';
 
 // Re-export core i18next types for convenience
 export type { i18n as I18nInstance, TOptions } from 'i18next';
-export { I18nextProvider } from 'react-i18next';
+// `Trans` renders a whole catalogue sentence whose span is markup — a link, a
+// styled handle — with each `<tag>` mapped to the client's own element, so a
+// sentence is never assembled from fragments around the element.
+export { I18nextProvider, Trans } from 'react-i18next';

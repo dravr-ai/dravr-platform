@@ -404,7 +404,9 @@ test.describe('Chat - the web surface profile', () => {
     await expect(chart.locator('line')).toHaveCount(1);
     await expect(chart.locator('css=text')).toHaveText('Week 1');
     await expect(turn).toContainText('Weekly load, last four weeks');
-    await expect(turn).toContainText('source: get_activities');
+    // The tool the numbers came from is server-side attribution, never printed.
+    await expect(turn).not.toContainText('source:');
+    await expect(turn).not.toContainText('get_activities');
     // The positional marker is consumed by the renderer, never shown.
     await expect(turn).not.toContainText('⟦viz:0⟧');
   });
@@ -754,7 +756,7 @@ test.describe('Chat - one transport for every turn', () => {
     await expect(page.getByText(/HTTP error/i)).toHaveCount(0);
   });
 
-  test('an error frame surfaces the server message instead of an empty turn', async ({ page }) => {
+  test('an error frame reads as the catalogue sentence for its code, with the question kept and no retry for a quota', async ({ page }) => {
     await setupChatMocks(page);
     await page.route('**/api/chat/conversations/*/messages', async (route, request) => {
       if (request.method() !== 'POST') {
@@ -764,7 +766,11 @@ test.describe('Chat - one transport for every turn', () => {
       await route.fulfill({
         status: 200,
         contentType: 'text/event-stream',
-        body: 'event: failed\ndata: {"error":"Daily message limit reached."}\n\n',
+        body: `event: failed\ndata: ${JSON.stringify({
+          error: 'Daily message limit reached.',
+          code: 'QuotaExceeded',
+          details: { limit_type: 'daily_messages', current: 50, limit: 50 },
+        })}\n\n`,
       });
     });
 
@@ -772,7 +778,14 @@ test.describe('Chat - one transport for every turn', () => {
     await openConversation(page);
     await composeAndSend(page, 'And next week?');
 
-    await expect(page.getByText('Daily message limit reached.')).toBeVisible({ timeout: 10000 });
+    // Worded from the counts the frame carried, never from the server's prose.
+    await expect(page.getByTestId('turn-error')).toHaveText(
+      'Daily message limit reached (50/50). Resets tomorrow.',
+      { timeout: 10000 },
+    );
+    await expect(page.getByText('And next week?')).toBeVisible();
+    // A spent quota meets a re-send with the same refusal: no retry is offered.
+    await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0);
   });
 
   test('retry drops the answered turn and re-sends the question, with no composer round-trip', async ({

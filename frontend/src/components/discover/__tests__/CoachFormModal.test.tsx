@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tests for the CoachFormModal tool-budget input and its delete affordance
-// ABOUTME: Verifies the stored max_tool_iterations renders, edits propagate, bounds hold, clearing is explicit
+// ABOUTME: Verifies the stored budget renders, edits propagate, bounds hold, clearing is explicit, prompt size reads localised
 
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
@@ -11,6 +11,7 @@ import {
   MAX_MAX_TOOL_ITERATIONS,
   DEFAULT_MAX_TOOL_ITERATIONS,
 } from '@pierre/shared-constants';
+import { i18n } from '@pierre/i18n';
 import CoachFormModal from '../CoachFormModal';
 import { DEFAULT_COACH_FORM_DATA, type AgentFormData } from '../coachForm';
 
@@ -129,5 +130,43 @@ describe('CoachFormModal as the edit sheet', () => {
     renderModal(makeFormData());
 
     expect(screen.queryByRole('button', { name: 'Delete this agent' })).not.toBeInTheDocument();
+  });
+});
+
+describe('CoachFormModal prompt size', () => {
+  // 20,000 characters is 5,000 tokens: a figure large enough to need grouping
+  // and a share (3.9%) with a decimal to write.
+  const longPrompt = 'x'.repeat(20_000);
+
+  it('reads the estimate in English notation', () => {
+    renderModal(makeFormData({ system_prompt: longPrompt }));
+
+    expect(screen.getByText('~5,000 tokens (3.9% of context)')).toBeInTheDocument();
+  });
+
+  it('reads the estimate as one French sentence in French notation', async () => {
+    await i18n.changeLanguage('fr');
+    try {
+      // Rendered directly: renderModal finds the budget input by its English label.
+      render(
+        <CoachFormModal
+          isOpen
+          formData={makeFormData({ system_prompt: longPrompt })}
+          onFormDataChange={vi.fn()}
+          onSubmit={vi.fn()}
+          onClose={vi.fn()}
+          isSubmitting={false}
+          submitError={false}
+        />,
+      );
+
+      // Intl groups French thousands with a narrow no-break space (U+202F),
+      // which the text matcher would collapse to a plain one.
+      expect(screen.getByText(/^~5\s000 jetons/).textContent).toBe(
+        '~5\u202f000 jetons (3,9 % du contexte)',
+      );
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 });

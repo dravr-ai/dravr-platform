@@ -405,7 +405,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
         ) : null}
 
         {isAdmin && (
-          <CollapsibleSection title={`Invites (${activeInvites.length})`} testID="group-info-invites">
+          <CollapsibleSection title={t('groups.activeInvitesCount', { n: activeInvites.length })} testID="group-info-invites">
             <View style={CANCEL_PANEL_INSET}>
               <Row
                 title={t('app.createShareInvite')}

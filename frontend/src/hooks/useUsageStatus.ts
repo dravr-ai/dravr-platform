@@ -7,7 +7,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { LimitCheckResult, ReplyNotice, UsageStatusResponse } from '@pierre/shared-types';
-import { formatResetTime, quotaNoticeBanner } from '@pierre/chat-utils';
+import { formatCount, formatResetTime, quotaNoticeBanner } from '@pierre/chat-utils';
 import type { TranslatableText } from '@pierre/chat-utils';
 import { usageApi } from '../services/api';
 import { useTranslation } from '@pierre/i18n';
@@ -50,13 +50,15 @@ const LEVEL_PRIORITY: Record<WarningLevel, number> = {
  * Compute the warning state from the full usage status response.
  *
  * `resetFallback` is the caller's translated wording for an unparseable reset
- * instant. The sentences themselves come back as catalogue keys: this ran as
- * three hardcoded English templates, and the banner rendered them verbatim
- * under French chrome (carnet#207).
+ * instant, and `language` the one the reset instant is spelled in. The
+ * sentences themselves come back as catalogue keys: this ran as three
+ * hardcoded English templates, and the banner rendered them verbatim under
+ * French chrome (carnet#207).
  */
 export function computeWarningState(
   data: UsageStatusResponse | undefined,
   resetFallback: string,
+  language: string,
 ): UsageWarningState {
   if (!data) {
     return { level: 'none', sendDisabled: false, text: null, resetsAt: '', triggerCounter: null };
@@ -88,14 +90,16 @@ export function computeWarningState(
     return { level: 'none', sendDisabled: false, text: null, resetsAt: '', triggerCounter: null };
   }
 
-  const time = formatResetTime(worstCounter.resets_at, resetFallback);
+  const time = formatResetTime(worstCounter.resets_at, resetFallback, language);
   const percent = worstCounter.limit > 0
     ? Math.round((worstCounter.current / worstCounter.limit) * 100)
     : 0;
+  // Grouped in the athlete's notation: the raw `456792/500000` read as one
+  // unbroken string of digits under any chrome.
   const params = {
     label: worstLabel,
-    current: worstCounter.current,
-    limit: worstCounter.limit,
+    current: formatCount(worstCounter.current, language),
+    limit: formatCount(worstCounter.limit, language),
     time,
   };
 
@@ -134,8 +138,9 @@ export function computeWarningState(
 export function warningStateFromNotice(
   notice: ReplyNotice,
   resetFallback: string,
+  language: string,
 ): UsageWarningState {
-  const banner = quotaNoticeBanner(notice, resetFallback);
+  const banner = quotaNoticeBanner(notice, resetFallback, language);
   return {
     level: banner.level,
     sendDisabled: false,
@@ -156,7 +161,7 @@ export function warningStateFromNotice(
  */
 export function useUsageStatus() {
   const queryClient = useQueryClient();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const [turnNotice, setTurnNotice] = useState<ReplyNotice | null>(null);
 
   const { data, isLoading, error } = useQuery<UsageStatusResponse>({
@@ -174,9 +179,9 @@ export function useUsageStatus() {
   const warningState = useMemo(
     () =>
       turnNotice
-        ? warningStateFromNotice(turnNotice, t('settingsUi.midnightUtc'))
-        : computeWarningState(data, t('settingsUi.midnightUtc')),
-    [turnNotice, data, t],
+        ? warningStateFromNotice(turnNotice, t('settingsUi.midnightUtc'), language)
+        : computeWarningState(data, t('settingsUi.midnightUtc'), language),
+    [turnNotice, data, t, language],
   );
 
   /** Invalidate the usage query (call after sending a message) */

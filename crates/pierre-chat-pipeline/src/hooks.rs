@@ -25,7 +25,7 @@ use super::envelope::SceneImage;
 use pierre_agui::AgUiSink;
 use pierre_core::models::TenantId;
 pub use pierre_services::chat_stream::{
-    ProgressKind, TurnEvent, TurnEventSink, TurnProgress, STAGE_STATUS_FINISHED,
+    ProgressKind, TurnEvent, TurnEventSink, TurnFailure, TurnProgress, STAGE_STATUS_FINISHED,
     STAGE_STATUS_STARTED,
 };
 

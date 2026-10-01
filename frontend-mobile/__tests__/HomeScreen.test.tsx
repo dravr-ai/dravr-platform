@@ -2,13 +2,14 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The Home tab over mocked athlete reads — today and tomorrow, the week strip, the map, the sketches, the prompts, every empty state
-// ABOUTME: Pins that a rest day and an uncovered day read differently, and that each tap opens a chat drafted about what was tapped
+// ABOUTME: Pins that a rest day and an uncovered day read differently, a day drafts a chat about it, and an activity opens its view
 
 import React from 'react';
 import { AccessibilityInfo, Platform } from 'react-native';
 import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import Svg from 'react-native-svg';
+import { Path } from 'react-native-svg';
+import { ROUTE_INK } from '@pierre/shared-constants';
 import type { ActivityRouteResponse, RecentActivitiesResponse, TrainingPlanResponse } from '@pierre/shared-types';
 
 import {
@@ -58,8 +59,12 @@ jest.mock('../src/services/api', () => ({
     getTrainingPlan: (locale?: string) => mockGetTrainingPlan(locale),
     getRecentActivities: (limit?: number, options?: { retry?: boolean }) =>
       options === undefined ? mockGetRecentActivities(limit) : mockGetRecentActivities(limit, options),
-    getActivityRoute: (provider: string, id: string, options?: { retry?: boolean }) =>
-      options === undefined ? mockGetActivityRoute(provider, id) : mockGetActivityRoute(provider, id, options),
+    // The query's abort signal is the transport's concern; the retry flag is
+    // what the screen decides.
+    getActivityRoute: (provider: string, id: string, options?: { retry?: boolean; signal?: AbortSignal }) =>
+      options?.retry === undefined
+        ? mockGetActivityRoute(provider, id)
+        : mockGetActivityRoute(provider, id, { retry: options.retry }),
   },
   oauthApi: { getProvidersStatus: () => mockGetProvidersStatus() },
 }));
@@ -283,8 +288,13 @@ describe('recent activities', () => {
     await Promise.all(mockGetActivityRoute.mock.results.map((read) => read.value));
     expect(screen.queryByTestId('home-activity-sketch-strava-8999')).toBeNull();
     expect(screen.queryByTestId('home-activity-sketch-strava-8998')).toBeNull();
-    // Two sketches, plus the map card's own climb-less drawing draws no SVG.
-    expect(screen.UNSAFE_getAllByType(Svg)).toHaveLength(2);
+    // Two sketches, and no other route drawing: the map card's climb-less
+    // legend draws no swatch. Its full-screen button's icon is an SVG too, so
+    // the count is of route paths — the ones stroked in the route orange.
+    const routePaths = screen
+      .UNSAFE_queryAllByType(Path)
+      .filter((path) => path.props.stroke === ROUTE_INK.track);
+    expect(routePaths).toHaveLength(2);
   });
 
   it('prints each row\'s date, sport and the figures the provider reported', async () => {
@@ -300,16 +310,21 @@ describe('recent activities', () => {
     expect(gym).toHaveTextContent(/Strength training · 45m$/);
   });
 
-  it('opens a new chat drafted about the tapped activity', async () => {
+  it("opens the tapped activity's own view, from the latest card and from a row", async () => {
     const screen = renderHome();
 
     fireEvent.press(await screen.findByTestId('home-activity-strava-9001'));
-    expect(mockPush).toHaveBeenCalledWith(draftHref('Analyze my activity from Sunday, September 20 (Ride)'));
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/(app)/activity/[provider]/[activityId]',
+      params: { provider: 'strava', activityId: '9001' },
+    });
 
     fireEvent.press(screen.getByTestId('home-activity-intervals_icu-i77'));
-    expect(mockPush).toHaveBeenLastCalledWith(
-      draftHref('Analyze my activity from Wednesday, September 16 (Trail running)'),
-    );
+    expect(mockPush).toHaveBeenLastCalledWith({
+      pathname: '/(app)/activity/[provider]/[activityId]',
+      params: { provider: 'intervals_icu', activityId: 'i77' },
+    });
+    expect(mockPush).toHaveBeenCalledTimes(2);
   });
 
   it('says a latest activity whose route read held no GPS recorded no track, without asking again', async () => {

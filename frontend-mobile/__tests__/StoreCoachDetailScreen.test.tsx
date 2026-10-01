@@ -2,7 +2,8 @@
 // ABOUTME: Tests agent detail display, install → hint → Open chat, uninstall by copy id, and Edit agent
 
 import React from 'react';
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { act, render, fireEvent, waitFor } from '@testing-library/react-native';
+import { i18n } from '@pierre/i18n';
 import { Alert } from 'react-native';
 
 // Per-file expo-router mock override with spyable router methods
@@ -227,8 +228,27 @@ describe('StoreCoachDetailScreen', () => {
 
       await waitFor(() => {
         expect(getByText('Token Count')).toBeTruthy();
-        expect(getByText('1200')).toBeTruthy();
+        expect(getByText('1,200')).toBeTruthy();
       });
+    });
+
+    it('writes the token count and the publish date in the app language', async () => {
+      mockGet.mockResolvedValue(createMockStoreCoachDetail({ published_at: '2024-01-15T12:00:00Z' }));
+      await act(async () => {
+        await i18n.changeLanguage('fr');
+      });
+      try {
+        const { getByText } = render(<StoreCoachDetailScreen />);
+
+        await waitFor(() => {
+          expect(getByText(/^1\s200$/)).toBeTruthy();
+        });
+        expect(getByText('15 janv. 2024')).toBeTruthy();
+      } finally {
+        await act(async () => {
+          await i18n.changeLanguage('en');
+        });
+      }
     });
 
     it('should show error state when agent not found', async () => {

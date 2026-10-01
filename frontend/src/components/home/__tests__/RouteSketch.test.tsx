@@ -22,6 +22,8 @@ describe('RouteSketch', () => {
 
     const svg = screen.getByRole('img', { name: 'Sketch of the route' });
     expect(svg).toHaveAttribute('viewBox', '0 0 64 48');
+    // The orange the map draws the same route in, not the theme accent.
+    expect(svg.querySelector('path')).toHaveAttribute('stroke', '#d9480f');
     const d = svg.querySelector('path')?.getAttribute('d') ?? '';
     const vertices = d.split(/\s*[ML]\s*/).filter(Boolean).map((pair) => pair.split(' ').map(Number));
     expect(d.startsWith('M')).toBe(true);

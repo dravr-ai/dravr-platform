@@ -148,7 +148,7 @@ async function mockHome(page: Page, providers = [provider('strava', 'Strava'), p
       body: JSON.stringify({ activities: ACTIVITIES, as_of: '2026-09-24T08:15:00Z', stale: false }),
     });
   });
-  await page.route('**/api/me/activities/*/*/route', async (route) => {
+  await page.route('**/api/me/activities/*/*/route**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -208,7 +208,7 @@ test.describe('Athlete Home — mobile viewport', () => {
     }
   });
 
-  test('a latest activity whose stored route held no GPS says it has no track; tapping a row opens the analyze draft', async ({ page }) => {
+  test("a latest activity whose stored route held no GPS says it has no track; tapping a row opens its view inside the phone width", async ({ page }) => {
     await expect(page.getByTestId('home-activity-latest')).toContainText('This activity recorded no GPS track.');
     // One sketch from the summary polyline, one from the route the endpoint
     // answers for the row whose route had never been read.
@@ -216,9 +216,136 @@ test.describe('Athlete Home — mobile viewport', () => {
     await expect(page.getByTestId('route-sketch')).toHaveCount(2);
     await expect(page.getByTestId('provider-reconnect-banner')).toHaveCount(0);
 
+    await page.route('**/api/me/activities/strava/act-2', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          activity: ACTIVITIES[1],
+          average_heart_rate: 149,
+          max_heart_rate: 168,
+          average_speed_mps: 3.4,
+          max_speed_mps: null,
+          average_power: null,
+          calories: null,
+          splits: [],
+          laps: [],
+        }),
+      });
+    });
     await page.getByTestId('home-activity-row').first().getByRole('button').click();
-    await expect(page).toHaveURL(/#chat\/conv-home-mobile$/);
-    await expect(page.getByPlaceholder('Message Dravr...').first()).toHaveValue(/^Analyze my activity from .+ \(Run\)$/);
+    await expect(page).toHaveURL(/#home\/activity\/strava\/act-2$/);
+    await expect(page.getByTestId('activity-title')).toHaveText('Morning run');
+    await expect(page.getByTestId('activity-figure-average_speed')).toContainText('4:54 /km');
+    const chips = page.getByTestId('activity-prompts').getByRole('button');
+    await expect(chips).toHaveCount(4);
+    // The view fits the phone: no sideways scroll, and every question a 44px target inside the width.
+    const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 1);
+    const width = page.viewportSize()?.width ?? 0;
+    for (const box of await chips.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().toJSON()))) {
+      expect(box.right).toBeLessThanOrEqual(width + 1);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+    }
+  });
+
+  test("an activity's thread at 390px grows inside its card: after a turn the day pill still clears the card's edge", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const now = new Date().toISOString();
+    await page.route('**/api/me/activities/strava/act-2', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          activity: ACTIVITIES[1],
+          average_heart_rate: 149,
+          max_heart_rate: 168,
+          average_speed_mps: 3.4,
+          max_speed_mps: null,
+          average_power: null,
+          calories: null,
+          splits: [],
+          laps: [],
+          // The thread the view linked on an earlier visit, from any device.
+          conversation_id: CONVERSATION.id,
+        }),
+      });
+    });
+    await page.route(`**/api/chat/conversations/${CONVERSATION.id}/messages**`, async (route, request) => {
+      if (request.method() === 'POST') {
+        const content = (JSON.parse(request.postData() ?? '{}') as { content: string }).content;
+        const reply = 'Keep tomorrow easy: 40 minutes in Z1, then strides. '.repeat(6);
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            turn_id: '00000000-0000-4000-8000-000000000390',
+            user_message: { id: 'm-3', conversation_id: CONVERSATION.id, role: 'user', content, created_at: now },
+            assistant: {
+              message: { id: 'm-4', conversation_id: CONVERSATION.id, role: 'assistant', content: reply, created_at: now },
+              blocks: [{ type: 'prose', text: reply }],
+              finish_reason: 'stop',
+            },
+            conversation_updated_at: now,
+            telemetry: { model: 'test', provider_name: 'test', tool_calls_count: 0, tools_called: [], execution_time_ms: 10 },
+          }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          messages: [
+            { id: 'm-1', conversation_id: CONVERSATION.id, role: 'user', content: 'How did this effort go?', created_at: now },
+            { id: 'm-2', conversation_id: CONVERSATION.id, role: 'assistant', content: 'Steady and even.', created_at: now },
+          ],
+        }),
+      });
+    });
+    await page.getByTestId('home-activity-row').first().getByRole('button').click();
+    const chat = page.getByTestId('activity-view').getByTestId('embedded-chat');
+    await expect(chat.getByText('Steady and even.')).toBeVisible();
+    const pill = chat.getByTestId('day-separator');
+    await expect(pill).toHaveText('Today');
+    // A thread read back opens where the athlete came in — on the activity,
+    // its title and map — not scrolled away to the thread's last row.
+    await page.waitForTimeout(600);
+    expect(await page.getByTestId('activity-scroll').evaluate((el) => el.scrollTop)).toBe(0);
+
+    // A question from the view: its turn lands in the thread, which grows
+    // with it. At phone width the thread is not boxed in a scroller of its
+    // own inside the scrolling page, so nothing is cut at the card's edge:
+    // the day pill stays below the card's top border after the turn.
+    await page.getByTestId('activity-prompt-recovery').click();
+    await expect(chat.getByText(/Keep tomorrow easy/)).toBeVisible();
+    const frame = page.getByTestId('activity-chat-frame');
+    const measure = () => frame.evaluate((el) => {
+      const card = el.getBoundingClientRect();
+      const label = el.querySelector('[data-testid="day-separator"] span')?.getBoundingClientRect();
+      const scrollers = [el, ...Array.from(el.querySelectorAll('*'))].filter(
+        (node) =>
+          node.clientHeight > 1 &&
+          node.scrollHeight > node.clientHeight + 1 &&
+          getComputedStyle(node).overflowY !== 'visible',
+      );
+      return {
+        pillBelowTop: label !== undefined && label.top > card.top + 1,
+        pillInside: label !== undefined && label.left > card.left && label.right < card.right,
+        innerScrollers: scrollers.map((node) => node.className),
+      };
+    });
+    // Measured once the thread has settled after following its new turn.
+    await page.waitForTimeout(1000);
+    expect(await measure()).toEqual({ pillBelowTop: true, pillInside: true, innerScrollers: [] });
+    const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 1);
   });
 
   test('on an installed iOS PWA with no strip above, every page starts below the notch', async ({ page }) => {

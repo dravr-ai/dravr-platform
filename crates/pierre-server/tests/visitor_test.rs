@@ -12,19 +12,30 @@ use dravr_cageux::visitor::{
 };
 use pierre_core::models::TimeSeriesData;
 
+/// A channel with every sample recorded.
+fn recorded<T: Copy>(samples: &[T]) -> Vec<Option<T>> {
+    samples.iter().copied().map(Some).collect()
+}
+
 fn create_test_time_series() -> TimeSeriesData {
     TimeSeriesData {
         timestamps: vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
-        heart_rate: Some(vec![120, 125, 130, 135, 140, 145, 150, 155, 160, 165]),
-        power: Some(vec![200, 210, 220, 230, 240, 250, 260, 270, 280, 290]),
-        cadence: Some(vec![80, 82, 84, 86, 88, 90, 92, 94, 96, 98]),
-        speed: Some(vec![3.0, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9]),
-        altitude: Some(vec![
+        heart_rate: Some(recorded(&[
+            120, 125, 130, 135, 140, 145, 150, 155, 160, 165,
+        ])),
+        power: Some(recorded(&[
+            200, 210, 220, 230, 240, 250, 260, 270, 280, 290,
+        ])),
+        cadence: Some(recorded(&[80, 82, 84, 86, 88, 90, 92, 94, 96, 98])),
+        speed: Some(recorded(&[
+            3.0, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9,
+        ])),
+        altitude: Some(recorded(&[
             100.0, 102.0, 105.0, 103.0, 101.0, 100.0, 98.0, 97.0, 99.0, 100.0,
-        ]),
-        temperature: Some(vec![
+        ])),
+        temperature: Some(recorded(&[
             20.0, 20.5, 21.0, 21.5, 22.0, 22.5, 23.0, 22.5, 22.0, 21.5,
-        ]),
+        ])),
         gps_coordinates: Some(vec![
             (40.0, -74.0),
             (40.001, -74.001),
@@ -87,7 +98,7 @@ fn test_empty_time_series() {
 fn test_partial_data() {
     let time_series = TimeSeriesData {
         timestamps: vec![0, 1, 2, 3, 4],
-        heart_rate: Some(vec![120, 130, 140]),
+        heart_rate: Some(recorded(&[120, 130, 140])),
         power: None,
         cadence: None,
         speed: None,
@@ -110,16 +121,16 @@ fn test_decoupling_detector() {
     // Create data with increasing HR/speed ratio (decoupling)
     let time_series = TimeSeriesData {
         timestamps: (0..40).collect(),
-        heart_rate: Some((120..160).collect()),
+        heart_rate: Some((120..160).map(Some).collect()),
         power: None,
         cadence: None,
-        speed: Some(vec![
+        speed: Some(recorded(&[
             // First half: steady speed
             3.5, 3.5, 3.5, 3.5, 3.5, 3.5, 3.5, 3.5, 3.5, 3.5, 3.5, 3.5, 3.5, 3.5, 3.5, 3.5, 3.5,
             3.5, 3.5, 3.5, // Second half: same speed but HR increased
             3.5, 3.5, 3.5, 3.5, 3.5, 3.5, 3.5, 3.5, 3.5, 3.5, 3.5, 3.5, 3.5, 3.5, 3.5, 3.5, 3.5,
             3.5, 3.5, 3.5,
-        ]),
+        ])),
         altitude: None,
         temperature: None,
         gps_coordinates: None,
@@ -141,7 +152,9 @@ fn test_normalized_power_insufficient_data() {
     let time_series = TimeSeriesData {
         timestamps: (0..10).collect(),
         heart_rate: None,
-        power: Some(vec![200, 210, 220, 230, 240, 250, 260, 270, 280, 290]),
+        power: Some(recorded(&[
+            200, 210, 220, 230, 240, 250, 260, 270, 280, 290,
+        ])),
         cadence: None,
         speed: None,
         altitude: None,
@@ -163,7 +176,7 @@ fn test_normalized_power_calculation() {
     let time_series = TimeSeriesData {
         timestamps: (0..60).collect(),
         heart_rate: None,
-        power: Some(vec![250; 60]),
+        power: Some(vec![Some(250); 60]),
         cadence: None,
         speed: None,
         altitude: None,
@@ -180,4 +193,30 @@ fn test_normalized_power_calculation() {
     // With constant power, NP should equal average power
     let np_val = np.expect("Should have normalized power");
     assert!((np_val - 250.0).abs() < 1.0);
+}
+
+#[test]
+fn test_stats_collector_skips_gaps() {
+    // A strap dropout at 1 and 3: the gaps are not 0 bpm, so the average is
+    // that of the three recorded readings and the minimum stays 120.
+    let time_series = TimeSeriesData {
+        timestamps: vec![0, 1, 2, 3, 4],
+        heart_rate: Some(vec![Some(120), None, Some(130), None, Some(140)]),
+        power: Some(vec![None; 5]),
+        cadence: None,
+        speed: None,
+        altitude: None,
+        temperature: None,
+        gps_coordinates: None,
+        distance: None,
+    };
+
+    let mut stats = StatsCollector::default();
+    time_series.accept(&mut stats);
+
+    assert_eq!(stats.heart_rate.count, 3);
+    assert_eq!(stats.heart_rate.min, Some(120.0));
+    let hr_avg = stats.heart_rate.average().expect("Should have HR average");
+    assert!((hr_avg - 130.0).abs() < 1e-9);
+    assert_eq!(stats.power.count, 0, "a channel of gaps has no reading");
 }

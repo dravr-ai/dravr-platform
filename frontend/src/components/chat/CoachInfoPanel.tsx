@@ -8,7 +8,7 @@ import { AtSign, Pencil, UserMinus } from 'lucide-react';
 import { COMMAND_DRAFTS } from '@pierre/shared-constants';
 import type { Agent } from '@pierre/shared-types';
 import { Button } from '../ui';
-import { useTranslation } from '@pierre/i18n';
+import { Trans, useTranslation } from '@pierre/i18n';
 
 interface CoachInfoPanelProps {
   /** The agent bound to the conversation. */
@@ -59,8 +59,12 @@ export default function CoachInfoPanel({
         <section className="rounded-lg bg-surface-container-low p-3">
           <p className="flex items-start gap-2 text-xs text-on-surface-variant">
             <AtSign className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-primary" aria-hidden="true" />
-            <span>
-              {t('chat.mentionLabel')} <span className="font-mono text-on-surface">@{coach.handle}</span> {t('chat.mentionHint')}
+            <span data-testid="coach-info-mention">
+              <Trans
+                i18nKey="chat.mentionInAnyChat"
+                values={{ handle: `@${coach.handle}` }}
+                components={{ handle: <span className="font-mono text-on-surface" /> }}
+              />
             </span>
           </p>
         </section>

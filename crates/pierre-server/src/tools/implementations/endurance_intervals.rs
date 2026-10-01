@@ -44,7 +44,8 @@ pub struct ActivityStreamsResult {
     pub activity_id: String,
     /// How many samples each series carries.
     pub sample_count: usize,
-    /// Heart rate, power, cadence, GPS and altitude as recorded.
+    /// Heart rate, power, cadence, GPS and altitude as recorded; a missed
+    /// sample is a gap (`null`), never a value.
     pub streams: TimeSeriesData,
 }
 
@@ -314,7 +315,8 @@ impl McpTool<dyn ToolRuntime> for ExtractActivityStreamsTool {
             "Return the raw per-second time-series streams for a single activity — \
              heart_rate (bpm), power (watts), cadence (rpm/spm), speed (m/s), \
              altitude (m), and gps_coordinates (lat/lon pairs). Each stream is \
-             omitted when the provider didn't record it. Use this when a coach \
+             omitted when the provider didn't record it; a sample the sensor \
+             missed is null, never a reading of 0. Use this when a coach \
              needs the underlying samples to rerun a custom analysis the higher \
              Endurance tools (export_intervals / export_routes) don't cover.",
             schema,

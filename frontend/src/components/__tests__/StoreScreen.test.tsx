@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { i18n } from '@pierre/i18n';
 import StoreScreen from '../StoreScreen';
 
 // Mock the store API - define mock data inline to avoid hoisting issues
@@ -661,6 +662,28 @@ describe('StoreScreen', () => {
       const clampLines = Number(clampClass?.replace('line-clamp-', ''));
       expect(clampLines).toBeGreaterThanOrEqual(1);
       expect(clampLines).toBeLessThanOrEqual(6);
+    });
+  });
+
+  describe('details in the app language', () => {
+    it('writes the token count and the publish date in French', async () => {
+      const listing = await storeApi.get('coach-1');
+      const original = vi.mocked(storeApi.get).getMockImplementation();
+      // Midday UTC, so the calendar day is the same in every test runner's zone.
+      vi.mocked(storeApi.get).mockResolvedValue({ ...listing, published_at: '2024-01-15T12:00:00Z' });
+      await i18n.changeLanguage('fr');
+      try {
+        const user = userEvent.setup();
+        renderStoreScreen();
+        await openMarathonListing(user);
+
+        expect(await screen.findByText('15 janv. 2024')).toBeInTheDocument();
+        expect(screen.getByText(/^1\s200$/)).toBeInTheDocument();
+        expect(screen.queryByText('1/15/2024')).not.toBeInTheDocument();
+      } finally {
+        await i18n.changeLanguage('en');
+        vi.mocked(storeApi.get).mockImplementation(original!);
+      }
     });
   });
 });

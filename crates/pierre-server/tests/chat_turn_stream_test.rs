@@ -417,3 +417,50 @@ async fn a_stale_client_sending_the_deleted_run_id_field_is_not_refused() {
     let envelope: Value = response.json().await.expect("envelope");
     assert!(envelope.get("agui_run_id").is_none());
 }
+
+/// A turn that fails ends on a `failed` frame naming the stable error code,
+/// so a client words the failure from its own catalogue in the athlete's
+/// language instead of printing the server's English description.
+///
+/// Driven by the fail-fast path: with the LLM probe reporting the provider
+/// down, the turn is refused before it runs, and the refusal rides the stream
+/// the client already opened.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_turn_names_its_error_code_on_the_terminal_frame() {
+    let resources = common::create_test_server_resources_with_llm(Arc::new(MockLlmProvider::new()))
+        .await
+        .expect("server resources");
+    resources
+        .common
+        .llm_health
+        .record_unhealthy("mock", "probe failed")
+        .await;
+    let base_url = spawn_chat_server(&resources).await;
+    let (_user, token) =
+        common::create_test_tenant_with_provider(&resources, "turn-failed@example.com")
+            .await
+            .expect("create user + token + provider");
+
+    let client = Client::builder().no_gzip().build().expect("client");
+    let conversation_id = create_conversation(&client, &base_url, &token).await;
+    let frames = send_turn_streaming(
+        &client,
+        &base_url,
+        &token,
+        &conversation_id,
+        "Tell me about my last run",
+    )
+    .await;
+
+    let terminal = frames.last().expect("stream produced no frames");
+    assert_eq!(terminal.event, "failed", "frames = {frames:?}");
+    let payload = terminal.json();
+    assert_eq!(
+        payload["code"], "ResourceUnavailable",
+        "the failed frame carries the code a client maps to its catalogue: {payload}"
+    );
+    assert_eq!(
+        payload["error"], "The resource is temporarily unavailable",
+        "the message stays the sanitized description, never the provider's internals: {payload}"
+    );
+}

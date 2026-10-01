@@ -14,6 +14,8 @@ pub mod a2a_task_reaper;
 pub mod activity_backfill_jobs;
 /// Repository traits for the provider-agnostic activity cache (stale-while-revalidate).
 pub mod activity_cache;
+/// `ActivityConversationRepository`: the thread each activity's view opened.
+pub mod activity_conversations;
 /// `ActivityRouteTrackRepository`: one stored route read per activity.
 pub mod activity_route_tracks;
 /// Repository traits for admin tokens and admin overrides.
@@ -188,6 +190,7 @@ pub use a2a::*;
 pub use a2a_task_reaper::*;
 pub use activity_backfill_jobs::*;
 pub use activity_cache::*;
+pub use activity_conversations::*;
 pub use activity_route_tracks::*;
 pub use admin::*;
 pub use agent_artefacts::*;

@@ -744,7 +744,7 @@ export interface ExportRoutesParams {
 
 
 /**
- * Return the raw per-second time-series streams for a single activity — heart_rate (bpm), power (watts), cadence (rpm/spm), speed (m/s), altitude (m), and gps_coordinates (lat/lon pairs). Each stream is omitted when the provider didn't record it. Use this when a coach needs the underlying samples to rerun a custom analysis the higher Endurance tools (export_intervals / export_routes) don't cover.
+ * Return the raw per-second time-series streams for a single activity — heart_rate (bpm), power (watts), cadence (rpm/spm), speed (m/s), altitude (m), and gps_coordinates (lat/lon pairs). Each stream is omitted when the provider didn't record it; a sample the sensor missed is null, never a reading of 0. Use this when a coach needs the underlying samples to rerun a custom analysis the higher Endurance tools (export_intervals / export_routes) don't cover.
  */
 export interface ExtractActivityStreamsParams {
 

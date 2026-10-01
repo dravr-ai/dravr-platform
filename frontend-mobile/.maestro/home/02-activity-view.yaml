@@ -1,0 +1,89 @@
+# ABOUTME: A tap on a Home activity opens its own screen — map, figures, suggested questions — and a question is answered right under them
+# ABOUTME: Asserts by id, never seeded content, so it holds whatever activity cache the tester has; needs at least one synced activity
+
+appId: ai.dravr.app
+
+---
+- runFlow:
+    file: ../helpers/launch-app.yaml
+- runFlow:
+    file: ../helpers/login.yaml
+
+- scrollUntilVisible:
+    element:
+      id: "home-section-activities"
+    direction: DOWN
+    timeout: 15000
+# Every activity's words are a button `home-activity-<provider>-<id>`; the
+# latest card's own container is `home-activity-latest`, which is not one.
+- scrollUntilVisible:
+    element:
+      id: "home-activity-(?!latest).+"
+    direction: DOWN
+    timeout: 20000
+- tapOn:
+    id: "home-activity-(?!latest).+"
+    index: 0
+
+# The activity's own screen: its map (or the sentence for why there is
+# none), its figures, and the questions to ask about it.
+- extendedWaitUntil:
+    visible:
+      id: "activity-figures"
+    timeout: 15000
+- assertNotVisible:
+    id: "home-screen"
+- assertVisible:
+    id: "activity-when"
+- takeScreenshot: "activity-view-top"
+- scrollUntilVisible:
+    element:
+      id: "activity-prompts"
+    direction: DOWN
+    timeout: 10000
+- assertVisible:
+    id: "activity-prompt-analyze"
+- assertVisible:
+    id: "activity-prompt-compare"
+- assertVisible:
+    id: "activity-prompt-recovery"
+- assertVisible:
+    id: "activity-prompt-adjust"
+# The chat's own composer sits at the foot of the screen.
+- assertVisible:
+    id: "message-input"
+- takeScreenshot: "activity-view-questions"
+
+# A suggested question is answered in the activity's own screen: the thread
+# is embedded under the questions, and nothing navigates away.
+- tapOn:
+    id: "activity-prompt-analyze"
+- runFlow:
+    file: ../helpers/wait-for-response.yaml
+- assertVisible:
+    id: "activity-screen"
+- assertNotVisible:
+    id: "chat-screen"
+- takeScreenshot: "activity-view-thread"
+
+# Back to Home and into the same activity: its thread comes back with it.
+- runFlow:
+    file: ../helpers/go-back.yaml
+- extendedWaitUntil:
+    visible:
+      id: "home-screen"
+    timeout: 10000
+- tapOn:
+    id: "home-activity-(?!latest).+"
+    index: 0
+- extendedWaitUntil:
+    visible:
+      id: "activity-figures"
+    timeout: 15000
+# Every message carries its time; an empty thread carries none.
+- scrollUntilVisible:
+    element:
+      id: "message-time"
+    direction: DOWN
+    timeout: 15000
+- takeScreenshot: "activity-view-thread-reopened"

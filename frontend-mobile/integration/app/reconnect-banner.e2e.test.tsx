@@ -67,9 +67,9 @@ function server(providers: typeof PROVIDERS_CONNECTED): StubRoutes {
     'GET /api/notifications/unread-count': { data: { unread_count: 0 } },
     'GET /api/me/training-plan?locale=en': { data: PLAN_RESPONSE },
     'GET /api/me/activities/recent': { data: recentResponse() },
-    'GET /api/me/activities/strava/9001/route': { data: LATEST_ROUTE_RESPONSE },
-    'GET /api/me/activities/intervals_icu/i77/route': { data: TRAIL_ROUTE_RESPONSE },
-    'GET /api/me/activities/strava/8998/route': { data: NO_GPS_ROUTE_RESPONSE },
+    'GET /api/me/activities/strava/9001/route?burst=true': { data: LATEST_ROUTE_RESPONSE },
+    'GET /api/me/activities/intervals_icu/i77/route?burst=true': { data: TRAIL_ROUTE_RESPONSE },
+    'GET /api/me/activities/strava/8998/route?burst=true': { data: NO_GPS_ROUTE_RESPONSE },
   };
 }
 

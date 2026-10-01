@@ -30,6 +30,9 @@ pub mod memory_facts;
 /// User-facing persona cards handler: « Style de coaching » from the live contract registry
 pub mod personas;
 
+/// One cached activity's splits and laps for its view, read at most once per activity
+pub mod activity_detail;
+
 /// One cached activity's drawable route for the Home page, read at most once per activity
 pub mod activity_route;
 

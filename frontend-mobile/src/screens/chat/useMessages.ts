@@ -12,7 +12,7 @@ import {
   whenAthleteReturns,
 } from '@pierre/shared-constants';
 import { chatApi, groupsApi } from '../../services/api';
-import { replySceneBlocks, TurnIdleAbortedError, type MessagesResponse } from '@pierre/api-client';
+import { replySceneBlocks, type MessagesResponse } from '@pierre/api-client';
 import type { ClaimVerdict, GroupTranscriptEntry, ReplyBlock, ReplyNotice } from '@pierre/shared-types';
 import {
   composeRoomThread,
@@ -25,7 +25,7 @@ import {
 import { useTranslation } from '@pierre/i18n';
 import type { Message } from '../../types';
 import type { ChatRow } from './MessageList';
-import { describeApiError, describeQuotaRefusal } from '@pierre/ui-logic';
+import { describeApiError, describeTurnFailure } from '@pierre/ui-logic';
 
 export interface MessagesState {
   messages: Message[];
@@ -350,18 +350,12 @@ export function useMessages(): MessagesState & MessagesActions {
   }, [recoverLostReply]);
 
   /**
-   * What the athlete reads for a failed turn. The idle stop's error carries no
-   * athlete-facing words, so its note comes from the shared catalogue, in the
-   * athlete's language. So does a turn refused at a limit — the conversation
-   * cap for an archived thread, a spent daily budget — worded from the limit
-   * it names rather than the server's English. Every other failure already
-   * arrives worded.
+   * What the athlete reads for a failed turn: the shared catalogue's sentence
+   * for the failure's stable code, in the athlete's language. The server's
+   * English description never reaches the thread.
    */
   const turnFailureText = useCallback(
-    (failure: Error): string =>
-      failure instanceof TurnIdleAbortedError
-        ? t('chat.turnIdleAborted')
-        : describeQuotaRefusal(failure, t) ?? failure.message,
+    (failure: Error): string => describeTurnFailure(failure, { t }),
     [t],
   );
 
@@ -484,11 +478,15 @@ export function useMessages(): MessagesState & MessagesActions {
           invalidateConversationList();
           const errorResponse = failedTurnRow(sendErr, signal.aborted);
           const question: Message = { ...userMessage, id: `user-${Date.now()}` };
-          // Failed while the athlete was away: every read of the thread keeps
-          // the note until the reply has landed.
+          // Every read of the thread keeps the note until a reply has landed
+          // or another turn starts. Away or not: this list is what every read
+          // replaces, and the screen reads the thread again as the send
+          // settles — a failure in front of the athlete, on a thread's first
+          // question, was wiped by that read, question and all.
           lostTurnRef.current = reduceLostTurn(lostTurnRef.current, {
             type: 'failed',
             away: leftDuringTurn(),
+            keepWhenPresent: true,
             turn: {
               conversationId,
               heldIds,
@@ -587,6 +585,7 @@ export function useMessages(): MessagesState & MessagesActions {
           lostTurnRef.current = reduceLostTurn(lostTurnRef.current, {
             type: 'failed',
             away: leftDuringTurn(),
+            keepWhenPresent: true,
             turn: {
               conversationId,
               heldIds,

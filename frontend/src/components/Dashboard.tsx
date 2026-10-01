@@ -11,7 +11,7 @@ import { useIsMobile, useIsTablet } from '../hooks/useBreakpoint';
 import type { AdminToken } from '../types/api';
 import { clsx } from 'clsx';
 import { BottomTabBar, MobileDrawer, type MobileNavTab } from './layout/MobileNav';
-import { COMMAND_DRAFTS, PRODUCT_WORDMARK } from '@pierre/shared-constants';
+import { ACCOUNT_ROLE_LABEL_KEY, COMMAND_DRAFTS, PRODUCT_WORDMARK } from '@pierre/shared-constants';
 import type { PendingComposerAction } from './ChatTab';
 // Explicit /index path avoids macOS case-insensitive collision between
 // Dashboard.tsx and dashboard/ directory in Vitest module resolution
@@ -80,6 +80,7 @@ const ApiKeyList = lazy(() => import('./ApiKeyList'));
 const ApiKeyDetails = lazy(() => import('./ApiKeyDetails'));
 const ChatTab = lazy(() => import('./ChatTab'));
 const Home = lazy(() => import('./home/Home'));
+const ActivityView = lazy(() => import('./activity/ActivityView'));
 const AdminConfiguration = lazy(() => import('./AdminConfiguration'));
 const UserToolOverrides = lazy(() => import('./UserToolOverrides'));
 const SystemCoachesTab = lazy(() => import('./SystemCoachesTab'));
@@ -120,6 +121,8 @@ import { ConnectProviderBanner } from './ConnectProviderBanner';
 import { IconRail } from './layout/IconRail';
 import SettingsShell from './settings/SettingsShell';
 import { SETTINGS_TABS, type SettingsTab } from './settings/settingsTabs';
+import { markCurrentSessionRoute, writeSessionRoute } from '../utils/sessionRoute';
+import { activityViewRoute, parseActivitySubview, type ActivityRef } from './activity/activityRoute';
 
 /** The settings section a `#settings/<section>` hash names, or `null` for none it knows. */
 function parseSettingsTab(segment: string): SettingsTab | null {
@@ -176,12 +179,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   const sidebarCollapsed = userSidebarCollapsed || isTablet;
   // An operator's role is worth a line under the name; an athlete's is not —
   // "user" under one's own name reads as a label with nothing to say.
-  const operatorRoleBadge =
-    user?.role === 'super_admin'
-      ? t('shell.roleSuperAdmin')
-      : user?.role === 'admin'
-        ? t('shell.roleAdmin')
-        : null;
+  const operatorRoleBadge = user && user.role !== 'user' ? t(ACCOUNT_ROLE_LABEL_KEY[user.role]) : null;
   // User-tunable sidebar width when expanded. The default 260px truncates
   // long chat-session titles and the user button's display name (web QA
   // 2026-05-09); a drag handle lets the user widen the panel to fit
@@ -254,6 +252,13 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     initialTabSeg === 'settings' ? parseSettingsTab(initialSubSeg) : null,
   );
 
+  // The activity whose own view is open over Home, from
+  // `#home/activity/<provider>/<id>`. The thread about it is the view's own,
+  // remembered per activity so a return visit reopens it.
+  const [openActivity, setOpenActivity] = useState<ActivityRef | null>(
+    initialTabSeg === 'home' ? parseActivitySubview(initialSubSeg) : null,
+  );
+
   // The agent whose Discover edit sheet is open, from `#discover/<agentId>`.
   const [editingCoachId, setEditingCoachId] = useState<string | null>(
     initialTabSeg === 'discover' && initialSubSeg ? decodeURIComponent(initialSubSeg) : null,
@@ -287,6 +292,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   const route = (() => {
     if (activeTab === 'discover' && editingCoachId) return `discover/${encodeURIComponent(editingCoachId)}`;
     if (activeTab === 'chat' && selectedConversation) return `chat/${encodeURIComponent(selectedConversation)}`;
+    if (activeTab === 'home' && openActivity) return activityViewRoute(openActivity.provider, openActivity.id);
     if (activeTab === 'settings' && settingsTab) return `settings/${settingsTab}`;
     return activeTab;
   })();
@@ -301,12 +307,13 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const current = window.location.hash.replace(/^#/, '');
+    // Every entry is marked as this session's route (see utils/sessionRoute):
+    // a sign-out rewrites a marked route away, so the next sign-in lands on
+    // the role default instead of reopening the page the session ended on.
     if (current !== route) {
-      if (hashSyncedOnce.current) {
-        window.history.pushState(null, '', `#${route}`);
-      } else {
-        window.history.replaceState(null, '', `#${route}`);
-      }
+      writeSessionRoute(route, hashSyncedOnce.current ? 'push' : 'replace');
+    } else {
+      markCurrentSessionRoute();
     }
     hashSyncedOnce.current = true;
     track({ name: 'page_view', props: { path: `/${route}` } });
@@ -334,7 +341,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     // stay in the address bar. Replace it here — never push, so Back does not
     // walk into the retired route again.
     if (tab !== requested && typeof window !== 'undefined') {
-      window.history.replaceState(null, '', `#${tab}`);
+      writeSessionRoute(tab, 'replace');
     }
     // A resolved-away tab takes its sub-view with it. `#groups/<groupId>`
     // resolving to chat used to keep the segment and hand the group's id to
@@ -343,6 +350,14 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     setActiveTab(tab);
     setEditingCoachId(tab === 'discover' && sub ? decodeURIComponent(sub) : null);
     setSelectedConversation(tab === 'chat' && sub ? decodeURIComponent(sub) : null);
+    const activity = tab === 'home' ? parseActivitySubview(sub) : null;
+    // A fresh object per route would reset the view's thread on every hash
+    // event; the same activity keeps its state.
+    setOpenActivity((open) =>
+      activity !== null && open !== null && open.provider === activity.provider && open.id === activity.id
+        ? open
+        : activity,
+    );
     setSettingsTab(tab === 'settings' ? parseSettingsTab(sub) : null);
   }, [isAdminUser, isSuperAdmin]);
 
@@ -769,7 +784,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
                     {user?.display_name || user?.email}
                   </p>
                   {operatorRoleBadge && (
-                    <span className="text-xs text-on-surface-variant capitalize">{operatorRoleBadge}</span>
+                    <span className="text-xs text-on-surface-variant">{operatorRoleBadge}</span>
                   )}
                 </div>
               )}
@@ -1022,7 +1037,15 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         )}
         {activeTab === 'home' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <Home onNavigate={applyRoute} onOpenChatDraft={openChatDraft} />
+            {openActivity ? (
+              <ActivityView
+                activity={openActivity}
+                onBack={() => applyRoute('home')}
+                onNavigate={applyRoute}
+              />
+            ) : (
+              <Home onNavigate={applyRoute} onOpenChatDraft={openChatDraft} />
+            )}
           </Suspense>
         )}
         {activeTab === 'chat' && (

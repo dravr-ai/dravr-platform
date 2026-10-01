@@ -44,6 +44,26 @@ import path from 'path';
 // designer reaches for.
 const JSX_TEXT = /(?<!=)>\s*([A-Za-z][^<>{}]{1,800}?)\s*[<{]/g;
 /**
+ * Text that runs on from an expression: `{provider} is ready to sync</Text>`.
+ *
+ * JSX_TEXT opens on `>`, so prose whose first word comes after an interpolated
+ * value was not a text node to it at all. Six sentences sat in that blind spot
+ * on both apps — `{t('frag.your')} {provider} account has been successfully
+ * connected to Dravr.` among them, a translated first word in front of an
+ * English sentence, read by every athlete who linked a provider.
+ *
+ * A `}` closes object literals and blocks as often as it closes an expression
+ * slot, so the run is held to what copy looks like: no quote, backtick,
+ * semicolon, `=` or `$` (a template literal's next hole), entities excepted,
+ * and not opening on a keyword that follows a block (`} catch (err) {`,
+ * `} from 'react'`). Brackets must pair, save one left open for the next
+ * slot (`tokens ({pct}% of context)`): a lone `)` is a destructured loop
+ * header, `for (const { a } of list)`, and `of`/`in` cannot be keywords here
+ * because `in any chat` is copy.
+ */
+const JSX_TEXT_AFTER_EXPR =
+  /\}(?![ \t]*(?:catch|else|finally|while|from|as|satisfies|extends|implements|keyof|typeof)\b)[ \t]*([A-Za-z](?:[^<>{}"'`;=$()]|&\w+;|\([^<>{}"'`;=$()]*\)){1,800}?(?:\s*\()?)\s*[<{]/g;
+/**
  * A quoted prop that carries prose.
  *
  * `accessibilityLabel` and `accessibilityHint` are React Native's spelling of
@@ -52,8 +72,20 @@ const JSX_TEXT = /(?<!=)>\s*([A-Za-z][^<>{}]{1,800}?)\s*[<{]/g;
  * covered by the lowercase `label` alternative — the capital L in
  * `accessibilityLabel` does not match it.
  */
-const STRING_PROP =
-  /\b(?:placeholder|aria-label|accessibilityLabel|accessibilityHint|title|description|alt|label|helpText|subtitle|hint|emptyText|submitText|cancelText|confirmLabel|cancelLabel)="([A-Z][^"]{2,120})"/g;
+const PROSE_PROP_NAMES =
+  'placeholder|aria-label|accessibilityLabel|accessibilityHint|title|description|alt|label|helpText|subtitle|hint|emptyText|submitText|cancelText|confirmLabel|cancelLabel';
+const STRING_PROP = new RegExp(`\\b(?:${PROSE_PROP_NAMES})="([A-Z][^"]{2,120})"`, 'g');
+/**
+ * The same props given a template literal: ``accessibilityLabel={`Connect ${name}`}``.
+ *
+ * TEMPLATE_PROSE wants two words around the holes, which is right for a loose
+ * literal and wrong here — the prop name already says it is copy, and a label
+ * is often one verb and a name. The phone's onboarding read every provider
+ * button to a screen reader as "Connect Strava" in every language that way.
+ * The capture keeps the words and marks each hole `…`, so a hit reads as the
+ * sentence it is.
+ */
+const TEMPLATE_PROP = new RegExp(`\\b(?:${PROSE_PROP_NAMES})=\\{\`((?:[^\`$]|\\$\\{[^}]*\\})*)\`\\}`, 'g');
 
 /**
  * Prose assigned to a top-level constant.
@@ -101,8 +133,14 @@ const RETURN_PROSE =
  * and so did every multi-line call, where the argument starts on its own line.
  * That gap is how SettingsScreen scored zero while holding three English
  * strings.
+ *
+ * The first word may carry a typographic apostrophe (U+2019). It is what a
+ * single-quoted literal uses for one, and a first word read as letters only
+ * stopped at `Couldn’t`, so both onboarding screens' timeout notice —
+ * `setConnectError('Couldn’t confirm the connection. …')` — stayed English
+ * behind a ceiling of 0.
  */
-const CALL_ARG_PROSE = /(?:\(|\|\||\?\?)\s*'([A-Z][a-z]+(?: [^']{2,110})?)'/g;
+const CALL_ARG_PROSE = /(?:\(|\|\||\?\?)\s*'([A-Z][a-z\u2019]+(?: [^']{2,110})?)'/g;
 
 /**
  * Prose in a LATER argument: `Alert.alert(t('…'), 'Failed to revoke token')`.
@@ -114,7 +152,18 @@ const CALL_ARG_PROSE = /(?:\(|\|\||\?\?)\s*'([A-Z][a-z]+(?: [^']{2,110})?)'/g;
  * sentence has a space in it. Anchoring on `(` alone was the previous bug: it
  * saw the first argument of a call and nothing after it.
  */
-const CALL_LATER_ARG_PROSE = /,\s*'([A-Z][a-z]+ [^']{2,110})'/g;
+const CALL_LATER_ARG_PROSE = /,\s*'([A-Z][a-z\u2019]+ [^']{2,110})'/g;
+/**
+ * Prose as the FIRST element of an array or tuple: `['Messages / day',
+ * cap(plan.daily_messages)]`. A label table built of `[label, value]` pairs
+ * opens every row on `[`, which neither the call pattern (anchored on `(`) nor
+ * the later-argument pattern (anchored on `,`) can see, and both billing pages
+ * carried a whole plan comparison in English that way while the ceiling read
+ * 0. Two words, for the same reason as the later-argument pattern: a
+ * one-word head is far more often an enum member than copy, so `['Agents', …]`
+ * stays invisible to this shape.
+ */
+const ARRAY_HEAD_PROSE = /\[\s*(?:'([A-Z][a-z]+ [^'\n]{2,110})'|"([A-Z][a-z]+ [^"\n]{2,110})")/g;
 const OBJECT_LITERAL =
   /\b(?:name|label|title|description|heading|text|message|placeholder)\s*:\s*'([A-Z][^']{2,120})'/g;
 /**
@@ -582,10 +631,12 @@ function collect(input: string): string[] {
   }
   for (const re of [
     JSX_TEXT,
+    JSX_TEXT_AFTER_EXPR,
     STRING_PROP,
     OBJECT_LITERAL,
     CALL_ARG_PROSE,
     CALL_LATER_ARG_PROSE,
+    ARRAY_HEAD_PROSE,
     CONST_PROSE,
     RETURN_PROSE,
   ]) {
@@ -624,6 +675,16 @@ function collect(input: string): string[] {
       found.add(a[1].trim());
       a = re.exec(source);
     }
+  }
+  TEMPLATE_PROP.lastIndex = 0;
+  let tp = TEMPLATE_PROP.exec(source);
+  while (tp !== null) {
+    const words = tp[1].replace(/\$\{[^}]*\}/g, '…').replace(/\s+/g, ' ').trim();
+    if (/^[A-Z][a-z]/.test(words)) {
+      trusted.add(words);
+      found.add(words);
+    }
+    tp = TEMPLATE_PROP.exec(source);
   }
   TEMPLATE_PROSE.lastIndex = 0;
   let g = TEMPLATE_PROSE.exec(source);

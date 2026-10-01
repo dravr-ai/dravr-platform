@@ -193,6 +193,7 @@ user_owned_tables!(
     "messaging_delivery_receipts" where "message_id IN (SELECT m.id FROM messaging_messages m JOIN messaging_sessions s ON s.id = m.session_id WHERE CAST(s.user_id AS TEXT) = $1)",
     "messaging_messages" where "session_id IN (SELECT s.id FROM messaging_sessions s WHERE CAST(s.user_id AS TEXT) = $1)",
     "messaging_resumable_turns",
+    "activity_conversations",
     "chat_conversations",
     "short_links",
     "mcp_tasks",

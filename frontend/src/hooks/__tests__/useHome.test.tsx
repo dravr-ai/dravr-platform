@@ -8,8 +8,13 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider, focusManager, notifyManager } from '@tanstack/react-query';
-import { HOME_ROUTE_UNAVAILABLE_RECHECK_DELAYS_MS, HOME_STALE_REFETCH_DELAYS_MS } from '@pierre/shared-constants';
+import {
+  HOME_ROUTE_PENDING_BACKOFF_MS,
+  HOME_ROUTE_UNAVAILABLE_RECHECK_DELAYS_MS,
+  HOME_STALE_REFETCH_DELAYS_MS,
+} from '@pierre/shared-constants';
 import type {
+  ActivityRouteAnswer,
   ActivityRouteResponse,
   HomeActivity,
   ProvidersStatusResponse,
@@ -22,7 +27,13 @@ const api = vi.hoisted(() => ({
   getRecentActivities:
     vi.fn<(limit?: number, options?: { retry?: boolean }) => Promise<RecentActivitiesResponse>>(),
   getActivityRoute:
-    vi.fn<(provider: string, id: string, options?: { retry?: boolean }) => Promise<ActivityRouteResponse>>(),
+    vi.fn<
+      (
+        provider: string,
+        id: string,
+        options?: { retry?: boolean; burst?: boolean; signal?: AbortSignal },
+      ) => Promise<ActivityRouteAnswer>
+    >(),
   getTrainingPlan: vi.fn<(locale?: string) => Promise<TrainingPlanResponse>>(),
   getProvidersStatus: vi.fn<() => Promise<ProvidersStatusResponse>>(),
 }));
@@ -453,6 +464,144 @@ describe('useActivityRoute', () => {
     expect(api.getActivityRoute).toHaveBeenCalledTimes(2);
   });
 
+  // 2026-09-30: a first Home visit's five route reads queued behind one
+  // another on the athlete's provider turn, and the reads the server's bound
+  // cut off said "could not be loaded". The server now answers those
+  // `pending`; the map keeps loading and asks again until the read lands.
+  it('keeps loading through pending answers and draws the route the queued read lands', async () => {
+    const drawn: ActivityRouteResponse = {
+      route: {
+        coordinates: [
+          [45.5, -73.6],
+          [45.51, -73.61],
+        ],
+        bounds: { min_latitude: 45.5, max_latitude: 45.51, min_longitude: -73.61, max_longitude: -73.6 },
+        elevation_meters: null,
+        distances_meters: null,
+        climbs: [],
+        title: 'Sortie',
+        source_tool: 'strava',
+      },
+      reason: null,
+    };
+    const answers: Array<(response: ActivityRouteAnswer) => void> = [];
+    api.getActivityRoute.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answers.push(resolve);
+        }),
+    );
+    const { result } = renderHook(() => useActivityRoute('strava', 'act-9', true), { wrapper });
+    await flush();
+    for (let ask = 0; ask < 3; ask += 1) {
+      expect(answers).toHaveLength(ask + 1);
+      await act(async () => {
+        answers[ask]({ route: null, reason: 'pending', settles_within_secs: 660 });
+      });
+      // The follow-up waits out its backoff.
+      await flush(HOME_ROUTE_PENDING_BACKOFF_MS[ask] ?? 0);
+      expect(result.current.data).toBeUndefined();
+      expect(result.current.isFetching).toBe(true);
+      expect(result.current.isError).toBe(false);
+    }
+    await act(async () => {
+      answers[3](drawn);
+    });
+    await flush();
+    expect(result.current.data).toEqual(drawn);
+    expect(result.current.isFetching).toBe(false);
+    expect(api.getActivityRoute).toHaveBeenCalledTimes(4);
+  });
+
+  // The client used to give up after fourteen `pending` asks (~350 s) and
+  // say "could not be loaded" while a read queued behind several slow ones
+  // was still coming. It now follows the read for as long as each `pending`
+  // says it may take.
+  it('keeps loading past any fixed count of pending asks while each answer names a bound', async () => {
+    const drawn: ActivityRouteResponse = {
+      route: {
+        coordinates: [
+          [45.5, -73.6],
+          [45.51, -73.61],
+        ],
+        bounds: { min_latitude: 45.5, max_latitude: 45.51, min_longitude: -73.61, max_longitude: -73.6 },
+        elevation_meters: null,
+        distances_meters: null,
+        climbs: [],
+        title: 'Sortie',
+        source_tool: 'strava',
+      },
+      reason: null,
+    };
+    const PENDING_ASKS = 40;
+    let asked = 0;
+    api.getActivityRoute.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          asked += 1;
+          // The server holds each queued ask up to its 25-second bound.
+          setTimeout(
+            () => resolve(asked > PENDING_ASKS ? drawn : { route: null, reason: 'pending', settles_within_secs: 1650 }),
+            25_000,
+          );
+        }),
+    );
+    const { result } = renderHook(() => useActivityRoute('strava', 'act-9', true), { wrapper });
+    while (asked <= PENDING_ASKS) {
+      await flush(1_000);
+      expect(result.current.isError).toBe(false);
+      expect(result.current.data).toBeUndefined();
+      expect(result.current.isFetching).toBe(true);
+    }
+    await flush(25_000);
+    expect(result.current.data).toEqual(drawn);
+    expect(api.getActivityRoute).toHaveBeenCalledTimes(PENDING_ASKS + 1);
+  });
+
+  it('says the map could not be loaded once a pending overruns the bound the server named', async () => {
+    let asked = 0;
+    api.getActivityRoute.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          asked += 1;
+          // The second ask comes back long after the first named 10 s.
+          setTimeout(
+            () => resolve({ route: null, reason: 'pending', settles_within_secs: 10 }),
+            asked === 1 ? 0 : 60_000,
+          );
+        }),
+    );
+    const { result } = renderHook(() => useActivityRoute('strava', 'act-9', true), { wrapper });
+    await flush(0);
+    expect(result.current.data).toBeUndefined();
+    await flush(60_000);
+    expect(result.current.data).toEqual(UNAVAILABLE);
+    expect(api.getActivityRoute).toHaveBeenCalledTimes(2);
+  });
+
+  it('marks a Home read as one of its burst, and never the retry', async () => {
+    api.getActivityRoute.mockResolvedValue(UNAVAILABLE);
+    const { result } = renderHook(() => useActivityRoute('strava', 'act-9', true, { burst: true }), { wrapper });
+    await flush();
+    expect(api.getActivityRoute).toHaveBeenLastCalledWith('strava', 'act-9', expect.objectContaining({ burst: true }));
+    await act(async () => {
+      result.current.retry();
+    });
+    await flush();
+    expect(api.getActivityRoute).toHaveBeenLastCalledWith(
+      'strava',
+      'act-9',
+      expect.not.objectContaining({ burst: true }),
+    );
+  });
+
+  it('reads an activity view map on its own, outside any burst', async () => {
+    api.getActivityRoute.mockResolvedValue(UNAVAILABLE);
+    renderHook(() => useActivityRoute('strava', 'act-9', true), { wrapper });
+    await flush();
+    expect(api.getActivityRoute).toHaveBeenCalledWith('strava', 'act-9', expect.objectContaining({ burst: false }));
+  });
+
   // 2026-09-29: a failing scraper had the server store `no_gps` for rides
   // that recorded GPS, and the list said `has_gps: false` with it. The server
   // has since deleted those rows, so the list says `has_gps: true` again —
@@ -498,7 +647,7 @@ describe('useActivityRoute', () => {
     api.getActivityRoute.mockResolvedValueOnce(UNAVAILABLE);
     const { result } = renderHook(() => useActivityRoute('strava', 'act-9', true), { wrapper });
     await flush();
-    let answer: (response: ActivityRouteResponse) => void = () => undefined;
+    let answer: (response: ActivityRouteAnswer) => void = () => undefined;
     api.getActivityRoute.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
@@ -509,7 +658,7 @@ describe('useActivityRoute', () => {
     await act(async () => {
       result.current.retry();
     });
-    expect(api.getActivityRoute).toHaveBeenLastCalledWith('strava', 'act-9', { retry: true });
+    expect(api.getActivityRoute).toHaveBeenLastCalledWith('strava', 'act-9', expect.objectContaining({ retry: true }));
     expect(result.current.isFetching).toBe(true);
     await act(async () => {
       answer(UNAVAILABLE);

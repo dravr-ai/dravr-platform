@@ -6,7 +6,8 @@
 
 import React from 'react';
 import { Linking } from 'react-native';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { i18n } from '@pierre/i18n';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const mockGetSubscription = jest.fn();
@@ -88,7 +89,7 @@ describe('BillingScreen', () => {
     expect(await screen.findByText('Payment problem — action needed')).toBeTruthy();
     expect(
       screen.getByText(
-        "Your last payment for the Professional plan didn't go through (status: past_due). Update your payment method to keep your plan.",
+        "Your last payment for the Professional plan didn't go through (status: Past due). Update your payment method to keep your plan.",
       ),
     ).toBeTruthy();
     expect(mockGetSubscription).toHaveBeenCalledTimes(1);
@@ -118,5 +119,93 @@ describe('BillingScreen', () => {
       success_url: 'dravr://billing?upgrade=success',
       cancel_url: 'dravr://billing?upgrade=cancel',
     });
+  });
+
+  // The quota counts, the invoice date and its amount followed the device (or
+  // a fixed en-US) rather than the language the athlete chose.
+  it('writes the quota counts, invoice date and amount in French', async () => {
+    // Invoices are read only once a subscription exists.
+    mockGetSubscription.mockResolvedValue({ ...professionalPastDue, status: 'active' });
+    mockGetMyQuota.mockResolvedValue({
+      tier: 'starter',
+      counters: [
+        {
+          counter_type: 'daily_tokens',
+          current: 12_345,
+          limit: 50_000,
+          warning: false,
+          burst_zone: false,
+          resets_at: '2026-01-16T00:00:00Z',
+        },
+      ],
+    });
+    mockListInvoices.mockResolvedValue({
+      invoices: [
+        // 2026-01-15T12:00:00Z
+        { id: 'in_1', number: 'INV-1', amount_paid: 1250, currency: 'usd', created: 1_768_478_400 },
+      ],
+    });
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    try {
+      renderScreen();
+
+      expect(await screen.findByText(/^12\s345 \/ 50\s000$/)).toBeTruthy();
+      expect(await screen.findByText('15 janv. 2026')).toBeTruthy();
+      expect(screen.getByText(/^12,50\s\$US$/)).toBeTruthy();
+      expect(screen.queryByText('1/15/2026')).toBeNull();
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
+  });
+
+  // The plan rows, the quota labels, the plan price and the subscription
+  // status were English literals or raw slugs under French chrome.
+  it('writes the plan rows, quota labels, price and status in French', async () => {
+    mockGetSubscription.mockResolvedValue(professionalPastDue);
+    mockGetPlans.mockResolvedValue({ plans: [{ ...starterPlan, included_usd: 20 }] });
+    mockGetMyQuota.mockResolvedValue({
+      tier: 'starter',
+      counters: [
+        {
+          counter_type: 'daily_tool_calls',
+          current: 12,
+          limit: 200,
+          warning: false,
+          burst_zone: false,
+          resets_at: '2026-01-16T00:00:00Z',
+        },
+      ],
+    });
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    try {
+      renderScreen();
+
+      expect(await screen.findByText('Messages / jour')).toBeTruthy();
+      expect(screen.getByText('Jetons / jour')).toBeTruthy();
+      expect(screen.getByText('Agents')).toBeTruthy();
+      expect(screen.getByText("Appels d'outils / jour")).toBeTruthy();
+      expect(screen.getByText('Usage inclus')).toBeTruthy();
+      expect(screen.getByText(/^20\s\$US\/mois$/)).toBeTruthy();
+      expect(await screen.findByText("Appels d'outils par jour")).toBeTruthy();
+      expect(
+        screen.getByText(
+          "Ton dernier paiement pour le forfait Professional n'a pas abouti (statut : Paiement en retard). Mets à jour ton moyen de paiement pour conserver ton forfait.",
+        ),
+      ).toBeTruthy();
+      expect(screen.getAllByText('Paiement en retard').length).toBeGreaterThan(0);
+      expect(screen.queryByText('Messages / day')).toBeNull();
+      expect(screen.queryByText('daily tool calls')).toBeNull();
+      expect(screen.queryByText(/\/mo$/)).toBeNull();
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
   });
 });

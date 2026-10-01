@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: E2E for the athlete Home — sign-in lands on it, the rail logo leads back, and every tap opens a chat draft
+// ABOUTME: E2E for the athlete Home — sign-in lands on it, the rail logo leads back, a day drafts a chat, an activity opens its view
 // ABOUTME: Runs against mocked /api/me reads shaped like the server's; a stale cache is followed up on a schedule that ends
 
 import { test, expect, type Page } from '@playwright/test';
@@ -104,7 +104,8 @@ const ROUTE = {
   elevation_meters: null,
   distances_meters: [0, 1400, 3100],
   climbs: [],
-  title: 'Long ride',
+  // Home's routes carry no title: the row or the view names the activity above the map.
+  title: null,
   source_tool: 'strava',
 };
 
@@ -225,6 +226,117 @@ async function mockConversationCreate(page: Page) {
   });
 }
 
+/** `GET /api/me/activities/strava/act-4` — the Tempo Tuesday row's view, with its splits. */
+const TEMPO_DETAIL = {
+  activity: ACTIVITIES[1],
+  average_heart_rate: 158,
+  max_heart_rate: 176,
+  average_speed_mps: 2.8333,
+  max_speed_mps: 4.1,
+  average_power: null,
+  calories: 712,
+  splits: [
+    {
+      index: 1,
+      distance_meters: 1000,
+      elapsed_time_seconds: 362,
+      moving_time_seconds: 355,
+      elevation_difference_meters: 6,
+      average_speed_mps: 2.8169,
+      average_heart_rate: 151,
+    },
+    {
+      index: 2,
+      distance_meters: 1000,
+      elapsed_time_seconds: 350,
+      moving_time_seconds: null,
+      elevation_difference_meters: -4,
+      average_speed_mps: 2.8571,
+      average_heart_rate: 160,
+    },
+  ],
+  laps: [],
+  conversation_id: null,
+};
+
+const RECOVERY_REPLY = 'Keep tomorrow easy: 40 minutes in Z1, then strides.';
+
+/**
+ * The activity reads and the chat turn its questions go out on. Every
+ * activity's view answers with `details[id]`, or 404 when the spec gives
+ * none, naming the thread its view linked (`links`), as the server's detail
+ * does; each turn is recorded and answered with {@link RECOVERY_REPLY}, and a
+ * read of the thread afterwards holds every turn sent, as the server's does.
+ */
+async function mockActivityView(page: Page, details: Record<string, unknown> = { 'act-4': TEMPO_DETAIL }) {
+  const sent: string[] = [];
+  const links: Record<string, string | null> = {};
+  const transcript: Array<Record<string, unknown>> = [];
+  await page.route(/\/api\/me\/activities\/[^/]+\/[^/?]+(\?.*)?$/, async (route) => {
+    const id = decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop() ?? '');
+    if (id === 'recent') {
+      await route.fallback();
+      return;
+    }
+    const body = details[id];
+    await route.fulfill(
+      body === undefined
+        ? { status: 404, contentType: 'application/json', body: JSON.stringify({ message: 'not found' }) }
+        : {
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ ...(body as object), conversation_id: links[id] ?? null }),
+          },
+    );
+  });
+  await page.route(/\/api\/me\/activities\/[^/]+\/[^/]+\/conversation$/, async (route, request) => {
+    const segments = new URL(request.url()).pathname.split('/');
+    const id = decodeURIComponent(segments[segments.length - 2] ?? '');
+    const link = JSON.parse(request.postData() ?? '{}') as { conversation_id: string | null };
+    links[id] = link.conversation_id;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(link) });
+  });
+  await page.route(`**/api/chat/conversations/${CONVERSATION.id}/messages**`, async (route, request) => {
+    if (request.method() !== 'POST') {
+      if (transcript.length === 0) {
+        await route.fallback();
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ messages: transcript }) });
+      return;
+    }
+    const content = (JSON.parse(request.postData() ?? '{}') as { content: string }).content;
+    sent.push(content);
+    const n = sent.length;
+    const turn = {
+      turn_id: '00000000-0000-4000-8000-000000000676',
+      user_message: {
+        id: `msg-user-676-${n}`,
+        conversation_id: CONVERSATION.id,
+        role: 'user',
+        content,
+        created_at: '2026-09-24T10:05:00Z',
+      },
+      assistant: {
+        message: {
+          id: `msg-assistant-676-${n}`,
+          conversation_id: CONVERSATION.id,
+          role: 'assistant',
+          content: RECOVERY_REPLY,
+          created_at: '2026-09-24T10:05:02Z',
+        },
+        blocks: [{ type: 'prose', text: RECOVERY_REPLY }],
+        finish_reason: 'stop',
+      },
+      conversation_updated_at: '2026-09-24T10:05:02Z',
+      telemetry: { model: 'test', provider_name: 'test', tool_calls_count: 0, tools_called: [], execution_time_ms: 10 },
+    };
+    transcript.push(turn.user_message, turn.assistant.message);
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(turn) });
+  });
+  return Object.assign(sent, { links });
+}
+
 async function signInAthlete(page: Page) {
   await setupDashboardMocks(page, { role: 'user', email: 'alice@acme.com', displayName: 'Alice Test' });
 }
@@ -248,16 +360,16 @@ test.describe('Athlete Home', () => {
     await expect(page.getByTestId(`home-week-day-${TODAY}`)).toHaveAttribute('aria-current', 'date');
     await expect(page.getByTestId('home-next-week')).toContainText('absorb the block');
 
-    await expect(page.getByRole('figure', { name: 'Map of the recorded route: Long ride' })).toBeVisible();
+    await expect(page.getByRole('figure', { name: 'Map of the recorded route' })).toBeVisible();
     await expect(page.getByTestId('home-activity-row')).toHaveCount(4);
     // The polyline row and the two rows the route endpoint answers for.
     await expect(page.getByTestId('route-sketch')).toHaveCount(3);
     // The latest and the two rows without a polyline — never the row with
     // one, nor the row whose route held no GPS.
     await expect.poll(() => [...calls.routes].sort()).toEqual([
-      '/api/me/activities/garmin/act-1/route',
-      '/api/me/activities/strava/act-3/route',
-      '/api/me/activities/strava/act-5/route',
+      '/api/me/activities/garmin/act-1/route?burst=true',
+      '/api/me/activities/strava/act-3/route?burst=true',
+      '/api/me/activities/strava/act-5/route?burst=true',
     ]);
     await expect(page.getByTestId('provider-reconnect-banner')).toHaveCount(0);
     // The rail marks Home as the page the athlete is on.
@@ -299,17 +411,93 @@ test.describe('Athlete Home', () => {
     );
   });
 
-  test('tapping an activity opens a new chat with the analyze draft in the composer', async ({ page }) => {
+  test("tapping an activity opens its view: the map, its figures and splits, then a chat whose question goes out and is answered there", async ({ page }) => {
     await signInAthlete(page);
     await mockHome(page);
     await mockConversationCreate(page);
+    const sent = await mockActivityView(page);
+    const created: string[] = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && /\/api\/chat\/conversations(\?.*)?$/.test(request.url())) {
+        created.push(request.url());
+      }
+    });
     await login(page);
 
     await page.getByTestId('home-activity-row').first().getByRole('button').click();
-    await expect(page).toHaveURL(/#chat\/conv-home-draft$/);
-    await expect(page.getByPlaceholder('Message Dravr...').first()).toHaveValue(
-      /^Analyze my activity from .+ \(Run\)$/,
-    );
+    await expect(page).toHaveURL(/#home\/activity\/strava\/act-4$/);
+    const view = page.getByTestId('activity-view');
+    await expect(view.getByTestId('activity-title')).toHaveText('Tempo Tuesday');
+    await expect(view.getByRole('figure', { name: 'Map of the recorded route' })).toBeVisible();
+    await expect(view.getByTestId('activity-figure-distance')).toContainText('10.20 km');
+    await expect(view.getByTestId('activity-figure-duration')).toContainText('1h');
+    await expect(view.getByTestId('activity-figure-average_speed')).toContainText('5:53 /km');
+    await expect(view.getByTestId('activity-figure-average_heart_rate')).toContainText('158 bpm');
+    await expect(view.getByTestId('activity-figure-calories')).toContainText('712 kcal');
+    await expect(view.getByTestId('activity-figure-average_power')).toHaveCount(0);
+    await expect(view.getByTestId('activity-splits').getByRole('row')).toHaveCount(3);
+    await expect(view.getByTestId('activity-prompts').getByRole('button')).toHaveText([
+      'Analyze this effort',
+      'Compare with my recent ones',
+      'Recovery advice',
+      'What to adjust',
+    ]);
+
+    await view.getByTestId('activity-prompt-recovery').click();
+    // The question and its reply land in the view's own chat, under the questions.
+    const chat = view.getByTestId('embedded-chat');
+    await expect(chat.getByText(RECOVERY_REPLY)).toBeVisible();
+    await expect(chat.getByText(/^What recovery do you advise after my activity “Tempo Tuesday” from .+\?$/)).toBeVisible();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatch(/^What recovery do you advise after my activity “Tempo Tuesday” from .+\?$/);
+    await expect(page).toHaveURL(/#home\/activity\/strava\/act-4$/);
+
+    // Back to Home and into the same activity again: its thread comes back
+    // with it, and the next question goes to that thread, not a new one.
+    await view.getByTestId('activity-back').click();
+    await expect(page.getByTestId('home-page')).toBeVisible();
+    await page.getByTestId('home-activity-row').first().getByRole('button').click();
+    await expect(page).toHaveURL(/#home\/activity\/strava\/act-4$/);
+    const reopened = page.getByTestId('activity-view').getByTestId('embedded-chat');
+    await expect(reopened.getByText(/^What recovery do you advise after my activity “Tempo Tuesday” from .+\?$/)).toBeVisible();
+    await expect(reopened.getByText(RECOVERY_REPLY)).toBeVisible();
+    await page.getByTestId('activity-prompt-adjust').click();
+    await expect.poll(() => sent.length).toBe(2);
+    expect(created).toHaveLength(1);
+    // The thread is linked to the activity on the server, not only in this
+    // page's memory: a fresh load of the app — nothing cached, as on another
+    // device — opens the same thread, and a question goes to it.
+    expect(sent.links['act-4']).toBe(CONVERSATION.id);
+    await login(page);
+    await page.getByTestId('home-activity-row').first().getByRole('button').click();
+    const afterReload = page.getByTestId('activity-view').getByTestId('embedded-chat');
+    await expect(afterReload.getByText(/^What recovery do you advise after my activity “Tempo Tuesday” from .+\?$/)).toBeVisible();
+    await page.getByTestId('activity-prompt-analyze').click();
+    await expect.poll(() => sent.length).toBe(3);
+    expect(created).toHaveLength(1);
+
+    await page.goBack();
+    await expect(page).toHaveURL(/#home$/);
+    await expect(page.getByTestId('home-page')).toBeVisible();
+  });
+
+  test('the latest card opens its view too, and a deep link to an activity the athlete does not hold says so', async ({ page }) => {
+    await signInAthlete(page);
+    await mockHome(page);
+    await mockActivityView(page, { 'act-5': { ...TEMPO_DETAIL, activity: ACTIVITIES[0], splits: [] } });
+    await login(page);
+
+    await page.getByTestId('home-activity-latest').getByRole('button', { name: /Long ride/ }).click();
+    await expect(page).toHaveURL(/#home\/activity\/strava\/act-5$/);
+    await expect(page.getByTestId('activity-title')).toHaveText('Long ride');
+    // A ride reads a speed, not a pace.
+    await expect(page.getByTestId('activity-figure-average_speed')).toContainText('10.2 km/h');
+    await expect(page.getByTestId('activity-splits')).toHaveCount(0);
+
+    await page.goto('/#home/activity/strava/not-mine');
+    await expect(page.getByTestId('activity-not-found')).toContainText("This activity isn't among your synced activities.");
+    await page.getByTestId('activity-back').click();
+    await expect(page).toHaveURL(/#home$/);
   });
 
   test('a plan day opens to its steps, and its question drafts in chat', async ({ page }) => {
@@ -594,7 +782,7 @@ test.describe('Athlete Home', () => {
     await expect(latest).not.toContainText('This activity recorded no GPS track.');
 
     await failed.getByRole('button', { name: 'Retry' }).click();
-    await expect(page.getByRole('figure', { name: 'Map of the recorded route: Long ride' })).toBeVisible();
+    await expect(page.getByRole('figure', { name: 'Map of the recorded route' })).toBeVisible();
     expect(calls.routes.filter((path) => path.endsWith('/act-5/route?retry=true'))).toHaveLength(1);
   });
 

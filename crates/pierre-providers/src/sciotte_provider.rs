@@ -583,7 +583,7 @@ fn route_to_time_series(route: &SciotteRouteTrack) -> TimeSeriesData {
     // barometric or GPS altimeter resolves.
     let altitude = match route.altitudes_meters.as_ref() {
         Some(meters) if meters.len() == route.coordinates.len() => {
-            Some(meters.iter().map(|m| *m as f32).collect())
+            Some(meters.iter().map(|m| Some(*m as f32)).collect())
         }
         // An elevation series of a different length is not index-aligned with
         // the track, and a caller reading the pair position by position would

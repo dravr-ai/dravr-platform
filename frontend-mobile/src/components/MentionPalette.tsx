@@ -8,6 +8,7 @@ import React from 'react';
 import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import type { MentionCandidate } from '@pierre/shared-constants';
 import { useThemeColors } from '../constants/theme';
+import { useTranslation } from '@pierre/i18n';
 
 export interface MentionPaletteProps {
   /** The installed coaches whose handle matches what is being typed. */
@@ -26,6 +27,7 @@ export interface MentionPaletteProps {
  * which is what closes it, the same way the slash palette closes.
  */
 export function MentionPalette({ matches, highlightedIndex, onSelect }: MentionPaletteProps) {
+  const { t } = useTranslation();
   const colors = useThemeColors();
 
   if (matches.length === 0) return null;
@@ -49,7 +51,7 @@ export function MentionPalette({ matches, highlightedIndex, onSelect }: MentionP
             key={coach.handle}
             testID={`mention-palette-option-${coach.handle}`}
             accessibilityRole="button"
-            accessibilityLabel={`Mention @${coach.handle}`}
+            accessibilityLabel={t('chat.mentionHandleAria', { handle: `@${coach.handle}` })}
             accessibilityState={index === highlightedIndex ? { selected: true } : {}}
             onPress={() => onSelect(coach)}
             style={{

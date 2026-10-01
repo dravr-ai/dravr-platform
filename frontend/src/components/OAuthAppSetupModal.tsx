@@ -9,7 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { userApi } from '../services/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { Button, Input } from './ui';
-import { useTranslation } from '@pierre/i18n';
+import { Trans, useTranslation } from '@pierre/i18n';
 
 interface OAuthAppSetupModalProps {
   isOpen: boolean;
@@ -120,16 +120,20 @@ export default function OAuthAppSetupModal({
 
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
           <p className="text-sm text-on-surface-variant">
-            {displayName} requires each user to register their own developer app. Create one at{' '}
-            <a
-              href={devPortalUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary underline"
-            >
-              {new URL(devPortalUrl).host}
-            </a>{' '}
-            and use the redirect URI shown below.
+            <Trans
+              i18nKey="app.oauthAppSetupIntro"
+              values={{ provider: displayName, host: new URL(devPortalUrl).host }}
+              components={{
+                portal: (
+                  <a
+                    href={devPortalUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary underline"
+                  />
+                ),
+              }}
+            />
           </p>
 
           <div>

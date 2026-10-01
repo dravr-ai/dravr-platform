@@ -138,11 +138,21 @@ export type { NotificationDestination, NotificationNavTarget } from './notificat
 // Memory fact kinds (the server's FactKind wire values and their label keys)
 export { MEMORY_KIND_LABEL_KEY } from './memory';
 
-// Billing vocabulary both plan pages print (tier names as corpus keys, and the
-// subscription statuses that ask the athlete to fix their payment)
+// Billing vocabulary both plan pages print (tier names, plan rows, quota
+// counters and provider statuses as corpus keys, and the subscription statuses
+// that ask the athlete to fix their payment)
 export {
   PLAN_TIER_LABEL_KEY,
   planTierLabelKey,
+  PLAN_LIMIT_ROWS,
+  PLAN_INCLUDED_USAGE_LABEL_KEY,
+  PLAN_PER_MONTH_KEY,
+  PLAN_UNLIMITED_KEY,
+  PLAN_INCLUDED_CUSTOM_KEY,
+  quotaCounterLabelKey,
+  subscriptionStatusLabelKey,
+  invoiceStatusLabelKey,
+  billingLabel,
   PAYMENT_PROBLEM_STATUSES,
   hasPaymentProblem,
 } from './billing';
@@ -173,6 +183,8 @@ export {
   CHANNEL_LINK_POLL_INTERVAL_MS,
   HOME_STALE_REFETCH_DELAYS_MS,
   HOME_ROUTE_UNAVAILABLE_RECHECK_DELAYS_MS,
+  HOME_ROUTE_PENDING_BACKOFF_MS,
+  HOME_ROUTE_PENDING_SLACK_MS,
   QUERY_FOCUS_POLICY,
   IdleWatch,
 } from './query-policy';
@@ -224,11 +236,32 @@ export {
   delegationRefusalKey,
 } from './delegation';
 
-// The keyless basemap both route cards draw over, per colour scheme
-export { BASEMAP_STYLE } from './route-map';
+// The map layers both route cards draw over, and the ink the track is drawn in
+export {
+  BASEMAP_STYLE,
+  DEFAULT_MAP_LAYER,
+  MAP_LAYERS,
+  MAP_LAYER_STORAGE_KEY,
+  ROUTE_INK,
+  localizeBasemapStyle,
+  localizedLabel,
+  mapLayerStyle,
+  storedMapLayer,
+} from './route-map';
+export type {
+  BasemapStyleDocument,
+  MapLayer,
+  MapLayerLabelKey,
+  RasterMapLayer,
+  RasterStyle,
+  StyleMapLayer,
+} from './route-map';
 
 // What every unread and notification badge prints for a count
 export { badgeLabel } from './badge';
 
 // The athlete's own API keys: the window each key's usage line counts over
 export { API_KEY_USAGE_WINDOW_DAYS } from './api-keys';
+
+// The catalogue key naming each account role (Account pane, sidebar badge)
+export { ACCOUNT_ROLE_LABEL_KEY } from './roles';

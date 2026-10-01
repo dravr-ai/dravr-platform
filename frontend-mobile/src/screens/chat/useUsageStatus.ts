@@ -8,7 +8,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { LimitCheckResult, ReplyNotice, UsageStatusResponse } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
-import { formatResetTime, quotaNoticeBanner } from '@pierre/chat-utils';
+import { formatCount, formatResetTime, quotaNoticeBanner } from '@pierre/chat-utils';
 import type { Translate } from '@pierre/chat-utils';
 import { usageApi } from '../../services/api';
 import { QUERY_KEYS } from '@pierre/shared-constants';
@@ -47,6 +47,7 @@ function getCounterLevel(counter: LimitCheckResult): WarningLevel {
 export function computeWarningState(
   data: UsageStatusResponse | undefined,
   t: Translate,
+  language: string,
 ): UsageWarningState {
   if (!data) {
     return { level: 'none', sendDisabled: false, message: '', resetsAt: '' };
@@ -77,9 +78,11 @@ export function computeWarningState(
 
   const params = {
     label: t(worstLabel),
-    current: worstCounter.current,
-    limit: worstCounter.limit,
-    time: formatResetTime(worstCounter.resets_at, t('settingsUi.midnightUtc')),
+    // Grouped in the athlete's notation: the raw `456792/500000` read as one
+    // unbroken string of digits under any chrome.
+    current: formatCount(worstCounter.current, language),
+    limit: formatCount(worstCounter.limit, language),
+    time: formatResetTime(worstCounter.resets_at, t('settingsUi.midnightUtc'), language),
     percent: worstCounter.limit > 0
       ? Math.round((worstCounter.current / worstCounter.limit) * 100)
       : 0,
@@ -118,8 +121,9 @@ export function computeWarningState(
 export function warningStateFromNotice(
   notice: ReplyNotice,
   t: Translate,
+  language: string,
 ): UsageWarningState {
-  const banner = quotaNoticeBanner(notice, t('settingsUi.midnightUtc'));
+  const banner = quotaNoticeBanner(notice, t('settingsUi.midnightUtc'), language);
   const label = banner.text.params?.label;
   return {
     level: banner.level,
@@ -145,7 +149,7 @@ export function warningStateFromNotice(
  */
 export function useUsageStatus() {
   const queryClient = useQueryClient();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const [turnNotice, setTurnNotice] = useState<ReplyNotice | null>(null);
 
   const { data, isLoading } = useQuery<UsageStatusResponse>({
@@ -161,8 +165,11 @@ export function useUsageStatus() {
   }, [data]);
 
   const warningState = useMemo(
-    () => (turnNotice ? warningStateFromNotice(turnNotice, t) : computeWarningState(data, t)),
-    [turnNotice, data, t],
+    () =>
+      turnNotice
+        ? warningStateFromNotice(turnNotice, t, language)
+        : computeWarningState(data, t, language),
+    [turnNotice, data, t, language],
   );
 
   const invalidate = useCallback(() => {

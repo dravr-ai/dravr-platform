@@ -69,6 +69,7 @@ export {
   describeLoginFailure,
   refusalReason,
 } from './apiError';
+export { describeTurnFailure, isTurnFailureRetryable } from './turnFailure';
 
 // Server-state hooks both clients bind to their own API instance. Each client
 // keeps a thin `hooks/<name>` module that calls the factory once; only what is
@@ -91,3 +92,30 @@ export {
   type UseMentionPaletteResult,
   createMentionPaletteHook,
 } from './mentionPalette';
+
+// Home route reads: followed through the server's `pending` answers.
+export { readActivityRoute } from './activityRoute';
+
+// One activity's view: its figures, its split and lap tables, the questions it offers.
+export {
+  type ActivityFigure,
+  type ActivityPrompt,
+  type SegmentRow,
+  type SegmentTable,
+  type SpeedForm,
+  ACTIVITY_PROMPTS,
+  type AskAboutTranslate,
+  activityFigures,
+  activityFirstLine,
+  formatClock,
+  formatKilometres,
+  formatSpeed,
+  lapsTable,
+  speedForm,
+  splitsTable,
+} from './activityView';
+export { type ActivityDetailState, createActivityDetailHook } from './activityDetailHook';
+export { type ActivityConversationState, createActivityConversationHook } from './activityConversation';
+
+// An agent system prompt's estimated size, worded by one catalogue sentence on both clients.
+export { PROMPT_TOKEN_ESTIMATE_KEY, estimatePromptTokens } from './promptTokens';

@@ -19,6 +19,7 @@ export default function AppLayout() {
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       {/* The thread names itself: title, avatar and subtitle come from the conversation. */}
       <Stack.Screen name="chat/[conversationId]" options={{ title: '' }} />
+      <Stack.Screen name="activity/[provider]/[activityId]" options={{ title: '' }} />
       <Stack.Screen
         name="connections"
         options={{

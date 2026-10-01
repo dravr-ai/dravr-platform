@@ -5,7 +5,8 @@
 // ABOUTME: Verifies a failed Strava OAuth attempt falls back to the Sciotte credential login instead of stranding the first-run user
 
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react-native';
+import { i18n } from '@pierre/i18n';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { OnboardingConnectScreen } from '../OnboardingConnectScreen';
 import { oauthApi } from '../../../services/api';
@@ -114,6 +115,37 @@ describe('OnboardingConnectScreen — Strava OAuth failure fallback', () => {
     fireEvent.press(connect);
 
     expect(await screen.findByText('sciotte-modal:strava')).toBeTruthy();
+  });
+
+  it('names Strava as connected while the dashboard prepares, then says why it gave up, in French', async () => {
+    openAuthSessionAsync.mockResolvedValue({ type: 'success', url: 'dravr://oauth-callback?success=true' });
+    linkingParse.mockReturnValue({ queryParams: { success: 'true' } });
+    await i18n.changeLanguage('fr');
+    // Fake from the start, so the screen's 30 s give-up timer is one the test
+    // can advance; `advanceTimers` keeps the awaited queries moving meanwhile.
+    jest.useFakeTimers({ advanceTimers: true });
+    try {
+      renderScreen();
+      fireEvent.press(await screen.findByLabelText('Connecter Strava'));
+
+      expect(
+        await screen.findByText('Strava connecté — préparation de ton tableau de bord…'),
+      ).toBeTruthy();
+
+      // The route flip never came: after 30 s the screen gives the spinner up
+      // and says so in the app language, not in a hardcoded English notice.
+      act(() => {
+        jest.advanceTimersByTime(30_000);
+      });
+      expect(
+        await screen.findByText(
+          'Impossible de confirmer la connexion. Si tu as terminé la connexion, tire vers le bas pour actualiser ; sinon, réessaie.',
+        ),
+      ).toBeTruthy();
+    } finally {
+      jest.useRealTimers();
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('falls back to the Sciotte modal when the Strava OAuth flow cannot start', async () => {

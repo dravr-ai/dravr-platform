@@ -60,7 +60,7 @@ beforeEach(() => {
   window.localStorage.clear();
   api.getProvidersStatus.mockResolvedValue({ providers: [{ provider: 'strava', connected: true }] });
   api.getRecentActivities.mockResolvedValue(recentResponse());
-  api.getActivityRoute.mockResolvedValue({ route: routeView('Long ride'), reason: null });
+  api.getActivityRoute.mockResolvedValue({ route: routeView(), reason: null });
 });
 
 describe('Home', () => {

@@ -317,6 +317,13 @@ fn compute_decoupling(activity: &Activity) -> Option<f64> {
     detector.decoupling_percentage()
 }
 
+/// Time in each heart-rate zone over the activity's recorded samples.
+///
+/// Each recorded sample is credited the interval since the previous
+/// timestamp. A gap in the heart-rate channel is credited to no zone: its
+/// interval is time with no reading, never a reading of 0 bpm (which would
+/// fall in no zone or the lowest one) and never folded into the next
+/// sample's interval.
 fn compute_zone_distribution(activity: &Activity, zones: HrZoneSet) -> Option<ZoneDistribution> {
     let stream = activity.time_series_data()?;
     let hr_samples = stream.heart_rate.as_ref()?;
@@ -325,7 +332,10 @@ fn compute_zone_distribution(activity: &Activity, zones: HrZoneSet) -> Option<Zo
     }
     let timestamps = &stream.timestamps;
     let mut zd = ZoneDistribution::default();
-    for (idx, &bpm) in hr_samples.iter().enumerate() {
+    for (idx, bpm) in hr_samples.iter().enumerate() {
+        let Some(bpm) = *bpm else {
+            continue;
+        };
         let delta = sample_delta_seconds(timestamps, idx);
         let bpm_u16 = u16::try_from(bpm).unwrap_or(u16::MAX);
         match zones.classify(bpm_u16) {

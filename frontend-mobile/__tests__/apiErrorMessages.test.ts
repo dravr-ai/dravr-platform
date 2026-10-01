@@ -2,8 +2,8 @@
 // ABOUTME: Succeeds the deleted mobile extractErrorMessage; covers both refusal carriers and every quota limit
 
 import { AxiosError, AxiosHeaders } from 'axios';
-import { parseTurnBody, TurnRequestError } from '@pierre/api-client';
-import { describeApiError, describeQuotaRefusal } from '@pierre/ui-logic';
+import { parseTurnBody, TurnFailedError, TurnRequestError } from '@pierre/api-client';
+import { describeApiError, describeQuotaRefusal, describeTurnFailure } from '@pierre/ui-logic';
 import { i18n } from '@pierre/i18n';
 
 /**
@@ -90,7 +90,25 @@ describe('what a refused mobile request says', () => {
       });
 
       expect(describeApiError(err, { t, fallbackKey: FALLBACK })).toBe(
-        'Daily token limit reached (100000/100000). Resets tomorrow.',
+        'Daily token limit reached (100,000/100,000). Resets tomorrow.',
+      );
+    });
+
+    // The counts are numbers the catalogue formats in the app language, not
+    // digits pasted into the sentence: French groups thousands with a narrow
+    // no-break space. jest runs on Node's full ICU; the phone formats through
+    // Hermes' Intl.NumberFormat, the same service formatCount already uses
+    // for every quota figure the phone prints.
+    it('writes the counts in the app language', () => {
+      const err = axiosRefusal(429, {
+        code: 'QuotaExceeded',
+        details: { limit_type: 'daily_tokens', current: 500000, limit: 500000 },
+      });
+      const french = (key: string, params?: Record<string, string | number>): string =>
+        i18n.t(key, { ...params, lng: 'fr' });
+
+      expect(describeQuotaRefusal(err, french)).toBe(
+        'Limite de jetons quotidiens atteinte (500\u202f000/500\u202f000). Réinitialisation demain.',
       );
     });
 
@@ -230,10 +248,11 @@ describe('what a refused mobile request says', () => {
         () => null,
         (error: unknown) => error,
       );
-      expect(failure).toBeInstanceOf(TurnRequestError);
-      expect(describeQuotaRefusal(failure, t)).toBe(
-        'This conversation is archived, and you already have 10 conversations open — the maximum for your plan. Delete one to continue here.',
-      );
+      expect(failure).toBeInstanceOf(TurnFailedError);
+      const archived =
+        'This conversation is archived, and you already have 10 conversations open — the maximum for your plan. Delete one to continue here.';
+      expect(describeQuotaRefusal(failure, t)).toBe(archived);
+      expect(describeTurnFailure(failure, { t })).toBe(archived);
     });
   });
 });

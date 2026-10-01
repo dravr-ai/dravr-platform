@@ -778,7 +778,7 @@ describe('ChatTab conversation create failures', () => {
     await startNewChat();
 
     expect(
-      await screen.findByText('Usage quota reached (10000/10000). Please try again later.'),
+      await screen.findByText('Usage quota reached (10,000/10,000). Please try again later.'),
     ).toBeInTheDocument();
     expect(screen.getByText('Could not start chat')).toBeInTheDocument();
     expect(screen.queryByText('Conversation limit reached')).toBeNull();

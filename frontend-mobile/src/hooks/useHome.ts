@@ -13,7 +13,7 @@ import {
 } from '@pierre/shared-constants';
 import type { ActivityRouteResponse } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
-import { classifyApiError } from '@pierre/ui-logic';
+import { classifyApiError, readActivityRoute } from '@pierre/ui-logic';
 import { athleteApi, oauthApi } from '../services/api';
 
 /**
@@ -270,15 +270,26 @@ export function routeAnswerStaleTime(query: Query<ActivityRouteResponse>): numbe
 /**
  * When an `unavailable` route answer is asked again on its own: after each
  * wait of `HOME_ROUTE_UNAVAILABLE_RECHECK_DELAYS_MS`, counted in answers, and
- * then never — a schedule with an end, never an interval. The server's read
- * keeps running past the answer it gave within its bound, and stores what
- * the provider says, so the next ask can draw it.
+ * then never — a schedule with an end, never an interval. It picks up a
+ * route a read made since — the athlete's retry, here or on another device —
+ * has stored over the `unavailable`.
  */
 export function routeRecheckInterval(query: Query<ActivityRouteResponse>): number | false {
   if (query.state.data?.reason !== 'unavailable') {
     return false;
   }
   return HOME_ROUTE_UNAVAILABLE_RECHECK_DELAYS_MS[query.state.dataUpdateCount - 1] ?? false;
+}
+
+/** How a caller of {@link useActivityRoute} reads the route. */
+export interface ActivityRouteOptions {
+  /**
+   * The caller is a Home list row, whose page asks for all its routes in one
+   * burst: the server lets the burst queue before it reads, so the newest
+   * activity is read first. An activity view's own map leaves it unset and is
+   * read at once; the athlete's retry never carries it.
+   */
+  burst?: boolean;
 }
 
 /**
@@ -289,16 +300,29 @@ export function routeRecheckInterval(query: Query<ActivityRouteResponse>): numbe
  * GPS, the answer the row already carries — or the caller draws from the
  * row's own polyline. Every other row may have a route, one whose route was
  * never read included: most providers' activity lists carry no position, so
- * this answer, not the flag, is what says whether there is a track. A drawn
- * route is kept for good; `unavailable` is asked again on its own a bounded
- * number of times ({@link routeRecheckInterval}), in the foreground, and at
- * the athlete's `retry`, which the server reads past its stored answer.
+ * this answer, not the flag, is what says whether there is a track. A read
+ * the server answers `pending` — queued behind the athlete's other route
+ * reads, or still running — is asked again, for as long as the bound each
+ * `pending` names, and stays loading ({@link readActivityRoute}); the server
+ * hands its turn to the newest activity of a Home burst (`options.burst`)
+ * first, so the screen's big map is read before its sketches. A
+ * drawn route is kept for good; `unavailable`, a read that finished without
+ * settling anything, is asked again on its own a bounded number of times
+ * ({@link routeRecheckInterval}), in the foreground, and at the athlete's
+ * `retry`, which the server reads past its stored answer.
  */
-export function useActivityRoute(provider: string, activityId: string, enabled: boolean) {
+export function useActivityRoute(
+  provider: string,
+  activityId: string,
+  enabled: boolean,
+  options: ActivityRouteOptions = {},
+) {
+  const burst = options.burst === true;
   const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: QUERY_KEYS.home.activityRoute(provider, activityId),
-    queryFn: () => athleteApi.getActivityRoute(provider, activityId),
+    queryFn: ({ signal }) =>
+      readActivityRoute(() => athleteApi.getActivityRoute(provider, activityId, { burst, signal }), signal),
     enabled,
     staleTime: routeAnswerStaleTime,
     refetchInterval: routeRecheckInterval,
@@ -308,7 +332,11 @@ export function useActivityRoute(provider: string, activityId: string, enabled: 
     queryClient
       .fetchQuery({
         queryKey: QUERY_KEYS.home.activityRoute(provider, activityId),
-        queryFn: () => athleteApi.getActivityRoute(provider, activityId, { retry: true }),
+        queryFn: ({ signal }) =>
+          readActivityRoute(
+            () => athleteApi.getActivityRoute(provider, activityId, { retry: true, signal }),
+            signal,
+          ),
         staleTime: 0,
       })
       .catch(() => undefined);

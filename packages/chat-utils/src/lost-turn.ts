@@ -29,10 +29,13 @@ export type LostTurnEvent<Note> =
   /** A turn started, in any thread: it supersedes the lost one. */
   | { type: 'sent' }
   /**
-   * A turn failed. Kept only when the athlete was away while it ran: one that
-   * failed in front of them was not lost to their absence.
+   * A turn failed. Kept when the athlete was away while it ran; one that
+   * failed in front of them was not lost to their absence, and is kept only
+   * when `keepWhenPresent` says the client needs the record to hold its note:
+   * a client whose failure rows live in the same list every read of the
+   * thread replaces, and which reads the thread again as a send settles.
    */
-  | { type: 'failed'; away: boolean; turn: LostTurn<Note> }
+  | { type: 'failed'; away: boolean; keepWhenPresent?: boolean; turn: LostTurn<Note> }
   /** A read of `conversationId` returned `transcript`, exactly as the server holds it. */
   | {
       type: 'read';
@@ -86,7 +89,7 @@ export function reduceLostTurn<Note>(
     case 'sent':
       return null;
     case 'failed':
-      return event.away ? event.turn : lost;
+      return event.away || event.keepWhenPresent === true ? event.turn : lost;
     case 'read':
       return readLostTurn(lost, event.conversationId, event.transcript).kind === 'answered'
         ? null

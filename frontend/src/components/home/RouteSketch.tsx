@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: A small SVG outline of an activity's route — the shape alone, no basemap, drawn in the primary ink
+// ABOUTME: A small SVG outline of an activity's route — the shape alone, no basemap, in the route orange the map uses
 // ABOUTME: The projection is the shared domain-utils one, so the phone's sketch of the same route is the same drawing
 
 import { useMemo } from 'react';
 import { projectRouteToSvgPath, type SketchBox } from '@pierre/domain-utils';
+import { ROUTE_INK } from '@pierre/shared-constants';
 
 /** The sketch's own coordinate space; CSS sizes the element, the viewBox keeps the proportions. */
 const SKETCH_BOX: SketchBox = { width: 64, height: 48, padding: 5 };
@@ -38,7 +39,10 @@ export function RouteSketch({ points, label }: RouteSketchProps) {
       <path
         d={d}
         fill="none"
-        className="stroke-primary"
+        // The orange the map draws this same route in, so the thumbnail and
+        // the map it opens are recognisably one track: 4.3:1 on the light
+        // sheet, 4.5:1 on the dark one.
+        stroke={ROUTE_INK.track}
         strokeWidth={1.75}
         strokeLinecap="round"
         strokeLinejoin="round"

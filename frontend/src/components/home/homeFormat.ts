@@ -8,7 +8,9 @@ import type { TFunction } from '@pierre/i18n';
 import type { HomeActivity, PlanDay, PlanDayLookup, PlanPhase } from '@pierre/shared-types';
 import { addCivilDays, mondayOf, phaseWeekOn } from '@pierre/shared-types';
 import { activitySportLabelKey } from '@pierre/shared-constants';
-import { formatDistance, formatDuration } from '@pierre/domain-utils';
+import { formatDuration } from '@pierre/domain-utils';
+import { formatDecimal } from '@pierre/chat-utils';
+import { formatKilometres } from '@pierre/ui-logic';
 
 const CIVIL_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const DAYS_PER_WEEK = 7;
@@ -70,15 +72,19 @@ export function sportLabel(t: TFunction, sport: string): string {
   return key === null ? sport : t(key);
 }
 
-/** The figures a row prints after the sport: distance, time, climbing — each only when the activity carries it. */
-export function activityFigures(activity: HomeActivity): string[] {
+/**
+ * The figures a row prints after the sport: distance, time, climbing — each
+ * only when the activity carries it, in the notation of `language`
+ * (`42,00 km` in French) and the time in the words of `t` (`45 min 45 s`).
+ */
+export function activityFigures(t: TFunction, activity: HomeActivity, language: string): string[] {
   const figures: string[] = [];
   if (activity.distance_meters !== null && activity.distance_meters > 0) {
-    figures.push(formatDistance(activity.distance_meters));
+    figures.push(formatKilometres(activity.distance_meters, language));
   }
-  figures.push(formatDuration(activity.duration_seconds));
+  figures.push(formatDuration(t, activity.duration_seconds));
   if (activity.elevation_gain_meters !== null && activity.elevation_gain_meters > 0) {
-    figures.push(`+${Math.round(activity.elevation_gain_meters)} m`);
+    figures.push(`+${formatDecimal(Math.round(activity.elevation_gain_meters), 0, language)} m`);
   }
   return figures;
 }

@@ -9,6 +9,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Conversation } from '@pierre/shared-types';
+import { i18n } from '@pierre/i18n';
 import ConversationInfoPanel from '../ConversationInfoPanel';
 import { ToastProvider } from '../../ui';
 
@@ -106,7 +107,24 @@ describe('ConversationInfoPanel', () => {
     expect(screen.getByText('Marathon Coach')).toBeInTheDocument();
     expect(screen.getByTestId('coach-info-handle')).toHaveTextContent('@marathon-coach');
     expect(screen.getByText('endurance')).toBeInTheDocument();
-    expect(screen.getByText(/Mention:/)).toBeInTheDocument();
+    expect(screen.getByTestId('coach-info-mention')).toHaveTextContent(
+      'Mention @marathon-coach in any chat to bring this agent in for one turn.',
+    );
+  });
+
+  it('says the mention hint as one French sentence, the handle styled inside it', async () => {
+    await i18n.changeLanguage('fr');
+    try {
+      renderPanel(conversation({ agent_id: 'coach-1' }));
+
+      const mention = await screen.findByTestId('coach-info-mention');
+      expect(mention).toHaveTextContent(
+        'Mentionne @marathon-coach dans n’importe quel chat pour faire intervenir cet agent le temps d’une réponse.',
+      );
+      expect(mention.querySelector('.font-mono')).toHaveTextContent('@marathon-coach');
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('sends /agent remove when the agent is removed from the chat', async () => {

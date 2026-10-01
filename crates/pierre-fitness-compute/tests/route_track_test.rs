@@ -42,7 +42,7 @@ fn climbing_streams(points: &[(f64, f64)]) -> TimeSeriesData {
     let altitude = (0..points.len())
         .map(|i| {
             let climbed = i.clamp(third, 2 * third) - third;
-            0.45f32.mul_add(climbed as f32, 100.0)
+            Some(0.45f32.mul_add(climbed as f32, 100.0))
         })
         .collect();
     TimeSeriesData {

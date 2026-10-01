@@ -53,6 +53,8 @@ interface MessageListProps {
   errorMessage: string | null;
   oauthNotification: OAuthNotification | null;
   onDismissError: () => void;
+  /** Re-send the question the failed turn left in the thread; absent when there is none to re-send. */
+  onRetryError?: () => void;
   onDismissOAuthNotification: () => void;
   onCopyMessage: (content: string) => void;
   onShareMessage: (content: string) => void;
@@ -67,6 +69,13 @@ interface MessageListProps {
   onAskAboutClaim?: (verdict: ClaimVerdict) => void;
   /** Press handler for a control the reply's `actions` block carried. */
   onActionClick?: (action: ChatMessageAction) => void;
+  /**
+   * Whether opening a thread brings its newest row into view. The chat
+   * surface does (default); a thread embedded under something the athlete
+   * came to read — an activity's figures — opens where it is, and follows
+   * only the turns that arrive after.
+   */
+  followOnOpen?: boolean;
 }
 
 export default function MessageList({
@@ -84,6 +93,7 @@ export default function MessageList({
   errorMessage,
   oauthNotification,
   onDismissError,
+  onRetryError,
   onDismissOAuthNotification,
   onCopyMessage,
   onShareMessage,
@@ -94,15 +104,24 @@ export default function MessageList({
   onShowVerdict,
   onAskAboutClaim,
   onActionClick,
+  followOnOpen = true,
 }: MessageListProps) {
   const { t, language } = useTranslation();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const author = assistantLabel ?? t('shell.brandName');
 
-  // Auto-scroll to bottom when messages change
+  // Auto-scroll to bottom when messages change. The first rows a thread
+  // paints are its opening: a thread read back, which `followOnOpen` may
+  // leave where it is, or the athlete's own first question, always followed.
+  const openedRef = useRef(false);
   useEffect(() => {
+    if (!openedRef.current) {
+      if (messages.length === 0) return;
+      openedRef.current = true;
+      if (!followOnOpen && !isStreaming) return;
+    }
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingContent]);
+  }, [messages, streamingContent, followOnOpen, isStreaming]);
 
   // Filter out internal LLM plumbing rows (tool_call / tool_result) so their
   // raw <tool_call>/<tool_result> XML never renders — this matters most for
@@ -262,13 +281,23 @@ export default function MessageList({
       {errorMessage && !isStreaming && (
         <MessageBubble side="assistant" authorLabel={author} avatar={<CoachAvatar label={author} />}>
           <div className="rounded-lg border border-error/30 bg-error/10 px-3 py-2">
-            <p className="text-sm text-error">{errorMessage}</p>
-            <button
-              onClick={onDismissError}
-              className="mt-2 text-xs text-error underline transition-colors hover:text-error"
-            >
-              {t('chat.dismiss')}
-            </button>
+            <p className="text-sm text-error" data-testid="turn-error">{errorMessage}</p>
+            <div className="mt-2 flex gap-3">
+              {onRetryError && (
+                <button
+                  onClick={onRetryError}
+                  className="text-xs font-medium text-error underline transition-colors hover:text-error"
+                >
+                  {t('chat.retry')}
+                </button>
+              )}
+              <button
+                onClick={onDismissError}
+                className="text-xs text-error underline transition-colors hover:text-error"
+              >
+                {t('chat.dismiss')}
+              </button>
+            </div>
           </div>
         </MessageBubble>
       )}

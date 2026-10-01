@@ -7,7 +7,7 @@ import { Button, Input, Sheet } from './ui';
 import { userApi } from '../services/api';
 import { useThemeColors } from '../constants/theme';
 import type { OAuthApp } from '../types';
-import { useTranslation } from '@pierre/i18n';
+import { Trans, useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
 
 interface OAuthAppSetupModalProps {
@@ -154,12 +154,13 @@ export function OAuthAppSetupModal({
 
       <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         <Text className="text-sm text-text-secondary mb-3 leading-5">
-          {displayName} requires each user to register their own developer
-          app. Create one at{' '}
-          <Text className="text-primary underline" onPress={handleOpenDevPortal}>
-            {devPortalHost}
-          </Text>{' '}
-          and use the redirect URI shown below.
+          <Trans
+            i18nKey="app.oauthAppSetupIntro"
+            values={{ provider: displayName, host: devPortalHost }}
+            components={{
+              portal: <Text className="text-primary underline" onPress={handleOpenDevPortal} />,
+            }}
+          />
         </Text>
 
         {isLoadingExisting ? (

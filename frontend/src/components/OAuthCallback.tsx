@@ -70,10 +70,10 @@ export default function OAuthCallback({ provider, success, error, onClose }: OAu
               </div>
 
               <h1 className="text-xl font-bold text-activity mb-2">
-                {providerDisplay} Connected
+                {t('app.providerConnected', { provider: providerDisplay })}
               </h1>
               <p className="text-sm text-on-surface-variant mb-6">
-                {t('frag.your')} {providerDisplay} account has been successfully connected to Dravr.
+                {t('app.providerAccountConnected', { provider: providerDisplay })}
               </p>
             </>
           ) : (

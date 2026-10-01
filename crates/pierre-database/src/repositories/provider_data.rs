@@ -18,7 +18,9 @@
 //!   `data_point_series_archive` rollups, and the `data_sources` rows naming
 //!   the provider's devices;
 //! - its activities: `cached_activities`, the route each one drew in
-//!   `activity_route_tracks`, the personal bests its runs set in
+//!   `activity_route_tracks`, the link from each to the thread its view
+//!   opened in `activity_conversations` (the conversation itself is the
+//!   athlete's and stays), the personal bests its runs set in
 //!   `personal_best_efforts`, the record of which runs were measured for one
 //!   in `best_effort_scans`, and how far the walk of the provider's history
 //!   for them got in `personal_best_seeds`, so a reconnect walks it again;
@@ -95,7 +97,7 @@ macro_rules! provider_sources {
 
 /// What a user's disconnect deletes, in order: `(table, statement)`, each
 /// statement binding `$1` user id, `$2` tenant id and `$3` provider.
-pub(crate) const USER_PROVIDER_PURGE_SQL: [(&str, &str); 16] = [
+pub(crate) const USER_PROVIDER_PURGE_SQL: [(&str, &str); 17] = [
     (
         "data_point_series",
         concat!("DELETE FROM data_point_series WHERE ", user_sources!()),
@@ -130,6 +132,10 @@ pub(crate) const USER_PROVIDER_PURGE_SQL: [(&str, &str); 16] = [
     (
         "activity_route_tracks",
         concat!("DELETE FROM activity_route_tracks WHERE ", user_rows!()),
+    ),
+    (
+        "activity_conversations",
+        concat!("DELETE FROM activity_conversations WHERE ", user_rows!()),
     ),
     (
         "personal_best_efforts",
@@ -188,7 +194,7 @@ pub(crate) const USER_PROVIDER_PURGE_SQL: [(&str, &str); 16] = [
 /// provider's terms can require across the whole platform (WHOOP API Terms
 /// §7), and are reachable only from the super-admin route that audits the
 /// call. No tenant- or user-facing path may run them.
-pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 16] = [
+pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 17] = [
     (
         "data_point_series",
         concat!("DELETE FROM data_point_series WHERE ", provider_sources!()),
@@ -223,6 +229,13 @@ pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 16] = [
     (
         "activity_route_tracks",
         concat!("DELETE FROM activity_route_tracks WHERE ", provider_rows!()),
+    ),
+    (
+        "activity_conversations",
+        concat!(
+            "DELETE FROM activity_conversations WHERE ",
+            provider_rows!()
+        ),
     ),
     (
         "personal_best_efforts",

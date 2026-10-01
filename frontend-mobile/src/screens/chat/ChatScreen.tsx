@@ -2,54 +2,42 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Main chat screen orchestrator importing decomposed hooks and components
-// ABOUTME: Coordinates conversation, message, provider and voice state, and the thread's info sheet
+// ABOUTME: Resolves which conversation is open and how a turn opens one; the shared ChatThread draws it
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
   Alert,
   AppState,
-  Keyboard,
   type AppStateStatus,
 } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useHeaderHeight } from 'expo-router/react-navigation';
-import * as Linking from 'expo-linking';
 import { Stack, useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 
 import { useAuth } from '../../contexts/AuthContext';
-import { HeaderActions, PromptDialog, Sheet } from '../../components/ui';
+import { HeaderActions, PromptDialog } from '../../components/ui';
 import { AppearanceToggleButton } from '../../components/ui/AppearanceToggleButton';
 import { NotificationBellButton } from '../../components/notifications/NotificationBellButton';
 import { useThemeColors } from '../../constants/theme';
 import { trackMobile } from '../../services/analytics';
-import { providerStatusLine, trustedActionUrl } from '@pierre/chat-utils';
-import type { ChatMessageAction, ClaimVerdict } from '@pierre/shared-types';
+import { providerStatusLine } from '@pierre/chat-utils';
 
 import { ChatHeaderTitle } from './ChatHeaderTitle';
 import { ChatPlusFlows } from './ChatPlusFlows';
 import { useChatPlusActions } from './useChatPlusActions';
 import { CHAT_LIST_ROUTE, NEW_CONVERSATION_ID, threadHref } from '../../navigation/routes';
-import { ChatInputBar } from './ChatInputBar';
-import { ChatProgressStrip } from './ChatProgressStrip';
+import { ChatThread } from './ChatThread';
 import { ConversationInfoSheet } from './ConversationInfoSheet';
-import { MessageList } from './MessageList';
-import { OAuthCredentialsSection } from '../../components/OAuthCredentialsSection';
-import { ProviderNoticeSheet } from '../../components/ProviderNotice';
 import { ReconnectBanner } from '../../components/ReconnectBanner';
 import { useProviderConnected } from '../../hooks/useHome';
-import { noticeRequired } from '@pierre/shared-constants';
 import { useConversations } from './useConversations';
 import { useMarkConversationRead } from './useMarkConversationRead';
 import { useMessages } from './useMessages';
 import { useProviderStatus } from './useProviderStatus';
-import { useChatVoiceInput } from './useChatVoiceInput';
 import { useUsageStatus } from './useUsageStatus';
-import { UsageWarningBanner } from './UsageWarningBanner';
-import { VerdictSheet } from './VerdictSheet';
 import { useTranslation } from '@pierre/i18n';
 
 export function ChatScreen() {
@@ -69,25 +57,10 @@ export function ChatScreen() {
   const [renamePromptVisible, setRenamePromptVisible] = useState(false);
   const [renameConversationId, setRenameConversationId] = useState<string | null>(null);
   const [renameDefaultTitle, setRenameDefaultTitle] = useState('');
-  // The message whose verdicts the sheet shows, or `null` while it is closed.
-  const [verdictMessageId, setVerdictMessageId] = useState<string | null>(null);
-  // The provider whose notice is on screen before a reconnect starts its
-  // OAuth flow (WHOOP, until the account accepts its owner authorization).
-  const [noticeFor, setNoticeFor] = useState<string | null>(null);
 
   // Custom hooks
   const conversations = useConversations();
   const messagesHook = useMessages();
-
-  // Opening the keyboard shortens the visible list. `onContentSizeChange` only
-  // fires when the CONTENT changes, so tapping into the composer on an existing
-  // thread left the newest messages above the fold with nothing to bring them
-  // back.
-  const scrollToBottom = messagesHook.scrollToBottom;
-  useEffect(() => {
-    const shown = Keyboard.addListener('keyboardDidShow', scrollToBottom);
-    return () => shown.remove();
-  }, [scrollToBottom]);
   const providerStatus = useProviderStatus();
   // The header's fallback line reads the status the reconnect banner under it
   // reads, so the two can never disagree about a flagged connection.
@@ -124,12 +97,6 @@ export function ChatScreen() {
       router.replace(CHAT_LIST_ROUTE);
     }
   }, [router]);
-
-  // Voice input with chat-specific error handling
-  const voiceInput = useChatVoiceInput(
-    (text) => setInputText(text),
-    setInputText
-  );
 
   // Load data when authenticated
   useEffect(() => {
@@ -231,40 +198,6 @@ export function ChatScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params?.conversationId, conversations.conversations]);
 
-  // URL handling
-  const handleOpenUrl = useCallback(async (url: string) => {
-    try {
-      let parsedUrl: URL;
-      try {
-        parsedUrl = new URL(url);
-      } catch {
-        console.error('Invalid URL:', url);
-        Alert.alert(t('app.linkErrorTitle'), t('app.linkInvalidFormat'));
-        return;
-      }
-
-      const scheme = parsedUrl.protocol.toLowerCase();
-      if (scheme !== 'http:' && scheme !== 'https:') {
-        console.warn('Blocked non-HTTP URL scheme:', scheme);
-        Alert.alert(t('app.linkBlockedTitle'), t('app.linkBlockedBody'));
-        return;
-      }
-
-      await Linking.openURL(url);
-    } catch (error) {
-      console.error('Failed to open URL:', error);
-      Alert.alert(t('app.linkErrorTitle'), t('app.linkOpenFailed'));
-    }
-  }, [t]);
-
-  // A turn's pre-turn quota check reports its counters as a `notice` reply
-  // block. Hand it to the banner, which is the one place a cap is stated.
-  const { quotaNotice } = messagesHook;
-  const { applyNotice } = usageStatus;
-  useEffect(() => {
-    if (quotaNotice) applyNotice(quotaNotice);
-  }, [quotaNotice, applyNotice]);
-
   /**
    * Send one line as the next turn, creating the thread when there is none.
    *
@@ -305,13 +238,6 @@ export function ChatScreen() {
     }
   }, [messagesHook, conversations, usageStatus, router]);
 
-  const handleSendMessage = useCallback(async () => {
-    const messageText = inputText.trim();
-    if (!messageText) return;
-    setInputText('');
-    await sendText(messageText);
-  }, [inputText, sendText]);
-
   // A navigation may arrive with composer intent: `draft` fills the composer
   // and waits for the athlete, `send` runs once. Both are command text built
   // by COMMAND_DRAFTS, and each is honoured once per value so a re-render on
@@ -331,90 +257,6 @@ export function ChatScreen() {
     sentRef.current = send;
     void sendText(send);
   }, [params.send, sendText]);
-
-  /**
-   * Press handler for a control the reply's `actions` block carried.
-   *
-   * A `postback` sends its `value` as the next turn, so the press flows
-   * through the same dispatch pipeline a typed command would. A `url` opens
-   * its `value` in the system browser — but only after `trustedActionUrl`
-   * vouches for the host: the value reaches the client inside a
-   * model-adjacent reply, so an unvouched address is an open redirect wearing
-   * a button. A refused URL opens nothing.
-   */
-  const handleActionClick = useCallback(
-    async (action: ChatMessageAction) => {
-      if (action.action_type === 'url') {
-        const target = trustedActionUrl(action.value, [
-          process.env.EXPO_PUBLIC_API_URL ?? '',
-        ]);
-        if (target) await handleOpenUrl(target);
-        return;
-      }
-      await sendText(action.value);
-    },
-    [handleOpenUrl, sendText],
-  );
-
-  // Retry message
-  const handleRetryMessage = useCallback(async (messageId: string) => {
-    if (!conversations.currentConversation?.id) return;
-    await messagesHook.retryMessage(messageId, conversations.currentConversation.id);
-  }, [messagesHook, conversations.currentConversation?.id]);
-
-  // Feedback handlers inject the active conversation id (mirrors retry) so the
-  // hook can persist thumbs up/down + an optional reason against the server.
-  const handleThumbsUp = useCallback((messageId: string) => {
-    if (!conversations.currentConversation?.id) return;
-    void messagesHook.handleThumbsUp(messageId, conversations.currentConversation.id);
-  }, [messagesHook, conversations.currentConversation?.id]);
-
-  const handleThumbsDown = useCallback((messageId: string) => {
-    if (!conversations.currentConversation?.id) return;
-    void messagesHook.handleThumbsDown(messageId, conversations.currentConversation.id);
-  }, [messagesHook, conversations.currentConversation?.id]);
-
-  const handleSubmitFeedbackReason = useCallback((messageId: string, comment: string) => {
-    if (!conversations.currentConversation?.id) return;
-    void messagesHook.submitFeedbackReason(messageId, conversations.currentConversation.id, comment);
-  }, [messagesHook, conversations.currentConversation?.id]);
-
-  // The rows are written right after the reply row, so a chip that landed
-  // before the read did opens the sheet on a re-read rather than on nothing.
-  const { refreshVerdicts, verdicts, verdictsLoading } = messagesHook;
-  const sheetVerdicts = useMemo(
-    () => (verdictMessageId ? verdicts.filter((v) => v.message_id === verdictMessageId) : []),
-    [verdicts, verdictMessageId],
-  );
-  const handleShowVerdict = useCallback((rows: ClaimVerdict[], messageId: string) => {
-    setVerdictMessageId(messageId);
-    const conversationId = conversations.currentConversation?.id;
-    if (rows.length === 0 && conversationId) void refreshVerdicts(conversationId);
-  }, [refreshVerdicts, conversations.currentConversation?.id]);
-
-  const handleAskAboutClaim = useCallback((verdict: ClaimVerdict) => {
-    setInputText(t('app.backUpClaim', { claim: verdict.claim_text }));
-    setVerdictMessageId(null);
-  }, [t]);
-
-  /**
-   * Authorize a provider from a reply that asks for it.
-   *
-   * `WebBrowser.openAuthSessionAsync` presents a sheet over the app that
-   * hands the callback back to it. Opening the reply's URL with the generic
-   * opener instead sends the athlete to Safari, where the callback has
-   * nowhere to return to.
-   */
-  const handleConnectProvider = useCallback(async (provider: string) => {
-    // A provider whose notice the account has not accepted (WHOOP's owner
-    // authorization) states it first; its Continue starts the flow.
-    const status = providerStatus.connectedProviders.find((p) => p.provider === provider);
-    if (noticeRequired(provider, status?.consent_required)) {
-      setNoticeFor(provider);
-      return;
-    }
-    await providerStatus.handleConnectProvider(provider);
-  }, [providerStatus]);
 
   // Info sheet handlers
   const openInfoSheet = useCallback(() => {
@@ -528,14 +370,6 @@ export function ChatScreen() {
           onLeaveThread={goBackToList}
         />
 
-        <VerdictSheet
-          visible={verdictMessageId !== null}
-          verdicts={sheetVerdicts}
-          loading={verdictsLoading && sheetVerdicts.length === 0}
-          onClose={() => setVerdictMessageId(null)}
-          onAskAboutClaim={handleAskAboutClaim}
-        />
-
         {/*
           The thread is pushed over the tabs, so the shell's banner is behind
           it: the thread mounts its own, under the native header, which
@@ -552,68 +386,17 @@ export function ChatScreen() {
           </Text>
         ) : null}
 
-        <MessageList
-          messages={messagesHook.messages}
+        <ChatThread
+          conversationId={conversations.currentConversation?.id ?? null}
+          messagesHook={messagesHook}
+          usageStatus={usageStatus}
+          providerStatus={providerStatus}
           isLoading={conversations.isLoading}
-          isSending={messagesHook.isSending}
-          messageFeedback={messagesHook.messageFeedback}
-          messageFeedbackComment={messagesHook.messageFeedbackComment}
-          messageBlocks={messagesHook.messageBlocks}
-          verdicts={messagesHook.verdicts}
-          flatListRef={messagesHook.flatListRef}
-          onScrollToBottom={messagesHook.scrollToBottom}
-          onThumbsUp={handleThumbsUp}
-          onThumbsDown={handleThumbsDown}
-          onSubmitFeedbackReason={handleSubmitFeedbackReason}
-          onRetryMessage={handleRetryMessage}
-          onOpenUrl={handleOpenUrl}
-          onReconnectProvider={handleConnectProvider}
-          onActionClick={handleActionClick}
-          onShowVerdict={handleShowVerdict}
-        />
-
-        <ChatProgressStrip statusText={messagesHook.progressText} />
-
-        <UsageWarningBanner level={usageStatus.level} message={usageStatus.message} />
-
-        <ChatInputBar
           inputText={inputText}
-          partialTranscript={voiceInput.partialTranscript}
-          isListening={voiceInput.isListening}
-          isSending={messagesHook.isSending}
-          disabled={usageStatus.sendDisabled}
-          voiceAvailable={voiceInput.isAvailable}
+          onChangeInputText={setInputText}
           inputRef={inputRef}
-          onChangeText={setInputText}
-          onVoicePress={voiceInput.handleVoicePress}
-          onSendMessage={handleSendMessage}
+          sendText={sendText}
         />
-
-        {/* A reply asked for provider credentials the app does not hold yet. */}
-        <ProviderNoticeSheet
-          provider={noticeFor}
-          onCancel={() => setNoticeFor(null)}
-          onAccept={() => {
-            const accepted = noticeFor;
-            setNoticeFor(null);
-            if (accepted) void providerStatus.handleConnectProvider(accepted, undefined, true);
-          }}
-        />
-
-        <Sheet
-          visible={providerStatus.needsCredentialsProvider !== null}
-          onClose={() => providerStatus.setNeedsCredentialsProvider(null)}
-          testID="oauth-credentials-sheet"
-          flush
-        >
-          <OAuthCredentialsSection />
-          <TouchableOpacity
-            className="mt-4 py-3 items-center"
-            onPress={() => providerStatus.setNeedsCredentialsProvider(null)}
-          >
-            <Text className="text-base text-text-tertiary">{t('common.close')}</Text>
-          </TouchableOpacity>
-        </Sheet>
 
         <PromptDialog
           visible={renamePromptVisible}

@@ -181,7 +181,14 @@ impl RouteTrack {
         else {
             return Err(RouteTrackError::NoGps);
         };
-        let (recorded_points, altitudes) = paired_points(recorded, streams.altitude.as_deref());
+        // An altitude channel that recorded no sample at all says nothing
+        // about the vertical; read as absent, it leaves the map drawable
+        // instead of gating every point out on a missing elevation.
+        let recorded_altitudes = streams
+            .altitude
+            .as_deref()
+            .filter(|series| series.iter().any(Option::is_some));
+        let (recorded_points, altitudes) = paired_points(recorded, recorded_altitudes);
         // The vertical rides on the pairing above: with an altitude channel
         // present a point is kept only when both halves are usable, so equal
         // lengths hold by construction and are what the index alignment means.
@@ -318,11 +325,12 @@ pub fn trimmed_overview_polyline(encoded: &str) -> Option<String> {
 ///
 /// Mirrors the gate the terrain analysis applies to the same two streams — the
 /// shorter channel ends the track, and a point with a non-finite or
-/// out-of-Earth value is dropped rather than carried into a haversine. The
-/// returned altitudes are empty when the provider recorded none.
+/// out-of-Earth value, or a gap in its altitude, is dropped rather than
+/// carried into a haversine. The returned altitudes are empty when the
+/// provider recorded none.
 fn paired_points(
     recorded: &[(f64, f64)],
-    altitudes: Option<&[f32]>,
+    altitudes: Option<&[Option<f32>]>,
 ) -> (Vec<(f64, f64)>, Vec<f32>) {
     let mut coordinates = Vec::with_capacity(recorded.len());
     let mut kept_altitudes = Vec::new();
@@ -330,7 +338,10 @@ fn paired_points(
         let elevation = match altitudes.map(|series| series.get(index)) {
             // The altitude channel ran out first, so the track ends here.
             Some(None) => break,
-            Some(Some(&sample)) => Some(sample),
+            Some(Some(&Some(sample))) => Some(sample),
+            // A gap: the point has no usable altitude, so both halves are
+            // not recorded and the point is not kept.
+            Some(Some(&None)) => continue,
             None => None,
         };
         if !latitude.is_finite() || !longitude.is_finite() {
@@ -397,8 +408,12 @@ fn cumulative_distances(coordinates: &[(f64, f64)]) -> Vec<f64> {
 fn detect_climbs(coordinates: &[(f64, f64)], elevations: &[f64]) -> Vec<RouteClimb> {
     // Narrowed back to the width the provider recorded them at: every value
     // here came from an `f32` altitude sample and was widened on the way in,
-    // so this is the exact inverse and loses nothing.
-    let altitudes: Vec<f32> = elevations.iter().map(|&metres| metres as f32).collect();
+    // so this is the exact inverse and loses nothing. Every one is a recorded
+    // sample: points whose altitude was a gap never reached the track.
+    let altitudes: Vec<Option<f32>> = elevations
+        .iter()
+        .map(|&metres| Some(metres as f32))
+        .collect();
     let Some(summary) = build_route_summary_from_streams(coordinates, &altitudes) else {
         return Vec::new();
     };

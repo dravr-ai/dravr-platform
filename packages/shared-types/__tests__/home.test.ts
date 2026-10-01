@@ -253,6 +253,26 @@ describe('parseActivityRouteResponse', () => {
     });
   });
 
+  it('reads a read still waiting its turn as pending, which is no refusal', () => {
+    expect(ACTIVITY_ROUTE_UNAVAILABLE_REASONS).not.toContain('pending');
+    expect(parseActivityRouteResponse({ route: null, reason: 'pending', settles_within_secs: 660 })).toEqual({
+      route: null,
+      reason: 'pending',
+      settles_within_secs: 660,
+    });
+    expect(parseActivityRouteResponse({ route: null, reason: 'pending' })).toEqual({
+      route: null,
+      reason: 'pending',
+      settles_within_secs: null,
+    });
+    expect(parseActivityRouteResponse({ route: null, reason: 'pending', settles_within_secs: -1 })).toEqual({
+      route: null,
+      reason: 'pending',
+      settles_within_secs: null,
+    });
+    expect(parseActivityRouteResponse({ route, reason: 'pending' })).toBeNull();
+  });
+
   it('refuses a body that sets both, neither, or an unknown reason', () => {
     expect(parseActivityRouteResponse({ route, reason: 'no_gps' })).toBeNull();
     expect(parseActivityRouteResponse({ route: null, reason: null })).toBeNull();

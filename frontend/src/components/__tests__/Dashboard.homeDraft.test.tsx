@@ -33,15 +33,15 @@ vi.mock('../ChatTab', () => ({
   },
 }));
 
-const DRAFT = 'Analyze my activity from Tuesday 23 September (Run)';
+const DRAFT = 'Walk me through my session on Tuesday 23 September: Tempo run';
 
 // Home's own rendering is covered by its tests; here it only has to hand the
-// shell a draft the way a tapped activity row does.
+// shell a draft the way a tapped plan day does.
 vi.mock('../home/Home', () => ({
   default: ({ onOpenChatDraft }: { onOpenChatDraft: (text: string) => void }) => (
     <div data-testid="home-tab">
       <button type="button" onClick={() => onOpenChatDraft(DRAFT)}>
-        tap activity
+        tap day
       </button>
     </div>
   ),
@@ -86,7 +86,7 @@ describe('Dashboard — Home opens a chat draft', () => {
       renderDashboard();
     });
     await act(async () => {
-      (await screen.findByRole('button', { name: 'tap activity' })).click();
+      (await screen.findByRole('button', { name: 'tap day' })).click();
     });
 
     expect(await screen.findByTestId('chat-tab')).toBeInTheDocument();
@@ -109,7 +109,7 @@ describe('Dashboard — Home opens a chat draft', () => {
       screen.getByTestId('rail-logo-home').click();
     });
     await act(async () => {
-      (await screen.findByRole('button', { name: 'tap activity' })).click();
+      (await screen.findByRole('button', { name: 'tap day' })).click();
     });
 
     await screen.findByTestId('chat-tab');

@@ -749,7 +749,9 @@ export function SciotteLoginModal({
             <CheckCircle2 size={32} color={colors.success} />
           </View>
           <Text className="text-lg font-bold text-text-primary">{t('app.connectedBang')}</Text>
-          <Text className="text-sm text-text-secondary mt-1">{platformName} is ready to sync</Text>
+          <Text className="text-sm text-text-secondary mt-1">
+            {t('app.providerReadyToSync', { provider: platformName })}
+          </Text>
         </View>
       );
     }

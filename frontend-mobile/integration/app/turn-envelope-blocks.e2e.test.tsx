@@ -136,7 +136,9 @@ describe('PHASE 2 — TurnEnvelope blocks on mobile', () => {
     // Chrome the athlete sees around the chart.
     expect(view.getByText('Charge hebdomadaire, 4 dernieres semaines')).toBeTruthy();
     expect(view.getByText('TSS hebdo')).toBeTruthy();
-    expect(view.getByText('source: get_activities')).toBeTruthy();
+    // The tool the numbers came from is server-side attribution, never printed.
+    expect(view.queryByText(/source/)).toBeNull();
+    expect(view.queryByText(/get_activities/)).toBeNull();
     expect(view.getByLabelText('Chart: Charge hebdomadaire, 4 dernieres semaines')).toBeTruthy();
 
     // Two reads, and only two: the transcript and the verdicts attached to it.

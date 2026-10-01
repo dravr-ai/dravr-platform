@@ -4,6 +4,7 @@
 import type { LineString, MultiLineString, Position } from 'geojson';
 import type { RouteBounds, RouteClimb } from '@pierre/scene-types';
 
+import { formatDecimal } from './number-format';
 import type { Translate } from './text';
 
 /**
@@ -55,9 +56,9 @@ export function alignedSeries(series: number[] | null, points: number): number[]
   return series;
 }
 
-/** Metres to the one decimal of a kilometre a route is read in. */
-export function kilometres(metres: number): string {
-  return (metres / 1000).toFixed(1);
+/** Metres to the one decimal of a kilometre a route is read in, in the notation of `language`. */
+export function kilometres(metres: number, language: string): string {
+  return formatDecimal(metres / 1000, 1, language);
 }
 
 /** The value at an index the wire supplied, or null when it points nowhere. */
@@ -66,13 +67,25 @@ export function metresAt(series: number[], index: number): number | null {
   return series[index];
 }
 
-/** `km 4.0–8.0` for one climb, or null when the track carried no distances. */
-export function climbRange(distances: number[] | null, climb: RouteClimb): string | null {
+/**
+ * `km 4.0–8.0` for one climb (`km 4,0–8,0` in French), or null when the track
+ * carried no distances.
+ */
+export function climbRange(
+  distances: number[] | null,
+  climb: RouteClimb,
+  language: string,
+): string | null {
   if (distances === null) return null;
   const from = metresAt(distances, climb.start_index);
   const to = metresAt(distances, climb.end_index);
   if (from === null || to === null) return null;
-  return `km ${kilometres(from)}–${kilometres(to)}`;
+  return `km ${kilometres(from, language)}–${kilometres(to, language)}`;
+}
+
+/** A climb's average gradient to one decimal, `5.3%` (`5,3%` in French). */
+export function climbGradient(climb: RouteClimb, language: string): string {
+  return `${formatDecimal(climb.avg_gradient, 1, language)}%`;
 }
 
 /**

@@ -82,6 +82,7 @@ vi.mock('../../hooks/useAuth', () => ({
       is_admin: false,
       role: 'user',
       tier: 'free',
+      user_status: 'active',
       created_at: '2024-06-15T10:00:00Z',
     },
     logout: vi.fn(),
@@ -194,6 +195,15 @@ describe('UserSettings Component', () => {
 
     afterEach(async () => {
       await i18n.changeLanguage('en');
+    });
+
+    // The badge printed the wire value, "Active", in every language.
+    it('names the account status in the athlete\'s language', async () => {
+      await act(async () => {
+        renderUserSettings();
+      });
+      expect(screen.getByText('Actif')).toBeInTheDocument();
+      expect(screen.queryByText('Active')).toBeNull();
     });
 
     it('renders the theme toggle on the Profile tab and flips the scheme', async () => {
@@ -446,6 +456,26 @@ describe('UserSettings Component', () => {
         // The created_at is 2024-06-15 which formats to "Jun 15, 2024"
         expect(screen.getByText('Jun 15, 2024')).toBeInTheDocument();
       });
+    });
+
+    // carnet#683: the role printed the wire value capitalised ("User") and the
+    // date went through a fixed English pattern, so French chrome read English.
+    it('writes the role, the member-since date and the usage counts in French', async () => {
+      await i18n.changeLanguage('fr');
+      try {
+        await act(async () => {
+          renderUserSettings({ initialTab: 'account' });
+        });
+
+        await waitFor(() => {
+          expect(screen.getByTestId('account-role')).toHaveTextContent('Utilisateur');
+        });
+        expect(screen.getByTestId('account-member-since')).toHaveTextContent('15 juin 2024');
+        expect(screen.queryByText('Jun 15, 2024')).not.toBeInTheDocument();
+        expect(screen.getByText(/145,0\s?k/)).toBeInTheDocument();
+      } finally {
+        await i18n.changeLanguage('en');
+      }
     });
 
     it('should show change password button', async () => {

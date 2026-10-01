@@ -118,10 +118,10 @@ fn three_lap_stream() -> TimeSeriesData {
     }
     TimeSeriesData {
         timestamps,
-        heart_rate: Some(heart_rate),
-        power: Some(power),
+        heart_rate: Some(heart_rate.into_iter().map(Some).collect()),
+        power: Some(power.into_iter().map(Some).collect()),
         cadence: None,
-        speed: Some(speed),
+        speed: Some(speed.into_iter().map(Some).collect()),
         altitude: None,
         temperature: None,
         gps_coordinates: None,
@@ -207,10 +207,10 @@ fn intervals_compute_stream_metrics_over_each_lap_window() {
 fn intervals_leave_stream_metrics_absent_for_a_lap_with_no_samples() {
     let stream = TimeSeriesData {
         timestamps: (0..60_u32).collect(),
-        heart_rate: Some(vec![140; 60]),
-        power: Some(vec![100; 60]),
+        heart_rate: Some(vec![Some(140); 60]),
+        power: Some(vec![Some(100); 60]),
         cadence: None,
-        speed: Some(vec![3.0; 60]),
+        speed: Some(vec![Some(3.0); 60]),
         altitude: None,
         temperature: None,
         gps_coordinates: None,
@@ -292,7 +292,10 @@ fn build_route_summary_from_streams_matches_gpx_terrain() {
     let coords: Vec<(f64, f64)> = (0..8)
         .map(|i| (f64::from(i).mul_add(0.001, 46.0), -73.0))
         .collect();
-    let altitudes: Vec<f32> = vec![100.0, 110.0, 140.0, 180.0, 220.0, 250.0, 240.0, 200.0];
+    let altitudes: Vec<Option<f32>> = [100.0, 110.0, 140.0, 180.0, 220.0, 250.0, 240.0, 200.0]
+        .into_iter()
+        .map(Some)
+        .collect();
     let summary = build_route_summary_from_streams(&coords, &altitudes).expect("summary");
     assert!(summary.point_count >= 8);
     assert!(summary.terrain.elevation_gain_meters >= 150.0);
@@ -301,7 +304,35 @@ fn build_route_summary_from_streams_matches_gpx_terrain() {
 #[test]
 fn build_route_summary_from_streams_returns_none_for_short_input() {
     assert!(build_route_summary_from_streams(&[], &[]).is_none());
-    assert!(build_route_summary_from_streams(&[(46.0, -73.0)], &[100.0]).is_none());
+    assert!(build_route_summary_from_streams(&[(46.0, -73.0)], &[Some(100.0)]).is_none());
+}
+
+#[test]
+fn build_route_summary_from_streams_drops_points_whose_altitude_is_a_gap() {
+    // An altimeter dropout at two points: those points are not paired, so the
+    // summary is the one built from the six points with both halves, never
+    // one with a 0 m elevation dragging a climb into a descent.
+    let coords: Vec<(f64, f64)> = (0..8)
+        .map(|i| (f64::from(i).mul_add(0.001, 46.0), -73.0))
+        .collect();
+    let altitudes = [100.0, 110.0, 140.0, 180.0, 220.0, 250.0, 240.0, 200.0];
+    let gapped: Vec<Option<f32>> = altitudes
+        .iter()
+        .enumerate()
+        .map(|(i, &a)| if i == 2 || i == 5 { None } else { Some(a) })
+        .collect();
+    let kept: Vec<usize> = (0..8).filter(|i| *i != 2 && *i != 5).collect();
+    let kept_coords: Vec<(f64, f64)> = kept.iter().map(|&i| coords[i]).collect();
+    let kept_altitudes: Vec<Option<f32>> = kept.iter().map(|&i| Some(altitudes[i])).collect();
+
+    let with_gaps = build_route_summary_from_streams(&coords, &gapped).expect("summary");
+    let without = build_route_summary_from_streams(&kept_coords, &kept_altitudes).expect("summary");
+    assert_eq!(with_gaps.point_count, 6);
+    assert_eq!(with_gaps.gpx_hash, without.gpx_hash);
+    assert_eq!(
+        stream_route_identity(&coords, &gapped).map(|(_, count)| count),
+        Some(6)
+    );
 }
 
 // ----------------------------------------------------------------------------
@@ -313,13 +344,13 @@ fn build_route_summary_drops_nonfinite_lat_lon_alt() {
     // Two-point stream with NaN coordinates — both points must be filtered
     // before the haversine math runs.
     let coords = vec![(f64::NAN, -73.0), (46.001, f64::INFINITY)];
-    let altitudes = vec![100.0_f32, 110.0];
+    let altitudes = vec![Some(100.0_f32), Some(110.0)];
     assert!(
         build_route_summary_from_streams(&coords, &altitudes).is_none(),
         "non-finite coordinates must be dropped, leaving fewer than 2 valid points"
     );
 
-    let alt_nan = vec![f32::NAN, 110.0];
+    let alt_nan = vec![Some(f32::NAN), Some(110.0)];
     let coords_ok = vec![(46.000, -73.0), (46.001, -73.0)];
     // One altitude NaN drops one point; the survivor is alone → None.
     assert!(build_route_summary_from_streams(&coords_ok, &alt_nan).is_none());
@@ -328,7 +359,7 @@ fn build_route_summary_drops_nonfinite_lat_lon_alt() {
 #[test]
 fn build_route_summary_drops_out_of_range_lat_lon() {
     let bad_lat = vec![(91.0, 0.0), (-91.0, 0.0)];
-    let altitudes = vec![100.0_f32, 110.0];
+    let altitudes = vec![Some(100.0_f32), Some(110.0)];
     assert!(
         build_route_summary_from_streams(&bad_lat, &altitudes).is_none(),
         "lat outside [-90, 90] must be filtered"
@@ -354,7 +385,10 @@ fn build_route_summary_handles_duplicate_consecutive_points() {
         (46.001, -73.0),
         (46.002, -73.0),
     ];
-    let altitudes = vec![100.0_f32, 100.5, 101.0, 110.0, 120.0];
+    let altitudes: Vec<Option<f32>> = [100.0_f32, 100.5, 101.0, 110.0, 120.0]
+        .into_iter()
+        .map(Some)
+        .collect();
     let summary =
         build_route_summary_from_streams(&coords, &altitudes).expect("summary should be produced");
     let t = &summary.terrain;
@@ -401,7 +435,10 @@ fn route_summary_serializes_without_nan_or_infinity_literals() {
     let coords: Vec<(f64, f64)> = (0..6)
         .map(|i| (f64::from(i).mul_add(0.001, 46.0), -73.0))
         .collect();
-    let altitudes: Vec<f32> = vec![100.0, 110.0, 140.0, 180.0, 220.0, 250.0];
+    let altitudes: Vec<Option<f32>> = [100.0, 110.0, 140.0, 180.0, 220.0, 250.0]
+        .into_iter()
+        .map(Some)
+        .collect();
     let summary =
         build_route_summary_from_streams(&coords, &altitudes).expect("summary should produce");
     let json =
@@ -425,7 +462,10 @@ fn stream_route_identity_matches_full_build() {
     let coords: Vec<(f64, f64)> = (0..8)
         .map(|i| (f64::from(i).mul_add(0.001, 46.0), -73.0))
         .collect();
-    let altitudes: Vec<f32> = vec![100.0, 110.0, 140.0, 180.0, 220.0, 250.0, 240.0, 200.0];
+    let altitudes: Vec<Option<f32>> = [100.0, 110.0, 140.0, 180.0, 220.0, 250.0, 240.0, 200.0]
+        .into_iter()
+        .map(Some)
+        .collect();
     let (gpx_hash, point_count) =
         stream_route_identity(&coords, &altitudes).expect("identity for a valid stream");
     let summary = build_route_summary_from_streams(&coords, &altitudes).expect("summary");
@@ -443,12 +483,12 @@ fn stream_route_identity_applies_the_builder_validity_gate() {
     // Same gates as build_route_summary_from_streams: <2 paired points,
     // or every point filtered out by the finite/range checks.
     assert!(stream_route_identity(&[], &[]).is_none());
-    assert!(stream_route_identity(&[(46.0, -73.0)], &[100.0]).is_none());
+    assert!(stream_route_identity(&[(46.0, -73.0)], &[Some(100.0)]).is_none());
     let bad_lat = vec![(91.0, 0.0), (-91.0, 0.0)];
-    let altitudes = vec![100.0_f32, 110.0];
+    let altitudes = vec![Some(100.0_f32), Some(110.0)];
     assert!(stream_route_identity(&bad_lat, &altitudes).is_none());
     let coords_ok = vec![(46.000, -73.0), (46.001, -73.0)];
-    let alt_nan = vec![f32::NAN, 110.0];
+    let alt_nan = vec![Some(f32::NAN), Some(110.0)];
     assert!(stream_route_identity(&coords_ok, &alt_nan).is_none());
 }
 
@@ -457,7 +497,10 @@ fn route_summary_from_cache_round_trips_the_stored_blobs() {
     let coords: Vec<(f64, f64)> = (0..8)
         .map(|i| (f64::from(i).mul_add(0.001, 46.0), -73.0))
         .collect();
-    let altitudes: Vec<f32> = vec![100.0, 110.0, 140.0, 180.0, 220.0, 250.0, 240.0, 200.0];
+    let altitudes: Vec<Option<f32>> = [100.0, 110.0, 140.0, 180.0, 220.0, 250.0, 240.0, 200.0]
+        .into_iter()
+        .map(Some)
+        .collect();
     let summary = build_route_summary_from_streams(&coords, &altitudes).expect("summary");
     // The cache stores these two blobs; identity supplies hash + count.
     let terrain_json = serde_json::to_string(&summary.terrain).expect("terrain json");

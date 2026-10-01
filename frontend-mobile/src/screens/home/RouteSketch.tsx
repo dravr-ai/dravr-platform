@@ -9,8 +9,8 @@ import { View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { decodePolyline, projectRouteToSvgPath, type LatLon } from '@pierre/domain-utils';
 import type { HomeActivity } from '@pierre/shared-types';
+import { ROUTE_INK } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
-import { useThemeColors } from '../../constants/theme';
 import { useActivityRoute } from '../../hooks/useHome';
 
 /** The sketch's square, in points: a row's 48 avatar slot plus the inset a line needs at its ends. */
@@ -27,7 +27,9 @@ interface RouteSketchProps {
 }
 
 /**
- * One track, projected into a square and drawn as a line in the primary ink.
+ * One track, projected into a square and drawn as a line in the route orange —
+ * the ink the map draws the same route in, so the thumbnail and the map it
+ * opens read as one track: 3.5:1 on the light square, 4.0:1 on the dark one.
  *
  * The geometry is the shared helper's: equirectangular with the longitude
  * scaled at the track's middle latitude, north up, one scale for both axes,
@@ -38,7 +40,6 @@ interface RouteSketchProps {
  */
 export function RouteSketch({ points, size = SKETCH_SIZE, testID }: RouteSketchProps) {
   const { t } = useTranslation();
-  const colors = useThemeColors();
   const d = useMemo(
     () => projectRouteToSvgPath(points, { width: size, height: size, padding: SKETCH_PADDING }),
     [points, size],
@@ -61,7 +62,7 @@ export function RouteSketch({ points, size = SKETCH_SIZE, testID }: RouteSketchP
         <Path
           d={d}
           fill="none"
-          stroke={colors.tokens.primary}
+          stroke={ROUTE_INK.track}
           strokeWidth={STROKE_WIDTH}
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -94,7 +95,7 @@ export function ActivitySketch({ activity }: { activity: HomeActivity }) {
     [polyline],
   );
   const needsRoute = decoded === null && activity.has_gps;
-  const { route } = useActivityRoute(activity.provider, activity.id, needsRoute);
+  const { route } = useActivityRoute(activity.provider, activity.id, needsRoute, { burst: true });
   const points = decoded ?? route?.coordinates ?? NO_POINTS;
 
   return <RouteSketch points={points} testID={`home-activity-sketch-${activity.provider}-${activity.id}`} />;

@@ -59,7 +59,8 @@ pub use envelope::{
 };
 pub use hooks::{
     AgUiRun, PipelineHooks, ProgressKind, ResponsePostProcess, ScenePublishRequest, ScenePublisher,
-    TurnEvent, TurnEventSink, TurnProgress, STAGE_STATUS_FINISHED, STAGE_STATUS_STARTED,
+    TurnEvent, TurnEventSink, TurnFailure, TurnProgress, STAGE_STATUS_FINISHED,
+    STAGE_STATUS_STARTED,
 };
 pub use quota_policy::{check_pre_chat_quotas_scoped, settle_turn_notice, PreChatScope};
 pub use stages::command_persistence::{CommandPersistence, PersistedCommandReply};

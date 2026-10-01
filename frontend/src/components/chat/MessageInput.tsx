@@ -4,7 +4,7 @@
 // ABOUTME: Chat message input component with textarea, a "/" commands button and a send button
 // ABOUTME: Handles keyboard shortcuts and the slash-command and @handle palettes
 
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState, useCallback, useId } from 'react';
 import { clsx } from 'clsx';
 import { Slash } from 'lucide-react';
 import CommandPalette from '../CommandPalette';
@@ -26,6 +26,12 @@ interface MessageInputProps {
    * commands are resolved for the group this conversation is bound to.
    */
   conversationId?: string | null;
+  /**
+   * Whether the composer takes focus when it mounts. The chat surface's does;
+   * one embedded under an activity does not, since focusing it would scroll
+   * the page past what the athlete opened and raise a phone's keyboard.
+   */
+  focusOnMount?: boolean;
 }
 
 export default function MessageInput({
@@ -35,9 +41,13 @@ export default function MessageInput({
   isStreaming,
   disabled = false,
   conversationId,
+  focusOnMount = true,
 }: MessageInputProps) {
   const { t } = useTranslation();
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // Unique per composer: the chat surface and an activity's thread can both
+  // be mounted, and a duplicated id would point a label at the wrong field.
+  const inputId = useId();
   const palette = useCommandPalette({ value, conversationId, onChange });
 
   // Where the caret sits, so a `@` typed mid-sentence still opens the mention
@@ -68,8 +78,8 @@ export default function MessageInput({
 
   // Focus input on mount
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+    if (focusOnMount) inputRef.current?.focus();
+  }, [focusOnMount]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // A palette owns Enter, Tab, the arrows and Escape while it is open:
@@ -132,6 +142,11 @@ export default function MessageInput({
           {/* eslint-disable-next-line no-restricted-syntax */}
           <textarea
             ref={inputRef}
+            id={inputId}
+            name="message"
+            // The placeholder disappears as soon as the athlete types, so it
+            // cannot be the field's name; a screen reader announces this one.
+            aria-label={t('chat.messageDravrLabel')}
             value={value}
             onChange={(e) => {
               onChange(e.target.value);

@@ -3,6 +3,8 @@
 
 // Formatting utilities
 export {
+  type DurationTranslate,
+  DURATION_UNIT_KEYS,
   formatDuration,
   formatDistance,
   formatPace,

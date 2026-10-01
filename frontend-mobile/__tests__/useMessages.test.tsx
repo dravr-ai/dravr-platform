@@ -404,7 +404,7 @@ describe('useMessages', () => {
     it('should handle API error and show error message', async () => {
       mockSendTurn.mockImplementation(
         (_conversationId: string, _content: string, options: { onError?: (error: Error) => void }) => {
-          options.onError?.(new Error('Network timeout'));
+          options.onError?.(new TypeError('Network request failed'));
           return Promise.resolve();
         },
       );
@@ -420,7 +420,9 @@ describe('useMessages', () => {
       const errorMsg = result.current.messages[1];
       expect(errorMsg.role).toBe('assistant');
       expect(errorMsg.isError).toBe(true);
-      expect(errorMsg.content).toContain('Network timeout');
+      // Worded from the catalogue, never the transport's own English.
+      expect(errorMsg.content).toContain('Network error. Check your connection.');
+      expect(errorMsg.content).not.toContain('Network request failed');
       expect(result.current.isSending).toBe(false);
     });
 

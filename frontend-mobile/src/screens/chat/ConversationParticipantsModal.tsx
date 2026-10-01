@@ -123,7 +123,7 @@ export function ConversationParticipantsModal({
                 <TouchableOpacity
                   onPress={() => handleRemove(item.user_id)}
                   disabled={isSaving}
-                  accessibilityLabel={`Remove ${item.user_id}`}
+                  accessibilityLabel={t('chat.removeParticipantAria', { name: item.user_id })}
                   testID={`remove-${item.user_id}`}
                 >
                   <Ionicons name="person-remove-outline" size={20} color={colors.error} />

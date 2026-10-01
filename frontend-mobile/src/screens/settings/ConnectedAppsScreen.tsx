@@ -12,19 +12,12 @@ import { EmptyState, PaneScrollView, Row, Section } from '../../components/ui';
 import { oauthApi } from '../../services/api';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
+import { formatDate } from '@pierre/chat-utils';
 
 const CONNECTED_APPS_QUERY_KEY = ['oauth', 'connected-apps'] as const;
 
-function formatGrantedDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString();
-  } catch {
-    return iso;
-  }
-}
-
 export function ConnectedAppsScreen(): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const colors = useThemeColors();
   const queryClient = useQueryClient();
 
@@ -115,7 +108,7 @@ export function ConnectedAppsScreen(): React.JSX.Element {
                     key={grant.id}
                     testID={`connected-app-${grant.id}`}
                     title={grant.client_id}
-                    subtitle={`${grant.scope} · ${t('app.connected')} ${formatGrantedDate(grant.granted_at)}`}
+                    subtitle={`${grant.scope} · ${t('app.connectedOn', { date: formatDate(grant.granted_at, language) })}`}
                     last={index === grants.length - 1}
                     trailing={
                       revoking ? (

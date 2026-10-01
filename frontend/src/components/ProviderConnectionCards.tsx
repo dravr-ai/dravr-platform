@@ -12,6 +12,7 @@ import { track } from '../services/analytics';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import {
   PROVIDER_LINK_POLL_INTERVAL_MS,
+  SCIOTTE_LOGIN_PRESETS,
   noticeRequired,
   providerGlyphInk,
   sciotteTargetForBackend,
@@ -86,7 +87,8 @@ export const ProviderIcon = ({ providerId, className }: { providerId: string; cl
 };
 
 interface ProviderConnectionCardsProps {
-  onProviderConnected?: () => void;
+  /** Fires once a provider is connected, with the name its card shows. */
+  onProviderConnected?: (displayName: string) => void;
   /**
    * Starts the OAuth flow instead of the cards' own launch. `tosConsent` is
    * true when the athlete just accepted the provider's notice (WHOOP's owner
@@ -256,12 +258,12 @@ export default function ProviderConnectionCards({
     await connectViaOAuth(provider.provider);
   };
 
-  // Check if any provider is connected
-  const hasAnyConnection = providersData?.providers?.some(p => p.connected) ?? false;
+  // The first connected provider, if any
+  const firstConnected = providersData?.providers?.find(p => p.connected);
 
   // Notify parent when a connection is detected
-  if (hasAnyConnection && onProviderConnected) {
-    onProviderConnected();
+  if (firstConnected && onProviderConnected) {
+    onProviderConnected(firstConnected.display_name);
   }
 
   if (isLoading) {
@@ -399,7 +401,9 @@ export default function ProviderConnectionCards({
           // next poll tick (5s), stranding the user on the connected card.
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
           setSciotteModalTarget(null);
-          if (onProviderConnected) onProviderConnected();
+          if (onProviderConnected) {
+            onProviderConnected(t(SCIOTTE_LOGIN_PRESETS[sciotteModalTarget ?? 'strava'].labelKey));
+          }
         }}
         target={sciotteModalTarget ?? 'strava'}
         consentRequired={sciotteConsentRequired}
@@ -425,7 +429,11 @@ export default function ProviderConnectionCards({
           // onboarding-status cache explicitly — same reasoning as Sciotte above.
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
           setIntervalsModalOpen(false);
-          if (onProviderConnected) onProviderConnected();
+          if (onProviderConnected) {
+            onProviderConnected(
+              providersData?.providers?.find((p) => p.provider === 'intervals_icu')?.display_name ?? 'Intervals.icu',
+            );
+          }
         }}
       />
     </div>

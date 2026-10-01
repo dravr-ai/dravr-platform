@@ -15,7 +15,7 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import CoachEditSheet from './discover/CoachEditSheet';
 import PostInstallHint from './discover/PostInstallHint';
 import { useTranslation } from '@pierre/i18n';
-import { initialsFor } from '@pierre/chat-utils';
+import { formatCount, formatDate, initialsFor } from '@pierre/chat-utils';
 import { COACH_CATEGORY_LABEL_KEY, coachCategoryLabelKey } from '@pierre/shared-constants';
 import { describeApiError } from '@pierre/ui-logic';
 
@@ -599,7 +599,7 @@ function CoachDetailView({
   onOpenChat,
   onDismissHint,
 }: CoachDetailViewProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   if (isLoading) {
     return (
       <div className="h-full flex flex-col bg-surface">
@@ -722,12 +722,12 @@ function CoachDetailView({
             <dl className="mt-1.5">
               <div className="flex items-center justify-between py-2">
                 <dt className="text-sm text-on-surface-variant">{t('discover.tokenCount')}</dt>
-                <dd className="font-mono text-sm text-on-surface">{coach.token_count.toLocaleString()}</dd>
+                <dd className="font-mono text-sm text-on-surface">{formatCount(coach.token_count, language)}</dd>
               </div>
               {coach.published_at && (
                 <div className="flex items-center justify-between border-t ghost-border-faint py-2">
                   <dt className="text-sm text-on-surface-variant">{t('discover.publishedBadge')}</dt>
-                  <dd className="font-mono text-sm text-on-surface">{new Date(coach.published_at).toLocaleDateString()}</dd>
+                  <dd className="font-mono text-sm text-on-surface">{formatDate(coach.published_at, language)}</dd>
                 </div>
               )}
             </dl>

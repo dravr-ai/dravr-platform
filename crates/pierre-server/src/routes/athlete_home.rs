@@ -1,4 +1,4 @@
-// ABOUTME: Athlete Home read-side endpoints — recent activities, one activity's route, and the training plan for today
+// ABOUTME: Athlete Home read-side endpoints — recent activities, one activity's figures and route, and today's plan
 // ABOUTME: Auth: JWT-bearer, scoped by tenant_id from the active session; every read is tenant- and user-filtered
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,8 +6,8 @@
 
 //! Athlete Home.
 //!
-//! Three reads back the page an athlete lands on after login, on web and
-//! mobile alike:
+//! Four reads back the page an athlete lands on after login, and the view of
+//! one activity a tap on it opens, on web and mobile alike:
 //!
 //! - `GET /api/me/activities/recent?limit=N` — the newest cached activities
 //!   across every provider, served from the durable cache in one query, one
@@ -38,19 +38,41 @@
 //!   draws. Read once per activity, and its outcome — drawn or not — is what
 //!   the list's `has_gps` reads. A read that failed, timed out or carried no
 //!   stream set answers `unavailable`, never `no_gps`, and is read again
-//!   minutes later, or at once for `?retry=true`. See
-//!   [`crate::services::activity_route`].
+//!   minutes later, or at once for `?retry=true`. A read still queued behind
+//!   the athlete's other reads, or still running, when the request's bound
+//!   runs out answers `pending`, and the client asks again; the newest
+//!   activity is read first. See [`crate::services::activity_route`].
+//! - `GET /api/me/activities/{provider}/{activity_id}` — one workout as its
+//!   own view shows it: the Home row's projection, merged exactly as the list
+//!   merges it, with the figures the cache holds for it (heart rate, speed,
+//!   power, energy) and its splits and laps when a detailed read
+//!   stored them. Served from the cache, and a figure the cache does not
+//!   hold is `null`, never estimated. The one provider call it makes is the
+//!   workout's detail read, when no copy of it holds one that still answers
+//!   it (see [`crate::services::activity_detail`]): a route drawn from its
+//!   overview never reads the detail its splits and laps come from. It
+//!   names the conversation the view opened about the workout, if any
+//!   (`conversation_id`), so the view resumes that thread on any device.
+//! - `PUT /api/me/activities/{provider}/{activity_id}/conversation` — link
+//!   the conversation the view opened to the workout (`{"conversation_id":
+//!   "…"}`), or forget the link (`null`). Only the caller's own conversation,
+//!   in the caller's tenant, can be linked; any other answers 404.
 //! - `GET /api/me/training-plan?locale=xx` — what `/plan` shows, as the
 //!   structured plan card: the athlete's one active season, whichever agent
 //!   laid it, projected on the athlete's own "today".
 //!
 //! Every JSON key is always present; an absent value is `null`.
 
+pub mod activity_view;
+/// The background refresh of stale provider heads Home starts.
+mod stale_refresh;
+
 use std::cmp::Reverse;
+use std::iter;
 use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
-use axum::routing::get;
+use axum::routing::{get, put};
 use axum::{Json, Router};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use photograveur::{RouteBounds as ViewBounds, RouteView};
@@ -80,8 +102,10 @@ use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
-use crate::services::activity_route::{activity_route, CachedActivityRef};
+use crate::services::activity_detail::read_activity_detail;
+use crate::services::activity_route::{activity_route, CachedActivityRef, RouteAsk, RouteMiss};
 use crate::tools::runtime_adapter::into_runtime;
+use activity_view::{ActivityLap, ActivitySplit};
 
 /// Activities the recent list answers with when the client names no limit.
 const DEFAULT_RECENT_LIMIT: i64 = 5;
@@ -91,6 +115,16 @@ const MIN_RECENT_LIMIT: i64 = 1;
 
 /// Most activities the recent list answers with: a landing page, not a log.
 const MAX_RECENT_LIMIT: i64 = 20;
+
+/// How far either side of an activity's start the detail read looks for the
+/// other copies of its workout. The merger chains copies whose starts lie
+/// within an hour or so of each other; a day either side holds every copy of
+/// any workout a person records.
+const DETAIL_MERGE_WINDOW_HOURS: i64 = 24;
+
+/// Most cached rows the detail read takes from that window: far more than
+/// the copies of every workout one athlete records in two days.
+const DETAIL_MERGE_ROW_LIMIT: i64 = 200;
 
 /// Most cached copies of one workout the recent read makes room for.
 ///
@@ -123,6 +157,12 @@ pub struct ActivityRouteQuery {
     /// read again even when that answer is still stored.
     #[serde(default)]
     pub retry: bool,
+    /// The request is one of a Home list's burst of route reads: finding the
+    /// athlete's provider turn free, it waits for the rest of the burst so
+    /// the newest activity is read first. Any other read — an activity
+    /// view's map, a retry — takes a free turn at once.
+    #[serde(default)]
+    pub burst: bool,
 }
 
 /// One activity on the Home list.
@@ -164,16 +204,17 @@ pub struct HomeActivity {
 
 impl HomeActivity {
     /// Project one workout for the Home list: `activity` is the merged
-    /// session, `row` the cached row of the copy that represents it.
+    /// session, `row` the cached row of the copy whose route the row draws
+    /// ([`route_copy`]).
     ///
-    /// The id, the provider and `has_gps` are the representative row's own,
-    /// so the route endpoint serves exactly that row; the numbers and the
+    /// The id, the provider and `has_gps` are that row's own, so the route
+    /// endpoint serves exactly that copy; the name, the numbers and the
     /// overview are the merged session's, which carry what the other copies
     /// filled in.
     fn from_session(row: &CachedActivityRow, activity: &Activity) -> Self {
         let overview = raw_overview(activity);
         Self {
-            id: activity.id().to_owned(),
+            id: row.activity.id().to_owned(),
             provider: user_facing_name(&row.provider).to_owned(),
             name: activity.name().to_owned(),
             sport_type: sport_type_string(activity).unwrap_or_default(),
@@ -185,6 +226,72 @@ impl HomeActivity {
             summary_polyline: overview.and_then(trimmed_overview_polyline),
         }
     }
+}
+
+/// What a cached copy's own data says about its route, least to most: the
+/// order [`route_copy`] ranks the copies of one workout by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum RouteEvidence {
+    /// Its stored read found no GPS: a manual entry, a trainer ride.
+    NoGps,
+    /// Its stored read found a track too short to draw.
+    TooShort,
+    /// Nothing settled yet: never read, or a read that settled nothing.
+    Unknown,
+    /// Nothing settled yet, but a device recorded it: it carries a heart
+    /// rate or a cadence, which a manual entry never does.
+    Sensed,
+    /// A track is stored, or the copy carries its own start position or
+    /// route overview.
+    Recorded,
+}
+
+/// What `row`'s own stored read and payload say about its route.
+fn route_evidence(row: &CachedActivityRow) -> RouteEvidence {
+    let settled = match row.route.as_ref() {
+        Some(StoredRouteOutcome::Drawn) => return RouteEvidence::Recorded,
+        Some(StoredRouteOutcome::Unavailable { reason }) => RouteTrackError::from_slug(reason),
+        None => None,
+    };
+    let activity = &row.activity;
+    match settled {
+        Some(RouteTrackError::NoGps) => RouteEvidence::NoGps,
+        Some(RouteTrackError::TooShort) => RouteEvidence::TooShort,
+        None if raw_overview(activity).is_some()
+            || (activity.start_latitude().is_some() && activity.start_longitude().is_some()) =>
+        {
+            RouteEvidence::Recorded
+        }
+        None if device_recorded(activity) => RouteEvidence::Sensed,
+        None => RouteEvidence::Unknown,
+    }
+}
+
+/// Whether a device recorded the activity: it carries a heart rate or a
+/// cadence.
+const fn device_recorded(activity: &Activity) -> bool {
+    activity.average_heart_rate().is_some() || activity.average_cadence().is_some()
+}
+
+/// The copy of a merged workout whose route the Home row draws: the copy
+/// with the strongest [`RouteEvidence`], the canonical copy among equals.
+///
+/// The merger picks its canonical copy for the numbers — a copy carrying a
+/// distance, then the longest — and a manual entry typed in with the
+/// workout's distance and a generous duration wins that over the watch's
+/// recording of the same run. On 2026-09-28 that hid a GPS track behind a
+/// manual copy whose read had found no GPS, so the row drew nothing.
+fn route_copy<'a>(
+    canonical: &'a CachedActivityRow,
+    copies: impl Iterator<Item = &'a CachedActivityRow>,
+) -> &'a CachedActivityRow {
+    copies.fold(canonical, |best, copy| {
+        if route_evidence(copy) > route_evidence(best) {
+            copy
+        } else {
+            best
+        }
+    })
 }
 
 /// Whether a stored route read settled that the activity recorded no GPS.
@@ -256,9 +363,55 @@ pub struct SyncFailure {
 pub struct ActivityRouteResponse {
     /// The drawable route.
     pub route: Option<RouteView>,
-    /// Why there is no route: `no_gps` or `too_short`, which a read settled,
-    /// or `unavailable`, which no read has yet: ask again later, or retry.
+    /// Why there is no route: `no_gps` or `too_short`, which a read settled;
+    /// `unavailable`, a read that finished without settling it: ask again
+    /// later, or retry; or `pending`, no read has finished yet: ask again.
     pub reason: Option<&'static str>,
+    /// With `pending` only: seconds the read can still take by the server's
+    /// own bounds — every read ahead of it in the athlete's provider turn and
+    /// its own, each bounded. The client keeps asking within it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub settles_within_secs: Option<u64>,
+}
+
+/// Body of `GET /api/me/activities/{provider}/{activity_id}`.
+///
+/// One workout as its own view shows it. Every key is present; what the
+/// cache does not hold is `null`, and a workout without splits or laps has
+/// an empty list.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ActivityDetailResponse {
+    /// The workout exactly as its Home row projects it — merged the same way,
+    /// its `provider` and `id` those of the copy whose route it draws, which
+    /// is what the route endpoint serves.
+    pub activity: HomeActivity,
+    /// Average heart rate in beats per minute.
+    pub average_heart_rate: Option<u32>,
+    /// Highest heart rate in beats per minute.
+    pub max_heart_rate: Option<u32>,
+    /// Average speed in metres per second, as the provider computed it.
+    pub average_speed_mps: Option<f64>,
+    /// Highest speed in metres per second.
+    pub max_speed_mps: Option<f64>,
+    /// Average power in watts.
+    pub average_power: Option<u32>,
+    /// Energy in kilocalories.
+    pub calories: Option<u32>,
+    /// The provider's uniform distance buckets, in order.
+    pub splits: Vec<ActivitySplit>,
+    /// The laps the athlete or the workout marked, in order.
+    pub laps: Vec<ActivityLap>,
+    /// The conversation the view opened about this workout, while it is
+    /// still the caller's own; `null` before the first question.
+    pub conversation_id: Option<String>,
+}
+
+/// Body of `PUT /api/me/activities/{provider}/{activity_id}/conversation`,
+/// and its answer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ActivityConversationLink {
+    /// The conversation to link, or `null` to forget the link.
+    pub conversation_id: Option<String>,
 }
 
 /// Query parameters for `GET /api/me/training-plan`.
@@ -285,8 +438,16 @@ pub fn athlete_home_routes() -> Router<Arc<ServerContext>> {
     Router::new()
         .route("/api/me/activities/recent", get(get_recent_activities))
         .route(
+            "/api/me/activities/{provider}/{activity_id}",
+            get(get_activity_detail),
+        )
+        .route(
             "/api/me/activities/{provider}/{activity_id}/route",
             get(get_activity_route),
+        )
+        .route(
+            "/api/me/activities/{provider}/{activity_id}/conversation",
+            put(put_activity_conversation),
         )
         .route("/api/me/training-plan", get(get_training_plan))
 }
@@ -322,9 +483,11 @@ async fn get_recent_activities(
         .activity_cache
         .latest_activity_sync_any(user_id, &tenant_id)
         .await?;
-    let plan = stale_refresh_plan(&resources, user_id, tenant_id, connections, query.retry).await?;
+    let plan =
+        stale_refresh::stale_refresh_plan(&resources, user_id, tenant_id, connections, query.retry)
+            .await?;
     let sync_failure = plan.failure.clone();
-    let stale = start_stale_refresh(&resources, user_id, tenant_id, plan).await;
+    let stale = stale_refresh::start_stale_refresh(&resources, user_id, tenant_id, plan).await;
     Ok(Json(RecentActivitiesResponse {
         activities,
         as_of,
@@ -389,12 +552,66 @@ fn copies_per_workout(connections: usize) -> i64 {
 ///    through [`merge_duplicates`] under [`DedupConfig::from_env`], exactly
 ///    as the chat turn's activity list merges them.
 ///
-/// The copy that represents a merged workout is the merger's canonical row,
-/// the one chat lists: the copy carrying a distance, then the longest, then
-/// the farthest, then the lowest id. It is always one of the athlete's own
-/// cached rows, so the route endpoint serves its provider and id; its fields
-/// the canonical copy lacks are filled from the other full recordings.
+/// A merged workout's name and numbers are the merger's canonical row, the
+/// one chat lists — the copy carrying a distance, then the longest, then the
+/// farthest, then the lowest id — with the fields it lacks filled from the
+/// other full recordings. Its id, provider and `has_gps` are those of the
+/// copy whose route it draws ([`route_copy`]): a GPS recording over a manual
+/// entry of the same workout. Either is one of the athlete's own cached
+/// rows, so the route endpoint serves its provider and id.
 fn home_activities(rows: Vec<CachedActivityRow>, limit: usize) -> Vec<HomeActivity> {
+    let distinct = distinct_rows(rows);
+    workouts(&distinct)
+        .iter()
+        .take(limit)
+        .map(|workout| HomeActivity::from_session(workout.route_row(), &workout.session))
+        .collect()
+}
+
+/// One workout the cache holds: the merged session, and the cached rows of
+/// the copies it was merged from.
+struct Workout<'a> {
+    /// The merged session — the merger's canonical copy, with the fields it
+    /// lacked filled from the other recordings.
+    session: Activity,
+    /// The cached row of the canonical copy.
+    canonical: &'a CachedActivityRow,
+    /// The cached rows of the other copies merged into it.
+    copies: Vec<&'a CachedActivityRow>,
+}
+
+impl<'a> Workout<'a> {
+    /// The copy whose route the workout draws ([`route_copy`]).
+    fn route_row(&self) -> &'a CachedActivityRow {
+        route_copy(self.canonical, self.copies.iter().copied())
+    }
+
+    /// Whether the workout's splits and laps are still to be read: the
+    /// merged session carries neither, and no copy of it holds a stored
+    /// detail read that still answers it — one that found neither answers
+    /// only until its recheck instant
+    /// ([`crate::services::activity_detail::EMPTY_DETAIL_RECHECK_MINUTES`]).
+    fn detail_unread(&self) -> bool {
+        self.session.splits().is_none()
+            && self.session.laps().is_none()
+            && !iter::once(self.canonical)
+                .chain(self.copies.iter().copied())
+                .any(|row| row.detail_read)
+    }
+
+    /// Whether one of the workout's copies is the activity `id` of the
+    /// provider the athlete knows as `facing`.
+    fn holds(&self, facing: &str, id: &str) -> bool {
+        iter::once(self.canonical)
+            .chain(self.copies.iter().copied())
+            .any(|row| user_facing_name(&row.provider) == facing && row.activity.id() == id)
+    }
+}
+
+/// The rows with one copy per activity: a mirror backend and the provider it
+/// mirrors can both hold a copy of the same activity; both read as the same
+/// user-facing provider and id, so the first, the newest-stored, is kept.
+fn distinct_rows(rows: Vec<CachedActivityRow>) -> Vec<CachedActivityRow> {
     let mut distinct: Vec<CachedActivityRow> = Vec::with_capacity(rows.len());
     for row in rows {
         let facing = user_facing_name(&row.provider);
@@ -404,22 +621,46 @@ fn home_activities(rows: Vec<CachedActivityRow>, limit: usize) -> Vec<HomeActivi
             distinct.push(row);
         }
     }
+    distinct
+}
+
+/// The workouts `distinct` holds, newest first: every recording of one
+/// workout across providers merged into one session through
+/// [`merge_duplicates`] under [`DedupConfig::from_env`], exactly as the chat
+/// turn's activity list merges them.
+fn workouts(distinct: &[CachedActivityRow]) -> Vec<Workout<'_>> {
     // The merger consumes its input and rewrites the canonical copy, while
     // each row's stored key and route read are still needed to project it.
     let recordings: Vec<Activity> = distinct.iter().map(|row| row.activity.clone()).collect();
-    let (mut sessions, _) = merge_duplicates(recordings, &DedupConfig::from_env());
+    let (mut sessions, report) = merge_duplicates(recordings, &DedupConfig::from_env());
     // A merged workout sits where its canonical copy was read, which need not
     // be where its newest copy was; the list is newest first by the session.
     sessions.sort_by_key(|session| Reverse(session.start_date()));
     sessions
-        .iter()
+        .into_iter()
         .filter_map(|session| {
-            distinct
+            let canonical = distinct
                 .iter()
-                .find(|row| is_copy_of(&row.activity, session))
-                .map(|row| HomeActivity::from_session(row, session))
+                .find(|row| is_copy_of(&row.activity, &session))?;
+            let copies = report
+                .groups
+                .iter()
+                .find(|group| group.canonical_id == session.id())
+                .into_iter()
+                .flat_map(|group| {
+                    distinct.iter().filter(move |row| {
+                        group.fragment_ids.iter().any(|id| id == row.activity.id())
+                            && group.window_start <= row.activity.start_date()
+                            && row.activity.start_date() <= group.window_end
+                    })
+                })
+                .collect();
+            Some(Workout {
+                session,
+                canonical,
+                copies,
+            })
         })
-        .take(limit)
         .collect()
 }
 
@@ -431,236 +672,6 @@ fn is_copy_of(recording: &Activity, session: &Activity) -> bool {
         && recording.id() == session.id()
         && recording.start_date() == session.start_date()
         && recording.duration_seconds() == session.duration_seconds()
-}
-
-/// Whether a last successful fetch is past the bands the chat path refreshes
-/// at: the same test `refresh_stale_head` applies per provider.
-fn is_stale(as_of: Option<DateTime<Utc>>) -> bool {
-    !matches!(
-        DataFreshness::from_last_sync(as_of),
-        DataFreshness::Fresh | DataFreshness::Recent
-    )
-}
-
-/// The providers a Home load would refresh, each judged by its own last
-/// successful fetch.
-#[derive(Debug, Default)]
-struct StaleRefreshPlan {
-    /// Active connections whose own head needs a refresh.
-    active: Vec<String>,
-    /// Scrape sessions flagged `needs_reauth` whose own head needs a refresh:
-    /// each is refreshed only when its throttled retry can be claimed.
-    flagged: Vec<String>,
-    /// The newest failed refresh among the judged providers that no good
-    /// sync of the same provider has superseded.
-    failure: Option<SyncFailure>,
-}
-
-/// Judge each of the athlete's connections by its own last successful fetch,
-/// and find the newest refresh of theirs that failed since.
-///
-/// Per provider, not across them: the newest fetch of any provider says
-/// nothing about another's, and judging by it let a fresh connection hide a
-/// stale one for as long as the fresh one kept syncing. An active connection
-/// is refreshed when its head is stale, or when its last refresh failed —
-/// whoever made that refresh, a Home load, a chat turn or the webhook, the
-/// head it did not bring in is missing — unless that failure's pause is not
-/// over ([`sync_backoff_until`]) and this is not the athlete's own `retry`.
-/// A connection flagged `needs_reauth` is refreshed on the same terms only
-/// when it is a scrape session ([`retries_flagged_session`]), since one
-/// failed read can be the scraper's and not the session's; a flagged OAuth
-/// grant is dead until the athlete reconnects, and a revoked connection is
-/// theirs to restore.
-async fn stale_refresh_plan(
-    resources: &Arc<ServerContext>,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    connections: Vec<ProviderConnection>,
-    retry: bool,
-) -> AppResult<StaleRefreshPlan> {
-    let cache = &resources.repos().activity_cache;
-    let now = Utc::now();
-    let mut plan = StaleRefreshPlan::default();
-    for connection in connections {
-        let bucket = match connection.status {
-            ConnectionStatus::Active => &mut plan.active,
-            ConnectionStatus::NeedsReauth if retries_flagged_session(&connection.provider) => {
-                &mut plan.flagged
-            }
-            ConnectionStatus::NeedsReauth | ConnectionStatus::Revoked => continue,
-        };
-        let last_sync = cache
-            .latest_activity_sync(user_id, &tenant_id, &connection.provider)
-            .await?;
-        let recorded = cache
-            .latest_activity_fetch_failure(user_id, &tenant_id, &connection.provider)
-            .await?;
-        let failed = recorded
-            .filter(|failure| last_sync.is_none_or(|synced| failure.failed_at > synced))
-            .map(|failure| failure.failed_at);
-        if let Some(failed_at) = failed {
-            if plan
-                .failure
-                .as_ref()
-                .is_none_or(|newest| failed_at > newest.failed_at)
-            {
-                let provider = user_facing_name(&connection.provider);
-                plan.failure = Some(SyncFailure {
-                    provider: provider.to_owned(),
-                    provider_name: resources
-                        .fitness
-                        .provider_registry
-                        .get_descriptor(provider)
-                        .map_or_else(|| provider.to_owned(), |d| d.display_name().to_owned()),
-                    failed_at,
-                    last_synced_at: last_sync,
-                });
-            }
-        }
-        let due = is_stale(last_sync) || failed.is_some();
-        let paused = !retry && sync_backoff_until(recorded, last_sync, now).is_some();
-        if due && !paused {
-            bucket.push(connection.provider);
-        }
-    }
-    Ok(plan)
-}
-
-/// Start the background refresh `plan` calls for, and report whether the page
-/// is stale.
-///
-/// Stale means a provider this load refreshes was past the freshness bands:
-/// an active connection with a stale head, or a flagged scrape session whose
-/// retry this load claimed. The client then asks once more a little later.
-///
-/// One refresh per `(user, tenant)` at a time, shared with every other
-/// stale-cache revalidation: a Home page reloaded ten times while a two-minute
-/// scrape runs starts it once, and every one of those loads still says stale.
-/// A flagged session's retry is claimed only by the load that starts the
-/// refresh, so the claim is never spent on a refresh that does not run; it is
-/// throttled across every caller and replica
-/// ([`claim_scrape_session_retry`]). Tracked on the server's drain tracker so
-/// shutdown waits for it, and capped at the shared revalidation timeout so a
-/// hung scrape frees the slot.
-async fn start_stale_refresh(
-    resources: &Arc<ServerContext>,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    plan: StaleRefreshPlan,
-) -> bool {
-    let StaleRefreshPlan {
-        active: mut providers,
-        flagged,
-        ..
-    } = plan;
-    if providers.is_empty() && flagged.is_empty() {
-        return false;
-    }
-    let Some(slot) = RevalidationRegistry::global().try_claim((user_id, tenant_id)) else {
-        debug!(%user_id, "home: activity refresh already in flight; not starting another");
-        return !providers.is_empty();
-    };
-    let runtime = into_runtime(resources);
-    for provider in flagged {
-        if claim_scrape_session_retry(&runtime, user_id, tenant_id, &provider).await {
-            providers.push(provider);
-        }
-    }
-    if providers.is_empty() {
-        return false;
-    }
-    resources.common.turns.spawn(async move {
-        let started_at = Utc::now();
-        let bound = revalidation_timeout();
-        let mut checked = Vec::with_capacity(providers.len());
-        let refresh = refresh_providers(&runtime, user_id, tenant_id, &providers, &mut checked);
-        if timeout(bound, refresh).await.is_err() {
-            warn!(
-                %user_id,
-                timeout_secs = bound.as_secs(),
-                "home: activity refresh timed out; releasing its slot"
-            );
-            let unanswered = TimedOut {
-                providers: &providers,
-                checked: &checked,
-                started_at,
-            };
-            record_timed_out(&runtime, user_id, tenant_id, unanswered).await;
-        }
-        drop(slot);
-    });
-    true
-}
-
-/// Re-read each provider's recent head, one after the other, naming each in
-/// `checked` once its read has finished — succeeded or failed, it has
-/// recorded its own outcome. The plan has already judged each one due, so
-/// the head is read whatever its freshness ([`refresh_head`]).
-async fn refresh_providers(
-    runtime: &Arc<dyn ToolRuntime>,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    providers: &[String],
-    checked: &mut Vec<String>,
-) {
-    for provider in providers {
-        // The refresh writes through to the cache; the rows it returns are
-        // what the next request reads, so nothing is kept here.
-        let refreshed = refresh_head(runtime, provider, user_id, tenant_id).await;
-        debug!(
-            %user_id,
-            provider = %provider,
-            fetched = refreshed.map_or(0, |rows| rows.len()),
-            "home: provider head checked"
-        );
-        checked.push(provider.clone());
-    }
-}
-
-/// The providers a bounded refresh was asked to read, those it finished, and
-/// when it began.
-struct TimedOut<'a> {
-    providers: &'a [String],
-    checked: &'a [String],
-    started_at: DateTime<Utc>,
-}
-
-/// Record a failed sync for every provider the refresh did not finish before
-/// its timeout: the read in flight was dropped, so nothing else records that
-/// it never answered, and the ones after it were never asked — the sync this
-/// load started did not happen for them either. A provider whose sync has
-/// landed since the refresh began is left alone: the read that was cut off
-/// had already written its rows and its mark, and a failure recorded after
-/// them would report a sync that worked as one that did not. Best-effort,
-/// like every failure record.
-async fn record_timed_out(
-    runtime: &Arc<dyn ToolRuntime>,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    unanswered: TimedOut<'_>,
-) {
-    let cache = &runtime.repos().activity_cache;
-    for provider in unanswered
-        .providers
-        .iter()
-        .filter(|p| !unanswered.checked.contains(p))
-    {
-        let synced = cache
-            .latest_activity_sync(user_id, &tenant_id, provider)
-            .await
-            .unwrap_or(None);
-        if synced.is_some_and(|synced| synced >= unanswered.started_at) {
-            continue;
-        }
-        record_sync_failure(
-            runtime,
-            user_id,
-            tenant_id,
-            provider,
-            ActivityFetchFailure::FetchError,
-        )
-        .await;
-    }
 }
 
 async fn get_activity_route(
@@ -683,23 +694,242 @@ async fn get_activity_route(
             provider: &stored_provider,
             activity: &activity,
         },
-        query.retry,
+        RouteAsk {
+            retry: query.retry,
+            burst: query.burst,
+        },
     )
     .await?;
     Ok(Json(match outcome {
         Ok(track) => ActivityRouteResponse {
-            route: Some(route_view(
-                track,
-                activity.name(),
-                user_facing_name(&provider),
-            )),
+            route: Some(route_view(track, user_facing_name(&provider))),
             reason: None,
+            settles_within_secs: None,
         },
         Err(reason) => ActivityRouteResponse {
             route: None,
             reason: Some(reason.as_str()),
+            settles_within_secs: match reason {
+                RouteMiss::Pending {
+                    settles_within_secs,
+                } => Some(settles_within_secs),
+                RouteMiss::Settled(_) | RouteMiss::Unavailable => None,
+            },
         },
     }))
+}
+
+/// One workout as its view shows it, reading its splits and laps from the
+/// provider when no copy of it holds a detail read that still answers it
+/// ([`read_activity_detail`]).
+async fn get_activity_detail(
+    State(resources): State<Arc<ServerContext>>,
+    auth: AuthenticatedUser,
+    Path((provider, activity_id)): Path<(String, String)>,
+) -> AppResult<Json<ActivityDetailResponse>> {
+    let user_id = auth.user_id;
+    let tenant_id = active_tenant(&auth)?;
+    // The ownership check: the caller's own row, in this tenant, or 404.
+    let (stored_provider, activity) =
+        owned_cached_activity(&resources, user_id, tenant_id, &provider, &activity_id).await?;
+    let asked = ActivityAsked {
+        user_id,
+        tenant_id,
+        provider: &provider,
+        activity_id: &activity_id,
+        start: activity.start_date(),
+    };
+    let WorkoutView {
+        mut view,
+        unread,
+        copies,
+    } = activity_view(&resources, asked).await?;
+    let conversation_id =
+        workout_conversation(&resources, asked, &stored_provider, &copies).await?;
+    view.conversation_id.clone_from(&conversation_id);
+    let Some((unread_provider, unread_activity)) = unread else {
+        return Ok(Json(view));
+    };
+    let runtime = into_runtime(&resources);
+    let cached = CachedActivityRef {
+        provider: &unread_provider,
+        activity: &unread_activity,
+    };
+    if !read_activity_detail(
+        &runtime,
+        &resources.common.turns,
+        tenant_id,
+        user_id,
+        cached,
+    )
+    .await
+    {
+        return Ok(Json(view));
+    }
+    let mut view = activity_view(&resources, asked).await?.view;
+    view.conversation_id = conversation_id;
+    Ok(Json(view))
+}
+
+/// The thread a view opened about the workout: the one linked to the asked
+/// activity, else the one linked to any other copy of the same workout.
+///
+/// The Home row, and so the view a tap opens, is addressed by the copy whose
+/// route it draws ([`route_copy`]), and that copy changes when a copy's route
+/// read settles: a watch recording found to hold no GPS falls behind a manual
+/// entry of the same run. A thread linked while the row named one copy is
+/// found again while it names another.
+///
+/// # Errors
+///
+/// Returns the repository error when a link cannot be read.
+async fn workout_conversation(
+    resources: &Arc<ServerContext>,
+    asked: ActivityAsked<'_>,
+    stored_provider: &str,
+    copies: &[(String, String)],
+) -> AppResult<Option<String>> {
+    let links = &resources.repos().activity_conversations;
+    let asked_key = (stored_provider, asked.activity_id);
+    let keys = iter::once(asked_key).chain(
+        copies
+            .iter()
+            .map(|(provider, id)| (provider.as_str(), id.as_str()))
+            .filter(|key| *key != asked_key),
+    );
+    for (provider, activity_id) in keys {
+        if let Some(conversation_id) = links
+            .get_activity_conversation(&asked.tenant_id, asked.user_id, provider, activity_id)
+            .await?
+        {
+            return Ok(Some(conversation_id));
+        }
+    }
+    Ok(None)
+}
+
+/// The activity a view asked for, and whose.
+#[derive(Debug, Clone, Copy)]
+struct ActivityAsked<'a> {
+    user_id: Uuid,
+    tenant_id: TenantId,
+    /// The provider as the path names it.
+    provider: &'a str,
+    activity_id: &'a str,
+    /// When the caller's cached copy of it started.
+    start: DateTime<Utc>,
+}
+
+/// The view of the workout holding the asked activity, read from the cache.
+struct WorkoutView {
+    /// The view, its `conversation_id` not yet looked up.
+    view: ActivityDetailResponse,
+    /// The copy to read the workout's detail from, when no copy of it holds a
+    /// detail read that still answers it and the merged session carries
+    /// neither splits nor laps.
+    unread: Option<(String, Activity)>,
+    /// Every copy of the workout, as `(stored provider, activity id)`.
+    copies: Vec<(String, String)>,
+}
+
+/// The view of the workout holding the asked activity, from the cache alone.
+///
+/// # Errors
+///
+/// Returns the repository error when the rows cannot be read, and
+/// [`AppError::not_found`] when no merged workout holds the activity.
+async fn activity_view(
+    resources: &Arc<ServerContext>,
+    asked: ActivityAsked<'_>,
+) -> AppResult<WorkoutView> {
+    // The workout's other copies start within the merger's window of this
+    // one, so the rows around it merge into the same session the Home list
+    // shows for it.
+    let window = Duration::hours(DETAIL_MERGE_WINDOW_HOURS);
+    let rows = resources
+        .repos()
+        .activity_cache
+        .get_cached_activity_rows(
+            asked.user_id,
+            &asked.tenant_id,
+            asked.start - window,
+            asked.start + window,
+            DETAIL_MERGE_ROW_LIMIT,
+        )
+        .await?;
+    let distinct = distinct_rows(rows);
+    let facing = user_facing_name(asked.provider);
+    let all = workouts(&distinct);
+    let workout = all
+        .iter()
+        .find(|workout| workout.holds(facing, asked.activity_id))
+        .ok_or_else(|| {
+            AppError::not_found(format!(
+                "activity {} from {}",
+                asked.activity_id, asked.provider
+            ))
+        })?;
+    let route_row = workout.route_row();
+    let unread = workout
+        .detail_unread()
+        .then(|| (route_row.provider.clone(), route_row.activity.clone()));
+    let copies = iter::once(workout.canonical)
+        .chain(workout.copies.iter().copied())
+        .map(|row| (row.provider.clone(), row.activity.id().to_owned()))
+        .collect();
+    Ok(WorkoutView {
+        view: ActivityDetailResponse::from_session(route_row, &workout.session),
+        unread,
+        copies,
+    })
+}
+
+/// Link the conversation an activity's view opened to the activity, or
+/// forget the link.
+///
+/// The link is filed under the provider key the caller's cached row is stored
+/// under — the key the detail read looks it up by, and the one the
+/// provider-disconnect purge deletes it with.
+///
+/// # Errors
+///
+/// Returns [`AppError::not_found`] when the caller holds no such activity, or
+/// when the conversation is not the caller's own in this tenant.
+async fn put_activity_conversation(
+    State(resources): State<Arc<ServerContext>>,
+    auth: AuthenticatedUser,
+    Path((provider, activity_id)): Path<(String, String)>,
+    Json(link): Json<ActivityConversationLink>,
+) -> AppResult<Json<ActivityConversationLink>> {
+    let user_id = auth.user_id;
+    let tenant_id = active_tenant(&auth)?;
+    let (stored_provider, _) =
+        owned_cached_activity(&resources, user_id, tenant_id, &provider, &activity_id).await?;
+    let links = &resources.repos().activity_conversations;
+    match link.conversation_id.as_deref() {
+        Some(conversation_id) => {
+            let linked = links
+                .link_activity_conversation(
+                    &tenant_id,
+                    user_id,
+                    &stored_provider,
+                    &activity_id,
+                    conversation_id,
+                )
+                .await?;
+            if !linked {
+                return Err(AppError::not_found(format!(
+                    "conversation {conversation_id}"
+                )));
+            }
+        }
+        None => {
+            links
+                .unlink_activity_conversation(&tenant_id, user_id, &stored_provider, &activity_id)
+                .await?;
+        }
+    }
+    Ok(Json(link))
 }
 
 /// The caller's own cached activity, with the provider key its row is stored
@@ -731,8 +961,10 @@ async fn owned_cached_activity(
     )))
 }
 
-/// The track in the shape both clients' map draws. Home marks no climbs.
-fn route_view(track: RouteTrack, name: &str, provider: &str) -> RouteView {
+/// The track in the shape both clients' map draws. Home marks no climbs, and
+/// the map carries no title: the Home row and the activity view both name the
+/// activity above it already.
+fn route_view(track: RouteTrack, provider: &str) -> RouteView {
     RouteView {
         coordinates: track.coordinates,
         bounds: ViewBounds {
@@ -744,7 +976,7 @@ fn route_view(track: RouteTrack, name: &str, provider: &str) -> RouteView {
         elevation_meters: track.elevation_meters,
         distances_meters: track.distances_meters,
         climbs: Vec::new(),
-        title: (!name.trim().is_empty()).then(|| name.to_owned()),
+        title: None,
         source_tool: provider.to_owned(),
     }
 }

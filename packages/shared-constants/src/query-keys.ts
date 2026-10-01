@@ -60,6 +60,9 @@ export const QUERY_KEYS = {
      */
     activityRoute: (provider: string, activityId: string) =>
       ['home', 'activity-route', provider, activityId] as const,
+    /** One workout's own view: its figures, splits and laps. */
+    activityDetail: (provider: string, activityId: string) =>
+      ['home', 'activity-detail', provider, activityId] as const,
     /** Every activity's route: the prefix a pull to refresh or a persister filters on. */
     activityRoutes: ['home', 'activity-route'] as const,
     /**

@@ -34,17 +34,9 @@ import { useProviderSkipped } from '../../hooks/useProviderSkipped';
 import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
 import { ConnectPreview } from '../../components/ConnectPreview';
 import { useTranslation } from '@pierre/i18n';
-import { noticeRequired, sciotteTargetForBackend } from '@pierre/shared-constants';
+import { SCIOTTE_LOGIN_PRESETS, noticeRequired, sciotteTargetForBackend } from '@pierre/shared-constants';
 import type { SciotteTarget } from '@pierre/shared-types';
 import { describeApiError } from '@pierre/ui-logic';
-
-/** The brand each credential-login target is named by once it connects. */
-const SCIOTTE_BRAND_KEY: Record<SciotteTarget, string> = {
-  strava: 'app.brandStrava',
-  garmin: 'app.brandGarmin',
-  trainingpeaks: 'app.brandTrainingPeaks',
-  coros: 'app.brandCoros',
-};
 
 /**
  * Backed by the same source of truth (`provider_connections`) as the
@@ -94,8 +86,9 @@ export function OnboardingConnectScreen() {
   // stranded if they background the app mid-flow.
   const [awaitingOAuthFor, setAwaitingOAuthFor] = useState<string | null>(null);
   // Bridges the gap between a successful connect and the RootLayoutNav route
-  // flip: renders the "Provider connected — preparing your dashboard…"
-  // spinner instead of the static cards while onboarding-status refetches.
+  // flip: renders the "Strava connected — preparing your dashboard…" spinner,
+  // naming the provider held here, instead of the static cards while
+  // onboarding-status refetches.
   const [justConnected, setJustConnected] = useState<string | null>(null);
 
   const loadStatus = useCallback(async () => {
@@ -124,12 +117,10 @@ export function OnboardingConnectScreen() {
     if (!justConnected) return undefined;
     const timer = setTimeout(() => {
       setJustConnected(null);
-      setConnectError(
-        'Couldn’t confirm the connection. If you completed the connect flow, pull to refresh; otherwise try again.',
-      );
+      setConnectError(t('onboarding.connectionUnconfirmedPullToRefresh'));
     }, 30_000);
     return () => clearTimeout(timer);
-  }, [justConnected]);
+  }, [justConnected, t]);
 
   const finalizeConnection = useCallback(
     async (providerName: string) => {
@@ -224,7 +215,7 @@ export function OnboardingConnectScreen() {
 
   /** The connect `handleConnect` resumes once any OAuth notice is accepted. */
   const continueConnect = (provider: ExtendedProviderStatus, tosConsent: boolean) => {
-    // The Sciotte card is the user-facing t('app.brandStrava') card. While shared-app OAuth
+    // The Sciotte card is the user-facing Strava card. While shared-app OAuth
     // seats remain the server recommends `oauth`, so connect via the official
     // Strava OAuth flow. Once the athlete cap is reached the server recommends
     // `mirror`, and we silently fall back to the Sciotte credential login.
@@ -299,7 +290,7 @@ export function OnboardingConnectScreen() {
               className="text-md font-medium text-primary"
               onPress={() => handleConnect(provider)}
               accessibilityRole="button"
-              accessibilityLabel={`Connect ${provider.display_name}`}
+              accessibilityLabel={t('app.connectProvider', { provider: provider.display_name })}
               testID={`provider-action-${provider.provider}`}
             >
               {t('app.connect')}
@@ -317,7 +308,7 @@ export function OnboardingConnectScreen() {
       <SafeAreaView className="flex-1 bg-background-primary items-center justify-center px-8">
         <ActivityIndicator size="large" color={colors.tokens.primary} />
         <Text className="mt-4 text-base font-medium text-text-primary text-center">
-          {justConnected} connected — preparing your dashboard…
+          {t('onboarding.providerConnectedPreparing', { provider: justConnected })}
         </Text>
       </SafeAreaView>
     );
@@ -416,7 +407,7 @@ export function OnboardingConnectScreen() {
         visible={sciotteTarget !== null}
         onClose={() => setSciotteTarget(null)}
         onConnected={() => {
-          const friendly = t(SCIOTTE_BRAND_KEY[sciotteTarget ?? 'strava']);
+          const friendly = t(SCIOTTE_LOGIN_PRESETS[sciotteTarget ?? 'strava'].labelKey);
           setSciotteTarget(null);
           void finalizeConnection(friendly);
         }}

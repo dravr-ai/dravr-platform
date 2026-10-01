@@ -317,7 +317,7 @@ describe('carnet #55/#52 — Group info admin controls + peer consent', () => {
     });
     expect(getByText('HARRI-7X2')).toBeTruthy();
     expect(getByText('Member invite · used 3×')).toBeTruthy();
-    expect(getByText('Invites (1)')).toBeTruthy();
+    expect(getByText('Active Invites (1)')).toBeTruthy();
 
     fireEvent.press(getByTestId('deactivate-invite-invite-1'));
 

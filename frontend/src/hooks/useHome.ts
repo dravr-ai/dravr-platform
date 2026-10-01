@@ -17,7 +17,7 @@ import type {
   TrainingPlanResponse,
 } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
-import { classifyApiError } from '@pierre/ui-logic';
+import { classifyApiError, readActivityRoute } from '@pierre/ui-logic';
 import { athleteApi, providersApi } from '../services/api';
 
 /** What the Home page reads from the recent-activities query. */
@@ -185,8 +185,8 @@ export function routeAnswerStaleTime(query: Query<ActivityRouteResponse>): numbe
 /**
  * When an `unavailable` route answer is asked again on its own: after each
  * wait of `HOME_ROUTE_UNAVAILABLE_RECHECK_DELAYS_MS`, counted in answers, and
- * then never — a schedule with an end, which the server's detached read makes
- * worth following, and never an interval.
+ * then never — a schedule with an end, which picks up a route a read made
+ * since has stored over the `unavailable`, and never an interval.
  */
 export function routeRecheckInterval(query: Query<ActivityRouteResponse>): number | false {
   if (query.state.data?.reason !== 'unavailable') {
@@ -208,6 +208,17 @@ export interface ActivityRouteState {
   retry: () => void;
 }
 
+/** How a caller of {@link useActivityRoute} reads the route. */
+export interface ActivityRouteOptions {
+  /**
+   * The caller is a Home list row, whose page asks for all its routes in one
+   * burst: the server lets the burst queue before it reads, so the newest
+   * activity is read first. An activity view's own map leaves it unset and is
+   * read at once; the athlete's retry never carries it.
+   */
+  burst?: boolean;
+}
+
 /**
  * One activity's route, or the reason there is none.
  *
@@ -216,15 +227,28 @@ export interface ActivityRouteState {
  * which means the route was read once and the recording held no GPS. An
  * activity with `has_gps: true` may never have had its route read, so this
  * answer, not the flag, is what says whether there is a track to draw.
- * A drawn route is kept for the whole session; `unavailable`, a read that
- * has not settled anything yet, is asked again on its own a bounded number
- * of times ({@link routeRecheckInterval}), on focus, and at the retry.
+ * A read the server answers `pending` — queued behind the athlete's other
+ * route reads, or still running — is asked again, for as long as the bound
+ * each `pending` names, and stays loading ({@link readActivityRoute}); the
+ * server hands its turn to the newest activity of a Home burst
+ * (`options.burst`) first, so the page's big map is read before its
+ * sketches. A
+ * drawn route is kept for the whole session; `unavailable`, a read that
+ * finished without settling anything, is asked again on its own a bounded
+ * number of times ({@link routeRecheckInterval}), on focus, and at the retry.
  */
-export function useActivityRoute(provider: string, activityId: string, enabled: boolean): ActivityRouteState {
+export function useActivityRoute(
+  provider: string,
+  activityId: string,
+  enabled: boolean,
+  options: ActivityRouteOptions = {},
+): ActivityRouteState {
+  const burst = options.burst === true;
   const queryClient = useQueryClient();
   const query = useQuery<ActivityRouteResponse>({
     queryKey: QUERY_KEYS.home.activityRoute(provider, activityId),
-    queryFn: () => athleteApi.getActivityRoute(provider, activityId),
+    queryFn: ({ signal }) =>
+      readActivityRoute(() => athleteApi.getActivityRoute(provider, activityId, { burst, signal }), signal),
     enabled,
     staleTime: routeAnswerStaleTime,
     refetchInterval: routeRecheckInterval,
@@ -234,7 +258,11 @@ export function useActivityRoute(provider: string, activityId: string, enabled: 
     queryClient
       .fetchQuery({
         queryKey: QUERY_KEYS.home.activityRoute(provider, activityId),
-        queryFn: () => athleteApi.getActivityRoute(provider, activityId, { retry: true }),
+        queryFn: ({ signal }) =>
+          readActivityRoute(
+            () => athleteApi.getActivityRoute(provider, activityId, { retry: true, signal }),
+            signal,
+          ),
         staleTime: 0,
       })
       .catch(() => undefined);

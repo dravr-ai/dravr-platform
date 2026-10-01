@@ -23,6 +23,7 @@ import { PostInstallHint } from './PostInstallHint';
 import { Section, Row } from '../../components/ui';
 import type { StoreAgent, StoreAgentDetail } from '../../types';
 import { useTranslation } from '@pierre/i18n';
+import { formatCount, formatDate } from '@pierre/chat-utils';
 import { coachCategoryLabelKey } from '@pierre/shared-constants';
 
 /**
@@ -42,7 +43,7 @@ interface InstalledCopy {
   handle: string | undefined;
 }
 export function StoreCoachDetailScreen() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const colors = useThemeColors();
   // Still used by the action bar's Edit/Installed buttons below — the two
   // stacked prompt/system-prompt/metadata blocks lost their card fill per
@@ -272,11 +273,11 @@ export function StoreCoachDetailScreen() {
         {/* Metadata */}
         <View className="mt-8">
           <Section title={t('discover.detailsSection')}>
-            <Row title={t('discover.tokenCount')} value={String(coach.token_count)} compact last={!coach.published_at} />
+            <Row title={t('discover.tokenCount')} value={formatCount(coach.token_count, language)} compact last={!coach.published_at} />
             {coach.published_at && (
               <Row
                 title={t('discover.publishedOn')}
-                value={new Date(coach.published_at).toLocaleDateString()}
+                value={formatDate(coach.published_at, language)}
                 compact
                 last
               />

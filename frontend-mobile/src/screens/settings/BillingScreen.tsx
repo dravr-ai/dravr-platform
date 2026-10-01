@@ -16,8 +16,20 @@ import {
 } from 'react-native';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import type { PaidPlanTier } from '@pierre/shared-types';
-import { QUERY_KEYS, hasPaymentProblem, planTierLabelKey } from '@pierre/shared-constants';
-import { formatCompactNumber } from '@pierre/chat-utils';
+import {
+  PLAN_INCLUDED_USAGE_LABEL_KEY,
+  PLAN_LIMIT_ROWS,
+  PLAN_PER_MONTH_KEY,
+  PLAN_UNLIMITED_KEY,
+  PLAN_INCLUDED_CUSTOM_KEY,
+  QUERY_KEYS,
+  billingLabel,
+  hasPaymentProblem,
+  planTierLabelKey,
+  quotaCounterLabelKey,
+  subscriptionStatusLabelKey,
+} from '@pierre/shared-constants';
+import { formatCompactNumber, formatCount, formatDate, formatMajorCurrency, formatMinorCurrency } from '@pierre/chat-utils';
 import { useAuth } from '../../contexts/AuthContext';
 import { billingApi } from '../../services/api';
 import { trackMobile } from '../../services/analytics';
@@ -26,7 +38,7 @@ import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
 
 export function BillingScreen(): React.ReactElement {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { user } = useAuth();
   const { flags: featureFlags } = useFeatureFlags();
   const showBillingHeader = featureFlags[FEATURE_KEYS.billingHeader];
@@ -89,6 +101,7 @@ export function BillingScreen(): React.ReactElement {
   const tierLabelKey = planTierLabelKey(tier);
   const tierLabel = tierLabelKey ? t(tierLabelKey) : tier;
   const paymentProblem = hasPaymentProblem(sub?.status);
+  const statusLabel = sub ? billingLabel(sub.status, subscriptionStatusLabelKey, t) : '';
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
@@ -98,7 +111,7 @@ export function BillingScreen(): React.ReactElement {
           <Text className="text-sm" style={styles.muted}>
             {t('app.lastPaymentFailed', {
               plan: tierLabel,
-              status: sub?.status ?? '',
+              status: statusLabel,
             })}
           </Text>
           <TouchableOpacity
@@ -123,7 +136,7 @@ export function BillingScreen(): React.ReactElement {
         ) : sub ? (
           <View style={styles.row}>
             <Text style={styles.label}>{t('app.status')}</Text>
-            <Text style={styles.value}>{sub.status}</Text>
+            <Text style={styles.value}>{statusLabel}</Text>
           </View>
         ) : (
           <Text className="text-sm" style={styles.muted}>
@@ -176,12 +189,13 @@ export function BillingScreen(): React.ReactElement {
           <ActivityIndicator />
         ) : plansQuery.data ? (
           plansQuery.data.plans.map((plan) => {
-            const cap = (v: number): string => (plan.unlimited ? t('app.unlimited') : formatCompactNumber(v));
+            const cap = (v: number): string =>
+              plan.unlimited ? t(PLAN_UNLIMITED_KEY) : formatCompactNumber(v, t, language);
             const includedUsage =
               plan.included_usd != null
-                ? `$${plan.included_usd}/mo`
+                ? t(PLAN_PER_MONTH_KEY, { amount: formatMajorCurrency(plan.included_usd, 'usd', language) })
                 : plan.unlimited
-                ? t('app.custom')
+                ? t(PLAN_INCLUDED_CUSTOM_KEY)
                 : '—';
             const isCurrent = plan.tier === tier;
             return (
@@ -193,15 +207,10 @@ export function BillingScreen(): React.ReactElement {
                   <Text className="text-base font-semibold" style={styles.planTitle}>{plan.label}</Text>
                   {isCurrent && <Text style={styles.tierBadge}>{t('app.current')}</Text>}
                 </View>
-                {(
-                  [
-                    ['Messages / day', cap(plan.daily_messages)],
-                    ['Tokens / day', cap(plan.daily_tokens)],
-                    ['Agents', cap(plan.max_active_agents)],
-                    ['Tool calls / day', cap(plan.daily_tool_calls)],
-                    ['Included usage', includedUsage],
-                  ] as Array<[string, string]>
-                ).map(([planLabel, planValue]) => (
+                {[
+                  ...PLAN_LIMIT_ROWS.map((row): [string, string] => [t(row.labelKey), cap(plan[row.field])]),
+                  [t(PLAN_INCLUDED_USAGE_LABEL_KEY), includedUsage] as [string, string],
+                ].map(([planLabel, planValue]) => (
                   <View key={planLabel} style={styles.row}>
                     <Text style={styles.label}>{planLabel}</Text>
                     <Text style={styles.value}>{planValue}</Text>
@@ -246,9 +255,9 @@ export function BillingScreen(): React.ReactElement {
             return (
               <View key={c.counter_type} style={styles.quotaRow}>
                 <View style={styles.quotaTopRow}>
-                  <Text style={styles.label}>{c.counter_type.replace(/_/g, ' ')}</Text>
+                  <Text style={styles.label}>{billingLabel(c.counter_type, quotaCounterLabelKey, t)}</Text>
                   <Text style={styles.value}>
-                    {c.current.toLocaleString()} / {c.limit === Number.MAX_SAFE_INTEGER ? '∞' : c.limit.toLocaleString()}
+                    {formatCount(c.current, language)} / {c.limit === Number.MAX_SAFE_INTEGER ? '∞' : formatCount(c.limit, language)}
                   </Text>
                 </View>
                 <View style={styles.barTrack}>
@@ -282,15 +291,12 @@ export function BillingScreen(): React.ReactElement {
               disabled={!inv.hosted_invoice_url}
             >
               <Text style={styles.value}>
-                {inv.created ? new Date(inv.created * 1000).toLocaleDateString() : '—'}
+                {inv.created ? formatDate(new Date(inv.created * 1000).toISOString(), language) : '—'}
               </Text>
               <Text style={styles.label}>{inv.number ?? '—'}</Text>
               <Text style={styles.value}>
                 {inv.amount_paid != null
-                  ? new Intl.NumberFormat('en-US', {
-                      style: 'currency',
-                      currency: (inv.currency ?? 'usd').toUpperCase(),
-                    }).format(inv.amount_paid / 100)
+                  ? formatMinorCurrency(inv.amount_paid, inv.currency ?? 'usd', language)
                   : '—'}
               </Text>
             </TouchableOpacity>
@@ -320,7 +326,7 @@ const styles = StyleSheet.create({
   cardTitle: { color: '#f5f5f5' },
   tierBadge: { color: '#10b981', fontWeight: '600' },
   row: { flexDirection: 'row', justifyContent: 'space-between' },
-  label: { color: '#a1a1aa', textTransform: 'capitalize' },
+  label: { color: '#a1a1aa' },
   value: { color: '#f5f5f5' },
   muted: { color: '#a1a1aa' },
   fineprint: { color: '#a1a1aa' },

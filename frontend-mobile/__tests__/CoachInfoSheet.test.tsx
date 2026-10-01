@@ -10,6 +10,7 @@ import { fireEvent } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { COMMAND_DRAFTS } from '@pierre/shared-constants';
 import type { Agent } from '@pierre/shared-types';
+import { i18n } from '@pierre/i18n';
 
 const mockPush = jest.fn();
 jest.mock('expo-router', () => ({
@@ -62,12 +63,27 @@ describe('CoachInfoSheet', () => {
   });
 
   it('names the agent and teaches the handle a mention would use', async () => {
-    const { findByTestId, getByTestId, getByText } = renderSheet();
+    const { findByTestId, getByTestId } = renderSheet();
 
     expect(await findByTestId('coach-info-handle')).toHaveTextContent('@coach-tempo');
     expect(getByTestId('coach-info-title')).toHaveTextContent('Coach Tempo');
     expect(getByTestId('coach-info-description')).toHaveTextContent('Threshold work and long runs.');
-    expect(getByText(/Mention @coach-tempo in any chat/)).toBeTruthy();
+    expect(getByTestId('coach-info-mention')).toHaveTextContent(
+      'Mention @coach-tempo in any chat to bring this agent in for one turn.',
+    );
+  });
+
+  it('teaches the handle in one French sentence, never an English tail after a translated word', async () => {
+    await i18n.changeLanguage('fr');
+    try {
+      const { findByTestId } = renderSheet();
+
+      expect(await findByTestId('coach-info-mention')).toHaveTextContent(
+        'Mentionne @coach-tempo dans n’importe quel chat pour faire intervenir cet agent le temps d’une réponse.',
+      );
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('detaches the agent by sending /agent remove', async () => {

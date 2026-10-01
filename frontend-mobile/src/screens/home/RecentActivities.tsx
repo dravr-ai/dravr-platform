@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The Home "Recent activities" section — the latest on a live map, the four before it with a route sketch
-// ABOUTME: No GPS in the recording, a stale cache and a failed sync are each said in words; a tap opens a chat drafted about the activity
+// ABOUTME: No GPS in the recording, a stale cache and a failed sync are each said in words; a tap opens the activity's own view
 
 import React, { useEffect } from 'react';
 import { AccessibilityInfo, ActivityIndicator, Platform, Pressable, Text, View } from 'react-native';
@@ -10,71 +10,11 @@ import type { HomeActivity, SyncFailure } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { EmptyState, Section } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
-import { useActivityRoute } from '../../hooks/useHome';
-import { LazyRouteView } from '../chat/SceneView';
+import { ActivityMap } from './ActivityMap';
 import { ActivitySketch } from './RouteSketch';
-import { activityDraft, activityFigures, instantShortDate, sportLabel, syncedAtLabel } from './homeFormat';
+import { activityFigures, instantShortDate, sportLabel, syncedAtLabel } from './homeFormat';
 
-type OpenDraft = (draft: string) => void;
-
-/** A sentence where the map would be — why there is none, or that it is on its way. */
-function MapNote({ children, testID }: { children: string; testID: string }) {
-  return (
-    <Text className="px-4 py-3 text-sm text-text-secondary" testID={testID}>
-      {children}
-    </Text>
-  );
-}
-
-/**
- * The latest activity's map. A row that says `has_gps: false` had its route
- * read once and the recording held no GPS: it says so and costs no request.
- * Every other row asks the route endpoint — its route may never have been
- * read — and the answer is what says whether there is a track: a route to
- * draw, or the reason there is none. The route arrives privacy-trimmed from
- * the server and is drawn by the chat's own route card, loaded on demand
- * behind the boundary that keeps a runtime without MapLibre (Expo Go)
- * showing a sentence instead of losing the screen.
- */
-function LatestMap({ activity }: { activity: HomeActivity }) {
-  const { t } = useTranslation();
-  const route = useActivityRoute(activity.provider, activity.id, activity.has_gps);
-
-  if (!activity.has_gps || route.reason === 'no_gps') {
-    return <MapNote testID="home-latest-no-track">{t('chat.routeNoTrack')}</MapNote>;
-  }
-  if (route.reason === 'too_short') {
-    return <MapNote testID="home-latest-too-short">{t('home.activities.routeTooShort')}</MapNote>;
-  }
-  if (route.route !== null) {
-    return (
-      <View className="px-4" testID="home-latest-map">
-        <LazyRouteView
-          route={route.route}
-          fallback={<MapNote testID="home-latest-map-loading">{t('home.activities.mapLoading')}</MapNote>}
-          unavailable={<MapNote testID="home-latest-map-unavailable">{t('home.activities.routeFailed')}</MapNote>}
-        />
-      </View>
-    );
-  }
-  // A read that failed, or one the server could not make just now
-  // (`unavailable`), is the same sentence and the same retry: neither says
-  // anything about whether the activity recorded a route. While a read is in
-  // flight — the retry's included — the map says it is loading, so a retry
-  // is seen to do something.
-  if ((route.isError || route.reason === 'unavailable') && !route.isFetching) {
-    return (
-      <EmptyState
-        action={{ label: t('common.retry'), onPress: route.retry, testID: 'home-latest-map-retry' }}
-        testID="home-latest-map-failed"
-      >
-        {t('home.activities.routeFailed')}
-      </EmptyState>
-    );
-  }
-  // No answer yet: the read is in flight, or paused while the phone is offline.
-  return <MapNote testID="home-latest-map-loading">{t('home.activities.mapLoading')}</MapNote>;
-}
+type OpenActivity = (activity: HomeActivity) => void;
 
 /** "Sat 20 Sep · Ride · 92.0 km · 3h 41m 5s" — the row's second line, its figures in mono. */
 function ActivityFacts({ activity }: { activity: HomeActivity }) {
@@ -84,7 +24,7 @@ function ActivityFacts({ activity }: { activity: HomeActivity }) {
       <Text className="font-mono tabular-nums">{instantShortDate(activity.start_date, language)}</Text>
       {' · '}
       {sportLabel(t, activity.sport_type)}
-      {activityFigures(activity).map((figure, index) => (
+      {activityFigures(t, activity, language).map((figure, index) => (
         // Positional: the figures are distance, time and climb, in that order.
         <Text key={index}>
           {' · '}
@@ -95,22 +35,21 @@ function ActivityFacts({ activity }: { activity: HomeActivity }) {
   );
 }
 
-/** One activity's words, pressable into a new chat drafted about it. */
+/** One activity's words, pressable into its own view. */
 function ActivityButton({
   activity,
-  openDraft,
+  openActivity,
   leading,
   testID,
 }: {
   activity: HomeActivity;
-  openDraft: OpenDraft;
+  openActivity: OpenActivity;
   leading?: React.ReactNode;
   testID: string;
 }) {
-  const { t, language } = useTranslation();
   return (
     <Pressable
-      onPress={() => openDraft(activityDraft(t, activity, language))}
+      onPress={() => openActivity(activity)}
       accessibilityRole="button"
       className="flex-row items-center px-4 py-2 min-h-11"
       testID={testID}
@@ -219,7 +158,8 @@ interface RecentActivitiesProps {
   syncing: boolean | null;
   /** Leave for Connections, where a provider is connected. */
   onConnect: () => void;
-  openDraft: OpenDraft;
+  /** Open the tapped activity's own view. */
+  openActivity: OpenActivity;
 }
 
 /**
@@ -248,7 +188,7 @@ export function RecentActivities({
   providerConnected,
   syncing,
   onConnect,
-  openDraft,
+  openActivity,
 }: RecentActivitiesProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
@@ -299,10 +239,10 @@ export function RecentActivities({
     body = (
       <View>
         <View testID="home-activity-latest">
-          <LatestMap activity={latest} />
+          <ActivityMap activity={latest} testIDPrefix="home-latest" burst />
           <ActivityButton
             activity={latest}
-            openDraft={openDraft}
+            openActivity={openActivity}
             testID={`home-activity-${latest.provider}-${latest.id}`}
           />
         </View>
@@ -310,7 +250,7 @@ export function RecentActivities({
           <View key={`${activity.provider}:${activity.id}`} className="border-t border-border-faint">
             <ActivityButton
               activity={activity}
-              openDraft={openDraft}
+              openActivity={openActivity}
               leading={<ActivitySketch activity={activity} />}
               testID={`home-activity-${activity.provider}-${activity.id}`}
             />

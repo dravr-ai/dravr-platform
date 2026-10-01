@@ -216,6 +216,7 @@ function Node({ node, palette }: { node: SceneNode; palette: Record<ColorToken, 
 }
 
 function ChartView({ scene, colors }: { scene: Scene; colors: ThemeColors }) {
+  const { t } = useTranslation();
   const palette = useMemo(() => paletteFor(colors), [colors]);
   const summary = scene.title ?? scene.legend.map((e) => e.label).join(', ');
 
@@ -236,7 +237,7 @@ function ChartView({ scene, colors }: { scene: Scene; colors: ThemeColors }) {
         style={{ aspectRatio: scene.view_box.width / scene.view_box.height }}
         accessible
         accessibilityRole="image"
-        accessibilityLabel={`Chart: ${summary}`}
+        accessibilityLabel={t('chat.chartAria', { summary })}
       >
         <Svg
           width="100%"
@@ -266,9 +267,6 @@ function ChartView({ scene, colors }: { scene: Scene; colors: ThemeColors }) {
           ))}
         </View>
       ) : null}
-      <Text className="mt-1 text-xs" style={{ color: colors.tokens.outline }}>
-        source: {scene.source_tool}
-      </Text>
     </View>
   );
 }
@@ -328,9 +326,6 @@ function SceneTable({ view, colors }: { view: TableView; colors: ThemeColors }) 
           ))}
         </View>
       </ScrollView>
-      <Text className="mt-1 text-xs" style={{ color: colors.tokens.outline }}>
-        source: {view.source_tool}
-      </Text>
     </View>
   );
 }

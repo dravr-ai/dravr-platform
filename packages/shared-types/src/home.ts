@@ -1,4 +1,4 @@
-// ABOUTME: Wire shapes of the athlete Home page's three reads — recent activities, one activity's route, the plan for today
+// ABOUTME: Wire shapes of the athlete Home page's reads — recent activities, one activity's view and route, the plan for today
 // ABOUTME: Mirrors the pierre-server `/api/me/...` handlers; each parser rejects a body of any other shape instead of rendering half of it
 
 import type { RouteView } from '@pierre/scene-types';
@@ -129,6 +129,95 @@ export interface ActivityRouteResponse {
   reason: ActivityRouteUnavailableReason | null;
 }
 
+/**
+ * A route answer that is not one yet: the server's 25-second bound ran out
+ * while the read waited for the athlete's provider turn behind other reads,
+ * or while the read it started was still running. Nothing was stored and
+ * nothing is known about the route — it is neither `unavailable` nor drawn —
+ * so the client asks again, and the read, once it lands, answers from the
+ * server's store. Never shown to the athlete as a reason: the map keeps
+ * loading.
+ */
+export interface ActivityRoutePending {
+  route: null;
+  reason: 'pending';
+  /**
+   * Seconds the read can still take by the server's own bounds: one
+   * provider-read bound for every read ahead of it in the athlete's turn and
+   * one for its own. The client keeps asking within it. `null` when the
+   * server named no bound.
+   */
+  settles_within_secs: number | null;
+}
+
+/**
+ * Every body `GET /api/me/activities/{provider}/{activity_id}/route` answers:
+ * a settled {@link ActivityRouteResponse}, or {@link ActivityRoutePending}.
+ */
+export type ActivityRouteAnswer = ActivityRouteResponse | ActivityRoutePending;
+
+/** One split of an activity: a uniform distance bucket the provider carved. */
+export interface ActivitySplit {
+  /** 1-based position along the activity. */
+  index: number;
+  distance_meters: number;
+  /** Stops included. */
+  elapsed_time_seconds: number;
+  /** Stops left out; null when the provider sent none. */
+  moving_time_seconds: number | null;
+  /** Net change over the split, negative downhill. */
+  elevation_difference_meters: number | null;
+  average_speed_mps: number | null;
+  average_heart_rate: number | null;
+}
+
+/** One lap of an activity, as the athlete's button or the workout marked it. */
+export interface ActivityLap {
+  /** 1-based position along the activity. */
+  index: number;
+  distance_meters: number;
+  /** Stops included. */
+  elapsed_time_seconds: number;
+  /** Stops left out; null when the provider sent none. */
+  moving_time_seconds: number | null;
+  elevation_gain_meters: number | null;
+  average_speed_mps: number | null;
+  average_heart_rate: number | null;
+  max_heart_rate: number | null;
+  average_power: number | null;
+}
+
+/**
+ * `GET /api/me/activities/{provider}/{activity_id}` — one workout as its own
+ * view shows it, from the server's activity cache.
+ *
+ * `activity` is exactly the workout's Home row: merged the same way, its
+ * `provider` and `id` those of the copy whose route it draws, so the route
+ * endpoint is asked with them. Every figure the cache does not hold is null —
+ * never estimated — and a workout without splits or laps has empty lists.
+ */
+export interface ActivityDetailResponse {
+  activity: HomeActivity;
+  /** Beats per minute. */
+  average_heart_rate: number | null;
+  max_heart_rate: number | null;
+  /** Metres per second, as the provider computed it. */
+  average_speed_mps: number | null;
+  max_speed_mps: number | null;
+  /** Watts. */
+  average_power: number | null;
+  /** Kilocalories. */
+  calories: number | null;
+  splits: ActivitySplit[];
+  laps: ActivityLap[];
+  /**
+   * The conversation the view opened about this workout, while it is still
+   * the athlete's own; null before the view's first question. Linked with
+   * `PUT …/conversation`, so the thread resumes on any device.
+   */
+  conversation_id: string | null;
+}
+
 /** `GET /api/me/training-plan?locale=xx`. */
 export interface TrainingPlanResponse {
   /**
@@ -232,6 +321,128 @@ function parseHomeActivity(value: unknown): HomeActivity | null {
     elevation_gain_meters: elevation,
     has_gps: value.has_gps,
     summary_polyline: polyline,
+  };
+}
+
+/** A value that must be a non-negative finite number. */
+function isCount(value: unknown): value is number {
+  return isFiniteNumber(value) && value >= 0;
+}
+
+function parseSplit(value: unknown): ActivitySplit | null {
+  if (!isRecord(value)) return null;
+  const moving = nullable(value.moving_time_seconds, isCount);
+  const elevation = nullable(value.elevation_difference_meters, isFiniteNumber);
+  const speed = nullable(value.average_speed_mps, isCount);
+  const heartRate = nullable(value.average_heart_rate, isCount);
+  if (
+    !Number.isInteger(value.index) ||
+    !isCount(value.distance_meters) ||
+    !isCount(value.elapsed_time_seconds) ||
+    moving === undefined ||
+    elevation === undefined ||
+    speed === undefined ||
+    heartRate === undefined
+  ) {
+    return null;
+  }
+  return {
+    index: value.index as number,
+    distance_meters: value.distance_meters,
+    elapsed_time_seconds: value.elapsed_time_seconds,
+    moving_time_seconds: moving,
+    elevation_difference_meters: elevation,
+    average_speed_mps: speed,
+    average_heart_rate: heartRate,
+  };
+}
+
+function parseLap(value: unknown): ActivityLap | null {
+  if (!isRecord(value)) return null;
+  const moving = nullable(value.moving_time_seconds, isCount);
+  const elevation = nullable(value.elevation_gain_meters, isFiniteNumber);
+  const speed = nullable(value.average_speed_mps, isCount);
+  const heartRate = nullable(value.average_heart_rate, isCount);
+  const maxHeartRate = nullable(value.max_heart_rate, isCount);
+  const power = nullable(value.average_power, isCount);
+  if (
+    !Number.isInteger(value.index) ||
+    !isCount(value.distance_meters) ||
+    !isCount(value.elapsed_time_seconds) ||
+    moving === undefined ||
+    elevation === undefined ||
+    speed === undefined ||
+    heartRate === undefined ||
+    maxHeartRate === undefined ||
+    power === undefined
+  ) {
+    return null;
+  }
+  return {
+    index: value.index as number,
+    distance_meters: value.distance_meters,
+    elapsed_time_seconds: value.elapsed_time_seconds,
+    moving_time_seconds: moving,
+    elevation_gain_meters: elevation,
+    average_speed_mps: speed,
+    average_heart_rate: heartRate,
+    max_heart_rate: maxHeartRate,
+    average_power: power,
+  };
+}
+
+/** Every item of `value` read by `parse`, or null when it is not a list or one item is malformed. */
+function parseList<T>(value: unknown, parse: (item: unknown) => T | null): T[] | null {
+  if (!Array.isArray(value)) return null;
+  const items: T[] = [];
+  for (const item of value) {
+    const parsed = parse(item);
+    if (parsed === null) return null;
+    items.push(parsed);
+  }
+  return items;
+}
+
+/**
+ * Read a `GET /api/me/activities/{provider}/{activity_id}` body.
+ *
+ * Returns `null` for any other shape — a malformed split included: a figure
+ * the view cannot trust is a contract bug to surface, not a row to drop.
+ */
+export function parseActivityDetailResponse(body: unknown): ActivityDetailResponse | null {
+  if (!isRecord(body)) return null;
+  const activity = parseHomeActivity(body.activity);
+  const figures = {
+    average_heart_rate: nullable(body.average_heart_rate, isCount),
+    max_heart_rate: nullable(body.max_heart_rate, isCount),
+    average_speed_mps: nullable(body.average_speed_mps, isCount),
+    max_speed_mps: nullable(body.max_speed_mps, isCount),
+    average_power: nullable(body.average_power, isCount),
+    calories: nullable(body.calories, isCount),
+  };
+  const splits = parseList(body.splits, parseSplit);
+  const laps = parseList(body.laps, parseLap);
+  const conversationId = nullable(body.conversation_id, isString);
+  if (
+    activity === null ||
+    splits === null ||
+    laps === null ||
+    conversationId === undefined ||
+    Object.values(figures).includes(undefined)
+  ) {
+    return null;
+  }
+  return {
+    activity,
+    average_heart_rate: figures.average_heart_rate ?? null,
+    max_heart_rate: figures.max_heart_rate ?? null,
+    average_speed_mps: figures.average_speed_mps ?? null,
+    max_speed_mps: figures.max_speed_mps ?? null,
+    average_power: figures.average_power ?? null,
+    calories: figures.calories ?? null,
+    splits,
+    laps,
+    conversation_id: conversationId,
   };
 }
 
@@ -347,9 +558,11 @@ function parseRouteView(value: unknown): RouteView | null {
  * Read a `GET /api/me/activities/{provider}/{activity_id}/route` body.
  *
  * Returns `null` unless exactly one of `route` and `reason` is set and the
- * one that is set is well formed.
+ * one that is set is well formed. `pending` is read as
+ * {@link ActivityRoutePending}, with the bound it carries when that is a
+ * non-negative number.
  */
-export function parseActivityRouteResponse(body: unknown): ActivityRouteResponse | null {
+export function parseActivityRouteResponse(body: unknown): ActivityRouteAnswer | null {
   if (!isRecord(body)) {
     return null;
   }
@@ -361,6 +574,14 @@ export function parseActivityRouteResponse(body: unknown): ActivityRouteResponse
   if (hasRoute) {
     const route = parseRouteView(body.route);
     return route === null ? null : { route, reason: null };
+  }
+  if (body.reason === 'pending') {
+    const within = body.settles_within_secs;
+    return {
+      route: null,
+      reason: 'pending',
+      settles_within_secs: typeof within === 'number' && Number.isFinite(within) && within >= 0 ? within : null,
+    };
   }
   const reason = ACTIVITY_ROUTE_UNAVAILABLE_REASONS.find((known) => known === body.reason);
   return reason === undefined ? null : { route: null, reason };

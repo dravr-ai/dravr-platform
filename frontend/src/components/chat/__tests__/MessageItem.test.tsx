@@ -5,7 +5,8 @@
 // ABOUTME: Verifies action bar behavior, error state, and feedback states
 
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
+import { i18n } from '@pierre/i18n';
 import userEvent from '@testing-library/user-event';
 import MessageItem from '../MessageItem';
 import type { Message, MessageMetadata } from '../types';
@@ -57,6 +58,22 @@ describe('MessageItem', () => {
 
       expect(screen.getByText(/gemini-1.5-flash/)).toBeInTheDocument();
       expect(screen.getByText(/2\.5s/)).toBeInTheDocument();
+    });
+
+    // `toFixed` wrote "2.5s" under a French reply until the time went through
+    // the athlete's notation, as every other figure the clients print does.
+    it('writes the reply time in the athlete\'s notation', async () => {
+      await act(async () => {
+        await i18n.changeLanguage('fr');
+      });
+      try {
+        render(<MessageItem message={mockAssistantMessage} metadata={mockMetadata} onCopy={vi.fn()} />);
+        expect(screen.getByText('gemini-1.5-flash · 2,5s')).toBeInTheDocument();
+      } finally {
+        await act(async () => {
+          await i18n.changeLanguage('en');
+        });
+      }
     });
   });
 

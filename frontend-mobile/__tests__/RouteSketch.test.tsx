@@ -41,7 +41,7 @@ beforeEach(() => {
 });
 
 describe('RouteSketch', () => {
-  it('draws the shared projection verbatim, as one path in the primary ink', () => {
+  it('draws the shared projection verbatim, as one path in the route orange', () => {
     const points = decodePolyline(SUMMARY_POLYLINE) ?? [];
     const screen = render(<RouteSketch points={points} testID="sketch" />);
 
@@ -51,6 +51,7 @@ describe('RouteSketch', () => {
     // Three points, three vertices: north up, so the northernmost fix is on top.
     expect(paths[0].props.d).toMatch(/^M[\d.]+ [\d.]+ L[\d.]+ [\d.]+ L[\d.]+ [\d.]+$/);
     expect(paths[0].props.fill).toBe('none');
+    expect(paths[0].props.stroke).toBe('#d9480f');
     expect(screen.getByTestId('sketch').props.accessibilityLabel).toBe('Sketch of the route');
     expect(screen.getByTestId('sketch').props.accessibilityRole).toBe('image');
   });

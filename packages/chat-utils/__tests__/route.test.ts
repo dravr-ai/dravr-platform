@@ -7,6 +7,7 @@ import {
   MIN_SPAN_DEGREES,
   alignedSeries,
   climbGeometry,
+  climbGradient,
   climbGrade,
   climbRange,
   kilometres,
@@ -94,8 +95,9 @@ describe('alignedSeries', () => {
 
 describe('kilometres and metresAt', () => {
   it('prints metres as one decimal of a kilometre', () => {
-    expect(kilometres(42_195)).toBe('42.2');
-    expect(kilometres(0)).toBe('0.0');
+    expect(kilometres(42_195, 'en')).toBe('42.2');
+    expect(kilometres(0, 'en')).toBe('0.0');
+    expect(kilometres(12_400, 'fr')).toBe('12,4');
   });
 
   it('reads an index the wire supplied, or null when it points nowhere', () => {
@@ -108,12 +110,21 @@ describe('kilometres and metresAt', () => {
 
 describe('climbRange', () => {
   it('spells the climb as a kilometre range read off the distances', () => {
-    expect(climbRange([0, 4000, 6000, 8000], climb(1, 3, '2'))).toBe('km 4.0–8.0');
+    expect(climbRange([0, 4000, 6000, 8000], climb(1, 3, '2'), 'en')).toBe('km 4.0–8.0');
+    expect(climbRange([0, 12_400, 13_000, 15_000], climb(1, 3, '2'), 'fr')).toBe('km 12,4–15,0');
   });
 
   it('prints nothing when the track carried no distances or the climb points past them', () => {
-    expect(climbRange(null, climb(1, 3, '2'))).toBeNull();
-    expect(climbRange([0, 4000], climb(1, 3, '2'))).toBeNull();
+    expect(climbRange(null, climb(1, 3, '2'), 'en')).toBeNull();
+    expect(climbRange([0, 4000], climb(1, 3, '2'), 'en')).toBeNull();
+  });
+});
+
+describe('climbGradient', () => {
+  it("prints the average gradient to one decimal in the athlete's notation", () => {
+    expect(climbGradient({ ...climb(0, 1, '3'), avg_gradient: 5.3 }, 'en')).toBe('5.3%');
+    expect(climbGradient({ ...climb(0, 1, '3'), avg_gradient: 5.3 }, 'fr')).toBe('5,3%');
+    expect(climbGradient({ ...climb(0, 1, '3'), avg_gradient: 12 }, 'de')).toBe('12,0%');
   });
 });
 

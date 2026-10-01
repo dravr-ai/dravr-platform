@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { i18n } from '@pierre/i18n'
 import OAuthCallback from '../OAuthCallback'
 
 describe('OAuthCallback', () => {
@@ -14,8 +15,24 @@ describe('OAuthCallback', () => {
   it('should render success state for successful connection', () => {
     render(<OAuthCallback provider="strava" success={true} />)
 
-    expect(screen.getByText('Strava Connected')).toBeInTheDocument()
-    expect(screen.getByText(/successfully connected/)).toBeInTheDocument()
+    expect(screen.getByText('Strava connected successfully!')).toBeInTheDocument()
+    expect(
+      screen.getByText('Your Strava account has been successfully connected to Dravr.'),
+    ).toBeInTheDocument()
+  })
+
+  it('says the whole success sentence in French, provider name inside it', async () => {
+    // The body used to be a translated "Your" in front of an English sentence
+    // — "Ton Strava account has been successfully connected to Dravr."
+    await i18n.changeLanguage('fr')
+    try {
+      render(<OAuthCallback provider="strava" success={true} />)
+
+      expect(screen.getByText('Strava connecté !')).toBeInTheDocument()
+      expect(screen.getByText('Ton compte Strava est bien connecté à Dravr.')).toBeInTheDocument()
+    } finally {
+      await i18n.changeLanguage('en')
+    }
   })
 
   it('should render error state for failed connection', () => {
@@ -39,7 +56,7 @@ describe('OAuthCallback', () => {
   it('should capitalize provider name', () => {
     render(<OAuthCallback provider="strava" success={true} />)
 
-    expect(screen.getByText('Strava Connected')).toBeInTheDocument()
+    expect(screen.getByText('Strava connected successfully!')).toBeInTheDocument()
   })
 
   it('should show Continue button when onClose is provided', async () => {

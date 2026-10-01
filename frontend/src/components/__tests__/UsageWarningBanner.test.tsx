@@ -9,6 +9,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import UsageWarningBanner from '../chat/UsageWarningBanner';
 import { computeWarningState } from '../../hooks/useUsageStatus';
 import type { UsageStatusResponse } from '@pierre/shared-types';
+import { i18n } from '@pierre/i18n';
 
 function makeLimitCheck(overrides: Partial<{
   allowed: boolean;
@@ -70,7 +71,7 @@ const SAMPLE_PARAMS = {
 describe('computeWarningState', () => {
   it('returns none when all counters are within limits', () => {
     const data = makeStatusResponse({});
-    const state = computeWarningState(data, 'midnight UTC');
+    const state = computeWarningState(data, 'midnight UTC', 'en');
 
     expect(state.level).toBe('none');
     expect(state.sendDisabled).toBe(false);
@@ -78,7 +79,7 @@ describe('computeWarningState', () => {
   });
 
   it('returns none when data is undefined', () => {
-    const state = computeWarningState(undefined, 'midnight UTC');
+    const state = computeWarningState(undefined, 'midnight UTC', 'en');
     expect(state.level).toBe('none');
     expect(state.sendDisabled).toBe(false);
   });
@@ -87,7 +88,7 @@ describe('computeWarningState', () => {
     const data = makeStatusResponse({
       dailyMessages: makeLimitCheck({ current: 40, limit: 50, warning: true }),
     });
-    const state = computeWarningState(data, 'midnight UTC');
+    const state = computeWarningState(data, 'midnight UTC', 'en');
 
     expect(state.level).toBe('warning');
     expect(state.sendDisabled).toBe(false);
@@ -99,7 +100,7 @@ describe('computeWarningState', () => {
     const data = makeStatusResponse({
       dailyMessages: makeLimitCheck({ current: 55, limit: 50, warning: true, burst_zone: true }),
     });
-    const state = computeWarningState(data, 'midnight UTC');
+    const state = computeWarningState(data, 'midnight UTC', 'en');
 
     expect(state.level).toBe('burst');
     expect(state.sendDisabled).toBe(false);
@@ -110,7 +111,7 @@ describe('computeWarningState', () => {
     const data = makeStatusResponse({
       dailyMessages: makeLimitCheck({ current: 75, limit: 50, allowed: false, warning: true, burst_zone: true }),
     });
-    const state = computeWarningState(data, 'midnight UTC');
+    const state = computeWarningState(data, 'midnight UTC', 'en');
 
     expect(state.level).toBe('blocked');
     expect(state.sendDisabled).toBe(true);
@@ -122,7 +123,7 @@ describe('computeWarningState', () => {
       dailyMessages: makeLimitCheck({ current: 40, limit: 50, warning: true }), // warning
       dailyTokens: makeLimitCheck({ current: 55, limit: 50, warning: true, burst_zone: true }), // burst
     });
-    const state = computeWarningState(data, 'midnight UTC');
+    const state = computeWarningState(data, 'midnight UTC', 'en');
 
     expect(state.level).toBe('burst');
   });
@@ -176,6 +177,25 @@ describe('UsageWarningBanner', () => {
     const dismissBtn = screen.getByLabelText('Dismiss warning');
     fireEvent.click(dismissBtn);
     expect(screen.queryByTestId('usage-warning-banner')).toBeNull();
+  });
+
+  it('prints a token cap grouped as a French athlete reads it', async () => {
+    // The sentence carried the raw counts, `(456792/500000)`, under French
+    // chrome; it reads `(456 792/500 000)`, with the label in French too.
+    await i18n.changeLanguage('fr');
+    try {
+      const data = makeStatusResponse({
+        dailyTokens: makeLimitCheck({ warning: true, current: 456_792, limit: 500_000 }),
+      });
+      const state = computeWarningState(data, 'minuit UTC', 'fr');
+      render(<UsageWarningBanner level={state.level} text={state.text} />);
+
+      const banner = screen.getByText(/de tes jetons quotidiens/);
+      expect(banner.textContent).toContain('91 % de tes jetons quotidiens (456\u202f792/500\u202f000)');
+      expect(banner.textContent).not.toContain('456792');
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('cannot be dismissed when blocked', () => {

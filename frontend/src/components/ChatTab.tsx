@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The chat surface: one open thread, its header info drawer, and the composer
+// ABOUTME: The chat surface: one open thread, its header info drawer, and the composer — or that thread alone, embedded in a view
 // ABOUTME: Agents and groups are commands here — no agent CRUD, no group picker, no welcome grid
 
-import { useState, useEffect, useRef, useCallback, useMemo, useReducer } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, useReducer, type ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { chatApi, groupsApi, providersApi } from '../services/api';
 import { track } from '../services/analytics';
@@ -26,7 +26,7 @@ import {
   MENTION_PREFIX,
   trackAbsence,
 } from '@pierre/shared-constants';
-import { describeApiError, describeQuotaRefusal } from '@pierre/ui-logic';
+import { describeApiError, describeTurnFailure, isTurnFailureRetryable } from '@pierre/ui-logic';
 import {
   MessageList,
   MessageInput,
@@ -52,7 +52,7 @@ import { useCoachInfo } from '../hooks/useCoachInfo';
 import { useGroup } from '../hooks/useGroups';
 import { useSuccessToast, useInfoToast, useErrorToast } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
-import { replySceneBlocks, TurnIdleAbortedError } from '@pierre/api-client';
+import { replySceneBlocks } from '@pierre/api-client';
 import type { ChatMessageAction, ClaimVerdict, ReplyBlock } from '@pierre/shared-types';
 import type {
   Message,
@@ -70,6 +70,17 @@ import { CONNECTIONS_ROUTE } from '../constants/surfaceLayout';
  * "newest persisted message" it advances to.
  */
 const OPTIMISTIC_USER_ID_PREFIX = 'user-';
+
+/**
+ * What a failed turn leaves on screen until its reply lands or another turn
+ * starts: the worded failure, the athlete's own question, and whether a retry
+ * is worth offering.
+ */
+interface FailedTurnNote {
+  text: string;
+  question: Message;
+  retryable: boolean;
+}
 
 /** The newest row the server has persisted — the one the read marker follows. */
 function latestPersistedMessageId(messages: Message[] | undefined): string | null {
@@ -104,6 +115,15 @@ interface ChatTabProps {
   pendingComposerAction?: PendingComposerAction | null;
   /** Called once the action above has been drafted or dispatched. */
   onPendingComposerActionConsumed?: () => void;
+  /**
+   * Where the surface sits. `shell`, the chat tab: the conversation list
+   * beside the thread, its header and info drawer. `embedded`: the thread's
+   * transcript and composer alone, inside another view — an activity's —
+   * which owns the way into it.
+   */
+  layout?: 'shell' | 'embedded';
+  /** What an embedded surface shows while no thread is open: the host view's own way in. */
+  embeddedEmptyState?: ReactNode;
 }
 
 export default function ChatTab({
@@ -112,6 +132,8 @@ export default function ChatTab({
   onNavigate,
   pendingComposerAction,
   onPendingComposerActionConsumed,
+  layout = 'shell',
+  embeddedEmptyState,
 }: ChatTabProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -126,10 +148,11 @@ export default function ChatTab({
   // response body the reply arrives on, so there is nothing to correlate.
   const [progressStatusText, setProgressStatusText] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  // A turn lost while the athlete was away, kept by the reducer both clients
-  // share. Web paints its note as the error text under the transcript, so the
-  // text is what it keeps.
-  const [lostTurn, dispatchLostTurn] = useReducer(reduceLostTurn<string>, null);
+  // A failed turn, kept by the reducer both clients share until a read of the
+  // thread holds its reply or another turn starts. Web paints its note as the
+  // error text under the transcript, and keeps the athlete's question so a
+  // turn refused before the server stored it stays on screen with a retry.
+  const [lostTurn, dispatchLostTurn] = useReducer(reduceLostTurn<FailedTurnNote>, null);
   const [oauthNotification, setOauthNotification] = useState<OAuthNotification | null>(null);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
   const [pendingCoachId, setPendingCoachId] = useState<string | null>(null);
@@ -196,11 +219,25 @@ export default function ChatTab({
   // reply has not landed: any read of the conversation that holds it — the
   // focus refetch on the athlete's return, reopening the thread — takes the
   // note down, and the reply renders from the transcript like any other row.
+  const lostReading = useMemo(
+    () => readLostTurn(lostTurn, selectedConversation, messagesData?.messages ?? []),
+    [lostTurn, selectedConversation, messagesData],
+  );
   const shownError = useMemo<string | null>(() => {
-    if (!lostTurn || errorMessage !== lostTurn.note) return errorMessage;
-    const reading = readLostTurn(lostTurn, selectedConversation, messagesData?.messages ?? []);
-    return reading.kind === 'waiting' ? errorMessage : null;
-  }, [errorMessage, lostTurn, selectedConversation, messagesData]);
+    if (!lostTurn || errorMessage !== lostTurn.note.text) return errorMessage;
+    return lostReading.kind === 'waiting' ? errorMessage : null;
+  }, [errorMessage, lostTurn, lostReading]);
+  // The question a shown failure can re-send: only a failure a retry may get
+  // past (`isTurnFailureRetryable` — never the idle stop, a quota or a
+  // refusal), and only a question the server never stored. One it did store
+  // — the turn failed mid-stream — would be stored twice by a re-send.
+  const retryableQuestion =
+    lostReading.kind === 'waiting' &&
+    shownError === lostReading.note.text &&
+    lostReading.note.retryable &&
+    !lostReading.questionReceived
+      ? lostReading.note.question.content
+      : null;
 
   // Hydrate thumbs up/down state (and any saved reason) from the server whenever
   // the messages load/refetch, so feedback survives reloads and conversation
@@ -268,12 +305,22 @@ export default function ChatTab({
     enabled: !!roomGroupId && !!messagesData,
     refetchOnWindowFocus: true,
   });
+  // A failed turn's question the server never stored — the turn was refused
+  // before it ran — is still the athlete's words: it stays in the thread, above
+  // the failure note and its retry, rather than vanishing with the re-read.
+  const ownWithQuestion = useMemo<Message[] | undefined>(
+    () =>
+      lostReading.kind === 'waiting' && !lostReading.questionReceived
+        ? [...(ownMessages ?? []), lostReading.note.question]
+        : ownMessages,
+    [lostReading, ownMessages],
+  );
   const threadMessages = useMemo<Message[]>(
     () =>
       roomGroupId && roomEntries
-        ? composeRoomThread(ownMessages ?? [], roomEntries)
-        : ownMessages ?? [],
-    [roomGroupId, roomEntries, ownMessages],
+        ? composeRoomThread(ownWithQuestion ?? [], roomEntries)
+        : ownWithQuestion ?? [],
+    [roomGroupId, roomEntries, ownWithQuestion],
   );
 
   // What the header names: the thread's stored title, which the server
@@ -387,13 +434,15 @@ export default function ChatTab({
 
   // Focus input when conversation is selected; an info drawer left open
   // belongs to the previous thread, so it closes with it.
+  // An embedded thread leaves focus where the athlete put it (see
+  // MessageInput's `focusOnMount`).
   useEffect(() => {
     setInfoOpen(false);
     setInfoOpensParticipants(false);
-    if (selectedConversation) {
+    if (selectedConversation && layout !== 'embedded') {
       inputRef.current?.focus();
     }
-  }, [selectedConversation]);
+  }, [selectedConversation, layout]);
 
   // OAuth completion listener
   useEffect(() => {
@@ -527,6 +576,12 @@ export default function ChatTab({
       created_at: new Date().toISOString(),
     };
 
+    // A read of the thread still in flight — a thread created a moment ago
+    // for a question sent at once is still on its first — would land after
+    // the row below and answer without it, wiping the athlete's own question
+    // from the transcript. It is cancelled first; the turn's answer brings
+    // what the thread holds.
+    await queryClient.cancelQueries({ queryKey: conversationKey });
     queryClient.setQueryData(conversationKey, (old: { messages: Message[] } | undefined) => ({
       messages: [...(old?.messages || []), tempUserMessage],
     }));
@@ -656,13 +711,9 @@ export default function ChatTab({
         }
       },
       onError: error => {
-        // The idle stop's error carries no athlete-facing words, and a turn
-        // refused at a limit (the conversation cap for an archived thread, a
-        // spent daily budget) is worded from the limit it names; both notes
-        // come from the shared catalogue, in the athlete's language.
-        const note = error instanceof TurnIdleAbortedError
-          ? t('chat.turnIdleAborted')
-          : describeQuotaRefusal(error, t) ?? error.message;
+        // Worded from the shared catalogue by the failure's stable code, in the
+        // athlete's language — never the server's English description.
+        const note = describeTurnFailure(error, { t, online: navigator.onLine });
         setErrorMessage(note);
         queryClient.invalidateQueries({ queryKey: conversationKey });
         if (roomGroupId) queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.room(roomGroupId) });
@@ -670,10 +721,22 @@ export default function ChatTab({
         // stream, or the network went with a sleeping laptop. The server kept
         // going, so the note stands only until a read of the thread holds the
         // reply; the messages query re-reads it on their return.
+        // Kept whether or not the athlete was away: the re-read below replaces
+        // the transcript, and a turn refused before the server stored its
+        // question would take the question with it.
         dispatchLostTurn({
           type: 'failed',
           away: leftDuringTurn(),
-          turn: { conversationId: selectedConversation, heldIds, note },
+          keepWhenPresent: true,
+          turn: {
+            conversationId: selectedConversation,
+            heldIds,
+            note: {
+              text: note,
+              question: tempUserMessage,
+              retryable: isTurnFailureRetryable(error, { online: navigator.onLine }),
+            },
+          },
         });
       },
     });
@@ -886,6 +949,12 @@ export default function ChatTab({
     await sendTurn(messages[userMessageIndex].content);
   }, [selectedConversation, isStreaming, messagesData?.messages, queryClient, sendTurn]);
 
+  /** Re-send the question a failed turn left in the thread. */
+  const handleRetryFailedTurn = useCallback(() => {
+    if (retryableQuestion === null) return;
+    void sendTurn(retryableQuestion);
+  }, [retryableQuestion, sendTurn]);
+
   /** The "+" menu's three items, wired the same way in both header slots. */
   const composeMenu = (withParticipants: boolean) => (
     <ChatComposeMenu
@@ -936,6 +1005,93 @@ export default function ChatTab({
     />
   );
 
+  // The open thread's transcript and composer — the chat tab's thread pane
+  // and an embedded surface draw the same two.
+  const transcript = (
+    <>
+      {/* The scroller is the containing block for everything positioned inside
+          the transcript — a screen-reader-only label is `position: absolute`,
+          and without `relative` here it resolves against the tab root, where
+          twenty of them stretch the outer pane to the transcript's full height
+          and the first focus scrolls the header and the list off screen. */}
+      <div className="relative min-h-0 flex-1 overflow-y-auto">
+        <div className="px-4 py-4 md:px-6">
+          {roomFailed ? (
+            <p className="mx-auto mb-2 max-w-[720px] text-center text-sm text-outline" data-testid="room-load-failed">
+              {t('groups.roomLoadFailed')}
+            </p>
+          ) : null}
+          <MessageList
+            messages={threadMessages}
+            messageMetadata={messageMetadata}
+            messageFeedback={messageFeedback}
+            messageFeedbackComment={messageFeedbackComment}
+            messageBlocks={messageBlocks}
+            verdicts={verdicts}
+            assistantLabel={activeCoachTitle ?? undefined}
+            isLoading={messagesLoading}
+            isStreaming={isStreaming}
+            streamingContent={streamingContent}
+            progressStatusText={progressStatusText}
+            errorMessage={shownError}
+            oauthNotification={oauthNotification}
+            onDismissError={() => setErrorMessage(null)}
+            onRetryError={retryableQuestion !== null ? handleRetryFailedTurn : undefined}
+            onDismissOAuthNotification={() => setOauthNotification(null)}
+            onCopyMessage={handleCopyMessage}
+            onShareMessage={handleShareMessage}
+            onThumbsUp={handleThumbsUp}
+            onThumbsDown={handleThumbsDown}
+            onSubmitFeedbackReason={handleSubmitFeedbackReason}
+            onRetryMessage={handleRetryMessage}
+            onShowVerdict={handleShowVerdict}
+            onAskAboutClaim={handleAskAboutClaim}
+            onActionClick={handleActionClick}
+            followOnOpen={layout !== 'embedded'}
+          />
+        </div>
+      </div>
+
+      <MessageInput
+        value={newMessage}
+        onChange={setNewMessage}
+        onSend={handleSendMessage}
+        isStreaming={isStreaming}
+        disabled={usageStatus.sendDisabled}
+        conversationId={selectedConversation}
+        focusOnMount={layout !== 'embedded'}
+      />
+    </>
+  );
+
+  const verdictDrawer = verdictMessageId ? (
+    <VerdictDrawer
+      verdicts={drawerVerdicts}
+      loading={verdictsFetching && drawerVerdicts.length === 0}
+      onClose={() => setVerdictMessageId(null)}
+      onAskAboutClaim={(verdict) => {
+        handleAskAboutClaim(verdict);
+        setVerdictMessageId(null);
+      }}
+    />
+  ) : null;
+
+  if (layout === 'embedded') {
+    return (
+      <div className="relative flex h-full flex-col" data-testid="embedded-chat">
+        {selectedConversation ? (
+          <>
+            <UsageWarningBanner level={usageStatus.level} text={usageStatus.text} />
+            {transcript}
+          </>
+        ) : (
+          embeddedEmptyState
+        )}
+        {verdictDrawer}
+      </div>
+    );
+  }
+
   const threadPane = !selectedConversation ? (
     <div className="flex flex-1 flex-col overflow-hidden">
       {banner}
@@ -966,55 +1122,7 @@ export default function ChatTab({
       {/* Usage warning banner */}
       <UsageWarningBanner level={usageStatus.level} text={usageStatus.text} />
       {banner}
-      {/* The scroller is the containing block for everything positioned inside
-          the transcript — a screen-reader-only label is `position: absolute`,
-          and without `relative` here it resolves against the tab root, where
-          twenty of them stretch the outer pane to the transcript's full height
-          and the first focus scrolls the header and the list off screen. */}
-      <div className="relative min-h-0 flex-1 overflow-y-auto">
-        <div className="px-4 py-4 md:px-6">
-          {roomFailed ? (
-            <p className="mx-auto mb-2 max-w-[720px] text-center text-sm text-outline" data-testid="room-load-failed">
-              {t('groups.roomLoadFailed')}
-            </p>
-          ) : null}
-          <MessageList
-            messages={threadMessages}
-            messageMetadata={messageMetadata}
-            messageFeedback={messageFeedback}
-            messageFeedbackComment={messageFeedbackComment}
-            messageBlocks={messageBlocks}
-            verdicts={verdicts}
-            assistantLabel={activeCoachTitle ?? undefined}
-            isLoading={messagesLoading}
-            isStreaming={isStreaming}
-            streamingContent={streamingContent}
-            progressStatusText={progressStatusText}
-            errorMessage={shownError}
-            oauthNotification={oauthNotification}
-            onDismissError={() => setErrorMessage(null)}
-            onDismissOAuthNotification={() => setOauthNotification(null)}
-            onCopyMessage={handleCopyMessage}
-            onShareMessage={handleShareMessage}
-            onThumbsUp={handleThumbsUp}
-            onThumbsDown={handleThumbsDown}
-            onSubmitFeedbackReason={handleSubmitFeedbackReason}
-            onRetryMessage={handleRetryMessage}
-            onShowVerdict={handleShowVerdict}
-            onAskAboutClaim={handleAskAboutClaim}
-            onActionClick={handleActionClick}
-          />
-        </div>
-      </div>
-
-      <MessageInput
-        value={newMessage}
-        onChange={setNewMessage}
-        onSend={handleSendMessage}
-        isStreaming={isStreaming}
-        disabled={usageStatus.sendDisabled}
-        conversationId={selectedConversation}
-      />
+      {transcript}
     </div>
   );
 
@@ -1053,17 +1161,7 @@ export default function ChatTab({
         />
       ) : null}
 
-      {verdictMessageId ? (
-        <VerdictDrawer
-          verdicts={drawerVerdicts}
-          loading={verdictsFetching && drawerVerdicts.length === 0}
-          onClose={() => setVerdictMessageId(null)}
-          onAskAboutClaim={(verdict) => {
-            handleAskAboutClaim(verdict);
-            setVerdictMessageId(null);
-          }}
-        />
-      ) : null}
+      {verdictDrawer}
     </div>
   );
 }

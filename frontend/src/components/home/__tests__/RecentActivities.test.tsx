@@ -16,14 +16,16 @@ import type {
 } from '@pierre/shared-types';
 import { ThemeProvider } from '../../../hooks/useTheme';
 import { RecentActivities } from '../RecentActivities';
-import { DRAFT_DATE, formatInstant, formatNameList, formatSyncTime } from '../homeFormat';
+import { formatNameList, formatSyncTime } from '../homeFormat';
 import { activity, providerStatus, recentResponse, routeView, ROUTE_COORDINATES } from './homeFixtures';
 
 const api = vi.hoisted(() => ({
   getRecentActivities:
     vi.fn<(limit?: number, options?: { retry?: boolean }) => Promise<RecentActivitiesResponse>>(),
   getActivityRoute:
-    vi.fn<(provider: string, id: string, options?: { retry?: boolean }) => Promise<ActivityRouteResponse>>(),
+    vi.fn<
+      (provider: string, id: string, options?: { retry?: boolean; signal?: AbortSignal }) => Promise<ActivityRouteResponse>
+    >(),
   getProvidersStatus: vi.fn<() => Promise<ProvidersStatusResponse>>(),
 }));
 
@@ -78,26 +80,25 @@ function toReconnect(provider: string, display_name: string): ExtendedProviderSt
 }
 
 /** The routes the five fixture activities answer with, by activity id. */
-const FIXTURE_ROUTES: Record<string, { title: string; source: string }> = {
-  'act-5': { title: 'Long ride', source: 'strava' },
-  'act-3': { title: 'Hill repeats', source: 'strava' },
-  'act-1': { title: 'Lake loop', source: 'garmin' },
+const FIXTURE_SOURCES: Record<string, string> = {
+  'act-5': 'strava',
+  'act-3': 'strava',
+  'act-1': 'garmin',
 };
 
 function renderSection() {
   const onNavigate = vi.fn();
-  const onOpenChatDraft = vi.fn();
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <RecentActivities onNavigate={onNavigate} onOpenChatDraft={onOpenChatDraft} />
+        <RecentActivities onNavigate={onNavigate} />
       </ThemeProvider>
     </QueryClientProvider>,
   );
   /** Every read the section started has answered — what an absence has to wait for. */
   const settled = () => waitFor(() => expect(queryClient.isFetching()).toBe(0));
-  return { onNavigate, onOpenChatDraft, settled };
+  return { onNavigate, settled };
 }
 
 beforeEach(() => {
@@ -106,8 +107,7 @@ beforeEach(() => {
   window.localStorage.clear();
   connected(true);
   api.getActivityRoute.mockImplementation(async (_provider, id) => {
-    const known = FIXTURE_ROUTES[id] ?? { title: 'Morning run', source: 'strava' };
-    return { route: routeView(known.title, known.source), reason: null };
+    return { route: routeView(FIXTURE_SOURCES[id] ?? 'strava'), reason: null };
   });
 });
 
@@ -116,15 +116,17 @@ describe('RecentActivities', () => {
     api.getRecentActivities.mockResolvedValue(recentResponse());
     renderSection();
 
-    expect(await screen.findByRole('figure', { name: 'Map of the recorded route: Long ride' })).toBeInTheDocument();
+    expect(await screen.findByRole('figure', { name: 'Map of the recorded route' })).toBeInTheDocument();
     await waitFor(() => expect(maps.constructed).toHaveLength(1));
-    expect(screen.getByText('source: strava')).toBeInTheDocument();
+    // The map names no provider under it: where the track came from is not the athlete's concern.
+    expect(screen.queryByText(/source:/)).toBeNull();
+    expect(screen.queryByText(/strava/i)).toBeNull();
 
     // act-5 is the latest (the map); act-3 and Garmin's act-1 carry no
     // polyline, so their sketches need the route. act-4 has a polyline and
     // act-2 says its route held no GPS: neither may reach the endpoint.
     await waitFor(() => expect(api.getActivityRoute).toHaveBeenCalledTimes(3));
-    expect(api.getActivityRoute.mock.calls).toEqual(
+    expect(api.getActivityRoute.mock.calls.map(([provider, id]) => [provider, id])).toEqual(
       expect.arrayContaining([
         ['strava', 'act-5'],
         ['strava', 'act-3'],
@@ -161,15 +163,18 @@ describe('RecentActivities', () => {
     expect(d.match(/[ML]/g)).toHaveLength(ROUTE_COORDINATES.length);
   });
 
-  it('opens a chat draft asking to analyze the tapped activity', async () => {
+  it("opens the tapped activity's own view, from a row and from the latest card", async () => {
     api.getRecentActivities.mockResolvedValue(recentResponse());
-    const { onOpenChatDraft } = renderSection();
+    const { onNavigate } = renderSection();
 
     const rows = await screen.findAllByTestId('home-activity-row');
     await userEvent.click(within(rows[0]).getByRole('button'));
+    expect(onNavigate).toHaveBeenLastCalledWith('home/activity/strava/act-4');
 
-    const date = formatInstant('2026-09-18T11:00:00Z', 'en', DRAFT_DATE);
-    expect(onOpenChatDraft).toHaveBeenCalledExactlyOnceWith(`Analyze my activity from ${date} (Run)`);
+    const latest = screen.getByTestId('home-activity-latest');
+    await userEvent.click(within(latest).getByRole('button', { name: /Long ride/ }));
+    expect(onNavigate).toHaveBeenLastCalledWith('home/activity/strava/act-5');
+    expect(onNavigate).toHaveBeenCalledTimes(2);
   });
 
   it('says a latest activity whose stored route held no GPS has no track, without asking for a route', async () => {
@@ -208,15 +213,12 @@ describe('RecentActivities', () => {
         ],
       }),
     );
-    api.getActivityRoute.mockImplementation(async (_provider, id) => ({
-      route: routeView(id === 'g-2' ? 'River ride' : 'Lake loop', 'garmin'),
-      reason: null,
-    }));
+    api.getActivityRoute.mockImplementation(async () => ({ route: routeView('garmin'), reason: null }));
     const { settled } = renderSection();
 
-    expect(await screen.findByRole('figure', { name: 'Map of the recorded route: River ride' })).toBeInTheDocument();
+    expect(await screen.findByRole('figure', { name: 'Map of the recorded route' })).toBeInTheDocument();
     await waitFor(() => expect(maps.constructed).toHaveLength(1));
-    expect(screen.getByText('source: garmin')).toBeInTheDocument();
+    expect(screen.queryByText(/source:/)).toBeNull();
 
     const sketch = await within(screen.getByTestId('home-activity-row')).findByTestId('route-sketch');
     const d = sketch.querySelector('path')?.getAttribute('d') ?? '';
@@ -224,7 +226,7 @@ describe('RecentActivities', () => {
 
     await settled();
     expect(api.getActivityRoute).toHaveBeenCalledTimes(2);
-    expect(api.getActivityRoute.mock.calls).toEqual(
+    expect(api.getActivityRoute.mock.calls.map(([provider, id]) => [provider, id])).toEqual(
       expect.arrayContaining([
         ['garmin', 'g-2'],
         ['garmin', 'g-1'],
@@ -254,12 +256,12 @@ describe('RecentActivities', () => {
 
     const latest = await screen.findByTestId('home-activity-latest');
     expect(await within(latest).findByText('This activity recorded no GPS track.')).toBeInTheDocument();
-    expect(api.getActivityRoute).toHaveBeenCalledWith('garmin', 'g-2');
+    expect(api.getActivityRoute).toHaveBeenCalledWith('garmin', 'g-2', expect.anything());
     expect(maps.constructed).toHaveLength(0);
 
     // The row asked as well, and an answer without a route draws no sketch.
     await settled();
-    expect(api.getActivityRoute).toHaveBeenCalledWith('garmin', 'g-1');
+    expect(api.getActivityRoute).toHaveBeenCalledWith('garmin', 'g-1', expect.anything());
     expect(api.getActivityRoute).toHaveBeenCalledTimes(2);
     expect(screen.queryByTestId('route-sketch')).toBeNull();
   });
@@ -284,9 +286,9 @@ describe('RecentActivities', () => {
     const failed = await screen.findByTestId('home-route-failed', {}, { timeout: 4000 });
     expect(api.getActivityRoute).toHaveBeenCalledTimes(2);
     expect(failed).toHaveTextContent("The map couldn't be loaded.");
-    api.getActivityRoute.mockResolvedValueOnce({ route: routeView('Morning run'), reason: null });
+    api.getActivityRoute.mockResolvedValueOnce({ route: routeView(), reason: null });
     await userEvent.click(within(failed).getByRole('button', { name: 'Retry' }));
-    expect(await screen.findByRole('figure', { name: 'Map of the recorded route: Morning run' })).toBeInTheDocument();
+    expect(await screen.findByRole('figure', { name: 'Map of the recorded route' })).toBeInTheDocument();
   });
 
   it('says the map could not be read when the route endpoint answers unavailable, and retries past it on request', async () => {
@@ -300,11 +302,11 @@ describe('RecentActivities', () => {
     expect(screen.queryByText('This activity recorded no GPS track.')).toBeNull();
     // Only a retry the server reads past its stored `unavailable` can draw a
     // route inside the answer's ten minutes: the retry has to say it is one.
-    api.getActivityRoute.mockResolvedValueOnce({ route: routeView('Morning run'), reason: null });
+    api.getActivityRoute.mockResolvedValueOnce({ route: routeView(), reason: null });
     await userEvent.click(within(failed).getByRole('button', { name: 'Retry' }));
-    expect(await screen.findByRole('figure', { name: 'Map of the recorded route: Morning run' })).toBeInTheDocument();
+    expect(await screen.findByRole('figure', { name: 'Map of the recorded route' })).toBeInTheDocument();
     expect(api.getActivityRoute).toHaveBeenCalledTimes(2);
-    expect(api.getActivityRoute).toHaveBeenLastCalledWith('strava', 'unread', { retry: true });
+    expect(api.getActivityRoute).toHaveBeenLastCalledWith('strava', 'unread', expect.objectContaining({ retry: true }));
   });
 
   it('shows the map loading while its retry is in flight, and the failure again when the provider still fails', async () => {

@@ -1,34 +1,185 @@
-// ABOUTME: Draws a hydrated route block as a real MapLibre map over the keyless OpenFreeMap basemap
-// ABOUTME: The card under it prints the distance and every climb, so no fact is carried by colour alone
+// ABOUTME: Draws a hydrated route block as a real MapLibre map over a switchable layer, full screen on demand
+// ABOUTME: The card under it names every climb in words, so no fact is carried by colour alone
 
-import React, { useMemo } from 'react';
-import { View, Text } from 'react-native';
-import { Camera, GeoJSONSource, Layer, Map } from '@maplibre/maplibre-react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Modal, Pressable, View, Text } from 'react-native';
+import {
+  Camera,
+  GeoJSONSource,
+  Layer,
+  Map,
+  type StyleSpecification,
+} from '@maplibre/maplibre-react-native';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
+import { Maximize2, X } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Line } from 'react-native-svg';
 import type { RouteView as RouteBlock } from '@pierre/scene-types';
 import { useTranslation } from '@pierre/i18n';
 import {
   alignedSeries,
   climbGeometry,
+  climbGradient,
   climbGrade,
   climbRange,
-  kilometres,
-  metresAt,
   routeFrame,
   trackGeometry,
 } from '@pierre/chat-utils';
-import { BASEMAP_STYLE, BOREAL_LIGHT } from '@pierre/shared-constants';
+import {
+  MAP_LAYERS,
+  MAP_LAYER_STORAGE_KEY,
+  ROUTE_INK,
+  localizeBasemapStyle,
+  mapLayerStyle,
+  storedMapLayer,
+  type MapLayer,
+  type RasterStyle,
+} from '@pierre/shared-constants';
 
 import { useTheme } from '../../constants/theme';
 
+function layerById(id: string): MapLayer {
+  return MAP_LAYERS.find((layer) => layer.id === id) ?? MAP_LAYERS[0];
+}
+
+/** The slice of an MMKV instance the layer memory uses. */
+interface LayerStore {
+  getString: (key: string) => string | undefined;
+  set: (key: string, value: string) => void;
+}
+
+/** A store that lives as long as the app process. */
+function sessionStore(): LayerStore {
+  const entries = new globalThis.Map<string, string>();
+  return {
+    getString: (key) => entries.get(key),
+    set: (key, value) => {
+      entries.set(key, value);
+    },
+  };
+}
+
 /**
- * The halo under the line. White in both schemes, read from the light palette
- * directly rather than through the theme: map tiles are not themed, and the
- * casing is not a surface paired with an ink, it is the device that keeps a
- * thin line readable where it crosses a park, a lake or a built-up block
- * whose fill the renderer never chose.
+ * The device's store for the picked layer: MMKV, read synchronously so a map
+ * opens on the athlete's layer on its first frame rather than switching to it.
+ * Expo Go carries no MMKV native module and merely importing it there throws,
+ * so there — and on any build where it cannot be opened — the pick is held
+ * for the session, which is all a missing store can give.
  */
-const CASING_COLOR = BOREAL_LIGHT.surfaceContainerLowest;
+function openLayerStore(): LayerStore {
+  if (Constants.executionEnvironment === ExecutionEnvironment.StoreClient) return sessionStore();
+  try {
+    const { createMMKV } = require('react-native-mmkv') as typeof import('react-native-mmkv');
+    return createMMKV({ id: 'dravr-route-map' });
+  } catch {
+    return sessionStore();
+  }
+}
+
+let layerStore: LayerStore | undefined;
+
+function storeHandle(): LayerStore {
+  if (layerStore === undefined) layerStore = openLayerStore();
+  return layerStore;
+}
+
+/** The layer the athlete last picked on this device, or the default. */
+function rememberedLayer(): string {
+  try {
+    return storedMapLayer(storeHandle().getString(MAP_LAYER_STORAGE_KEY) ?? null);
+  } catch {
+    return storedMapLayer(null);
+  }
+}
+
+/** Keeps the pick for every map opened after, on this device. */
+function rememberLayer(id: string): void {
+  try {
+    storeHandle().set(MAP_LAYER_STORAGE_KEY, id);
+  } catch {
+    // A store that refuses the write leaves the pick on the map it was made on.
+  }
+}
+
+/** Published basemap styles as fetched, by URL, shared by every map this session opens. */
+const fetchedStyles = new globalThis.Map<string, StyleSpecification>();
+
+/**
+ * A published style in the athlete's language.
+ *
+ * MapLibre Native takes a style URL or a style document, and a URL's labels
+ * are whatever it publishes — OpenFreeMap's name places in English first. So a
+ * published style is fetched once per session and handed over as a document
+ * with its labels rewritten ({@link localizeBasemapStyle}); a raster style is
+ * built here already and has no labels. Until the document arrives the map
+ * draws the URL, and it keeps drawing it if the fetch fails: the labels are
+ * then OpenFreeMap's own, and the map is otherwise the same.
+ */
+function useLabelledStyle(
+  style: string | RasterStyle,
+  language: string,
+): string | RasterStyle | StyleSpecification {
+  const url = typeof style === 'string' ? style : null;
+  const [fetched, setFetched] = useState<{ url: string; document: StyleSpecification } | null>(() => {
+    const document = url === null ? undefined : fetchedStyles.get(url);
+    return url !== null && document !== undefined ? { url, document } : null;
+  });
+
+  useEffect(() => {
+    if (url === null) return;
+    const held = fetchedStyles.get(url);
+    if (held !== undefined) {
+      setFetched({ url, document: held });
+      return;
+    }
+    let live = true;
+    void (async () => {
+      try {
+        const response = await fetch(url);
+        if (!response.ok) return;
+        const document = (await response.json()) as StyleSpecification;
+        fetchedStyles.set(url, document);
+        if (live) setFetched({ url, document });
+      } catch {
+        // Offline or refused: the map draws the URL, labelled as published.
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [url]);
+
+  return useMemo(() => {
+    if (url === null || fetched === null || fetched.url !== url) return style;
+    return localizeBasemapStyle(fetched.document, language);
+  }, [fetched, language, style, url]);
+}
+
+/**
+ * An imagery layer's credit, printed on the map.
+ *
+ * MapLibre Native's attribution is a button that opens a sheet, which is
+ * enough for a basemap's OpenStreetMap credit but not for Esri's: the
+ * imagery's sources stay on the map whenever the imagery is. So a raster
+ * layer's credit is drawn as text over the map's foot, beside that button.
+ */
+function LayerCredit({ layer, testID }: { layer: MapLayer; testID: string }) {
+  if (layer.kind !== 'raster') return null;
+  return (
+    <View
+      pointerEvents="none"
+      className="absolute bottom-2 left-9 right-2 items-start"
+      testID={testID}
+    >
+      <Text
+        numberOfLines={2}
+        className="rounded bg-surface-container-lowest px-1.5 py-0.5 text-xs text-text-secondary"
+      >
+        {layer.attribution}
+      </Text>
+    </View>
+  );
+}
 
 /**
  * Stroke widths, in points.
@@ -55,23 +206,125 @@ const CAMERA_PADDING = { top: 24, right: 24, bottom: 24, left: 24 };
 /**
  * The dashed swatch that names the climb ink in the legend.
  *
- * Drawn rather than described, and drawn with the same dash the map uses, so
- * the legend and the overlay cannot say different things about which line is
- * which.
+ * Drawn in the map's own three layers — casing, orange track, near-black dash
+ * — so the legend and the overlay cannot say different things about which
+ * line is which, on either card surface.
  */
-function ClimbSwatch({ color }: { color: string }) {
+function ClimbSwatch() {
   return (
-    <Svg width={16} height={4} accessibilityElementsHidden importantForAccessibility="no">
-      <Line
-        x1={0}
-        y1={2}
-        x2={16}
-        y2={2}
-        stroke={color}
-        strokeWidth={2}
-        strokeDasharray="4,3"
-      />
+    <Svg width={18} height={8} accessibilityElementsHidden importantForAccessibility="no">
+      <Line x1={1} y1={4} x2={17} y2={4} stroke={ROUTE_INK.casing} strokeWidth={6} strokeLinecap="round" />
+      <Line x1={1} y1={4} x2={17} y2={4} stroke={ROUTE_INK.track} strokeWidth={3} strokeLinecap="round" />
+      <Line x1={1} y1={4} x2={17} y2={4} stroke={ROUTE_INK.climb} strokeWidth={3.4} strokeDasharray="4,3" />
     </Svg>
+  );
+}
+
+interface RouteMapProps {
+  mapStyle: string | RasterStyle | StyleSpecification;
+  bounds: ReturnType<typeof routeFrame>;
+  track: ReturnType<typeof trackGeometry>;
+  climbs: ReturnType<typeof climbGeometry>;
+  /** Full screen the map takes every gesture; inline it yields them to the thread. */
+  interactive: boolean;
+  testID: string;
+}
+
+/** The map itself: a basemap layer, the framed camera and the route over it. */
+function RouteMap({ mapStyle, bounds, track, climbs, interactive, testID }: RouteMapProps) {
+  return (
+    <Map
+      testID={testID}
+      mapStyle={mapStyle}
+      logo={false}
+      // Every provider in the registry requires its credit — OpenStreetMap's
+      // under OpenFreeMap, Esri's under the imagery — so the attribution
+      // button stays on. It sits bottom-left, where the web card docks its own.
+      attribution
+      attributionPosition={{ bottom: 8, left: 8 }}
+      // Inline, the card lives inside a scrolling thread, and a native map view
+      // that claimed the drag would strand an athlete mid-conversation. The
+      // phone has no second gesture to ask for, so the inline map is framed on
+      // open and still; full screen, the map is the page and takes them all.
+      dragPan={interactive}
+      touchZoom={interactive}
+      touchRotate={false}
+      touchPitch={false}
+    >
+      <Camera bounds={bounds} padding={CAMERA_PADDING} />
+      <GeoJSONSource id="route-track" data={track}>
+        <Layer
+          id="route-casing"
+          type="line"
+          layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+          // Opaque: over a photograph a translucent casing inherits the pixel
+          // under it, and the casing is what gives the line a known edge there.
+          paint={{ 'line-color': ROUTE_INK.casing, 'line-width': CASING_WIDTH }}
+        />
+        <Layer
+          id="route-line"
+          type="line"
+          layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+          paint={{ 'line-color': ROUTE_INK.track, 'line-width': TRACK_WIDTH }}
+        />
+      </GeoJSONSource>
+      <GeoJSONSource id="route-climbs" data={climbs}>
+        {/* A heavier dashed line laid over the track rather than a recoloured
+            stretch of it, so the orange shows through the gaps and the two
+            read as one route with steep parts, not as two routes. */}
+        <Layer
+          id="route-climb"
+          type="line"
+          layout={{ 'line-cap': 'butt', 'line-join': 'round' }}
+          paint={{
+            'line-color': ROUTE_INK.climb,
+            'line-width': CLIMB_WIDTH,
+            'line-dasharray': CLIMB_DASH,
+          }}
+        />
+      </GeoJSONSource>
+    </Map>
+  );
+}
+
+/** The layer switcher: one button per registered layer, the current one selected. */
+function LayerSwitcher({
+  layerId,
+  onPick,
+  testID,
+}: {
+  layerId: string;
+  onPick: (id: string) => void;
+  testID: string;
+}) {
+  const { t } = useTranslation();
+  return (
+    <View
+      testID={testID}
+      accessibilityLabel={t('chat.routeLayers')}
+      accessibilityRole="radiogroup"
+      className="flex-row overflow-hidden rounded-lg border border-outline-variant bg-surface-container-lowest"
+    >
+      {MAP_LAYERS.map((layer) => {
+        const active = layer.id === layerId;
+        return (
+          <Pressable
+            key={layer.id}
+            testID={`${testID}-${layer.id}`}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: active, checked: active }}
+            onPress={() => onPick(layer.id)}
+            className={`min-h-[36px] justify-center px-3 ${active ? 'bg-primary' : ''}`}
+          >
+            <Text
+              className={`text-xs font-medium ${active ? 'text-on-primary' : 'text-text-primary'}`}
+            >
+              {t(layer.labelKey)}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
   );
 }
 
@@ -85,8 +338,16 @@ function ClimbSwatch({ color }: { color: string }) {
  * itself can never be.
  */
 export default function RouteView({ route }: { route: RouteBlock }) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { colors, scheme } = useTheme();
+  const insets = useSafeAreaInsets();
+  const [layerId, setLayerId] = useState(rememberedLayer);
+  const pickLayer = useCallback((id: string) => {
+    setLayerId(id);
+    rememberLayer(id);
+  }, []);
+  const [fullScreen, setFullScreen] = useState(false);
+  const layer = layerById(layerId);
 
   const track = useMemo(() => trackGeometry(route.coordinates), [route.coordinates]);
   const climbs = useMemo(
@@ -94,6 +355,11 @@ export default function RouteView({ route }: { route: RouteBlock }) {
     [route.coordinates, route.climbs],
   );
   const bounds = useMemo(() => routeFrame(route.bounds), [route.bounds]);
+  // The theme resolves the athlete's preference before a component sees it, so
+  // `scheme` is one of the two sheets. A raster layer is the same photograph
+  // in both.
+  const layerStyle = useMemo(() => mapLayerStyle(layer, scheme), [layer, scheme]);
+  const mapStyle = useLabelledStyle(layerStyle, language);
 
   // A track with no positions is not a map. Both clients say why rather than
   // dropping the block silently: the athlete asked to see a route and is owed
@@ -102,98 +368,98 @@ export default function RouteView({ route }: { route: RouteBlock }) {
     return <Text className="my-3 text-sm text-text-secondary">{t('chat.routeNoTrack')}</Text>;
   }
 
+  // Read for the climbs' ranges only. The series is measured along the drawn
+  // GPS line and ends where the privacy trim cuts it, so its last value is not
+  // the activity's distance and is never printed as one.
   const distances = alignedSeries(route.distances_meters, route.coordinates.length);
-  const total = distances === null ? null : metresAt(distances, distances.length - 1);
   const label = route.title
     ? t('chat.routeAltTitled', { title: route.title })
     : t('chat.routeAlt');
-  // The theme resolves the athlete's preference before a component sees it, so
-  // `scheme` is one of the two sheets and indexes the table directly.
-  const basemap = BASEMAP_STYLE[scheme];
-  // The climbs are the scheme's strongest ink — the one colour that cannot be
-  // mistaken for the accent the track is drawn in, in either scheme.
-  const climbInk = colors.tokens.onSurface;
 
   return (
     <View className="my-3">
       {route.title ? (
         <Text className="mb-2 text-sm font-medium text-text-primary">{route.title}</Text>
       ) : null}
-      <View
-        className="h-64 w-full overflow-hidden rounded-lg border border-outline-variant bg-surface-container-lowest"
-        accessible
-        accessibilityRole="image"
-        accessibilityLabel={label}
-      >
-        <Map
-          mapStyle={basemap}
-          logo={false}
-          // OpenFreeMap's tiles are OpenStreetMap data and the credit is a
-          // condition of using them, so the attribution button stays on. It
-          // sits bottom-left, the corner the web card docks its own in.
-          attribution
-          attributionPosition={{ bottom: 8, left: 8 }}
-          // The card lives inside a scrolling thread, and a native map view
-          // that claimed the drag would strand an athlete mid-conversation.
-          // Web asks for ctrl-scroll to work its map; the phone has no such
-          // second gesture, so the whole route is framed on open instead —
-          // which is the view an inline summary wants anyway.
-          dragPan={false}
-          touchZoom={false}
-          touchRotate={false}
-          touchPitch={false}
+      <View className="h-64 w-full overflow-hidden rounded-lg border border-outline-variant bg-surface-container-lowest">
+        {/* The map is one image to a screen reader; the controls over it are
+            siblings, not children, so grouping the image does not swallow them. */}
+        <View className="flex-1" accessible accessibilityRole="image" accessibilityLabel={label}>
+          <RouteMap
+            testID="route-map"
+            mapStyle={mapStyle}
+            bounds={bounds}
+            track={track}
+            climbs={climbs}
+            interactive={false}
+          />
+        </View>
+        <LayerCredit layer={layer} testID="route-credit" />
+        <View className="absolute left-2 top-2">
+          <LayerSwitcher layerId={layerId} onPick={pickLayer} testID="route-layers" />
+        </View>
+        <Pressable
+          testID="route-fullscreen-open"
+          accessibilityRole="button"
+          accessibilityLabel={t('chat.routeFullScreen')}
+          onPress={() => setFullScreen(true)}
+          hitSlop={6}
+          className="absolute right-2 top-2 h-9 w-9 items-center justify-center rounded-lg border border-outline-variant bg-surface-container-lowest"
         >
-          <Camera bounds={bounds} padding={CAMERA_PADDING} />
-          <GeoJSONSource id="route-track" data={track}>
-            <Layer
-              id="route-casing"
-              type="line"
-              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-              paint={{
-                'line-color': CASING_COLOR,
-                'line-width': CASING_WIDTH,
-                'line-opacity': 0.75,
-              }}
-            />
-            <Layer
-              id="route-line"
-              type="line"
-              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-              paint={{ 'line-color': colors.tokens.primary, 'line-width': TRACK_WIDTH }}
-            />
-          </GeoJSONSource>
-          <GeoJSONSource id="route-climbs" data={climbs}>
-            {/* A heavier dashed line laid over the track rather than a
-                recoloured stretch of it, so the accent shows through the gaps
-                and the two read as one route with steep parts, not as two
-                routes. */}
-            <Layer
-              id="route-climb"
-              type="line"
-              layout={{ 'line-cap': 'butt', 'line-join': 'round' }}
-              paint={{
-                'line-color': climbInk,
-                'line-width': CLIMB_WIDTH,
-                'line-dasharray': CLIMB_DASH,
-              }}
-            />
-          </GeoJSONSource>
-        </Map>
+          <Maximize2 size={16} color={colors.tokens.onSurface} />
+        </Pressable>
       </View>
-      {total !== null ? (
-        <Text className="mt-2 text-xs text-text-primary">{kilometres(total)} km</Text>
-      ) : null}
+      <Modal
+        visible={fullScreen}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        // Android's back button and the iOS dismiss gesture both land here.
+        onRequestClose={() => setFullScreen(false)}
+        supportedOrientations={['portrait', 'landscape']}
+      >
+        <View className="flex-1 bg-surface-container-lowest" testID="route-fullscreen">
+          <View className="flex-1" accessible accessibilityRole="image" accessibilityLabel={label}>
+            <RouteMap
+              testID="route-fullscreen-map"
+              mapStyle={mapStyle}
+              bounds={bounds}
+              track={track}
+              climbs={climbs}
+              interactive
+            />
+          </View>
+          <LayerCredit layer={layer} testID="route-fullscreen-credit" />
+          <View className="absolute left-3" style={{ top: insets.top + 12 }}>
+            <LayerSwitcher
+              layerId={layerId}
+              onPick={pickLayer}
+              testID="route-fullscreen-layers"
+            />
+          </View>
+          <Pressable
+            testID="route-fullscreen-close"
+            accessibilityRole="button"
+            accessibilityLabel={t('chat.routeExitFullScreen')}
+            onPress={() => setFullScreen(false)}
+            hitSlop={6}
+            className="absolute right-3 h-11 w-11 items-center justify-center rounded-lg border border-outline-variant bg-surface-container-lowest"
+            style={{ top: insets.top + 12 }}
+          >
+            <X size={20} color={colors.tokens.onSurface} />
+          </Pressable>
+        </View>
+      </Modal>
       {route.climbs.length > 0 ? (
         <View className="mt-2">
           {/* The one line the map draws differently gets named. The track needs
               no legend entry — it is the whole picture — and a legend that
               names both reads as chrome. */}
           <View className="flex-row items-center">
-            <ClimbSwatch color={climbInk} />
+            <ClimbSwatch />
             <Text className="ml-1.5 text-xs text-text-secondary">{t('chat.routeClimbs')}</Text>
           </View>
           {route.climbs.map((climb) => {
-            const range = climbRange(distances, climb);
+            const range = climbRange(distances, climb, language);
             const grade = climbGrade(climb, t);
             return (
               <View
@@ -204,7 +470,7 @@ export default function RouteView({ route }: { route: RouteBlock }) {
                   <Text className="mr-2 text-xs font-medium text-text-primary">{grade}</Text>
                 )}
                 <Text className="mr-2 text-xs text-text-secondary">
-                  {climb.avg_gradient.toFixed(1)}%
+                  {climbGradient(climb, language)}
                 </Text>
                 {range ? <Text className="text-xs text-text-secondary">{range}</Text> : null}
               </View>
@@ -212,7 +478,6 @@ export default function RouteView({ route }: { route: RouteBlock }) {
           })}
         </View>
       ) : null}
-      <Text className="mt-1 text-xs text-text-secondary">source: {route.source_tool}</Text>
     </View>
   );
 }

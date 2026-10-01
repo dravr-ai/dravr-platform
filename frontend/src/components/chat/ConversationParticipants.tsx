@@ -123,7 +123,7 @@ export default function ConversationParticipants({
                     type="button"
                     onClick={() => removeParticipant.mutate(p.user_id)}
                     disabled={removeParticipant.isPending}
-                    aria-label={`Remove ${p.user_id}`}
+                    aria-label={t('chat.removeParticipantAria', { name: p.user_id })}
                     className="p-1 rounded text-on-surface-variant hover:text-error hover:bg-error/10 disabled:opacity-50"
                   >
                     <X className="w-3.5 h-3.5" aria-hidden="true" />

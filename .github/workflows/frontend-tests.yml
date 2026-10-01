@@ -212,3 +212,48 @@ jobs:
           name: playwright-screenshots
           path: frontend/test-results/
           retention-days: 1
+
+  # The suite above runs the Vite dev server with no Content-Security-Policy,
+  # so neither the built bundle (its chunk names, its MapLibre worker asset)
+  # nor the policy nginx sends (docker/images/frontend/security-headers.conf)
+  # ever ran under a test. This job builds dist/, serves it with those exact
+  # headers and asserts the Home map paints a track over a basemap stand-in
+  # answered at the real tile hosts. Playwright exits non-zero on a failure
+  # and on a run that selects no test, so an empty suite cannot pass.
+  e2e-production-build:
+    name: Playwright E2E (production build + CSP)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.4"
+
+      - name: Install all workspace dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: bunx playwright install --with-deps chromium
+
+      - name: Run production-build E2E tests
+        working-directory: frontend
+        run: bun run test:e2e:prod
+
+      - name: Upload production-build test results
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-prod-results
+          path: frontend/test-results/
+          retention-days: 1

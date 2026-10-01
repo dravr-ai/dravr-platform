@@ -7,8 +7,8 @@
 //! Dev/test fixture HTTP API.
 //!
 //! Serves the small slice of the Strava API that the real Strava provider
-//! calls (`/athlete`, `/athlete/activities`, `/athletes/{id}/stats`), backed by
-//! rows seeded into the
+//! calls (`/athlete`, `/athlete/activities`, `/activities/{id}`,
+//! `/athletes/{id}/stats`), backed by rows seeded into the
 //! `synthetic_activities` table. In dev the Strava provider's base URL is
 //! pointed here (`PIERRE_STRAVA_API_BASE_URL`), so seeded test users fetch
 //! their activities through the exact same provider code path a real user
@@ -16,6 +16,11 @@
 //!
 //! The bearer token a seeded user carries is `devfixture:<user_id>`; the
 //! fixture extracts the user id from it and returns that user's activities.
+//!
+//! `/activities/{id}/streams` is deliberately not served: its `404` is what
+//! Strava answers for an activity recorded without samples, which the provider
+//! reads as no GPS. A seeded activity with coordinates never reaches it — its
+//! route is drawn from the summary polyline the list and detail carry.
 
 // A pub item this binary never uses is reachable from nowhere: the lint is
 // crate-level because a library's test harness is a binary too, where it
@@ -29,9 +34,10 @@ use std::net::SocketAddr;
 
 use std::f64::consts::TAU;
 
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::http::header::AUTHORIZATION;
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{serve, Json, Router};
 use pierre_fitness_compute::polyline::encode_polyline;
@@ -71,22 +77,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .connect(&database_url)
         .await?;
 
-    let app = Router::new()
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let listener = TcpListener::bind(addr).await?;
+    info!(%addr, "dev fixture API listening (Strava + Garmin shape)");
+    serve(listener, app(pool)).await?;
+    Ok(())
+}
+
+/// Every route the fixture answers, over the seeded `pool`.
+fn app(pool: SqlitePool) -> Router {
+    Router::new()
         .route("/athlete", get(athlete))
         .route("/athlete/activities", get(athlete_activities))
+        .route("/activities/{id}", get(activity_detail))
         .route("/athletes/{id}/stats", get(athlete_stats))
         .route(
             "/activitylist-service/activities/search/activities",
             get(garmin_activities),
         )
         .route("/health", get(|| async { "ok" }))
-        .with_state(pool);
-
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
-    let listener = TcpListener::bind(addr).await?;
-    info!(%addr, "dev fixture API listening (Strava + Garmin shape)");
-    serve(listener, app).await?;
-    Ok(())
+        .with_state(pool)
 }
 
 /// Minimal Strava athlete profile — the provider only needs an id/name here.
@@ -140,6 +150,78 @@ async fn athlete_activities(
             Json(json!([]))
         }
     }
+}
+
+/// `GET /activities/{id}` — one of the bearer user's seeded activities in
+/// Strava's detailed-activity shape: the summary fields the list serves, which
+/// the provider's `DetailedActivityResponse` flattens, and no laps or splits,
+/// since a seed records none.
+///
+/// The id is the numeric one the list handed out ([`stable_id`]): the first 16
+/// hex digits of the row's UUID. An id the bearer user holds no row for is
+/// Strava's `404 Record Not Found`, and a request without the fixture's bearer
+/// is its `401`, so the provider meets the same answers it would in prod.
+async fn activity_detail(
+    State(pool): State<SqlitePool>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(user_id) = user_from_bearer(&headers) else {
+        warn!("missing or malformed bearer; answering unauthorized");
+        return strava_error(
+            StatusCode::UNAUTHORIZED,
+            "Authorization Error",
+            ("Athlete", "access_token", "invalid"),
+        );
+    };
+    let Ok(numeric) = id.parse::<u64>() else {
+        return record_not_found();
+    };
+    let row = sqlx::query(
+        "SELECT id, name, sport_type, start_date, duration_seconds, distance_meters, \
+         elevation_gain, average_heart_rate, max_heart_rate, average_speed, max_speed, \
+         calories, city, region, country, start_latitude, start_longitude \
+         FROM synthetic_activities \
+         WHERE user_id = ? AND substr(lower(replace(id, '-', '')), 1, 16) = ?",
+    )
+    .bind(&user_id)
+    .bind(format!("{numeric:016x}"))
+    .fetch_optional(&pool)
+    .await;
+
+    match row {
+        Ok(Some(row)) => {
+            info!(user_id = %user_id, activity_id = numeric, "served seeded activity detail");
+            Json(row_to_strava_activity(&row)).into_response()
+        }
+        Ok(None) => record_not_found(),
+        Err(e) => {
+            warn!(user_id = %user_id, error = %e, "activity detail query failed");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+/// Strava's `404` for an activity the caller holds no record of.
+fn record_not_found() -> Response {
+    strava_error(
+        StatusCode::NOT_FOUND,
+        "Record Not Found",
+        ("Activity", "id", "invalid"),
+    )
+}
+
+/// An error body in Strava's shape: a message and one `{resource, field, code}`.
+fn strava_error(
+    status: StatusCode,
+    message: &str,
+    (resource, field, code): (&str, &str, &str),
+) -> Response {
+    let body = json!({
+        "message": message,
+        "errors": [{ "resource": resource, "field": field, "code": code }],
+    });
+    (status, Json(body)).into_response()
 }
 
 /// `GET /athletes/{id}/stats` — returns the bearer user's ride and run totals in
@@ -418,4 +500,168 @@ fn stable_id(uuid: &str) -> u64 {
         .take(16)
         .collect();
     u64::from_str_radix(&hex, 16).unwrap_or(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use chrono::{Duration, Utc};
+    use pierre_config::environment::HttpClientConfig;
+    use pierre_config::utils::http_client::initialize_http_clients;
+    use pierre_providers::core::{FitnessProvider, OAuth2Credentials, ProviderConfig};
+    use pierre_providers::strava_provider::StravaProvider;
+    use std::sync::Once;
+
+    static HTTP_CLIENTS: Once = Once::new();
+
+    const ATHLETE: &str = "6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
+    const ROAD_RIDE: &str = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+    const TREADMILL_RUN: &str = "1b2c3d4e-5f6a-4b7c-9d8e-0f1a2b3c4d5e";
+    const STRANGER: &str = "9e8d7c6b-5a4f-4e3d-8c2b-1a0f9e8d7c6b";
+
+    /// A pool holding the seed table's read columns, with one ride recorded
+    /// with GPS and one treadmill run recorded without, both the athlete's.
+    async fn seeded_pool() -> SqlitePool {
+        // One connection: an in-memory database lives and dies with it.
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory pool");
+        sqlx::query(
+            "CREATE TABLE synthetic_activities (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, \
+             name TEXT, sport_type TEXT, start_date TEXT, duration_seconds INTEGER, \
+             distance_meters REAL, elevation_gain REAL, average_heart_rate REAL, \
+             max_heart_rate REAL, average_speed REAL, max_speed REAL, calories REAL, city TEXT, \
+             region TEXT, country TEXT, start_latitude REAL, start_longitude REAL)",
+        )
+        .execute(&pool)
+        .await
+        .expect("create table");
+        for (id, name, sport, lat, lng) in [
+            (ROAD_RIDE, "Morning ride", "ride", Some(45.5), Some(-73.6)),
+            (TREADMILL_RUN, "Treadmill run", "run", None, None),
+        ] {
+            sqlx::query(
+                "INSERT INTO synthetic_activities (id, user_id, name, sport_type, start_date, \
+                 duration_seconds, distance_meters, start_latitude, start_longitude) \
+                 VALUES (?, ?, ?, ?, '2026-09-28T10:00:00', 3600, 10000.0, ?, ?)",
+            )
+            .bind(id)
+            .bind(ATHLETE)
+            .bind(name)
+            .bind(sport)
+            .bind(lat)
+            .bind(lng)
+            .execute(&pool)
+            .await
+            .expect("seed row");
+        }
+        pool
+    }
+
+    /// The real Strava provider, its base URL on a fixture serving `pool`,
+    /// holding the bearer a seeded `user` carries.
+    async fn provider_on_fixture(pool: SqlitePool, user: &str) -> StravaProvider {
+        HTTP_CLIENTS.call_once(|| initialize_http_clients(HttpClientConfig::default()));
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("local addr");
+        tokio::spawn(async move { serve(listener, app(pool)).await });
+
+        let provider = StravaProvider::with_config(ProviderConfig {
+            name: "strava".to_owned(),
+            auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
+            token_url: "https://www.strava.com/oauth/token".to_owned(),
+            api_base_url: format!("http://{addr}"),
+            revoke_url: None,
+            default_scopes: vec!["read".to_owned()],
+        });
+        provider
+            .set_credentials(OAuth2Credentials {
+                client_id: "dev".to_owned(),
+                client_secret: "dev".to_owned(),
+                access_token: Some(format!("{BEARER_PREFIX}{user}")),
+                refresh_token: Some("dev".to_owned()),
+                expires_at: Some(Utc::now() + Duration::days(1)),
+                scopes: vec!["read".to_owned()],
+            })
+            .await
+            .expect("credentials");
+        provider
+    }
+
+    #[tokio::test]
+    async fn a_seeded_activity_without_gps_reads_as_no_samples_not_a_failed_read() {
+        let provider = provider_on_fixture(seeded_pool().await, ATHLETE).await;
+        let id = stable_id(TREADMILL_RUN).to_string();
+
+        // The route read: the detail, then the streams. The streams' 404 is
+        // Strava's word that nothing was recorded, so the read carries an empty
+        // stream set — the activity view settles that as "no GPS". Before the
+        // detail route, the detail itself 404'd and the view could only say the
+        // map failed to load.
+        let activity = provider
+            .get_activity_with_streams(&id)
+            .await
+            .expect("the detail read succeeds");
+        assert_eq!(activity.name(), "Treadmill run");
+        let streams = activity.time_series_data().expect("a stream set");
+        assert!(streams.timestamps.is_empty(), "no samples recorded");
+        assert!(streams.gps_coordinates.is_none(), "no track recorded");
+    }
+
+    #[tokio::test]
+    async fn a_seeded_activity_with_gps_answers_its_detail_and_route() {
+        let provider = provider_on_fixture(seeded_pool().await, ATHLETE).await;
+        let activity = provider
+            .get_activity_detailed(&stable_id(ROAD_RIDE).to_string())
+            .await
+            .expect("the detail read succeeds");
+
+        assert_eq!(activity.name(), "Morning ride");
+        assert_eq!(activity.duration_seconds(), 3600);
+        assert!(
+            activity
+                .summary_polyline()
+                .is_some_and(|line| !line.is_empty()),
+            "the detail carries the route the list does"
+        );
+    }
+
+    #[tokio::test]
+    async fn another_athletes_activity_and_an_unknown_id_are_not_found() {
+        let stranger = provider_on_fixture(seeded_pool().await, STRANGER).await;
+        let foreign = stranger
+            .get_activity_detailed(&stable_id(ROAD_RIDE).to_string())
+            .await
+            .expect_err("a row the bearer does not own is not served");
+        // The provider reads Strava's `Record Not Found` body as the activity
+        // missing, not as a failed request.
+        assert!(
+            foreign.to_string().contains("not found in strava"),
+            "{foreign}"
+        );
+
+        let owner = provider_on_fixture(seeded_pool().await, ATHLETE).await;
+        let unknown = owner
+            .get_activity_detailed("42")
+            .await
+            .expect_err("an id no row carries is not served");
+        assert!(
+            unknown.to_string().contains("not found in strava"),
+            "{unknown}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_detail_refuses_a_request_without_the_fixture_bearer() {
+        let response = activity_detail(
+            State(seeded_pool().await),
+            Path(stable_id(ROAD_RIDE).to_string()),
+            HeaderMap::new(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
 }

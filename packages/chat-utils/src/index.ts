@@ -80,6 +80,7 @@ export { copyableText } from './copy-text';
 export {
   alignedSeries,
   climbGeometry,
+  climbGradient,
   climbGrade,
   climbRange,
   kilometres,
@@ -88,6 +89,9 @@ export {
   trackGeometry,
 } from './route';
 export { fuelParts, stepDuration } from './workout-plan';
+
+// A figure in the athlete's own decimal notation, for every figure both clients print
+export { formatCount, formatDecimal, formatMajorCurrency, formatMinorCurrency } from './number-format';
 
 // The bubble clock, the day pill and the grouping window of the messenger thread
 export {

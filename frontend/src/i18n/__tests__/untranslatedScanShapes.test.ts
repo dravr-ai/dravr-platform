@@ -90,6 +90,18 @@ describe('the scanner sees every shape it claims to', () => {
     );
   });
 
+  it('prose heading a [label, value] row, in either quote style', () => {
+    // Both billing pages built their plan comparison as `[label, value]`
+    // tuples; a row opens on `[`, which no other shape anchors on, so five
+    // English labels sat behind a ceiling of 0.
+    const hits = scan(`const rows = [
+      ['Messages / day', cap(plan.daily_messages)],
+      ["Tool calls / day", cap(plan.daily_tool_calls)],
+    ];`);
+    expect(hits).toContain('Messages / day');
+    expect(hits).toContain('Tool calls / day');
+  });
+
   it('a label field inside an object literal, parentheses and all', () => {
     // CODE_SHAPE rejects anything containing `(`; a value behind `text:` is
     // copy by construction, so the filter must not apply to it.
@@ -112,6 +124,43 @@ describe('the scanner sees every shape it claims to', () => {
     expect(scan('<p>Redirect URIs (Optional)</p>')).toContain('Redirect URIs (Optional)');
     expect(scan('<p>Avg Vol (km)</p>')).toContain('Avg Vol (km)');
     expect(scan('<h4>Health flags ({flags.length})</h4>')).toContain('Health flags (');
+  });
+
+  it('prose that runs on from an expression — the subject interpolated, the sentence English', () => {
+    // JSX_TEXT opens on `>`, so a sentence whose first word is a value was no
+    // text node to it: six of these shipped across both apps, one of them a
+    // translated "Your" in front of an English account-connected sentence.
+    expect(scan('const A = () => <Text>{platformName} is ready to sync</Text>;')).toContain(
+      'is ready to sync',
+    );
+    expect(
+      scan("const A = () => <p>{t('frag.your')} {provider} account has been connected.</p>;"),
+    ).toContain('account has been connected.');
+    // Lowercase `in` opens real copy here; it is no keyword after a slot.
+    expect(
+      scan('const A = () => <Text>{handle} in any chat to bring this agent in.</Text>;'),
+    ).toContain('in any chat to bring this agent in.');
+    // A bracket left open for the next slot is still copy.
+    expect(scan('const A = () => <Text>~{n} tokens ({pct}% of context)</Text>;')).toContain(
+      'tokens (',
+    );
+  });
+
+  it('a call argument whose first word carries a typographic apostrophe', () => {
+    // Both onboarding screens' 30-second give-up notice opened on `Couldn’t`
+    // and stayed English: the first word was read as letters only.
+    expect(
+      scan("function f() { setConnectError('Couldn’t confirm the connection. Try again.'); }"),
+    ).toContain('Couldn’t confirm the connection. Try again.');
+  });
+
+  it('a prose prop given a template literal, one word around the hole included', () => {
+    // `accessibilityLabel={`Connect ${name}`}` read every onboarding provider
+    // button in English: the loose template shape wants two words.
+    expect(scan('const A = () => <B accessibilityLabel={`Connect ${p.name}`} />;')).toContain(
+      'Connect …',
+    );
+    expect(scan('const A = () => <svg aria-label={`Chart: ${summary}`} />;')).toContain('Chart: …');
   });
 
   it('both arms of a ternary', () => {
@@ -175,6 +224,26 @@ describe('the scanner does NOT flag things that are not copy', () => {
     const hits = scan("const TABS = ['Overview', 'Details'];");
     expect(hits).not.toContain('Details');
     expect(hits).not.toContain('Overview');
+    // The array-head shape keeps the same two-word floor, so a one-word head
+    // and a lowercase slug stay out of it.
+    const heads = scan("const ROWS = [['Agents', 3], ['daily_messages', 50], [`x ${y}`, 1]];");
+    expect(heads).not.toContain('Agents');
+    expect(heads).not.toContain('daily_messages');
+  });
+
+  it('code after a closing brace — a block keyword, an import, a destructured loop', () => {
+    // The run-on-from-an-expression shape opens on `}`, which closes blocks
+    // and objects far more often than it closes a JSX slot.
+    expect(scan('try { go(); } catch (err) { stop(); }')).toEqual([]);
+    expect(scan("import { a } from 'react';\nimport { b } from './ui';")).toEqual([]);
+    expect(scan('for (const { counter, label } of counters) { use(label); }')).toEqual([]);
+    expect(scan('const c = `rounded-lg ${a} border-2 ${b}`;')).toEqual([]);
+  });
+
+  it('a template literal in a styling or test prop', () => {
+    expect(scan('const A = () => <B className={`Rounded ${x}`} testID={`Row ${id}`} />;')).toEqual(
+      [],
+    );
   });
 
   it('a comment', () => {

@@ -181,7 +181,7 @@ async fn a_scraped_gps_track_becomes_index_aligned_time_series_data() {
         .expect("the elevation series populates altitude"); // Safe: asserted behaviour of this test
     assert_eq!(
         altitude.as_slice(),
-        &[312.5_f32, 344.0, 389.25, 421.75],
+        &[Some(312.5_f32), Some(344.0), Some(389.25), Some(421.75)],
         "elevations narrow to f32 exactly at these magnitudes"
     );
 

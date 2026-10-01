@@ -9,22 +9,31 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { billingApi } from '../services/api';
 import { track } from '../services/analytics';
 import type { PaidPlanTier, PlanView } from '@pierre/shared-types';
-import { QUERY_KEYS, hasPaymentProblem, planTierLabelKey } from '@pierre/shared-constants';
+import {
+  PLAN_INCLUDED_USAGE_LABEL_KEY,
+  PLAN_LIMIT_ROWS,
+  PLAN_PER_MONTH_KEY,
+  PLAN_UNLIMITED_KEY,
+  PLAN_INCLUDED_CUSTOM_KEY,
+  QUERY_KEYS,
+  billingLabel,
+  hasPaymentProblem,
+  invoiceStatusLabelKey,
+  planTierLabelKey,
+  quotaCounterLabelKey,
+  subscriptionStatusLabelKey,
+} from '@pierre/shared-constants';
 import { useAuth } from '../hooks/useAuth';
 import { useFeatureFlags, FEATURE_KEYS } from '../hooks/useFeatureFlags';
 import { Button, Card } from './ui';
 import { Badge } from './ui/Badge';
 import { useTranslation } from '@pierre/i18n';
-import { formatCompactNumber, formatDate } from '@pierre/chat-utils';
+import { formatCompactNumber, formatCount, formatDate, formatMajorCurrency, formatMinorCurrency } from '@pierre/chat-utils';
 import { describeApiError } from '@pierre/ui-logic';
 
-function formatCurrency(amount: number | undefined, currency: string | undefined): string {
+function formatCurrency(amount: number | undefined, currency: string | undefined, language: string): string {
   if (amount == null) return '—';
-  const value = amount / 100;
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: (currency ?? 'usd').toUpperCase(),
-  }).format(value);
+  return formatMinorCurrency(amount, currency ?? 'usd', language);
 }
 
 export default function BillingPage() {
@@ -96,6 +105,7 @@ export default function BillingPage() {
   const tierLabelKey = planTierLabelKey(tier);
   const tierLabel = tierLabelKey ? t(tierLabelKey) : tier;
   const paymentProblem = hasPaymentProblem(sub?.status);
+  const statusLabel = sub ? billingLabel(sub.status, subscriptionStatusLabelKey, t) : '';
 
   // Checkout success return path: the provider redirects to
   // `/billing?upgrade=success` once payment completes. Fire the funnel-close
@@ -124,9 +134,7 @@ export default function BillingPage() {
                 {t('shell.billingPaymentProblem')}
               </h3>
               <p className="mt-1 text-sm text-on-surface-variant">
-                {t('frag.lastPaymentFor')} {tierLabel} plan didn&apos;t go through (status:{' '}
-                {sub?.status}). Update your payment method to keep your plan — otherwise it will
-                revert to Starter.
+                {t('app.lastPaymentFailed', { plan: tierLabel, status: statusLabel })}
               </p>
             </div>
             <Button
@@ -157,13 +165,13 @@ export default function BillingPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
             <div>
               <div className="text-on-surface-variant">{t('auth.statusFieldLabel')}</div>
-              <div className="font-medium text-on-surface">{sub.status}</div>
+              <div className="font-medium text-on-surface">{statusLabel}</div>
             </div>
             <div>
               <div className="text-on-surface-variant">{t('shell.billingPeriodEnd')}</div>
               <div className="font-medium text-on-surface">
                 {sub.current_period_end
-                  ? new Date(sub.current_period_end).toLocaleDateString()
+                  ? formatDate(sub.current_period_end, language)
                   : '—'}
               </div>
             </div>
@@ -173,7 +181,7 @@ export default function BillingPage() {
             </div>
             <div>
               <div className="text-on-surface-variant">{t('shell.billingCancelAtPeriodEnd')}</div>
-              <div className="font-medium text-on-surface">{sub.cancel_at_period_end ? t('common.yes') : 'No'}</div>
+              <div className="font-medium text-on-surface">{sub.cancel_at_period_end ? t('common.yes') : t('common.no')}</div>
             </div>
           </div>
         ) : (
@@ -276,11 +284,11 @@ export default function BillingPage() {
               return (
                 <div key={c.counter_type}>
                   <div className="flex justify-between text-sm mb-1">
-                    <span className="text-on-surface-variant capitalize">
-                      {c.counter_type.replace(/_/g, ' ')}
+                    <span className="text-on-surface-variant">
+                      {billingLabel(c.counter_type, quotaCounterLabelKey, t)}
                     </span>
                     <span className="font-medium text-on-surface">
-                      {c.current.toLocaleString()} / {c.limit === Number.MAX_SAFE_INTEGER ? '∞' : c.limit.toLocaleString()}
+                      {formatCount(c.current, language)} / {c.limit === Number.MAX_SAFE_INTEGER ? '∞' : formatCount(c.limit, language)}
                     </span>
                   </div>
                   <div className="w-full bg-surface-container-high rounded-full h-2">
@@ -322,9 +330,11 @@ export default function BillingPage() {
                     </td>
                     <td className="py-2 text-on-surface font-mono text-xs">{inv.number ?? '—'}</td>
                     <td className="py-2 text-on-surface">
-                      {formatCurrency(inv.amount_paid ?? inv.amount_due, inv.currency)}
+                      {formatCurrency(inv.amount_paid ?? inv.amount_due, inv.currency, language)}
                     </td>
-                    <td className="py-2 text-on-surface capitalize">{inv.status ?? '—'}</td>
+                    <td className="py-2 text-on-surface">
+                      {billingLabel(inv.status, invoiceStatusLabelKey, t)}
+                    </td>
                     <td className="py-2">
                       {inv.hosted_invoice_url ? (
                         <a
@@ -370,19 +380,17 @@ function PlanCard({
   checkoutPending: boolean;
   hasSubscription: boolean;
 }) {
-  const { t } = useTranslation();
-  const cap = (value: number): string => (plan.unlimited ? t('shell.billingUnlimited') : formatCompactNumber(value));
+  const { t, language } = useTranslation();
+  const cap = (value: number): string =>
+    plan.unlimited ? t(PLAN_UNLIMITED_KEY) : formatCompactNumber(value, t, language);
   const includedUsage = plan.included_usd != null
-    ? `$${plan.included_usd}/mo`
+    ? t(PLAN_PER_MONTH_KEY, { amount: formatMajorCurrency(plan.included_usd, 'usd', language) })
     : plan.unlimited
-    ? t('shell.billingIncludedCustom')
+    ? t(PLAN_INCLUDED_CUSTOM_KEY)
     : '—';
   const features: Array<[string, string]> = [
-    ['Messages / day', cap(plan.daily_messages)],
-    ['Tokens / day', cap(plan.daily_tokens)],
-    ['Agents', cap(plan.max_active_agents)],
-    ['Tool calls / day', cap(plan.daily_tool_calls)],
-    ['Included usage', includedUsage],
+    ...PLAN_LIMIT_ROWS.map((row): [string, string] => [t(row.labelKey), cap(plan[row.field])]),
+    [t(PLAN_INCLUDED_USAGE_LABEL_KEY), includedUsage],
   ];
 
   return (

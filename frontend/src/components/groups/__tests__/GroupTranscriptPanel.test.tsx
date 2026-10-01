@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { GroupTranscriptResponse } from '@pierre/shared-types';
+import { i18n } from '@pierre/i18n';
 import GroupTranscriptPanel from '../GroupTranscriptPanel';
 
 const getTranscript = vi.fn();
@@ -81,5 +82,50 @@ describe('GroupTranscriptPanel', () => {
       "A member's message is hidden: sharing not enabled",
     ]);
     expect(getTranscript).toHaveBeenCalledWith('group-1');
+  });
+
+  it('stamps an entry in the app language, not the browser locale', async () => {
+    getTranscript.mockResolvedValue({
+      group_id: 'group-1',
+      members: [],
+      entries: [
+        {
+          id: 'e1',
+          speaker: 'member',
+          withheld: false,
+          own: false,
+          author_user_id: 'user-bob',
+          author_display_name: 'Bob',
+          content: 'Sortie longue à 7 h ?',
+          message_id: null,
+          created_at: '2026-01-15T12:00:00Z',
+        },
+        {
+          id: 'e2',
+          speaker: 'coach',
+          withheld: false,
+          own: false,
+          author_user_id: 'coach-tempo',
+          author_display_name: 'Tempo',
+          content: 'Oui, allure facile.',
+          message_id: null,
+          created_at: '2026-01-15T12:01:00Z',
+        },
+      ],
+    } satisfies GroupTranscriptResponse);
+    await i18n.changeLanguage('fr');
+    try {
+      renderPanel();
+
+      expect(await screen.findByText('Sortie longue à 7 h ?')).toBeInTheDocument();
+      // The time of day depends on the runner's zone; the French month does not.
+      expect(screen.getAllByText(/15 janv\. 2026/)).toHaveLength(2);
+      expect(screen.queryByText(/1\/15\/2026/)).not.toBeInTheDocument();
+      // The agent's tag is the catalogue's word, not an English suffix.
+      expect(screen.getByText('Tempo · Agent')).toBeInTheDocument();
+      expect(screen.queryByText('Tempo · agent')).not.toBeInTheDocument();
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 });

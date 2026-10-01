@@ -2,7 +2,8 @@
 // ABOUTME: Usage and connected MCP apps stood alone on the phone while web held them under Account
 
 import React from 'react';
-import { render, waitFor } from '@testing-library/react-native';
+import { act, render, waitFor } from '@testing-library/react-native';
+import { i18n } from '@pierre/i18n';
 import { settingsPaneSections } from '@pierre/shared-constants';
 
 
@@ -127,5 +128,46 @@ describe('AccountScreen', () => {
       expect(getByText('Conversations')).toBeTruthy();
       expect(getByText('5 / 10')).toBeTruthy();
     });
+  });
+
+  // The row printed the wire value, "active", in every language.
+  it('names the account status in the athlete\'s language', async () => {
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    try {
+      const { getByText, queryByText } = render(<AccountScreen />);
+      await waitFor(() => {
+        expect(getByText('Actif')).toBeTruthy();
+      });
+      expect(queryByText('active')).toBeNull();
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
+  });
+
+  // carnet#683: the role row printed the wire value "user" and the counts and
+  // the member-since date followed the device, not the language the athlete chose.
+  it('writes the role, the member-since date and the counts in French', async () => {
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    try {
+      const { getByTestId, getByText, queryByText } = render(<AccountScreen />);
+      await waitFor(() => {
+        expect(getByText('Utilisateur')).toBeTruthy();
+      });
+      expect(queryByText('user')).toBeNull();
+      expect(getByText('Membre depuis')).toBeTruthy();
+      expect(getByText('15 janv. 2026')).toBeTruthy();
+      expect(getByTestId('account-member-since')).toBeTruthy();
+      expect(getByText('145,0 k / 500,0 k')).toBeTruthy();
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
   });
 });

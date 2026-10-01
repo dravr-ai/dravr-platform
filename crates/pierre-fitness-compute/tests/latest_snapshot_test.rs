@@ -68,7 +68,7 @@ fn flat_power_stream(seconds: usize, watts: u32) -> TimeSeriesData {
     let timestamps: Vec<u32> = (0..seconds)
         .map(|i| u32::try_from(i).unwrap_or(u32::MAX))
         .collect();
-    let power: Vec<u32> = vec![watts; seconds];
+    let power: Vec<Option<u32>> = vec![Some(watts); seconds];
     TimeSeriesData {
         timestamps,
         heart_rate: None,
@@ -86,7 +86,7 @@ fn flat_hr_stream(seconds: usize, bpm: u32) -> TimeSeriesData {
     let timestamps: Vec<u32> = (0..seconds)
         .map(|i| u32::try_from(i).unwrap_or(u32::MAX))
         .collect();
-    let heart_rate: Vec<u32> = vec![bpm; seconds];
+    let heart_rate: Vec<Option<u32>> = vec![Some(bpm); seconds];
     TimeSeriesData {
         timestamps,
         heart_rate: Some(heart_rate),
@@ -214,6 +214,130 @@ fn zone_distribution_buckets_against_user_zones() {
     assert_eq!(zd.z3_seconds, 0);
     assert_eq!(zd.above_max_seconds, 0);
     assert_eq!(snap.aggregated_zone_distribution.unwrap().z2_seconds, 300);
+}
+
+/// `stream` with every `every`-th heart-rate and power sample turned into a gap.
+fn with_gaps(mut stream: TimeSeriesData, every: usize) -> TimeSeriesData {
+    for channel in [stream.heart_rate.as_mut(), stream.power.as_mut()]
+        .into_iter()
+        .flatten()
+    {
+        for (i, sample) in channel.iter_mut().enumerate() {
+            if i % every == every - 1 {
+                *sample = None;
+            }
+        }
+    }
+    stream
+}
+
+#[test]
+fn zone_distribution_credits_no_zone_for_a_heart_rate_gap() {
+    // 300 s at 135 bpm (Z2) with every tenth sample lost: the 30 gaps are
+    // time with no reading, so Z2 holds the 270 recorded seconds and Z1 —
+    // where a dropout read as 0 bpm would land — holds nothing.
+    let zones = HrZoneSet::new(120, 140, 160, 180, 200).unwrap();
+    let activity = synthetic_activity(SyntheticActivity {
+        id: "zone-gaps",
+        days_ago: 0,
+        duration_seconds: 300,
+        distance_meters: 2_000.0,
+        avg_hr: Some(135),
+        avg_power: None,
+        normalized_power: None,
+        streams: Some(with_gaps(flat_hr_stream(300, 135), 10)),
+    });
+    let snap = build_latest_snapshot(&[activity], 7, None, Some(zones));
+    let zd = snap.activities[0]
+        .zone_distribution
+        .expect("zone distribution present");
+    assert_eq!(zd.z2_seconds, 270);
+    assert_eq!(zd.z1_seconds, 0);
+    assert_eq!(zd.above_max_seconds, 0);
+    assert_eq!(zd.total_seconds(), 270);
+}
+
+#[test]
+fn a_stream_of_only_gaps_has_no_zone_distribution() {
+    let zones = HrZoneSet::new(120, 140, 160, 180, 200).unwrap();
+    let activity = synthetic_activity(SyntheticActivity {
+        id: "zone-all-gaps",
+        days_ago: 0,
+        duration_seconds: 60,
+        distance_meters: 0.0,
+        avg_hr: None,
+        avg_power: None,
+        normalized_power: None,
+        streams: Some(with_gaps(flat_hr_stream(60, 135), 1)),
+    });
+    let snap = build_latest_snapshot(&[activity], 7, None, Some(zones));
+    assert!(snap.activities[0].zone_distribution.is_none());
+}
+
+#[test]
+fn stream_normalized_power_excludes_power_gaps() {
+    // 1800 s at a steady 200 W with every fourth sample lost. NP over the
+    // recorded samples is exactly 200 W, so IF is exactly 200/250 and VI
+    // exactly 1; zero-filling the gaps would read NP ≈ 150 W.
+    let activity = synthetic_activity(SyntheticActivity {
+        id: "stream-np-gaps",
+        days_ago: 0,
+        duration_seconds: 1800,
+        distance_meters: 5_000.0,
+        avg_hr: Some(150),
+        avg_power: Some(200),
+        normalized_power: None,
+        streams: Some(with_gaps(flat_power_stream(1800, 200), 4)),
+    });
+    let snap = build_latest_snapshot(&[activity], 7, Some(250), None);
+    let metrics = snap.activities[0].metrics;
+    let intensity = metrics.intensity_factor.expect("intensity factor present");
+    assert!((intensity - 0.8).abs() < 1e-9, "IF {intensity}");
+    let vi = metrics
+        .variability_index
+        .expect("variability index present");
+    assert!((vi - 1.0).abs() < 1e-9, "VI {vi}");
+}
+
+#[test]
+fn decoupling_excludes_heart_rate_gaps() {
+    // 600 s at a steady 150 bpm and 3 m/s, with every third heart-rate
+    // sample of the second half lost. The recorded pairs are steady, so
+    // decoupling is exactly 0; zero-filling the gaps would read the second
+    // half's HR:speed ratio a third lower, a -33 % decoupling.
+    let seconds = 600_usize;
+    let heart_rate = (0..seconds)
+        .map(|i| (i < seconds / 2 || i % 3 != 0).then_some(150))
+        .collect();
+    let streams = TimeSeriesData {
+        timestamps: (0..seconds)
+            .map(|i| u32::try_from(i).unwrap_or(u32::MAX))
+            .collect(),
+        heart_rate: Some(heart_rate),
+        power: None,
+        cadence: None,
+        speed: Some(vec![Some(3.0); seconds]),
+        altitude: None,
+        temperature: None,
+        gps_coordinates: None,
+        distance: None,
+    };
+    let activity = synthetic_activity(SyntheticActivity {
+        id: "decoupling-gaps",
+        days_ago: 0,
+        duration_seconds: 600,
+        distance_meters: 1_800.0,
+        avg_hr: Some(150),
+        avg_power: None,
+        normalized_power: None,
+        streams: Some(streams),
+    });
+    let snap = build_latest_snapshot(&[activity], 7, None, None);
+    let decoupling = snap.activities[0]
+        .metrics
+        .decoupling_pct
+        .expect("decoupling present");
+    assert!(decoupling.abs() < 1e-9, "decoupling {decoupling}");
 }
 
 #[test]

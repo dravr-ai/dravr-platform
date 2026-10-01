@@ -2,19 +2,19 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The Home tab — today's session from the plan, the week around it, and the latest activities with their routes
-// ABOUTME: Where the app lands after sign-in; every day and activity on it opens a new chat with a drafted question
+// ABOUTME: Where the app lands after sign-in; a day on it opens a chat with a drafted question, an activity its own view
 
 import React, { useCallback, useRef, useState } from 'react';
 import { RefreshControl, ScrollView, View } from 'react-native';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { QUERY_KEYS } from '@pierre/shared-constants';
-import type { ActivityRouteResponse } from '@pierre/shared-types';
+import type { ActivityRouteResponse, HomeActivity } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { BrandLockup } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import { useProviderConnected, useRecentActivities, useTrainingPlan } from '../../hooks/useHome';
-import { CONNECTIONS_ROUTE, threadHref } from '../../navigation/routes';
+import { CONNECTIONS_ROUTE, activityHref, threadHref } from '../../navigation/routes';
 import { HomePlan } from './HomePlan';
 import { RecentActivities } from './RecentActivities';
 
@@ -72,10 +72,15 @@ export function HomeScreen() {
     );
   }, [queryClient, refetchPlan, refetchRecent, refetchProvider]);
 
-  // Every tap on Home asks the agent about what was tapped, in a fresh
-  // thread, with the question in the composer and the send left to the athlete.
+  // A plan day asks the agent about it, in a fresh thread, with the question
+  // in the composer and the send left to the athlete; an activity opens its
+  // own view, where the questions about it are.
   const openDraft = useCallback(
     (draft: string) => router.push(threadHref(undefined, { draft })),
+    [router],
+  );
+  const openActivity = useCallback(
+    (activity: HomeActivity) => router.push(activityHref(activity.provider, activity.id)),
     [router],
   );
 
@@ -124,7 +129,7 @@ export function HomeScreen() {
           providerConnected={provider.connected}
           syncing={provider.syncing}
           onConnect={() => router.push(CONNECTIONS_ROUTE)}
-          openDraft={openDraft}
+          openActivity={openActivity}
         />
       </ScrollView>
     </View>

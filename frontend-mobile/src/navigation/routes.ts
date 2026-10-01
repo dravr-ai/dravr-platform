@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The expo-router paths the Home and chat tabs and the agent edit sheet live at, in one place
+// ABOUTME: The expo-router paths the Home and chat tabs, an activity's view and the agent edit sheet live at, in one place
 // ABOUTME: Screens, the tab bar, deep links and tests read these so a moved route changes one line
 
 import {
@@ -57,6 +57,24 @@ export function threadHref(
   if (composer?.draft) params.draft = composer.draft;
   if (composer?.send) params.send = composer.send;
   return { pathname: CHAT_THREAD_ROUTE, params };
+}
+
+/**
+ * One activity's own view — its map, its figures, the questions to ask about
+ * it — opened from a Home row. Pushed in the app stack beside the thread, so
+ * it covers the tab bar and Back returns to Home.
+ */
+export const ACTIVITY_ROUTE = '/(app)/activity/[provider]/[activityId]' as const;
+
+/** A navigation target for one activity's view, as `router.push` takes it. */
+export interface ActivityHref {
+  pathname: typeof ACTIVITY_ROUTE;
+  params: { provider: string; activityId: string };
+}
+
+/** The target that opens the view of the activity `activityId` from `provider`. */
+export function activityHref(provider: string, activityId: string): ActivityHref {
+  return { pathname: ACTIVITY_ROUTE, params: { provider, activityId } };
 }
 
 /**

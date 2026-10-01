@@ -71,8 +71,8 @@ describe('ConversationParticipants', () => {
     expect(list).toHaveTextContent(MEMBER_ID);
 
     // The owner has no remove control; the member does.
-    expect(screen.queryByRole('button', { name: `Remove ${OWNER_ID}` })).toBeNull();
-    expect(screen.getByRole('button', { name: `Remove ${MEMBER_ID}` })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: `Remove ${OWNER_ID} from the conversation` })).toBeNull();
+    expect(screen.getByRole('button', { name: `Remove ${MEMBER_ID} from the conversation` })).toBeInTheDocument();
   });
 
   it('adds a participant by user id and refetches the list', async () => {
@@ -98,7 +98,7 @@ describe('ConversationParticipants', () => {
     await screen.findByText('Participants (2)');
     fireEvent.click(screen.getByRole('button', { name: /participants/i }));
 
-    fireEvent.click(screen.getByRole('button', { name: `Remove ${MEMBER_ID}` }));
+    fireEvent.click(screen.getByRole('button', { name: `Remove ${MEMBER_ID} from the conversation` }));
 
     await waitFor(() => expect(removeParticipant).toHaveBeenCalledWith(CONVERSATION_ID, MEMBER_ID));
     await waitFor(() => expect(listParticipants).toHaveBeenCalledTimes(2));

@@ -55,22 +55,43 @@
 //! athlete's streams reads take turns — a `(user, tenant)` reads its provider
 //! for one activity at a time — and a request that waited for its turn looks
 //! at the store again before it reads, so any number of requests for the same
-//! activity cost one read between them. The turns are held in this process:
-//! each server instance keeps its own, and two instances can read for the
-//! same athlete at the same time.
+//! activity cost one read between them. The turn is handed to the waiting
+//! request whose activity started last, and a Home list's read — the client
+//! marks its page's burst ([`RouteAsk::burst`]) — that finds it free waits
+//! [`ROUTE_TURN_GATHER_MS`] for the rest of the burst to queue, so the newest
+//! activity — the page's big map — is read first whatever order the burst
+//! arrived in. Every other read that finds the turn free takes it at once: an
+//! activity view's own map, the athlete's retry, a detail read
+//! ([`TurnEntry`]). The turns are held in this process: each server instance
+//! keeps its own, and two instances can read for the same athlete at the
+//! same time.
 //!
 //! The read itself is never cut short by the request that started it. It
 //! runs on the server's drain tracker, holding the athlete's turn until the
-//! provider answers and its outcome is stored; the request waits for it only
-//! within [`ROUTE_READ_TIMEOUT_SECS`], counted from when it arrived, and past
-//! that answers `unavailable` without storing anything. A read queued behind
-//! slow ones is then answered by the store on the next request, never stored
-//! as a failure the provider did not have, and a request that gives up never
-//! leaves a scrape running with the turn released — the next read on the
-//! same scraper session waits for it.
+//! provider answers and its outcome is stored; the request waits for its turn
+//! and the read only within [`ROUTE_READ_TIMEOUT_SECS`], counted from when it
+//! arrived, and past that answers `pending` without storing anything. A
+//! request still queued behind slower reads has asked nothing of the
+//! provider, and one whose read is still running has no answer yet: neither
+//! is `unavailable`, which only a read that finished says, and on 2026-09-30
+//! a first Home visit told the athlete three of its five maps "could not be
+//! loaded" when they were only waiting their turn. A `pending` answer carries
+//! how long the read can still take by this server's own bounds — the reads
+//! ahead of it in the turn and its own, each bounded by
+//! [`ROUTE_PROVIDER_READ_TIMEOUT_SECS`] — and the client keeps asking within
+//! it, so a read queued behind several slow ones is still followed. A
+//! finished read's outcome answers the next ask from the store.
+//! A request that gives up never leaves a scrape running with the turn
+//! released — the next read on the same scraper session waits for it.
+//!
+//! A streams read is a detail read, and it carries what no list read does:
+//! the activity's splits and laps. They are stored beside the activity's
+//! cached copy ([`crate::services::activity_detail`]), where no later list
+//! sync reaches them, and the activity's view reads them there.
 
+use std::cmp::Reverse;
 use std::env;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Mutex as StdMutex, MutexGuard, PoisonError};
 use std::time::Duration as StdDuration;
 
 use chrono::{DateTime, Duration, Utc};
@@ -83,11 +104,12 @@ use pierre_fitness_compute::polyline::decode_polyline;
 use pierre_fitness_compute::route_track::{RouteTrack, RouteTrackError};
 use pierre_tool_runtime::protocol::provider_helpers::configured_provider;
 use pierre_tool_runtime::runtime::ToolRuntime;
-use tokio::sync::{oneshot, Mutex as TokioMutex};
-use tokio::time::{timeout, timeout_at, Instant};
+use tokio::sync::oneshot;
+use tokio::time::{sleep, timeout, timeout_at, Instant};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
+use crate::services::activity_detail::store_detail;
 use crate::services::turn_lifecycle::InFlightTurns;
 
 /// Most coordinates a Home map carries.
@@ -109,16 +131,16 @@ pub const UNREAD_ROUTE_RECHECK_MINUTES: i64 = 10;
 
 /// Seconds a route request waits for its provider turn and its read.
 ///
-/// Counted from when it arrived: past it the request answers `unavailable`
+/// Counted from when it arrived: past it the request answers `pending`
 /// without storing anything. `PIERRE_HOME_ROUTE_ANSWER_SECS` overrides it
 /// ([`route_answer_budget`]).
 ///
 /// Under the clients' thirty-second route request timeout
 /// (`HOME_ROUTE_REQUEST_TIMEOUT_MS` in `@pierre/shared-constants`), so the
-/// map always resolves to a route or a sentence instead of a spinner the
-/// client gives up on: a scrape queued behind four others on a slow scraper
-/// can take minutes. The read it started keeps running past it and stores
-/// what the provider says.
+/// client always has an answer before it gives up on the request: a scrape
+/// queued behind four others on a slow scraper can take minutes. The read
+/// it started keeps running past it and stores what the provider says, and
+/// the client's next request is answered from the store.
 pub const ROUTE_READ_TIMEOUT_SECS: u64 = 25;
 
 /// Seconds one provider read may hold the athlete's turn.
@@ -132,6 +154,17 @@ pub const ROUTE_READ_TIMEOUT_SECS: u64 = 25;
 /// then has failed, and the athlete's next route read must not wait behind it
 /// forever.
 pub const ROUTE_PROVIDER_READ_TIMEOUT_SECS: u64 = 330;
+
+/// Milliseconds a Home list's route read that finds the athlete's provider
+/// turn free waits before it reads ([`TurnEntry::Burst`]).
+///
+/// A Home page asks for the routes of all its rows in one burst, and the
+/// order they reach the server is the network's, not the page's. The wait
+/// lets the burst queue, so the turn goes to the newest activity in it — the
+/// big map — rather than to whichever request landed first. A fraction of
+/// one scrape, which takes seconds; a read that is not one of a burst never
+/// pays it.
+pub const ROUTE_TURN_GATHER_MS: u64 = 200;
 
 /// [`ROUTE_READ_TIMEOUT_SECS`], or `PIERRE_HOME_ROUTE_ANSWER_SECS` when it
 /// holds a positive number of seconds.
@@ -171,6 +204,16 @@ pub enum RouteMiss {
     /// stream set. Read again after [`UNREAD_ROUTE_RECHECK_MINUTES`], or at
     /// the athlete's retry.
     Unavailable,
+    /// No read has finished yet: the request's bound ran out while it waited
+    /// for the athlete's provider turn, or while the read it started was
+    /// still running. Answered, never stored — the read that runs stores its
+    /// own outcome — and the client asks again.
+    Pending {
+        /// Seconds the read can still take by this server's bounds: one
+        /// [`route_provider_read_bound`] for each read holding or queued
+        /// ahead of it in the athlete's turn, and one for its own.
+        settles_within_secs: u64,
+    },
 }
 
 impl RouteMiss {
@@ -180,6 +223,7 @@ impl RouteMiss {
         match self {
             Self::Settled(reason) => reason.as_str(),
             Self::Unavailable => UNAVAILABLE,
+            Self::Pending { .. } => PENDING,
         }
     }
 
@@ -194,6 +238,9 @@ impl RouteMiss {
 
 /// The slug of [`RouteMiss::Unavailable`].
 const UNAVAILABLE: &str = "unavailable";
+
+/// The slug of [`RouteMiss::Pending`].
+const PENDING: &str = "pending";
 
 /// What reading one activity's route produced: the track, or why there is
 /// none.
@@ -237,62 +284,271 @@ pub struct CachedActivityRef<'a> {
     pub activity: &'a Activity,
 }
 
-/// Whose turn at the provider a lock is: an athlete, in the tenant they act
-/// in.
+/// Whose turn at the provider it is: an athlete, in the tenant they act in.
 type TurnKey = (Uuid, TenantId);
 
-/// One athlete's lock. An `Arc` because the map and every request queued for
-/// that athlete share it: they have to contend for one lock, and a request
-/// keeps it across awaits the map's own borrow cannot span.
-type TurnLock = Arc<TokioMutex<()>>;
-
-/// The provider-read turns in use: one lock per `(user, tenant)` with a
-/// streams read in flight or waiting.
-///
-/// An entry lives while a request holds or waits for it and is removed by the
-/// last one to leave, so the map holds the athletes being read for at this
-/// moment, not every athlete ever read for.
-static PROVIDER_READ_TURNS: LazyLock<DashMap<TurnKey, TurnLock>> = LazyLock::new(DashMap::new);
-
-/// One request's place in an athlete's queue for their provider.
-///
-/// Claimed before the wait and given up on drop, so a request that fails, or
-/// is dropped while it waits or reads because its client went away, leaves
-/// the map as it found it.
-struct ProviderReadTurn {
-    key: TurnKey,
-    /// The athlete's lock, shared with the map and with every other request
-    /// queued for the same athlete.
-    lock: TurnLock,
+/// One athlete's provider turn: whether a read holds it, and the requests
+/// waiting for it.
+#[derive(Default)]
+struct AthleteTurns {
+    queue: StdMutex<TurnQueue>,
 }
 
-impl ProviderReadTurn {
-    /// Join the queue for one athlete's provider.
-    fn claim(user_id: Uuid, tenant_id: TenantId) -> Self {
-        let key = (user_id, tenant_id);
-        let lock = Arc::clone(
-            PROVIDER_READ_TURNS
-                .entry(key)
-                .or_insert_with(|| Arc::new(TokioMutex::new(())))
-                .value(),
-        );
-        Self { key, lock }
+impl AthleteTurns {
+    /// The queue, taken past a poisoned lock: every change to it is a single
+    /// push, pop or flag write, so a panic elsewhere leaves it consistent.
+    fn queue(&self) -> MutexGuard<'_, TurnQueue> {
+        self.queue.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// [`TurnQueue::pop_newest`], the queue locked for that alone.
+    fn pop_newest(&self) -> Option<TurnWaiter> {
+        self.queue().pop_newest()
     }
 }
 
-impl Drop for ProviderReadTurn {
-    fn drop(&mut self) {
-        // Two strong references are the map's and this one: nobody else is
-        // queued, so the entry goes. A request that claims after that finds
-        // no entry and inserts a lock of its own, which nobody holds; one
-        // that claimed before it holds a third reference, so the entry stays
-        // for that request to remove. Two requests leaving at the same
-        // moment can each count the other's reference and both leave the
-        // entry behind: it is unlocked and nobody waits on it, and the next
-        // request for the athlete claims it and removes it when it leaves.
-        PROVIDER_READ_TURNS.remove_if(&self.key, |_, stored| {
-            Arc::ptr_eq(stored, &self.lock) && Arc::strong_count(stored) <= 2
+/// The state behind one athlete's turn.
+#[derive(Default)]
+struct TurnQueue {
+    /// Whether a request holds the turn, or it is being handed to one.
+    held: bool,
+    /// The requests waiting, in no order: the newest activity is picked when
+    /// the turn is handed on.
+    waiting: Vec<TurnWaiter>,
+    /// Requests that have queued, so equal start dates are served in arrival
+    /// order.
+    arrivals: u64,
+}
+
+impl TurnQueue {
+    /// Queue a request for the route of an activity that started at
+    /// `started`; the turn arrives on the receiver.
+    fn enqueue(&mut self, started: DateTime<Utc>) -> oneshot::Receiver<ProviderTurn> {
+        let (wake, woken) = oneshot::channel();
+        self.arrivals += 1;
+        self.waiting.push(TurnWaiter {
+            started,
+            arrival: self.arrivals,
+            wake,
         });
+        woken
+    }
+
+    /// The waiting request whose activity started last — the first to arrive
+    /// among equals — skipping those whose request has gone away.
+    fn pop_newest(&mut self) -> Option<TurnWaiter> {
+        self.waiting.retain(|waiter| !waiter.wake.is_closed());
+        let newest = self
+            .waiting
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, waiter)| (waiter.started, Reverse(waiter.arrival)))
+            .map(|(index, _)| index)?;
+        Some(self.waiting.swap_remove(newest))
+    }
+}
+
+/// How a read enters the athlete's provider turn when it finds it free.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnEntry {
+    /// One of a Home page's burst of route reads: it waits
+    /// [`ROUTE_TURN_GATHER_MS`] for the rest of the burst to queue, and the
+    /// turn then goes to the newest activity among them.
+    Burst,
+    /// A read on its own — an activity view's map or detail, the athlete's
+    /// retry: it takes a free turn at once. Queued behind a held turn, it
+    /// waits in the same newest-first order as every other read.
+    Alone,
+}
+
+/// What a route request asks for, beside the activity.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RouteAsk {
+    /// The athlete's own retry after an `unavailable` answer: a stored
+    /// `unavailable` read before the request arrived does not answer it. A
+    /// retry is a read on its own, and never waits for a burst.
+    pub retry: bool,
+    /// The request is one of a Home list's burst of route reads
+    /// ([`TurnEntry::Burst`]).
+    pub burst: bool,
+}
+
+impl RouteAsk {
+    /// How this request enters the athlete's turn.
+    const fn entry(self) -> TurnEntry {
+        if self.burst && !self.retry {
+            TurnEntry::Burst
+        } else {
+            TurnEntry::Alone
+        }
+    }
+}
+
+/// One request waiting for the athlete's turn.
+struct TurnWaiter {
+    /// When the activity whose route it reads started.
+    started: DateTime<Utc>,
+    /// Its place in arrival order.
+    arrival: u64,
+    /// Where the turn is handed to it.
+    wake: oneshot::Sender<ProviderTurn>,
+}
+
+/// The provider-read turns in use: one queue per `(user, tenant)` with a
+/// streams read in flight or waiting.
+///
+/// An entry lives while a request holds or waits for the turn and is removed
+/// when the turn goes idle, so the map holds the athletes being read for at
+/// this moment, not every athlete ever read for.
+static PROVIDER_READ_TURNS: LazyLock<DashMap<TurnKey, Arc<AthleteTurns>>> =
+    LazyLock::new(DashMap::new);
+
+/// The athlete's provider turn, held.
+///
+/// Dropping it hands the turn to the waiting request whose activity started
+/// last, so a request that fails, or is dropped while it reads because its
+/// client went away, never keeps the turn from the others.
+pub(crate) struct ProviderTurn {
+    key: TurnKey,
+    /// The athlete's queue; `None` once the turn has been handed on.
+    turns: Option<Arc<AthleteTurns>>,
+}
+
+impl Drop for ProviderTurn {
+    fn drop(&mut self) {
+        if let Some(turns) = self.turns.take() {
+            hand_on(self.key, &turns);
+        }
+    }
+}
+
+/// Give the turn `turns` held to the newest waiting request, or mark it free
+/// and forget the athlete's queue when nobody waits.
+fn hand_on(key: TurnKey, turns: &Arc<AthleteTurns>) {
+    loop {
+        while let Some(next) = turns.pop_newest() {
+            let turn = ProviderTurn {
+                key,
+                turns: Some(Arc::clone(turns)),
+            };
+            match next.wake.send(turn) {
+                Ok(()) => return,
+                // Its request went away between the pick and the handover:
+                // the turn comes back here, and the next request is asked.
+                Err(mut unsent) => unsent.turns = None,
+            }
+        }
+        let mut queue = turns.queue();
+        // A request that queued after the last pick found the turn held; it
+        // is handed the turn on the next pass.
+        if queue.waiting.is_empty() {
+            queue.held = false;
+            break;
+        }
+    }
+    // Two references are the map's and this one: nobody is between reading
+    // the entry and taking its queue lock, so the entry goes. A request that
+    // arrives after that inserts a queue of its own.
+    PROVIDER_READ_TURNS.remove_if(&key, |_, stored| {
+        Arc::ptr_eq(stored, turns) && Arc::strong_count(stored) <= 2 && {
+            let queue = stored.queue();
+            !queue.held && queue.waiting.is_empty()
+        }
+    });
+}
+
+/// How the athlete's turn reached a request.
+enum TurnClaim {
+    /// Nobody held it: the request holds it now, and keeps the queue to put
+    /// itself back in line after the gather.
+    Free(ProviderTurn, Arc<AthleteTurns>),
+    /// Another request holds it: it arrives here when handed on.
+    Queued(oneshot::Receiver<ProviderTurn>),
+}
+
+/// Take the athlete's provider turn for a read of an activity that started
+/// at `started`: its route's streams, or its detail
+/// ([`crate::services::activity_detail`]), which reach the same provider
+/// session and so take the same turn.
+///
+/// The turn goes to the waiting request whose activity started last, so the
+/// newest activity — the Home page's big map — is read before older ones
+/// queued with it. A [`TurnEntry::Burst`] request that finds the turn free
+/// waits [`ROUTE_TURN_GATHER_MS`] before reading, and then hands the turn to
+/// a newer activity that arrived meanwhile: a page asks for all its routes in
+/// one burst, and whichever request lands first must not decide the order. A
+/// [`TurnEntry::Alone`] request that finds it free reads at once.
+pub(crate) async fn take_turn(
+    user_id: Uuid,
+    tenant_id: TenantId,
+    started: DateTime<Utc>,
+    entry: TurnEntry,
+) -> ProviderTurn {
+    let key = (user_id, tenant_id);
+    loop {
+        let claim = {
+            let turns = Arc::clone(PROVIDER_READ_TURNS.entry(key).or_default().value());
+            let mut queue = turns.queue();
+            if queue.held {
+                TurnClaim::Queued(queue.enqueue(started))
+            } else {
+                queue.held = true;
+                drop(queue);
+                let turn = ProviderTurn {
+                    key,
+                    turns: Some(Arc::clone(&turns)),
+                };
+                TurnClaim::Free(turn, turns)
+            }
+        };
+        let woken = match claim {
+            TurnClaim::Free(turn, _) if entry == TurnEntry::Alone => return turn,
+            TurnClaim::Free(turn, turns) => {
+                sleep(StdDuration::from_millis(ROUTE_TURN_GATHER_MS)).await;
+                let woken = turns.queue().enqueue(started);
+                // Handed to the newest activity waiting — this one when none
+                // is newer. The queue is not empty, so it is not forgotten.
+                drop(turn);
+                drop(turns);
+                woken
+            }
+            TurnClaim::Queued(woken) => woken,
+        };
+        if let Ok(turn) = woken.await {
+            return turn;
+        }
+        // The turn was dropped unsent, which only a queue forgotten while
+        // idle does: claim again.
+    }
+}
+
+/// How many reads are ahead of one of an activity that started at `started`
+/// in the athlete's turn: the one holding it, and every read still waiting
+/// for an activity that started no earlier — the turn goes to those first.
+fn reads_ahead(key: TurnKey, started: DateTime<Utc>) -> u64 {
+    let Some(turns) = PROVIDER_READ_TURNS
+        .get(&key)
+        .map(|entry| Arc::clone(entry.value()))
+    else {
+        return 0;
+    };
+    let queue = turns.queue();
+    let waiting = queue
+        .waiting
+        .iter()
+        .filter(|waiter| !waiter.wake.is_closed() && waiter.started >= started)
+        .count();
+    u64::from(queue.held) + u64::try_from(waiting).unwrap_or(u64::MAX)
+}
+
+/// A [`RouteMiss::Pending`] for a read with `ahead` reads ahead of it in the
+/// athlete's turn: each of them, and the read itself, may take up to
+/// [`route_provider_read_bound`].
+fn pending(ahead: u64) -> RouteMiss {
+    RouteMiss::Pending {
+        settles_within_secs: ahead
+            .saturating_add(1)
+            .saturating_mul(route_provider_read_bound().as_secs()),
     }
 }
 
@@ -300,23 +556,26 @@ impl Drop for ProviderReadTurn {
 /// provider.
 ///
 /// A route overview settles it without a provider call. Otherwise the request
-/// takes the athlete's turn at their provider, so one `(user, tenant)` has
-/// one streams read in flight, and looks at the store again once the turn is
-/// its own: a request for the same activity that went first has stored the
-/// answer. The turns are this server instance's own.
+/// takes the athlete's turn at their provider ([`take_turn`]: newest activity
+/// first), so one `(user, tenant)` has one streams read in flight, and looks
+/// at the store again once the turn is its own: a request for the same
+/// activity that went first has stored the answer. The turns are this server
+/// instance's own.
 ///
 /// The read runs detached on `turns`, holding the turn until the provider
 /// answers and the outcome is stored ([`ROUTE_PROVIDER_READ_TIMEOUT_SECS`] at
 /// most). This request waits for the turn and the read within
 /// [`ROUTE_READ_TIMEOUT_SECS`] of arriving; past it, it answers
-/// [`RouteMiss::Unavailable`] and stores nothing, and the read still stores
-/// its outcome for the next request. A read that fails or carries no stream
-/// set is stored as [`RouteMiss::Unavailable`], which expires.
+/// [`RouteMiss::Pending`] and stores nothing, and a read it started still
+/// stores its outcome for the next request. A read that fails or carries no
+/// stream set is stored as [`RouteMiss::Unavailable`], which expires.
 ///
-/// `retry` is the athlete asking again after an `unavailable` answer: a
+/// `ask.retry` is the athlete asking again after an `unavailable` answer: a
 /// stored `unavailable` read before this request arrived does not answer it,
 /// and the provider is read again, through the same turn. One stored while it
-/// waited — another request's read of the same activity — does.
+/// waited — another request's read of the same activity — does. `ask.burst`
+/// marks one of a Home list's burst of reads, the only request that waits for
+/// the rest of its burst before taking a free turn ([`TurnEntry`]).
 ///
 /// # Errors
 ///
@@ -329,11 +588,11 @@ pub async fn activity_route(
     tenant_id: TenantId,
     user_id: Uuid,
     cached: CachedActivityRef<'_>,
-    retry: bool,
+    ask: RouteAsk,
 ) -> AppResult<ActivityRouteOutcome> {
     let repos = runtime.repos();
     let asked = StoredAnswer {
-        retry_asked_at: retry.then(Utc::now),
+        retry_asked_at: ask.retry.then(Utc::now),
     };
     if let Some(outcome) = stored_route(repos, tenant_id, user_id, cached, asked).await? {
         return Ok(outcome);
@@ -343,15 +602,18 @@ pub async fn activity_route(
         return settle(repos, tenant_id, user_id, cached, source, Ok(track)).await;
     }
     let deadline = Instant::now() + route_answer_budget();
-    let turn = ProviderReadTurn::claim(user_id, tenant_id);
-    let Ok(holding) = timeout_at(deadline, Arc::clone(&turn.lock).lock_owned()).await else {
-        // Another read of the athlete's still holds the provider: nothing
-        // was asked of it here, so nothing is stored either.
-        warn!(
+    let started = cached.activity.start_date();
+    let claim = take_turn(user_id, tenant_id, started, ask.entry());
+    let Ok(turn) = timeout_at(deadline, claim).await else {
+        // Other reads of the athlete's hold the provider: nothing was asked
+        // of it here, so nothing is stored, and the route is not
+        // unavailable — it is waiting its turn. The client asks again.
+        let ahead = reads_ahead((user_id, tenant_id), started);
+        debug!(
             activity_id = cached.activity.id(),
-            "route read waited past its bound for the athlete's provider turn"
+            ahead, "route read still queued for the athlete's provider turn; answered pending"
         );
-        return Ok(Err(RouteMiss::Unavailable));
+        return Ok(Err(pending(ahead)));
     };
     if let Some(outcome) = stored_route(repos, tenant_id, user_id, cached, asked).await? {
         return Ok(outcome);
@@ -367,9 +629,7 @@ pub async fn activity_route(
     turns.spawn(async move {
         let outcome = read.read_and_settle().await;
         // The turn is held until the outcome is stored, so the next request
-        // in the queue finds it; released lock first, then the queue place,
-        // so the queue entry goes with the last one out.
-        drop(holding);
+        // handed the turn finds it.
         drop(turn);
         if answer.send(outcome).is_err() {
             debug!(
@@ -383,13 +643,13 @@ pub async fn activity_route(
         // nothing: nothing settled the route.
         return answer.unwrap_or(Ok(Err(RouteMiss::Unavailable)));
     }
-    warn!(
+    debug!(
         activity_id = cached.activity.id(),
         provider = cached.provider,
-        "route read still running past the request's bound; answered unavailable, \
+        "route read still running past the request's bound; answered pending, \
          the read stores what the provider says"
     );
-    Ok(Err(RouteMiss::Unavailable))
+    Ok(Err(pending(0)))
 }
 
 /// Which stored answer a request takes: every unexpired one, except that an
@@ -577,6 +837,9 @@ async fn read_streams(
     let detailed = provider
         .get_activity_with_streams(cached.activity.id())
         .await?;
+    // The route is what the read was for: a detail that cannot be stored
+    // leaves the route's outcome as the read settled it.
+    store_detail(runtime.repos(), tenant_id, user_id, cached, &detailed).await;
     Ok(detailed
         .time_series_data()
         .map_or(Err(RouteMiss::Unavailable), |streams| {

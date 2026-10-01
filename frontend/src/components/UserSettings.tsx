@@ -6,7 +6,6 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { format } from 'date-fns';
 import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../hooks/useTheme';
 import { useTranslation } from '@pierre/i18n';
@@ -14,6 +13,7 @@ import { userApi, pierreApi, oauthApi } from '../services/api';
 import type { ProviderStatus } from '../services/api';
 import type { LimitCheckResult, OAuthGrant, SciotteTarget, ThemePreference } from '@pierre/shared-types';
 import {
+  ACCOUNT_ROLE_LABEL_KEY,
   ADMIN_HIDDEN_PANES,
   APP_VERSION,
   HELP_URL,
@@ -40,7 +40,7 @@ import {
   sciotteTargetForBackend,
   syncAuthorizationOwed,
 } from '@pierre/shared-constants';
-import { formatCompactNumber, formatResetTime } from '@pierre/chat-utils';
+import { formatCompactNumber, formatCount, formatDate, formatResetTime } from '@pierre/chat-utils';
 import { useUsageStatus } from '../hooks/useUsageStatus';
 import { useFeatureFlags, FEATURE_KEYS } from '../hooks/useFeatureFlags';
 import SciotteLoginModal from './SciotteLoginModal';
@@ -91,7 +91,7 @@ function getUsageBarColor(current: number, limit: number): string {
 export default function UserSettings({ initialTab = 'profile', hideTabNav = false }: { initialTab?: SettingsTab; hideTabNav?: boolean }) {
   const { user, logout, isAuthenticated } = useAuth();
   const { scheme, toggle: toggleTheme } = useTheme();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const showErrorToast = useErrorToast();
   const queryClient = useQueryClient();
 
@@ -569,13 +569,13 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                     <p className="text-sm font-semibold text-on-surface break-words">{user?.display_name || t('app.noNameSet')}</p>
                     <p className="flex flex-wrap items-center gap-x-2 text-xs text-on-surface-variant">
                       <span className="break-all">{user?.email}</span>
-                      <span className="inline-flex items-center gap-1.5">
-                        <span
-                          aria-hidden="true"
-                          className={clsx('h-1.5 w-1.5 rounded-full', user?.user_status === 'active' ? 'bg-success' : 'bg-warning')}
-                        />
-                        {user?.user_status?.charAt(0).toUpperCase()}{user?.user_status?.slice(1)}
-                      </span>
+                      {/* Only an active account holds a session (pierre-auth's status gate refuses the others), so the badge names that one state. */}
+                      {user?.user_status === 'active' && (
+                        <span className="inline-flex items-center gap-1.5">
+                          <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-success" />
+                          {t('common.active')}
+                        </span>
+                      )}
                     </p>
                   </div>
                 </div>
@@ -840,7 +840,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                 variant="outline"
                                 size="sm"
                                 onClick={() => {
-                                  // The `sciotte` card is the user-facing t('app.brandStrava') card. OAuth is
+                                  // The `sciotte` card is the user-facing Strava card. OAuth is
                                   // the default while shared-app seats remain (server recommends
                                   // `oauth`); once the athlete cap is reached it recommends `mirror`
                                   // and we open the Sciotte credential login. If the OAuth attempt
@@ -1050,7 +1050,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
 
                 {selectedProvider && (
                   <div className="text-xs text-outline space-y-1">
-                    <p>{t('frag.inYour')} {selectedProvider} app settings, set:</p>
+                    <p>{t('settingsUi.providerAppSettingsSet', { provider: selectedProvider })}</p>
                     <p>{t('settingsUi.callbackDomain')} <code className="text-on-surface-variant">{window.location.host}</code></p>
                   </div>
                 )}
@@ -1171,12 +1171,12 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                           <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                             <div>
                               <span className="text-outline">{t('settingsUi.createdLabel')}</span>
-                              <p className="font-medium text-on-surface">{format(new Date(token.created_at), 'MMM d, yyyy')}</p>
+                              <p className="font-medium text-on-surface">{formatDate(token.created_at, language)}</p>
                             </div>
                             <div>
                               <span className="text-outline">{t('settingsUi.expiresLabel')}</span>
                               <p className="font-medium text-on-surface">
-                                {token.expires_at ? format(new Date(token.expires_at), 'MMM d, yyyy') : t('settingsUi.neverValue')}
+                                {token.expires_at ? formatDate(token.expires_at, language) : t('settingsUi.neverValue')}
                               </p>
                             </div>
                             <div>
@@ -1186,7 +1186,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                             <div>
                               <span className="text-outline">{t('settingsUi.lastUsedLabel')}</span>
                               <p className="font-medium text-on-surface">
-                                {token.last_used_at ? format(new Date(token.last_used_at), 'MMM d, yyyy') : t('settingsUi.neverValue')}
+                                {token.last_used_at ? formatDate(token.last_used_at, language) : t('settingsUi.neverValue')}
                               </p>
                             </div>
                           </div>
@@ -1391,24 +1391,24 @@ Authorization: Bearer <your-token-here>`}
                         <div className="space-y-3">
                           <div className="flex justify-between items-center py-2 border-b ghost-border">
                             <span className="text-on-surface-variant">{t('settingsUi.status')}</span>
-                            <span className="inline-flex items-center gap-1.5 text-sm text-on-surface">
-                              <span
-                                aria-hidden="true"
-                                className={`h-1.5 w-1.5 rounded-full ${user?.user_status === 'active' ? 'bg-success' : 'bg-warning'}`}
-                              />
-                              {user?.user_status?.charAt(0).toUpperCase()}
-                              {user?.user_status?.slice(1)}
-                            </span>
+                            {user?.user_status === 'active' && (
+                              <span className="inline-flex items-center gap-1.5 text-sm text-on-surface">
+                                <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-success" />
+                                {t('common.active')}
+                              </span>
+                            )}
                           </div>
                           <div className="flex justify-between items-center py-2 border-b ghost-border">
                             <span className="text-on-surface-variant">{t('settingsUi.role')}</span>
-                            <span className="text-on-surface capitalize">{user?.role}</span>
+                            <span className="text-on-surface" data-testid="account-role">
+                              {user && t(ACCOUNT_ROLE_LABEL_KEY[user.role])}
+                            </span>
                           </div>
                           <div className="flex justify-between items-center py-2">
                             <span className="text-on-surface-variant">{t('profile.memberSince')}</span>
-                            <span className="text-on-surface">
+                            <span className="text-on-surface" data-testid="account-member-since">
                               {user?.created_at
-                                ? format(new Date(user.created_at), 'MMM d, yyyy')
+                                ? formatDate(user.created_at, language)
                                 : t('settingsUi.unknownDate')}
                             </span>
                           </div>
@@ -1443,9 +1443,13 @@ Authorization: Bearer <your-token-here>`}
                                     <div className="flex justify-between items-center mb-1.5">
                                       <span className="text-sm font-medium text-on-surface">{label}</span>
                                       <span className="text-sm text-on-surface-variant">
-                                        {compact ? formatCompactNumber(counter.current) : counter.current.toLocaleString()}
+                                        {compact
+                                          ? formatCompactNumber(counter.current, t, language)
+                                          : formatCount(counter.current, language)}
                                         {' / '}
-                                        {compact ? formatCompactNumber(counter.limit) : counter.limit.toLocaleString()}
+                                        {compact
+                                          ? formatCompactNumber(counter.limit, t, language)
+                                          : formatCount(counter.limit, language)}
                                       </span>
                                     </div>
                                     <div className="h-2 bg-surface-container-high rounded-full overflow-hidden">
@@ -1465,7 +1469,7 @@ Authorization: Bearer <your-token-here>`}
                             {/* Reset time */}
                             <p className="text-xs text-outline">
                               {t('frag.dailyLimitsResetAt')}{' '}
-                              {formatResetTime(usageData.daily.messages.resets_at, t('settingsUi.midnightUtc'))}
+                              {formatResetTime(usageData.daily.messages.resets_at, t('settingsUi.midnightUtc'), language)}
                             </p>
 
                             {/* Resource counts (user-facing only, not shown for admin) */}
@@ -1475,16 +1479,17 @@ Authorization: Bearer <your-token-here>`}
                                 <div>
                                   <p className="text-xs text-outline mb-1">{t('settingsUi.agents')}</p>
                                   <p className="text-sm font-medium text-on-surface">
-                                    {usageData.resources.agents} / {usageData.resources.max_agents}
+                                    {formatCount(usageData.resources.agents, language)} /{' '}
+                                    {formatCount(usageData.resources.max_agents, language)}
                                   </p>
                                 </div>
                                 <div>
                                   <p className="text-xs text-outline mb-1">{t('settingsUi.conversations')}</p>
                                   <p className="text-sm font-medium text-on-surface">
-                                    {usageData.resources.conversations} /{' '}
+                                    {formatCount(usageData.resources.conversations, language)} /{' '}
                                     {usageData.resources.max_conversations === 0
                                       ? t('app.unlimited')
-                                      : usageData.resources.max_conversations}
+                                      : formatCount(usageData.resources.max_conversations, language)}
                                   </p>
                                 </div>
                               </div>
@@ -1541,7 +1546,7 @@ Authorization: Bearer <your-token-here>`}
                                   <p className="font-medium text-on-surface break-all">{app.client_id}</p>
                                   <p className="text-sm text-on-surface-variant break-words">{app.scope}</p>
                                   <p className="text-xs text-outline mt-1">
-                                    {t('frag.connected')} {format(new Date(app.granted_at), 'MMM d, yyyy')}
+                                    {t('app.connectedOn', { date: formatDate(app.granted_at, language) })}
                                   </p>
                                 </div>
                                 <Button

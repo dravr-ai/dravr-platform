@@ -33,6 +33,8 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? 'AdminPassword123';
 const DATABASE_PATH = process.env.E2E_REAL_DATABASE_PATH;
 /** How long the server lets a route request wait (`PIERRE_HOME_ROUTE_ANSWER_SECS`, 25 by default). */
 const ROUTE_ANSWER_SECS = Number(process.env.PIERRE_HOME_ROUTE_ANSWER_SECS ?? '25');
+/** How long one provider read may hold the athlete's turn (`PIERRE_HOME_ROUTE_PROVIDER_READ_SECS`, 330 by default). */
+const ROUTE_PROVIDER_READ_SECS = Number(process.env.PIERRE_HOME_ROUTE_PROVIDER_READ_SECS ?? '330');
 
 /** Every onboarding step the web flow would stop the athlete on before Home. */
 const ONBOARDING_STEPS = [
@@ -45,6 +47,8 @@ const ONBOARDING_STEPS = [
 ] as const;
 
 const TODAYS_RIDE = 'Sortie du jour e2e';
+/** The scraper's id for {@link TODAYS_RIDE}: the latest card's map is its route. */
+const TODAYS_RIDE_ID = 'e2e-ride-3';
 const EVENING_RIDE = 'Sortie du soir e2e';
 const NIGHT_RIDE = 'Sortie de nuit e2e';
 /** The hermetic basemap's ground colour: a pixel far from it is something the map painted on it. */
@@ -218,10 +222,16 @@ async function paintedPixels(page: Page, map: ReturnType<Page['locator']>): Prom
   );
 }
 
-/** The latest card's map is drawn: the figure says so, and the track's pixels are on the canvas. */
+/**
+ * The latest card is `rideName`'s and its map is drawn: the figure says so,
+ * and the track's pixels are on the canvas. Home's map carries no title — the
+ * card's own row names the ride under it — so the card, not the figure's
+ * name, says whose map it is.
+ */
 async function expectDrawnTrack(page: Page, rideName: string): Promise<void> {
   const latest = page.getByTestId('home-activity-latest');
-  const map = latest.getByRole('figure', { name: new RegExp(`Map of the recorded route: ${rideName}`) });
+  await expect(latest.getByRole('button', { name: new RegExp(rideName) })).toBeVisible({ timeout: 30_000 });
+  const map = latest.getByRole('figure', { name: 'Map of the recorded route', exact: true });
   await expect(map).toHaveAttribute('data-route-drawn', 'true', { timeout: 30_000 });
   await expect(latest).not.toContainText('Loading the map…');
   // A frame for the renderer to paint what style.load added.
@@ -250,7 +260,7 @@ test.describe('Home sync truth — real backend, scripted scraper', () => {
 
   test.beforeAll(async () => {
     scraper = await startSciotteDouble([
-      ride('e2e-ride-3', TODAYS_RIDE, 4),
+      ride(TODAYS_RIDE_ID, TODAYS_RIDE, 4),
       ride('e2e-ride-2', 'Sortie de mardi e2e', 30),
       ride('e2e-ride-1', 'Sortie de dimanche e2e', 72),
       ride('e2e-ride-x4', 'Sortie x4 e2e', 96),
@@ -354,10 +364,21 @@ test.describe('Home sync truth — real backend, scripted scraper', () => {
       await page.screenshot({ path: test.info().outputPath('home-map-failed.png'), fullPage: true });
 
       scraper.detail = 'route';
-      const readsBefore = scraper.detailReads();
+      // The retry is counted on the latest ride's reads alone. Home asks for
+      // its five routes in one burst, and the server reads them one at a
+      // time per athlete, newest first, so this map says it failed while the
+      // older rows' first reads may still be queued: on a slow runner they
+      // reach the scraper after this point (CI run 36804877054 sampled four
+      // reads, then saw the fifth row's first read land beside the retry).
+      // Those are other activities' first reads, each made once.
+      const todaysReads = (): number => scraper.detailReadLog().filter((read) => read.id === TODAYS_RIDE_ID).length;
+      const readsBefore = todaysReads();
       await mapFailed.getByRole('button', { name: 'Retry' }).click();
       await expectDrawnTrack(page, TODAYS_RIDE);
-      expect(scraper.detailReads(), 'the retry read the scraper past the stored answer').toBe(readsBefore + 1);
+      const log = JSON.stringify(scraper.detailReadLog());
+      expect(todaysReads(), `the retry read the scraper once, past the stored answer: ${log}`).toBe(readsBefore + 1);
+      const others = scraper.detailReadLog().filter((read) => read.id !== TODAYS_RIDE_ID);
+      expect(new Set(others.map((read) => read.id)).size, `no other route was read twice: ${log}`).toBe(others.length);
       await page.screenshot({ path: test.info().outputPath('home-sync-recovered.png'), fullPage: true });
     });
   });
@@ -371,7 +392,7 @@ test.describe('Home sync truth — real backend, scripted scraper', () => {
     ageLastSync(userId, lastGood);
     // The latest ride's map is unread, so the page reads it while the
     // refresh's list walk is on the same session.
-    forgetRoute(userId, 'e2e-ride-3');
+    forgetRoute(userId, TODAYS_RIDE_ID);
     scraper.list = 'dies_under_a_detail';
     scraper.detail = 'route';
     const killedBefore = scraper.walksKilledByADetail();
@@ -486,33 +507,38 @@ test.describe('Home sync truth — real backend, scripted scraper', () => {
       .toBeNull();
   });
 
-  test('a detail read that never answers is answered unavailable at the route bound, and read again once the scraper answers', async () => {
+  test('a detail read that never answers is pending at the request bound, unavailable once it fails, and read again on the retry', async () => {
     test.setTimeout(ROUTE_ANSWER_SECS * 1000 + 90_000);
     const auth = { Authorization: `Bearer ${bearer}` };
+    const path = '/api/me/activities/strava/e2e-ride-h/route';
     scraper.detail = 'hangs';
     const started = Date.now();
-    const route = await ctx.get('/api/me/activities/strava/e2e-ride-h/route', {
-      headers: auth,
-      timeout: (ROUTE_ANSWER_SECS + 30) * 1000,
-    });
+    const route = await ctx.get(path, { headers: auth, timeout: (ROUTE_ANSWER_SECS + 30) * 1000 });
     const took = Date.now() - started;
-    expect(await route.json()).toEqual({ route: null, reason: 'unavailable' });
+    // The read is still running: the request says so at its own bound, naming
+    // how long the read may still take, and stores nothing.
+    expect(await route.json()).toEqual({
+      route: null,
+      reason: 'pending',
+      settles_within_secs: ROUTE_PROVIDER_READ_SECS,
+    });
     expect(took, 'answered at its bound, not held by the hung read').toBeLessThan((ROUTE_ANSWER_SECS + 5) * 1000);
     expect(took).toBeGreaterThanOrEqual((ROUTE_ANSWER_SECS - 1) * 1000);
 
-    // The hung read gives up with the scraper's error; the retry reads again.
+    // The hung read gives up with the scraper's error: the read that was
+    // pending is stored, and the next read answers it without a scrape.
+    const readsAtRelease = scraper.detailReads();
     scraper.release();
-    scraper.detail = 'route';
-    const readsBefore = scraper.detailReads();
     await expect
-      .poll(
-        async () =>
-          (await (await ctx.get('/api/me/activities/strava/e2e-ride-h/route?retry=true', { headers: auth })).json())
-            .route?.coordinates?.length ?? 0,
-        { timeout: 30_000 },
-      )
-      .toBeGreaterThan(2);
-    expect(scraper.detailReads()).toBeGreaterThan(readsBefore);
+      .poll(async () => (await (await ctx.get(path, { headers: auth })).json()).reason, { timeout: 15_000 })
+      .toBe('unavailable');
+    expect(scraper.detailReads(), 'the stored unavailable answered, not a second scrape').toBe(readsAtRelease);
+
+    // The athlete's retry reads past it, and lands the route.
+    scraper.detail = 'route';
+    const retried = await (await ctx.get(`${path}?retry=true`, { headers: auth })).json();
+    expect(retried.route?.coordinates?.length ?? 0, JSON.stringify(retried)).toBeGreaterThan(2);
+    expect(scraper.detailReads()).toBe(readsAtRelease + 1);
   });
 
   test('a route the scraper could not read answers unavailable, never "no GPS", and keeps has_gps', async () => {

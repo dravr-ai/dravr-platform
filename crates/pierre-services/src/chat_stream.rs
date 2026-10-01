@@ -21,7 +21,7 @@
 //! pre-serialized — so neither the tool-loop crates nor the pipeline take a
 //! dependency on the other's types through this hop.
 
-use pierre_core::errors::{AppError, ErrorResponse};
+use pierre_core::errors::{AppError, ErrorCode};
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
@@ -113,40 +113,37 @@ pub enum TurnEvent {
     /// The turn finished. Carries the whole turn envelope — the same document
     /// a non-streaming caller receives as the response body.
     Done(Value),
-    /// The turn did not finish. Carries the client-safe refusal; raw
-    /// internals never reach this variant.
+    /// The turn did not finish. Carries the sanitized, client-safe refusal
+    /// and the stable code a client words it by; raw internals never reach
+    /// this variant.
     Failed(TurnFailure),
 }
 
 /// Why a turn did not finish, as a client may read it.
 ///
 /// The same facts a refused non-streaming request answers with — the status
-/// it maps to, the error code, the sanitized message and the structured
-/// `details` — so a client words a refusal that arrived mid-stream exactly as
-/// it words one that arrived as a 4xx body: a quota refusal names the limit
-/// it hit and why, never only the server's English.
+/// it maps to, the stable error code, the sanitized message and the
+/// structured `details` — so a client reads a failure identically whichever
+/// side of the stream it fell. The `code` is the contract: a client maps it to
+/// a sentence from its own catalogue, in the athlete's language, and a quota
+/// refusal names the limit it hit and why (`details.limit_type`,
+/// `details.reason`). The message is the server's English description, kept
+/// for API callers and logs.
 #[derive(Debug, Clone)]
 pub struct TurnFailure {
-    /// The HTTP status the refusal maps to.
-    pub status: u16,
-    /// The error code, serialized as the JSON error body names it.
-    pub code: Value,
-    /// The sanitized, client-safe message.
-    pub message: String,
-    /// Structured details (a quota's `limit_type`, `current`, `limit`,
-    /// `reason`), when the error carries them.
-    pub details: Option<Value>,
+    status: u16,
+    code: ErrorCode,
+    message: String,
+    details: Option<Value>,
 }
 
 impl From<AppError> for TurnFailure {
     fn from(error: AppError) -> Self {
-        let status = error.code.http_status();
-        let body = ErrorResponse::from(error);
         Self {
-            status,
-            code: serde_json::to_value(body.code).unwrap_or(Value::Null),
-            message: body.message,
-            details: body.details,
+            status: error.code.http_status(),
+            code: error.code,
+            message: error.sanitized_message(),
+            details: error.details.map(|details| *details),
         }
     }
 }

@@ -81,13 +81,17 @@ describe('PHASE 4 — one transport, read by the mobile client', () => {
     expect(result.current.messages.filter((m) => m.role === 'assistant')).toHaveLength(1);
   });
 
-  it('surfaces the message carried by an error frame, not a bare HTTP status', async () => {
+  it('words an error frame by its code and counts, not by the server prose or a bare HTTP status', async () => {
     // Regression this turns red: an error frame read as an ordinary frame
     // leaves the turn "successful but empty" and the athlete stares at a
     // spinner that stopped for no stated reason.
     stub = installHttpStub({
       [`POST ${MESSAGES_URL}`]: {
-        data: 'event: failed\ndata: {"error":"Daily message limit reached."}\n\n',
+        data: `event: failed\ndata: ${JSON.stringify({
+          error: 'Daily message limit reached.',
+          code: 'QuotaExceeded',
+          details: { limit_type: 'daily_messages', current: 50, limit: 50 },
+        })}\n\n`,
       },
     });
 
@@ -96,9 +100,9 @@ describe('PHASE 4 — one transport, read by the mobile client', () => {
       await result.current.sendTurn(CONVERSATION_ID, QUESTION);
     });
 
-    expect(result.current.error).toBe('Daily message limit reached.');
+    expect(result.current.error).toBe('Daily message limit reached (50/50). Resets tomorrow.');
     const failed = result.current.messages.find((message) => message.isError);
-    expect(failed?.content).toContain('Daily message limit reached.');
+    expect(failed?.content).toContain('Daily message limit reached (50/50). Resets tomorrow.');
     expect(result.current.isSending).toBe(false);
   });
 

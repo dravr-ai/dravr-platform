@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Messaging-channel proper nouns the UI renders verbatim
+// ABOUTME: Proper nouns the UI renders verbatim: channel names, the wordmark, map credits
 // ABOUTME: Data, not copy: identical in all five locales, never routed through t()
 
 /**
@@ -39,3 +39,15 @@ export type ChannelBrandId = keyof typeof CHANNEL_BRAND;
  * the phone's chat header — reads it from here so the five letters exist once.
  */
 export const PRODUCT_WORDMARK = 'DRAVR' as const;
+
+/**
+ * The credits Esri's two raster layers carry on the map.
+ *
+ * Worded exactly as obstaque's maps print them, so the same imagery is
+ * credited the same way in every dravr product: the imagery's sources for
+ * World Imagery (Maxar's imagery is credited as Vantor since its rebrand), and
+ * the survey agencies behind World Topographic Map. Proper nouns throughout,
+ * so they are data rather than copy and never travel through `t()`.
+ */
+export const ESRI_WORLD_IMAGERY_ATTRIBUTION = 'Imagery © Esri, Vantor, Earthstar Geographics';
+export const ESRI_WORLD_TOPO_ATTRIBUTION = '© Esri, USGS, NOAA';

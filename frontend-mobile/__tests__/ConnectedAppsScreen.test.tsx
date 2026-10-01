@@ -70,6 +70,14 @@ describe('ConnectedAppsScreen', () => {
     await waitFor(() => expect(screen.getByText(french)).toBeTruthy());
   });
 
+  it('dates the grant in one French sentence, in the app language rather than the device locale', async () => {
+    await i18n.changeLanguage('fr');
+    renderScreen();
+    await waitFor(() =>
+      expect(screen.getByText('fitness:read · Connecté le 1 août 2026')).toBeTruthy(),
+    );
+  });
+
   it('names the app it is about to revoke from the catalogue, in the label and the confirm', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
     const label = i18n.t('app.revokeAppLabel', { app: 'Claude Desktop' });

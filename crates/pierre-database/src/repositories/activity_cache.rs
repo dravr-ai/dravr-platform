@@ -7,7 +7,9 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{Activity, TenantId};
+use pierre_core::models::{Activity, Lap, Split, TenantId};
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use uuid::Uuid;
 
 use super::activity_route_tracks::{joined_route_outcome, StoredRouteOutcome};
@@ -132,6 +134,46 @@ pub struct ActivityFetchFailureRecord {
     pub streak_started_at: DateTime<Utc>,
 }
 
+/// What a detail read of an activity found that its list read never carries.
+///
+/// A provider serves splits and laps only on a detail read, while every list
+/// write-through replaces the cached activity whole. Stored beside the list
+/// copy ([`ActivityCacheRepository::store_activity_detail`]), never inside
+/// it, and read back into every cached activity whose list copy lacks them.
+/// The keys are the [`Activity`] fields they fill, under the same names.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ActivityDetail {
+    /// The provider's uniform distance buckets, in order.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub splits: Option<Vec<Split>>,
+    /// The laps the athlete or the workout marked, in order.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub laps: Option<Vec<Lap>>,
+}
+
+impl ActivityDetail {
+    /// The detail-only fields a detailed read of `activity` carried. A read
+    /// that carried neither splits nor laps yields a detail with neither
+    /// ([`Self::is_empty`]): stored, it fills nothing, and it answers the row
+    /// only until its recheck instant
+    /// ([`ActivityCacheRepository::store_activity_detail`]).
+    #[must_use]
+    pub fn from_activity(activity: &Activity) -> Self {
+        Self {
+            splits: activity.splits().cloned(),
+            laps: activity.laps().cloned(),
+        }
+    }
+
+    /// Whether the read carried neither splits nor laps: an activity that has
+    /// none reads this way, and so does one whose provider served it without
+    /// them because the request carrying them failed.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.splits.is_none() && self.laps.is_none()
+    }
+}
+
 /// A cached activity with the provider key its row is stored under and what
 /// its stored route read settled.
 ///
@@ -149,6 +191,11 @@ pub struct CachedActivityRow {
     /// What the route read stored under the row's own key settled; `None`
     /// when the activity's route has not been read.
     pub route: Option<StoredRouteOutcome>,
+    /// Whether a stored detail read of the activity still answers it
+    /// ([`ActivityCacheRepository::store_activity_detail`]): one that carried
+    /// splits or laps always does, one that carried neither until its recheck
+    /// instant.
+    pub detail_read: bool,
 }
 
 /// Persistence for activities fetched from any provider, enabling
@@ -235,6 +282,26 @@ pub trait ActivityCacheRepository: Send + Sync {
         provider: &str,
         activity_id: &str,
     ) -> AppResult<Option<Activity>>;
+
+    /// Store what a detail read of one cached activity found, beside the
+    /// copy its list read wrote, keyed like [`Self::get_cached_activity`].
+    ///
+    /// A later list write of the same activity leaves it in place, and every
+    /// read of the activity fills the fields its list copy lacks from it; it
+    /// goes with the row when the row is deleted, pruned or purged. A later
+    /// detail read overwrites it. `recheck_at` is when the stored read stops
+    /// answering the row ([`CachedActivityRow::detail_read`]) and the detail
+    /// is read again; `None` when it stands. Returns `false` when the user
+    /// holds no such row in this tenant, and then stores nothing.
+    async fn store_activity_detail(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        activity_id: &str,
+        detail: &ActivityDetail,
+        recheck_at: Option<DateTime<Utc>>,
+    ) -> AppResult<bool>;
 
     /// Delete one cached activity the athlete deleted on its provider.
     ///
@@ -508,22 +575,58 @@ where
     })
 }
 
-/// Deserialize the stored `Activity` out of one `data_json` row.
+/// Deserialize the stored `Activity` out of one row's `data_json`, with the
+/// fields its list copy lacks filled from the row's `detail_json`.
 ///
 /// # Errors
-/// Returns a database error when the column is missing or does not hold an
-/// `Activity`.
+/// Returns a database error when a column is missing, `data_json` does not
+/// hold an `Activity`, or `detail_json` is not a JSON object.
 pub(crate) fn activity_from_row<R>(row: &R) -> AppResult<Activity>
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let data_json: String = row
         .try_get("data_json")
         .map_err(|e| AppError::database(format!("activity col data_json: {e}")))?;
-    serde_json::from_str::<Activity>(&data_json)
+    let detail_json: Option<String> = row
+        .try_get("detail_json")
+        .map_err(|e| AppError::database(format!("activity col detail_json: {e}")))?;
+    let Some(detail_json) = detail_json else {
+        return serde_json::from_str::<Activity>(&data_json).map_err(|e| {
+            AppError::database(format!("Failed to deserialize cached activity: {e}"))
+        });
+    };
+    let mut activity = json_object(&data_json, "data_json")?;
+    fill_missing(&mut activity, json_object(&detail_json, "detail_json")?);
+    serde_json::from_value::<Activity>(Value::Object(activity))
         .map_err(|e| AppError::database(format!("Failed to deserialize cached activity: {e}")))
+}
+
+/// One stored JSON column parsed as an object.
+fn json_object(json: &str, column: &str) -> AppResult<Map<String, Value>> {
+    match serde_json::from_str::<Value>(json) {
+        Ok(Value::Object(object)) => Ok(object),
+        Ok(_) => Err(AppError::database(format!(
+            "activity col {column} is not a JSON object"
+        ))),
+        Err(e) => Err(AppError::database(format!(
+            "activity col {column} does not parse: {e}"
+        ))),
+    }
+}
+
+/// Give `activity` every field of `detail` it lacks. A field the list copy
+/// already carries is its own read of the activity, and stands.
+fn fill_missing(activity: &mut Map<String, Value>, detail: Map<String, Value>) {
+    for (key, value) in detail {
+        let slot = activity.entry(key).or_insert(Value::Null);
+        if slot.is_null() {
+            *slot = value;
+        }
+    }
 }
 
 /// Read a [`CachedActivityRow`] out of one row of
@@ -538,14 +641,19 @@ where
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let provider: String = row
         .try_get("provider")
         .map_err(|e| AppError::database(format!("activity col provider: {e}")))?;
+    let detail_read: bool = row
+        .try_get("detail_settled")
+        .map_err(|e| AppError::database(format!("activity col detail_settled: {e}")))?;
     Ok(CachedActivityRow {
         provider,
         activity: activity_from_row(row)?,
         route: joined_route_outcome(row)?,
+        detail_read,
     })
 }
 
@@ -868,6 +976,33 @@ macro_rules! impl_activity_cache_repository {
                         AppError::database(format!("Failed to read activity fetch failure: {e}"))
                     })?;
                 row.map(|r| fetch_failure_from_row(&r)).transpose()
+            }
+
+            async fn store_activity_detail(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+                activity_id: &str,
+                detail: &ActivityDetail,
+                recheck_at: Option<DateTime<Utc>>,
+            ) -> AppResult<bool> {
+                let detail_json = serde_json::to_string(detail).map_err(|e| {
+                    AppError::database(format!("Failed to serialize activity detail: {e}"))
+                })?;
+                let result = sqlx::query(STORE_CACHED_ACTIVITY_DETAIL_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .bind(activity_id)
+                    .bind(&detail_json)
+                    .bind(recheck_at)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to store activity detail: {e}"))
+                    })?;
+                Ok(result.rows_affected() > 0)
             }
 
             async fn delete_cached_activity(

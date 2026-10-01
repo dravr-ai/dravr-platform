@@ -6,6 +6,7 @@ import { classifyApiError } from '@pierre/ui-logic';
 import { authApi, adminApi, pierreApi, userApi } from '../services/api';
 import { AuthContext } from './auth';
 import type { User, ImpersonationState } from './auth';
+import { consumeDeepLink, endSessionRoute } from '../utils/sessionRoute';
 
 const STORAGE_KEYS = {
   USER: 'pierre_user',
@@ -77,6 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .then((session) => {
           setUser(session.user);
           setToken(session.access_token);
+          consumeDeepLink();
           pierreApi.adapter.authStorage.setCsrfToken(session.csrf_token);
           localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(session.user));
         })
@@ -88,7 +90,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (classifyApiError(err).kind === 'quota') {
             return;
           }
-          // Cookie expired or invalid — clear cached user
+          // Cookie expired or invalid — clear cached user. The route the dead
+          // session was on goes with it, so signing back in lands on the role
+          // default rather than on wherever the tab was left.
+          endSessionRoute();
           setUser(null);
           setToken(null);
           localStorage.removeItem(STORAGE_KEYS.USER);
@@ -137,6 +142,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Store user info in state and localStorage (for instant UI render on refresh)
     setUser(userData);
     localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(userData));
+    consumeDeepLink();
 
     // Best-effort: forward the browser's IANA timezone so the chat
     // prompt can render {{CURRENT_DATE}} in the user's local calendar
@@ -161,6 +167,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Store user info in state and localStorage (for instant UI render on refresh)
     setUser(userData);
     localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(userData));
+    consumeDeepLink();
 
     // Best-effort: capture the browser's IANA timezone (see notes in
     // the password-login branch above).
@@ -182,6 +189,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     setUser(null);
     setToken(null);
+    // The dashboard route belonged to the session that just ended. Left in the
+    // address bar it survived onto the login screen, and the next sign-in —
+    // password or Google alike — reopened it (#chat) instead of Home.
+    endSessionRoute();
 
     // Send logout request first (while CSRF token is still available),
     // then clear local storage. authApi.logout() also clears authStorage

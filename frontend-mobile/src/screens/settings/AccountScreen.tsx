@@ -5,8 +5,8 @@ import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
-import { settingsPaneSections } from '@pierre/shared-constants';
-import { formatCompactNumber, formatResetTime } from '@pierre/chat-utils';
+import { ACCOUNT_ROLE_LABEL_KEY, settingsPaneSections } from '@pierre/shared-constants';
+import { formatCompactNumber, formatCount, formatDate, formatResetTime, type Translate } from '@pierre/chat-utils';
 import type { LimitCheckResult } from '@pierre/shared-types';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { Button, EmptyState, Input, PaneScrollView, Row, Section, Sheet } from '../../components/ui';
@@ -15,25 +15,11 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useUsageStatus } from '../chat/useUsageStatus';
 import { CONNECTED_APPS_ROUTE } from '../../navigation/routes';
 
-/** The account creation date, in the reader's own locale. */
-function formatMemberSince(isoString: string | undefined, fallback: string): string {
-  if (!isoString) return fallback;
-  try {
-    return new Intl.DateTimeFormat(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    }).format(new Date(isoString));
-  } catch {
-    return fallback;
-  }
-}
-
-/** A quota as the athlete reads it: what is used over what is allowed. */
-function formatQuota(counter: LimitCheckResult, compact: boolean): string {
-  const current = compact ? formatCompactNumber(counter.current) : counter.current.toLocaleString();
-  const limit = compact ? formatCompactNumber(counter.limit) : counter.limit.toLocaleString();
-  return `${current} / ${limit}`;
+/** A quota as the athlete reads it: what is used over what is allowed, in the app language. */
+function formatQuota(counter: LimitCheckResult, compact: boolean, t: Translate, language: string): string {
+  const figure = (value: number): string =>
+    compact ? formatCompactNumber(value, t, language) : formatCount(value, language);
+  return `${figure(counter.current)} / ${figure(counter.limit)}`;
 }
 
 /**
@@ -50,7 +36,7 @@ function formatQuota(counter: LimitCheckResult, compact: boolean): string {
  * target runs to the pane's edge; title and row text share one left edge.
  */
 export function AccountScreen() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const router = useRouter();
   const colors = useThemeColors();
   const { user, logout } = useAuth();
@@ -68,21 +54,27 @@ export function AccountScreen() {
   const usageRows = useMemo(() => {
     if (!usageData) return [];
     return [
-      { label: t('app.dailyMessages'), value: formatQuota(usageData.daily.messages, false) },
-      { label: t('app.dailyTokens'), value: formatQuota(usageData.daily.tokens, true) },
-      { label: t('app.weeklyMessages'), value: formatQuota(usageData.weekly.messages, false) },
-      { label: t('app.agents'), value: `${usageData.resources.agents} / ${usageData.resources.max_agents}` },
+      { label: t('app.dailyMessages'), value: formatQuota(usageData.daily.messages, false, t, language) },
+      { label: t('app.dailyTokens'), value: formatQuota(usageData.daily.tokens, true, t, language) },
+      { label: t('app.weeklyMessages'), value: formatQuota(usageData.weekly.messages, false, t, language) },
+      {
+        label: t('app.agents'),
+        value: `${formatCount(usageData.resources.agents, language)} / ${formatCount(
+          usageData.resources.max_agents,
+          language,
+        )}`,
+      },
       {
         label: t('app.conversations'),
         // `max_conversations` of 0 is the server's unlimited value.
-        value: `${usageData.resources.conversations} / ${
+        value: `${formatCount(usageData.resources.conversations, language)} / ${
           usageData.resources.max_conversations === 0
             ? t('app.unlimited')
-            : usageData.resources.max_conversations
+            : formatCount(usageData.resources.max_conversations, language)
         }`,
       },
     ];
-  }, [usageData, t]);
+  }, [usageData, t, language]);
 
   const closeChangePassword = () => {
     setShowChangePassword(false);
@@ -132,13 +124,22 @@ export function AccountScreen() {
       case 'account-status':
         return (
           <Section key={section} title={t('profile.accountStatus')} testID="account-section-account-status">
-            <Row compact title={t('settingsUi.status')} value={user?.user_status ?? t('settingsUi.unknownDate')} />
-            <Row compact title={t('settingsUi.role')} value={user?.role ?? t('settingsUi.unknownDate')} />
+            {/* Only an active account holds a session (the auth context requires it), so the row names that one state. */}
+            {user?.user_status === 'active' && (
+              <Row compact title={t('settingsUi.status')} value={t('common.active')} />
+            )}
+            <Row
+              compact
+              title={t('settingsUi.role')}
+              value={user ? t(ACCOUNT_ROLE_LABEL_KEY[user.role]) : t('settingsUi.unknownDate')}
+              testID="account-role"
+            />
             <Row
               compact
               last
               title={t('profile.memberSince')}
-              value={formatMemberSince(user?.created_at, t('settingsUi.unknownDate'))}
+              value={user?.created_at ? formatDate(user.created_at, language) : t('settingsUi.unknownDate')}
+              testID="account-member-since"
             />
           </Section>
         );
@@ -159,7 +160,7 @@ export function AccountScreen() {
                 ))}
                 <Text className="text-xs text-text-tertiary px-4 mt-2">
                   {t('app.dailyLimitsResetAt', {
-                    time: formatResetTime(usageData.daily.messages.resets_at, t('settingsUi.midnightUtc')),
+                    time: formatResetTime(usageData.daily.messages.resets_at, t('settingsUi.midnightUtc'), language),
                   })}
                 </Text>
               </>

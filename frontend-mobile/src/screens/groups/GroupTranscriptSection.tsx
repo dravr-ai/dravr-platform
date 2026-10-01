@@ -9,6 +9,7 @@ import { ActivityIndicator, Text, View } from 'react-native';
 import { useThemeColors } from '../../constants/theme';
 import { useGroupTranscript } from '../../hooks/useGroups';
 import { useTranslation } from '@pierre/i18n';
+import { formatDate } from '@pierre/chat-utils';
 
 interface GroupTranscriptSectionProps {
   /** The group whose room to read. */
@@ -29,7 +30,7 @@ interface GroupTranscriptSectionProps {
  * it is dropped here rather than carried into a plain view.
  */
 export function GroupTranscriptSection({ groupId }: GroupTranscriptSectionProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const colors = useThemeColors();
   const { transcript, isLoading, isError } = useGroupTranscript(groupId, true);
 
@@ -74,10 +75,10 @@ export function GroupTranscriptSection({ groupId }: GroupTranscriptSectionProps)
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                 <Text className="text-xs font-semibold" style={{ color: colors.text.secondary }}>
                   {entry.author_display_name ?? entry.author_user_id}
-                  {entry.speaker === 'coach' ? ' · agent' : ''}
+                  {entry.speaker === 'coach' ? ` · ${t('app.agent')}` : ''}
                 </Text>
                 <Text className="text-xs font-mono tabular-nums" style={{ color: colors.text.tertiary }}>
-                  {new Date(entry.created_at).toLocaleDateString()}
+                  {formatDate(entry.created_at, language)}
                 </Text>
               </View>
               <Text className="text-sm" style={{ color: colors.text.primary, marginTop: 2 }}>

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The Home page's recent activities — the latest on the chat's live map, the four before it as route sketches
-// ABOUTME: A tap drafts "analyze my activity" in a new chat; no provider, no GPS, no rows and a failed sync are each said in words
+// ABOUTME: A tap opens the activity's own view; no provider, no GPS, no rows and a failed sync are each said in words
 
 import { useMemo, type ReactNode } from 'react';
 import { clsx } from 'clsx';
@@ -11,24 +11,19 @@ import type { HomeActivity } from '@pierre/shared-types';
 import { decodePolyline, type LatLon } from '@pierre/domain-utils';
 import { Section } from '../ui/Section';
 import { EmptyState } from '../ui/EmptyState';
-import RouteView from '../chat/RouteView';
 import { CONNECTIONS_ROUTE } from '../../constants/surfaceLayout';
 import { useActivityRoute, useProviderConnection, useRecentActivities } from '../../hooks/useHome';
+import { activityViewRoute } from '../activity/activityRoute';
+import { ActivityMap } from './ActivityMap';
 import { RouteSketch } from './RouteSketch';
-import {
-  DRAFT_DATE,
-  ROW_DATE,
-  activityFigures,
-  formatInstant,
-  formatSyncTime,
-  sportLabel,
-} from './homeFormat';
+import { ROW_DATE, activityFigures, formatInstant, formatSyncTime, sportLabel } from './homeFormat';
 
 interface RecentActivitiesProps {
-  /** Dashboard route navigator, `tab[/subview]` — the connect prompt leaves for the connections pane. */
+  /**
+   * Dashboard route navigator, `tab[/subview]` — the connect prompt leaves
+   * for the connections pane, and a tap on an activity opens its own view.
+   */
   onNavigate: (route: string) => void;
-  /** Open a new chat whose composer holds `text`. */
-  onOpenChatDraft: (text: string) => void;
 }
 
 /**
@@ -40,15 +35,6 @@ interface RecentActivitiesProps {
 function polylinePoints(activity: HomeActivity): LatLon[] | null {
   if (activity.summary_polyline === null) return null;
   return decodePolyline(activity.summary_polyline) ?? [];
-}
-
-/** The draft a tap on an activity puts in the composer. */
-function useAnalyzeDraft(activity: HomeActivity): string {
-  const { t, language } = useTranslation();
-  return t('home.activities.analyzeDraft', {
-    date: formatInstant(activity.start_date, language, DRAFT_DATE),
-    sport: sportLabel(t, activity.sport_type),
-  });
 }
 
 /**
@@ -68,7 +54,7 @@ function ActivitySummary({ activity }: { activity: HomeActivity }) {
       </span>
       <span className="mt-0.5 block truncate text-xs text-on-surface-variant">
         {sport}
-        {activityFigures(activity).map((figure) => (
+        {activityFigures(t, activity, language).map((figure) => (
           <span key={figure}>
             {' · '}
             <span className="font-mono">{figure}</span>
@@ -79,68 +65,14 @@ function ActivitySummary({ activity }: { activity: HomeActivity }) {
   );
 }
 
-/** The frame the map fills, holding a line of text while there is no map in it. */
-function MapNote({ children }: { children: ReactNode }) {
-  return (
-    <div className="my-4 flex h-64 w-full items-center justify-center rounded-[10px] border ghost-border bg-surface-container-lowest px-4 text-center text-sm text-on-surface-variant sm:h-80">
-      {children}
-    </div>
-  );
-}
-
-/**
- * The latest activity's map. `has_gps: false` says the route was read once
- * and the recording held no GPS, so it costs no request. Every other activity
- * asks the route endpoint once — its route may never have been read, and the
- * answer is what says whether there is a track — and draws what comes back
- * with the chat's own map component, unchanged.
- */
-function LatestMap({ activity }: { activity: HomeActivity }) {
-  const { t } = useTranslation();
-  const route = useActivityRoute(activity.provider, activity.id, activity.has_gps);
-
-  if (!activity.has_gps) {
-    return <p className="py-3 text-sm text-on-surface-variant">{t('chat.routeNoTrack')}</p>;
-  }
-  // A read that failed, or one the server could not make just now
-  // (`unavailable`), is the same sentence and the same retry: neither says
-  // anything about whether the activity recorded a route. While a read is
-  // in flight — the retry's included — the map says it is loading, so a
-  // retry is seen to do something.
-  if (route.data === undefined || route.data.reason === 'unavailable') {
-    const failed = route.isError || route.data?.reason === 'unavailable';
-    return failed && !route.isFetching ? (
-      <EmptyState
-        data-testid="home-route-failed"
-        action={{ label: t('common.retry'), onClick: route.retry }}
-      >
-        {t('home.activities.routeFailed')}
-      </EmptyState>
-    ) : (
-      <MapNote>
-        <span role="status">{t('home.activities.mapLoading')}</span>
-      </MapNote>
-    );
-  }
-  if (route.data.route !== null) {
-    return <RouteView view={route.data.route} />;
-  }
-  return (
-    <p className="py-3 text-sm text-on-surface-variant">
-      {route.data.reason === 'too_short' ? t('home.activities.routeTooShort') : t('chat.routeNoTrack')}
-    </p>
-  );
-}
-
-/** The newest activity: its map, then the row that opens it in chat. */
-function LatestActivity({ activity, onOpenChatDraft }: { activity: HomeActivity; onOpenChatDraft: (text: string) => void }) {
-  const draft = useAnalyzeDraft(activity);
+/** The newest activity: its map, then the row that opens its view. */
+function LatestActivity({ activity, onOpen }: { activity: HomeActivity; onOpen: (activity: HomeActivity) => void }) {
   return (
     <li data-testid="home-activity-latest" className="border-b ghost-border-faint pb-2">
-      <LatestMap activity={activity} />
+      <ActivityMap activity={activity} burst />
       <button
         type="button"
-        onClick={() => onOpenChatDraft(draft)}
+        onClick={() => onOpen(activity)}
         className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-surface-container-low/60 focus-ring touch-target"
       >
         <ActivitySummary activity={activity} />
@@ -158,23 +90,24 @@ function LatestActivity({ activity, onOpenChatDraft }: { activity: HomeActivity;
 function ActivityRow({
   activity,
   sketchSlot,
-  onOpenChatDraft,
+  onOpen,
 }: {
   activity: HomeActivity;
   /** Whether the list keeps a sketch column — false when no row may have a route. */
   sketchSlot: boolean;
-  onOpenChatDraft: (text: string) => void;
+  onOpen: (activity: HomeActivity) => void;
 }) {
   const { t } = useTranslation();
-  const draft = useAnalyzeDraft(activity);
   const decoded = useMemo(() => polylinePoints(activity), [activity]);
-  const route = useActivityRoute(activity.provider, activity.id, decoded === null && activity.has_gps);
+  const route = useActivityRoute(activity.provider, activity.id, decoded === null && activity.has_gps, {
+    burst: true,
+  });
   const points = decoded ?? route.data?.route?.coordinates ?? null;
   return (
     <li data-testid="home-activity-row" className="border-b ghost-border-faint last:border-0">
       <button
         type="button"
-        onClick={() => onOpenChatDraft(draft)}
+        onClick={() => onOpen(activity)}
         className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-surface-container-low/60 focus-ring touch-target"
       >
         {/* The slot keeps every row's text on one column, sketch or not. */}
@@ -197,8 +130,9 @@ function ActivityRow({
  * every tab, so this card does not say it a second time; the cached rows it
  * still shows are the athlete's own activities.
  */
-export function RecentActivities({ onNavigate, onOpenChatDraft }: RecentActivitiesProps) {
+export function RecentActivities({ onNavigate }: RecentActivitiesProps) {
   const { t, language } = useTranslation();
+  const openActivity = (activity: HomeActivity) => onNavigate(activityViewRoute(activity.provider, activity.id));
   const recent = useRecentActivities();
   const providers = useProviderConnection();
 
@@ -275,13 +209,13 @@ export function RecentActivities({ onNavigate, onOpenChatDraft }: RecentActiviti
       <>
         {noProvider && connectPrompt}
         <ul className={clsx(noProvider && 'mt-2')}>
-          <LatestActivity key={`${latest.provider}:${latest.id}`} activity={latest} onOpenChatDraft={onOpenChatDraft} />
+          <LatestActivity key={`${latest.provider}:${latest.id}`} activity={latest} onOpen={openActivity} />
           {earlier.map((activity) => (
             <ActivityRow
               key={`${activity.provider}:${activity.id}`}
               activity={activity}
               sketchSlot={sketchSlot}
-              onOpenChatDraft={onOpenChatDraft}
+              onOpen={openActivity}
             />
           ))}
         </ul>

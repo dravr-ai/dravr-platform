@@ -82,7 +82,7 @@ const SEEDED_POINTS: u64 = 2;
 /// Tables one seeded scope holds exactly one row in. `activity_backfill_jobs`
 /// is apart: it is unique per `(user, provider)` across tenants, so an
 /// athlete holds at most one WHOOP job wherever they are.
-const ONE_ROW_TABLES: [&str; 14] = [
+const ONE_ROW_TABLES: [&str; 15] = [
     "sleep_sessions",
     "recovery_metrics",
     "health_snapshots",
@@ -90,6 +90,7 @@ const ONE_ROW_TABLES: [&str; 14] = [
     "data_point_series_archive",
     "cached_activities",
     "activity_route_tracks",
+    "activity_conversations",
     "personal_best_efforts",
     "best_effort_scans",
     "personal_best_seeds",
@@ -347,6 +348,26 @@ async fn seed_provider_rows(
         )
         .await
         .unwrap();
+    // The thread the run's view opened, linked under the same key. The
+    // conversation is the athlete's and outlives the purge; the link does not.
+    let thread = repos
+        .chat
+        .create_conversation(
+            &user_id.to_string(),
+            tenant,
+            &format!("{provider} run"),
+            "gemini-2.0-flash",
+            None,
+            None,
+        )
+        .await
+        .unwrap()
+        .id;
+    assert!(repos
+        .activity_conversations
+        .link_activity_conversation(&tenant, user_id, provider, &run_id, &thread)
+        .await
+        .unwrap());
     // The run was measured for best efforts and holds a personal best. Bests
     // are one per distance whichever provider set them, so each provider's
     // run holds its own distance and neither replaces the other's row.
@@ -669,6 +690,17 @@ async fn disconnecting_whoop_deletes_that_athletes_whoop_rows_through_the_chokep
             .await
             .unwrap();
         assert_eq!(route.is_some(), held == 1, "{provider} stored route");
+        let thread = repos
+            .activity_conversations
+            .get_activity_conversation(
+                &tenant,
+                athlete,
+                provider,
+                &format!("{provider}-run-{athlete}-{tenant}"),
+            )
+            .await
+            .unwrap();
+        assert_eq!(thread.is_some(), held == 1, "{provider} activity thread");
         let cursor = repos
             .sync_cursors
             .get_sync_cursor(&athlete.to_string(), &tenant, provider, "sleep")

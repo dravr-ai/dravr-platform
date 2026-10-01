@@ -12,6 +12,11 @@
 /// `DateTime<Utc>` on both — sqlx-sqlite encodes one as
 /// `to_rfc3339_opts(AutoSi, false)`, the text the column's earlier writes
 /// hold, so the lexical order the reads rely on is unchanged.
+///
+/// `detail_json` is named neither in the insert nor in the update: a list
+/// read replaces `data_json` whole and carries no splits or laps, so the
+/// detail a detail read stored ([`STORE_CACHED_ACTIVITY_DETAIL_SQL`])
+/// survives every later list sync of the same activity.
 pub const UPSERT_CACHED_ACTIVITY_SQL: &str = r"
     INSERT INTO cached_activities (id, user_id, tenant_id, provider, activity_id, sport_type, start_date, synced_at, data_json)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -21,11 +26,20 @@ pub const UPSERT_CACHED_ACTIVITY_SQL: &str = r"
         synced_at = EXCLUDED.synced_at,
         data_json = EXCLUDED.data_json";
 
+/// Store what a detail read of one cached activity found, on the row its
+/// list read wrote, by the table's uniqueness key, with the instant it is
+/// read again (`$6`, NULL when it stands). A row the user does not hold in
+/// this tenant is left alone: the statement updates nothing.
+pub const STORE_CACHED_ACTIVITY_DETAIL_SQL: &str = r"
+    UPDATE cached_activities
+    SET detail_json = $5, detail_recheck_at = $6
+    WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND activity_id = $4";
+
 /// Cached activities for a user within a window, newest first; `$5` NULL
 /// means every provider. The parameter is bound once and named twice: both
 /// engines give one bind to every occurrence of the same `$n`.
 pub const GET_CACHED_ACTIVITIES_SQL: &str = r"
-    SELECT data_json
+    SELECT data_json, detail_json
     FROM cached_activities
     WHERE user_id = $1 AND tenant_id = $2 AND start_date >= $3 AND start_date <= $4
       AND ($5 IS NULL OR provider = $5)
@@ -45,8 +59,13 @@ pub const GET_CACHED_ACTIVITIES_SQL: &str = r"
 /// `expires_at` is not after `$6` (now) — because that read is to be made
 /// again. The track itself is not selected. Every id column on both tables is
 /// TEXT on both engines, so the join carries no cast.
+///
+/// `detail_settled` is whether a stored detail read still answers the row: one
+/// is stored and its recheck instant, if it has one, is after `$6` (now).
 pub const GET_CACHED_ACTIVITY_ROWS_SQL: &str = r"
-    SELECT ca.provider, ca.data_json,
+    SELECT ca.provider, ca.data_json, ca.detail_json,
+           (ca.detail_json IS NOT NULL
+            AND (ca.detail_recheck_at IS NULL OR ca.detail_recheck_at > $6)) AS detail_settled,
            rt.source AS route_source,
            rt.unavailable_reason AS route_unavailable_reason
     FROM cached_activities ca
@@ -63,7 +82,7 @@ pub const GET_CACHED_ACTIVITY_ROWS_SQL: &str = r"
 
 /// One cached activity, by the table's uniqueness key.
 pub const GET_CACHED_ACTIVITY_SQL: &str = r"
-    SELECT data_json
+    SELECT data_json, detail_json
     FROM cached_activities
     WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND activity_id = $4";
 

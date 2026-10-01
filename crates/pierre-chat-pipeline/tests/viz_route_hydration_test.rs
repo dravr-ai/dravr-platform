@@ -52,7 +52,7 @@ fn hill_streams() -> TimeSeriesData {
     let mut altitude = Vec::with_capacity(POINTS);
     let mut gps_coordinates = Vec::with_capacity(POINTS);
     for step in 0..POINTS {
-        altitude.push(ALTITUDE_STEP.mul_add(step as f32, 100.0));
+        altitude.push(Some(ALTITUDE_STEP.mul_add(step as f32, 100.0)));
         gps_coordinates.push((latitude_at(step), LONGITUDE));
     }
     TimeSeriesData {
@@ -277,6 +277,48 @@ fn a_track_without_altitude_still_draws_a_line() {
 }
 
 #[test]
+fn a_point_whose_altitude_is_a_gap_is_dropped_and_the_series_stay_aligned() {
+    let mut streams = hill_streams();
+    let altitude = streams
+        .altitude
+        .as_mut()
+        .expect("the fixture records altitude");
+    altitude[9] = None;
+    altitude[10] = None;
+    let recorded = hill_streams();
+
+    let gapped = RouteTrack::from_streams(&streams).expect("the rest of the track still draws");
+    let complete = RouteTrack::from_streams(&recorded).expect("the hill is a drawable track");
+
+    let elevations = gapped
+        .elevation_meters
+        .as_ref()
+        .expect("the recorded altitude is kept");
+    assert_eq!(elevations.len(), gapped.coordinates.len());
+    assert!(
+        elevations.iter().all(|&meters| meters >= 100.0),
+        "an altimeter dropout is never a 0 m elevation"
+    );
+    assert!(
+        !gapped.coordinates.contains(&(latitude_at(9), LONGITUDE)),
+        "a point without its altitude is not paired"
+    );
+    assert_eq!(gapped.coordinates.len() + 2, complete.coordinates.len());
+}
+
+#[test]
+fn an_altitude_channel_of_only_gaps_is_no_vertical_and_still_a_line() {
+    let mut streams = hill_streams();
+    streams.altitude = Some(vec![None; POINTS]);
+    let track = RouteTrack::from_streams(&streams).expect("GPS alone is a drawable track");
+    assert!(track.coordinates.len() >= 2);
+    assert!(
+        track.elevation_meters.is_none(),
+        "an altimeter that recorded nothing is no vertical, never zeroes"
+    );
+}
+
+#[test]
 fn unusable_points_are_dropped_and_the_series_stay_aligned() {
     let mut streams = hill_streams();
     let coordinates = streams
@@ -328,7 +370,7 @@ fn a_ride_that_never_leaves_its_own_doorstep_is_refused() {
             .map(|step| (0.000_1_f64.mul_add(f64::from(step), 45.5), LONGITUDE))
             .collect(),
     );
-    streams.altitude = Some(vec![100.0; 5]);
+    streams.altitude = Some(vec![Some(100.0); 5]);
 
     let reason = RouteTrack::from_streams(&streams)
         .expect_err("a ride that never leaves the block cannot be drawn");
@@ -345,7 +387,7 @@ fn a_ride_that_never_leaves_its_own_doorstep_is_refused() {
 fn a_single_point_is_not_a_route() {
     let mut streams = hill_streams();
     streams.gps_coordinates = Some(vec![(45.5, LONGITUDE)]);
-    streams.altitude = Some(vec![100.0]);
+    streams.altitude = Some(vec![Some(100.0)]);
 
     let reason = RouteTrack::from_streams(&streams).expect_err("one point is a pin, not a route");
     assert_eq!(reason, RouteTrackError::TooShort);

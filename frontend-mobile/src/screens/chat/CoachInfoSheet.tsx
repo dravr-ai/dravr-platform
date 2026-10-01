@@ -12,7 +12,7 @@ import { COMMAND_DRAFTS, MENTION_PREFIX } from '@pierre/shared-constants';
 import { useThemeColors } from '../../constants/theme';
 import { COACH_EDIT_ROUTE } from '../../navigation/routes';
 import { useCoachInfo } from '../../hooks/useCoachInfo';
-import { useTranslation } from '@pierre/i18n';
+import { Trans, useTranslation } from '@pierre/i18n';
 
 export interface AgentInfoSheetProps {
   /** The agent the open thread is bound to. */
@@ -70,9 +70,12 @@ export function CoachInfoSheet({ agentId, fallbackTitle, onSendCommand, onClose 
       )}
 
       {coach?.handle && (
-        <Text className="text-xs text-text-tertiary mt-3">
-          {t('app.mention')} {MENTION_PREFIX}
-          {coach.handle} in any chat to bring this agent in for one turn.
+        <Text className="text-xs text-text-tertiary mt-3" testID="coach-info-mention">
+          <Trans
+            i18nKey="chat.mentionInAnyChat"
+            values={{ handle: `${MENTION_PREFIX}${coach.handle}` }}
+            components={{ handle: <Text className="font-mono text-text-secondary" /> }}
+          />
         </Text>
       )}
 

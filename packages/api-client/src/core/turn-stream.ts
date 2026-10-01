@@ -67,6 +67,53 @@ export class TurnRequestError extends Error {
 }
 
 /**
+ * A turn that began and then did not finish.
+ *
+ * The server ends such a turn with a `failed` frame carrying what a refused
+ * request's JSON body would: a stable error `code` (`ResourceUnavailable`,
+ * `QuotaExceeded`, …), the HTTP status it maps to, the structured `details`
+ * (a quota's `limit_type`, counts and `reason`) and an English description.
+ * The code is what a client words the failure by, from its own catalogue.
+ * `code` and `status` are `null` when the body ended without any terminal
+ * frame the reader could use — the turn broke, and nothing said why.
+ */
+export class TurnFailedError extends Error {
+  /** The server's stable error code, or `null` when it named none. */
+  readonly code: string | null;
+  /** The structured details the server attached (a quota's counts), if any. */
+  readonly details: unknown;
+  /** The HTTP status the failure maps to, or `null` when the frame named none. */
+  readonly status: number | null;
+
+  constructor(
+    message: string,
+    code: string | null,
+    details: unknown = null,
+    status: number | null = null,
+  ) {
+    super(message);
+    this.name = 'TurnFailedError';
+    this.code = code;
+    this.details = details;
+    this.status = status;
+  }
+
+  /**
+   * The refusal under the names an `AxiosError` uses, when the frame named
+   * its status — so the shared classifier words a quota the turn hit
+   * mid-stream from `details.limit_type` and `details.reason` exactly as it
+   * words the same refusal arriving as a 4xx body.
+   */
+  get response(): { status: number; data: unknown } | undefined {
+    if (this.status === null) return undefined;
+    return {
+      status: this.status,
+      data: { code: this.code ?? undefined, message: this.message, details: this.details },
+    };
+  }
+}
+
+/**
  * What {@link ChatApi.sendTurn} reports when the idle watch dropped a turn.
  *
  * It carries no athlete-facing words. The server kept going after the stream
@@ -206,27 +253,15 @@ interface FailedFrame {
   details?: unknown;
 }
 
-/**
- * The error a `failed` frame ends a turn with.
- *
- * A frame that names its status is a refusal like any other — a quota the
- * turn hit mid-stream, say — so it becomes a {@link TurnRequestError} holding
- * the JSON error body's shape (`code`, `message`, `details`). The shared
- * classifier then words it from `details.limit_type` and `details.reason`
- * exactly as it words the same refusal arriving as a 4xx body, instead of
- * printing the server's English.
- */
-function failedFrameError(data: string): Error {
+/** The error a `failed` frame ends a turn with. */
+function failedFrameError(data: string): TurnFailedError {
   const parsed = parseJson<FailedFrame>(data);
-  const message = parsed?.error ?? 'The server ended the turn with an error.';
-  if (typeof parsed?.status !== 'number') {
-    return new Error(message);
-  }
-  return new TurnRequestError(message, parsed.status, {
-    code: parsed.code,
-    message,
-    details: parsed.details,
-  });
+  return new TurnFailedError(
+    parsed?.error ?? 'The server ended the turn with an error.',
+    typeof parsed?.code === 'string' ? parsed.code : null,
+    parsed?.details ?? null,
+    typeof parsed?.status === 'number' ? parsed.status : null,
+  );
 }
 
 /** The live half of {@link TurnCallbacks}: what a caller learns mid-turn. */
@@ -255,7 +290,8 @@ export type TurnProgressSink = Pick<TurnCallbacks, 'onDelta' | 'onProgress' | 'o
  *   streaming reader, many where it does.
  * @param sink live callbacks for progress, deltas and reply blocks.
  * @returns the finished turn.
- * @throws when the body carried a `failed` frame, or ended without a reply.
+ * @throws {TurnFailedError} when the body carried a `failed` frame, or ended
+ *   without a reply.
  */
 export async function parseTurnBody(
   chunks: AsyncIterable<string>,
@@ -288,7 +324,7 @@ export async function parseTurnBody(
       } else if (frame.event === 'done') {
         outcome.envelope = parseJson<TurnEnvelope>(frame.data);
         if (!outcome.envelope) {
-          outcome.failure = new Error('The turn finished with an unreadable payload.');
+          outcome.failure = new TurnFailedError('The turn finished with an unreadable payload.', null);
         }
       } else if (frame.event === 'failed') {
         outcome.failure = failedFrameError(frame.data);
@@ -303,7 +339,7 @@ export async function parseTurnBody(
 
   if (outcome.failure) throw outcome.failure;
   if (!outcome.envelope?.assistant) {
-    throw new Error('The turn ended without a reply.');
+    throw new TurnFailedError('The turn ended without a reply.', null);
   }
   // A document body carried no `block` frames, so its pieces are walked here.
   // Streamed turns already fired them in the order the server decided.

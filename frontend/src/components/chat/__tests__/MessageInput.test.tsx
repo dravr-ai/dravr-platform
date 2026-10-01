@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tests for the composer's visible "/" affordance — the discoverable path to the command palette
-// ABOUTME: Pins that pressing it types "/" so the same palette a typed slash opens comes up
+// ABOUTME: Pins that pressing it types "/" so the same palette a typed slash opens comes up, and that the field carries a name
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useState } from 'react';
@@ -81,6 +81,14 @@ describe('MessageInput slash affordance', () => {
   it('carries an accessible name so the affordance is not icon-only', () => {
     renderComposer();
     expect(screen.getByRole('button', { name: 'Commands' })).toBeInTheDocument();
+  });
+
+  it('names the composer field for a screen reader and for autofill, in the athlete\'s language', () => {
+    renderComposer();
+    const composer = screen.getByRole('textbox', { name: 'Message Dravr' });
+    expect(composer.tagName).toBe('TEXTAREA');
+    expect(composer).toHaveAttribute('name', 'message');
+    expect(composer.id).not.toBe('');
   });
 
   it('is disabled with the composer', () => {

@@ -225,7 +225,7 @@ export const API_ERROR_KEYS: Record<ApiErrorKind, string> = {
  * "resets tomorrow" are different instructions — so the generic quota key is
  * the fallback, not the answer.
  */
-function quotaKey(quota: QuotaDetails): string {
+export function quotaKey(quota: QuotaDetails): string {
   switch (quota.limit_type) {
     case 'max_active_conversations':
       return quota.reason === ARCHIVED_CONVERSATION_REASON

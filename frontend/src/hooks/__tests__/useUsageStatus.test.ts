@@ -44,7 +44,7 @@ function makeUsageResponse(overrides: Partial<{
 
 describe('computeWarningState', () => {
   it('should return none level when data is undefined', () => {
-    const result = computeWarningState(undefined, 'midnight UTC')
+    const result = computeWarningState(undefined, 'midnight UTC', 'en')
 
     expect(result.level).toBe('none')
     expect(result.sendDisabled).toBe(false)
@@ -54,7 +54,7 @@ describe('computeWarningState', () => {
 
   it('should return none level when all counters are within limits', () => {
     const data = makeUsageResponse()
-    const result = computeWarningState(data, 'midnight UTC')
+    const result = computeWarningState(data, 'midnight UTC', 'en')
 
     expect(result.level).toBe('none')
     expect(result.sendDisabled).toBe(false)
@@ -65,20 +65,37 @@ describe('computeWarningState', () => {
     const data = makeUsageResponse({
       dailyMessages: { warning: true, current: 80, limit: 100 },
     })
-    const result = computeWarningState(data, 'midnight UTC')
+    const result = computeWarningState(data, 'midnight UTC', 'en')
 
     expect(result.level).toBe('warning')
     expect(result.sendDisabled).toBe(false)
     expect(result.text?.params?.percent).toBe(80)
     expect(result.text?.params?.label).toBe('usage.dailyMessages')
-    expect(result.text?.params).toMatchObject({ current: 80, limit: 100 })
+    expect(result.text?.params).toMatchObject({ current: '80', limit: '100' })
+  })
+
+  it('groups the figures in the language the athlete chose', () => {
+    // The banner printed `(456792/500000)` under French chrome: the counts went
+    // into the sentence raw, so a token cap read as one run of digits.
+    const data = makeUsageResponse({
+      dailyTokens: { warning: true, current: 456_792, limit: 500_000 },
+    })
+
+    expect(computeWarningState(data, 'minuit UTC', 'fr').text?.params).toMatchObject({
+      current: '456\u202f792',
+      limit: '500\u202f000',
+    })
+    expect(computeWarningState(data, 'midnight UTC', 'en').text?.params).toMatchObject({
+      current: '456,792',
+      limit: '500,000',
+    })
   })
 
   it('should return burst level when a counter is in burst zone', () => {
     const data = makeUsageResponse({
       dailyTokens: { burst_zone: true, current: 95, limit: 100 },
     })
-    const result = computeWarningState(data, 'midnight UTC')
+    const result = computeWarningState(data, 'midnight UTC', 'en')
 
     expect(result.level).toBe('burst')
     expect(result.sendDisabled).toBe(false)
@@ -90,7 +107,7 @@ describe('computeWarningState', () => {
     const data = makeUsageResponse({
       dailyMessages: { allowed: false, current: 100, limit: 100 },
     })
-    const result = computeWarningState(data, 'midnight UTC')
+    const result = computeWarningState(data, 'midnight UTC', 'en')
 
     expect(result.level).toBe('blocked')
     expect(result.sendDisabled).toBe(true)
@@ -103,7 +120,7 @@ describe('computeWarningState', () => {
       dailyMessages: { burst_zone: true, current: 95, limit: 100 },
       dailyTokens: { allowed: false, current: 100, limit: 100 },
     })
-    const result = computeWarningState(data, 'midnight UTC')
+    const result = computeWarningState(data, 'midnight UTC', 'en')
 
     expect(result.level).toBe('blocked')
     expect(result.sendDisabled).toBe(true)
@@ -114,7 +131,7 @@ describe('computeWarningState', () => {
       dailyMessages: { warning: true, current: 80, limit: 100 },
       dailyTokens: { burst_zone: true, current: 95, limit: 100 },
     })
-    const result = computeWarningState(data, 'midnight UTC')
+    const result = computeWarningState(data, 'midnight UTC', 'en')
 
     expect(result.level).toBe('burst')
   })
@@ -124,7 +141,7 @@ describe('computeWarningState', () => {
     const data = makeUsageResponse({
       dailyMessages: { warning: true, current: 80, limit: 100, resets_at: resetTime },
     })
-    const result = computeWarningState(data, 'midnight UTC')
+    const result = computeWarningState(data, 'midnight UTC', 'en')
 
     expect(result.resetsAt).toBe(resetTime)
   })
@@ -133,7 +150,7 @@ describe('computeWarningState', () => {
     const data = makeUsageResponse({
       dailyMessages: { allowed: false, current: 100, limit: 100 },
     })
-    const result = computeWarningState(data, 'midnight UTC')
+    const result = computeWarningState(data, 'midnight UTC', 'en')
 
     expect(result.triggerCounter).not.toBeNull()
     expect(result.triggerCounter?.current).toBe(100)
@@ -144,7 +161,7 @@ describe('computeWarningState', () => {
     const data = makeUsageResponse({
       dailyMessages: { warning: true, current: 0, limit: 0 },
     })
-    const result = computeWarningState(data, 'midnight UTC')
+    const result = computeWarningState(data, 'midnight UTC', 'en')
 
     expect(result.level).toBe('warning')
     expect(result.text?.params?.percent).toBe(0)
@@ -154,7 +171,7 @@ describe('computeWarningState', () => {
     const data = makeUsageResponse({
       weeklyMessages: { allowed: false, current: 500, limit: 500 },
     })
-    const result = computeWarningState(data, 'midnight UTC')
+    const result = computeWarningState(data, 'midnight UTC', 'en')
 
     expect(result.level).toBe('blocked')
     expect(result.text?.params?.label).toBe('usage.weeklyMessages')
@@ -173,11 +190,11 @@ describe('warningStateFromNotice', () => {
       current: 45,
       limit: 50,
       resets_at: '2026-08-26T00:00:00Z',
-    })
+    }, 'midnight UTC', 'en')
 
     expect(state.level).toBe('warning')
     expect(state.text?.params?.percent).toBe(90)
-    expect(state.text?.params).toMatchObject({ current: 45, limit: 50 })
+    expect(state.text?.params).toMatchObject({ current: '45', limit: '50' })
     expect(state.resetsAt).toBe('2026-08-26T00:00:00Z')
     // A notice rode a turn that already succeeded, so it never blocks sending.
     expect(state.sendDisabled).toBe(false)
@@ -190,10 +207,10 @@ describe('warningStateFromNotice', () => {
       current: 56,
       limit: 50,
       resets_at: '2026-08-26T00:00:00Z',
-    })
+    }, 'midnight UTC', 'en')
 
     expect(state.level).toBe('burst')
     expect(state.text?.key).toBe('usage.burstZone')
-    expect(state.text?.params).toMatchObject({ current: 56, limit: 50 })
+    expect(state.text?.params).toMatchObject({ current: '56', limit: '50' })
   })
 })

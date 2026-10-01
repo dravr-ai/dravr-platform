@@ -26,6 +26,7 @@ import type { Agent, UpdateAgentRequest } from '../../types';
 import { CoachVersionHistory } from './CoachVersionHistory';
 import { CoachStoreSubmit } from './CoachStoreSubmit';
 import { useTranslation } from '@pierre/i18n';
+import { estimatePromptTokens, PROMPT_TOKEN_ESTIMATE_KEY } from '@pierre/ui-logic';
 
 // Category options with colors matching Stitch UX spec
 // `key` is the value stored on the coach and sent to the API, so it stays
@@ -46,7 +47,6 @@ const CATEGORY_OPTIONS: Array<{ key: string; labelKey: string }> = [
 const MAX_TITLE_LENGTH = 100;
 const MAX_DESCRIPTION_LENGTH = 500;
 const MAX_SYSTEM_PROMPT_LENGTH = 8000;
-const CONTEXT_WINDOW_SIZE = 128000;
 
 export function CoachEditorScreen() {
   const { t } = useTranslation();
@@ -122,9 +122,8 @@ export function CoachEditorScreen() {
   // Derived save-readiness for dynamic testID (Maestro sync point)
   const canSave = title.trim().length > 0 && systemPrompt.trim().length > 0 && !isSaving && !isDeleting;
 
-  // Calculate token count (same formula as web)
-  const tokenCount = Math.ceil(systemPrompt.length / 4);
-  const contextPercentage = ((tokenCount / CONTEXT_WINDOW_SIZE) * 100).toFixed(1);
+  // The same estimate, and the same catalogue sentence, as the web agent form.
+  const promptEstimate = estimatePromptTokens(systemPrompt);
 
   // Validation
   const validate = useCallback((): boolean => {
@@ -446,7 +445,7 @@ export function CoachEditorScreen() {
               testID="token-counter"
             >
               <Text className="text-text-secondary text-sm mb-2" testID="token-count-text">
-                ~{tokenCount.toLocaleString()} tokens ({contextPercentage}% of context)
+                {t(PROMPT_TOKEN_ESTIMATE_KEY, promptEstimate)}
               </Text>
               <View
                 className="h-1.5 rounded-full overflow-hidden"
@@ -459,7 +458,7 @@ export function CoachEditorScreen() {
                 <View
                   style={{
                     height: '100%',
-                    width: `${Math.min(parseFloat(contextPercentage), 100)}%`,
+                    width: `${Math.min(promptEstimate.percent, 100)}%`,
                     borderRadius: 3,
                     backgroundColor: colors.tokens.primary,
                   }}
@@ -702,7 +701,7 @@ export function CoachEditorScreen() {
           />
           <View className="px-3 py-2 border-t border-border">
             <Text className="text-text-secondary text-sm" testID="modal-token-count">
-              ~{tokenCount.toLocaleString()} tokens ({contextPercentage}% of context)
+              {t(PROMPT_TOKEN_ESTIMATE_KEY, promptEstimate)}
             </Text>
           </View>
         </SafeAreaView>

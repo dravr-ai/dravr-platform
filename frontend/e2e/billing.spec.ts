@@ -226,7 +226,7 @@ test.describe('Billing - Starter fallback (no subscription on file)', () => {
       'Weekly Tokens',
       'Daily Tool Calls',
       'Daily Conversations',
-      'Active Coaches',
+      'Active agents',
     ]) {
       await expect(page.getByText(label, { exact: false })).toBeVisible();
     }

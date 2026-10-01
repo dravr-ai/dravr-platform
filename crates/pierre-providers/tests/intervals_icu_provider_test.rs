@@ -23,7 +23,8 @@ use pierre_providers::models::periodization::{
     EvidenceTier, PhaseFit, PhaseKind, Progression, ReadinessLevel, WorkoutParams, WorkoutPurpose,
 };
 use pierre_providers::models::{
-    Feel, IntensityDistribution, PlannedSession, SportType, WorkoutTargetZones, WorkoutTemplate,
+    Feel, IntensityDistribution, PlannedSession, SportType, TimeSeriesData, WorkoutTargetZones,
+    WorkoutTemplate,
 };
 use pierre_providers::pagination::PaginationParams;
 use pierre_providers::ProviderRegistry;
@@ -637,9 +638,8 @@ async fn a_deep_request_pages_past_the_single_response_cap() {
 }
 
 /// `get_activity_with_streams` folds the streams endpoint's response —
-/// including `latlng`, whose latitudes come in `data` and longitudes in
-/// `data2` — into the activity's
-/// time-series data. Three sequential requests: the activity, its comment
+/// including the `latlng` stream, latitudes in `data` and longitudes in
+/// `data2` — into the activity's time-series data. Three sequential requests: the activity, its comment
 /// thread (the tier sits above the detail read), then its streams.
 #[tokio::test]
 async fn get_activity_with_streams_folds_the_streams_response() {
@@ -655,8 +655,7 @@ async fn get_activity_with_streams_folds_the_streams_response() {
     let streams_body = serde_json::json!([
         { "type": "heartrate", "data": [130.0, 131.0, 132.0, 133.0] },
         { "type": "watts", "data": [210.0, 212.0, 214.0, 216.0] },
-        { "type": "latlng",
-          "data": [45.5, 45.501, 45.502, 45.503],
+        { "type": "latlng", "data": [45.5, 45.501, 45.502, 45.503],
           "data2": [-73.6, -73.601, -73.602, -73.603] }
     ])
     .to_string();
@@ -704,9 +703,12 @@ async fn get_activity_with_streams_folds_the_streams_response() {
         .expect("streams must be attached");
     assert_eq!(
         stream.heart_rate.as_deref(),
-        Some(&[130, 131, 132, 133][..])
+        Some(&[Some(130), Some(131), Some(132), Some(133)][..])
     );
-    assert_eq!(stream.power.as_deref(), Some(&[210, 212, 214, 216][..]));
+    assert_eq!(
+        stream.power.as_deref(),
+        Some(&[Some(210), Some(212), Some(214), Some(216)][..])
+    );
     let gps = stream.gps_coordinates.as_ref().expect("gps");
     assert_eq!(
         gps.as_slice(),
@@ -716,12 +718,177 @@ async fn get_activity_with_streams_folds_the_streams_response() {
             (45.502, -73.602),
             (45.503, -73.603)
         ],
-        "latitudes from data pair with longitudes from data2"
+        "latitudes in data and longitudes in data2 pair by index"
     );
     assert_eq!(
         stream.timestamps.len(),
         4,
         "timestamps synthesised per sample"
+    );
+}
+
+/// Read `body` as the streams endpoint's answer for activity `i778` and return
+/// the time series `get_activity_with_streams` attached.
+async fn streams_through_provider(streams_body: serde_json::Value) -> TimeSeriesData {
+    let activity_body = serde_json::json!({
+        "id": "i778",
+        "name": "Bromont trail run",
+        "type": "Run",
+        "start_date_local": "2026-09-28T08:00:00",
+        "elapsed_time": 5,
+        "distance": 40.0
+    })
+    .to_string();
+    let (base_url, stub) = stub_pages(vec![
+        activity_body,
+        "[]".to_owned(),
+        streams_body.to_string(),
+    ])
+    .await;
+    let provider = provider_against(base_url).await;
+    let activity = provider
+        .get_activity_with_streams("i778")
+        .await
+        .expect("activity with streams");
+    timeout(StdDuration::from_secs(2), stub)
+        .await
+        .expect("stub finished")
+        .expect("join");
+    activity
+        .time_series_data()
+        .cloned()
+        .expect("streams must be attached")
+}
+
+/// The `latlng` stream in the shape intervals.icu's streams endpoint returns
+/// it (`OpenAPI` `ActivityStream`: `data` = latitudes, `data2` = longitudes),
+/// taken from a Bromont, Québec run. Reading it as one interleaved list paired
+/// consecutive latitudes, (45.30, 45.30), and drew the run as a diagonal in
+/// the Caucasus.
+#[tokio::test]
+async fn latlng_pairs_latitudes_from_data_with_longitudes_from_data2() {
+    let lats = [45.3051, 45.3054, 45.3058, 45.3061, 45.3065];
+    let lngs = [-72.6512, -72.6507, -72.6501, -72.6496, -72.6490];
+    let stream = streams_through_provider(serde_json::json!([
+        { "type": "time", "data": [0.0, 1.0, 2.0, 3.0, 4.0] },
+        { "type": "latlng", "data": lats, "data2": lngs },
+        { "type": "altitude", "data": [150.0, 151.0, 152.0, 152.5, 153.0] }
+    ]))
+    .await;
+
+    let gps = stream.gps_coordinates.as_ref().expect("the run has GPS");
+    assert_eq!(gps.len(), 5, "one coordinate per latitude sample");
+    let expected: Vec<(f64, f64)> = lats.iter().copied().zip(lngs).collect();
+    assert_eq!(gps, &expected);
+    for (lat, lng) in gps {
+        assert!(
+            (45.30..45.31).contains(lat) && (-72.66..-72.64).contains(lng),
+            "({lat}, {lng}) is not in Bromont"
+        );
+    }
+    assert_eq!(
+        stream.timestamps.len(),
+        5,
+        "the latlng stream counts one sample per latitude, not per value"
+    );
+}
+
+/// A `latlng` stream without `data2` carries no longitude: it is read as no
+/// GPS, never as coordinates built by pairing latitudes with each other.
+#[tokio::test]
+async fn latlng_without_data2_is_no_gps() {
+    let stream = streams_through_provider(serde_json::json!([
+        { "type": "heartrate", "data": [140.0, 141.0, 142.0, 143.0] },
+        { "type": "latlng", "data": [45.3051, 45.3054, 45.3058, 45.3061] }
+    ]))
+    .await;
+
+    assert_eq!(
+        stream.gps_coordinates, None,
+        "latitudes alone place no point on the map"
+    );
+    assert_eq!(
+        stream.heart_rate.as_deref(),
+        Some(&[Some(140), Some(141), Some(142), Some(143)][..])
+    );
+    assert_eq!(stream.timestamps.len(), 4);
+}
+
+/// A `latlng` sample without a fix arrives as `null` on either side. The read
+/// succeeds and the track holds only the fixed points, never a zero or a
+/// half-pair.
+#[tokio::test]
+async fn latlng_samples_without_a_fix_are_left_out_of_the_track() {
+    let stream = streams_through_provider(serde_json::json!([
+        { "type": "latlng",
+          "data":  [45.3051, null, 45.3058, 45.3061, 45.3065, null],
+          "data2": [-72.6512, -72.6507, null, -72.6496, -72.6490, null] }
+    ]))
+    .await;
+
+    assert_eq!(
+        stream.gps_coordinates,
+        Some(vec![
+            (45.3051, -72.6512),
+            (45.3061, -72.6496),
+            (45.3065, -72.6490)
+        ]),
+        "only the samples with both a latitude and a longitude are points"
+    );
+    assert_eq!(
+        stream.timestamps.len(),
+        6,
+        "the recording keeps every sample, fixed or not"
+    );
+}
+
+/// A scalar stream with a sensor dropout (`null` samples) does not fail the
+/// read and is never filled: each `null` stays a gap at its own index, and
+/// the recorded samples around it keep their values and their instants.
+#[tokio::test]
+async fn a_scalar_stream_with_a_dropout_keeps_its_samples_and_its_gaps() {
+    let stream = streams_through_provider(serde_json::json!([
+        { "type": "heartrate", "data": [140.0, null, null, 143.0] },
+        { "type": "watts", "data": [200.0, 0.0, 210.0, 215.0] },
+        { "type": "altitude", "data": [150.0, 151.0, null, 152.0] },
+        { "type": "cadence", "data": [null, 88.0, 90.0, null] }
+    ]))
+    .await;
+
+    assert_eq!(
+        stream.heart_rate,
+        Some(vec![Some(140), None, None, Some(143)]),
+        "no 0 bpm and no repeated reading stands in for the dropout"
+    );
+    assert_eq!(
+        stream.altitude,
+        Some(vec![Some(150.0), Some(151.0), None, Some(152.0)])
+    );
+    assert_eq!(stream.cadence, Some(vec![None, Some(88), Some(90), None]));
+    assert_eq!(
+        stream.power,
+        Some(vec![Some(200), Some(0), Some(210), Some(215)]),
+        "a recorded zero is a real reading and stays"
+    );
+    assert_eq!(stream.timestamps.len(), 4);
+}
+
+/// A stream flagged `allNull` recorded nothing: it is absent, whatever its
+/// `data` holds.
+#[tokio::test]
+async fn an_all_null_stream_is_absent() {
+    let stream = streams_through_provider(serde_json::json!([
+        { "type": "cadence", "allNull": true, "data": [null, null, null] },
+        { "type": "latlng", "allNull": true },
+        { "type": "heartrate", "data": [120.0, 121.0, 122.0] }
+    ]))
+    .await;
+
+    assert_eq!(stream.cadence, None);
+    assert_eq!(stream.gps_coordinates, None);
+    assert_eq!(
+        stream.heart_rate.as_deref(),
+        Some(&[Some(120), Some(121), Some(122)][..])
     );
 }
 

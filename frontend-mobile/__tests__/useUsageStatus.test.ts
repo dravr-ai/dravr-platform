@@ -13,6 +13,7 @@ jest.mock('@pierre/shared-constants', () => ({
 }));
 
 import type { LimitCheckResult, UsageStatusResponse } from '@pierre/shared-types';
+import { i18n } from '@pierre/i18n';
 import { computeWarningState, type WarningLevel } from '../src/screens/chat/useUsageStatus';
 
 function makeLimitCheck(overrides: Partial<LimitCheckResult> = {}): LimitCheckResult {
@@ -62,7 +63,7 @@ const translate = (key: string, params?: Record<string, string | number>): strin
 describe('computeWarningState', () => {
   it('returns none when all counters are within limits', () => {
     const data = makeStatusResponse({});
-    const state = computeWarningState(data, translate);
+    const state = computeWarningState(data, translate, 'en');
 
     expect(state.level).toBe('none');
     expect(state.sendDisabled).toBe(false);
@@ -70,7 +71,7 @@ describe('computeWarningState', () => {
   });
 
   it('returns none when data is undefined', () => {
-    const state = computeWarningState(undefined, translate);
+    const state = computeWarningState(undefined, translate, 'en');
 
     expect(state.level).toBe('none');
     expect(state.sendDisabled).toBe(false);
@@ -82,7 +83,7 @@ describe('computeWarningState', () => {
     const data = makeStatusResponse({
       dailyMessages: makeLimitCheck({ current: 40, limit: 50, warning: true }),
     });
-    const state = computeWarningState(data, translate);
+    const state = computeWarningState(data, translate, 'en');
 
     expect(state.level).toBe('warning');
     expect(state.sendDisabled).toBe(false);
@@ -94,7 +95,7 @@ describe('computeWarningState', () => {
     const data = makeStatusResponse({
       dailyMessages: makeLimitCheck({ current: 55, limit: 50, warning: true, burst_zone: true }),
     });
-    const state = computeWarningState(data, translate);
+    const state = computeWarningState(data, translate, 'en');
 
     expect(state.level).toBe('burst');
     expect(state.sendDisabled).toBe(false);
@@ -106,7 +107,7 @@ describe('computeWarningState', () => {
     const data = makeStatusResponse({
       dailyMessages: makeLimitCheck({ current: 75, limit: 50, allowed: false, warning: true, burst_zone: true }),
     });
-    const state = computeWarningState(data, translate);
+    const state = computeWarningState(data, translate, 'en');
 
     expect(state.level).toBe('blocked');
     expect(state.sendDisabled).toBe(true);
@@ -117,7 +118,7 @@ describe('computeWarningState', () => {
     const data = makeStatusResponse({
       dailyTokens: makeLimitCheck({ current: 100, limit: 50, allowed: false, warning: true, burst_zone: true }),
     });
-    const state = computeWarningState(data, translate);
+    const state = computeWarningState(data, translate, 'en');
 
     expect(state.level).toBe('blocked');
     expect(state.message).toContain('usage.dailyTokens');
@@ -128,7 +129,7 @@ describe('computeWarningState', () => {
       dailyMessages: makeLimitCheck({ current: 40, limit: 50, warning: true }), // warning
       dailyTokens: makeLimitCheck({ current: 55, limit: 50, warning: true, burst_zone: true }), // burst
     });
-    const state = computeWarningState(data, translate);
+    const state = computeWarningState(data, translate, 'en');
 
     expect(state.level).toBe('burst');
     expect(state.message).toContain('usage.dailyTokens');
@@ -140,7 +141,7 @@ describe('computeWarningState', () => {
       dailyTokens: makeLimitCheck({ current: 55, limit: 50, warning: true, burst_zone: true }), // burst
       weeklyMessages: makeLimitCheck({ current: 200, limit: 100, allowed: false }), // blocked
     });
-    const state = computeWarningState(data, translate);
+    const state = computeWarningState(data, translate, 'en');
 
     expect(state.level).toBe('blocked');
     expect(state.sendDisabled).toBe(true);
@@ -151,9 +152,26 @@ describe('computeWarningState', () => {
     const data = makeStatusResponse({
       dailyMessages: makeLimitCheck({ current: 40, limit: 50, warning: true, resets_at: '2026-02-18T12:00:00Z' }),
     });
-    const state = computeWarningState(data, translate);
+    const state = computeWarningState(data, translate, 'en');
 
     expect(state.message).toContain('"time"');
     expect(state.resetsAt).toBe('2026-02-18T12:00:00Z');
+  });
+
+  it('writes a token cap in French, grouped as a French athlete reads numbers', async () => {
+    // The sentence carried the raw counts, `(456792/500000)`, under French
+    // chrome; the real translator now prints `(456 792/500 000)`.
+    await i18n.changeLanguage('fr');
+    try {
+      const data = makeStatusResponse({
+        dailyTokens: makeLimitCheck({ current: 456_792, limit: 500_000, warning: true }),
+      });
+      const state = computeWarningState(data, i18n.t.bind(i18n), 'fr');
+
+      expect(state.message).toContain('91 % de tes jetons quotidiens (456\u202f792/500\u202f000)');
+      expect(state.message).not.toContain('456792');
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 });

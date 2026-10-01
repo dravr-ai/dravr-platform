@@ -25,7 +25,7 @@ use crate::models::{
 use crate::pagination::{Cursor, CursorPage, PaginationDirection, PaginationParams};
 use crate::strava_types::{
     DetailedActivityResponse, StravaActivityResponse, StravaAthleteResponse, StravaErrorResponse,
-    StravaLap, StravaSplit, StravaStatsResponse, StravaStream, StravaStreamSet,
+    StravaLap, StravaSplit, StravaStatsResponse, StravaStreamSet,
 };
 use crate::utils;
 use async_trait::async_trait;
@@ -343,47 +343,67 @@ impl StravaProvider {
 
     /// Fold Strava's keyed stream set into cageux's [`TimeSeriesData`].
     ///
-    /// Returns `None` for an empty set. Sample `null`s (sensor dropouts) map
-    /// to `0` for the numeric channels — "no reading", matching how the
-    /// devices themselves render gaps — and are dropped from the GPS track,
-    /// where a zero would be a coordinate off the coast of Africa rather
-    /// than an absence. The distance channel is cumulative, so a `null`
-    /// there repeats the last reading: no metres were recorded, none were
-    /// lost. Timestamps prefer Strava's own `time` stream and fall back to
-    /// sample indices when it is missing.
+    /// Returns `None` for an empty set. Sample `null`s (sensor dropouts) stay
+    /// gaps (`None`) in the heart-rate, power, cadence, speed, altitude and
+    /// temperature channels, index-aligned with `timestamps`, so every
+    /// recorded sample keeps its instant and no consumer reads a dropout as
+    /// a real 0 bpm or a coast. They are dropped from the GPS track, where a
+    /// zero would be a coordinate off the coast of Africa rather than an
+    /// absence. The distance channel is cumulative, so a `null` there repeats
+    /// the last reading: no metres were recorded, none were lost.
+    /// Timestamps prefer Strava's own `time` stream and fall back to sample
+    /// indices when it is missing. The time axis carries no gap marker, so a
+    /// sample whose `time` offset is `null` has no instant to stand at: that
+    /// index is dropped from every channel (time, GPS, distance and the
+    /// gapped channels alike), keeping them aligned without inventing one.
     fn streams_to_time_series(set: StravaStreamSet) -> Option<TimeSeriesData> {
-        fn samples<T: Default>(stream: StravaStream<T>) -> Vec<T> {
-            stream
-                .data
+        /// `values` without the samples `recorded` marks as untimed; an
+        /// index past the end of the time stream is kept.
+        fn keep_timed<T>(values: Vec<T>, recorded: &[bool]) -> Vec<T> {
+            values
                 .into_iter()
-                .map(Option::unwrap_or_default)
+                .enumerate()
+                .filter(|(index, _)| recorded.get(*index).copied().unwrap_or(true))
+                .map(|(_, value)| value)
                 .collect()
         }
 
+        // `recorded[i]` is false where Strava sent no time offset for sample `i`.
+        let recorded: Vec<bool> = set
+            .time
+            .as_ref()
+            .map(|stream| stream.data.iter().map(Option::is_some).collect())
+            .unwrap_or_default();
+
         let gps: Option<Vec<(f64, f64)>> = set.latlng.map(|s| {
-            s.data
+            keep_timed(s.data, &recorded)
                 .into_iter()
                 .flatten()
                 .map(|pair| (pair[0], pair[1]))
                 .collect()
         });
-        let heart_rate = set.heartrate.map(samples);
-        let power = set.watts.map(samples);
-        let cadence = set.cadence.map(samples);
-        let speed = set.velocity_smooth.map(samples);
-        let altitude = set.altitude.map(samples);
-        let temperature = set.temp.map(samples);
+        let heart_rate = set.heartrate.map(|s| keep_timed(s.data, &recorded));
+        let power = set.watts.map(|s| keep_timed(s.data, &recorded));
+        let cadence = set.cadence.map(|s| keep_timed(s.data, &recorded));
+        let speed = set.velocity_smooth.map(|s| keep_timed(s.data, &recorded));
+        let altitude = set.altitude.map(|s| keep_timed(s.data, &recorded));
+        let temperature = set.temp.map(|s| keep_timed(s.data, &recorded));
+        // The carry runs before the drop, so a reading taken at an untimed
+        // sample still stands for the null samples after it.
         let distance = set.distance.map(|stream| {
-            stream
-                .data
-                .into_iter()
-                .scan(0.0_f64, |covered, sample| {
-                    if let Some(meters) = sample {
-                        *covered = meters;
-                    }
-                    Some(*covered)
-                })
-                .collect::<Vec<f64>>()
+            keep_timed(
+                stream
+                    .data
+                    .into_iter()
+                    .scan(0.0_f64, |covered, sample| {
+                        if let Some(meters) = sample {
+                            *covered = meters;
+                        }
+                        Some(*covered)
+                    })
+                    .collect::<Vec<f64>>(),
+                &recorded,
+            )
         });
 
         let sample_count = [
@@ -400,9 +420,9 @@ impl StravaProvider {
         .flatten()
         .max()
         .unwrap_or(0);
-        let timestamps = set.time.map_or_else(
+        let timestamps: Vec<u32> = set.time.map_or_else(
             || (0..u32::try_from(sample_count).unwrap_or(u32::MAX)).collect(),
-            samples,
+            |stream| stream.data.into_iter().flatten().collect(),
         );
         if timestamps.is_empty() && sample_count == 0 {
             return None;

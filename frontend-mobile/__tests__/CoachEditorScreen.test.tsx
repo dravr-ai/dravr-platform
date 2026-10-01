@@ -5,6 +5,7 @@ import React from 'react';
 import { render as rtlRender, fireEvent, waitFor, within } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { i18n } from '@pierre/i18n';
 
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), navigate: jest.fn(), canGoBack: () => true };
 let mockParams: { agentId?: string } = { agentId: 'coach-1' };
@@ -318,6 +319,30 @@ describe('CoachEditorScreen', () => {
 
     expect(await findByTestId('agent-version-history-empty')).toBeTruthy();
     expect(queryByTestId('agent-version-1')).toBeNull();
+  });
+
+  it('reads the prompt-size estimate in the app language', async () => {
+    // 8,000 characters is 2,000 tokens, 1.6% of the window: a grouped count
+    // and a decimal share, each written the way the language writes them.
+    mockGet.mockResolvedValue(storedCoach({ system_prompt: 'x'.repeat(8000) }));
+    const english = render(<CoachEditorScreen />);
+    expect(await english.findByTestId('token-count-text')).toHaveTextContent(
+      '~2,000 tokens (1.6% of context)',
+    );
+    english.unmount();
+
+    await i18n.changeLanguage('fr');
+    try {
+      const french = render(<CoachEditorScreen />);
+      const estimate = await french.findByTestId('token-count-text');
+      // The rendered string itself, not the matcher's whitespace-collapsed
+      // view of it: Intl groups French thousands with U+202F.
+      await waitFor(() =>
+        expect(estimate.props.children).toBe('~2\u202f000 jetons (1,6 % du contexte)'),
+      );
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('shows the not-found state when the route carries no agent id', async () => {

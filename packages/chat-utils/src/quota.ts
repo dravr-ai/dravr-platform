@@ -3,7 +3,8 @@
 
 import type { ReplyNotice } from '@pierre/shared-types';
 
-import type { TranslatableText } from './text';
+import { formatCount, formatDecimal } from './number-format';
+import type { TranslatableText, Translate } from './text';
 
 /** What a quota notice puts on the banner. */
 export interface QuotaBanner {
@@ -16,17 +17,18 @@ export interface QuotaBanner {
 }
 
 /**
- * The reset instant in the reader's own timezone: `12:00 AM UTC`, `00:00 UTC`.
+ * The reset instant in the reader's language and own timezone: `12:00 AM UTC`
+ * in English, `00:00 UTC` in French.
  *
  * Every usage surface — the chat banner on both clients and both settings
  * usage cards — prints the reset instant through this one function.
  *
  * `fallback` is the caller's translated wording for an unparseable instant:
- * this module has no locale, so it cannot reach the catalogue itself.
+ * this module has no catalogue, so it cannot reach the wording itself.
  */
-export function formatResetTime(isoString: string, fallback: string): string {
+export function formatResetTime(isoString: string, fallback: string, language: string): string {
   try {
-    return new Intl.DateTimeFormat(undefined, {
+    return new Intl.DateTimeFormat(language, {
       hour: 'numeric',
       minute: '2-digit',
       timeZoneName: 'short',
@@ -36,18 +38,29 @@ export function formatResetTime(isoString: string, fallback: string): string {
   }
 }
 
+/** The catalogue keys of the short-scale suffix a compacted count is written with. */
+const COMPACT_COUNT_KEYS = {
+  thousands: 'common.compact.thousands',
+  millions: 'common.compact.millions',
+} as const;
+
 /**
- * A usage counter compacted for a quota meter: `145.0K`, `2.0M`, and the
- * plain locale-grouped figure under a thousand.
+ * A usage counter compacted for a quota meter, in the reader's notation:
+ * `145.0K` and `2.0M` in English, `145,0 k` and `2,0 M` in French. Under a
+ * thousand it is the plain grouped figure.
+ *
+ * The suffix comes from the catalogue rather than from `Intl.NumberFormat`'s
+ * compact notation, which the phone's JavaScript engine does not carry on
+ * every platform.
  */
-export function formatCompactNumber(value: number): string {
+export function formatCompactNumber(value: number, t: Translate, language: string): string {
   if (value >= 1_000_000) {
-    return `${(value / 1_000_000).toFixed(1)}M`;
+    return t(COMPACT_COUNT_KEYS.millions, { value: formatDecimal(value / 1_000_000, 1, language) });
   }
   if (value >= 1_000) {
-    return `${(value / 1_000).toFixed(1)}K`;
+    return t(COMPACT_COUNT_KEYS.thousands, { value: formatDecimal(value / 1_000, 1, language) });
   }
-  return value.toLocaleString();
+  return formatCount(value, language);
 }
 
 /**
@@ -58,16 +71,18 @@ export function formatCompactNumber(value: number): string {
  * scraping `/in (\d+) seconds/` out of the refusal sentence, which only ever
  * matched English and told the athlete nothing about which cap they had hit.
  */
-export function quotaNoticeBanner(notice: ReplyNotice, resetFallback: string): QuotaBanner {
-  const time = formatResetTime(notice.resets_at, resetFallback);
+export function quotaNoticeBanner(notice: ReplyNotice, resetFallback: string, language: string): QuotaBanner {
+  const time = formatResetTime(notice.resets_at, resetFallback, language);
   const percent = notice.limit > 0 ? Math.round((notice.current / notice.limit) * 100) : 0;
 
   // `label` is itself a catalogue key: the client translates it and passes it
   // back in, so the sentence and the thing it names agree on one language.
+  // The figures are grouped in the reader's notation — `456 792` in French —
+  // because the sentence prints them as the athlete reads numbers.
   const params = {
     label: 'usage.messageQuota',
-    current: notice.current,
-    limit: notice.limit,
+    current: formatCount(notice.current, language),
+    limit: formatCount(notice.limit, language),
     time,
   };
 

@@ -5,9 +5,9 @@
 // ABOUTME: Frames, the single-JSON slash-command answer, keep-alives and error frames, in one reader
 
 import { describe, it, expect, vi } from 'vitest';
-import { parseTurnBody, readEventStream, TurnRequestError } from '@pierre/api-client';
+import { parseTurnBody, readEventStream, TurnFailedError } from '@pierre/api-client';
 import { i18n } from '@pierre/i18n';
-import { describeQuotaRefusal } from '@pierre/ui-logic';
+import { describeQuotaRefusal, describeTurnFailure } from '@pierre/ui-logic';
 import type { TurnEnvelope } from '@pierre/shared-types';
 
 const CONVERSATION_ID = 'conv-parser-1';
@@ -181,6 +181,19 @@ describe('parseTurnBody — the failures a turn can end in', () => {
     await expect(parseTurnBody(whole(body))).rejects.toThrow('Daily message limit reached.');
   });
 
+  it('carries the failed frame code and details, the part a client words the failure by', async () => {
+    const body = `event: failed\ndata: ${JSON.stringify({
+      error: 'The resource is temporarily unavailable',
+      code: 'ResourceUnavailable',
+      details: { retry_after_secs: 30 },
+    })}\n\n`;
+
+    const failure = await parseTurnBody(whole(body)).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(TurnFailedError);
+    expect((failure as TurnFailedError).code).toBe('ResourceUnavailable');
+    expect((failure as TurnFailedError).details).toEqual({ retry_after_secs: 30 });
+  });
+
   it('carries a mid-stream refusal in the shape the quota wording reads', async () => {
     // The frame the server sends for a turn into an archived thread at the
     // conversation cap: the JSON refusal body's code and details, plus its
@@ -202,12 +215,15 @@ describe('parseTurnBody — the failures a turn can end in', () => {
       () => null,
       (error: unknown) => error,
     );
-    expect(failure).toBeInstanceOf(TurnRequestError);
+    expect(failure).toBeInstanceOf(TurnFailedError);
+    expect((failure as TurnFailedError).code).toBe('QuotaExceeded');
+    expect((failure as TurnFailedError).status).toBe(429);
     const t = (key: string, params?: Record<string, string | number>) =>
       i18n.t(key, { ...params, lng: 'en' });
-    expect(describeQuotaRefusal(failure, t)).toBe(
-      'This conversation is archived, and you already have 10 conversations open — the maximum for your plan. Delete one to continue here.'
-    );
+    const archived =
+      'This conversation is archived, and you already have 10 conversations open — the maximum for your plan. Delete one to continue here.';
+    expect(describeQuotaRefusal(failure, t)).toBe(archived);
+    expect(describeTurnFailure(failure, { t })).toBe(archived);
   });
 
   it('throws when the body ended without a reply', async () => {

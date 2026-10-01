@@ -43,6 +43,17 @@ describe('reduceLostTurn', () => {
     expect(reduceLostTurn(null, { type: 'failed', away: false, turn: LOST })).toBeNull();
   });
 
+  it('keeps a turn that failed in front of the athlete when the client asks it to', () => {
+    const kept = reduceLostTurn(null, { type: 'failed', away: false, keepWhenPresent: true, turn: LOST });
+    expect(kept).toBe(LOST);
+    // A re-read that never received the question still stands the note.
+    expect(readLostTurn(kept, THREAD, NEVER_RECEIVED)).toEqual({
+      kind: 'waiting',
+      note: LOST.note,
+      questionReceived: false,
+    });
+  });
+
   it('drops the lost turn when a new turn starts, answered or not', () => {
     expect(reduceLostTurn(LOST, { type: 'sent' })).toBeNull();
   });

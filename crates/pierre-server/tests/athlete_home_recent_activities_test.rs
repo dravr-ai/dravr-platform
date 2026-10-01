@@ -1080,6 +1080,170 @@ async fn a_route_read_stored_for_another_tenant_or_user_never_reaches_the_row() 
     );
 }
 
+// ---------------------------------------------------------------------------
+// A merged workout draws the route of a copy that has one (carnet#674)
+// ---------------------------------------------------------------------------
+
+/// The 2026-09-28 run as jf@dravr.ai's Strava mirror caches it: a manual
+/// entry typed in at 11:45:00 sharp with the run's 12.83 km and no sensor,
+/// and the watch's recording of the same run started at 12:43:54. The manual
+/// entry is the longer, so the session merger keeps it for the numbers.
+fn manual_and_recorded_run(day: DateTime<Utc>) -> [Activity; 2] {
+    let at = |h, m, s| day.date_naive().and_hms_opt(h, m, s).unwrap().and_utc();
+    [
+        ActivityBuilder::new(
+            "bug-de-fougeres",
+            "Bug de Fougères",
+            SportType::Run,
+            at(11, 45, 0),
+            3_900,
+            oauth_providers::SCIOTTE,
+        )
+        .distance_meters(12_830.0)
+        .build(),
+        ActivityBuilder::new(
+            "morning-trail-run",
+            "Morning Trail Run",
+            SportType::Run,
+            at(12, 43, 54),
+            3_480,
+            oauth_providers::SCIOTTE,
+        )
+        .distance_meters(12_910.0)
+        .elevation_gain(214.0)
+        .average_heart_rate(152)
+        .build(),
+    ]
+}
+
+#[tokio::test]
+async fn a_manual_copy_merged_with_a_gps_recording_draws_the_recordings_route() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "merged-route").await;
+    cache(
+        &resources,
+        &athlete,
+        oauth_providers::SCIOTTE,
+        &manual_and_recorded_run(days_ago(2)),
+    )
+    .await;
+
+    let assert_row = |body: &Value| {
+        let rows = body["activities"].as_array().unwrap();
+        assert_eq!(rows.len(), 1, "the two copies are one workout: {body}");
+        let row = &rows[0];
+        assert_eq!(
+            row["id"], "morning-trail-run",
+            "the row reads its route from the GPS recording: {row}"
+        );
+        assert_eq!(row["provider"], "strava");
+        assert_eq!(row["has_gps"], true, "{row}");
+        assert_eq!(row["name"], "Bug de Fougères", "the canonical copy's name");
+        assert_eq!(row["distance_meters"], 12_830.0, "the canonical numbers");
+        assert_eq!(row["duration_seconds"], 3_900);
+        assert_eq!(
+            row["elevation_gain_meters"], 214.0,
+            "what the canonical copy lacked, from the recording"
+        );
+    };
+
+    // Before any route read: the recording carries a heart rate, the manual
+    // entry nothing a device records.
+    assert_row(&recent(&resources, &athlete.token, "").await);
+
+    // The incident: the manual copy's read found no GPS.
+    store_route_read(
+        &resources,
+        RouteKey::of(&athlete, oauth_providers::SCIOTTE, "bug-de-fougeres"),
+        Err(RouteTrackError::NoGps),
+    )
+    .await;
+    assert_row(&recent(&resources, &athlete.token, "").await);
+
+    // The recording's route, once read, is what the row's route endpoint
+    // serves.
+    store_route_read(
+        &resources,
+        RouteKey::of(&athlete, oauth_providers::SCIOTTE, "morning-trail-run"),
+        Ok(drawn_track()),
+    )
+    .await;
+    assert_row(&recent(&resources, &athlete.token, "").await);
+    let (status, route) = get_json(
+        &resources,
+        &athlete.token,
+        "/api/me/activities/strava/morning-trail-run/route",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{route}");
+    assert!(route["reason"].is_null(), "{route}");
+    assert_eq!(
+        route["route"]["coordinates"].as_array().unwrap().len(),
+        drawn_track().coordinates.len(),
+        "{route}"
+    );
+}
+
+#[tokio::test]
+async fn a_merged_workout_keeps_its_canonical_copy_when_no_copy_says_more() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "merged-canonical").await;
+    let [manual, recorded] = manual_and_recorded_run(days_ago(2));
+    // The recording as a list that carries no sensor data caches it.
+    let bare = ActivityBuilder::new(
+        recorded.id(),
+        recorded.name(),
+        SportType::Run,
+        recorded.start_date(),
+        recorded.duration_seconds(),
+        oauth_providers::SCIOTTE,
+    )
+    .distance_meters(12_910.0)
+    .build();
+    cache(
+        &resources,
+        &athlete,
+        oauth_providers::SCIOTTE,
+        &[manual, bare],
+    )
+    .await;
+
+    let body = recent(&resources, &athlete.token, "").await;
+    assert_eq!(
+        gps_by_id(&body),
+        gps(&[("bug-de-fougeres", true)]),
+        "nothing tells the copies apart: the merger's canonical copy: {body}"
+    );
+
+    // Its read found no GPS: the other copy may still hold a track.
+    store_route_read(
+        &resources,
+        RouteKey::of(&athlete, oauth_providers::SCIOTTE, "bug-de-fougeres"),
+        Err(RouteTrackError::NoGps),
+    )
+    .await;
+    let body = recent(&resources, &athlete.token, "").await;
+    assert_eq!(
+        gps_by_id(&body),
+        gps(&[("morning-trail-run", true)]),
+        "a copy whose read found no GPS gives way to one never read: {body}"
+    );
+
+    // Both read, neither drew: the row says so.
+    store_route_read(
+        &resources,
+        RouteKey::of(&athlete, oauth_providers::SCIOTTE, "morning-trail-run"),
+        Err(RouteTrackError::NoGps),
+    )
+    .await;
+    let body = recent(&resources, &athlete.token, "").await;
+    assert_eq!(
+        gps_by_id(&body),
+        gps(&[("bug-de-fougeres", false)]),
+        "no copy recorded GPS: the canonical copy, without GPS: {body}"
+    );
+}
+
 #[tokio::test]
 async fn freshness_follows_the_last_successful_fetch() {
     let resources = common::create_test_server_resources().await.unwrap();
