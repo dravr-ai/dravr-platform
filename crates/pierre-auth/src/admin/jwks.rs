@@ -55,9 +55,20 @@ use serde_json::to_string_pretty;
 use pierre_core::admin::jwt::{JwtSigner, JwtVerifier};
 use pierre_core::constants::service_names::{ADMIN_API, PIERRE_MCP_SERVER};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_database::backends::SecurityRepository;
+use tracing::{error, info};
 
 /// RSA key size in bits for RS256 (2048 bits minimum, 4096 bits recommended)
 const RSA_KEY_SIZE: usize = 4096;
+
+/// Key id of the first keypair a store ever holds.
+///
+/// Fixed rather than time-derived so that instances booting together against
+/// an empty table all insert under the same primary key: the first insert
+/// wins, every other one is a no-op, and every instance then re-reads the one
+/// stored row. A per-second id let racing instances store distinct keys and
+/// each settle on a different active one (carnet#696).
+pub const FIRST_KEYPAIR_KID: &str = "key_first";
 
 /// Number of historical keys to retain for validation
 const MAX_HISTORICAL_KEYS: usize = 3;
@@ -470,6 +481,66 @@ impl JwksManager {
 
         Ok(token_data.claims)
     }
+}
+
+/// Generate a keypair under [`FIRST_KEYPAIR_KID`] and store it
+/// insert-if-absent; a racing instance's row is left untouched.
+async fn store_first_keypair(
+    security: &dyn SecurityRepository,
+    rsa_key_size_bits: usize,
+) -> AppResult<()> {
+    info!("No persisted RSA keys found, generating the first keypair");
+    let mut candidate = JwksManager::new();
+    candidate.generate_rsa_key_pair_with_size(FIRST_KEYPAIR_KID, rsa_key_size_bits)?;
+    let key = candidate.get_active_key()?;
+    security
+        .save_rsa_keypair(
+            FIRST_KEYPAIR_KID,
+            &key.export_private_key_pem()?,
+            &key.export_public_key_pem()?,
+            key.created_at,
+            true,
+            i32::try_from(rsa_key_size_bits).map_err(|e| {
+                AppError::internal(format!("RSA key size exceeds i32 maximum: {e}"))
+            })?,
+        )
+        .await?;
+    info!("Stored RSA keypair {FIRST_KEYPAIR_KID} unless a racing instance already had");
+    Ok(())
+}
+
+/// Load the persisted RSA keypairs, storing the first one when the table is
+/// empty, and build the manager that signs with them.
+///
+/// Only an empty table counts as "no keys": a failed read is returned, so the
+/// caller cannot sign with a key the store does not hold. The first keypair is
+/// stored under [`FIRST_KEYPAIR_KID`] insert-if-absent and the table is read
+/// again, so instances that boot together all load the same single row and
+/// sign with the same key (carnet#696).
+///
+/// # Errors
+/// Returns an error if a database read or write, key generation or key import
+/// fails
+pub async fn load_or_store_first_keypair(
+    security: &dyn SecurityRepository,
+    rsa_key_size_bits: usize,
+) -> AppResult<JwksManager> {
+    let mut keypairs = security.load_rsa_keypairs().await.inspect_err(|e| {
+        error!(error_code = ?e.code, error = %e, "Failed to read the persisted RSA keypairs");
+    })?;
+
+    if keypairs.is_empty() {
+        store_first_keypair(security, rsa_key_size_bits).await?;
+        keypairs = security.load_rsa_keypairs().await?;
+    }
+
+    info!(
+        "Loading {} persisted RSA keypairs from database",
+        keypairs.len()
+    );
+    let mut jwks_manager = JwksManager::new();
+    jwks_manager.load_keys_from_database(keypairs)?;
+    Ok(jwks_manager)
 }
 
 impl Default for JwksManager {

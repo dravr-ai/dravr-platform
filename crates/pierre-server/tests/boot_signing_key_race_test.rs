@@ -12,11 +12,19 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::Utc;
-use pierre_auth::admin::jwks::JwksManager;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+
+use async_trait::async_trait;
+use chrono::{DateTime, Utc};
+use pierre_auth::admin::jwks::{load_or_store_first_keypair, JwksManager};
+use pierre_core::errors::AppResult;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
+use pierre_database::backends::SecurityRepository;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_test_support::db::{create_concurrent_test_db, create_test_db};
+use tokio::sync::Mutex;
+use tokio::time::sleep;
 
 /// Key size for test keypairs; 2048 bits keeps generation fast.
 const TEST_RSA_BITS: usize = 2048;
@@ -184,6 +192,114 @@ async fn concurrent_fresh_boots_sign_with_the_same_keypair() {
                 );
             }
         }
+    }
+}
+
+/// A security store whose first keypair save is preceded by a whole peer
+/// boot against the same store, as when this instance generated its key
+/// first but a racing instance committed first. The pause before the peer
+/// boot puts the two generations in different seconds, the case a
+/// per-second key id could not converge on.
+struct PeerCommitsFirst<'a> {
+    inner: &'a dyn SecurityRepository,
+    peer: Mutex<Option<JwksManager>>,
+    fired: AtomicBool,
+}
+
+#[async_trait]
+impl SecurityRepository for PeerCommitsFirst<'_> {
+    async fn save_rsa_keypair(
+        &self,
+        kid: &str,
+        private_key_pem: &str,
+        public_key_pem: &str,
+        created_at: DateTime<Utc>,
+        is_active: bool,
+        key_size_bits: i32,
+    ) -> AppResult<()> {
+        if !self.fired.swap(true, Ordering::SeqCst) {
+            sleep(Duration::from_millis(1100)).await;
+            let peer = load_or_store_first_keypair(self.inner, TEST_RSA_BITS).await?;
+            *self.peer.lock().await = Some(peer);
+        }
+        self.inner
+            .save_rsa_keypair(
+                kid,
+                private_key_pem,
+                public_key_pem,
+                created_at,
+                is_active,
+                key_size_bits,
+            )
+            .await
+    }
+    async fn load_rsa_keypairs(
+        &self,
+    ) -> AppResult<Vec<(String, String, String, DateTime<Utc>, bool)>> {
+        self.inner.load_rsa_keypairs().await
+    }
+    async fn get_or_create_system_secret(&self, secret_type: &str) -> AppResult<String> {
+        self.inner.get_or_create_system_secret(secret_type).await
+    }
+    async fn get_system_secret(&self, secret_type: &str) -> AppResult<String> {
+        self.inner.get_system_secret(secret_type).await
+    }
+    async fn insert_system_secret_if_absent(
+        &self,
+        secret_type: &str,
+        value: &str,
+    ) -> AppResult<String> {
+        self.inner
+            .insert_system_secret_if_absent(secret_type, value)
+            .await
+    }
+    async fn update_system_secret(&self, secret_type: &str, new_value: &str) -> AppResult<()> {
+        self.inner
+            .update_system_secret(secret_type, new_value)
+            .await
+    }
+    fn encrypt_data_with_aad(&self, data: &str, aad: &str) -> AppResult<String> {
+        self.inner.encrypt_data_with_aad(data, aad)
+    }
+    fn decrypt_data_with_aad(&self, encrypted: &str, aad: &str) -> AppResult<String> {
+        self.inner.decrypt_data_with_aad(encrypted, aad)
+    }
+}
+
+#[tokio::test]
+async fn racing_first_boots_converge_when_the_later_key_commits_first() {
+    let database = create_test_db().await.unwrap();
+    let store = PeerCommitsFirst {
+        inner: database.as_security_repository(),
+        peer: Mutex::new(None),
+        fired: AtomicBool::new(false),
+    };
+
+    let this = load_or_store_first_keypair(&store, TEST_RSA_BITS)
+        .await
+        .unwrap();
+    let peer = store.peer.lock().await.take().expect("the peer booted");
+
+    let stored = database
+        .as_security_repository()
+        .load_rsa_keypairs()
+        .await
+        .unwrap();
+    assert_eq!(
+        stored.len(),
+        1,
+        "racing first boots store exactly one keypair"
+    );
+    assert_eq!(
+        active_identity(&this),
+        active_identity(&peer),
+        "the instance that committed second must sign with the key that committed first"
+    );
+    for jwks in [&this, &peer] {
+        assert!(
+            jwks.get_key(&stored[0].0).is_some(),
+            "every instance verifies with the stored keypair"
+        );
     }
 }
 

@@ -20,10 +20,9 @@ use crate::services::backfill_reentry::ChatReentry;
 use crate::services::photograveur_client::PhotograveurClient;
 use crate::services::turn_lifecycle::InFlightTurns;
 use crate::services::turn_runner::TurnRunner;
-use chrono::Utc;
 #[cfg(feature = "client-messaging")]
 use dravr_canot::commands::CommandDefinition;
-use pierre_auth::admin::jwks::JwksManager;
+use pierre_auth::admin::jwks::{load_or_store_first_keypair, JwksManager};
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase::FirebaseAuth;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
@@ -84,7 +83,7 @@ use pierre_contremaitre::ContremaitreConfig;
 use pierre_core::billing::{dummy::DummyProvider, BillingProvider};
 #[cfg(feature = "health-sync")]
 use pierre_core::constants::oauth_providers;
-use pierre_core::errors::{AppError, AppResult};
+use pierre_core::errors::AppResult;
 #[cfg(feature = "client-messaging")]
 use pierre_core::models::SUPPORTED_LOCALES;
 use pierre_database::backends::factory::Database;
@@ -947,46 +946,6 @@ impl ServerContext {
         ))
     }
 
-    /// Generate a unique key ID based on current timestamp
-    fn generate_key_id() -> String {
-        format!("key_{}", Utc::now().format("%Y%m%d_%H%M%S"))
-    }
-
-    /// Generate an RSA keypair and store it insert-if-absent; a racing
-    /// instance's row under the same key id is left untouched.
-    async fn generate_and_persist_keypair(
-        database: &Database,
-        rsa_key_size_bits: usize,
-    ) -> AppResult<()> {
-        let kid = Self::generate_key_id();
-        let mut candidate = JwksManager::new();
-        candidate.generate_rsa_key_pair_with_size(&kid, rsa_key_size_bits)?;
-
-        let key = candidate
-            .get_active_key()
-            .map_err(|e| AppError::internal(format!("Failed to get active key: {e}")))?;
-
-        let private_pem = key.export_private_key_pem()?;
-        let public_pem = key.export_public_key_pem()?;
-
-        database
-            .as_security_repository()
-            .save_rsa_keypair(
-                &kid,
-                &private_pem,
-                &public_pem,
-                key.created_at,
-                true,
-                i32::try_from(rsa_key_size_bits).map_err(|e| {
-                    AppError::internal(format!("RSA key size exceeds i32 maximum: {e}"))
-                })?,
-            )
-            .await?;
-
-        info!("Generated RSA keypair {kid} and stored it unless one was already present");
-        Ok(())
-    }
-
     /// Initialize admin config service from the active database backend
     ///
     /// Returns None if initialization fails.
@@ -1046,13 +1005,7 @@ impl ServerContext {
     }
 
     /// Load the persisted RSA keypairs, storing the first one when the table
-    /// is empty.
-    ///
-    /// Only an empty table counts as "no keys": a failed read is returned, so
-    /// the caller cannot sign with a key the store does not hold. The first
-    /// keypair is stored insert-if-absent and the table is read again, so
-    /// instances that boot together against an empty table all load the same
-    /// rows and settle on the same active key (carnet#696).
+    /// is empty; see [`load_or_store_first_keypair`] (carnet#696).
     ///
     /// # Errors
     /// Returns an error if a database read or write, or key import, fails
@@ -1060,23 +1013,6 @@ impl ServerContext {
         database: &Database,
         rsa_key_size_bits: usize,
     ) -> AppResult<JwksManager> {
-        let security = database.as_security_repository();
-        let mut keypairs = security.load_rsa_keypairs().await.inspect_err(|e| {
-            error!(error_code = ?e.code, error = %e, "Failed to read the persisted RSA keypairs");
-        })?;
-
-        if keypairs.is_empty() {
-            info!("No persisted RSA keys found, generating the first keypair");
-            Self::generate_and_persist_keypair(database, rsa_key_size_bits).await?;
-            keypairs = security.load_rsa_keypairs().await?;
-        }
-
-        info!(
-            "Loading {} persisted RSA keypairs from database",
-            keypairs.len()
-        );
-        let mut jwks_manager = JwksManager::new();
-        jwks_manager.load_keys_from_database(keypairs)?;
-        Ok(jwks_manager)
+        load_or_store_first_keypair(database.as_security_repository(), rsa_key_size_bits).await
     }
 }
