@@ -62,11 +62,29 @@ jobs:
     if: needs.resolve-images.outputs.gcp_configured == 'true'
 
     steps:
+      # Before auth: checkout cleans the workspace, which would delete the
+      # credentials file auth writes there.
+      - name: Checkout (wait script)
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: scripts/ci
+
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_DEV_DEPLOYER_SA }}
+
+      - name: Wait until no dev Cloud Run service is mid-rollout
+        # carnet#696: dev's services share one small Cloud SQL instance, and
+        # revisions cold-starting together exhaust its connection slots. Every
+        # roll waits until no dev service (the list lives in the script) is
+        # mid-rollout, then waits for its own service to settle. A timeout fails
+        # the job rather than deploying into a rollout.
+        env:
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
+        run: ./scripts/ci/wait-cloud-run-service-ready.sh quiesce --region "${REGION}" --prefix "${PREFIX}" --timeout-seconds 900
 
       - name: Deploy backend API to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v3
@@ -74,6 +92,12 @@ jobs:
           service: ${{ vars.GCP_DEV_SERVICE_NAME }}-api
           region: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
           image: ${{ needs.resolve-images.outputs.registry }}/server:${{ needs.resolve-images.outputs.short_sha }}
+
+      - name: Wait for the API to settle
+        env:
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
+        run: ./scripts/ci/wait-cloud-run-service-ready.sh service --region "${REGION}" --prefix "${PREFIX}" --service api --timeout-seconds 600
 
       - name: Verify backend API deployment
         run: |
@@ -83,18 +107,34 @@ jobs:
   # ---------------------------------------------------------------------------
   # Deploy frontend service to Cloud Run
   # ---------------------------------------------------------------------------
+  # After the API, never beside it (carnet#696): two jobs starting together
+  # would both find dev quiescent and roll at once. It still runs when the API
+  # deploy failed, so an emergency redeploy of the frontend is not held hostage.
   deploy-frontend:
     name: Deploy Frontend
     runs-on: ubuntu-latest
-    needs: resolve-images
-    if: needs.resolve-images.outputs.gcp_configured == 'true'
+    needs: [resolve-images, deploy-api]
+    if: ${{ !cancelled() && needs.resolve-images.outputs.gcp_configured == 'true' }}
 
     steps:
+      # Before auth: checkout cleans the workspace, which would delete the
+      # credentials file auth writes there.
+      - name: Checkout (wait script)
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: scripts/ci
+
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_DEV_DEPLOYER_SA }}
+
+      - name: Wait until no dev Cloud Run service is mid-rollout
+        env:
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
+        run: ./scripts/ci/wait-cloud-run-service-ready.sh quiesce --region "${REGION}" --prefix "${PREFIX}" --timeout-seconds 900
 
       - name: Deploy frontend to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v3
@@ -102,6 +142,12 @@ jobs:
           service: ${{ vars.GCP_DEV_SERVICE_NAME }}-frontend
           region: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
           image: ${{ needs.resolve-images.outputs.registry }}/frontend:${{ needs.resolve-images.outputs.short_sha }}
+
+      - name: Wait for the frontend to settle
+        env:
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
+        run: ./scripts/ci/wait-cloud-run-service-ready.sh service --region "${REGION}" --prefix "${PREFIX}" --service frontend --timeout-seconds 600
 
       - name: Verify frontend deployment
         run: |
@@ -111,11 +157,15 @@ jobs:
   # ---------------------------------------------------------------------------
   # Update seed job images (without executing them)
   # ---------------------------------------------------------------------------
+  # After both rolls, never beside them (carnet#696): the seed jobs open Cloud
+  # SQL connections, and running them while the API cold-starts is the same
+  # slot exhaustion the waits above prevent. Like publish-images.yml's seed-dev,
+  # they run against the image the API now serves, so only once it deployed.
   update-seed-jobs:
     name: Update Seed Job Images
     runs-on: ubuntu-latest
-    needs: resolve-images
-    if: needs.resolve-images.outputs.gcp_configured == 'true'
+    needs: [resolve-images, deploy-api, deploy-frontend]
+    if: ${{ !cancelled() && needs.resolve-images.outputs.gcp_configured == 'true' && needs.deploy-api.result == 'success' }}
 
     steps:
       - name: Authenticate to GCP
@@ -162,7 +212,9 @@ jobs:
     name: Execute Seed Jobs (smoke)
     runs-on: ubuntu-latest
     needs: [resolve-images, update-seed-jobs]
-    if: needs.resolve-images.outputs.gcp_configured == 'true'
+    # Explicit: a defaulted success() goes false when deploy-frontend, an
+    # ancestor through update-seed-jobs, failed or was skipped.
+    if: ${{ !cancelled() && needs.resolve-images.outputs.gcp_configured == 'true' && needs.update-seed-jobs.result == 'success' }}
     timeout-minutes: 45
 
     steps:

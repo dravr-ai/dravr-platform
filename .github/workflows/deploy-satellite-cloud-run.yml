@@ -75,6 +75,13 @@ jobs:
     runs-on: ubuntu-latest
     environment: development
     steps:
+      # Before auth: checkout cleans the workspace, which would delete the
+      # credentials file auth writes there.
+      - name: Checkout (wait script)
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: scripts/ci
+
       - name: Authenticate to GCP (dev deployer)
         id: auth
         uses: google-github-actions/auth@v3
@@ -97,6 +104,19 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v3
         with:
           skip_install: true
+
+      - name: Wait until no dev Cloud Run service is mid-rollout
+        # carnet#696: dev's services share one small Cloud SQL instance, and
+        # revisions cold-starting together exhaust its connection slots. Every
+        # roll waits until no dev service (the list lives in the script) is
+        # mid-rollout, then waits for its own service to settle. A timeout fails
+        # the job rather than deploying into a rollout. It runs before the
+        # capture below so the rollback target is a settled revision, not one a
+        # concurrent rollout is about to replace.
+        env:
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
+        run: ./scripts/ci/wait-cloud-run-service-ready.sh quiesce --region "${REGION}" --prefix "${PREFIX}" --timeout-seconds 900
 
       - name: Capture the digest currently serving
         id: prev
@@ -136,6 +156,13 @@ jobs:
           service: ${{ vars.GCP_DEV_SERVICE_NAME }}-${{ inputs.service }}
           region: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
           image: ${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}/${{ inputs.service }}:latest
+
+      - name: Wait for the service to settle
+        env:
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
+          SERVICE: ${{ inputs.service }}
+        run: ./scripts/ci/wait-cloud-run-service-ready.sh service --region "${REGION}" --prefix "${PREFIX}" --service "${SERVICE}" --timeout-seconds 600
 
       - name: Assert the serving bytes are the bytes we built and scanned
         env:
@@ -223,10 +250,14 @@ jobs:
           echo "healthy: ${URL} advertises $(jq -c '.providers' <<<"${BODY}")"
 
       - name: Roll back to the previously serving digest
-        if: failure()
+        # Only once a rollback target was captured: a failure before that (auth,
+        # or the quiescence wait timing out) deployed nothing to roll back.
+        if: failure() && steps.prev.outputs.image != ''
         env:
           SVC: ${{ vars.GCP_DEV_SERVICE_NAME }}-${{ inputs.service }}
           REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
+          SERVICE: ${{ inputs.service }}
           PREV: ${{ steps.prev.outputs.image }}
         run: |
           set -euo pipefail
@@ -234,8 +265,21 @@ jobs:
           # applied with `update-traffic --to-revisions` stick to the service and make
           # every subsequent deploy land without receiving traffic — the failure mode is
           # a deploy that reports success while nothing it shipped is serving.
+          #
+          # The rollback is a roll too (carnet#696), so it waits for quiescence
+          # first: another workflow may have started rolling during the digest
+          # assertion and probe, or this service may still be mid-rollout after
+          # its own settle wait timed out. If dev never quiesces, rolling back
+          # would be the concurrent cold start this wait exists to prevent, so
+          # it does not roll back and says how to do it by hand.
+          if ! ./scripts/ci/wait-cloud-run-service-ready.sh quiesce --region "${REGION}" --prefix "${PREFIX}" --timeout-seconds 900; then
+            echo "::error::not rolling ${SVC} back: dev Cloud Run never quiesced. Once it has, roll back by hand: gcloud run services update ${SVC} --region ${REGION} --image ${PREV}"
+            exit 1
+          fi
           echo "rolling back ${SVC} to ${PREV}"
           gcloud run services update "${SVC}" --region "${REGION}" --image "${PREV}" --quiet
+          # The job is not done until the rollback settles.
+          ./scripts/ci/wait-cloud-run-service-ready.sh service --region "${REGION}" --prefix "${PREFIX}" --service "${SERVICE}" --timeout-seconds 600
           echo "::warning::rolled back to ${PREV}; main carries the bump, the deployed image does not"
 
   # ---------------------------------------------------------------------------

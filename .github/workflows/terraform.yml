@@ -231,8 +231,25 @@ jobs:
       - name: Terraform Init
         run: terraform init -backend-config="prefix=dravr-dev"
 
+      - name: Wait until no dev Cloud Run service is mid-rollout
+        # carnet#696: an apply can roll any of dev's Cloud Run services, and
+        # revisions cold-starting together exhaust the shared Cloud SQL
+        # instance's connection slots. So it waits, like every deploy, until no
+        # dev service is mid-rollout, and afterwards until every service it may
+        # have rolled has settled. A timeout fails the job.
+        env:
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
+        run: '"${GITHUB_WORKSPACE}/scripts/ci/wait-cloud-run-service-ready.sh" quiesce --region "${REGION}" --prefix "${PREFIX}" --timeout-seconds 900'
+
       - name: Terraform Apply
         run: terraform apply -auto-approve -var-file="terraform.tfvars"
+
+      - name: Wait for every dev Cloud Run service to settle
+        env:
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
+        run: '"${GITHUB_WORKSPACE}/scripts/ci/wait-cloud-run-service-ready.sh" quiesce --region "${REGION}" --prefix "${PREFIX}" --timeout-seconds 900'
 
   # ---------------------------------------------------------------------------
   # Apply prod — MANUAL ONLY when enabled: workflow_dispatch(env=prod, action=apply).

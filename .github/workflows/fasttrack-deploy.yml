@@ -112,6 +112,19 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_DEV_DEPLOYER_SA }}
 
+      - name: Wait until no dev Cloud Run service is mid-rollout (before the server)
+        # carnet#696: dev's services share one small Cloud SQL instance, and
+        # revisions cold-starting together exhaust its connection slots. A
+        # hotfix skips CI, never this: every roll waits until no dev service
+        # (the list lives in the script) is mid-rollout, then waits for its own
+        # service to settle. A timeout fails the job rather than deploying into
+        # a rollout.
+        if: (inputs.component == 'server' || inputs.component == 'both') && steps.server.outcome == 'success'
+        env:
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
+        run: ./scripts/ci/wait-cloud-run-service-ready.sh quiesce --region "${REGION}" --prefix "${PREFIX}" --timeout-seconds 900
+
       - name: Deploy server to Cloud Run (dev)
         if: (inputs.component == 'server' || inputs.component == 'both') && steps.server.outcome == 'success'
         uses: google-github-actions/deploy-cloudrun@v3
@@ -120,6 +133,20 @@ jobs:
           region: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
           image: ${{ steps.tags.outputs.server_tag }}@${{ steps.server.outputs.digest }}
 
+      - name: Wait for the API to settle
+        if: (inputs.component == 'server' || inputs.component == 'both') && steps.server.outcome == 'success'
+        env:
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
+        run: ./scripts/ci/wait-cloud-run-service-ready.sh service --region "${REGION}" --prefix "${PREFIX}" --service api --timeout-seconds 600
+
+      - name: Wait until no dev Cloud Run service is mid-rollout (before the frontend)
+        if: (inputs.component == 'frontend' || inputs.component == 'both') && steps.frontend.outcome == 'success'
+        env:
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
+        run: ./scripts/ci/wait-cloud-run-service-ready.sh quiesce --region "${REGION}" --prefix "${PREFIX}" --timeout-seconds 900
+
       - name: Deploy frontend to Cloud Run (dev)
         if: (inputs.component == 'frontend' || inputs.component == 'both') && steps.frontend.outcome == 'success'
         uses: google-github-actions/deploy-cloudrun@v3
@@ -127,3 +154,10 @@ jobs:
           service: ${{ vars.GCP_DEV_SERVICE_NAME }}-frontend
           region: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
           image: ${{ steps.tags.outputs.frontend_tag }}@${{ steps.frontend.outputs.digest }}
+
+      - name: Wait for the frontend to settle
+        if: (inputs.component == 'frontend' || inputs.component == 'both') && steps.frontend.outcome == 'success'
+        env:
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
+        run: ./scripts/ci/wait-cloud-run-service-ready.sh service --region "${REGION}" --prefix "${PREFIX}" --service frontend --timeout-seconds 600

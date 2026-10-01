@@ -646,11 +646,30 @@ jobs:
     environment: development
 
     steps:
+      # Before auth: checkout cleans the workspace, which would delete the
+      # credentials file auth writes there.
+      - name: Checkout (wait script)
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: scripts/ci
+
       - name: Authenticate to GCP (dev deployer)
         uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_DEV_DEPLOYER_SA }}
+
+      - name: Wait until no dev Cloud Run service is mid-rollout (before the API)
+        # carnet#696: dev's services share one small Cloud SQL instance, and
+        # revisions cold-starting together exhaust its connection slots. The
+        # concurrency group above serialises this workflow only, so every roll
+        # waits here until no dev service (the list lives in the script) is
+        # mid-rollout, then waits for its own service to settle. A timeout fails
+        # the job rather than deploying into a rollout.
+        env:
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
+        run: ./scripts/ci/wait-cloud-run-service-ready.sh quiesce --region "${REGION}" --prefix "${PREFIX}" --timeout-seconds 900
 
       # The revision's `commit-sha` label is what resolve-sha reads back as the
       # commit dev is serving on the next workflow_run deploy. Left to the
@@ -670,6 +689,18 @@ jobs:
             managed-by=github-actions
             commit-sha=${{ needs.resolve-sha.outputs.sha }}
 
+      - name: Wait for the API to settle
+        env:
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
+        run: ./scripts/ci/wait-cloud-run-service-ready.sh service --region "${REGION}" --prefix "${PREFIX}" --service api --timeout-seconds 600
+
+      - name: Wait until no dev Cloud Run service is mid-rollout (before the frontend)
+        env:
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
+        run: ./scripts/ci/wait-cloud-run-service-ready.sh quiesce --region "${REGION}" --prefix "${PREFIX}" --timeout-seconds 900
+
       - name: Deploy frontend to Cloud Run (dev)
         uses: google-github-actions/deploy-cloudrun@v3
         with:
@@ -680,6 +711,12 @@ jobs:
           labels: |-
             managed-by=github-actions
             commit-sha=${{ needs.resolve-sha.outputs.sha }}
+
+      - name: Wait for the frontend to settle
+        env:
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
+        run: ./scripts/ci/wait-cloud-run-service-ready.sh service --region "${REGION}" --prefix "${PREFIX}" --service frontend --timeout-seconds 600
 
   # ---------------------------------------------------------------------------
   # Mark the digests dev is serving so registry retention keeps them

@@ -38,6 +38,12 @@ on:
       # bump lane that calls it against its declared inputs.
       - '.github/workflows/deploy-satellite-cloud-run.yml'
       - '.github/workflows/bump-*.yml'
+      # wait-cloud-run-service-ready.test.sh checks every job that rolls a dev
+      # Cloud Run revision waits for quiescence first (carnet#696).
+      - '.github/workflows/publish-images.yml'
+      - '.github/workflows/deploy-gcp.yml'
+      - '.github/workflows/fasttrack-deploy.yml'
+      - '.github/workflows/terraform.yml'
       # monitor-scheduled-lanes.test.sh runs the monitor's own python and script.
       - '.github/workflows/monitor-scheduled-lanes.yml'
       # standing-issue.test.sh checks every monitor that files a standing issue
@@ -80,6 +86,12 @@ on:
       # bump lane that calls it against its declared inputs.
       - '.github/workflows/deploy-satellite-cloud-run.yml'
       - '.github/workflows/bump-*.yml'
+      # wait-cloud-run-service-ready.test.sh checks every job that rolls a dev
+      # Cloud Run revision waits for quiescence first (carnet#696).
+      - '.github/workflows/publish-images.yml'
+      - '.github/workflows/deploy-gcp.yml'
+      - '.github/workflows/fasttrack-deploy.yml'
+      - '.github/workflows/terraform.yml'
       # monitor-scheduled-lanes.test.sh runs the monitor's own python and script.
       - '.github/workflows/monitor-scheduled-lanes.yml'
       # standing-issue.test.sh checks every monitor that files a standing issue
@@ -275,7 +287,7 @@ jobs:
       # Compile-free like the rest of this job. The dev-process and tunnel
       # suites spawn real processes and wait on them, so the block runs in tens
       # of seconds rather than the couple the source-reading gates take alone.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, workflow test targets, generated stylesheets, email log redaction, shared test-module filter)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, workflow test targets, generated stylesheets, email log redaction, shared test-module filter)
         run: |
           ./scripts/ci/check-file-sizes.test.sh
           ./scripts/ci/check-advisory-reviews.test.sh
@@ -296,6 +308,7 @@ jobs:
           ./scripts/ci/satellite-pin.test.sh
           ./scripts/ci/satellite-bump-gate.test.sh
           ./scripts/ci/deploy-satellite-cloud-run.test.sh
+          ./scripts/ci/wait-cloud-run-service-ready.test.sh
           ./scripts/ci/mobile-e2e-batch.test.sh
           ./scripts/ci/monitor-scheduled-lanes.test.sh
           ./scripts/ci/standing-issue.test.sh
@@ -328,7 +341,7 @@ jobs:
       # shellcheck ships on the ubuntu runner image, so this stays a local read
       # with no network step on the fastest gating job.
       - name: Shell lint (dev stack scripts)
-        run: shellcheck -S warning bin/*.sh scripts/ci/*.test.sh scripts/ci/mobile-e2e-batch.sh scripts/setup/setup-claude-code-mcp.sh scripts/setup/check-gh-cli.sh scripts/sciotte-local.sh
+        run: shellcheck -S warning bin/*.sh scripts/ci/*.test.sh scripts/ci/mobile-e2e-batch.sh scripts/ci/wait-cloud-run-service-ready.sh scripts/setup/setup-claude-code-mcp.sh scripts/setup/check-gh-cli.sh scripts/sciotte-local.sh
 
   preflight-clippy:
     name: Preflight Clippy (per-crate, fast feedback)
