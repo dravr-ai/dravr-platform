@@ -328,7 +328,7 @@ module "backend" {
       # carnet#688), then Gemini; Cohere is out.
       #
       # Primary = GitHub's Rust Copilot runtime over stdio, on the jfarcand
-      # Copilot account, serving claude-opus-5.5. Its monthly credits reset
+      # Copilot account, serving claude-sonnet-5.5. Its monthly credits reset
       # on the 1st and have no overage: on 2026-09-21 every turn answered
       # quota_exceeded and the athlete saw "temporairement indisponible"
       # (carnet#478). Since embacle 0.28.1 a tier's RateLimit falls through
@@ -347,7 +347,7 @@ module "backend" {
       # answered "nothing deliverable" on the day it was needed and JF's
       # verdict is that it never worked.
       PIERRE_LLM_PROVIDER = "copilot_sdk"
-      # Coaching model on the primary: claude-opus-5.5 (JF, 2026-10-01).
+      # Coaching model on the primary: claude-sonnet-5.5 (JF, 2026-10-01).
       # PIERRE_LLM_MODEL is the model of every tier built without its own
       # override, which here is the primary alone: each later tier takes its
       # *_PROVIDER_MODEL. A whole turn is capped by
@@ -360,7 +360,7 @@ module "backend" {
       # reads it is the Gemini provider built with no model of its own — a
       # Gemini primary, or a BYO-Gemini tenant that stored no model
       # (crates/pierre-llm/src/http_env.rs).
-      PIERRE_LLM_MODEL                   = "claude-opus-5.5"
+      PIERRE_LLM_MODEL                   = "claude-sonnet-5.5"
       PIERRE_LLM_DEFAULT_MODEL           = "gemini-flash-lite-latest"
       PIERRE_LLM_FALLBACK_MODEL          = "claude-sonnet-5"
       PIERRE_LLM_RUNTIME_FALLBACK        = "true"
