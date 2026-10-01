@@ -24,6 +24,7 @@ mod sync_failure_notice_tests {
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::time::sleep;
+    use tokio_util::task::TaskTracker;
     use uuid::Uuid;
 
     /// How long the fire-and-forget dispatch task is given to persist its row.
@@ -32,11 +33,11 @@ mod sync_failure_notice_tests {
     fn notification_service(resources: &ServerContext) -> Arc<NotificationService> {
         let service = match resources.agent.database.backend() {
             DatabaseBackend::SQLite(sqlite) => {
-                NotificationService::from_sqlite(sqlite.pool().clone())
+                NotificationService::from_sqlite(sqlite.pool().clone(), TaskTracker::new())
             }
             #[cfg(feature = "postgresql")]
             DatabaseBackend::PostgreSQL(pg) => {
-                NotificationService::from_postgres(pg.pool().clone())
+                NotificationService::from_postgres(pg.pool().clone(), TaskTracker::new())
             }
         };
         Arc::new(service)

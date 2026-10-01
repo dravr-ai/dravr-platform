@@ -117,12 +117,22 @@ async fn a_worker_with_no_record_waits_one_period_before_its_first_tick() {
     handle.abort();
 }
 
+/// The resume probe's period, long enough that its remainder and a whole
+/// period after boot are told apart with room for a slow runner.
+const RESUME_PERIOD: Duration = Duration::from_secs(4);
+
+/// The first tick lands inside this when the remainder is honoured; a whole
+/// period after boot (4s) lands past it.
+const RESUME_BOUND: Duration = Duration::from_secs(3);
+
 #[tokio::test]
 async fn a_worker_resumes_the_remainder_of_its_period_from_the_ledger() {
     let ledger = ledger().await;
-    // The last tick finished 800ms ago on some other instance; with a 1s
-    // period this one is due in ~200ms, not a full second after boot.
-    let seeded = Utc::now().timestamp_millis() - 800;
+    // The last tick finished 3s ago on some other instance; with a 4s period
+    // this one is due in ~1s, not a full period after boot. The second of
+    // slack absorbs a loaded runner's setup before the worker's first read:
+    // past it the worker reads itself overdue and waits a whole period.
+    let seeded = Utc::now().timestamp_millis() - 3_000;
     ledger
         .finish_worker_run("resume probe", seeded)
         .await
@@ -132,18 +142,18 @@ async fn a_worker_resumes_the_remainder_of_its_period_from_the_ledger() {
     let started = Instant::now();
     let handle = spawn_periodic(
         "resume probe",
-        Duration::from_secs(1),
+        RESUME_PERIOD,
         Arc::clone(&ledger),
         counting_tick(&ticks),
     );
 
-    let seen = wait_for(&ticks, 1, Duration::from_millis(700)).await;
+    let seen = wait_for(&ticks, 1, RESUME_BOUND).await;
     assert_eq!(
         seen, 1,
         "the first tick lands when the recorded period elapses, not one period after boot"
     );
     assert!(
-        started.elapsed() < Duration::from_millis(700),
+        started.elapsed() < RESUME_BOUND,
         "ticked {:?} in — the ledger's remainder was honoured",
         started.elapsed()
     );
@@ -198,38 +208,57 @@ async fn two_instances_sharing_a_worker_run_each_due_tick_once() {
     );
 }
 
+/// The failing probe's period, and the unit every wait in its test is
+/// measured in.
+///
+/// The worker's first wait is at most one period whichever branch it takes:
+/// the seeded due time still ahead (the remainder), or already overrun by a
+/// slow setup — a loaded runner spends seconds in `create_test_db` — in which
+/// case the overdue branch waits `min(period, FIRST_TICK_CAP)`, the period.
+/// A 10s period with a 2s budget failed exactly that way in CI. The period
+/// also stays far below the 15-minute claim lease, so the failure's
+/// one-period hold is still told apart from the claim's.
+const FAILING_PERIOD: Duration = Duration::from_secs(2);
+
 #[tokio::test]
 async fn a_failed_tick_leaves_the_ledger_unstamped_for_the_next_instance() {
     let ledger = ledger().await;
     let ticks = Arc::new(AtomicUsize::new(0));
-    // Due in ~100ms on a 10s period, so the failure's hold (one period) is
-    // still visible when the ledger is read back.
-    let last_run = Utc::now().timestamp_millis() - 9_900;
+    let period_ms = i64::try_from(FAILING_PERIOD.as_millis()).unwrap();
+    // Due ~100ms from now; whichever branch the worker's first wait takes, it
+    // ticks within one period (see `FAILING_PERIOD`).
+    let last_run = Utc::now().timestamp_millis() - period_ms + 100;
     ledger
         .finish_worker_run("failing probe", last_run)
         .await
         .unwrap();
 
     let counter = Arc::clone(&ticks);
-    let period = Duration::from_secs(10);
-    let handle = spawn_periodic("failing probe", period, Arc::clone(&ledger), move || {
-        let counter = Arc::clone(&counter);
-        async move {
-            counter.fetch_add(1, Ordering::SeqCst);
-            Err(AppError::internal("this pass always fails"))
-        }
-    });
+    let handle = spawn_periodic(
+        "failing probe",
+        FAILING_PERIOD,
+        Arc::clone(&ledger),
+        move || {
+            let counter = Arc::clone(&counter);
+            async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Err(AppError::internal("this pass always fails"))
+            }
+        },
+    );
 
-    let seen = wait_for(&ticks, 1, Duration::from_secs(2)).await;
+    // One period for the first wait, one more for a starved scheduler.
+    let seen = wait_for(&ticks, 1, FAILING_PERIOD * 2).await;
     assert!(seen >= 1, "the failing tick ran");
 
     // The hold is written after the tick fails; wait for it rather than abort
     // across it, and leave the worker asleep — see `wait_for_ledger`. The
     // claim before the tick already holds the row for the 15-minute lease,
-    // so the defer is recognised by its shorter, one-period hold.
-    let run = wait_for_ledger(&ledger, "failing probe", Duration::from_secs(2), |row| {
+    // so the defer is recognised by its shorter, one-period hold. A read that
+    // misses one hold sees the next: every retry fails and defers again.
+    let run = wait_for_ledger(&ledger, "failing probe", FAILING_PERIOD * 2, |row| {
         let remaining = row.leased_until_ms - Utc::now().timestamp_millis();
-        remaining > 0 && remaining <= 10_000
+        remaining > 0 && remaining <= period_ms
     })
     .await
     .unwrap();
@@ -238,10 +267,18 @@ async fn a_failed_tick_leaves_the_ledger_unstamped_for_the_next_instance() {
         run.last_run_at_ms, last_run,
         "a failed tick must not count as a run — the stamp stays where the last success left it"
     );
+    // The tick ran no earlier than its due time (last_run + one period) and
+    // the defer holds one period past it; the claim's lease would be 15
+    // minutes out. Both bounds hold however late the runner got to each step.
+    assert!(
+        run.leased_until_ms >= last_run + 2 * period_ms,
+        "the hold starts after the failed tick, which ran no earlier than it was due ({} ms past the seed)",
+        run.leased_until_ms - last_run
+    );
     let now = Utc::now().timestamp_millis();
     assert!(
-        run.leased_until_ms > now && run.leased_until_ms <= now + 10_000,
-        "the failure holds the worker for one period ({} ms from now), so the retry is next interval on whichever instance is alive",
+        run.leased_until_ms <= now + period_ms,
+        "the failure holds the worker for one period ({} ms from now), not the claim's lease, so the retry is next interval on whichever instance is alive",
         run.leased_until_ms - now
     );
 }

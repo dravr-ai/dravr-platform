@@ -30,8 +30,9 @@ use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::analytics_sink::{PierreAnalyticsProvider, PierreNotifyEnricher};
 use pierre_mcp_server::cache::cache_from_env;
-#[cfg(unix)]
-use pierre_mcp_server::services::turn_lifecycle::spawn_sigterm_drain;
+use pierre_mcp_server::services::turn_lifecycle::{
+    run_to_exit, serve_until_drained, shutdown_signal,
+};
 use pierre_mcp_server::startup_banner::display_available_endpoints;
 use pierre_mcp_server::{
     constants::init_server_config,
@@ -89,8 +90,9 @@ fn main() -> Result<()> {
     let runtime_config = TokioRuntimeConfig::from_env();
     let runtime = build_tokio_runtime(&runtime_config)?;
 
-    // Run the async server on our configured runtime
-    runtime.block_on(async {
+    // Run the async server on our configured runtime, then shut the runtime
+    // down without waiting on the background work it still holds.
+    run_to_exit(runtime, async {
         let config = setup_configuration(&args)?;
         let result = bootstrap_server(config, args.stdio).await;
         // Flush buffered OTLP spans/metrics before exit. No-op unless the
@@ -849,9 +851,6 @@ async fn create_server(
 
     server_lifecycle::notify_started();
 
-    #[cfg(unix)]
-    spawn_sigterm_drain(Arc::clone(&resources.common.turns));
-
     // Initialize product analytics (PostHog or noop)
     pierre_mcp_server::init_analytics();
 
@@ -1089,11 +1088,16 @@ async fn run_server(
     config: &ServerConfig,
     stdio_only: bool,
 ) -> Result<()> {
-    if stdio_only {
-        run_stdio_only_mode(server).await
-    } else {
-        run_http_mode(server, config).await
-    }
+    // The turns tracker outlives `server`, which each mode consumes.
+    let turns = Arc::clone(&server.resources().common.turns);
+    let serve = async move {
+        if stdio_only {
+            run_stdio_only_mode(server).await
+        } else {
+            run_http_mode(server, config).await
+        }
+    };
+    serve_until_drained(serve, shutdown_signal(), &turns).await
 }
 
 /// Run server in stdio-only mode (no HTTP/SSE transports)

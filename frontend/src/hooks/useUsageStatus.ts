@@ -7,8 +7,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { LimitCheckResult, ReplyNotice, UsageStatusResponse } from '@pierre/shared-types';
-import { formatCount, formatResetTime, quotaNoticeBanner } from '@pierre/chat-utils';
-import type { TranslatableText } from '@pierre/chat-utils';
+import { formatCount, formatResetTime, quotaNoticeBanner, USAGE_SENTENCE_KEYS } from '@pierre/chat-utils';
+import type { TranslatableText, UsageCounter } from '@pierre/chat-utils';
 import { usageApi } from '../services/api';
 import { useTranslation } from '@pierre/i18n';
 import { QUERY_KEYS } from '../constants/queryKeys';
@@ -64,25 +64,24 @@ export function computeWarningState(
     return { level: 'none', sendDisabled: false, text: null, resetsAt: '', triggerCounter: null };
   }
 
-  // Check all daily counters (most relevant for chat usage). The label is a
-  // catalogue key; the banner translates it and passes it back into the
-  // sentence, so both halves speak one language.
-  const counters: Array<{ counter: LimitCheckResult; label: string }> = [
-    { counter: data.daily.messages, label: 'usage.dailyMessages' },
-    { counter: data.daily.tokens, label: 'usage.dailyTokens' },
-    { counter: data.weekly.messages, label: 'usage.weeklyMessages' },
+  // Check all daily counters (most relevant for chat usage). Each counter has
+  // its own whole sentence per level, so no locale inflects a slotted name.
+  const counters: Array<{ counter: LimitCheckResult; name: UsageCounter }> = [
+    { counter: data.daily.messages, name: 'dailyMessages' },
+    { counter: data.daily.tokens, name: 'dailyTokens' },
+    { counter: data.weekly.messages, name: 'weeklyMessages' },
   ];
 
   let worstLevel: WarningLevel = 'none';
   let worstCounter: LimitCheckResult | null = null;
-  let worstLabel = '';
+  let worstName: UsageCounter = 'dailyMessages';
 
-  for (const { counter, label } of counters) {
+  for (const { counter, name } of counters) {
     const level = getCounterLevel(counter);
     if (LEVEL_PRIORITY[level] > LEVEL_PRIORITY[worstLevel]) {
       worstLevel = level;
       worstCounter = counter;
-      worstLabel = label;
+      worstName = name;
     }
   }
 
@@ -97,7 +96,6 @@ export function computeWarningState(
   // Grouped in the athlete's notation: the raw `456792/500000` read as one
   // unbroken string of digits under any chrome.
   const params = {
-    label: worstLabel,
     current: formatCount(worstCounter.current, language),
     limit: formatCount(worstCounter.limit, language),
     time,
@@ -106,13 +104,13 @@ export function computeWarningState(
   let text: TranslatableText | null;
   switch (worstLevel) {
     case 'blocked':
-      text = { key: 'usage.blockedLimitReached', params };
+      text = { key: USAGE_SENTENCE_KEYS.reached[worstName], params };
       break;
     case 'burst':
-      text = { key: 'usage.burstZone', params };
+      text = { key: USAGE_SENTENCE_KEYS.burst[worstName], params };
       break;
     case 'warning':
-      text = { key: 'usage.percentUsed', params: { ...params, percent } };
+      text = { key: USAGE_SENTENCE_KEYS.used[worstName], params: { ...params, percent } };
       break;
     default:
       text = null;

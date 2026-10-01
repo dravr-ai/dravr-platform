@@ -88,29 +88,11 @@ impl<'a> UsageCounterService<'a> {
         Ok(record.value)
     }
 
-    /// Check whether a counter is within its configured limits
-    ///
-    /// Defaults to `UserTier::Starter` for the tier-based fallback —
-    /// least-permissive choice when the caller doesn't have the tier
-    /// resolved. Use [`Self::check_limit_for_tier`] to pass the
-    /// caller's actual tier through.
-    ///
-    /// # Errors
-    /// Returns an error if repository operations fail.
-    pub async fn check_limit(
-        &self,
-        tenant_id: &str,
-        user_id: &str,
-        counter_type: &str,
-    ) -> AppResult<LimitCheckResult> {
-        self.check_limit_for_tier(tenant_id, user_id, counter_type, &UserTier::Starter)
-            .await
-    }
-
-    /// Tier-aware limit check. Phase 3 chat write paths that have
-    /// already resolved the user's [`UserTier`] should always go
-    /// through this variant so [`TierQuotaConfig`] caps apply before
-    /// any global admin-config fallback.
+    /// Check whether a counter is within the limits of the user's
+    /// [`UserTier`]: an admin-config override when one is set for the
+    /// user, tenant or environment, else the tier's [`TierQuotaConfig`]
+    /// cap. The tier is the caller's to resolve: a guessed one reports
+    /// another plan's caps.
     ///
     /// # Errors
     /// Returns an error if repository operations fail.

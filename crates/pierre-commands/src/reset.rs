@@ -64,8 +64,17 @@ impl CommandHandler for ResetHandler {
         // Carrying the old title forward left the list with rows an athlete
         // could not tell apart.
         let in_app = matches!(ctx.channel_type.as_str(), "web" | "mobile");
+        let timezone = repos
+            .users
+            .get_global(ctx.user_id)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|user| user.timezone);
         let title_fallback = dated_title(
             &reg.render(KEY_NEW_CONVERSATION_TITLE_PREFIX, locale, &[]),
+            locale,
+            timezone.as_deref(),
             Utc::now(),
         );
 

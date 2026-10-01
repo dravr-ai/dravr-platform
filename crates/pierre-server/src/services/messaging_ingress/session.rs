@@ -27,7 +27,7 @@ use pierre_services::conversation_forge::{
     agent_title, dated_title, forge_conversation, selected_agent_id, selected_or_system_agent_for,
     ForgeAgent, ForgeParams, SlotQuota,
 };
-use pierre_services::locale::resolve_user_locale;
+use pierre_services::locale::user_locale;
 use pierre_services::messaging_broadcast::proactive_text;
 use pierre_services::messaging_group_bind::{
     refresh_channel_group_title, resolve_or_create_channel_group, ChannelChatBinding,
@@ -150,18 +150,32 @@ pub(super) async fn forge_fresh_session_conversation(
 }
 
 /// The dated stamp a forged thread falls back to when it has neither a room
-/// nor an agent to be named after, in the athlete's stored language.
+/// nor an agent to be named after, in the athlete's stored language and
+/// timezone.
 async fn fresh_title_fallback(resources: &ServerContext, user_id: &str) -> String {
-    let locale = match Uuid::parse_str(user_id) {
-        Ok(user) => resolve_user_locale(resources.common.repos.users.as_ref(), user).await,
-        Err(_) => DEFAULT_LOCALE.to_owned(),
+    let user = match Uuid::parse_str(user_id) {
+        Ok(id) => resources
+            .common
+            .repos
+            .users
+            .get_global(id)
+            .await
+            .ok()
+            .flatten(),
+        Err(_) => None,
     };
+    let locale = user_locale(user.as_ref());
     let prefix = resources.mcp.messaging_strings_registry.render(
         KEY_NEW_CONVERSATION_TITLE_PREFIX,
         &locale,
         &[],
     );
-    dated_title(&prefix, Utc::now())
+    dated_title(
+        &prefix,
+        &locale,
+        user.as_ref().and_then(|u| u.timezone.as_deref()),
+        Utc::now(),
+    )
 }
 
 /// Whether the sender of an unaddressed room message is mid guided walk on

@@ -63,7 +63,9 @@ use pierre_core::models::{
     Activity, ActivityBuilder, ConnectionStatus, ConnectionType, SportType, TenantId,
 };
 use pierre_database::backends::factory::DatabaseBackend;
-use pierre_database::repositories::StoredRouteTrack;
+use pierre_database::repositories::{
+    ActivityFetchFailure, ActivityFetchFailureRecord, StoredRouteTrack,
+};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_mcp_server::services::activity_route::{
@@ -1410,6 +1412,64 @@ async fn the_failure_names_its_provider_and_that_providers_last_good_sync() {
     assert!(
         same_instant(instant(&body["sync_failure"]["last_synced_at"]), last_good),
         "Strava's rows are as old as Strava's last good sync: {body}"
+    );
+}
+
+/// A failed TrainingPeaks refresh is named by the brand the athlete reads,
+/// never by its slug: the only descriptor naming it is its mirror backend's,
+/// and the slug `trainingpeaks` reached the page as "trainingpeaks · …".
+#[tokio::test]
+#[serial]
+async fn a_failed_trainingpeaks_refresh_is_named_by_its_brand() {
+    let (url, _scraper) = spawn_scraper(ListScript::Rows(two_rides())).await;
+    let _env = TestEnv::point_at(url);
+    let resources = common::create_test_server_resources().await.unwrap();
+    let email = format!("sync-tp-{}@example.com", Uuid::new_v4());
+    let (user_id, user, tenant) =
+        common::create_test_user_with_plan(&resources.agent.database, &email, "starter")
+            .await
+            .unwrap();
+    let athlete = Athlete {
+        user_id,
+        tenant,
+        token: common::generate_test_token(&resources, &user).await,
+    };
+    let repos = &resources.common.repos;
+    repos
+        .provider_connections
+        .register_connection(
+            user_id,
+            tenant,
+            "sciotte_trainingpeaks",
+            &ConnectionType::Manual,
+            None,
+        )
+        .await
+        .unwrap();
+    let failed = Utc::now() - Duration::minutes(5);
+    repos
+        .activity_cache
+        .record_activity_fetch_failure(
+            user_id,
+            &tenant,
+            "sciotte_trainingpeaks",
+            &ActivityFetchFailureRecord {
+                failed_at: failed,
+                failure: ActivityFetchFailure::FetchError,
+                consecutive: 1,
+                streak: 1,
+                streak_started_at: failed,
+            },
+        )
+        .await
+        .unwrap();
+
+    let body = home(&resources, &athlete).await;
+    await_background(&resources).await;
+    assert_eq!(body["sync_failure"]["provider"], "trainingpeaks", "{body}");
+    assert_eq!(
+        body["sync_failure"]["provider_name"], "TrainingPeaks",
+        "{body}"
     );
 }
 

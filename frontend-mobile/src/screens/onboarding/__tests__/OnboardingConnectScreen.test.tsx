@@ -148,6 +148,34 @@ describe('OnboardingConnectScreen — Strava OAuth failure fallback', () => {
     }
   });
 
+  it('says in French which brand it awaits while the auth sheet is open', async () => {
+    // The sheet stays open until the test closes it: meanwhile the screen
+    // shows its awaiting overlay.
+    let closeSheet: (result: { type: 'cancel' }) => void = () => {};
+    openAuthSessionAsync.mockReturnValue(
+      new Promise((resolve) => {
+        closeSheet = resolve;
+      }),
+    );
+    await i18n.changeLanguage('fr');
+    try {
+      renderScreen();
+      fireEvent.press(await screen.findByLabelText('Connecter Strava'));
+
+      expect(await screen.findByText('En attente de l’autorisation de Strava…')).toBeTruthy();
+      expect(
+        screen.getByText(
+          "Termine l'autorisation dans le navigateur. Nous t'enverrons automatiquement vers ton tableau de bord dès que Strava aura confirmé.",
+        ),
+      ).toBeTruthy();
+    } finally {
+      await act(async () => {
+        closeSheet({ type: 'cancel' });
+      });
+      await i18n.changeLanguage('en');
+    }
+  });
+
   it('falls back to the Sciotte modal when the Strava OAuth flow cannot start', async () => {
     initMobileOAuth.mockRejectedValue(new Error('network down'));
 

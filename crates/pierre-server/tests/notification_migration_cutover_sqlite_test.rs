@@ -12,6 +12,7 @@ mod cutover_tests {
     use pierre_notifications::{NotificationService, TenantId};
     use sqlx::sqlite::SqlitePoolOptions;
     use sqlx::Row;
+    use tokio_util::task::TaskTracker;
     use uuid::Uuid;
 
     /// The exact migration SQL, so the tests exercise the shipped statements
@@ -113,7 +114,7 @@ mod cutover_tests {
                 .unwrap();
         }
 
-        let service = NotificationService::from_sqlite(pool.clone());
+        let service = NotificationService::from_sqlite(pool.clone(), TaskTracker::new());
         let prefs = service
             .get_notification_preferences(user_id, TenantId(tenant_id))
             .await
@@ -181,7 +182,7 @@ mod cutover_tests {
             1
         );
         // And the service reads them back without tripping over a retired string.
-        let service = NotificationService::from_sqlite(pool);
+        let service = NotificationService::from_sqlite(pool, TaskTracker::new());
         let prefs = service
             .get_notification_preferences(user_id, TenantId(tenant_id))
             .await

@@ -29,14 +29,19 @@ vi.mock('../SciotteLoginModal', () => ({
     isOpen,
     target,
     consentRequired,
+    onOAuthLaunched,
   }: {
     isOpen: boolean;
     target: string;
     consentRequired?: boolean;
+    onOAuthLaunched?: (target: string) => void;
   }) =>
     isOpen ? (
       <div data-testid="sciotte-modal" data-consent={String(Boolean(consentRequired))}>
         {target}
+        <button type="button" onClick={() => onOAuthLaunched?.(target)}>
+          oauth-launched
+        </button>
       </div>
     ) : null,
 }));
@@ -59,12 +64,12 @@ function stravaCard(recommended_backend: 'oauth' | 'mirror') {
   };
 }
 
-function renderCards() {
+function renderCards(props: { onOAuthLaunched?: (providerName: string) => void } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <ProviderConnectionCards />
+        <ProviderConnectionCards {...props} />
       </ThemeProvider>
     </QueryClientProvider>,
   );
@@ -222,6 +227,19 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
 
     expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('strava');
     expect(window.open).not.toHaveBeenCalled();
+  });
+
+  it('reports a launched OAuth window by the brand, never the target id', async () => {
+    // The awaiting overlay printed the id it was handed, capitalised in code.
+    getProvidersStatus.mockResolvedValue({ providers: [stravaCard('mirror')] });
+    const onOAuthLaunched = vi.fn();
+    const user = userEvent.setup();
+    renderCards({ onOAuthLaunched });
+
+    await user.click(await screen.findByLabelText('Connect to Strava'));
+    await user.click(await screen.findByText('oauth-launched'));
+
+    expect(onOAuthLaunched).toHaveBeenCalledWith('Strava');
   });
 
   it('falls back to the Sciotte modal when a Strava OAuth attempt fails', async () => {

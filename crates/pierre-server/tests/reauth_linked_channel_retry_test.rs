@@ -17,9 +17,6 @@
 
 mod common;
 
-// The fixtures re-export the bare-database helpers this suite does not use:
-// it runs on a full server context.
-#[allow(unused_imports)]
 #[path = "helpers/messaging_fixtures.rs"]
 mod messaging_fixtures;
 
@@ -52,6 +49,7 @@ use pierre_services::messaging_outbound::{process_pending_batch, OutboundRetryCo
 use pierre_tool_runtime::protocol::reauth_notice::{notify_needs_reauth, ReauthNotice};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
+use tokio_util::task::TaskTracker;
 use uuid::Uuid;
 
 use crate::common::{create_test_server_resources, create_test_user};
@@ -251,9 +249,13 @@ async fn fixture(first_send: ScriptedChannels, worker: ScriptedChannels) -> Fixt
         Arc::new(first_send) as Arc<dyn AdapterResolver>,
     )));
     let service = Arc::new(match context.agent.database.backend() {
-        DatabaseBackend::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
+        DatabaseBackend::SQLite(sqlite) => {
+            NotificationService::from_sqlite(sqlite.pool().clone(), TaskTracker::new())
+        }
         #[cfg(feature = "postgresql")]
-        DatabaseBackend::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
+        DatabaseBackend::PostgreSQL(pg) => {
+            NotificationService::from_postgres(pg.pool().clone(), TaskTracker::new())
+        }
     });
     context.common.notification_service = Some(Arc::clone(&service));
     for channel in worker.0.keys() {

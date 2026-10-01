@@ -39,7 +39,7 @@ describe('quotaNoticeBanner', () => {
     }, 'midnight UTC', 'en');
 
     expect(banner.level).toBe('burst');
-    expect(banner.text.key).toBe('usage.burstZone');
+    expect(banner.text.key).toBe('usage.burst.messageQuota');
     expect(banner.text.params).toMatchObject({ current: '56', limit: '50' });
   });
 

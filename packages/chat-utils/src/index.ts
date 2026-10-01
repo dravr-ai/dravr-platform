@@ -6,8 +6,8 @@ export { trustedActionUrl } from './action-url';
 
 // A turn's `notice` block -> the usage banner both clients show, and the reset
 // instant and compacted counter every usage surface prints
-export { formatCompactNumber, formatResetTime, quotaNoticeBanner } from './quota';
-export type { QuotaBanner } from './quota';
+export { formatCompactNumber, formatResetTime, quotaNoticeBanner, USAGE_SENTENCE_KEYS } from './quota';
+export type { QuotaBanner, UsageCounter } from './quota';
 
 // Persisted transcript row -> the ReplyBlock list a live turn arrives in.
 // The command-reply normaliser is private to that decoder: the live turn path

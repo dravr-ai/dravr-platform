@@ -19,6 +19,9 @@ import ConnectPreview from './ConnectPreview';
 import OnboardingShell from './OnboardingShell';
 import { useTranslation } from '@pierre/i18n';
 
+/** How long the awaiting-consent overlay waits for the OAuth popup to land. */
+const AWAITING_OAUTH_TIMEOUT_MS = 90_000;
+
 /**
  * Hard gate shown right after first login when the user has zero connected
  * providers. The same source of truth — `provider_connections` — drives the
@@ -49,11 +52,11 @@ export default function OnboardingConnectProvider({
   // connected provider's name, which the spinner's sentence names.
   const [justConnected, setJustConnected] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
-  // Tracks an in-flight OAuth popup (Strava BYO path). We don't know whether
-  // the user has authorised yet — the popup is in a separate window. This is
-  // displayed as an "awaiting consent" overlay with a Cancel button and a 90s
-  // timeout so the user is never stranded if they close the popup or walk
-  // away.
+  // Tracks an in-flight OAuth popup (Strava BYO path), by the name the
+  // provider's card shows. We don't know whether the user has authorised yet
+  // — the popup is in a separate window. This is displayed as an "awaiting
+  // consent" overlay with a Cancel button and a 90s timeout so the user is
+  // never stranded if they close the popup or walk away.
   const [awaitingOAuthFor, setAwaitingOAuthFor] = useState<string | null>(null);
   // WHOOP is BYO-OAuth-app: the user must register a Whoop developer app and
   // store its client_id/secret before the OAuth dance can run. Rather than
@@ -131,11 +134,11 @@ export default function OnboardingConnectProvider({
     const timer = window.setTimeout(() => {
       setAwaitingOAuthFor(null);
       setConnectError(
-        `Didn’t hear back from ${provider.charAt(0).toUpperCase() + provider.slice(1)} within 90 seconds. If the popup is still open, finish authorising there; otherwise try again.`,
+        t('onboarding.oauthNoReply', { provider, seconds: AWAITING_OAUTH_TIMEOUT_MS / 1000 }),
       );
-    }, 90_000);
+    }, AWAITING_OAUTH_TIMEOUT_MS);
     return () => window.clearTimeout(timer);
-  }, [awaitingOAuthFor]);
+  }, [awaitingOAuthFor, t]);
 
   if (justConnected) {
     return (
@@ -151,16 +154,15 @@ export default function OnboardingConnectProvider({
   }
 
   if (awaitingOAuthFor) {
-    const friendlyName = awaitingOAuthFor.charAt(0).toUpperCase() + awaitingOAuthFor.slice(1);
     return (
       <div className="min-h-dvh flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface-container-low pad-safe-top">
         <div className="flex flex-col items-center gap-4 max-w-md text-center">
           <div className="pierre-spinner w-10 h-10 border-on-surface border-t-transparent" />
           <p className="text-sm text-on-surface">
-            {t('frag.awaiting')} {friendlyName} consent…
+            {t('onboarding.awaitingProviderConsent', { provider: awaitingOAuthFor })}
           </p>
           <p className="text-xs text-on-surface-variant">
-            {t('frag.finishAuthPopup')} {friendlyName} confirms.
+            {t('onboarding.finishAuthInPopup', { provider: awaitingOAuthFor })}
           </p>
           <Button
             variant="secondary"

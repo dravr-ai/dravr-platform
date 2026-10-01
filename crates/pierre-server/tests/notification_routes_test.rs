@@ -31,6 +31,7 @@ mod notification_routes_tests {
     use pierre_routes_groups::NotificationRoutes;
     use serde_json::json;
     use std::sync::Arc;
+    use tokio_util::task::TaskTracker;
 
     // ════════════════════════════════════════════════════════════════
     // Setup helpers
@@ -72,11 +73,11 @@ mod notification_routes_tests {
     fn notification_service(db: &Database) -> NotificationService {
         match db.backend() {
             DatabaseBackend::SQLite(sqlite) => {
-                NotificationService::from_sqlite(sqlite.pool().clone())
+                NotificationService::from_sqlite(sqlite.pool().clone(), TaskTracker::new())
             }
             #[cfg(feature = "postgresql")]
             DatabaseBackend::PostgreSQL(pg) => {
-                NotificationService::from_postgres(pg.pool().clone())
+                NotificationService::from_postgres(pg.pool().clone(), TaskTracker::new())
             }
         }
     }

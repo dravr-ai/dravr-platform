@@ -41,6 +41,7 @@ mod persona_gate_tests {
         TenantId as CommTenantId, PERSONA_GATED_DATA_KEY,
     };
     use pierre_services::persona_notification_policy_gate::PersonaNotificationPolicyGate;
+    use tokio_util::task::TaskTracker;
 
     /// A sink that records deliveries, so "the push side ran" is asserted by
     /// content rather than log lines. It stands for one linked channel.
@@ -86,11 +87,11 @@ mod persona_gate_tests {
     fn notification_service(db: &Database) -> NotificationService {
         match db.backend() {
             DatabaseBackend::SQLite(sqlite) => {
-                NotificationService::from_sqlite(sqlite.pool().clone())
+                NotificationService::from_sqlite(sqlite.pool().clone(), TaskTracker::new())
             }
             #[cfg(feature = "postgresql")]
             DatabaseBackend::PostgreSQL(pg) => {
-                NotificationService::from_postgres(pg.pool().clone())
+                NotificationService::from_postgres(pg.pool().clone(), TaskTracker::new())
             }
         }
     }

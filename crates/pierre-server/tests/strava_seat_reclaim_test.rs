@@ -70,6 +70,7 @@ mod strava_seat_reclaim_tests {
     use tokio::net::TcpListener;
     use tokio::sync::mpsc;
     use tokio::time::sleep;
+    use tokio_util::task::TaskTracker;
     use uuid::Uuid;
 
     use crate::common::create_test_server_resources;
@@ -179,10 +180,12 @@ mod strava_seat_reclaim_tests {
     ) -> (Arc<NotificationService>, Arc<LinkedChannel>) {
         let channel = Arc::new(LinkedChannel::default());
         let service = match resources.agent.database.backend() {
-            DatabaseBackend::SQLite(db) => NotificationService::from_sqlite(db.pool().clone()),
+            DatabaseBackend::SQLite(db) => {
+                NotificationService::from_sqlite(db.pool().clone(), TaskTracker::new())
+            }
             #[cfg(feature = "postgresql")]
             DatabaseBackend::PostgreSQL(db) => {
-                NotificationService::from_postgres(db.pool().clone())
+                NotificationService::from_postgres(db.pool().clone(), TaskTracker::new())
             }
         }
         .with_channel_sink(Arc::clone(&channel) as Arc<dyn NotificationChannelSink>)

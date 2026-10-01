@@ -8,8 +8,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { LimitCheckResult, ReplyNotice, UsageStatusResponse } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
-import { formatCount, formatResetTime, quotaNoticeBanner } from '@pierre/chat-utils';
-import type { Translate } from '@pierre/chat-utils';
+import { formatCount, formatResetTime, quotaNoticeBanner, USAGE_SENTENCE_KEYS } from '@pierre/chat-utils';
+import type { Translate, UsageCounter } from '@pierre/chat-utils';
 import { usageApi } from '../../services/api';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 
@@ -39,10 +39,10 @@ function getCounterLevel(counter: LimitCheckResult): WarningLevel {
 }
 
 /**
- * `t` is the caller's translator. The three sentences below were built as
- * English templates and the banner rendered them verbatim under French chrome
- * (carnet#207); the counter label is a catalogue key too, so the sentence and
- * the thing it names agree on one language.
+ * `t` is the caller's translator. The sentences were built as English
+ * templates and the banner rendered them verbatim under French chrome
+ * (carnet#207); each counter now has its own whole sentence per level
+ * (`USAGE_SENTENCE_KEYS`), so no language has to inflect a slotted name.
  */
 export function computeWarningState(
   data: UsageStatusResponse | undefined,
@@ -53,22 +53,22 @@ export function computeWarningState(
     return { level: 'none', sendDisabled: false, message: '', resetsAt: '' };
   }
 
-  const counters: Array<{ counter: LimitCheckResult; label: string }> = [
-    { counter: data.daily.messages, label: 'usage.dailyMessages' },
-    { counter: data.daily.tokens, label: 'usage.dailyTokens' },
-    { counter: data.weekly.messages, label: 'usage.weeklyMessages' },
+  const counters: Array<{ counter: LimitCheckResult; name: UsageCounter }> = [
+    { counter: data.daily.messages, name: 'dailyMessages' },
+    { counter: data.daily.tokens, name: 'dailyTokens' },
+    { counter: data.weekly.messages, name: 'weeklyMessages' },
   ];
 
   let worstLevel: WarningLevel = 'none';
   let worstCounter: LimitCheckResult | null = null;
-  let worstLabel = '';
+  let worstName: UsageCounter = 'dailyMessages';
 
-  for (const { counter, label } of counters) {
+  for (const { counter, name } of counters) {
     const level = getCounterLevel(counter);
     if (LEVEL_PRIORITY[level] > LEVEL_PRIORITY[worstLevel]) {
       worstLevel = level;
       worstCounter = counter;
-      worstLabel = label;
+      worstName = name;
     }
   }
 
@@ -77,7 +77,6 @@ export function computeWarningState(
   }
 
   const params = {
-    label: t(worstLabel),
     // Grouped in the athlete's notation: the raw `456792/500000` read as one
     // unbroken string of digits under any chrome.
     current: formatCount(worstCounter.current, language),
@@ -91,13 +90,13 @@ export function computeWarningState(
   let message: string;
   switch (worstLevel) {
     case 'blocked':
-      message = t('usage.blockedLimitReached', params);
+      message = t(USAGE_SENTENCE_KEYS.reached[worstName], params);
       break;
     case 'burst':
-      message = t('usage.burstZone', params);
+      message = t(USAGE_SENTENCE_KEYS.burst[worstName], params);
       break;
     case 'warning':
-      message = t('usage.percentUsed', params);
+      message = t(USAGE_SENTENCE_KEYS.used[worstName], params);
       break;
     default:
       message = '';
@@ -124,16 +123,10 @@ export function warningStateFromNotice(
   language: string,
 ): UsageWarningState {
   const banner = quotaNoticeBanner(notice, t('settingsUi.midnightUtc'), language);
-  const label = banner.text.params?.label;
   return {
     level: banner.level,
     sendDisabled: false,
-    // `label` is itself a catalogue key, translated here so the sentence and
-    // the counter it names agree on one language.
-    message: t(banner.text.key, {
-      ...banner.text.params,
-      ...(typeof label === 'string' ? { label: t(label) } : {}),
-    }),
+    message: t(banner.text.key, banner.text.params),
     resetsAt: banner.resetsAt,
   };
 }

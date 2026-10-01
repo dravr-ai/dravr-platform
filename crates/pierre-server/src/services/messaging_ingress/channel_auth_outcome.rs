@@ -159,7 +159,7 @@ pub(super) async fn handle_channel_auth_outcome(
             // Pre-session send: authentication failed, so no messaging
             // session exists for a ledger row to belong to.
             send_channel_response(
-                inputs.db,
+                inputs.resources,
                 inputs.tenant_id,
                 inputs.channel,
                 inputs.adapter,

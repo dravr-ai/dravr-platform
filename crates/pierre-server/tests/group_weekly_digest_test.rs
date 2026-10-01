@@ -33,6 +33,7 @@ mod group_weekly_digest_tests {
     use pierre_services::notification_localizer::UserLocaleNotificationLocalizer;
     use pierre_services::notification_text::NotificationTextRenderer;
     use serde_json::{Map, Value};
+    use tokio_util::task::TaskTracker;
     use uuid::Uuid;
 
     use crate::common::{create_test_server_resources, create_test_tenant};
@@ -206,11 +207,11 @@ En forme :
     fn notification_service(resources: &ServerContext) -> NotificationService {
         let service = match resources.agent.database.backend() {
             DatabaseBackend::SQLite(sqlite) => {
-                NotificationService::from_sqlite(sqlite.pool().clone())
+                NotificationService::from_sqlite(sqlite.pool().clone(), TaskTracker::new())
             }
             #[cfg(feature = "postgresql")]
             DatabaseBackend::PostgreSQL(pg) => {
-                NotificationService::from_postgres(pg.pool().clone())
+                NotificationService::from_postgres(pg.pool().clone(), TaskTracker::new())
             }
         };
         service.with_localizer(Arc::new(UserLocaleNotificationLocalizer::new(

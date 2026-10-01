@@ -81,9 +81,9 @@ export function OnboardingConnectScreen() {
   // Whether the athlete accepted WHOOP's owner authorization before the
   // setup sheet; the OAuth start after it carries that acceptance.
   const [whoopTosConsent, setWhoopTosConsent] = useState(false);
-  // Tracks an in-flight OAuth in ASWebAuthenticationSession. Shows an
-  // "awaiting consent" overlay with a Cancel button so the user is never
-  // stranded if they background the app mid-flow.
+  // Tracks an in-flight OAuth in ASWebAuthenticationSession, by the name the
+  // provider's card shows. Shows an "awaiting consent" overlay with a Cancel
+  // button so the user is never stranded if they background the app mid-flow.
   const [awaitingOAuthFor, setAwaitingOAuthFor] = useState<string | null>(null);
   // Bridges the gap between a successful connect and the RootLayoutNav route
   // flip: renders the "Strava connected — preparing your dashboard…" spinner,
@@ -141,7 +141,7 @@ export function OnboardingConnectScreen() {
       try {
         setConnectingProvider(providerId);
         setConnectError(null);
-        setAwaitingOAuthFor(providerId);
+        setAwaitingOAuthFor(providerName);
         const returnUrl = getOAuthCallbackUrl();
         const oauthResponse = await oauthApi.initMobileOAuth(providerId, returnUrl, { tosConsent });
         const result = await WebBrowser.openAuthSessionAsync(
@@ -318,15 +318,14 @@ export function OnboardingConnectScreen() {
   // openAuthSessionAsync starting and the user returning from the in-app
   // browser. Cancel button drops back to the cards so they're never trapped.
   if (awaitingOAuthFor) {
-    const friendlyName = awaitingOAuthFor.charAt(0).toUpperCase() + awaitingOAuthFor.slice(1);
     return (
       <SafeAreaView className="flex-1 bg-background-primary items-center justify-center px-8">
         <ActivityIndicator size="large" color={colors.tokens.primary} />
         <Text className="mt-4 text-base font-semibold text-text-primary text-center">
-          {t('app.awaiting')} {friendlyName} consent…
+          {t('onboarding.awaitingProviderConsent', { provider: awaitingOAuthFor })}
         </Text>
         <Text className="mt-2 text-sm text-text-tertiary text-center">
-          {t('app.finishAuthInBrowser', { provider: friendlyName })}
+          {t('app.finishAuthInBrowser', { provider: awaitingOAuthFor })}
         </Text>
         <View className="mt-6">
           <Button

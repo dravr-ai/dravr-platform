@@ -1,5 +1,6 @@
 // ABOUTME: The two outbound paths every non-pipeline messaging reply leaves through
 // ABOUTME: Loads channel config, splits a body past the channel ceiling, and spawns delivery
+// ABOUTME: under the in-flight tracker, so a shutdown drain awaits a reply it has not sent yet
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -17,6 +18,7 @@ use tracing::error;
 use super::block_render;
 use super::dispatch::load_channel_config;
 use super::outbound_persist::{persist_outbound_row, OutboundRowParams};
+use crate::mcp::resources::ServerContext;
 
 /// What the spawned delivery writes to the `messaging_messages` ledger per
 /// part, when the caller has a resolved session to attach the rows to.
@@ -112,6 +114,12 @@ async fn deliver_and_persist(
 /// Send an outgoing reply to a channel user, loading config and spawning
 /// delivery.
 ///
+/// The delivery task is spawned through `resources.common.turns`, the tracker
+/// the shutdown drain waits on. A slash, intake or prompt reply queued while
+/// the instance is draining is work the athlete is waiting for; spawned
+/// outside the tracker it would get only the runtime's one-second teardown
+/// once the server future returned, and a slow channel API would lose it.
+///
 /// A body past the channel's ceiling is split here, at the one point every
 /// non-pipeline reply in this module passes through: an over-limit message is
 /// rejected outright by the channel API, so a `/plan`, an intake question or a
@@ -120,7 +128,7 @@ async fn deliver_and_persist(
 /// split answer never arrives out of order, and a failure part-way stops the
 /// rest rather than posting a tail with no head.
 pub async fn send_channel_response(
-    db: &dyn MessagingRepository,
+    resources: &ServerContext,
     tenant_id: TenantId,
     channel: &str,
     adapter: &Arc<dyn MessagingChannel>,
@@ -129,9 +137,10 @@ pub async fn send_channel_response(
 ) {
     let ceiling = block_render::channel_ceiling(message.channel_type);
     let messages = block_render::fan_out(message, ceiling);
+    let db = resources.common.repos.messaging.as_ref();
     let config = load_channel_config(db, tenant_id, channel).await;
     if let Some(cfg) = config {
-        tokio::spawn(deliver_and_persist(
+        resources.common.turns.spawn(deliver_and_persist(
             Arc::clone(adapter),
             cfg,
             messages,
@@ -156,9 +165,9 @@ pub async fn send_channel_response(
 /// `send_private_reply`: a 1:1 DM for Telegram/`WhatsApp`/Messenger, an ephemeral
 /// message for Slack, an opened DM channel for Discord. `recipient_user_id` is
 /// the channel-native id of the caller; `message` is the reply addressed to the
-/// originating room.
+/// originating room. Delivery is drain-tracked like [`send_channel_response`].
 pub async fn send_private_channel_response(
-    db: &dyn MessagingRepository,
+    resources: &ServerContext,
     tenant_id: TenantId,
     channel: &str,
     adapter: &Arc<dyn MessagingChannel>,
@@ -168,9 +177,10 @@ pub async fn send_private_channel_response(
 ) {
     let ceiling = block_render::channel_ceiling(message.channel_type);
     let messages = block_render::fan_out(message, ceiling);
+    let db = resources.common.repos.messaging.as_ref();
     let config = load_channel_config(db, tenant_id, channel).await;
     if let Some(cfg) = config {
-        tokio::spawn(deliver_and_persist(
+        resources.common.turns.spawn(deliver_and_persist(
             Arc::clone(adapter),
             cfg,
             messages,

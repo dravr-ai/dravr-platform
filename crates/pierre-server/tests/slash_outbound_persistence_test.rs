@@ -7,16 +7,21 @@
 #![allow(missing_docs)]
 #![allow(clippy::missing_panics_doc)]
 
+mod common;
+
 #[path = "helpers/messaging_fixtures.rs"]
 mod messaging_fixtures;
 
+use std::future::pending;
 use std::sync::Arc;
 use std::time::Duration;
 
+use common::create_test_server_resources;
 use dravr_canot::channel::MessagingChannel;
 use dravr_canot::models::{ChannelType, MessageContent, OutgoingMessage};
 use dravr_canot::turn::ConversationTurnId;
-use messaging_fixtures::{create_test_db, seed_user, CapturingChannel, FailingChannel};
+use messaging_fixtures::{seed_user, CapturingChannel, FailingChannel};
+use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use pierre_database::backends::{
     factory::Database, CreateSessionParams, UpsertChannelConfigParams,
@@ -24,7 +29,9 @@ use pierre_database::backends::{
 use pierre_mcp_server::services::messaging_ingress::outbound_send::{
     send_channel_response, send_private_channel_response, OutboundPersistSpec,
 };
+use pierre_mcp_server::services::turn_lifecycle::{serve_until_drained, SHUTDOWN_DRAIN_BUDGET};
 use serde_json::Value;
+use tokio::sync::oneshot;
 use tokio::time::sleep;
 use uuid::Uuid;
 
@@ -128,10 +135,11 @@ async fn wait_for_outbound_rows(
 
 #[tokio::test]
 async fn long_reply_persists_one_outbound_row_per_part() {
-    let db = create_test_db().await;
-    let (user_uuid, tenant_id) = seed_user(&db).await;
-    seed_session(&db, tenant_id, &user_uuid.to_string(), "sess-parts").await;
-    seed_channel_config(&db, tenant_id).await;
+    let resources = create_test_server_resources().await.unwrap();
+    let db: &Database = &resources.agent.database;
+    let (user_uuid, tenant_id) = seed_user(db).await;
+    seed_session(db, tenant_id, &user_uuid.to_string(), "sess-parts").await;
+    seed_channel_config(db, tenant_id).await;
 
     let channel = Arc::new(CapturingChannel::default());
     channel.stub_receipt_ids([Some("tg-msg-1".to_owned()), Some("tg-msg-2".to_owned())]);
@@ -143,16 +151,16 @@ async fn long_reply_persists_one_outbound_row_per_part() {
     });
     let turn = message.turn_id.to_string();
     send_channel_response(
-        db.repositories().messaging.as_ref(),
+        &resources,
         tenant_id,
         CHANNEL,
         &adapter,
         message,
-        Some(spec(&db, tenant_id, "sess-parts", None)),
+        Some(spec(db, tenant_id, "sess-parts", None)),
     )
     .await;
 
-    let rows = wait_for_outbound_rows(&db, "sess-parts", tenant_id, 2).await;
+    let rows = wait_for_outbound_rows(db, "sess-parts", tenant_id, 2).await;
     assert_eq!(rows.len(), 2, "one ledger row per delivered part");
     assert_eq!(rows[0]["channel_message_id"], "tg-msg-1");
     assert_eq!(rows[1]["channel_message_id"], "tg-msg-2");
@@ -174,10 +182,11 @@ async fn long_reply_persists_one_outbound_row_per_part() {
 
 #[tokio::test]
 async fn missing_receipt_ids_get_distinct_synthetic_ids() {
-    let db = create_test_db().await;
-    let (user_uuid, tenant_id) = seed_user(&db).await;
-    seed_session(&db, tenant_id, &user_uuid.to_string(), "sess-synth").await;
-    seed_channel_config(&db, tenant_id).await;
+    let resources = create_test_server_resources().await.unwrap();
+    let db: &Database = &resources.agent.database;
+    let (user_uuid, tenant_id) = seed_user(db).await;
+    seed_session(db, tenant_id, &user_uuid.to_string(), "sess-synth").await;
+    seed_channel_config(db, tenant_id).await;
 
     let channel = Arc::new(CapturingChannel::default());
     let adapter: Arc<dyn MessagingChannel> = channel.clone();
@@ -186,16 +195,16 @@ async fn missing_receipt_ids_get_distinct_synthetic_ids() {
         body: "no receipt\n".repeat(500),
     });
     send_channel_response(
-        db.repositories().messaging.as_ref(),
+        &resources,
         tenant_id,
         CHANNEL,
         &adapter,
         message,
-        Some(spec(&db, tenant_id, "sess-synth", None)),
+        Some(spec(db, tenant_id, "sess-synth", None)),
     )
     .await;
 
-    let rows = wait_for_outbound_rows(&db, "sess-synth", tenant_id, 2).await;
+    let rows = wait_for_outbound_rows(db, "sess-synth", tenant_id, 2).await;
     let ids: Vec<&str> = rows
         .iter()
         .map(|r| r["channel_message_id"].as_str().unwrap())
@@ -212,10 +221,11 @@ async fn missing_receipt_ids_get_distinct_synthetic_ids() {
 
 #[tokio::test]
 async fn card_reply_row_carries_card_content_type() {
-    let db = create_test_db().await;
-    let (user_uuid, tenant_id) = seed_user(&db).await;
-    seed_session(&db, tenant_id, &user_uuid.to_string(), "sess-card").await;
-    seed_channel_config(&db, tenant_id).await;
+    let resources = create_test_server_resources().await.unwrap();
+    let db: &Database = &resources.agent.database;
+    let (user_uuid, tenant_id) = seed_user(db).await;
+    seed_session(db, tenant_id, &user_uuid.to_string(), "sess-card").await;
+    seed_channel_config(db, tenant_id).await;
 
     let channel = Arc::new(CapturingChannel::default());
     channel.stub_receipt_ids([Some("tg-card-1".to_owned())]);
@@ -227,16 +237,16 @@ async fn card_reply_row_carries_card_content_type() {
         actions: Vec::new(),
     });
     send_channel_response(
-        db.repositories().messaging.as_ref(),
+        &resources,
         tenant_id,
         CHANNEL,
         &adapter,
         message,
-        Some(spec(&db, tenant_id, "sess-card", None)),
+        Some(spec(db, tenant_id, "sess-card", None)),
     )
     .await;
 
-    let rows = wait_for_outbound_rows(&db, "sess-card", tenant_id, 1).await;
+    let rows = wait_for_outbound_rows(db, "sess-card", tenant_id, 1).await;
     assert_eq!(
         rows[0]["content_type"], "card",
         "cards are not mislabeled as text"
@@ -246,10 +256,11 @@ async fn card_reply_row_carries_card_content_type() {
 
 #[tokio::test]
 async fn private_reply_persists_without_chat_message_id() {
-    let db = create_test_db().await;
-    let (user_uuid, tenant_id) = seed_user(&db).await;
-    seed_session(&db, tenant_id, &user_uuid.to_string(), "sess-priv").await;
-    seed_channel_config(&db, tenant_id).await;
+    let resources = create_test_server_resources().await.unwrap();
+    let db: &Database = &resources.agent.database;
+    let (user_uuid, tenant_id) = seed_user(db).await;
+    seed_session(db, tenant_id, &user_uuid.to_string(), "sess-priv").await;
+    seed_channel_config(db, tenant_id).await;
 
     let channel = Arc::new(CapturingChannel::default());
     channel.stub_receipt_ids([Some("tg-priv-1".to_owned())]);
@@ -259,17 +270,17 @@ async fn private_reply_persists_without_chat_message_id() {
         body: "your providers".to_owned(),
     });
     send_private_channel_response(
-        db.repositories().messaging.as_ref(),
+        &resources,
         tenant_id,
         CHANNEL,
         &adapter,
         message,
         "tg_caller_7",
-        Some(spec(&db, tenant_id, "sess-priv", None)),
+        Some(spec(db, tenant_id, "sess-priv", None)),
     )
     .await;
 
-    let rows = wait_for_outbound_rows(&db, "sess-priv", tenant_id, 1).await;
+    let rows = wait_for_outbound_rows(db, "sess-priv", tenant_id, 1).await;
     assert_eq!(rows[0]["channel_message_id"], "tg-priv-1");
     // A private reply is never chat-persisted, so nothing resolves for rating.
     let target = db
@@ -283,10 +294,11 @@ async fn private_reply_persists_without_chat_message_id() {
 
 #[tokio::test]
 async fn failed_send_records_the_attempt_without_queueing() {
-    let db = create_test_db().await;
-    let (user_uuid, tenant_id) = seed_user(&db).await;
-    seed_session(&db, tenant_id, &user_uuid.to_string(), "sess-fail").await;
-    seed_channel_config(&db, tenant_id).await;
+    let resources = create_test_server_resources().await.unwrap();
+    let db: &Database = &resources.agent.database;
+    let (user_uuid, tenant_id) = seed_user(db).await;
+    seed_session(db, tenant_id, &user_uuid.to_string(), "sess-fail").await;
+    seed_channel_config(db, tenant_id).await;
 
     let channel = Arc::new(FailingChannel::for_channel(ChannelType::Telegram));
     let adapter: Arc<dyn MessagingChannel> = channel.clone();
@@ -295,16 +307,16 @@ async fn failed_send_records_the_attempt_without_queueing() {
         body: "will not arrive".to_owned(),
     });
     send_channel_response(
-        db.repositories().messaging.as_ref(),
+        &resources,
         tenant_id,
         CHANNEL,
         &adapter,
         message,
-        Some(spec(&db, tenant_id, "sess-fail", None)),
+        Some(spec(db, tenant_id, "sess-fail", None)),
     )
     .await;
 
-    let rows = wait_for_outbound_rows(&db, "sess-fail", tenant_id, 1).await;
+    let rows = wait_for_outbound_rows(db, "sess-fail", tenant_id, 1).await;
     let id = rows[0]["channel_message_id"].as_str().unwrap();
     assert!(
         id.starts_with("failed-"),
@@ -325,10 +337,11 @@ async fn failed_send_records_the_attempt_without_queueing() {
 
 #[tokio::test]
 async fn no_spec_persists_nothing() {
-    let db = create_test_db().await;
-    let (user_uuid, tenant_id) = seed_user(&db).await;
-    seed_session(&db, tenant_id, &user_uuid.to_string(), "sess-none").await;
-    seed_channel_config(&db, tenant_id).await;
+    let resources = create_test_server_resources().await.unwrap();
+    let db: &Database = &resources.agent.database;
+    let (user_uuid, tenant_id) = seed_user(db).await;
+    seed_session(db, tenant_id, &user_uuid.to_string(), "sess-none").await;
+    seed_channel_config(db, tenant_id).await;
 
     let channel = Arc::new(CapturingChannel::default());
     let adapter: Arc<dyn MessagingChannel> = channel.clone();
@@ -336,15 +349,7 @@ async fn no_spec_persists_nothing() {
     let message = outgoing(MessageContent::Text {
         body: "pre-session furniture".to_owned(),
     });
-    send_channel_response(
-        db.repositories().messaging.as_ref(),
-        tenant_id,
-        CHANNEL,
-        &adapter,
-        message,
-        None,
-    )
-    .await;
+    send_channel_response(&resources, tenant_id, CHANNEL, &adapter, message, None).await;
 
     // Wait for the spawned delivery itself, then confirm the ledger is empty.
     for _ in 0..100 {
@@ -369,11 +374,12 @@ async fn no_spec_persists_nothing() {
 
 #[tokio::test]
 async fn chat_message_id_rides_into_the_reaction_join() {
-    let db = create_test_db().await;
-    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let resources = create_test_server_resources().await.unwrap();
+    let db: &Database = &resources.agent.database;
+    let (user_uuid, tenant_id) = seed_user(db).await;
     let user_id = user_uuid.to_string();
-    seed_session(&db, tenant_id, &user_id, "sess-join").await;
-    seed_channel_config(&db, tenant_id).await;
+    seed_session(db, tenant_id, &user_id, "sess-join").await;
+    seed_channel_config(db, tenant_id).await;
 
     let channel = Arc::new(CapturingChannel::default());
     channel.stub_receipt_ids([Some("tg-join-1".to_owned())]);
@@ -383,13 +389,13 @@ async fn chat_message_id_rides_into_the_reaction_join() {
         body: "shared plan".to_owned(),
     });
     send_channel_response(
-        db.repositories().messaging.as_ref(),
+        &resources,
         tenant_id,
         CHANNEL,
         &adapter,
         message,
         Some(spec(
-            &db,
+            db,
             tenant_id,
             "sess-join",
             Some("chat-row-42".to_owned()),
@@ -397,7 +403,7 @@ async fn chat_message_id_rides_into_the_reaction_join() {
     )
     .await;
 
-    wait_for_outbound_rows(&db, "sess-join", tenant_id, 1).await;
+    wait_for_outbound_rows(db, "sess-join", tenant_id, 1).await;
     // The production consumer: an emoji reaction on the delivered channel
     // message resolves to the assistant chat row the spec carried.
     let target = db
@@ -410,4 +416,74 @@ async fn chat_message_id_rides_into_the_reaction_join() {
     assert_eq!(target.chat_message_id, "chat-row-42");
     assert_eq!(target.tenant_id, tenant_id);
     assert_eq!(target.user_id, user_id);
+}
+
+/// How long the slow channel below takes to accept a send: past the shutdown
+/// path's three-second notice floor, so a delivery the drain does not track
+/// is still in flight when the server future returns.
+const SLOW_CHANNEL_SEND: Duration = Duration::from_secs(4);
+
+/// A slash, intake or prompt reply queued while the instance drains is an
+/// answer the athlete is waiting for, so the server must not return before it
+/// has left.
+///
+/// Nothing is in flight when the signal lands, so the drain itself finds the
+/// tracker empty at once — this is the webhook already past its 200 when
+/// SIGTERM arrived, sending its reply a moment later. Spawned with a bare
+/// `tokio::spawn` the delivery was invisible to shutdown: the server returned
+/// at the notice floor and the runtime's one-second teardown cut the send.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reply_queued_during_the_drain_lands_before_the_server_returns() {
+    assert!(
+        SLOW_CHANNEL_SEND < SHUTDOWN_DRAIN_BUDGET,
+        "the slow send must fit the budget the drain is allowed"
+    );
+    let resources = create_test_server_resources().await.unwrap();
+    let db: &Database = &resources.agent.database;
+    let (_, tenant_id) = seed_user(db).await;
+    seed_channel_config(db, tenant_id).await;
+
+    let channel = Arc::new(CapturingChannel {
+        send_delay: SLOW_CHANNEL_SEND,
+        ..CapturingChannel::default()
+    });
+    let adapter: Arc<dyn MessagingChannel> = channel.clone();
+
+    let turns = Arc::clone(&resources.common.turns);
+    let (stop, stopped) = oneshot::channel::<()>();
+    let server = tokio::spawn(async move {
+        serve_until_drained(
+            pending::<AppResult<()>>(),
+            async {
+                stopped.await.unwrap();
+            },
+            &turns,
+        )
+        .await
+    });
+    stop.send(()).unwrap();
+    sleep(Duration::from_millis(100)).await;
+    assert!(
+        !server.is_finished(),
+        "the drain is still under way when the reply is queued"
+    );
+
+    send_channel_response(
+        &resources,
+        tenant_id,
+        CHANNEL,
+        &adapter,
+        outgoing(MessageContent::Text {
+            body: "your plan for the week".to_owned(),
+        }),
+        None,
+    )
+    .await;
+
+    server.await.unwrap().unwrap();
+    assert_eq!(
+        channel.sent.lock().unwrap().len(),
+        1,
+        "the reply queued during the drain was delivered before the server returned"
+    );
 }

@@ -60,14 +60,7 @@ export default function UsageWarningBanner({ level, text }: UsageWarningBannerPr
       className={`flex items-center gap-3 px-4 py-2.5 ${styles.bg} border-b ${styles.border} ${styles.text} text-sm`}
     >
       <Icon className={`w-4 h-4 flex-shrink-0 ${styles.icon}`} />
-      {/* `label` is a catalogue key, translated here so the sentence and the
-          counter it names agree on one language. */}
-      <span className="flex-1">
-        {t(text.key, {
-          ...text.params,
-          ...(typeof text.params?.label === 'string' ? { label: t(text.params.label) } : {}),
-        })}
-      </span>
+      <span className="flex-1">{t(text.key, text.params)}</span>
       {level !== 'blocked' && (
         <button
           onClick={() => setDismissed(true)}

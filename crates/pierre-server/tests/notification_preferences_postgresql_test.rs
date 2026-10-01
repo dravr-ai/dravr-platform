@@ -21,6 +21,7 @@ use pierre_notifications::models::{
 use pierre_notifications::{NotificationService, TenantId};
 use pierre_test_support::db::create_test_db;
 use serde_json::json;
+use tokio_util::task::TaskTracker;
 use uuid::Uuid;
 
 /// The name 20260311000007's inline column CHECK received from `PostgreSQL`,
@@ -98,7 +99,7 @@ async fn test_pg_category_check_matches_the_enum() {
     }
 
     // The dispatcher reads every stored category back as the enum it came from.
-    let service = NotificationService::from_postgres(pool.clone());
+    let service = NotificationService::from_postgres(pool.clone(), TaskTracker::new());
     let prefs = service
         .get_notification_preferences(user_id, TenantId(tenant_id))
         .await
@@ -123,7 +124,7 @@ async fn test_pg_category_check_matches_the_enum() {
 async fn test_pg_notification_service_round_trips_every_table() {
     let db = create_test_db().await.unwrap();
     let pool = db.postgres_pool().expect("PG lane");
-    let service = NotificationService::from_postgres(pool.clone());
+    let service = NotificationService::from_postgres(pool.clone(), TaskTracker::new());
     let user_id = Uuid::new_v4();
     let tenant_id = TenantId(Uuid::new_v4());
 

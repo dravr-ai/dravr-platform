@@ -16,9 +16,6 @@
 
 mod common;
 
-// The fixtures re-export the bare-database helpers this suite does not use:
-// it runs on a full server context.
-#[allow(unused_imports)]
 #[path = "helpers/messaging_fixtures.rs"]
 mod messaging_fixtures;
 
@@ -40,6 +37,7 @@ use pierre_tool_runtime::protocol::reauth_notice::{flag_needs_reauth, notify_nee
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::Value;
 use tokio::time::sleep;
+use tokio_util::task::TaskTracker;
 use uuid::Uuid;
 
 use crate::common::{create_test_server_resources, create_test_user};
@@ -83,9 +81,13 @@ async fn fixture() -> Fixture {
         Arc::new(FakeResolver::new(channel.clone())),
     )));
     let service = Arc::new(match context.agent.database.backend() {
-        DatabaseBackend::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
+        DatabaseBackend::SQLite(sqlite) => {
+            NotificationService::from_sqlite(sqlite.pool().clone(), TaskTracker::new())
+        }
         #[cfg(feature = "postgresql")]
-        DatabaseBackend::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
+        DatabaseBackend::PostgreSQL(pg) => {
+            NotificationService::from_postgres(pg.pool().clone(), TaskTracker::new())
+        }
     });
     context.common.notification_service = Some(Arc::clone(&service));
     let database = Arc::clone(&context.agent.database);

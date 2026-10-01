@@ -24,6 +24,7 @@
 //! callers rather than in either one.
 
 use chrono::{DateTime, Utc};
+use photograveur::Locale;
 use pierre_config::constants::usage_quotas::{
     DEFAULT_MAX_ACTIVE_CONVERSATIONS, UNLIMITED_CONVERSATIONS,
 };
@@ -31,6 +32,7 @@ use pierre_config::environment::LlmProviderType;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_ARCHIVED_CONVERSATION_QUOTA, KEY_RESET_QUOTA,
 };
+use pierre_core::civil_time::resolve_zone;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{ConversationRecord, CoverageMap, GuidedFlow, OnboardingState, TenantId};
 use pierre_database::repositories::{
@@ -712,14 +714,73 @@ pub async fn repoint_messaging_session(
 /// The title a conversation falls back to when it has neither a room nor an
 /// agent to be named after.
 ///
-/// The moment it started, in the reader's language: the localized prefix, the
-/// short date, the 24-hour time — `Chat Sep 16 14:03`, `Discussion 16 sept.
-/// 14:03`. The one dated form for every surface: the messaging forge, `/reset`
-/// and the REST create route all stamp it, and no client invents its own. A
-/// thread must not inherit the title of the thread it replaced: `/reset`
-/// three times would otherwise leave three identically named rows in the list
-/// with nothing to tell them apart.
+/// The moment it started, in the reader's language and on their wall clock:
+/// the localized prefix, the short date in `locale`'s month names and order,
+/// the 24-hour time in `timezone` — `Chat Sep 16 14:03`, `Discussion 16 sept.
+/// 14:03`. An athlete with no stored timezone reads UTC, the zone every other
+/// civil-time reader falls back to. The one dated form for every surface: the
+/// messaging forge, `/reset` and the REST create route all stamp it, and no
+/// client invents its own. A thread must not inherit the title of the thread
+/// it replaced: `/reset` three times would otherwise leave three identically
+/// named rows in the list with nothing to tell them apart.
+///
+/// The short date is photograveur's — the formatter that writes chart axis
+/// ticks in the same five locales — so a title and a chart never disagree on
+/// how a month is abbreviated.
 #[must_use]
-pub fn dated_title(prefix: &str, now: DateTime<Utc>) -> String {
-    format!("{prefix} {}", now.format("%b %-d %H:%M"))
+pub fn dated_title(
+    prefix: &str,
+    locale: &str,
+    timezone: Option<&str>,
+    now: DateTime<Utc>,
+) -> String {
+    let local = now.with_timezone(&resolve_zone(timezone));
+    let date = Locale::from_tag(locale).format_date(&local.date_naive().to_string());
+    format!("{prefix} {date} {}", local.format("%H:%M"))
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::TimeZone;
+
+    use super::*;
+
+    /// 2026-10-01T05:28Z — 01:28 in Toronto, 14:28 in Tokyo.
+    fn at() -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 10, 1, 5, 28, 0).unwrap()
+    }
+
+    #[test]
+    fn dated_title_writes_the_month_in_the_athletes_language() {
+        assert_eq!(
+            dated_title("Discussion", "fr", Some("America/Toronto"), at()),
+            "Discussion 1 oct. 01:28"
+        );
+        assert_eq!(
+            dated_title("Chat", "en", Some("Asia/Tokyo"), at()),
+            "Chat Oct 1 14:28"
+        );
+        assert_eq!(
+            dated_title("Gespräch", "de-DE", Some("Europe/Berlin"), at()),
+            "Gespräch 1 Okt. 07:28"
+        );
+    }
+
+    #[test]
+    fn dated_title_crosses_the_date_line_on_the_athletes_clock() {
+        // Still 30 September on the west coast while UTC is in October.
+        assert_eq!(
+            dated_title("Discussion", "fr", Some("America/Vancouver"), at()),
+            "Discussion 30 sept. 22:28"
+        );
+    }
+
+    #[test]
+    fn dated_title_without_a_usable_timezone_reads_utc() {
+        assert_eq!(dated_title("Chat", "en", None, at()), "Chat Oct 1 05:28");
+        assert_eq!(
+            dated_title("Chat", "en", Some("Not/AZone"), at()),
+            "Chat Oct 1 05:28"
+        );
+    }
 }

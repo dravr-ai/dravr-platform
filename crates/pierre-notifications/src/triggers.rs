@@ -1,5 +1,5 @@
 // ABOUTME: Notification triggers for intelligence events, agent traffic, sync failures and coach TrainingPeaks links
-// ABOUTME: All fire-and-forget via tokio::spawn — failures logged at WARN, never block the caller
+// ABOUTME: Fire-and-forget on the service's dispatch tracker — failures logged at WARN, never block the caller
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -47,8 +47,14 @@ use crate::{EventDispatch, NotificationEvent, NotificationService, PushTier};
 /// event's product semantics — the facade only compares the tier against the
 /// recipient's persona floor. Failures are logged at WARN level but never
 /// propagated to the caller.
+///
+/// The task goes onto the service's dispatch tracker rather than a bare
+/// `tokio::spawn`: the caller does not wait for it, but the server's shutdown
+/// drain does, so a notification fired just before SIGTERM still reaches the
+/// athlete's devices and linked chats.
 fn spawn_dispatch(service: Arc<NotificationService>, dispatch: EventDispatch, tier: PushTier) {
-    tokio::spawn(async move {
+    let dispatches = service.dispatches.clone();
+    dispatches.spawn(async move {
         if let Err(e) = service.dispatch_event(&dispatch, tier).await {
             warn!(
                 user_id = %dispatch.user_id,
@@ -461,4 +467,49 @@ pub fn trigger_delegation_off_coach_roster(
         trainingpeaks_connections_route(),
     );
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P1);
+}
+
+#[cfg(test)]
+mod tests {
+    /// The service under test is the `SQLite` one.
+    #[cfg(feature = "sqlite")]
+    mod sqlite_dispatch {
+        use std::sync::Arc;
+
+        use pierre_test_support::db::create_sqlite_test_db;
+        use tokio_util::task::TaskTracker;
+        use uuid::Uuid;
+
+        use super::super::trigger_agent_message;
+        use crate::models::TenantId;
+        use crate::NotificationService;
+
+        /// A trigger's dispatch is counted by the tracker the service was built
+        /// with the moment the trigger returns, so a shutdown drain awaiting that
+        /// tracker cannot miss it; and the tracker empties once it has run.
+        #[tokio::test]
+        async fn a_trigger_dispatches_on_the_service_tracker() {
+            let db = create_sqlite_test_db().await.unwrap();
+            let pool = db.sqlite_pool().unwrap().clone();
+            let dispatches = TaskTracker::new();
+            let service = Arc::new(NotificationService::from_sqlite(pool, dispatches.clone()));
+
+            trigger_agent_message(
+                &service,
+                Uuid::new_v4(),
+                TenantId(Uuid::new_v4()),
+                "conversation-1",
+                "Coach",
+            );
+            assert_eq!(
+                dispatches.len(),
+                1,
+                "the dispatch is on the service's tracker, not a bare spawn"
+            );
+
+            dispatches.close();
+            dispatches.wait().await;
+            assert!(dispatches.is_empty(), "the dispatch ran to its end");
+        }
+    }
 }

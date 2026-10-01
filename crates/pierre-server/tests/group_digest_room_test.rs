@@ -52,6 +52,7 @@ mod group_digest_room_tests {
     use pierre_services::notification_text::NotificationTextRenderer;
     use pierre_tool_runtime::runtime::ToolRuntime;
     use serde_json::{Map, Value};
+    use tokio_util::task::TaskTracker;
     use uuid::Uuid;
 
     use crate::common::create_test_server_resources;
@@ -178,11 +179,11 @@ mod group_digest_room_tests {
             let sink = Arc::new(RecordingSink::default());
             let service = match resources.agent.database.backend() {
                 DatabaseBackend::SQLite(sqlite) => {
-                    NotificationService::from_sqlite(sqlite.pool().clone())
+                    NotificationService::from_sqlite(sqlite.pool().clone(), TaskTracker::new())
                 }
                 #[cfg(feature = "postgresql")]
                 DatabaseBackend::PostgreSQL(pg) => {
-                    NotificationService::from_postgres(pg.pool().clone())
+                    NotificationService::from_postgres(pg.pool().clone(), TaskTracker::new())
                 }
             }
             .with_localizer(Arc::new(UserLocaleNotificationLocalizer::new(

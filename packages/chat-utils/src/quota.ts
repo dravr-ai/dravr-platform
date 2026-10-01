@@ -16,6 +16,41 @@ export interface QuotaBanner {
   resetsAt: string;
 }
 
+/** A usage counter the status endpoint reports, by the sentence that names it. */
+export type UsageCounter = 'dailyMessages' | 'dailyTokens' | 'weeklyMessages';
+
+/**
+ * The banner sentence for each counter at each level: one whole sentence per
+ * counter, never a sentence with the counter's name slotted in. "Limite
+ * {{label}} atteinte" filled with "tes messages quotidiens" read "Limite tes
+ * messages quotidiens atteinte", and German and Portuguese took the slotted
+ * name in the wrong case. `messageQuota` is the counter a turn's own notice
+ * names; a notice warns and never blocks, so it has no `reached` sentence.
+ */
+export const USAGE_SENTENCE_KEYS = {
+  reached: {
+    dailyMessages: 'usage.reached.dailyMessages',
+    dailyTokens: 'usage.reached.dailyTokens',
+    weeklyMessages: 'usage.reached.weeklyMessages',
+  },
+  burst: {
+    dailyMessages: 'usage.burst.dailyMessages',
+    dailyTokens: 'usage.burst.dailyTokens',
+    weeklyMessages: 'usage.burst.weeklyMessages',
+    messageQuota: 'usage.burst.messageQuota',
+  },
+  used: {
+    dailyMessages: 'usage.used.dailyMessages',
+    dailyTokens: 'usage.used.dailyTokens',
+    weeklyMessages: 'usage.used.weeklyMessages',
+    messageQuota: 'usage.used.messageQuota',
+  },
+} as const satisfies {
+  reached: Record<UsageCounter, string>;
+  burst: Record<UsageCounter | 'messageQuota', string>;
+  used: Record<UsageCounter | 'messageQuota', string>;
+};
+
 /**
  * The reset instant in the reader's language and own timezone: `12:00 AM UTC`
  * in English, `00:00 UTC` in French.
@@ -75,12 +110,9 @@ export function quotaNoticeBanner(notice: ReplyNotice, resetFallback: string, la
   const time = formatResetTime(notice.resets_at, resetFallback, language);
   const percent = notice.limit > 0 ? Math.round((notice.current / notice.limit) * 100) : 0;
 
-  // `label` is itself a catalogue key: the client translates it and passes it
-  // back in, so the sentence and the thing it names agree on one language.
   // The figures are grouped in the reader's notation — `456 792` in French —
   // because the sentence prints them as the athlete reads numbers.
   const params = {
-    label: 'usage.messageQuota',
     current: formatCount(notice.current, language),
     limit: formatCount(notice.limit, language),
     time,
@@ -89,14 +121,14 @@ export function quotaNoticeBanner(notice: ReplyNotice, resetFallback: string, la
   if (notice.level === 'burst') {
     return {
       level: 'burst',
-      text: { key: 'usage.burstZone', params },
+      text: { key: USAGE_SENTENCE_KEYS.burst.messageQuota, params },
       resetsAt: notice.resets_at,
     };
   }
 
   return {
     level: 'warning',
-    text: { key: 'usage.percentUsed', params: { ...params, percent } },
+    text: { key: USAGE_SENTENCE_KEYS.used.messageQuota, params: { ...params, percent } },
     resetsAt: notice.resets_at,
   };
 }

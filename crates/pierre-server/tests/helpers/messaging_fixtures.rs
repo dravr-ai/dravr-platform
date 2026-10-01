@@ -15,6 +15,7 @@
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
+use std::time::Duration as StdDuration;
 
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
@@ -30,14 +31,19 @@ use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
 use pierre_database::backends::{factory::Database, CreateChannelLinkParams, CreateSessionParams};
 use pierre_mcp_server::services::backfill_notifier::AdapterResolver;
 use serde_json::Value;
+use tokio::time::sleep;
 use uuid::Uuid;
 
 // `create_test_db` + `seed_user` live in the shared `db_fixtures` module so the
 // non-messaging DB tests reuse the same canonical bodies. Nest-include it here
 // and re-export both so the messaging tests keep importing them from
-// `messaging_fixtures` unchanged.
+// `messaging_fixtures` unchanged. A suite on a full server context seeds
+// through its own database and imports neither, which leaves this re-export
+// unused in that test binary; the allowance sits on this one line rather than
+// on each includer's whole `mod messaging_fixtures`.
 #[path = "db_fixtures.rs"]
 mod db_fixtures;
+#[allow(unused_imports)]
 pub use db_fixtures::{create_test_db, seed_user};
 
 /// Create a real `chat_conversations` row and return its id.
@@ -160,6 +166,10 @@ pub struct CapturingChannel {
     /// queue is empty the receipt carries `None`, the fake's historical shape
     /// (a channel that returns no message id).
     pub receipt_ids: Mutex<VecDeque<Option<String>>>,
+    /// How long each `send` takes before it lands, modelling a slow channel
+    /// API. A message is recorded in `sent` only once the delay has passed, so
+    /// a delivery cut short never shows up as delivered.
+    pub send_delay: StdDuration,
 }
 
 impl Default for CapturingChannel {
@@ -168,6 +178,7 @@ impl Default for CapturingChannel {
             channel_type: ChannelType::Telegram,
             sent: Mutex::new(Vec::new()),
             receipt_ids: Mutex::new(VecDeque::new()),
+            send_delay: StdDuration::ZERO,
         }
     }
 }
@@ -214,6 +225,9 @@ impl MessagingChannel for CapturingChannel {
         msg: &OutgoingMessage,
         _config: &ChannelConfig,
     ) -> MessagingResult<DeliveryReceipt> {
+        if !self.send_delay.is_zero() {
+            sleep(self.send_delay).await;
+        }
         self.sent.lock().unwrap().push(msg.clone());
         let channel_message_id = self.receipt_ids.lock().unwrap().pop_front().flatten();
         Ok(DeliveryReceipt {

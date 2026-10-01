@@ -18,6 +18,8 @@ use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAg
 use pierre_mcp_server::routes::chat::{ChatRoutes, ConversationListResponse, ConversationResponse};
 
 use axum::http::StatusCode;
+use chrono::{DateTime, Datelike, Utc};
+use chrono_tz::Tz;
 use serde_json::json;
 
 // ============================================================================
@@ -169,6 +171,59 @@ async fn test_create_conversation_without_title_is_named_by_the_server() {
     assert_eq!(
         conv.title, "Bloc hivernal",
         "a typed title wins over the rule"
+    );
+}
+
+/// The dated stamp is written in the athlete's language and on their wall
+/// clock: a French athlete in UTC+14 reads `Discussion <day> <mois> <HH:MM>`
+/// in Kiritimati time, never the English month on the server's UTC clock.
+#[tokio::test]
+async fn test_dated_title_reads_in_the_athletes_language_and_timezone() {
+    const ZONE: &str = "Pacific/Kiritimati";
+    const FRENCH_MONTHS: [&str; 12] = [
+        "janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.",
+        "déc.",
+    ];
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, user, _tenant_id) =
+        create_test_user_with_plan(&resources.agent.database, "fr-tz@example.com", "starter")
+            .await
+            .unwrap();
+    let users = resources.common.repos.users.clone();
+    users.update_locale(user_id, "fr").await.unwrap();
+    users.set_timezone(user_id, ZONE).await.unwrap();
+    let token = resources
+        .auth
+        .auth_manager
+        .generate_token(&user, &resources.auth.jwks_manager)
+        .unwrap();
+    let prefix = resources.mcp.messaging_strings_registry.render(
+        KEY_NEW_CONVERSATION_TITLE_PREFIX,
+        "fr",
+        &[],
+    );
+    assert_eq!(prefix, "Discussion");
+    let router = ChatRoutes::routes(resources);
+
+    let zone: Tz = ZONE.parse().unwrap();
+    let local = |at: DateTime<Utc>| {
+        let at = at.with_timezone(&zone);
+        let month = FRENCH_MONTHS[usize::try_from(at.month0()).unwrap()];
+        format!("Discussion {} {month} {}", at.day(), at.format("%H:%M"))
+    };
+    let before = local(Utc::now());
+    let response = AxumTestRequest::post("/api/chat/conversations")
+        .header("authorization", &format!("Bearer {token}"))
+        .json(&json!({}))
+        .send(router)
+        .await;
+    let after = local(Utc::now());
+    assert_eq!(response.status_code(), StatusCode::CREATED);
+    let conv: ConversationResponse = response.json();
+    assert!(
+        conv.title == before || conv.title == after,
+        "expected {before:?} (or {after:?} across a minute boundary), got {:?}",
+        conv.title
     );
 }
 

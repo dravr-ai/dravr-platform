@@ -40,6 +40,7 @@ use pierre_services::personal_bests::{format_effort_time, BestOutcome, PersonalB
 use pierre_services::provider_rate_limiter::ProviderRateLimiter;
 use serde_json::Value;
 use tokio::time::sleep;
+use tokio_util::task::TaskTracker;
 use uuid::Uuid;
 
 use crate::common::{create_test_server_resources, create_test_tenant};
@@ -52,9 +53,13 @@ const DISPATCH_SETTLE: Duration = Duration::from_millis(400);
 /// that renders each event in the recipient's language.
 fn notification_service(resources: &ServerContext) -> Arc<NotificationService> {
     let service = match resources.agent.database.backend() {
-        DatabaseBackend::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
+        DatabaseBackend::SQLite(sqlite) => {
+            NotificationService::from_sqlite(sqlite.pool().clone(), TaskTracker::new())
+        }
         #[cfg(feature = "postgresql")]
-        DatabaseBackend::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
+        DatabaseBackend::PostgreSQL(pg) => {
+            NotificationService::from_postgres(pg.pool().clone(), TaskTracker::new())
+        }
     };
     Arc::new(
         service.with_localizer(Arc::new(UserLocaleNotificationLocalizer::new(

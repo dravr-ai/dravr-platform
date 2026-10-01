@@ -36,8 +36,9 @@ interface SciotteLoginModalProps {
    * Lets the parent show an "awaiting consent" state with timeout/cancel.
    * Connection success is still observed at the App level via the OAuth
    * callback URL — this is purely UI bookkeeping for the in-flight window.
+   * Carries the target whose authorization window opened.
    */
-  onOAuthLaunched?: (provider: string) => void;
+  onOAuthLaunched?: (target: SciotteTarget) => void;
   /** Target platform: "strava", "garmin", "trainingpeaks" or "coros" */
   target?: SciotteTarget;
   /**

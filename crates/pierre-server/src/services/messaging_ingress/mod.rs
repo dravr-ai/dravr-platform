@@ -436,7 +436,7 @@ async fn dispatch_slash_command_if_any(inputs: SlashDispatchInputs<'_>) -> bool 
         // reply is never chat-persisted, so its ledger row carries no
         // assistant id — the send is recorded, there is nothing to rate.
         send_private_channel_response(
-            db,
+            resources,
             tenant_id,
             channel,
             adapter,
@@ -463,7 +463,7 @@ async fn dispatch_slash_command_if_any(inputs: SlashDispatchInputs<'_>) -> bool 
                 // Platform furniture in the same turn: recorded, not ratable.
                 notice.turn_id = message.turn_id;
                 send_channel_response(
-                    db,
+                    resources,
                     tenant_id,
                     channel,
                     adapter,
@@ -487,8 +487,8 @@ async fn dispatch_slash_command_if_any(inputs: SlashDispatchInputs<'_>) -> bool 
         ) {
             reply.message.reply_to = Some(anchor);
         }
-        let spec = ledger_spec(reply.assistant_message_id.take());
-        send_channel_response(db, tenant_id, channel, adapter, reply.message, Some(spec)).await;
+        let spec = Some(ledger_spec(reply.assistant_message_id.take()));
+        send_channel_response(resources, tenant_id, channel, adapter, reply.message, spec).await;
     }
     true
 }
@@ -510,7 +510,6 @@ async fn handle_pre_session_commands(
     message: &IncomingMessage,
     pre_link_identity: &str,
 ) -> Option<PersistOutcome> {
-    let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
     let thread_id = extract_thread_id(&message.metadata);
 
     let mut reply = if let LinkingAction::LinkCode(code) =
@@ -535,7 +534,7 @@ async fn handle_pre_session_commands(
 
     reply.thread_id = thread_id;
     apply_conversation_recipient(&mut reply, message.conversation_id.as_deref());
-    send_channel_response(db, tenant_id, channel, adapter, reply, None).await;
+    send_channel_response(resources, tenant_id, channel, adapter, reply, None).await;
     Some(PersistOutcome::HandledNotStored)
 }
 
@@ -613,7 +612,7 @@ async fn persist_single_message(
         logout_response.thread_id = thread_id;
         apply_conversation_recipient(&mut logout_response, message.conversation_id.as_deref());
         send_channel_response(
-            db,
+            resources,
             tenant_id,
             channel,
             adapter,
@@ -703,7 +702,7 @@ async fn persist_single_message(
     if let Some(mut intake_reply) = intake_outcome.into_reply() {
         intake_reply.thread_id = thread_id;
         apply_conversation_recipient(&mut intake_reply, message.conversation_id.as_deref());
-        send_channel_response(db, tenant_id, channel, adapter, intake_reply, None).await;
+        send_channel_response(resources, tenant_id, channel, adapter, intake_reply, None).await;
         return Ok(PersistOutcome::HandledNotStored);
     }
 
@@ -732,7 +731,7 @@ async fn persist_single_message(
     {
         choice_reply.thread_id = thread_id;
         apply_conversation_recipient(&mut choice_reply, message.conversation_id.as_deref());
-        send_channel_response(db, tenant_id, channel, adapter, choice_reply, None).await;
+        send_channel_response(resources, tenant_id, channel, adapter, choice_reply, None).await;
         return Ok(PersistOutcome::HandledNotStored);
     }
 
@@ -1047,7 +1046,7 @@ async fn send_unlinked_user_prompt(
     };
     prompt.thread_id = extract_thread_id(&message.metadata);
     apply_conversation_recipient(&mut prompt, message.conversation_id.as_deref());
-    send_channel_response(db, tenant_id, channel, adapter, prompt, None).await;
+    send_channel_response(resources, tenant_id, channel, adapter, prompt, None).await;
 }
 
 /// Resolve a linked session and authenticated principal, or send a prompt /

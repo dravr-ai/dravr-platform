@@ -27,7 +27,7 @@ use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSou
 use pierre_services::conversation_forge::{
     counterpart_title, create_conversation_slot, dated_title, resolve_conversation_model, SlotQuota,
 };
-use pierre_services::locale::resolve_user_locale;
+use pierre_services::locale::{resolve_user_locale, user_locale};
 
 use super::common::{get_tenant_id, verify_group_membership};
 use super::dto::{preview_text, resolve_stored_blocks};
@@ -84,12 +84,25 @@ pub async fn create_conversation(
     let title = match request.title.as_deref().map(str::trim) {
         Some(typed) if !typed.is_empty() => typed.to_owned(),
         _ => {
-            let locale =
-                resolve_user_locale(resources.common.repos.users.as_ref(), auth.user_id).await;
+            let user = resources
+                .common
+                .repos
+                .users
+                .get_global(auth.user_id)
+                .await
+                .ok()
+                .flatten();
+            let locale = user_locale(user.as_ref());
             let prefix = resources.mcp.messaging_strings_registry.render(
                 KEY_NEW_CONVERSATION_TITLE_PREFIX,
                 &locale,
                 &[],
+            );
+            let stamp = dated_title(
+                &prefix,
+                &locale,
+                user.as_ref().and_then(|u| u.timezone.as_deref()),
+                Utc::now(),
             );
             counterpart_title(
                 &resources.common.repos,
@@ -97,7 +110,7 @@ pub async fn create_conversation(
                 &user_id_str,
                 request.group_id.as_deref(),
                 request.agent_id.as_deref(),
-                &dated_title(&prefix, Utc::now()),
+                &stamp,
             )
             .await
         }

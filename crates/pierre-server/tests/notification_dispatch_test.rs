@@ -36,6 +36,7 @@ mod dispatch_tests {
     use serde_json::{json, Value};
     use std::sync::Arc;
     use tokio::time::{sleep, Duration};
+    use tokio_util::task::TaskTracker;
     use uuid::Uuid;
 
     // ════════════════════════════════════════════════════════════════
@@ -49,11 +50,11 @@ mod dispatch_tests {
     fn notification_service(resources: &ServerContext) -> NotificationService {
         let service = match resources.agent.database.backend() {
             DatabaseBackend::SQLite(sqlite) => {
-                NotificationService::from_sqlite(sqlite.pool().clone())
+                NotificationService::from_sqlite(sqlite.pool().clone(), TaskTracker::new())
             }
             #[cfg(feature = "postgresql")]
             DatabaseBackend::PostgreSQL(pg) => {
-                NotificationService::from_postgres(pg.pool().clone())
+                NotificationService::from_postgres(pg.pool().clone(), TaskTracker::new())
             }
         };
         service.with_localizer(Arc::new(UserLocaleNotificationLocalizer::new(
@@ -1376,7 +1377,7 @@ mod dispatch_tests {
                 .unwrap();
         }
 
-        let service = NotificationService::from_sqlite(pool.clone());
+        let service = NotificationService::from_sqlite(pool.clone(), TaskTracker::new());
         let prefs = service
             .get_notification_preferences(user_id, TenantId(tenant_id))
             .await
@@ -1430,7 +1431,7 @@ mod dispatch_tests {
                 .unwrap();
         }
 
-        let service = NotificationService::from_postgres(pool.clone());
+        let service = NotificationService::from_postgres(pool.clone(), TaskTracker::new());
         let prefs = service
             .get_notification_preferences(user_id, TenantId(tenant_id))
             .await

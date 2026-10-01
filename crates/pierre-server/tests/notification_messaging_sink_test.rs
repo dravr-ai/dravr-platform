@@ -47,6 +47,7 @@ mod sink_tests {
     use pierre_services::notification_channel_sink::MessagingChannelSink;
     use serde_json::json;
     use std::sync::{Arc, Mutex};
+    use tokio_util::task::TaskTracker;
     use uuid::Uuid;
 
     /// A sink that records what it was handed, so "the sink ran" is asserted by
@@ -93,11 +94,11 @@ mod sink_tests {
     fn notification_service(db: &Database) -> NotificationService {
         match db.backend() {
             DatabaseBackend::SQLite(sqlite) => {
-                NotificationService::from_sqlite(sqlite.pool().clone())
+                NotificationService::from_sqlite(sqlite.pool().clone(), TaskTracker::new())
             }
             #[cfg(feature = "postgresql")]
             DatabaseBackend::PostgreSQL(pg) => {
-                NotificationService::from_postgres(pg.pool().clone())
+                NotificationService::from_postgres(pg.pool().clone(), TaskTracker::new())
             }
         }
     }

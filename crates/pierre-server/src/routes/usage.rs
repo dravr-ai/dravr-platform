@@ -118,28 +118,30 @@ impl UsageRoutes {
             None => default_admin_config(),
         };
 
+        // The caller's own tier sets the caps, read from the user row the way
+        // `GET /api/users/me/quota` reads it, so the usage banner and the
+        // quota page report the same limits.
+        let tier = resources
+            .common
+            .repos
+            .users
+            .get_global(auth.user_id)
+            .await?
+            .ok_or_else(|| AppError::not_found("authenticated user row missing"))?
+            .tier;
+
         let usage_svc =
             UsageCounterService::new(resources.common.repos.usage_counters.as_ref(), admin_config);
+        let check = |counter_type: &'static str| {
+            usage_svc.check_limit_for_tier(&tenant_id_str, &user_id_str, counter_type, &tier)
+        };
 
-        // Fetch all counter statuses in parallel-friendly sequence
-        let daily_messages = usage_svc
-            .check_limit(&tenant_id_str, &user_id_str, "daily_messages")
-            .await?;
-        let daily_tokens = usage_svc
-            .check_limit(&tenant_id_str, &user_id_str, "daily_tokens")
-            .await?;
-        let daily_tool_calls = usage_svc
-            .check_limit(&tenant_id_str, &user_id_str, "daily_tool_calls")
-            .await?;
-        let weekly_messages = usage_svc
-            .check_limit(&tenant_id_str, &user_id_str, "weekly_messages")
-            .await?;
-        let weekly_tokens = usage_svc
-            .check_limit(&tenant_id_str, &user_id_str, "weekly_tokens")
-            .await?;
-        let weekly_tool_calls = usage_svc
-            .check_limit(&tenant_id_str, &user_id_str, "weekly_tool_calls")
-            .await?;
+        let daily_messages = check("daily_messages").await?;
+        let daily_tokens = check("daily_tokens").await?;
+        let daily_tool_calls = check("daily_tool_calls").await?;
+        let weekly_messages = check("weekly_messages").await?;
+        let weekly_tokens = check("weekly_tokens").await?;
+        let weekly_tool_calls = check("weekly_tool_calls").await?;
 
         // Get resource counts for conversations and agents
         let conversation_count = resources

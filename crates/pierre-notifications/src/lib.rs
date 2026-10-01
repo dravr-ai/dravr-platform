@@ -45,6 +45,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use pierre_core::errors::AppError;
 use serde_json::json;
+use tokio_util::task::TaskTracker;
 use tracing::{debug, info};
 use uuid::Uuid;
 
@@ -216,6 +217,14 @@ pub struct NotificationService {
     /// string catalogue is wired (bare test services); the row then carries
     /// the catalogue keys, which the notification centre resolves anyway.
     localizer: Option<Arc<dyn NotificationLocalizer>>,
+    /// The tracker every fire-and-forget trigger dispatch is spawned into.
+    ///
+    /// The server passes the one its shutdown drain awaits, so a notification
+    /// fired a moment before SIGTERM — a push and a linked-chat message the
+    /// athlete is about to read — leaves before the process exits instead of
+    /// being cut by the runtime's teardown. There is no untracked spawn: a
+    /// service is built with a tracker or not at all.
+    dispatches: TaskTracker,
 }
 
 impl Deref for NotificationService {
@@ -229,27 +238,35 @@ impl Deref for NotificationService {
 impl NotificationService {
     /// Create a service backed by a `SQLite` database pool, with no channel
     /// sink attached. Add one with [`Self::with_channel_sink`].
+    ///
+    /// `dispatches` is the tracker the [`triggers`] spawn each dispatch into;
+    /// the server passes the one its shutdown drain awaits.
     #[cfg(feature = "sqlite")]
     #[must_use]
-    pub fn from_sqlite(pool: sqlx::SqlitePool) -> Self {
+    pub fn from_sqlite(pool: sqlx::SqlitePool, dispatches: TaskTracker) -> Self {
         Self {
             inner: dravr_commere::NotificationService::from_sqlite(pool),
             channel_sink: None,
             policy_gate: None,
             localizer: None,
+            dispatches,
         }
     }
 
     /// Create a service backed by a `PostgreSQL` database pool, with no channel
     /// sink attached. Add one with [`Self::with_channel_sink`].
+    ///
+    /// `dispatches` is the tracker the [`triggers`] spawn each dispatch into;
+    /// the server passes the one its shutdown drain awaits.
     #[cfg(feature = "postgresql")]
     #[must_use]
-    pub fn from_postgres(pool: sqlx::PgPool) -> Self {
+    pub fn from_postgres(pool: sqlx::PgPool, dispatches: TaskTracker) -> Self {
         Self {
             inner: dravr_commere::NotificationService::from_postgres(pool),
             channel_sink: None,
             policy_gate: None,
             localizer: None,
+            dispatches,
         }
     }
 

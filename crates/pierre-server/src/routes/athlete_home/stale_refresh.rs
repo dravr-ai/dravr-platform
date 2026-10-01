@@ -11,6 +11,7 @@ use super::{
     ProviderConnection, RevalidationRegistry, ServerContext, SyncFailure, TenantId, ToolRuntime,
     Utc, Uuid,
 };
+use pierre_providers::backend_resolver::brand_name;
 
 /// Whether a last successful fetch is past the bands the chat path refreshes
 /// at: the same test `refresh_stale_head` applies per provider.
@@ -84,13 +85,14 @@ pub(super) async fn stale_refresh_plan(
                 .is_none_or(|newest| failed_at > newest.failed_at)
             {
                 let provider = user_facing_name(&connection.provider);
+                // The brand, read the way the connect card reads it: a mirror
+                // slug (`trainingpeaks`) has no descriptor of its own, and a
+                // lookup by slug printed the slug itself.
                 plan.failure = Some(SyncFailure {
                     provider: provider.to_owned(),
-                    provider_name: resources
-                        .fitness
-                        .provider_registry
-                        .get_descriptor(provider)
-                        .map_or_else(|| provider.to_owned(), |d| d.display_name().to_owned()),
+                    provider_name: brand_name(&resources.fitness.provider_registry, provider)
+                        .unwrap_or(provider)
+                        .to_owned(),
                     failed_at,
                     last_synced_at: last_sync,
                 });

@@ -59,6 +59,9 @@ pierre-notifications = { version = "0.3.0", path = "../pierre-notifications" }
 pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
 pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
 dravr-meteo = { workspace = true }
+# Localized short dates (month names in the five platform locales) for the
+# dated conversation title, shared with the chart axis ticks.
+photograveur = { workspace = true }
 dravr-enforme = { workspace = true, optional = true, features = ["provider-whoop", "provider-garmin", "provider-coros"] }
 
 dravr-tronc = { workspace = true, features = ["notifications"] }

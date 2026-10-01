@@ -288,6 +288,7 @@ mod dispatch_outcome {
     use pierre_notifications::{NotificationService, TenantId as CommTenantId};
     use pierre_services::agent_followup_scheduler::tick;
     use sqlx::sqlite::SqlitePoolOptions;
+    use tokio_util::task::TaskTracker;
     use uuid::Uuid;
 
     /// A notification service whose store has no tables at all: every
@@ -298,7 +299,7 @@ mod dispatch_outcome {
             .max_connections(1)
             .connect("sqlite::memory:")
             .await?;
-        Ok(NotificationService::from_sqlite(pool))
+        Ok(NotificationService::from_sqlite(pool, TaskTracker::new()))
     }
 
     /// The notification service on the scheduler's own database, where the
@@ -306,11 +307,11 @@ mod dispatch_outcome {
     fn reachable_notification_service(db: &Database) -> NotificationService {
         match db.backend() {
             DatabaseBackend::SQLite(sqlite) => {
-                NotificationService::from_sqlite(sqlite.pool().clone())
+                NotificationService::from_sqlite(sqlite.pool().clone(), TaskTracker::new())
             }
             #[cfg(feature = "postgresql")]
             DatabaseBackend::PostgreSQL(pg) => {
-                NotificationService::from_postgres(pg.pool().clone())
+                NotificationService::from_postgres(pg.pool().clone(), TaskTracker::new())
             }
         }
     }

@@ -64,6 +64,7 @@ mod digest_tests {
     use pierre_services::persona_notification_policy_gate::PersonaNotificationPolicyGate;
     use pierre_tool_runtime::activity_fetch::write_through::write_through_served_window;
     use pierre_tool_runtime::runtime::ToolRuntime;
+    use tokio_util::task::TaskTracker;
 
     const CASUAL_P0_WEEKLY: &str = r"
 version: 1
@@ -131,11 +132,11 @@ personas:
     fn notification_service(db: &Database) -> NotificationService {
         match db.backend() {
             DatabaseBackend::SQLite(sqlite) => {
-                NotificationService::from_sqlite(sqlite.pool().clone())
+                NotificationService::from_sqlite(sqlite.pool().clone(), TaskTracker::new())
             }
             #[cfg(feature = "postgresql")]
             DatabaseBackend::PostgreSQL(pg) => {
-                NotificationService::from_postgres(pg.pool().clone())
+                NotificationService::from_postgres(pg.pool().clone(), TaskTracker::new())
             }
         }
     }

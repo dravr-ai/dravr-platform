@@ -55,13 +55,8 @@ function makeStatusResponse(overrides: Partial<{
   };
 }
 
-/**
- * Params for the sentence under test. `label` is itself a catalogue key: the
- * banner translates it and passes it back in, which is the behaviour the
- * rendering assertions below depend on.
- */
+/** Params for the sentence under test. */
 const SAMPLE_PARAMS = {
-  label: 'usage.dailyMessages',
   current: 80,
   limit: 100,
   percent: 80,
@@ -93,7 +88,7 @@ describe('computeWarningState', () => {
     expect(state.level).toBe('warning');
     expect(state.sendDisabled).toBe(false);
     expect(state.text?.params?.percent).toBe(80);
-    expect(state.text?.params?.label).toBe('usage.dailyMessages');
+    expect(state.text?.key).toBe('usage.used.dailyMessages');
   });
 
   it('returns burst when in burst zone', () => {
@@ -104,7 +99,7 @@ describe('computeWarningState', () => {
 
     expect(state.level).toBe('burst');
     expect(state.sendDisabled).toBe(false);
-    expect(state.text?.key).toBe('usage.burstZone');
+    expect(state.text?.key).toBe('usage.burst.dailyMessages');
   });
 
   it('returns blocked when not allowed', () => {
@@ -115,7 +110,7 @@ describe('computeWarningState', () => {
 
     expect(state.level).toBe('blocked');
     expect(state.sendDisabled).toBe(true);
-    expect(state.text?.key).toBe('usage.blockedLimitReached');
+    expect(state.text?.key).toBe('usage.reached.dailyMessages');
   });
 
   it('picks the most severe level across counters', () => {
@@ -136,11 +131,10 @@ describe('UsageWarningBanner', () => {
   });
 
   it('renders warning banner on the warning token', () => {
-    render(<UsageWarningBanner level="warning" text={{ key: 'usage.percentUsed', params: SAMPLE_PARAMS }} />);
+    render(<UsageWarningBanner level="warning" text={{ key: 'usage.used.dailyMessages', params: SAMPLE_PARAMS }} />);
     const banner = screen.getByTestId('usage-warning-banner');
     expect(banner).toBeDefined();
-    // The banner renders the catalogue sentence, with the counter label
-    // translated from its own key rather than pasted in as English.
+    // The banner renders the counter's own catalogue sentence.
     expect(banner.textContent).toContain('80%');
     expect(banner.textContent).toContain('your daily messages');
     expect(banner.textContent).toContain('(80/100)');
@@ -148,13 +142,13 @@ describe('UsageWarningBanner', () => {
   });
 
   it('renders burst banner on the warning token at heavier weight', () => {
-    render(<UsageWarningBanner level="burst" text={{ key: 'usage.percentUsed', params: SAMPLE_PARAMS }} />);
+    render(<UsageWarningBanner level="burst" text={{ key: 'usage.used.dailyMessages', params: SAMPLE_PARAMS }} />);
     const banner = screen.getByTestId('usage-warning-banner');
     expect(banner.className).toContain('bg-warning/25');
   });
 
   it('renders blocked banner on the error token', () => {
-    render(<UsageWarningBanner level="blocked" text={{ key: 'usage.percentUsed', params: SAMPLE_PARAMS }} />);
+    render(<UsageWarningBanner level="blocked" text={{ key: 'usage.used.dailyMessages', params: SAMPLE_PARAMS }} />);
     const banner = screen.getByTestId('usage-warning-banner');
     expect(banner.className).toContain('bg-error/10');
   });
@@ -165,7 +159,7 @@ describe('UsageWarningBanner', () => {
   it('styles every escalation level distinguishably', () => {
     const seen = new Set<string>();
     for (const level of ['warning', 'burst', 'blocked'] as const) {
-      const { unmount } = render(<UsageWarningBanner level={level} text={{ key: 'usage.percentUsed', params: SAMPLE_PARAMS }} />);
+      const { unmount } = render(<UsageWarningBanner level={level} text={{ key: 'usage.used.dailyMessages', params: SAMPLE_PARAMS }} />);
       seen.add(screen.getByTestId('usage-warning-banner').className);
       unmount();
     }
@@ -173,7 +167,7 @@ describe('UsageWarningBanner', () => {
   });
 
   it('can be dismissed when not blocked', () => {
-    render(<UsageWarningBanner level="warning" text={{ key: 'usage.percentUsed', params: SAMPLE_PARAMS }} />);
+    render(<UsageWarningBanner level="warning" text={{ key: 'usage.used.dailyMessages', params: SAMPLE_PARAMS }} />);
     const dismissBtn = screen.getByLabelText('Dismiss warning');
     fireEvent.click(dismissBtn);
     expect(screen.queryByTestId('usage-warning-banner')).toBeNull();
@@ -181,7 +175,7 @@ describe('UsageWarningBanner', () => {
 
   it('prints a token cap grouped as a French athlete reads it', async () => {
     // The sentence carried the raw counts, `(456792/500000)`, under French
-    // chrome; it reads `(456 792/500 000)`, with the label in French too.
+    // chrome; it reads `(456 792/500 000)`, in a French sentence.
     await i18n.changeLanguage('fr');
     try {
       const data = makeStatusResponse({
@@ -198,8 +192,50 @@ describe('UsageWarningBanner', () => {
     }
   });
 
+  it('says a reached limit as one sentence per counter, in French and English', async () => {
+    // "Limite {{label}} atteinte" filled with "tes messages quotidiens" read
+    // "Limite tes messages quotidiens atteinte", and English opened lowercase:
+    // "your daily messages limit reached".
+    const data = makeStatusResponse({
+      dailyMessages: makeLimitCheck({ current: 50, limit: 50, allowed: false }),
+    });
+    await i18n.changeLanguage('fr');
+    try {
+      const fr = computeWarningState(data, 'minuit UTC', 'fr');
+      const { unmount } = render(<UsageWarningBanner level={fr.level} text={fr.text} />);
+      expect(screen.getByTestId('usage-warning-banner').textContent).toBe(
+        `Limite de messages quotidiens atteinte. Les limites se réinitialisent à ${String(fr.text?.params?.time)}.`,
+      );
+      unmount();
+    } finally {
+      await i18n.changeLanguage('en');
+    }
+    const en = computeWarningState(data, 'midnight UTC', 'en');
+    render(<UsageWarningBanner level={en.level} text={en.text} />);
+    expect(screen.getByTestId('usage-warning-banner').textContent).toBe(
+      `Daily message limit reached. Limits reset at ${String(en.text?.params?.time)}.`,
+    );
+  });
+
+  it('inflects the counter it names in German', async () => {
+    // "von {{label}}" took "deine täglichen Tokens" in the accusative.
+    await i18n.changeLanguage('de');
+    try {
+      const data = makeStatusResponse({
+        dailyTokens: makeLimitCheck({ warning: true, current: 456_792, limit: 500_000 }),
+      });
+      const state = computeWarningState(data, 'Mitternacht UTC', 'de');
+      render(<UsageWarningBanner level={state.level} text={state.text} />);
+      expect(screen.getByTestId('usage-warning-banner').textContent).toContain(
+        'Du hast 91 % deiner täglichen Tokens (456.792/500.000) verbraucht.',
+      );
+    } finally {
+      await i18n.changeLanguage('en');
+    }
+  });
+
   it('cannot be dismissed when blocked', () => {
-    render(<UsageWarningBanner level="blocked" text={{ key: 'usage.percentUsed', params: SAMPLE_PARAMS }} />);
+    render(<UsageWarningBanner level="blocked" text={{ key: 'usage.used.dailyMessages', params: SAMPLE_PARAMS }} />);
     expect(screen.queryByLabelText('Dismiss warning')).toBeNull();
     expect(screen.getByTestId('usage-warning-banner')).toBeDefined();
   });

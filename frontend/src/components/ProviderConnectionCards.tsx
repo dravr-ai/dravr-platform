@@ -98,8 +98,11 @@ interface ProviderConnectionCardsProps {
   connectingProvider?: string | null;
   onSkip?: () => void;
   isSkipPending?: boolean;
-  /** Forwarded from `SciotteLoginModal` when the BYO Strava OAuth popup opens. */
-  onOAuthLaunched?: (provider: string) => void;
+  /**
+   * Forwarded from `SciotteLoginModal` when the BYO Strava OAuth popup opens,
+   * with the provider's brand.
+   */
+  onOAuthLaunched?: (providerName: string) => void;
 }
 
 export default function ProviderConnectionCards({
@@ -392,7 +395,9 @@ export default function ProviderConnectionCards({
       <SciotteLoginModal
         isOpen={sciotteModalTarget !== null}
         onClose={() => setSciotteModalTarget(null)}
-        onOAuthLaunched={onOAuthLaunched}
+        onOAuthLaunched={
+          onOAuthLaunched && ((target) => onOAuthLaunched(t(SCIOTTE_LOGIN_PRESETS[target].labelKey)))
+        }
         onConnected={() => {
           refetch();
           // Sciotte completes in-process (no OAuth callback URL), so we have to

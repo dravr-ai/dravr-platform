@@ -88,7 +88,7 @@ describe('computeWarningState', () => {
     expect(state.level).toBe('warning');
     expect(state.sendDisabled).toBe(false);
     expect(state.message).toContain('"percent":80');
-    expect(state.message).toContain('usage.dailyMessages');
+    expect(state.message).toContain('usage.used.dailyMessages');
   });
 
   it('returns burst when in burst zone', () => {
@@ -99,8 +99,7 @@ describe('computeWarningState', () => {
 
     expect(state.level).toBe('burst');
     expect(state.sendDisabled).toBe(false);
-    expect(state.message).toContain('usage.burstZone');
-    expect(state.message).toContain('usage.dailyMessages');
+    expect(state.message).toContain('usage.burst.dailyMessages');
   });
 
   it('returns blocked when not allowed', () => {
@@ -111,17 +110,17 @@ describe('computeWarningState', () => {
 
     expect(state.level).toBe('blocked');
     expect(state.sendDisabled).toBe(true);
-    expect(state.message).toContain('usage.blockedLimitReached');
+    expect(state.message).toContain('usage.reached.dailyMessages');
   });
 
-  it('uses the triggering counter label in blocked message', () => {
+  it("uses the triggering counter's own sentence when blocked", () => {
     const data = makeStatusResponse({
       dailyTokens: makeLimitCheck({ current: 100, limit: 50, allowed: false, warning: true, burst_zone: true }),
     });
     const state = computeWarningState(data, translate, 'en');
 
     expect(state.level).toBe('blocked');
-    expect(state.message).toContain('usage.dailyTokens');
+    expect(state.message).toContain('usage.reached.dailyTokens');
   });
 
   it('picks the most severe level across counters', () => {
@@ -132,7 +131,7 @@ describe('computeWarningState', () => {
     const state = computeWarningState(data, translate, 'en');
 
     expect(state.level).toBe('burst');
-    expect(state.message).toContain('usage.dailyTokens');
+    expect(state.message).toContain('usage.burst.dailyTokens');
   });
 
   it('blocked overrides burst and warning', () => {
@@ -145,7 +144,7 @@ describe('computeWarningState', () => {
 
     expect(state.level).toBe('blocked');
     expect(state.sendDisabled).toBe(true);
-    expect(state.message).toContain('usage.weeklyMessages');
+    expect(state.message).toContain('usage.reached.weeklyMessages');
   });
 
   it('includes reset time in message', () => {
@@ -170,6 +169,24 @@ describe('computeWarningState', () => {
 
       expect(state.message).toContain('91 % de tes jetons quotidiens (456\u202f792/500\u202f000)');
       expect(state.message).not.toContain('456792');
+    } finally {
+      await i18n.changeLanguage('en');
+    }
+  });
+
+  it('says a reached daily message limit as one French sentence', async () => {
+    // "Limite {{label}} atteinte" filled with "tes messages quotidiens" read
+    // "Limite tes messages quotidiens atteinte".
+    await i18n.changeLanguage('fr');
+    try {
+      const data = makeStatusResponse({
+        dailyMessages: makeLimitCheck({ current: 50, limit: 50, allowed: false }),
+      });
+      const state = computeWarningState(data, i18n.t.bind(i18n), 'fr');
+
+      expect(state.message).toMatch(
+        /^Limite de messages quotidiens atteinte\. Les limites se réinitialisent à .+\.$/,
+      );
     } finally {
       await i18n.changeLanguage('en');
     }

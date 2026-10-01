@@ -443,6 +443,10 @@ impl ServerContext {
         // Sync tool_catalog table with registry so tenant filtering always has complete data
         Self::run_tool_catalog_sync(&tool_registry, &repos).await;
 
+        // The tracker the shutdown drain awaits. Created ahead of the
+        // notification service, which spawns every trigger dispatch onto it.
+        let turns = Arc::new(InFlightTurns::new());
+
         // Create notification service and start scheduler if notifications
         // feature is enabled. Built after the contremaitre registries because
         // the messaging sink renders notification bodies through the localized
@@ -453,6 +457,7 @@ impl ServerContext {
             &repos,
             &contremaitre_messaging_strings_registry,
             &persona_contract_registry,
+            &turns,
         ));
 
         // Start the background notification scheduler if service is available
@@ -502,7 +507,7 @@ impl ServerContext {
         let common = super::slices::CommonSlice {
             repos,
             cache: cache_arc,
-            turns: Arc::new(InFlightTurns::new()),
+            turns,
             // The binary selects the runner from the environment and passes
             // it in; a context built without one runs turns in-process.
             turn_runner: options
@@ -775,18 +780,25 @@ impl ServerContext {
     /// tiered dispatch consults the recipient's persona push policy (shadow
     /// verdicts until `FeatureKey::PersonaNotificationPolicy` arms it), so no
     /// call site can route around the contract's notification promise.
+    ///
+    /// Every trigger dispatch is spawned onto `turns`' tracker, so the
+    /// shutdown drain awaits a notification fired just before SIGTERM the way
+    /// it awaits a turn, instead of the runtime's teardown cutting it.
     #[cfg(feature = "client-notifications")]
     fn create_notification_service(
         database: &Arc<Database>,
         repos: &Arc<RepositoryRegistry>,
         messaging_strings: &Arc<MessagingStringsRegistry>,
         persona_contracts: &Arc<PersonaContractRegistry>,
+        turns: &InFlightTurns,
     ) -> Arc<NotificationService> {
         let service = match database.backend() {
-            DatabaseBackend::SQLite(db) => NotificationService::from_sqlite(db.pool().clone()),
+            DatabaseBackend::SQLite(db) => {
+                NotificationService::from_sqlite(db.pool().clone(), turns.tracker())
+            }
             #[cfg(feature = "postgresql")]
             DatabaseBackend::PostgreSQL(db) => {
-                NotificationService::from_postgres(db.pool().clone())
+                NotificationService::from_postgres(db.pool().clone(), turns.tracker())
             }
         };
         #[cfg(feature = "client-messaging")]

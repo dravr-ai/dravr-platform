@@ -70,7 +70,7 @@ describe('computeWarningState', () => {
     expect(result.level).toBe('warning')
     expect(result.sendDisabled).toBe(false)
     expect(result.text?.params?.percent).toBe(80)
-    expect(result.text?.params?.label).toBe('usage.dailyMessages')
+    expect(result.text?.key).toBe('usage.used.dailyMessages')
     expect(result.text?.params).toMatchObject({ current: '80', limit: '100' })
   })
 
@@ -99,8 +99,7 @@ describe('computeWarningState', () => {
 
     expect(result.level).toBe('burst')
     expect(result.sendDisabled).toBe(false)
-    expect(result.text?.key).toBe('usage.burstZone')
-    expect(result.text?.params?.label).toBe('usage.dailyTokens')
+    expect(result.text?.key).toBe('usage.burst.dailyTokens')
   })
 
   it('should return blocked level when a counter is not allowed', () => {
@@ -111,8 +110,7 @@ describe('computeWarningState', () => {
 
     expect(result.level).toBe('blocked')
     expect(result.sendDisabled).toBe(true)
-    expect(result.text?.key).toBe('usage.blockedLimitReached')
-    expect(result.text?.params?.label).toBe('usage.dailyMessages')
+    expect(result.text?.key).toBe('usage.reached.dailyMessages')
   })
 
   it('should prioritize blocked over burst', () => {
@@ -174,7 +172,7 @@ describe('computeWarningState', () => {
     const result = computeWarningState(data, 'midnight UTC', 'en')
 
     expect(result.level).toBe('blocked')
-    expect(result.text?.params?.label).toBe('usage.weeklyMessages')
+    expect(result.text?.key).toBe('usage.reached.weeklyMessages')
   })
 })
 
@@ -210,7 +208,7 @@ describe('warningStateFromNotice', () => {
     }, 'midnight UTC', 'en')
 
     expect(state.level).toBe('burst')
-    expect(state.text?.key).toBe('usage.burstZone')
+    expect(state.text?.key).toBe('usage.burst.messageQuota')
     expect(state.text?.params).toMatchObject({ current: '56', limit: '50' })
   })
 })

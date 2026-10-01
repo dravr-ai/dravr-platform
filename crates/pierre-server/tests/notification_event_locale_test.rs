@@ -35,6 +35,7 @@ mod notification_event_locale_tests {
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::time::sleep;
+    use tokio_util::task::TaskTracker;
     use uuid::Uuid;
 
     /// The notification service the server boots: the upstream pipeline plus
@@ -42,11 +43,11 @@ mod notification_event_locale_tests {
     fn notification_service(resources: &ServerContext) -> NotificationService {
         let service = match resources.agent.database.backend() {
             DatabaseBackend::SQLite(sqlite) => {
-                NotificationService::from_sqlite(sqlite.pool().clone())
+                NotificationService::from_sqlite(sqlite.pool().clone(), TaskTracker::new())
             }
             #[cfg(feature = "postgresql")]
             DatabaseBackend::PostgreSQL(pg) => {
-                NotificationService::from_postgres(pg.pool().clone())
+                NotificationService::from_postgres(pg.pool().clone(), TaskTracker::new())
             }
         };
         service.with_localizer(Arc::new(UserLocaleNotificationLocalizer::new(
