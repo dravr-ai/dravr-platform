@@ -637,7 +637,8 @@ async fn a_deep_request_pages_past_the_single_response_cap() {
 }
 
 /// `get_activity_with_streams` folds the streams endpoint's response —
-/// including the flat interleaved `latlng` list — into the activity's
+/// including `latlng`, whose latitudes come in `data` and longitudes in
+/// `data2` — into the activity's
 /// time-series data. Three sequential requests: the activity, its comment
 /// thread (the tier sits above the detail read), then its streams.
 #[tokio::test]
@@ -654,7 +655,9 @@ async fn get_activity_with_streams_folds_the_streams_response() {
     let streams_body = serde_json::json!([
         { "type": "heartrate", "data": [130.0, 131.0, 132.0, 133.0] },
         { "type": "watts", "data": [210.0, 212.0, 214.0, 216.0] },
-        { "type": "latlng", "data": [45.5, -73.6, 45.501, -73.601, 45.502, -73.602, 45.503, -73.603] }
+        { "type": "latlng",
+          "data": [45.5, 45.501, 45.502, 45.503],
+          "data2": [-73.6, -73.601, -73.602, -73.603] }
     ])
     .to_string();
 
@@ -713,7 +716,7 @@ async fn get_activity_with_streams_folds_the_streams_response() {
             (45.502, -73.602),
             (45.503, -73.603)
         ],
-        "the flat interleaved latlng list folds into pairs"
+        "latitudes from data pair with longitudes from data2"
     );
     assert_eq!(
         stream.timestamps.len(),

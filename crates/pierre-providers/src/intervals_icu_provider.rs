@@ -669,6 +669,10 @@ struct IntervalsIcuStream {
     #[serde(rename = "type")]
     stream_type: String,
     data: Vec<f64>,
+    /// The second series of a two-valued stream: the longitudes of `latlng`,
+    /// whose `data` holds the latitudes. Absent on every other stream type.
+    #[serde(default)]
+    data2: Vec<f64>,
 }
 
 fn streams_to_time_series(streams: &[IntervalsIcuStream]) -> TimeSeriesData {
@@ -678,18 +682,9 @@ fn streams_to_time_series(streams: &[IntervalsIcuStream]) -> TimeSeriesData {
     let mut speed: Option<Vec<f32>> = None;
     let mut altitude: Option<Vec<f32>> = None;
     let mut latlng: Vec<(f64, f64)> = Vec::new();
-    let mut latlng_pending: Option<f64> = None;
     let mut max_len = 0_usize;
     for stream in streams {
-        // latlng is a FLAT interleaved list: its sample count is half its
-        // raw length. Counting it raw synthesised a timestamp axis twice as
-        // long as the real recording whenever GPS was present.
-        let sample_len = if stream.stream_type == "latlng" {
-            stream.data.len() / 2
-        } else {
-            stream.data.len()
-        };
-        max_len = max_len.max(sample_len);
+        max_len = max_len.max(stream.data.len());
         match stream.stream_type.as_str() {
             "heartrate" => {
                 hr = Some(stream.data.iter().map(|v| *v as u32).collect());
@@ -707,14 +702,16 @@ fn streams_to_time_series(streams: &[IntervalsIcuStream]) -> TimeSeriesData {
                 altitude = Some(stream.data.iter().map(|v| *v as f32).collect());
             }
             "latlng" => {
-                // Intervals.icu sends interleaved lat/lon as a flat list.
-                for value in &stream.data {
-                    if let Some(lat) = latlng_pending.take() {
-                        latlng.push((lat, *value));
-                    } else {
-                        latlng_pending = Some(*value);
-                    }
-                }
+                // Intervals.icu sends one latitude per sample in `data` and
+                // the matching longitude in `data2`. Pairing consecutive
+                // `data` values instead puts every point at (lat, lat): a
+                // straight diagonal half a world away from the recording.
+                latlng = stream
+                    .data
+                    .iter()
+                    .zip(&stream.data2)
+                    .map(|(lat, lon)| (*lat, *lon))
+                    .collect();
             }
             _ => {}
         }
