@@ -152,7 +152,11 @@ FROM --platform=linux/amd64 debian:trixie-slim
 # openssl-provider-legacy. Gated two consecutive dev deploys on 2026-09-30
 # (01f236f2f and 1d9673d3a, neither touching a Docker file); the 1d9673d3a run
 # echoes "apt security epoch: 2026-09-27" with deb13u2 installed.
-ARG APT_SECURITY_EPOCH=2026-09-30
+# chromium 154.0.8037.92-1~deb13u1 closes 22 HIGH findings (CVE-2026-102299
+# through CVE-2026-102329: V8 type confusion, use-after-free and out-of-bounds
+# reads/writes); the 2026-10-01 deploy of 9ba210b0f, which touched no Docker
+# file, was gated with 154.0.8037.57-1~deb13u1 installed.
+ARG APT_SECURITY_EPOCH=2026-10-01
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
