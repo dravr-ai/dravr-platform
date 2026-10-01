@@ -1402,7 +1402,12 @@
     "update": "Mettre à jour",
     "welcome": "Bienvenue",
     "yes": "Oui",
-    "username": "Nom d'utilisateur"
+    "username": "Nom d'utilisateur",
+    "duration": {
+      "hours": "{{value}} h",
+      "minutes": "{{value}} min",
+      "seconds": "{{value}} s"
+    }
   },
   "convPanel": {
     "deleteOne": "Supprimer la conversation",

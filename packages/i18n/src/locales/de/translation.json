@@ -1402,7 +1402,12 @@
     "update": "Aktualisieren",
     "welcome": "Willkommen",
     "yes": "Ja",
-    "username": "Benutzername"
+    "username": "Benutzername",
+    "duration": {
+      "hours": "{{value}} Std.",
+      "minutes": "{{value}} Min.",
+      "seconds": "{{value}} Sek."
+    }
   },
   "convPanel": {
     "deleteOne": "Unterhaltung löschen",

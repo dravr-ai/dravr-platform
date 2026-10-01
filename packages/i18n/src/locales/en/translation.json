@@ -1402,7 +1402,12 @@
     "update": "Update",
     "welcome": "Welcome",
     "yes": "Yes",
-    "username": "Username"
+    "username": "Username",
+    "duration": {
+      "hours": "{{value}}h",
+      "minutes": "{{value}}m",
+      "seconds": "{{value}}s"
+    }
   },
   "convPanel": {
     "deleteOne": "Delete Conversation",

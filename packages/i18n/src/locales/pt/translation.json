@@ -1402,7 +1402,12 @@
     "update": "Atualizar",
     "welcome": "Bem-vindo",
     "yes": "Sim",
-    "username": "Nome de utilizador"
+    "username": "Nome de utilizador",
+    "duration": {
+      "hours": "{{value}} h",
+      "minutes": "{{value}} min",
+      "seconds": "{{value}} s"
+    }
   },
   "convPanel": {
     "deleteOne": "Eliminar conversa",
