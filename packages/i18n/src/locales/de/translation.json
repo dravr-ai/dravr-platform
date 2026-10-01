@@ -1407,6 +1407,10 @@
       "hours": "{{value}} Std.",
       "minutes": "{{value}} Min.",
       "seconds": "{{value}} Sek."
+    },
+    "compact": {
+      "thousands": "{{value}} Tsd.",
+      "millions": "{{value}} Mio."
     }
   },
   "convPanel": {
@@ -2793,6 +2797,7 @@
     "previewSpecificsHint": "Die Details — die 24 %, der Schlaf, die Größe des Blocks — kommen aus dem Dienst, den du verbindest. Ohne einen kann ein Agent dir nur die allgemeine Antwort geben.",
     "roleAdmin": "Admin",
     "roleSuperAdmin": "Super Admin",
+    "roleUser": "Benutzer",
     "sciotteAppleAccount": "Apple-Konto",
     "sciotteApproveOnPhone": "Sieh auf dein Handy und bestätige die Anmeldung",
     "sciotteBack": "Zurück",

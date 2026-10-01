@@ -1407,6 +1407,10 @@
       "hours": "{{value}} h",
       "minutes": "{{value}} min",
       "seconds": "{{value}} s"
+    },
+    "compact": {
+      "thousands": "{{value}} mil",
+      "millions": "{{value}} mi"
     }
   },
   "convPanel": {
@@ -2793,6 +2797,7 @@
     "previewSpecificsHint": "Os detalhes — os 24 %, o sono, o tamanho do bloco — são lidos do serviço que ligas. Sem nenhum, um agente só te pode dar a resposta genérica.",
     "roleAdmin": "Admin",
     "roleSuperAdmin": "Super Admin",
+    "roleUser": "Usuário",
     "sciotteAppleAccount": "Conta Apple",
     "sciotteApproveOnPhone": "Vê o teu telemóvel e aprova o início de sessão",
     "sciotteBack": "Voltar",

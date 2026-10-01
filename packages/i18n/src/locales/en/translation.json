@@ -1407,6 +1407,10 @@
       "hours": "{{value}}h",
       "minutes": "{{value}}m",
       "seconds": "{{value}}s"
+    },
+    "compact": {
+      "thousands": "{{value}}K",
+      "millions": "{{value}}M"
     }
   },
   "convPanel": {
@@ -2793,6 +2797,7 @@
     "previewSpecificsHint": "The specifics — the 24%, the sleep, the size of the block — are read from the service you connect. Without one, an agent can only give you the generic answer.",
     "roleAdmin": "Admin",
     "roleSuperAdmin": "Super Admin",
+    "roleUser": "User",
     "sciotteAppleAccount": "Apple Account",
     "sciotteApproveOnPhone": "Check your phone and approve the sign-in",
     "sciotteBack": "Back",
