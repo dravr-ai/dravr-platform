@@ -70,6 +70,15 @@ describe('ConversationItem anatomy', () => {
     expect(screen.getByTestId('conversation-timestamp')).toHaveTextContent('09:50');
   });
 
+  it('labels an archived thread, and only an archived one', () => {
+    const { unmount } = renderRow(conversation({ archived_at: '2026-08-26T07:00:00Z' }));
+    expect(screen.getByTestId('conversation-archived-badge')).toHaveTextContent('Archived');
+    unmount();
+
+    renderRow(conversation({ archived_at: null }));
+    expect(screen.queryByTestId('conversation-archived-badge')).toBeNull();
+  });
+
   it('bolds the title and shows the count while the thread has unread rows', () => {
     renderRow(conversation({ unread_count: 3 }));
 

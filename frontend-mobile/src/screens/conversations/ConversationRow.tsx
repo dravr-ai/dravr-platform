@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: One row of the unified conversation list — avatar, kind glyph, title, preview, time and the one count capsule
+// ABOUTME: One row of the unified conversation list — avatar, kind glyph, title, archived label, preview, time, count capsule
 // ABOUTME: Swipe right reveals Mark unread and swipe left reveals Delete; long-press hands the row to the host's menu
 
 import React from 'react';
@@ -78,7 +78,8 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
   const glyph = KIND_GLYPH[row.kind];
   // Shape reaches no screen reader (WCAG 1.3.3), so the row's own label says
   // what kind of thread it is, in words, before the title.
-  const spokenTitle = glyph ? `${t(glyph.labelKey)}, ${row.title}` : row.title;
+  const namedTitle = glyph ? `${t(glyph.labelKey)}, ${row.title}` : row.title;
+  const spokenTitle = row.archived ? `${namedTitle}, ${t('chat.archived')}` : namedTitle;
 
   const leftActions: SwipeAction[] = [
     {
@@ -152,6 +153,16 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
                 testID={`conversation-handle-${row.id}`}
               >
                 {MENTION_PREFIX}{row.agentHandle}
+              </Text>
+            )}
+            {/* An archived thread holds no conversation slot; a turn into it takes one back. */}
+            {row.archived && (
+              <Text
+                className="text-xs font-medium text-text-tertiary ml-1.5"
+                numberOfLines={1}
+                testID={`conversation-archived-${row.id}`}
+              >
+                {t('chat.archived')}
               </Text>
             )}
             <Text

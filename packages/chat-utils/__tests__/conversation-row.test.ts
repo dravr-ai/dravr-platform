@@ -232,6 +232,7 @@ describe('buildConversationRow', () => {
       timestamp: '09:50',
       unreadCount: 3,
       lastActivityAt: localIso(2026, 8, 27, 9, 50),
+      archived: false,
     });
   });
 
@@ -247,6 +248,14 @@ describe('buildConversationRow', () => {
     expect(row.timestamp).toBe('Mon');
     expect(row.lastActivityAt).toBe(localIso(2026, 8, 24, 8, 0));
     expect(row.unreadCount).toBe(0);
+  });
+
+  it('marks a thread archived only when the server stamped archived_at', () => {
+    expect(
+      buildConversationRow(conversation({ archived_at: localIso(2026, 8, 26, 7, 0) }), LABELS, NOW).archived,
+    ).toBe(true);
+    expect(buildConversationRow(conversation({ archived_at: null }), LABELS, NOW).archived).toBe(false);
+    expect(buildConversationRow(conversation({}), LABELS, NOW).archived).toBe(false);
   });
 
   it('badges a messaging-origin thread from its channel_type', () => {

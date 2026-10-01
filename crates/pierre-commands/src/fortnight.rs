@@ -51,6 +51,11 @@ pub struct FortnightHandler;
 
 #[async_trait]
 impl CommandHandler for FortnightHandler {
+    /// Opens the fortnight walk in this thread; the next turns answer it here.
+    fn resumes_thread(&self, _args: &[String]) -> bool {
+        true
+    }
+
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
         let reg = ctx.ctx.messaging_strings_registry();
         let repos = ctx.ctx.repos();

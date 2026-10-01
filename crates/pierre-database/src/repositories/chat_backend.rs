@@ -14,10 +14,17 @@
 /// reads are the one thing in them that differs per driver; sqlx resolves
 /// the driver from `self.pool()` per expansion.
 ///
+/// `$lock` is the backend's clause for the owner slot lock (see
+/// `owner_slot_lock_sql!`): `FOR NO KEY UPDATE` on `PostgreSQL`, `""` on
+/// single-writer `SQLite`. `$begin` is the statement a slot decision's
+/// transaction opens with: `BEGIN IMMEDIATE` on `SQLite`, which takes the
+/// write lock up front, and a plain `BEGIN` on `PostgreSQL`, where the row
+/// lock does that job.
+///
 /// The body names its consts, helpers and types unqualified, so the invoking
 /// shell must `use` every one of them.
 macro_rules! impl_chat_repository {
-    ($ty:ty, $row:ty, $ids:ident) => {
+    ($ty:ty, $row:ty, $ids:ident, $lock:literal, $begin:literal) => {
         /// Decode one conversation row via `try_get` only: `Row::get` is
         /// `try_get().unwrap()`, and an unwind here takes the whole
         /// container down with every in-flight request on it.
@@ -44,6 +51,10 @@ macro_rules! impl_chat_repository {
                 group_id: $ids::read_text_opt(row, "group_id")?,
                 channel_type: col("channel_type")?,
                 onboarding_state: opt("onboarding_state")?,
+                archived_at: row
+                    .try_get::<Option<DateTime<Utc>>, _>("archived_at")
+                    .map_err(|e| chat_column_error("archived_at", &e))?
+                    .map(|t| t.to_rfc3339()),
             })
         }
 
@@ -84,6 +95,10 @@ macro_rules! impl_chat_repository {
                 group_id: $ids::read_text_opt(row, "group_id")?,
                 group_name: opt("group_name")?,
                 channel_type: opt("channel_type")?,
+                archived_at: row
+                    .try_get::<Option<DateTime<Utc>>, _>("archived_at")
+                    .map_err(|e| chat_column_error("archived_at", &e))?
+                    .map(|t| t.to_rfc3339()),
                 last_message,
                 unread_count: count("unread_count")?,
                 created_at: stamp_column(row, "created_at")?,
@@ -160,6 +175,50 @@ macro_rules! impl_chat_repository {
             })
         }
 
+        impl $ty {
+            /// Open the transaction every decision that can take one of a
+            /// user's `max_active_conversations` slots runs in.
+            ///
+            /// Begins with `$begin` — `BEGIN IMMEDIATE` on `SQLite`, so the
+            /// write lock is taken before the count is read and a concurrent
+            /// decision waits instead of failing its commit with a snapshot
+            /// conflict. With a cap, takes the owner slot lock and counts the
+            /// owner's active conversations under it. Returns the transaction
+            /// and, when the owner is already at the cap, that count: the
+            /// caller then returns without writing, and dropping the
+            /// transaction rolls it back.
+            async fn open_slot_transaction(
+                &self,
+                user_id: &str,
+                tenant: &str,
+                cap: Option<i64>,
+            ) -> AppResult<(
+                sqlx::Transaction<'static, <$row as sqlx::Row>::Database>,
+                Option<i64>,
+            )> {
+                let failed = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to decide a conversation slot: {e}"))
+                };
+                let mut tx = self.pool().begin_with($begin).await.map_err(failed)?;
+                let Some(cap) = cap else {
+                    return Ok((tx, None));
+                };
+                let user = $ids::bind_text(user_id)?;
+                sqlx::query(owner_slot_lock_sql!($lock))
+                    .bind(&user)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(failed)?;
+                let current: i64 = sqlx::query_scalar(COUNT_CONVERSATIONS_SQL)
+                    .bind(&user)
+                    .bind(tenant)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .map_err(failed)?;
+                Ok((tx, (current >= cap).then_some(current)))
+            }
+        }
+
         #[async_trait::async_trait]
         impl ChatRepository for $ty {
             async fn create_conversation(
@@ -171,23 +230,49 @@ macro_rules! impl_chat_repository {
                 agent_id: Option<&str>,
                 group_id: Option<&str>,
             ) -> AppResult<ConversationRecord> {
+                let new = NewConversation {
+                    user_id,
+                    tenant_id,
+                    title,
+                    model,
+                    agent_id,
+                    group_id,
+                };
+                match self.create_conversation_within_cap(&new, None).await? {
+                    SlotClaim::Claimed(conversation) => Ok(*conversation),
+                    // No cap was given, so there is nothing to be at.
+                    SlotClaim::AtCap { current } => Err(AppError::internal(format!(
+                        "uncapped conversation create reported a cap at {current}"
+                    ))),
+                }
+            }
+
+            async fn create_conversation_within_cap(
+                &self,
+                new: &NewConversation<'_>,
+                cap: Option<i64>,
+            ) -> AppResult<SlotClaim> {
                 let id = Uuid::new_v4().to_string();
                 let now = Utc::now();
-                let user = $ids::bind_text(user_id)?;
-                let group = $ids::bind_text_opt(group_id)?;
-                let tenant = tenant_id.to_string();
+                let user = $ids::bind_text(new.user_id)?;
+                let group = $ids::bind_text_opt(new.group_id)?;
+                let tenant = new.tenant_id.to_string();
 
-                let mut tx = self.pool().begin().await.map_err(|e| {
-                    AppError::database(format!("Failed to create conversation: {e}"))
-                })?;
+                let (mut tx, at_cap) = self
+                    .open_slot_transaction(new.user_id, &tenant, cap)
+                    .await?;
+                if let Some(current) = at_cap {
+                    // Dropping the transaction rolls it back; nothing was written.
+                    return Ok(SlotClaim::AtCap { current });
+                }
 
                 sqlx::query(CREATE_CONVERSATION_SQL)
                     .bind(&id)
                     .bind(&user)
                     .bind(&tenant)
-                    .bind(title)
-                    .bind(model)
-                    .bind(agent_id)
+                    .bind(new.title)
+                    .bind(new.model)
+                    .bind(new.agent_id)
                     .bind(group)
                     .bind(now)
                     .execute(&mut *tx)
@@ -212,24 +297,25 @@ macro_rules! impl_chat_repository {
                     AppError::database(format!("Failed to create conversation: {e}"))
                 })?;
 
-                Ok(ConversationRecord {
+                Ok(SlotClaim::Claimed(Box::new(ConversationRecord {
                     id,
-                    user_id: user_id.to_owned(),
+                    user_id: new.user_id.to_owned(),
                     tenant_id: tenant,
-                    title: title.to_owned(),
-                    model: model.to_owned(),
-                    agent_id: agent_id.map(ToOwned::to_owned),
+                    title: new.title.to_owned(),
+                    model: new.model.to_owned(),
+                    agent_id: new.agent_id.map(ToOwned::to_owned),
                     session_id: None,
                     total_tokens: 0,
                     created_at: now.to_rfc3339(),
                     updated_at: now.to_rfc3339(),
-                    group_id: group_id.map(ToOwned::to_owned),
+                    group_id: new.group_id.map(ToOwned::to_owned),
                     // The INSERT above does not name the column, so the stored
                     // value is the schema default. Callers that mean another
                     // channel stamp it afterwards through `set_conversation_channel`.
                     channel_type: CHANNEL_TYPE_WEB.to_owned(),
                     onboarding_state: None,
-                })
+                    archived_at: None,
+                })))
             }
 
             async fn get_conversation(
@@ -650,6 +736,87 @@ macro_rules! impl_chat_repository {
                     .fetch_one(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to count conversations: {e}")))
+            }
+
+            async fn archive_conversation(
+                &self,
+                conversation_id: &str,
+                user_id: &str,
+                tenant_id: TenantId,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(ARCHIVE_CONVERSATION_SQL)
+                    .bind(Utc::now())
+                    .bind(conversation_id)
+                    .bind($ids::bind_text(user_id)?)
+                    .bind(tenant_id.to_string())
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to archive conversation: {e}"))
+                    })?;
+                Ok(result.rows_affected() > 0)
+            }
+
+            async fn is_conversation_archived(
+                &self,
+                conversation_id: &str,
+                user_id: &str,
+                tenant_id: TenantId,
+            ) -> AppResult<bool> {
+                sqlx::query_scalar::<_, bool>(IS_ARCHIVED_SQL)
+                    .bind(conversation_id)
+                    .bind($ids::bind_text(user_id)?)
+                    .bind(tenant_id.to_string())
+                    .fetch_optional(self.pool())
+                    .await
+                    .map(|archived| archived.unwrap_or(false))
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to read conversation archive state: {e}"
+                        ))
+                    })
+            }
+
+            async fn reactivate_conversation(
+                &self,
+                conversation_id: &str,
+                user_id: &str,
+                tenant_id: TenantId,
+                cap: Option<i64>,
+            ) -> AppResult<Reactivation> {
+                let user = $ids::bind_text(user_id)?;
+                let tenant = tenant_id.to_string();
+                let failed = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to reactivate conversation: {e}"))
+                };
+
+                let (mut tx, at_cap) = self.open_slot_transaction(user_id, &tenant, cap).await?;
+                // Read under the lock: a concurrent turn may have reactivated
+                // the row since the caller looked.
+                let archived = sqlx::query_scalar::<_, bool>(IS_ARCHIVED_SQL)
+                    .bind(conversation_id)
+                    .bind(&user)
+                    .bind(&tenant)
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .map_err(failed)?
+                    .unwrap_or(false);
+                if !archived {
+                    return Ok(Reactivation::NotArchived);
+                }
+                if let Some(current) = at_cap {
+                    // Dropping the transaction rolls it back; the row stays archived.
+                    return Ok(Reactivation::AtCap { current });
+                }
+                sqlx::query(REACTIVATE_CONVERSATION_SQL)
+                    .bind(conversation_id)
+                    .bind(&user)
+                    .bind(&tenant)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(failed)?;
+                tx.commit().await.map_err(failed)?;
+                Ok(Reactivation::Reactivated)
             }
 
             async fn add_participant(

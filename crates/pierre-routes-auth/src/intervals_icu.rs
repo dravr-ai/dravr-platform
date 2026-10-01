@@ -21,7 +21,7 @@ use axum::Json;
 use chrono::Utc;
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::errors::AppError;
-use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
+use pierre_core::models::{Athlete, ConnectionType, TenantId, UserOAuthToken};
 use pierre_providers::OAuth2Credentials;
 use serde::Deserialize;
 use tracing::info;
@@ -78,9 +78,50 @@ pub async fn handle_intervals_icu_link(
     Json(request): Json<IntervalsIcuLinkRequest>,
 ) -> Result<Response, AppError> {
     let (user_id, tenant_id) = authenticate(&resources, &headers).await?;
+    let athlete = link_intervals_icu_account(
+        &resources,
+        user_id,
+        tenant_id,
+        &request.athlete_id,
+        &request.api_key,
+    )
+    .await?;
 
-    let athlete_id = request.athlete_id.trim().to_owned();
-    let api_key = request.api_key.trim().to_owned();
+    Ok(Json(serde_json::json!({
+        "status": "connected",
+        "provider": INTERVALS_ICU,
+        "athlete": {
+            "id": athlete.id,
+            "name": athlete.firstname,
+        }
+    }))
+    .into_response())
+}
+
+/// Validate an athlete id + API key against the live Intervals.icu API, then
+/// persist them for `user_id` in `tenant_id` and register the connection.
+///
+/// The one linking path behind both the session-authed web/mobile route
+/// ([`handle_intervals_icu_link`]) and the link-token-authed hosted connect
+/// form ([`crate::connect_hosted_intervals`]): the API key is stored encrypted
+/// in the access-token column, the athlete id plaintext in
+/// `provider_user_id`, and a `Manual` provider connection is registered so the
+/// resolver treats it like any other connected backend.
+///
+/// # Errors
+///
+/// Returns [`AppError`] when a field is empty, the provider is unavailable
+/// (feature not compiled in), Intervals.icu rejects the credentials, or the
+/// token or connection cannot be stored.
+pub async fn link_intervals_icu_account(
+    resources: &AuthRoutesContext,
+    user_id: Uuid,
+    tenant_id: Uuid,
+    athlete_id: &str,
+    api_key: &str,
+) -> Result<Athlete, AppError> {
+    let athlete_id = athlete_id.trim().to_owned();
+    let api_key = api_key.trim().to_owned();
     if athlete_id.is_empty() {
         return Err(AppError::invalid_input("athlete_id is required"));
     }
@@ -156,17 +197,9 @@ pub async fn handle_intervals_icu_link(
     // The wellness feed syncs like any health source; read its last month now
     // rather than at the next scheduled pass.
     #[cfg(feature = "health-sync")]
-    spawn_health_backfill(&resources, &user_id.to_string(), INTERVALS_ICU);
+    spawn_health_backfill(resources, &user_id.to_string(), INTERVALS_ICU);
 
-    Ok(Json(serde_json::json!({
-        "status": "connected",
-        "provider": INTERVALS_ICU,
-        "athlete": {
-            "id": athlete.id,
-            "name": athlete.firstname,
-        }
-    }))
-    .into_response())
+    Ok(athlete)
 }
 
 /// `DELETE /api/providers/intervals_icu/disconnect`

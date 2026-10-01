@@ -35,6 +35,7 @@ use pierre_runtime_context::DataContext;
 use pierre_services::conversation_compaction::REPLAYED_SUMMARY_PREFIX;
 use pierre_tool_runtime::tool_execution::strip_simulation_artifacts;
 
+use super::capability_recovery::REPAIR_EVIDENCE_FRAME;
 use super::prefetch::{REFRESH_GROUNDING_LEAD, STARTUP_GROUNDING_LEAD};
 
 #[cfg(feature = "tools-groups")]
@@ -373,11 +374,13 @@ fn push_history_row(
 /// makes the sentences themselves the credential: [`REPLAYED_SUMMARY_PREFIX`]
 /// asserts "recovered context, not a new message from the athlete", and the two
 /// grounding leads assert that the activities under them were loaded from the
-/// athlete's real provider data.
-const PLATFORM_MARKERS: [&str; 3] = [
+/// athlete's real provider data. [`REPAIR_EVIDENCE_FRAME`] asserts that the
+/// data under it was fetched by the platform and is not the athlete speaking.
+const PLATFORM_MARKERS: [&str; 4] = [
     REPLAYED_SUMMARY_PREFIX,
     REFRESH_GROUNDING_LEAD,
     STARTUP_GROUNDING_LEAD,
+    REPAIR_EVIDENCE_FRAME,
 ];
 
 /// What replaces a platform marker found in athlete-authored text.

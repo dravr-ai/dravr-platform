@@ -38,6 +38,10 @@ const CSRF_EXEMPT_PATHS: &[&str] = &[
     // The OAuth consent form: an HTML form cannot send the header, so it
     // carries its own synchronizer token, which the consent handler checks.
     "/oauth2/consent",
+    // The hosted Intervals.icu connect form: an HTML form cannot send the
+    // header, and the signed connect link-token it posts in its body is what
+    // authorizes it — a cross-site page cannot hold that token.
+    "/providers/connect/intervals_icu",
 ];
 
 /// Validate the CSRF token on a state-changing HTTP request.

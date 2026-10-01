@@ -1016,6 +1016,7 @@ fn envelope_state(result: &ToolLoopResult, recovery: AuthRecovery) -> TurnState 
             group_id: None,
             channel_type: CHANNEL_TYPE_WEB.to_owned(),
             onboarding_state: None,
+            archived_at: None,
         },
         content: result.content.clone(),
         finish_reason: result.finish_reason.clone(),

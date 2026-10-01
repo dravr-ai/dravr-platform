@@ -42,6 +42,9 @@ use tracing::{info, warn};
 use super::capability_subject::{
     apply_subject_recovery, conversation_group_id, resolve_ask_subject, AskSubject,
 };
+use super::claim_density::{
+    previous_reply_asserted_athlete_facts, previous_reply_asserted_unsupplied_facts,
+};
 use super::peer_grounding::{
     fetch_peer_activities_outcome, mentioned_peers, PeerMention, PEER_FETCH_TOOL,
     PEER_GROUNDING_LEAD,
@@ -51,10 +54,10 @@ use crate::turn::TurnInput;
 use crate::ChatPipelineContext;
 use pierre_contremaitre::messaging_strings::KEY_TURN_LANGUAGE;
 use pierre_core::errors::AppError;
-use pierre_core::models::MemberFitnessSnapshot;
+use pierre_core::models::{MemberFitnessSnapshot, OnboardingState};
 use pierre_core::narration;
 use pierre_core::uuid_utils::parse_uuid;
-use pierre_llm::{ChatMessage, ChatRequest, ChatResponse, FunctionResponse, MessageRole};
+use pierre_llm::{ChatMessage, ChatRequest, ChatResponse, FunctionResponse};
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_tool_runtime::protocol::{auth_required_provider, UniversalExecutor, UniversalRequest};
 use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
@@ -87,7 +90,13 @@ const VERIFICATION_LIMIT: u32 = 20;
 /// Appended after the fetched data on the re-ask. English on purpose: the
 /// platform's system corpus is English.
 ///
-/// It no longer asks for the reply "in their language". A re-ask is the last
+/// It names the draft as the thing being replaced and the athlete's last
+/// message as the thing being answered, and says outright that the athlete
+/// has answered. Read without that, a data dump after the agent's question is
+/// an athlete who never replied — live 2026-09-30 on a `/season` walk the
+/// agent opened «Je n'ai pas reçu ta réponse» and asked again (registre#678).
+///
+/// It does not ask for the reply "in their language". A re-ask is the last
 /// message in the request, which is the strongest position in the prompt, and
 /// asking the model to infer the language there is what it does worst — see
 /// Stage 7g.3b in [`super::prompt_assembly`] for the live case. The turn's
@@ -100,8 +109,23 @@ const VERIFICATION_LIMIT: u32 = 20;
 /// own verification fetch succeeded. Text that hot-reloads independently of
 /// that fetch could assert a success the code did not have.
 const REASK_INSTRUCTION: &str = "Your data tools are connected and working — the activities \
-     above were just fetched successfully on your behalf. Answer the athlete's last message \
-     using this data. Do not claim any connection or data-access problem.";
+     above were just fetched successfully on your behalf. Your draft reply above was written \
+     without them: replace it with your reply to the athlete's last message, using this data. \
+     Do not claim any connection or data-access problem, and do not say the athlete has not \
+     answered.";
+
+/// Heads every repair turn this stage and [`super::capability_subject`] write.
+///
+/// A repair turn is platform-written tool output riding in a `user` message —
+/// the same carrier the tool loop uses for its results, because several
+/// runners drop a mid-list `system` message and a `tool` message needs a
+/// matching tool call the draft never made. The carrier is the athlete's, so
+/// the turn says outright that the athlete did not write it: read as the
+/// athlete speaking, a data dump after the agent's question is an athlete who
+/// never answered (registre#678).
+pub const REPAIR_EVIDENCE_FRAME: &str = "[Platform verification — tool output fetched by the \
+     platform on your behalf, not a message from the athlete. The athlete has not written \
+     again: their last message is still the one you are answering.]";
 
 /// Bundled borrows for [`apply_capability_recovery`], mirroring
 /// [`super::auth_recovery::AuthRecoveryDeps`].
@@ -121,6 +145,11 @@ pub struct CapabilityRecoveryDeps<'a> {
     /// language to write in rather than left to infer it from a request whose
     /// last message this stage wrote in English.
     pub locale: &'a str,
+    /// The guided flow that owns this turn, as loaded at its start, when one
+    /// does. An interview turn runs without the activity prefetch on purpose
+    /// and its reply is the next question, so it is never "ungrounded" — see
+    /// [`recovery_trigger`].
+    pub guided_walk: Option<&'a OnboardingState>,
 }
 
 /// Apply capability-failure recovery in place.
@@ -423,9 +452,14 @@ fn looks_like_a_data_ask(message: &str) -> bool {
 /// construction. Turns it misses simply do not get this repair pass — which is
 /// why the same predicate must never gate the fetch itself.
 ///
-/// LIMITATION(registre#678): `recovery_trigger` does not exempt a turn a guided
-/// flow owns, so a walk answer naming a race or a week is re-asked with a data
-/// dump as the athlete's message and the agent's reply is replaced.
+/// A turn an interview owns (`/season`, `/calibrate`, `/pillars`) runs
+/// without the prefetch on purpose, and live 2026-09-30 both ungrounded arms
+/// misfired on consecutive `/season` answers, replacing the agent's next
+/// question (registre#678). Each arm is narrowed to its own misfire: the
+/// athlete's answer — « des courses de trail (25-65 km) » matches "course" —
+/// is never a data ask; and a question quoting the athlete's own dates and
+/// distances back is not an assertion, though figures the athlete never gave
+/// still are (see [`previous_reply_asserted_unsupplied_facts`]).
 fn recovery_trigger(
     deps: &CapabilityRecoveryDeps<'_>,
     input: &TurnInput,
@@ -458,59 +492,30 @@ fn recovery_trigger(
     // it stands on no evidence from this turn.
     let ungrounded_turn =
         result.tool_calls_count == 0 && !turn_carries_activity_block(deps.llm_messages);
-    if ungrounded_turn && looks_like_a_data_ask(&input.content) {
+    // An interview answer is not a data ask, whatever words it uses.
+    let interview = deps.guided_walk.filter(|walk| walk.flow.is_interview());
+    if ungrounded_turn && interview.is_none() && looks_like_a_data_ask(&input.content) {
         return Some(RecoveryTrigger::UngroundedDataAsk);
     }
     // The structural arm: no vocabulary, so no phrasing can slip past it. If
     // the agent just asserted numbers about the athlete's training and this
     // turn adds nothing fresh, re-ground — whether the athlete asked a
-    // question, corrected a fact, or simply pushed back (registre#202).
-    if ungrounded_turn && previous_reply_asserted_athlete_facts(deps.llm_messages) {
+    // question, corrected a fact, or simply pushed back (registre#202). An
+    // interview's question quotes the athlete's answers back, so there only
+    // figures the athlete never supplied count.
+    let asserted = match interview {
+        // No probe has reached the athlete yet: they are answering the walk's
+        // opener, a command turn kept out of replay. The last assistant
+        // message in the prompt is then an older reply they are not
+        // answering, and the opener is platform text, not a claim.
+        Some(walk) if walk.probed.is_empty() => false,
+        Some(_) => previous_reply_asserted_unsupplied_facts(deps.llm_messages),
+        None => previous_reply_asserted_athlete_facts(deps.llm_messages),
+    };
+    if ungrounded_turn && asserted {
         return Some(RecoveryTrigger::DisputedClaims);
     }
     None
-}
-
-/// How many separate numbers a reply must carry before it counts as having
-/// asserted concrete facts about the athlete's training.
-///
-/// Three, because that is the shape of the replies that got corrected: *"161
-/// km, 2391 m de dénivelé, 6,2h"*. One number is a passing remark and two is a
-/// comparison; three is a reconstruction, and a reconstruction built on nothing
-/// is what the athlete pushed back on. Social replies («Bravo 💪», «On se
-/// reparle demain») carry none.
-const CLAIM_DENSITY_THRESHOLD: usize = 3;
-
-/// Whether the most recent assistant turn asserted concrete facts about the
-/// athlete's own training.
-///
-/// Counts runs of digits rather than matching words, so it holds in every
-/// locale and survives any rephrasing. Reads the last assistant message in the
-/// assembled turn, which is the reply the athlete is responding to.
-///
-/// Pure and `pub` for the same reason `should_refresh_activity_context` is: the
-/// decision is worth pinning without standing up an executor.
-#[must_use]
-pub fn previous_reply_asserted_athlete_facts(llm_messages: &[ChatMessage]) -> bool {
-    llm_messages
-        .iter()
-        .rev()
-        .find(|m| matches!(m.role, MessageRole::Assistant))
-        .is_some_and(|m| {
-            let mut runs = 0usize;
-            let mut in_run = false;
-            for c in m.content.chars() {
-                if c.is_ascii_digit() {
-                    if !in_run {
-                        runs += 1;
-                        in_run = true;
-                    }
-                } else {
-                    in_run = false;
-                }
-            }
-            runs >= CLAIM_DENSITY_THRESHOLD
-        })
 }
 
 /// Whether the reply denies access to a roster peer's data — «je n'ai jamais
@@ -667,15 +672,43 @@ async fn reask_with_verified_data(
         return tool_text;
     };
 
-    let mut messages = deps.llm_messages.to_vec();
-    messages.push(ChatMessage::user(format!(
-        "{tool_text}\n\n{REASK_INSTRUCTION}\n\n{}",
-        turn_language_directive(deps)
-    )));
+    let messages = repair_messages(
+        deps.llm_messages,
+        &result.content,
+        &format!(
+            "{tool_text}\n\n{REASK_INSTRUCTION}\n\n{}",
+            turn_language_directive(deps)
+        ),
+    );
     let request = ChatRequest::new(messages).with_model(deps.active_model);
 
     apply_reask_outcome(provider.complete(&request).await, result);
     tool_text
+}
+
+/// The message list a repair completion runs over: the turn as the model saw
+/// it, the draft reply as the assistant's turn, then the platform's evidence
+/// under [`REPAIR_EVIDENCE_FRAME`].
+///
+/// The draft rides as the assistant turn so the athlete's message stays the
+/// last thing the athlete said and the model's own question stays asked. An
+/// empty draft is left out rather than sent as an empty assistant turn, which
+/// several providers reject.
+#[must_use]
+pub fn repair_messages(
+    llm_messages: &[ChatMessage],
+    draft: &str,
+    evidence_turn: &str,
+) -> Vec<ChatMessage> {
+    let mut messages = Vec::with_capacity(llm_messages.len() + 2);
+    messages.extend_from_slice(llm_messages);
+    if !draft.trim().is_empty() {
+        messages.push(ChatMessage::assistant(draft));
+    }
+    messages.push(ChatMessage::user(format!(
+        "{REPAIR_EVIDENCE_FRAME}\n\n{evidence_turn}"
+    )));
+    messages
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -867,7 +900,7 @@ async fn reask_with_peer_evidence(
         peer_payload,
         &turn_language_directive(deps),
     );
-    let Some(content) = request_peer_reask(deps, provider, &prompt).await else {
+    let Some(content) = request_peer_reask(deps, provider, &result.content, &prompt).await else {
         return false;
     };
     let evidence_with_fetch = format!("{evidence}\n{peer_payload}");
@@ -894,13 +927,16 @@ async fn reask_with_peer_evidence(
 /// the generic apology). One bounded retry mirrors the headless loop's
 /// degenerate-turn retry; a second degenerate completion reports failure so
 /// the caller keeps the original, stamped.
+///
+/// `draft` is the reply being repaired; it rides as the assistant turn so the
+/// prompt's "your previous answer" points at something the model can read.
 pub(super) async fn request_peer_reask(
     deps: &CapabilityRecoveryDeps<'_>,
     provider: &pierre_llm::ChatProvider,
+    draft: &str,
     prompt: &str,
 ) -> Option<String> {
-    let mut messages = deps.llm_messages.to_vec();
-    messages.push(ChatMessage::user(prompt.to_owned()));
+    let messages = repair_messages(deps.llm_messages, draft, prompt);
     let request = ChatRequest::new(messages).with_model(deps.active_model);
     for attempt in 0..2u8 {
         match provider.complete(&request).await {

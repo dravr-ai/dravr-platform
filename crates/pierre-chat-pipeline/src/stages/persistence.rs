@@ -37,9 +37,8 @@ use pierre_database::database::repositories::ChatRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_database::repositories::CoachingGroupRepository;
 
-use crate::turn::{CreateConversationResult, TurnInput, TurnOrigin, UserMessageResult};
+use crate::turn::{TurnInput, TurnOrigin, UserMessageResult};
 use chrono::Utc;
-use pierre_config::environment::LlmProviderType;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{NewGroupTranscriptEntry, TranscriptSpeaker};
 use pierre_core::models::TenantId;
@@ -70,41 +69,6 @@ async fn advance_read_marker(
             warn!(error = %e, conversation_id, "read marker could not advance after the turn");
         }
     }
-}
-
-/// Validate the model and create a conversation.
-///
-/// Business rules:
-/// - Uses requested model if provided
-/// - Falls back to `PIERRE_LLM_MODEL` environment variable
-/// - Fails if no model can be determined
-///
-/// # Errors
-///
-/// Returns `AppError::Config` if no model is specified and
-/// `PIERRE_LLM_MODEL` is not set. Returns database errors on conversation
-/// creation failure.
-pub async fn create_conversation(
-    database: &dyn ChatRepository,
-    user_id: &str,
-    tenant_id: TenantId,
-    title: &str,
-    requested_model: Option<&str>,
-    agent_id: Option<&str>,
-    group_id: Option<&str>,
-) -> AppResult<CreateConversationResult> {
-    let model = match requested_model {
-        Some(m) => m.to_owned(),
-        None => LlmProviderType::model_from_env().ok_or_else(|| {
-            AppError::config("No model specified and PIERRE_LLM_MODEL environment variable not set")
-        })?,
-    };
-
-    let conversation = database
-        .create_conversation(user_id, tenant_id, title, &model, agent_id, group_id)
-        .await?;
-
-    Ok(CreateConversationResult { conversation })
 }
 
 /// Fan a just-persisted user/assistant row out to the group's shared room

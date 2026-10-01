@@ -8,15 +8,14 @@ use async_trait::async_trait;
 use chrono::Utc;
 use dravr_canot::commands::CommandResponse;
 use pierre_contremaitre::messaging_strings::{
-    KEY_NEW_CONVERSATION_TITLE_PREFIX, KEY_RESET_CONFIRM, KEY_RESET_QUOTA,
-    KEY_RESET_WALK_INTERRUPTED,
+    KEY_NEW_CONVERSATION_TITLE_PREFIX, KEY_RESET_CONFIRM, KEY_RESET_WALK_INTERRUPTED,
 };
-use pierre_core::errors::{AppError, ErrorCode};
+use pierre_core::errors::AppError;
 use pierre_core::models::OnboardingState;
 use pierre_services::agent_selection::AgentSelectionSource;
 use pierre_services::conversation_forge::{
-    dated_title, enforce_conversation_quota, forge_conversation, repoint_messaging_session,
-    ForgeAgent, ForgeParams,
+    conversation_cap_reply, dated_title, forge_conversation, repoint_messaging_session, ForgeAgent,
+    ForgeParams, SlotQuota,
 };
 use tracing::{info, warn};
 
@@ -26,8 +25,9 @@ use crate::{CommandHandler, PlatformCommandContext};
 /// one.
 ///
 /// A long or derailed conversation is the athlete's to end, on whichever
-/// surface they are on. The previous thread is left intact and archived: what
-/// changes is only where the next turn is written.
+/// surface they are on. The previous thread is left intact and archived: it
+/// stays readable, stops counting against `max_active_conversations`, and
+/// what changes is where the next turn is written.
 ///
 /// The rotation is the same everywhere, because a conversation is the same
 /// everywhere. What differs is who has to be told: a messaging channel keeps
@@ -69,37 +69,22 @@ impl CommandHandler for ResetHandler {
             Utc::now(),
         );
 
-        // The athlete is asking for one more thread and the previous one
-        // stays: a reset counts against the cap exactly like the "+" button,
-        // or every reset would consume a slot the app then refuses to give
-        // back.
-        if let Err(e) = enforce_conversation_quota(
-            repos,
-            ctx.ctx.admin_config().as_deref(),
-            &user_id,
-            ctx.conversation_tenant_id,
-        )
-        .await
-        {
-            if e.code != ErrorCode::QuotaExceeded {
-                return Err(e);
-            }
-            // The refusal carries the cap it applied; the athlete hears that
-            // number in their own language, never the error's wire text.
-            let cap = e
-                .details
-                .as_deref()
-                .and_then(|d| d.get("limit"))
-                .and_then(serde_json::Value::as_i64)
-                .unwrap_or_default();
-            return Ok(CommandResponse::text(reg.render(
-                KEY_RESET_QUOTA,
-                locale,
-                &[&cap.to_string()],
-            )));
-        }
+        // A reset is a swap: the thread being left is archived and stops
+        // holding a quota slot, the fresh one takes it. Archiving first is
+        // what lets an athlete at the cap reset at all. Only a row the athlete
+        // owns and has not archived yet frees anything — a room thread someone
+        // else opened, or one already retired, leaves the count unchanged.
+        let released = repos
+            .chat
+            .archive_conversation(previous_id, &user_id, ctx.conversation_tenant_id)
+            .await?;
 
-        let new_id = forge_conversation(
+        // The fresh thread is created under the cap, in the same locked
+        // transaction that counts the slots — the "+" button's rule. The
+        // athlete still asks for one more thread than the swap frees when the
+        // previous one held no slot, or when the cap was lowered below what
+        // they own.
+        let forged = forge_conversation(
             repos,
             ForgeParams {
                 user_id: &user_id,
@@ -122,9 +107,24 @@ impl CommandHandler for ResetHandler {
                     AgentSelectionSource::MessagingSession
                 },
                 guided_flow: ctx.is_direct_message,
+                quota: SlotQuota::Capped(ctx.ctx.admin_config().as_deref()),
             },
         )
-        .await?;
+        .await;
+        let new_id = match forged {
+            Ok(id) => id,
+            Err(e) => {
+                // No fresh thread exists, so the athlete is still on the old
+                // one and it holds its slot again.
+                restore_previous(ctx, previous_id, &user_id, released).await;
+                // A refusal at the cap carries the cap it applied; the athlete
+                // hears that number in their own language, never the error's
+                // wire text.
+                return conversation_cap_reply(&e, reg, locale)
+                    .map(CommandResponse::text)
+                    .ok_or(e);
+            }
+        };
 
         // On a messaging channel this is what makes the rotation stick. In the
         // app there is no session and it finds nothing, which is the correct
@@ -146,6 +146,11 @@ impl CommandHandler for ResetHandler {
                 // told so; a channel still writing to the old thread would
                 // make that a lie.
                 warn!(error = %e, previous_conversation_id = previous_id, "Reset command: the messaging session could not be repointed");
+                // The channel still writes to the old thread, so the fresh one
+                // is an orphan nobody will reach: remove it, best-effort, and
+                // the old thread is the athlete's active one again.
+                discard_forged(ctx, &new_id, &user_id).await;
+                restore_previous(ctx, previous_id, &user_id, released).await;
                 return Err(e);
             }
         }
@@ -163,5 +168,68 @@ impl CommandHandler for ResetHandler {
         };
         // Rich, because the interrupted-walk note names `/pillars` as code.
         Ok(CommandResponse::rich_text(body))
+    }
+}
+
+/// Put the thread a failed `/reset` archived back in the active set.
+///
+/// The session was never repointed, so the athlete is still on it and it
+/// holds a slot again — always, without consulting the cap. Availability wins
+/// here: a messaging-only athlete has no sidebar and no other thread, so an
+/// old thread left archived would refuse their every next message. The slot
+/// it takes is normally the one this reset freed moments earlier; a create
+/// that raced into the window between the archive and this restore can leave
+/// the athlete one conversation over the cap until they next delete one, and
+/// that is chosen over locking them out. `released` is what
+/// `ChatRepository::archive_conversation` answered: `false` means the reset
+/// archived nothing and there is nothing to restore.
+///
+/// Best-effort: the caller is already returning the reset's real outcome — a
+/// refusal at the cap, or the error that stopped it — and a failed restore
+/// must not replace it. It is logged instead; the thread stays readable and
+/// the athlete's next turn in it reactivates it under the cap.
+async fn restore_previous(
+    ctx: &PlatformCommandContext,
+    previous_id: &str,
+    user_id: &str,
+    released: bool,
+) {
+    if !released {
+        return;
+    }
+    if let Err(e) = ctx
+        .ctx
+        .repos()
+        .chat
+        .reactivate_conversation(previous_id, user_id, ctx.conversation_tenant_id, None)
+        .await
+    {
+        warn!(
+            error = %e,
+            previous_conversation_id = previous_id,
+            "Reset command: the thread a failed reset archived could not be restored"
+        );
+    }
+}
+
+/// Delete the thread a failed `/reset` forged before the rotation stuck.
+///
+/// Nobody was moved onto it, so it holds nothing but what the forge wrote —
+/// at most the guided-walk opener — and keeping it would leave the athlete
+/// owning a thread they never reached. Best-effort for the same reason as
+/// [`restore_previous`]: logged, never returned.
+async fn discard_forged(ctx: &PlatformCommandContext, forged_id: &str, user_id: &str) {
+    if let Err(e) = ctx
+        .ctx
+        .repos()
+        .chat
+        .delete_conversation(forged_id, user_id, ctx.conversation_tenant_id)
+        .await
+    {
+        warn!(
+            error = %e,
+            conversation_id = forged_id,
+            "Reset command: the thread a failed reset forged could not be removed"
+        );
     }
 }

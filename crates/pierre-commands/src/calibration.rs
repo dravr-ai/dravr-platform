@@ -29,6 +29,11 @@ pub struct CalibrateHandler;
 
 #[async_trait]
 impl CommandHandler for CalibrateHandler {
+    /// Opens the calibration walk in this thread; the next turns answer it here.
+    fn resumes_thread(&self, _args: &[String]) -> bool {
+        true
+    }
+
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
         let profile = read_profile(ctx, "/calibrate").await?;
         start_walk(

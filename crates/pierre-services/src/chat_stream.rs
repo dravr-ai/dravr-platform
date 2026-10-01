@@ -21,6 +21,7 @@
 //! pre-serialized — so neither the tool-loop crates nor the pipeline take a
 //! dependency on the other's types through this hop.
 
+use pierre_core::errors::{AppError, ErrorResponse};
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
@@ -112,9 +113,42 @@ pub enum TurnEvent {
     /// The turn finished. Carries the whole turn envelope — the same document
     /// a non-streaming caller receives as the response body.
     Done(Value),
-    /// The turn did not finish. Carries the sanitized, client-safe reason;
-    /// raw internals never reach this variant.
-    Failed(String),
+    /// The turn did not finish. Carries the client-safe refusal; raw
+    /// internals never reach this variant.
+    Failed(TurnFailure),
+}
+
+/// Why a turn did not finish, as a client may read it.
+///
+/// The same facts a refused non-streaming request answers with — the status
+/// it maps to, the error code, the sanitized message and the structured
+/// `details` — so a client words a refusal that arrived mid-stream exactly as
+/// it words one that arrived as a 4xx body: a quota refusal names the limit
+/// it hit and why, never only the server's English.
+#[derive(Debug, Clone)]
+pub struct TurnFailure {
+    /// The HTTP status the refusal maps to.
+    pub status: u16,
+    /// The error code, serialized as the JSON error body names it.
+    pub code: Value,
+    /// The sanitized, client-safe message.
+    pub message: String,
+    /// Structured details (a quota's `limit_type`, `current`, `limit`,
+    /// `reason`), when the error carries them.
+    pub details: Option<Value>,
+}
+
+impl From<AppError> for TurnFailure {
+    fn from(error: AppError) -> Self {
+        let status = error.code.http_status();
+        let body = ErrorResponse::from(error);
+        Self {
+            status,
+            code: serde_json::to_value(body.code).unwrap_or(Value::Null),
+            message: body.message,
+            details: body.details,
+        }
+    }
 }
 
 impl TurnEvent {
@@ -144,7 +178,17 @@ impl TurnEvent {
             Self::ProseDelta(delta) => ("delta", json!({ "delta": delta }).to_string()),
             Self::Block(block) => ("block", block.to_string()),
             Self::Done(turn) => ("done", turn.to_string()),
-            Self::Failed(reason) => ("failed", json!({ "error": reason }).to_string()),
+            Self::Failed(failure) => {
+                let mut frame = json!({
+                    "error": failure.message,
+                    "status": failure.status,
+                    "code": failure.code,
+                });
+                if let (Some(details), Value::Object(fields)) = (failure.details, &mut frame) {
+                    fields.insert("details".to_owned(), details);
+                }
+                ("failed", frame.to_string())
+            }
         }
     }
 }

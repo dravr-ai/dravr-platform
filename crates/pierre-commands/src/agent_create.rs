@@ -88,6 +88,13 @@ pub struct AgentCreateHandler;
 
 #[async_trait]
 impl CommandHandler for AgentCreateHandler {
+    /// Only `confirm <token>` carries the thread on: it creates the drafted
+    /// agent and binds it here. Drafting reads the thread and writes nothing
+    /// to it.
+    fn resumes_thread(&self, args: &[String]) -> bool {
+        matches!(args, [verb, _] if verb.eq_ignore_ascii_case("confirm"))
+    }
+
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
         match ctx.args.as_slice() {
             [] => propose(ctx).await,

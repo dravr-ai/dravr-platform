@@ -11,6 +11,15 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import MessagingSettingsTab from '../MessagingSettingsTab';
 
 vi.mock('../../services/api', () => ({
+  // The chat-app links group (ChatAppLinks) sits above the credentials; with
+  // nothing linked and nothing available it renders only its empty sentences,
+  // so the channel names below belong to the credentials list alone.
+  messagingLinkApi: {
+    listLinks: vi.fn().mockResolvedValue([]),
+    getAvailableChannels: vi.fn().mockResolvedValue([]),
+    initLink: vi.fn(),
+    deleteLink: vi.fn(),
+  },
   messagingApi: {
     listChannels: vi.fn().mockResolvedValue({
       tenant_id: 'tenant-1',
@@ -156,5 +165,21 @@ describe('MessagingSettingsTab', () => {
     await waitFor(() => {
       expect(screen.getByText('Messaging Channels')).toBeInTheDocument();
     });
+  });
+
+  it('puts the chat-app link groups above the channel credentials', async () => {
+    await act(async () => {
+      renderComponent();
+    });
+
+    const linked = await screen.findByRole('heading', { name: 'Linked' });
+    const available = screen.getByRole('heading', { name: 'Available' });
+    const credentials = screen.getByRole('heading', { name: 'Messaging Channels' });
+    // DOCUMENT_POSITION_FOLLOWING: the argument comes after the receiver.
+    expect(linked.compareDocumentPosition(available) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(available.compareDocumentPosition(credentials) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId('chat-app-none-configured')).toHaveTextContent(
+      'No chat app is set up for your workspace yet, so there is nothing to link from here.',
+    );
   });
 });

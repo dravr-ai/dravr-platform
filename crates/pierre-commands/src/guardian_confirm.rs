@@ -53,6 +53,11 @@ pub struct DenyHandler;
 
 #[async_trait]
 impl CommandHandler for ConfirmHandler {
+    /// Completes the action a turn in this thread parked, and can bind the agent a confirmed draft creates to it.
+    fn resumes_thread(&self, _args: &[String]) -> bool {
+        true
+    }
+
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
         resolve_pending(
             ctx,

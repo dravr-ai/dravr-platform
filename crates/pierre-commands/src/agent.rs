@@ -151,6 +151,11 @@ pub struct AgentAddHandler;
 
 #[async_trait]
 impl CommandHandler for AgentAddHandler {
+    /// Binds the agent to this thread, so it answers the next message here.
+    fn resumes_thread(&self, _args: &[String]) -> bool {
+        true
+    }
+
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
         let reg = ctx.ctx.messaging_strings_registry();
         let locale = ctx.locale.as_str();
@@ -336,6 +341,11 @@ pub struct AgentRemoveHandler;
 
 #[async_trait]
 impl CommandHandler for AgentRemoveHandler {
+    /// Detaches this thread's agent; the next message here is answered without it.
+    fn resumes_thread(&self, _args: &[String]) -> bool {
+        true
+    }
+
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
         let reg = ctx.ctx.messaging_strings_registry();
         let locale = ctx.locale.as_str();

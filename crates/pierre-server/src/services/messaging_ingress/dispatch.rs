@@ -23,6 +23,7 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::errors::{AppError, AppResult};
 use pierre_services::analytics::hash_id;
+use pierre_services::conversation_forge::conversation_cap_reply;
 use serde_json::Value;
 
 use super::addressing::reply_recipient;
@@ -462,12 +463,13 @@ async fn send_quota_denial_reply(
         tenant_id = %dispatch.user_tenant_id,
         "messaging turn refused by quota/rate limit"
     );
-    let key = messaging_key_for_status(err.code).unwrap_or(KEY_QUOTA_EXCEEDED);
-    let body = dispatch
-        .resources
-        .mcp
-        .messaging_strings_registry
-        .get(key, &dispatch.locale);
+    let strings = &dispatch.resources.mcp.messaging_strings_registry;
+    // The conversation cap is fixed, not a budget that refills: it gets its
+    // own words, never the "resets automatically" line.
+    let body = conversation_cap_reply(err, strings, &dispatch.locale).unwrap_or_else(|| {
+        let key = messaging_key_for_status(err.code).unwrap_or(KEY_QUOTA_EXCEEDED);
+        strings.get(key, &dispatch.locale)
+    });
     send_plain_reply(dispatch, channel_config, &body).await;
 }
 
@@ -609,13 +611,16 @@ async fn run_turn(dispatch: &PendingDispatch) -> TurnClose {
         return TurnClose::Finished;
     }
 
-    let served = serve_turn(
+    // Boxed: the served turn's state machine is the bulk of this future, and
+    // inline it pushes every caller of `dispatch_and_respond` past the
+    // large-future threshold.
+    let served = Box::pin(serve_turn(
         dispatch,
         &profile,
         &channel_config,
         messaging_agui.as_ref(),
         start,
-    )
+    ))
     .await;
 
     // Dropping the wiring here aborts the consumer task (if still

@@ -68,9 +68,11 @@ pub struct WeeklyUsageStatus {
 /// Resource limit statuses (non-counter based)
 #[derive(Debug, Serialize)]
 pub struct ResourceUsageStatus {
-    /// Current number of conversations
+    /// Active conversations the user owns in this tenant — the number the
+    /// `max_active_conversations` quota checks; a thread `/reset` archived is
+    /// not counted
     pub conversations: i64,
-    /// Maximum allowed conversations
+    /// Maximum allowed active conversations
     pub max_conversations: i64,
     /// Current number of agents
     pub agents: i64,

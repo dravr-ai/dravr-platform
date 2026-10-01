@@ -54,6 +54,12 @@ export interface Conversation {
    *  glyph (see `resolveChannelOrigin` in `@pierre/chat-utils`); the title
    *  names the room or the agent, never the channel. */
   channel_type?: string | null;
+  /**
+   * When `/reset` archived the thread (RFC 3339); null while it is active.
+   * An archived thread holds none of the owner's `max_active_conversations`
+   * slots, so deleting it frees nothing. List rows only.
+   */
+  archived_at?: string | null;
   /** When conversation was created */
   created_at: string;
   /** When conversation was last updated */

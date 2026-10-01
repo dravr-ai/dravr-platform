@@ -10,6 +10,7 @@ import { messagingLinkApi } from '../services/api';
 import { CHANNEL_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
 import { Button } from './ui';
 import OnboardingShell from './OnboardingShell';
+import ChannelLinkPanel from './ChannelLinkPanel';
 import { useTranslation } from '@pierre/i18n';
 
 /**
@@ -94,8 +95,6 @@ export default function OnboardingMessagingConfigure({
     );
   }
 
-  const isDeepLink = link.method === 'deep_link';
-
   return (
     <OnboardingShell
       heading={
@@ -104,40 +103,8 @@ export default function OnboardingMessagingConfigure({
           : t('app.connectChannelTitle', { channel: displayName })
       }
     >
-      <div className="mt-6 flex flex-col items-center gap-5">
-        {isDeepLink && link.qr_svg ? (
-          <>
-            {/* White plate so the black-on-white QR stays scannable in any theme. */}
-            <div className="rounded-xl bg-white p-3">
-              <img
-                src={`data:image/svg+xml;utf8,${encodeURIComponent(link.qr_svg)}`}
-                alt={t('frag.qrCodeFor', { app: displayName })}
-                className="h-44 w-44"
-              />
-            </div>
-            <p className="max-w-sm text-center text-sm text-on-surface-variant">
-              {t('onboarding.messagingScanPrefix', { app: displayName })}
-              <span className="font-semibold"> {t('onboarding.messagingStartButton')}</span> {t('onboarding.messagingScanSuffix')}
-            </p>
-          </>
-        ) : (
-          <p className="max-w-sm text-center text-sm text-on-surface-variant">
-            {t('app.tapToConnectAutoReturn', { channel: displayName })}
-          </p>
-        )}
-
-        <a href={link.linking_url} target="_blank" rel="noreferrer" className="w-full sm:w-auto">
-          <Button variant="primary" className="w-full">
-            {isDeepLink
-              ? t('app.openChannel', { channel: displayName })
-              : t('app.connectWithChannel', { channel: displayName })}
-          </Button>
-        </a>
-
-        <div className="flex items-center gap-2 text-xs text-on-surface-variant">
-          <span className="pierre-spinner w-3.5 h-3.5 border-on-surface border-t-transparent" />
-          {t('app.waitingToFinishIn', { channel: displayName })}
-        </div>
+      <div className="mt-6">
+        <ChannelLinkPanel link={link} displayName={displayName} />
       </div>
 
       <div className="mt-8">

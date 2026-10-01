@@ -232,6 +232,31 @@ pub trait CommandHandler: Send + Sync {
     fn is_available(&self, _standing: &CallerGroupStanding) -> bool {
         true
     }
+
+    /// Whether running this command, with these arguments, carries the
+    /// conversation it is typed in on as a live thread: it opens a flow the
+    /// next turns answer there (a guided walk), rebinds who speaks in it or
+    /// what it belongs to (an agent, a group room), or completes an action
+    /// parked in it (`/confirm`).
+    ///
+    /// Typed by the athlete into a thread `/reset` archived, such a command
+    /// asks for one of their `max_active_conversations` slots back, so the
+    /// dispatcher reactivates the thread under the cap after the command
+    /// resolves and before the handler runs — or refuses the command at the
+    /// cap, recorded as a failed command, with nothing written. The athlete
+    /// chose to act in that thread, so the claim stands even when the handler
+    /// then finds nothing to do. A command that only reads or changes account
+    /// state (`/help`, `/status`, `/language`), or that leaves the thread
+    /// (`/reset`, which archives it), runs without touching the thread's
+    /// archive state: its answer lands in the transcript as history, and the
+    /// thread takes no slot for it.
+    ///
+    /// The handler answers, like [`Self::is_available`], because it is the
+    /// only thing that knows what it writes; `args` lets one handler answer
+    /// per subcommand. The default is `false`.
+    fn resumes_thread(&self, _args: &[String]) -> bool {
+        false
+    }
 }
 
 /// Registry mapping command names to handler implementations.

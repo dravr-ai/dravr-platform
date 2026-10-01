@@ -870,6 +870,7 @@
     "analysisFailedTitle": "L’analyse a échoué",
     "analyzeConversationFailed": "Impossible d’analyser la conversation",
     "analyzingConversation": "Analyse de la conversation...",
+    "archived": "Archivée",
     "askAboutClaim": "Pose-moi une question sur cette affirmation",
     "backToList": "Retour aux discussions",
     "cancel": "Annuler",
@@ -1029,7 +1030,14 @@
     "routeFullScreen": "Plein écran",
     "routeLayerSatellite": "Satellite",
     "routeLayerStandard": "Plan",
+    "routeLayerTerrain": "Relief",
     "routeLayers": "Fond de carte",
+    "routeMapCredits": "Crédits de la carte",
+    "routeMapScrollMac": "Utilise ⌘ + défilement pour zoomer sur la carte",
+    "routeMapScrollWindows": "Utilise Ctrl + défilement pour zoomer sur la carte",
+    "routeMapTwoFingers": "Utilise deux doigts pour déplacer la carte",
+    "routeMapZoomIn": "Zoom avant",
+    "routeMapZoomOut": "Zoom arrière",
     "routeNoTrack": "Cette activité n'a enregistré aucune trace GPS.",
     "saveChanges": "Enregistrer les modifications",
     "saving": "Enregistrement...",
@@ -1576,6 +1584,7 @@
     "whenToUseSection": "Quand l’utiliser"
   },
   "errors": {
+    "archivedConversationLimitReached": "Cette conversation est archivée, et tu as déjà {{limit}} conversations ouvertes — le maximum de ton forfait. Supprime-en une pour continuer ici.",
     "conversationLimitReached": "Limite de discussions atteinte ({{current}}/{{limit}}). Supprime une discussion existante pour en commencer une nouvelle.",
     "dailyMessageLimitReached": "Limite de messages quotidiens atteinte ({{current}}/{{limit}}). Réinitialisation demain.",
     "dailyTokenLimitReached": "Limite de jetons quotidiens atteinte ({{current}}/{{limit}}). Réinitialisation demain.",
@@ -1816,6 +1825,7 @@
       "loadFailed": "Impossible de charger tes activités récentes.",
       "refreshing": "Recherche de nouvelles activités chez ton fournisseur…",
       "syncedAt": "Dernière synchronisation : {{time}}",
+      "analyzeDraft": "Analyse mon activité du {{date}} ({{sport}})",
       "sketchAlt": "Esquisse du parcours"
     },
     "activity": {
@@ -1828,6 +1838,7 @@
       "laps": "Tours",
       "figure": {
         "distance": "Distance",
+        "movingTime": "Temps de déplacement",
         "duration": "Durée",
         "elevationGain": "Dénivelé positif",
         "avgPace": "Allure moy.",
@@ -2040,6 +2051,7 @@
     "quota_exceeded": "Tu as atteint la limite de conversation de ton forfait pour le moment. Elle se réinitialise automatiquement — reviens un peu plus tard.",
     "quota_warning": "Petite note : tu as utilisé {0} de {1} sur ton forfait. Le compteur se réinitialise le {2}.",
     "quota_burst": "Petite note : tu as dépassé la limite de {1} de ton forfait — tu continues sur la réserve. Le compteur se réinitialise le {2}.",
+    "archived_conversation_quota": "Cette conversation est archivée, et tu as déjà {0} conversations ouvertes — le maximum de ton forfait. Supprime-en une dans l'app pour continuer ici.",
     "rate_limited": "Tu envoies des messages un peu trop vite pour ton forfait. Attends un moment, puis réessaie — je serai là.",
     "reply_withheld": "Ma réponse n'est pas passée — elle mélangeait des détails techniques qui n'ont pas leur place ici. Renvoie ton dernier message et on reprend là où on en était.",
     "reply_stop": {

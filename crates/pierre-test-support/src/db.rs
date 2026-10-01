@@ -60,8 +60,36 @@ pub async fn create_test_db_with_key(encryption_key: Vec<u8>) -> AppResult<Datab
         return postgres::create_isolated_database(&url, encryption_key).await;
     }
     refuse_sqlite_when_postgres_required()?;
-    sqlite::create_isolated_database(encryption_key).await
+    sqlite::create_isolated_database(encryption_key, 1).await
 }
+
+/// [`create_test_db`] with a pool that holds several connections, as a
+/// deployed server's does, so statements from concurrent tasks really
+/// overlap in the engine.
+///
+/// For tests of a guarantee that only holds under contention — a lock, an
+/// isolation level. The default `SQLite` factory keeps one connection, which
+/// queues concurrent tasks in the pool and would pass such a test without
+/// ever exercising the engine's own locking. `PostgreSQL` pools already hold
+/// several connections, so that lane is the same database [`create_test_db`]
+/// opens.
+///
+/// # Errors
+///
+/// Returns an error if database initialization fails, or if
+/// [`REQUIRE_POSTGRES_ENV`] is set and `DATABASE_URL` does not name a
+/// `PostgreSQL` server.
+pub async fn create_concurrent_test_db() -> AppResult<Database> {
+    #[cfg(feature = "postgresql")]
+    if let Some(url) = postgres_test_url() {
+        return postgres::create_isolated_database(&url, DEFAULT_TEST_KEY.to_vec()).await;
+    }
+    refuse_sqlite_when_postgres_required()?;
+    sqlite::create_isolated_database(DEFAULT_TEST_KEY.to_vec(), CONCURRENT_SQLITE_CONNECTIONS).await
+}
+
+/// Connections [`create_concurrent_test_db`] opens on `SQLite`.
+const CONCURRENT_SQLITE_CONNECTIONS: u32 = 8;
 
 /// A connection URL for a fresh, isolated test database.
 ///
@@ -153,7 +181,7 @@ impl TestDatabaseUrl {
 ///
 /// Returns an error if database initialization fails.
 pub async fn create_sqlite_test_db() -> AppResult<Database> {
-    sqlite::create_isolated_database(DEFAULT_TEST_KEY.to_vec()).await
+    sqlite::create_isolated_database(DEFAULT_TEST_KEY.to_vec(), 1).await
 }
 
 /// `DATABASE_URL` when it points at a `PostgreSQL` server, else `None`.
@@ -250,8 +278,11 @@ mod sqlite {
     const STALE_AFTER: Duration = Duration::from_mins(10);
 
     /// Open a fresh file-backed database carrying the migrated schema,
-    /// wrapped under `encryption_key`.
-    pub(super) async fn create_isolated_database(encryption_key: Vec<u8>) -> AppResult<Database> {
+    /// wrapped under `encryption_key`, on a pool of `connections`.
+    pub(super) async fn create_isolated_database(
+        encryption_key: Vec<u8>,
+        connections: u32,
+    ) -> AppResult<Database> {
         let image = MIGRATED_IMAGE.get_or_try_init(build_image).await?;
 
         let dir = database_dir()?;
@@ -268,10 +299,12 @@ mod sqlite {
             ))
         })?;
 
-        // One connection, never recycled for age, so concurrent statements
-        // queue on it the way SQLite orders concurrent writers anyway. Unlike
-        // the in-memory version this is no longer load-bearing: a connection
-        // the pool does replace reopens the same file.
+        // One connection by default, never recycled for age, so concurrent
+        // statements queue on it the way SQLite orders concurrent writers
+        // anyway. Unlike the in-memory version this is no longer
+        // load-bearing: a connection the pool does replace reopens the same
+        // file. A concurrency test asks for several, and then the engine's
+        // own locking decides who writes.
         //
         // The journal lives in memory and syncs are off because nothing here
         // has to survive a crash; both make a test's writes as cheap as the
@@ -281,7 +314,7 @@ mod sqlite {
             .journal_mode(SqliteJournalMode::Memory)
             .synchronous(SqliteSynchronous::Off);
         let pool = SqlitePoolOptions::new()
-            .max_connections(1)
+            .max_connections(connections)
             .idle_timeout(None)
             .max_lifetime(None)
             .connect_with(options)

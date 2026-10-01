@@ -607,16 +607,17 @@ fn terminal_events(outcome: Result<TurnResponse, AppError>) -> Vec<pipeline::Tur
     let response = match outcome {
         Ok(response) => response,
         Err(err) => {
-            // Log full detail server-side; send only the sanitized, per-code
-            // message to the client (never raw internals).
+            // Log full detail server-side; the frame carries what a JSON
+            // refusal body would — the sanitized message, the code and the
+            // structured details — never raw internals.
             warn!(error = %err, "SSE chat turn failed");
-            return vec![pipeline::TurnEvent::Failed(err.sanitized_message())];
+            return vec![pipeline::TurnEvent::Failed(err.into())];
         }
     };
     let Ok(Value::Object(envelope)) = serde_json::to_value(&response) else {
         warn!("SSE chat turn produced an unserializable envelope");
         return vec![pipeline::TurnEvent::Failed(
-            AppError::internal("The turn could not be serialized.").sanitized_message(),
+            AppError::internal("The turn could not be serialized.").into(),
         )];
     };
     let blocks = envelope

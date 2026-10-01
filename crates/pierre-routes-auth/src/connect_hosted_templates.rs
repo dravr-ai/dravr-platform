@@ -14,10 +14,12 @@
 
 use pierre_core::html::{escape_html_attribute, with_hosted_page_css};
 use pierre_core::models::messaging::channel_label;
+use urlencoding::encode;
 
 use crate::sciotte_hosted_templates;
 
 const CONNECT_TEMPLATE: &str = include_str!("../templates/connect_hosted.html");
+const INTERVALS_ICU_TEMPLATE: &str = include_str!("../templates/connect_intervals_icu.html");
 
 /// Render the hosted connect picker, embedding the signed connect link-token,
 /// the originating channel, and the provider catalogue JSON the page renders
@@ -42,6 +44,38 @@ pub fn render_connect_page(link_token: &str, channel: &str, providers_json: &str
         // PROVIDERS_JSON is injected last so an escaped token/channel can never
         // close the script context before it.
         .replace("{{PROVIDERS_JSON}}", providers_json)
+}
+
+/// Render the hosted Intervals.icu API-key form for the connect link-token.
+///
+/// `athlete_id` refills the athlete id field after a rejected attempt; the API
+/// key is never written back into the page. `error` is shown in the page's
+/// alert banner, which stays hidden when it is empty.
+#[must_use]
+pub fn render_intervals_icu_form(
+    link_token: &str,
+    channel: &str,
+    athlete_id: &str,
+    error: &str,
+) -> String {
+    // The typed values go in last, so an athlete id or error that spells a
+    // placeholder is never expanded.
+    with_hosted_page_css(INTERVALS_ICU_TEMPLATE)
+        .replace(
+            "{{LINK_TOKEN_QUERY}}",
+            &escape_html_attribute(&encode(link_token)),
+        )
+        .replace("{{LINK_TOKEN}}", &escape_html_attribute(link_token))
+        .replace(
+            "{{CHANNEL_LABEL}}",
+            &escape_html_attribute(channel_label(channel)),
+        )
+        .replace(
+            "{{ERROR_HIDDEN}}",
+            if error.is_empty() { " hidden" } else { "" },
+        )
+        .replace("{{ERROR_MESSAGE}}", &escape_html_attribute(error))
+        .replace("{{ATHLETE_ID}}", &escape_html_attribute(athlete_id))
 }
 
 /// Render the connect success page (reuses the Sciotte success template, which

@@ -55,6 +55,11 @@ fn availability_on_file(dossier: &Dossier, renderer: SentenceRenderer<'_>) -> Ve
 
 #[async_trait]
 impl CommandHandler for SeasonHandler {
+    /// Opens the season walk in this thread; the next turns answer it here.
+    fn resumes_thread(&self, _args: &[String]) -> bool {
+        true
+    }
+
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
         let profile = read_profile(ctx, "/season").await?;
 

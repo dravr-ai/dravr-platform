@@ -198,6 +198,37 @@ export async function readEventStream(
   }
 }
 
+/** What a `failed` frame carries: the same facts a refused request's body does. */
+interface FailedFrame {
+  error?: string;
+  status?: number;
+  code?: string;
+  details?: unknown;
+}
+
+/**
+ * The error a `failed` frame ends a turn with.
+ *
+ * A frame that names its status is a refusal like any other — a quota the
+ * turn hit mid-stream, say — so it becomes a {@link TurnRequestError} holding
+ * the JSON error body's shape (`code`, `message`, `details`). The shared
+ * classifier then words it from `details.limit_type` and `details.reason`
+ * exactly as it words the same refusal arriving as a 4xx body, instead of
+ * printing the server's English.
+ */
+function failedFrameError(data: string): Error {
+  const parsed = parseJson<FailedFrame>(data);
+  const message = parsed?.error ?? 'The server ended the turn with an error.';
+  if (typeof parsed?.status !== 'number') {
+    return new Error(message);
+  }
+  return new TurnRequestError(message, parsed.status, {
+    code: parsed.code,
+    message,
+    details: parsed.details,
+  });
+}
+
 /** The live half of {@link TurnCallbacks}: what a caller learns mid-turn. */
 export type TurnProgressSink = Pick<TurnCallbacks, 'onDelta' | 'onProgress' | 'onBlock'>;
 
@@ -260,10 +291,7 @@ export async function parseTurnBody(
           outcome.failure = new Error('The turn finished with an unreadable payload.');
         }
       } else if (frame.event === 'failed') {
-        const parsed = parseJson<{ error?: string }>(frame.data);
-        outcome.failure = new Error(
-          parsed?.error ?? 'The server ended the turn with an error.',
-        );
+        outcome.failure = failedFrameError(frame.data);
       }
     },
     // A slash command answers before the streaming branch is ever chosen, so

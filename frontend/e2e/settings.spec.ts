@@ -10,6 +10,7 @@ import { applyTestStubs } from './test-helpers';
 // Helper to set up mocks for an authenticated user session
 interface MockOptions {
   providers?: Array<{ provider: string; display_name: string; description?: string; requires_oauth: boolean; connected: boolean; capabilities: string[] }>;
+  onboardingSteps?: Array<{ step_id: string; status: 'complete' | 'skipped' }>;
 }
 
 async function setupAuthenticatedMocks(page: import('@playwright/test').Page, isAdmin = false, options: MockOptions = {}) {
@@ -336,6 +337,20 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
       }),
     });
   });
+
+  // The durable onboarding record, for a spec whose surface the onboarding
+  // steps would otherwise intercept (the chat-app step reads the same channel
+  // list the Messaging pane does). Registered last so it wins over the stub.
+  if (options.onboardingSteps) {
+    const steps = options.onboardingSteps;
+    await page.route('**/api/me/onboarding-status', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ needs_provider_connection: false, steps }),
+      });
+    });
+  }
 }
 
 async function loginAndNavigateToSettings(
@@ -804,6 +819,81 @@ test.describe('Settings Page - User Mode', () => {
     await expect(main.getByText('1 / 3')).toBeVisible();
     await expect(main.getByText('Conversations')).toBeVisible();
     await expect(main.getByText('2 / 20')).toBeVisible();
+  });
+
+  test('messaging pane links Telegram via QR after onboarding, then unlinks it', async ({ page }) => {
+    // The athlete skipped the chat-app steps during onboarding — the case the
+    // pane exists for: nothing else on the web could link Telegram afterwards.
+    await loginAndNavigateToSettings(page, false, {
+      onboardingSteps: [
+        { step_id: 'messaging_channel', status: 'skipped' },
+        { step_id: 'messaging_configure', status: 'skipped' },
+      ],
+    });
+
+    const state = { linked: false, deleted: 0 };
+    const stub = (route: import('@playwright/test').Route, body: unknown) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    await page.route('**/api/messaging/channels', (route) => stub(route, { tenant_id: 't-1', channels: [] }));
+    await page.route('**/api/messaging/channels/available', (route) =>
+      stub(route, [
+        { channel: 'telegram', display_name: 'Telegram', method: 'deep_link', recommended: true },
+        { channel: 'slack', display_name: 'Slack', method: 'oauth', recommended: false },
+      ]),
+    );
+    await page.route('**/api/messaging/link/init/**', (route) =>
+      stub(route, {
+        channel: 'telegram',
+        method: 'deep_link',
+        code: 'abc123',
+        linking_url: 'https://t.me/DravrBot?start=abc123',
+        expires_at: '2030-01-01T00:00:00Z',
+        qr_svg: '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"></svg>',
+      }),
+    );
+    await page.route('**/api/messaging/links', (route) =>
+      stub(route, {
+        links: state.linked
+          ? [{ channel: 'telegram', channel_user_id: 'tg-42', display_name: '@webtest', linked_at: '2026-09-01T10:00:00Z' }]
+          : [],
+      }),
+    );
+    await page.route('**/api/messaging/links/*', (route) => {
+      if (route.request().method() !== 'DELETE') return route.fallback();
+      state.deleted += 1;
+      state.linked = false;
+      return route.fulfill({ status: 204, body: '' });
+    });
+
+    await page.getByTestId('settings-menu-messaging').click();
+
+    const linkedSection = page.getByTestId('chat-app-linked-section');
+    await expect(linkedSection.getByTestId('chat-app-no-links')).toHaveText(
+      'No chat apps linked yet. Link one below to message your agent from it.',
+    );
+    await expect(page.getByTestId('chat-app-add-slack')).toBeVisible();
+
+    await page.getByTestId('chat-app-connect-telegram').click();
+    const panel = page.getByTestId('channel-link-panel');
+    await expect(panel.getByRole('img', { name: 'QR code to connect Telegram' })).toBeVisible();
+    await expect(panel.getByRole('link')).toHaveAttribute('href', 'https://t.me/DravrBot?start=abc123');
+
+    // The athlete presses Start in Telegram; the pane's poll sees the link land.
+    state.linked = true;
+    await expect(panel).toBeHidden({ timeout: 10_000 });
+    const row = page.getByTestId('chat-app-link-telegram');
+    await expect(row).toContainText('Telegram');
+    await expect(row).toContainText('@webtest');
+    await expect(page.getByTestId('chat-app-add-telegram')).toHaveCount(0);
+
+    await page.getByTestId('chat-app-unlink-telegram').click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByText('Unlink Telegram?')).toBeVisible();
+    await dialog.getByRole('button', { name: 'Unlink' }).click();
+
+    await expect(page.getByTestId('chat-app-link-telegram')).toHaveCount(0);
+    await expect(page.getByTestId('chat-app-connect-telegram')).toBeVisible();
+    expect(state.deleted).toBe(1);
   });
 });
 

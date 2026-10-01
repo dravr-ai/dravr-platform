@@ -92,6 +92,11 @@ pub struct PillarsHandler;
 
 #[async_trait]
 impl CommandHandler for PillarsHandler {
+    /// Opens the pillars walk in this thread; the next turns answer it here.
+    fn resumes_thread(&self, _args: &[String]) -> bool {
+        true
+    }
+
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
         let reg = ctx.ctx.messaging_strings_registry();
 

@@ -69,7 +69,16 @@ interface QuotaDetails {
   limit_type?: string;
   current?: number;
   limit?: number;
+  /**
+   * Why the limit applies here, when the server narrows it: a conversation-cap
+   * refusal for a turn into an archived thread names `conversation_archived`,
+   * because "delete one to start a new one" is the wrong instruction there.
+   */
+  reason?: unknown;
 }
+
+/** The `details.reason` of a cap refusal for a turn into an archived thread. */
+const ARCHIVED_CONVERSATION_REASON = 'conversation_archived';
 
 /**
  * The error shape this module reads, duck-typed rather than imported.
@@ -91,7 +100,7 @@ interface AxiosShape {
       error?: string;
       error_description?: string;
       code?: string;
-      details?: QuotaDetails & { reason?: unknown };
+      details?: QuotaDetails;
     };
   };
 }
@@ -216,10 +225,12 @@ export const API_ERROR_KEYS: Record<ApiErrorKind, string> = {
  * "resets tomorrow" are different instructions — so the generic quota key is
  * the fallback, not the answer.
  */
-function quotaKey(limitType: string | undefined): string {
-  switch (limitType) {
+function quotaKey(quota: QuotaDetails): string {
+  switch (quota.limit_type) {
     case 'max_active_conversations':
-      return 'errors.conversationLimitReached';
+      return quota.reason === ARCHIVED_CONVERSATION_REASON
+        ? 'errors.archivedConversationLimitReached'
+        : 'errors.conversationLimitReached';
     case 'daily_messages':
       return 'errors.dailyMessageLimitReached';
     case 'daily_tokens':
@@ -265,22 +276,39 @@ export function describeApiError(
   err: unknown,
   opts: { online?: boolean; t: ApiErrorTranslate; fallbackKey: string },
 ): string {
-  const { kind, detail, quota } = classifyApiError(err, { online: opts.online });
+  const { kind, detail } = classifyApiError(err, { online: opts.online });
   if (kind === 'offline' || kind === 'network' || kind === 'timeout' || kind === 'server') {
     return opts.t(API_ERROR_KEYS[kind]);
   }
-  // A limit the server counted is described from its own numbers, translated —
-  // never from its prose, which is the one place the counts are not localised.
-  if (quota?.limit_type !== undefined) {
-    return opts.t(quotaKey(quota.limit_type), {
-      current: quota.current ?? 0,
-      limit: quota.limit ?? 0,
-    });
+  const quotaSentence = describeQuotaRefusal(err, opts.t);
+  if (quotaSentence !== undefined) {
+    return quotaSentence;
   }
   if (detail && prefersServerDetail(kind)) {
     return detail;
   }
   return opts.t(opts.fallbackKey);
+}
+
+/**
+ * The translated sentence for a refusal that names the limit it hit, or
+ * `undefined` when the error is not one.
+ *
+ * A limit the server counted is described from its own numbers, translated —
+ * never from its prose, which is the one place the counts are not localised.
+ * A chat turn's failure note reads this before falling back to the error's own
+ * message, so a turn refused at a cap speaks the athlete's language on both
+ * clients rather than printing the server's English.
+ */
+export function describeQuotaRefusal(err: unknown, t: ApiErrorTranslate): string | undefined {
+  const { quota } = classifyApiError(err);
+  if (quota?.limit_type === undefined) {
+    return undefined;
+  }
+  return t(quotaKey(quota), {
+    current: quota.current ?? 0,
+    limit: quota.limit ?? 0,
+  });
 }
 
 /**

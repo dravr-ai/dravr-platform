@@ -34,11 +34,12 @@
 
 use std::sync::Arc;
 
-use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
+use pierre_commands::dispatch::{try_dispatch, CommandAuthor, DispatchOutcome, DispatchRequest};
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::TranscriptSpeaker;
 use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_llm::ChatProvider;
+use pierre_services::conversation_forge::reactivate_for_turn;
 use pierre_services::tenant_chat_provider::resolve_tenant_chat_provider;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -197,21 +198,28 @@ pub struct SlashRequest<'a> {
     pub sender_id: Option<&'a str>,
     /// The raw text the athlete typed.
     pub text: &'a str,
+    /// Who the text came from. A command the platform composed never takes an
+    /// archived thread's quota slot back; the athlete's may — the same rule
+    /// [`execute`] applies to a coaching turn.
+    pub origin: TurnOrigin,
 }
 
 /// Run one chat turn.
 ///
 /// The ladder, in order: measure the athlete's standing against their usage
 /// caps and refuse a hard breach; hand back a caller-served request; answer a
-/// slash command; resolve the turn's locale from the athlete's own words;
+/// slash command; bring an archived conversation back under the
+/// `max_active_conversations` cap, or refuse the turn; resolve the turn's
+/// locale from the athlete's own words;
 /// resolve the tenant's own model key; run the pipeline; record the usage the
 /// next turn's check will read.
 ///
 /// # Errors
 ///
 /// Returns [`pierre_core::errors::AppError::quota_exceeded`] when a usage cap
-/// refuses the turn, whatever the slash handler returned when a command
-/// fails, and whatever the pipeline returned otherwise.
+/// refuses the turn — the conversation cap included, when the turn would
+/// reactivate an archived thread at it — whatever the slash handler returned
+/// when a command fails, and whatever the pipeline returned otherwise.
 pub async fn execute(
     ctx: &ChatPipelineContext,
     request: TurnRequest<'_>,
@@ -260,6 +268,7 @@ pub async fn execute(
             persistence: request.command_persistence,
             sender_id: request.sender_id,
             text: &request.content,
+            origin: request.origin,
         },
     )
     .await?
@@ -278,6 +287,23 @@ pub async fn execute(
             command: Box::new(command),
             quota,
         });
+    }
+
+    // Not a command, so a coaching turn from the athlete is about to be
+    // written into this conversation: an archived thread takes its quota slot
+    // back first, or the turn is refused before anything is persisted. A
+    // command meets the same check in the command dispatcher, before its
+    // handler runs, when the command carries its thread on; a turn the
+    // platform composed never reactivates a thread.
+    if request.origin == TurnOrigin::Athlete {
+        reactivate_for_turn(
+            &ctx.repos,
+            ctx.admin_config.as_deref(),
+            &user_id_str,
+            request.conversation_tenant_id,
+            &request.conversation_id,
+        )
+        .await?;
     }
 
     // The athlete's current message decides the turn's language, over their
@@ -394,6 +420,10 @@ pub async fn dispatch_slash(
         sender_id: request.sender_id,
         text: request.text,
         tool_runtime: &ctx.tool_runtime,
+        author: match request.origin {
+            TurnOrigin::Athlete => CommandAuthor::Athlete,
+            TurnOrigin::Platform => CommandAuthor::Platform,
+        },
     })
     .await?;
 

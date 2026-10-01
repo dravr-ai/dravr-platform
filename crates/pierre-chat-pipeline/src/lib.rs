@@ -77,7 +77,7 @@ pub use usage_counters::{
 // messaging ingress) can attach the same per-call recorder the chat
 // pipeline uses.
 pub use recorders::UsageRepoCallRecorder as TurnCallRecorder;
-pub use turn::{CreateConversationResult, TurnInput, TurnOrigin, UserMessageResult};
+pub use turn::{TurnInput, TurnOrigin, UserMessageResult};
 
 use recovery::{run_recovery_and_post_process, RecoveryAndPostProcessInputs};
 use std::sync::Arc;
@@ -897,6 +897,7 @@ async fn run_turn(
             llm_messages: &llm_messages,
             active_model: &active_model,
             peer_roster: &group_roster,
+            guided_walk: onboarding_turn.as_ref().map(|turn| &turn.state),
         },
         &mut result,
         hooks,

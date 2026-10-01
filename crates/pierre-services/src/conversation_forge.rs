@@ -28,11 +28,17 @@ use pierre_config::constants::usage_quotas::{
     DEFAULT_MAX_ACTIVE_CONVERSATIONS, UNLIMITED_CONVERSATIONS,
 };
 use pierre_config::environment::LlmProviderType;
-use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{CoverageMap, GuidedFlow, OnboardingState, TenantId};
-use pierre_database::repositories::{AgentsRepository, ChatRepository, TenantRepository};
+use pierre_contremaitre::messaging_strings::{
+    MessagingStringsRegistry, KEY_ARCHIVED_CONVERSATION_QUOTA, KEY_RESET_QUOTA,
+};
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::models::{ConversationRecord, CoverageMap, GuidedFlow, OnboardingState, TenantId};
+use pierre_database::repositories::{
+    AgentsRepository, ChatRepository, NewConversation, Reactivation, SlotClaim, TenantRepository,
+};
 use pierre_database::RepositoryRegistry;
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup, ConfigLookupScope};
+use serde_json::Value;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -96,6 +102,8 @@ pub struct ForgeParams<'a> {
     /// the web wizard tells us who they are. It still only fires for an
     /// athlete who has answered nothing anywhere — see [`start_guided_flow`].
     pub guided_flow: bool,
+    /// Whether the forge answers to the athlete's conversation cap.
+    pub quota: SlotQuota<'a>,
 }
 
 /// The `usage_quotas.max_active_conversations` key every quota read names.
@@ -123,37 +131,204 @@ pub async fn max_active_conversations(
         .unwrap_or(DEFAULT_MAX_ACTIVE_CONVERSATIONS)
 }
 
-/// Refuse one more thread for an athlete already at their cap.
+/// Whether a new conversation answers to the athlete's
+/// `max_active_conversations` cap.
+#[derive(Clone, Copy)]
+pub enum SlotQuota<'a> {
+    /// The athlete asked for a fresh thread — the REST create, `/reset` — so
+    /// the cap applies. The lookup resolves it; `None` degrades to the
+    /// registered defaults, never to no cap.
+    Capped(Option<&'a dyn AdminConfigLookup>),
+    /// The platform forges the thread to keep a channel alive — a messaging
+    /// session repaired, a first contact answered. Refusing there leaves the
+    /// channel dead, with no sidebar to delete from, so no cap applies.
+    Exempt,
+}
+
+/// Create a conversation under the athlete's `max_active_conversations` cap.
 ///
-/// The cap counts the conversations the athlete *owns* in the tenant, the
-/// same rows the sidebar lets them delete, so the toast's advice is
-/// actionable. It runs wherever the athlete asks for a fresh thread — the
-/// REST create and `/reset` — but not where the messaging ingress forges one
-/// to repair a session or answer a first contact: refusing there leaves the
-/// channel dead, with no sidebar to delete from.
+/// The cap counts the active conversations the athlete *owns* in the tenant —
+/// every owned row a `/reset` has not archived — which the sidebar lets them
+/// delete. The count and the insert are decided together, under the owner
+/// slot lock, by [`ChatRepository::create_conversation_within_cap`], so two
+/// requests at 9/10 cannot both get the tenth slot.
 ///
 /// # Errors
 ///
 /// [`AppError::quota_exceeded`] with `limit_type` `max_active_conversations`
-/// when the count has reached the cap; the database error when the count
-/// itself fails. An [`UNLIMITED_CONVERSATIONS`] cap never refuses.
-pub async fn enforce_conversation_quota(
+/// when the owner is at the cap under [`SlotQuota::Capped`]; nothing is
+/// written then. The database error when the transaction fails. An
+/// [`UNLIMITED_CONVERSATIONS`] cap never refuses.
+pub async fn create_conversation_slot(
+    repos: &RepositoryRegistry,
+    quota: SlotQuota<'_>,
+    new: &NewConversation<'_>,
+) -> AppResult<ConversationRecord> {
+    let cap = match quota {
+        SlotQuota::Capped(admin_config) => {
+            resolved_cap(admin_config, new.user_id, new.tenant_id).await
+        }
+        SlotQuota::Exempt => None,
+    };
+    match repos.chat.create_conversation_within_cap(new, cap).await? {
+        SlotClaim::Claimed(conversation) => Ok(*conversation),
+        SlotClaim::AtCap { current } => Err(conversation_cap_error(
+            current,
+            cap.unwrap_or(UNLIMITED_CONVERSATIONS),
+        )),
+    }
+}
+
+/// Bring an archived conversation back into the active set before a turn is
+/// written to it, under the same cap a fresh thread answers to.
+///
+/// A thread `/reset` archived holds no slot, so a turn posted into it asks for
+/// one: without this, archiving and then chatting on in the old thread would
+/// sidestep `max_active_conversations` entirely. The chat turn service calls
+/// it for every athlete coaching turn, and the command dispatcher for every
+/// command that carries the thread on, before anything is persisted. A thread
+/// that is active, or that someone else owns (it holds their slot, not the
+/// poster's), passes untouched.
+///
+/// The archive state is read fresh — one owner-scoped primary-key read — and
+/// the cap is resolved only when the thread is archived, so the common case,
+/// a turn into an active thread, costs that one read. An archived thread is reactivated
+/// under the owner slot lock [`create_conversation_slot`] takes, which
+/// re-reads the archive state, so a reactivation and a create cannot both
+/// take the last slot.
+///
+/// # Errors
+///
+/// The [`create_conversation_slot`] refusal — [`AppError::quota_exceeded`]
+/// with `limit_type` `max_active_conversations` — when the owner is at the
+/// cap; the thread then stays archived. The database error when the lookup or
+/// the update fails.
+pub async fn reactivate_for_turn(
     repos: &RepositoryRegistry,
     admin_config: Option<&dyn AdminConfigLookup>,
     user_id: &str,
     tenant_id: TenantId,
+    conversation_id: &str,
 ) -> AppResult<()> {
-    // Degrade to the registered defaults when admin config is not wired
-    // into the running server, never to no cap.
+    if !repos
+        .chat
+        .is_conversation_archived(conversation_id, user_id, tenant_id)
+        .await?
+    {
+        return Ok(());
+    }
+    let cap = resolved_cap(admin_config, user_id, tenant_id).await;
+    match repos
+        .chat
+        .reactivate_conversation(conversation_id, user_id, tenant_id, cap)
+        .await?
+    {
+        Reactivation::NotArchived => Ok(()),
+        Reactivation::Reactivated => {
+            info!(
+                user_id,
+                conversation_id, "archived conversation reactivated by a new turn"
+            );
+            Ok(())
+        }
+        Reactivation::AtCap { current } => Err(archived_conversation_cap_error(
+            current,
+            cap.unwrap_or(UNLIMITED_CONVERSATIONS),
+        )),
+    }
+}
+
+/// The athlete's words for a `max_active_conversations` refusal on a
+/// messaging surface, in `locale`: the cap they hit and what to do about it.
+///
+/// A refusal that names [`ARCHIVED_CONVERSATION_REASON`] says the thread they
+/// wrote into is archived, since "before starting another" would be wrong
+/// there — they started nothing. `None` for any other error, which keeps its
+/// own rendering.
+#[must_use]
+pub fn conversation_cap_reply(
+    err: &AppError,
+    strings: &MessagingStringsRegistry,
+    locale: &str,
+) -> Option<String> {
+    if err.code != ErrorCode::QuotaExceeded {
+        return None;
+    }
+    let details = err.details.as_deref()?;
+    if details.get("limit_type").and_then(Value::as_str) != Some(CONVERSATION_CAP_LIMIT_TYPE) {
+        return None;
+    }
+    let cap = details.get("limit").and_then(Value::as_i64)?;
+    let key = if details.get("reason").and_then(Value::as_str) == Some(ARCHIVED_CONVERSATION_REASON)
+    {
+        KEY_ARCHIVED_CONVERSATION_QUOTA
+    } else {
+        KEY_RESET_QUOTA
+    };
+    Some(strings.render(key, locale, &[&cap.to_string()]))
+}
+
+/// The `limit_type` every conversation-cap refusal carries.
+const CONVERSATION_CAP_LIMIT_TYPE: &str = "max_active_conversations";
+
+/// The `details.reason` of a cap refusal for a turn into an archived thread.
+///
+/// Both clients read it (`quotaKey` in `@pierre/ui-logic`) to word the refusal
+/// as "this conversation is archived" rather than "delete one to start a new
+/// one", and [`conversation_cap_reply`] does the same on messaging.
+pub const ARCHIVED_CONVERSATION_REASON: &str = "conversation_archived";
+
+/// The one refusal shape for the conversation cap, whichever path hit it.
+fn conversation_cap_error(current: i64, cap: i64) -> AppError {
+    AppError::quota_exceeded(CONVERSATION_CAP_LIMIT_TYPE, current, cap, "")
+}
+
+/// The cap refusal for a turn into an archived thread: the same shape as
+/// [`conversation_cap_error`], plus `details.reason` naming the archive.
+fn archived_conversation_cap_error(current: i64, cap: i64) -> AppError {
+    let mut err = conversation_cap_error(current, cap);
+    if let Some(Value::Object(details)) = err.details.as_deref_mut() {
+        details.insert(
+            "reason".to_owned(),
+            Value::from(ARCHIVED_CONVERSATION_REASON),
+        );
+    }
+    err
+}
+
+/// The cap in force, `None` when it is [`UNLIMITED_CONVERSATIONS`].
+///
+/// Degrades to the registered defaults when admin config is not wired into
+/// the running server — never to no cap.
+async fn resolved_cap(
+    admin_config: Option<&dyn AdminConfigLookup>,
+    user_id: &str,
+    tenant_id: TenantId,
+) -> Option<i64> {
     let registered_defaults: &dyn AdminConfigLookup = default_admin_config();
     let admin_config = admin_config.unwrap_or(registered_defaults);
     let cap = max_active_conversations(admin_config, user_id, tenant_id).await;
-    if cap == UNLIMITED_CONVERSATIONS {
-        return Ok(());
-    }
-    let current = repos.chat.count_conversations(user_id, tenant_id).await?;
-    (current < cap)
-        .ok_or_else(|| AppError::quota_exceeded("max_active_conversations", current, cap, ""))
+    (cap != UNLIMITED_CONVERSATIONS).then_some(cap)
+}
+
+/// The model a new conversation runs on: the one asked for, else
+/// `PIERRE_LLM_MODEL`.
+///
+/// # Errors
+///
+/// Returns [`AppError::config`] when no model is given and `PIERRE_LLM_MODEL`
+/// is unset.
+pub fn resolve_conversation_model(requested: Option<&str>) -> AppResult<String> {
+    requested.map_or_else(
+        || {
+            LlmProviderType::model_from_env().ok_or_else(|| {
+                AppError::config(
+                    "No model specified and PIERRE_LLM_MODEL environment variable not set",
+                )
+            })
+        },
+        |m| Ok(m.to_owned()),
+    )
 }
 
 /// Create the conversation and return its id.
@@ -165,7 +340,9 @@ pub async fn enforce_conversation_quota(
 /// # Errors
 ///
 /// Returns [`AppError::config`] when no model is given and `PIERRE_LLM_MODEL`
-/// is unset, and the database error when the row cannot be created.
+/// is unset, the [`create_conversation_slot`] refusal when a
+/// [`SlotQuota::Capped`] forge finds the athlete at their cap, and the
+/// database error when the row cannot be created.
 pub async fn forge_conversation(
     repos: &RepositoryRegistry,
     params: ForgeParams<'_>,
@@ -180,6 +357,7 @@ pub async fn forge_conversation(
         channel_type,
         selection_source,
         guided_flow,
+        quota,
     } = params;
 
     let agent_id = match agent {
@@ -197,24 +375,21 @@ pub async fn forge_conversation(
     )
     .await;
 
-    let model = match model {
-        Some(m) => m.to_owned(),
-        None => LlmProviderType::model_from_env().ok_or_else(|| {
-            AppError::config("No model specified and PIERRE_LLM_MODEL environment variable not set")
-        })?,
-    };
+    let model = resolve_conversation_model(model)?;
 
-    let conversation = repos
-        .chat
-        .create_conversation(
+    let conversation = create_conversation_slot(
+        repos,
+        quota,
+        &NewConversation {
             user_id,
             tenant_id,
-            &title,
-            &model,
-            agent_id.as_deref(),
+            title: &title,
+            model: &model,
+            agent_id: agent_id.as_deref(),
             group_id,
-        )
-        .await?;
+        },
+    )
+    .await?;
     let conversation_id = conversation.id;
 
     if let Some(agent_id) = agent_id.as_deref() {

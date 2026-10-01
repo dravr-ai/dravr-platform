@@ -628,6 +628,53 @@ async fn discover_install_by_handle_installs_once_and_teaches_agent_add() {
 // /group create
 // ============================================================================
 
+/// A thread `/reset` archived is adopted as the room like any other empty
+/// one: the dispatcher reactivates it under the cap before `/group create`
+/// runs, so the room holds a slot rather than being created uncapped beside it.
+#[tokio::test]
+async fn group_create_in_an_archived_empty_thread_adopts_it_and_takes_its_slot() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant_id, auth) =
+        seed_user_tenant(&resources, "group-archived@test.com", "professional").await;
+    seed_selected_agent(&resources, user_id, tenant_id, "Club Coach").await;
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+    let conv = create_conversation(router.clone(), &auth).await;
+    let chat = &resources.common.repos.chat;
+    let user = user_id.to_string();
+    assert!(chat
+        .archive_conversation(&conv, &user, tenant_id)
+        .await
+        .unwrap());
+    assert_eq!(chat.count_conversations(&user, tenant_id).await.unwrap(), 0);
+
+    send(router, &auth, &conv, "/group create Sunday Runners").await;
+
+    let thread = chat
+        .get_conversation(&conv, &user, tenant_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        thread.group_id.is_some(),
+        "the archived empty thread became the group chat"
+    );
+    assert_eq!(thread.title, "Sunday Runners");
+    assert!(thread.archived_at.is_none(), "the room is active");
+    assert_eq!(
+        chat.count_conversations(&user, tenant_id).await.unwrap(),
+        1,
+        "the room holds exactly one slot, and no second thread was created"
+    );
+    assert_eq!(
+        chat.list_conversations(&user, tenant_id, 50, 0)
+            .await
+            .unwrap()
+            .items
+            .len(),
+        1
+    );
+}
+
 #[tokio::test]
 async fn group_create_in_a_fresh_thread_binds_it_to_the_new_group() {
     let resources = create_test_server_resources().await.unwrap();

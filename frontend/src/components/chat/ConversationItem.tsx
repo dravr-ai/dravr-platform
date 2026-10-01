@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: One row of the conversation list — avatar, kind glyph, title, preview, time, unread pill, the way a messenger draws it
+// ABOUTME: One row of the conversation list — avatar, kind glyph, title, archived label, preview, time, unread pill, messenger-style
 // ABOUTME: Bold while unread; a hover or right-click menu holds rename, mark-unread and delete; the rename is an inline ui Input
 
 import { memo, useEffect, useRef, useState } from 'react';
@@ -263,6 +263,15 @@ const ConversationItem = memo(function ConversationItem({
             >
               {row.title}
             </p>
+            {/* An archived thread holds no conversation slot; a turn into it takes one back. */}
+            {row.archived && (
+              <span
+                className="flex-shrink-0 rounded-full bg-surface-container-high px-1.5 py-0.5 text-xs font-medium text-on-surface-variant"
+                data-testid="conversation-archived-badge"
+              >
+                {t('chat.archived')}
+              </span>
+            )}
             <span
               className={clsx('flex-shrink-0 whitespace-nowrap text-xs', unread ? 'text-primary' : 'text-outline')}
               data-testid="conversation-timestamp"

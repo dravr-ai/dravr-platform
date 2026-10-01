@@ -9,6 +9,7 @@ import {
   classifyApiError,
   describeApiError,
   describeLoginFailure,
+  describeQuotaRefusal,
   refusalReason,
   API_ERROR_KEYS,
 } from '../src/apiError';
@@ -200,6 +201,24 @@ describe('describeApiError', () => {
         }),
       ).toBe(`${key}(3/5)`);
     }
+  });
+
+  it('words a cap refusal for an archived thread as the archive, not as a new conversation', () => {
+    const withParams = (key: string, params?: Record<string, string | number>) =>
+      params ? `${key}(${params.current}/${params.limit})` : key;
+    const archived = responded(429, {
+      details: { limit_type: 'max_active_conversations', current: 5, limit: 5, reason: 'conversation_archived' },
+    });
+    expect(describeApiError(archived, { online: true, t: withParams, fallbackKey: 'x.y' })).toBe(
+      'errors.archivedConversationLimitReached(5/5)',
+    );
+    // A chat turn's failure note reads the same sentence straight off the refusal.
+    expect(describeQuotaRefusal(archived, withParams)).toBe('errors.archivedConversationLimitReached(5/5)');
+  });
+
+  it('reads no quota sentence off a refusal that names no limit', () => {
+    expect(describeQuotaRefusal(responded(403), (key) => key)).toBeUndefined();
+    expect(describeQuotaRefusal(new Error('socket hang up'), (key) => key)).toBeUndefined();
   });
 
   it('falls back to the generic quota sentence for a limit it has no wording for', () => {

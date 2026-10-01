@@ -67,6 +67,8 @@ use pierre_services::sync_failure_notice::SyncFailureNotices;
 #[cfg(feature = "provider-sciotte")]
 mod connect_hosted;
 #[cfg(feature = "provider-sciotte")]
+mod connect_hosted_intervals;
+#[cfg(feature = "provider-sciotte")]
 mod connect_hosted_templates;
 mod email_verification;
 mod intervals_icu;
@@ -327,6 +329,13 @@ impl AuthRoutes {
             .route(
                 "/providers/connect/success",
                 get(connect_hosted::handle_connect_hosted_success_page),
+            )
+            // The picker's Intervals.icu card: an athlete id + API key form,
+            // authed by the same connect link-token.
+            .route(
+                "/providers/connect/intervals_icu",
+                get(connect_hosted_intervals::handle_intervals_icu_form_page)
+                    .post(connect_hosted_intervals::handle_intervals_icu_form_submit),
             )
             .route(
                 "/api/providers/connect/oauth-init/{provider}",

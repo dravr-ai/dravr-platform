@@ -870,6 +870,7 @@
     "analysisFailedTitle": "Analyse fehlgeschlagen",
     "analyzeConversationFailed": "Die Unterhaltung konnte nicht analysiert werden",
     "analyzingConversation": "Unterhaltung wird analysiert...",
+    "archived": "Archiviert",
     "askAboutClaim": "Frag mich zu dieser Aussage",
     "backToList": "Zurück zu den Chats",
     "cancel": "Abbrechen",
@@ -1029,7 +1030,14 @@
     "routeFullScreen": "Vollbild",
     "routeLayerSatellite": "Satellit",
     "routeLayerStandard": "Karte",
+    "routeLayerTerrain": "Gelände",
     "routeLayers": "Kartenebene",
+    "routeMapCredits": "Kartennachweise",
+    "routeMapScrollMac": "Verwende ⌘ + Scrollen, um die Karte zu zoomen",
+    "routeMapScrollWindows": "Verwende Strg + Scrollen, um die Karte zu zoomen",
+    "routeMapTwoFingers": "Verwende zwei Finger, um die Karte zu bewegen",
+    "routeMapZoomIn": "Vergrößern",
+    "routeMapZoomOut": "Verkleinern",
     "routeNoTrack": "Diese Aktivität hat keinen GPS-Track aufgezeichnet.",
     "saveChanges": "Änderungen speichern",
     "saving": "Wird gespeichert...",
@@ -1576,6 +1584,7 @@
     "whenToUseSection": "Wann einsetzen"
   },
   "errors": {
+    "archivedConversationLimitReached": "Diese Unterhaltung ist archiviert, und du hast bereits {{limit}} offene Unterhaltungen — das Maximum deines Tarifs. Lösche eine, um hier weiterzumachen.",
     "conversationLimitReached": "Unterhaltungslimit erreicht ({{current}}/{{limit}}). Lösche eine bestehende Unterhaltung, um eine neue zu beginnen.",
     "dailyMessageLimitReached": "Tageslimit für Nachrichten erreicht ({{current}}/{{limit}}). Zurücksetzung morgen.",
     "dailyTokenLimitReached": "Tageslimit für Token erreicht ({{current}}/{{limit}}). Zurücksetzung morgen.",
@@ -1816,6 +1825,7 @@
       "loadFailed": "Deine letzten Aktivitäten konnten nicht geladen werden.",
       "refreshing": "Dein Anbieter wird nach neuen Aktivitäten abgefragt…",
       "syncedAt": "Zuletzt synchronisiert: {{time}}",
+      "analyzeDraft": "Analysiere meine Aktivität vom {{date}} ({{sport}})",
       "sketchAlt": "Skizze der Route"
     },
     "activity": {
@@ -1828,6 +1838,7 @@
       "laps": "Runden",
       "figure": {
         "distance": "Distanz",
+        "movingTime": "Bewegungszeit",
         "duration": "Dauer",
         "elevationGain": "Höhenmeter",
         "avgPace": "Ø Pace",
@@ -2040,6 +2051,7 @@
     "quota_exceeded": "Du hast das Chat-Kontingent deines Tarifs vorerst erreicht. Es setzt sich automatisch zurück — schau etwas später wieder vorbei.",
     "quota_warning": "Hinweis: Du hast {0} von {1} deines Tarifs verbraucht. Der Zähler wird am {2} zurückgesetzt.",
     "quota_burst": "Hinweis: Du hast das Limit von {1} deines Tarifs überschritten und nutzt die Reserve. Der Zähler wird am {2} zurückgesetzt.",
+    "archived_conversation_quota": "Diese Unterhaltung ist archiviert, und du hast bereits {0} offene Unterhaltungen — das Maximum deines Tarifs. Lösche eine in der App, um hier weiterzumachen.",
     "rate_limited": "Du sendest Nachrichten etwas schneller, als dein Tarif erlaubt. Warte einen Moment und versuch es dann noch einmal — ich bin hier.",
     "reply_withheld": "Meine Antwort ging nicht raus — sie enthielt technische Details, die hier nicht hingehören. Schick mir deine letzte Nachricht noch einmal und wir machen dort weiter, wo wir waren.",
     "reply_stop": {

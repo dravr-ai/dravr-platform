@@ -25,7 +25,7 @@ import {
 import { useTranslation } from '@pierre/i18n';
 import type { Message } from '../../types';
 import type { ChatRow } from './MessageList';
-import { describeApiError } from '@pierre/ui-logic';
+import { describeApiError, describeQuotaRefusal } from '@pierre/ui-logic';
 
 export interface MessagesState {
   messages: Message[];
@@ -352,11 +352,16 @@ export function useMessages(): MessagesState & MessagesActions {
   /**
    * What the athlete reads for a failed turn. The idle stop's error carries no
    * athlete-facing words, so its note comes from the shared catalogue, in the
-   * athlete's language; every other failure already arrives worded.
+   * athlete's language. So does a turn refused at a limit — the conversation
+   * cap for an archived thread, a spent daily budget — worded from the limit
+   * it names rather than the server's English. Every other failure already
+   * arrives worded.
    */
   const turnFailureText = useCallback(
     (failure: Error): string =>
-      failure instanceof TurnIdleAbortedError ? t('chat.turnIdleAborted') : failure.message,
+      failure instanceof TurnIdleAbortedError
+        ? t('chat.turnIdleAborted')
+        : describeQuotaRefusal(failure, t) ?? failure.message,
     [t],
   );
 

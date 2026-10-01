@@ -17,15 +17,15 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use chrono::Utc;
-use pierre_chat_pipeline::stages::persistence::create_conversation as create_conversation_row;
 use pierre_contremaitre::messaging_strings::KEY_NEW_CONVERSATION_TITLE_PREFIX;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::TenantId;
+use pierre_database::repositories::NewConversation;
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::AdminConfigLookup;
 use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
 use pierre_services::conversation_forge::{
-    counterpart_title, dated_title, enforce_conversation_quota,
+    counterpart_title, create_conversation_slot, dated_title, resolve_conversation_model, SlotQuota,
 };
 use pierre_services::locale::resolve_user_locale;
 
@@ -71,19 +71,6 @@ pub async fn create_conversation(
     let tenant_id = get_tenant_id(&auth, &resources).await?;
     let user_id_str = auth.user_id.to_string();
 
-    // Enforce max_active_conversations — the same check `/reset` runs.
-    enforce_conversation_quota(
-        &resources.common.repos,
-        resources
-            .agent
-            .admin_config
-            .as_deref()
-            .map(|c| c as &dyn AdminConfigLookup),
-        &user_id_str,
-        tenant_id,
-    )
-    .await?;
-
     // Verify group membership when caller asks to attach a group_id —
     // a user can only create a conversation scoped to a group they belong to,
     // or one they are the human coach of.
@@ -116,14 +103,27 @@ pub async fn create_conversation(
         }
     };
 
-    let result = create_conversation_row(
-        resources.common.repos.chat.as_ref(),
-        &user_id_str,
-        tenant_id,
-        &title,
-        request.model.as_deref(),
-        request.agent_id.as_deref(),
-        request.group_id.as_deref(),
+    // Created under max_active_conversations — the same locked count-and-
+    // insert `/reset` runs — so two requests at the cap's edge cannot both
+    // get the last slot.
+    let model = resolve_conversation_model(request.model.as_deref())?;
+    let conv = create_conversation_slot(
+        &resources.common.repos,
+        SlotQuota::Capped(
+            resources
+                .agent
+                .admin_config
+                .as_deref()
+                .map(|c| c as &dyn AdminConfigLookup),
+        ),
+        &NewConversation {
+            user_id: &user_id_str,
+            tenant_id,
+            title: &title,
+            model: &model,
+            agent_id: request.agent_id.as_deref(),
+            group_id: request.group_id.as_deref(),
+        },
     )
     .await?;
 
@@ -135,7 +135,6 @@ pub async fn create_conversation(
         record_agent_usage_best_effort(&resources, agent_id, auth.user_id, tenant_id).await;
     }
 
-    let conv = result.conversation;
     let response = ConversationResponse {
         id: conv.id,
         title: conv.title,
@@ -188,6 +187,7 @@ pub async fn list_conversations(
                 group_id: c.group_id,
                 group_name: c.group_name,
                 channel_type: c.channel_type,
+                archived_at: c.archived_at,
                 last_message: c.last_message.map(|m| LastMessageResponse {
                     preview: preview_text(&m.content_head),
                     role: m.role,

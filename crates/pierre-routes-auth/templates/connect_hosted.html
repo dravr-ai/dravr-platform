@@ -6,7 +6,8 @@
 <!--
   Hosted connect picker for channel-initiated provider connection.
   Mirrors the web onboarding decision tree: the user picks a provider, then
-  connects via OAuth (full-page redirect to the link-token-authed oauth-init)
+  connects via OAuth (full-page redirect to the link-token-authed oauth-init),
+  the hosted Intervals.icu API-key form (full-page, same link-token),
   or the Sciotte credential state machine (same /api/providers/sciotte/* API the
   web/mobile SciotteLoginModal uses). The signed connect link-token is embedded
   and sent as `Authorization: Bearer` on every API call. Passwords never leave
@@ -152,7 +153,7 @@
                 channel: "{{CHANNEL}}",
                 channelLabel: "{{CHANNEL_LABEL}}",
                 // Providers JSON embedded server-side (mirrors GET /api/providers):
-                // [{ provider, display_name, description, connected, kind: 'oauth'|'sciotte', target, consent_required, notice?, login_identifier }]
+                // [{ provider, display_name, description, connected, kind: 'oauth'|'sciotte'|'api_key', target, consent_required, notice?, login_identifier }]
                 // `notice` is shown before the credentials (sciotte) or before the
                 // OAuth redirect (oauth) while `consent_required` holds.
                 providers: {{PROVIDERS_JSON}},
@@ -251,7 +252,9 @@
                         ? 'Connected'
                         : (p.kind === 'oauth'
                             ? 'Authorize'
-                            : (p.login_identifier === 'username' ? 'Username / password' : 'Email / password'));
+                            : (p.kind === 'api_key'
+                                ? 'Athlete ID / API key'
+                                : (p.login_identifier === 'username' ? 'Username / password' : 'Email / password')));
                     btn.appendChild(tag);
                     if (p.connected) {
                         btn.disabled = true;
@@ -289,8 +292,19 @@
                 showPhase('oauth-consent');
             }
 
+            // Full-page navigation to the hosted API-key form (Intervals.icu),
+            // carrying the same connect token.
+            function openApiKeyForm(provider) {
+                window.location.assign('/providers/connect/' + encodeURIComponent(provider)
+                    + '?token=' + encodeURIComponent(CONFIG.token));
+            }
+
             function pickProvider(p) {
                 clearError();
+                if (p.kind === 'api_key') {
+                    openApiKeyForm(p.provider);
+                    return;
+                }
                 if (p.kind === 'oauth') {
                     if (p.consent_required && p.notice) {
                         openOAuthConsent(p);

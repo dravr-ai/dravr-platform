@@ -2,8 +2,8 @@
 // ABOUTME: Succeeds the deleted mobile extractErrorMessage; covers both refusal carriers and every quota limit
 
 import { AxiosError, AxiosHeaders } from 'axios';
-import { TurnRequestError } from '@pierre/api-client';
-import { describeApiError } from '@pierre/ui-logic';
+import { parseTurnBody, TurnRequestError } from '@pierre/api-client';
+import { describeApiError, describeQuotaRefusal } from '@pierre/ui-logic';
 import { i18n } from '@pierre/i18n';
 
 /**
@@ -202,6 +202,37 @@ describe('what a refused mobile request says', () => {
       );
       expect(describeApiError(null, { t, fallbackKey: FALLBACK })).toBe(
         'Network error. Check your connection.',
+      );
+    });
+  });
+
+  describe('a turn refused mid-stream', () => {
+    it('words an archived-thread cap refusal from the failed frame, as the phone renders it', async () => {
+      // The frame the server sends for a turn into an archived thread at the
+      // conversation cap: the refusal body's code and details plus its status.
+      const body = `event: failed\ndata: ${JSON.stringify({
+        error: 'max_active_conversations quota exceeded: 10/10',
+        status: 429,
+        code: 'QuotaExceeded',
+        details: {
+          limit_type: 'max_active_conversations',
+          current: 10,
+          limit: 10,
+          resets_at: '',
+          reason: 'conversation_archived',
+        },
+      })}\n\n`;
+      async function* whole(): AsyncGenerator<string> {
+        yield body;
+      }
+
+      const failure = await parseTurnBody(whole()).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect(failure).toBeInstanceOf(TurnRequestError);
+      expect(describeQuotaRefusal(failure, t)).toBe(
+        'This conversation is archived, and you already have 10 conversations open — the maximum for your plan. Delete one to continue here.',
       );
     });
   });

@@ -1,11 +1,8 @@
-// ABOUTME: Messaging channel configuration tab for user settings
-// ABOUTME: Athletes configure their own WhatsApp, Telegram, Slack, Discord and Messenger credentials
+// ABOUTME: Messaging tab for user settings — the chat apps linked to the account, then channel credentials
+// ABOUTME: Athletes link/unlink chat apps and configure their own WhatsApp, Telegram, Slack, Discord and Messenger credentials
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
-//
-// LIMITATION(registre#644): `MessagingSettingsTab` configures bot credentials only; web Settings
-// has no account link to Telegram after onboarding (mobile's MessagingChannelsScreen does).
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -16,6 +13,7 @@ import { clsx } from 'clsx';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useTranslation } from '@pierre/i18n';
 import { CHANNEL_BRAND } from '@pierre/shared-constants';
+import ChatAppLinks from './settings/ChatAppLinks';
 
 interface ChannelField {
   key: string;
@@ -184,6 +182,8 @@ export default function MessagingSettingsTab() {
 
   return (
     <>
+      <ChatAppLinks />
+
       <Section title={t('msgChan.title')} description={t('msgChan.intro')}>
 
         <div className="space-y-4">

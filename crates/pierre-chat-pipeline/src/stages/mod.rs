@@ -35,6 +35,8 @@ pub mod capability_recovery;
 /// Subject-routed capability recovery: an ask about a roster peer is
 /// adjudicated with that peer's data, never the requester's.
 pub mod capability_subject;
+/// Whether the reply an athlete is answering asserted training facts.
+pub mod claim_density;
 /// Slash-command turns written to the transcript — and kept out of prompts.
 pub mod command_persistence;
 /// Open athlete commitments rendered into the agent's system prompt.

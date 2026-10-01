@@ -228,6 +228,12 @@ pub struct ConversationSummaryResponse {
     /// for messaging). The one signal behind the client's channel glyph; the
     /// title carries no channel.
     pub channel_type: Option<String>,
+    /// When `/reset` archived the thread (RFC 3339); `null` while it is
+    /// active. An archived thread holds none of the owner's
+    /// `max_active_conversations` slots — `/api/usage/status` does not count
+    /// it — so deleting it frees nothing, and the client marks it.
+    #[serde(default)]
+    pub archived_at: Option<String>,
     /// The newest `user`/`assistant` row, shaped for the row preview; absent
     /// for an empty conversation.
     #[serde(default, skip_serializing_if = "Option::is_none")]

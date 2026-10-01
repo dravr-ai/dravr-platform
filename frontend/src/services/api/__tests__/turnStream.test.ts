@@ -5,7 +5,9 @@
 // ABOUTME: Frames, the single-JSON slash-command answer, keep-alives and error frames, in one reader
 
 import { describe, it, expect, vi } from 'vitest';
-import { parseTurnBody, readEventStream } from '@pierre/api-client';
+import { parseTurnBody, readEventStream, TurnRequestError } from '@pierre/api-client';
+import { i18n } from '@pierre/i18n';
+import { describeQuotaRefusal } from '@pierre/ui-logic';
 import type { TurnEnvelope } from '@pierre/shared-types';
 
 const CONVERSATION_ID = 'conv-parser-1';
@@ -177,6 +179,35 @@ describe('parseTurnBody — the failures a turn can end in', () => {
     })}\n\n`;
 
     await expect(parseTurnBody(whole(body))).rejects.toThrow('Daily message limit reached.');
+  });
+
+  it('carries a mid-stream refusal in the shape the quota wording reads', async () => {
+    // The frame the server sends for a turn into an archived thread at the
+    // conversation cap: the JSON refusal body's code and details, plus its
+    // status, so the reason reaches the client either way the turn arrived.
+    const body = `event: failed\ndata: ${JSON.stringify({
+      error: 'max_active_conversations quota exceeded: 10/10',
+      status: 429,
+      code: 'QuotaExceeded',
+      details: {
+        limit_type: 'max_active_conversations',
+        current: 10,
+        limit: 10,
+        resets_at: '',
+        reason: 'conversation_archived',
+      },
+    })}\n\n`;
+
+    const failure = await parseTurnBody(whole(body)).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(TurnRequestError);
+    const t = (key: string, params?: Record<string, string | number>) =>
+      i18n.t(key, { ...params, lng: 'en' });
+    expect(describeQuotaRefusal(failure, t)).toBe(
+      'This conversation is archived, and you already have 10 conversations open — the maximum for your plan. Delete one to continue here.'
+    );
   });
 
   it('throws when the body ended without a reply', async () => {

@@ -7,13 +7,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { QUERY_KEYS } from '../constants/queryKeys';
-import { userApi, messagingLinkApi } from '../services/api';
+import { userApi } from '../services/api';
 import type { AvailableChannel } from '@pierre/api-client';
 import { useAuth } from './useAuth';
+import { useAvailableChannels } from './useAvailableChannels';
 import { isServerStepComplete, type OnboardingContext } from '../onboarding/steps';
-
-/** Stable empty list so the channels query's default `data` keeps identity across renders. */
-const EMPTY_CHANNELS: AvailableChannel[] = [];
 
 /** The onboarding context plus the per-step completion callbacks the flow wires into each step. */
 export interface OnboardingState {
@@ -73,18 +71,7 @@ export function useOnboardingState(): OnboardingState {
   // The messaging steps live in the just-connected phase, so only fetch the
   // connectable-channel list once the user is past the provider gate.
   const postConnect = onboardingActive && onboardingStatus?.needs_provider_connection === false;
-  const { data: availableChannelsData } = useQuery({
-    queryKey: ['messaging-available-channels'],
-    queryFn: () => messagingLinkApi.getAvailableChannels(),
-    enabled: postConnect,
-    staleTime: 60_000,
-  });
-  // Defend against a non-array response (e.g. an error/HTML page): the messaging
-  // steps must never intercept the flow on a malformed channels read — a string's
-  // `.length` would otherwise read as a huge channel count.
-  const availableChannels = Array.isArray(availableChannelsData)
-    ? availableChannelsData
-    : EMPTY_CHANNELS;
+  const { channels: availableChannels } = useAvailableChannels({ enabled: postConnect });
 
   // Session-only "continue without a provider": lets the user into the app
   // without connecting. Deliberately not persisted — the connect prompts in

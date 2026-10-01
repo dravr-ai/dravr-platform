@@ -26,7 +26,7 @@ import {
   MENTION_PREFIX,
   trackAbsence,
 } from '@pierre/shared-constants';
-import { describeApiError } from '@pierre/ui-logic';
+import { describeApiError, describeQuotaRefusal } from '@pierre/ui-logic';
 import {
   MessageList,
   MessageInput,
@@ -656,9 +656,13 @@ export default function ChatTab({
         }
       },
       onError: error => {
-        // The idle stop's error carries no athlete-facing words; its note
-        // comes from the shared catalogue, in the athlete's language.
-        const note = error instanceof TurnIdleAbortedError ? t('chat.turnIdleAborted') : error.message;
+        // The idle stop's error carries no athlete-facing words, and a turn
+        // refused at a limit (the conversation cap for an archived thread, a
+        // spent daily budget) is worded from the limit it names; both notes
+        // come from the shared catalogue, in the athlete's language.
+        const note = error instanceof TurnIdleAbortedError
+          ? t('chat.turnIdleAborted')
+          : describeQuotaRefusal(error, t) ?? error.message;
         setErrorMessage(note);
         queryClient.invalidateQueries({ queryKey: conversationKey });
         if (roomGroupId) queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.room(roomGroupId) });

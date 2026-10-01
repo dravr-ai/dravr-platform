@@ -29,6 +29,52 @@ pub struct AssistantMessage {
     pub content: String,
 }
 
+/// What [`ChatRepository::reactivate_conversation`] did to a conversation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reactivation {
+    /// The row is not an archived conversation the caller owns in this
+    /// tenant — already active, someone else's, or absent. Nothing changed.
+    NotArchived,
+    /// The row was archived and is active again.
+    Reactivated,
+    /// The row is archived and stays archived: the owner already has
+    /// `current` active conversations, which is at or over the cap.
+    AtCap {
+        /// The owner's active conversations when the cap was checked.
+        current: i64,
+    },
+}
+
+/// The row [`ChatRepository::create_conversation_within_cap`] writes.
+#[derive(Debug, Clone, Copy)]
+pub struct NewConversation<'a> {
+    /// The owner, written as the `owner` participant too.
+    pub user_id: &'a str,
+    /// Tenant that owns the row.
+    pub tenant_id: TenantId,
+    /// Title the list and the thread header print.
+    pub title: &'a str,
+    /// Model the thread runs on.
+    pub model: &'a str,
+    /// Agent bound to the thread, if any.
+    pub agent_id: Option<&'a str>,
+    /// Coaching group the thread belongs to, if any.
+    pub group_id: Option<&'a str>,
+}
+
+/// What [`ChatRepository::create_conversation_within_cap`] did.
+#[derive(Debug, Clone)]
+pub enum SlotClaim {
+    /// The conversation was created and holds a slot.
+    Claimed(Box<ConversationRecord>),
+    /// Nothing was written: the owner already has `current` active
+    /// conversations, at or over the cap.
+    AtCap {
+        /// The owner's active conversations when the cap was checked.
+        current: i64,
+    },
+}
+
 /// Chat conversation and message management repository.
 ///
 /// Access is a membership question, not an ownership one. Every method that
@@ -59,6 +105,20 @@ pub trait ChatRepository: Send + Sync {
         agent_id: Option<&str>,
         group_id: Option<&str>,
     ) -> AppResult<ConversationRecord>;
+    /// Create a conversation only while its owner has fewer than `cap`
+    /// active conversations — the `max_active_conversations` quota.
+    ///
+    /// The count and the insert run in one transaction that first takes the
+    /// owner's slot lock (a row lock on their `users` row on `PostgreSQL`;
+    /// `SQLite` serializes writers on its own), so two concurrent creates —
+    /// or a create racing a [`Self::reactivate_conversation`] — cannot both
+    /// take the last slot. `None` creates without consulting any cap: a
+    /// thread the platform forges to keep a channel alive.
+    async fn create_conversation_within_cap(
+        &self,
+        new: &NewConversation<'_>,
+        cap: Option<i64>,
+    ) -> AppResult<SlotClaim>;
     /// Get a conversation by ID, when `user_id` is a participant in this tenant.
     ///
     /// This is the membership check every route and pipeline stage reuses:
@@ -207,12 +267,49 @@ pub trait ChatRepository: Send + Sync {
         user_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<Vec<MessageFeedbackRecord>>;
-    /// Count the conversations a user *owns* in a tenant. Owner semantics on
-    /// purpose: this sizes the `max_active_conversations` quota, and a thread
-    /// someone else opened must not count against the athlete added to it.
-    /// LIMITATION(registre#642): `count_conversations` counts archived threads,
-    /// so `/reset` never frees a quota slot; only deleting a conversation does.
+    /// Count the active conversations a user *owns* in a tenant. Owner
+    /// semantics on purpose: this sizes the `max_active_conversations` quota,
+    /// and a thread someone else opened must not count against the athlete
+    /// added to it. Active means not archived: a thread `/reset` retired
+    /// stays readable but no longer holds a slot.
     async fn count_conversations(&self, user_id: &str, tenant_id: TenantId) -> AppResult<i64>;
+
+    /// Archive a conversation the caller owns, freeing its slot in the
+    /// `max_active_conversations` quota. The thread and its messages stay
+    /// readable. Returns `true` when an active row was archived, `false` when
+    /// the caller does not own it in this tenant or it was already archived.
+    async fn archive_conversation(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<bool>;
+
+    /// Whether `conversation_id` is an archived conversation `user_id` owns
+    /// in this tenant. `false` for an active row, someone else's, or none.
+    async fn is_conversation_archived(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<bool>;
+
+    /// Return an archived conversation the caller owns to the active set.
+    ///
+    /// With `cap`, the row is reactivated only while the owner has fewer than
+    /// `cap` active conversations, decided under the same owner slot lock
+    /// [`Self::create_conversation_within_cap`] takes, in one transaction.
+    /// `None` reactivates without consulting any cap — the caller restoring
+    /// a thread it archived moments earlier. A row that is not archived, not
+    /// the caller's, or not in this tenant is [`Reactivation::NotArchived`]:
+    /// it holds no slot of theirs.
+    async fn reactivate_conversation(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+        cap: Option<i64>,
+    ) -> AppResult<Reactivation>;
 
     /// Get recently updated conversations across all tenants (admin view)
     ///
@@ -380,14 +477,14 @@ pub trait ChatRepository: Send + Sync {
 /// Postgres' `SUBSTR` takes an `int4` and `SQLite` takes either.
 pub(crate) const CONTENT_HEAD_CHARS: i32 = 512;
 
-/// The thirteen columns every conversation read returns, in the order
+/// The fourteen columns every conversation read returns, in the order
 /// `impl_chat_repository!`'s `conversation_from_row` reads them, aliased
 /// on `c` so the same list serves a joined read and a plain one.
 macro_rules! conversation_columns {
     () => {
         "c.id, c.user_id, c.tenant_id, c.title, c.model, c.agent_id, c.session_id, \
          c.total_tokens, c.created_at, c.updated_at, c.group_id, c.channel_type, \
-         c.onboarding_state"
+         c.onboarding_state, c.archived_at"
     };
 }
 
@@ -479,7 +576,7 @@ pub(crate) const GET_CONVERSATION_SQL: &str = concat!(
 /// from that row and never from the conversation.
 pub(crate) const LIST_CONVERSATIONS_SQL: &str = r"
     SELECT c.id, c.title, c.model, c.total_tokens, c.agent_id, c.channel_type,
-           c.created_at, c.updated_at, c.group_id,
+           c.created_at, c.updated_at, c.group_id, c.archived_at,
            g.name AS group_name, co.slug AS agent_handle, co.title AS agent_title,
            (SELECT COUNT(*) FROM chat_messages m
              WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')) AS message_count,
@@ -674,11 +771,46 @@ pub(crate) const CONVERSATION_FEEDBACK_SQL: &str = concat!(
      WHERE conversation_id = $1 AND user_id = $2 AND tenant_id = $3"
 );
 
-/// A user's own conversations in a tenant (owner semantics).
+/// A user's own active conversations in a tenant (owner semantics): the rows
+/// no `/reset` has archived.
 pub(crate) const COUNT_CONVERSATIONS_SQL: &str = r"
     SELECT COUNT(*)
     FROM chat_conversations
-    WHERE user_id = $1 AND tenant_id = $2";
+    WHERE user_id = $1 AND tenant_id = $2 AND archived_at IS NULL";
+
+/// Archive a conversation the caller owns, when it is still active.
+pub(crate) const ARCHIVE_CONVERSATION_SQL: &str = r"
+    UPDATE chat_conversations
+    SET archived_at = $1
+    WHERE id = $2 AND user_id = $3 AND tenant_id = $4 AND archived_at IS NULL";
+
+/// Return an archived conversation the caller owns to the active set. The
+/// cap, when there is one, was checked under the owner slot lock in the same
+/// transaction.
+pub(crate) const REACTIVATE_CONVERSATION_SQL: &str = r"
+    UPDATE chat_conversations
+    SET archived_at = NULL
+    WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND archived_at IS NOT NULL";
+
+/// The owner slot lock: every decision that can take one of a user's
+/// `max_active_conversations` slots runs this first, in its transaction.
+/// `$lock` is the backend's clause — `FOR NO KEY UPDATE` on `PostgreSQL`,
+/// which serializes slot decisions for one user while leaving rows that only
+/// reference the user (a foreign-key share lock) unblocked; nothing on
+/// `SQLite`, whose single writer already serializes them.
+macro_rules! owner_slot_lock_sql {
+    ($lock:literal) => {
+        concat!("SELECT 1 FROM users WHERE id = $1 ", $lock)
+    };
+}
+pub(crate) use owner_slot_lock_sql;
+
+/// Whether a conversation the caller owns is archived; no row when it is not
+/// theirs in this tenant.
+pub(crate) const IS_ARCHIVED_SQL: &str = r"
+    SELECT archived_at IS NOT NULL
+    FROM chat_conversations
+    WHERE id = $1 AND user_id = $2 AND tenant_id = $3";
 
 /// The newest conversations across every tenant, for the operator console.
 pub(crate) const RECENT_CONVERSATIONS_ADMIN_SQL: &str = concat!(

@@ -870,6 +870,7 @@
     "analysisFailedTitle": "A análise falhou",
     "analyzeConversationFailed": "Não foi possível analisar a conversa",
     "analyzingConversation": "A analisar a conversa...",
+    "archived": "Arquivada",
     "askAboutClaim": "Pergunta-me sobre esta afirmação",
     "backToList": "Voltar às conversas",
     "cancel": "Cancelar",
@@ -1029,7 +1030,14 @@
     "routeFullScreen": "Ecrã inteiro",
     "routeLayerSatellite": "Satélite",
     "routeLayerStandard": "Mapa",
+    "routeLayerTerrain": "Relevo",
     "routeLayers": "Camada do mapa",
+    "routeMapCredits": "Créditos do mapa",
+    "routeMapScrollMac": "Usa ⌘ + deslocamento para fazer zoom no mapa",
+    "routeMapScrollWindows": "Usa Ctrl + deslocamento para fazer zoom no mapa",
+    "routeMapTwoFingers": "Usa dois dedos para mover o mapa",
+    "routeMapZoomIn": "Aproximar",
+    "routeMapZoomOut": "Afastar",
     "routeNoTrack": "Esta atividade não registou nenhum trilho GPS.",
     "saveChanges": "Guardar alterações",
     "saving": "A guardar...",
@@ -1576,6 +1584,7 @@
     "whenToUseSection": "Quando usar"
   },
   "errors": {
+    "archivedConversationLimitReached": "Esta conversa está arquivada e já tens {{limit}} conversas abertas — o máximo do teu plano. Elimina uma para continuares aqui.",
     "conversationLimitReached": "Limite de conversas atingido ({{current}}/{{limit}}). Elimina uma conversa existente para começar outra.",
     "dailyMessageLimitReached": "Limite diário de mensagens atingido ({{current}}/{{limit}}). Reinicia amanhã.",
     "dailyTokenLimitReached": "Limite diário de tokens atingido ({{current}}/{{limit}}). Reinicia amanhã.",
@@ -1816,6 +1825,7 @@
       "loadFailed": "Não foi possível carregar as tuas atividades recentes.",
       "refreshing": "A procurar atividades novas no teu fornecedor…",
       "syncedAt": "Última sincronização: {{time}}",
+      "analyzeDraft": "Analisa a minha atividade de {{date}} ({{sport}})",
       "sketchAlt": "Esboço do percurso"
     },
     "activity": {
@@ -1828,6 +1838,7 @@
       "laps": "Voltas",
       "figure": {
         "distance": "Distância",
+        "movingTime": "Tempo em movimento",
         "duration": "Duração",
         "elevationGain": "Desnível positivo",
         "avgPace": "Ritmo médio",
@@ -2040,6 +2051,7 @@
     "quota_exceeded": "Atingiste o limite de conversa do teu plano por agora. Ele repõe-se automaticamente — volta um pouco mais tarde.",
     "quota_warning": "Nota: já usaste {0} de {1} do teu plano. O contador repõe-se a {2}.",
     "quota_burst": "Nota: ultrapassaste o limite de {1} do teu plano e continuas com a reserva. O contador repõe-se a {2}.",
+    "archived_conversation_quota": "Esta conversa está arquivada e já tens {0} conversas abertas — o máximo do teu plano. Elimina uma na app para continuares aqui.",
     "rate_limited": "Estás a enviar mensagens um pouco mais depressa do que o teu plano permite. Aguarda um momento e tenta novamente — eu estarei aqui.",
     "reply_withheld": "A minha resposta não seguiu — misturava detalhes técnicos que não têm lugar aqui. Envia de novo a tua última mensagem e retomamos onde estávamos.",
     "reply_stop": {

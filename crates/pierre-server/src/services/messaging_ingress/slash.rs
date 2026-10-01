@@ -19,9 +19,10 @@ use pierre_auth::auth::AuthResult;
 use crate::mcp::resources::ServerContext;
 use pierre_chat_pipeline::stages::command_persistence::is_room_visible;
 use pierre_chat_pipeline::{
-    dispatch_slash, CommandPersistence, CommandTurn, RenderCapabilities, SlashRequest,
+    dispatch_slash, CommandPersistence, CommandTurn, RenderCapabilities, SlashRequest, TurnOrigin,
 };
 use pierre_services::channel_error_reply::ChannelErrorReply;
+use pierre_services::conversation_forge::conversation_cap_reply;
 
 use super::addressing::reply_recipient;
 use super::card_or_rich_text;
@@ -296,6 +297,8 @@ pub(super) async fn try_handle_slash_command(
             },
             sender_id: Some(sender_id),
             text,
+            // The athlete typed it into the channel.
+            origin: TurnOrigin::Athlete,
         },
     )
     .await
@@ -307,11 +310,11 @@ pub(super) async fn try_handle_slash_command(
             // correlation id and returns a channel-safe body. Never
             // interpolate the raw error into the reply text by hand —
             // the grep gate in architectural-validation.sh blocks it.
-            let (body, _correlation_id) = e.to_channel_reply(
-                &resources.mcp.messaging_strings_registry,
-                &locale,
-                "command",
-            );
+            let strings = &resources.mcp.messaging_strings_registry;
+            // A command refused at the conversation cap names the cap in the
+            // athlete's words, as `/reset` does.
+            let body = conversation_cap_reply(&e, strings, &locale)
+                .unwrap_or_else(|| e.to_channel_reply(strings, &locale, "command").0);
             return Some(SlashReply {
                 message: OutgoingMessage {
                     channel_type,

@@ -44,8 +44,8 @@ use tracing::{info, warn};
 
 use super::capability_recovery::{
     collect_turn_evidence, peer_repair_prompt, peers_named_in_reply, reask_reply_is_clean,
-    request_peer_reask, run_verification_fetch, turn_language_directive, verify_peer_claims,
-    CapabilityRecoveryDeps, VerificationOutcome, VERIFICATION_TOOL,
+    repair_messages, request_peer_reask, run_verification_fetch, turn_language_directive,
+    verify_peer_claims, CapabilityRecoveryDeps, VerificationOutcome, VERIFICATION_TOOL,
 };
 use super::peer_grounding::{
     fetch_peer_activities_outcome, mentioned_peers, PeerFetchOutcome, PeerMention, PEER_FETCH_TOOL,
@@ -474,14 +474,15 @@ fn subject_reply_accepted(
     !denies_a_grounded_peer && own_denial_ok
 }
 
-/// One completion over the turn's messages plus the subject evidence.
+/// One completion over the turn's messages, the draft being replaced, and
+/// the subject evidence framed as the platform's — see [`repair_messages`].
 async fn complete_subject_reask(
     deps: &CapabilityRecoveryDeps<'_>,
     provider: &ChatProvider,
-    prompt: String,
+    draft: &str,
+    prompt: &str,
 ) -> Option<String> {
-    let mut messages = deps.llm_messages.to_vec();
-    messages.push(ChatMessage::user(prompt));
+    let messages = repair_messages(deps.llm_messages, draft, prompt);
     let request = ChatRequest::new(messages).with_model(deps.active_model);
     match provider.complete(&request).await {
         Ok(reply) => Some(reply.content),
@@ -503,6 +504,7 @@ async fn reask_with_subject_evidence(
     deps: &CapabilityRecoveryDeps<'_>,
     input: &TurnInput,
     evidence: &SubjectEvidence,
+    draft: &str,
 ) -> Option<(String, Arc<ChatProvider>)> {
     let Ok(provider) = chat_provider_from_resources_arc(
         deps.ctx.chat_provider.as_ref(),
@@ -513,7 +515,7 @@ async fn reask_with_subject_evidence(
         );
         return None;
     };
-    let reply = complete_subject_reask(deps, provider.as_ref(), evidence.prompt()).await?;
+    let reply = complete_subject_reask(deps, provider.as_ref(), draft, &evidence.prompt()).await?;
     if !subject_reply_accepted(deps, input, evidence, &reply) {
         warn!(
             reply_len = reply.len(),
@@ -554,7 +556,9 @@ pub(super) async fn apply_subject_recovery(
         result.capability_claim_unverified = claimed_failure;
         return;
     }
-    let Some((reply, provider)) = reask_with_subject_evidence(deps, input, &evidence).await else {
+    let Some((reply, provider)) =
+        reask_with_subject_evidence(deps, input, &evidence, &result.content).await
+    else {
         // The original reply stays; it is stamped when it was a claim, or
         // when the model was told something is unavailable and the reply may
         // therefore carry a moment-in-time denial.
@@ -641,19 +645,36 @@ async fn recheck_replacement(
         return;
     };
 
-    match repair_from_payload(
+    let repaired = repair_from_payload(
         deps,
         provider,
-        &peer.display_name,
-        &unsupported,
-        payload,
-        &turn_evidence,
+        PeerRepair {
+            peer_name: &peer.display_name,
+            unsupported: &unsupported,
+            payload,
+            turn_evidence: &turn_evidence,
+            draft: &result.content,
+        },
     )
-    .await
-    {
+    .await;
+    match repaired {
         Some(repaired) => result.content = repaired,
         None => result.capability_claim_unverified = true,
     }
+}
+
+/// What one peer repair works from.
+struct PeerRepair<'a> {
+    /// The roster peer the unsupported claims are about.
+    peer_name: &'a str,
+    /// The claims the verifier found no evidence for.
+    unsupported: &'a [String],
+    /// The peer's fetched activities, as text.
+    payload: &'a str,
+    /// This turn's evidence plus the subject evidence already fetched.
+    turn_evidence: &'a str,
+    /// The reply being repaired, carried as the assistant turn.
+    draft: &'a str,
 }
 
 /// One repair against the peer's fetched payload; `Some` only when the
@@ -661,18 +682,22 @@ async fn recheck_replacement(
 async fn repair_from_payload(
     deps: &CapabilityRecoveryDeps<'_>,
     provider: &ChatProvider,
-    peer_name: &str,
-    unsupported: &[String],
-    payload: &str,
-    turn_evidence: &str,
+    repair: PeerRepair<'_>,
 ) -> Option<String> {
+    let PeerRepair {
+        peer_name,
+        unsupported,
+        payload,
+        turn_evidence,
+        draft,
+    } = repair;
     let prompt = peer_repair_prompt(
         peer_name,
         unsupported,
         payload,
         &turn_language_directive(deps),
     );
-    let repaired = request_peer_reask(deps, provider, &prompt).await?;
+    let repaired = request_peer_reask(deps, provider, draft, &prompt).await?;
     let evidence_with_fetch = format!("{turn_evidence}\n{payload}");
     if !reask_reply_is_clean(deps, provider, peer_name, &evidence_with_fetch, &repaired).await {
         return None;

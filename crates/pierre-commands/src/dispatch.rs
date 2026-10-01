@@ -11,6 +11,7 @@ use pierre_contremaitre::messaging_strings::KEY_UNKNOWN_COMMAND;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_runtime_context::CommandCtx;
+use pierre_services::conversation_forge::reactivate_for_turn;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use tracing::info;
 use uuid::Uuid;
@@ -90,6 +91,19 @@ pub struct DispatchRequest<'a> {
     /// behind a separate trait to avoid a crate cycle through
     /// `pierre-runtime-context`.
     pub tool_runtime: &'a Arc<dyn ToolRuntime>,
+    /// Who typed [`Self::text`]. Only an athlete's command takes an archived
+    /// thread's quota slot back (see [`crate::CommandHandler::resumes_thread`]).
+    pub author: CommandAuthor,
+}
+
+/// Who a dispatched command's text came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandAuthor {
+    /// The athlete typed it, on any surface.
+    Athlete,
+    /// The platform composed it — a re-entry turn replaying an earlier
+    /// question. It runs, but never reactivates an archived thread.
+    Platform,
 }
 
 /// Outcome of a single dispatch attempt.
@@ -135,7 +149,10 @@ pub enum DispatchOutcome {
 ///
 /// # Errors
 ///
-/// Returns an error if the handler itself returns an error.
+/// Returns an error if the handler itself returns an error, and the
+/// `max_active_conversations` refusal when a command that carries its thread
+/// on (see [`crate::CommandHandler::resumes_thread`]) is typed into an
+/// archived thread at the cap — the handler never runs.
 pub async fn try_dispatch(req: DispatchRequest<'_>) -> AppResult<DispatchOutcome> {
     // Fast path: not a slash command.
     if !req.text.trim().starts_with('/') {
@@ -196,7 +213,31 @@ pub async fn try_dispatch(req: DispatchRequest<'_>) -> AppResult<DispatchOutcome
         tool_runtime: Arc::clone(req.tool_runtime),
     };
 
-    let result = handler.execute(&ctx).await;
+    // A command that carries its thread on, typed by the athlete into a
+    // thread `/reset` archived, takes a quota slot back before it runs — or
+    // is refused at the cap before it writes anything. The refusal is the
+    // command's outcome, recorded below like any other failure.
+    let claimed = if req.author == CommandAuthor::Athlete && handler.resumes_thread(&ctx.args) {
+        match req.conversation_id {
+            Some(conversation_id) => {
+                reactivate_for_turn(
+                    req.ctx.repos(),
+                    req.ctx.admin_config().as_deref(),
+                    &req.user_id.to_string(),
+                    req.conversation_tenant_id,
+                    conversation_id,
+                )
+                .await
+            }
+            None => Ok(()),
+        }
+    } else {
+        Ok(())
+    };
+    let result = match claimed {
+        Ok(()) => handler.execute(&ctx).await,
+        Err(refused) => Err(refused),
+    };
     let ok = result.is_ok();
     info!(
         target: "notify",

@@ -38,6 +38,7 @@ fn conversation(group_id: Option<&str>) -> ConversationRecord {
         group_id: group_id.map(ToOwned::to_owned),
         channel_type: "web".to_owned(),
         onboarding_state: None,
+        archived_at: None,
     }
 }
 

@@ -20,7 +20,7 @@ use std::mem;
 use std::sync::Arc;
 
 use pierre_core::errors::AppError;
-use pierre_core::models::{AgentRuntimeContext, MemberFitnessSnapshot};
+use pierre_core::models::{AgentRuntimeContext, MemberFitnessSnapshot, OnboardingState};
 use pierre_core::narration;
 use pierre_database::database::ConversationRecord;
 use pierre_llm::provider_stop::ProviderStop;
@@ -159,6 +159,9 @@ pub struct RecoveryAndPostProcessInputs<'a> {
     pub active_model: &'a str,
     /// Group roster (empty outside a group conversation) for the claim verifier.
     pub peer_roster: &'a [MemberFitnessSnapshot],
+    /// The guided flow that owns this turn, as loaded at its start, when one
+    /// does — an interview turn is judged differently by capability recovery.
+    pub guided_walk: Option<&'a OnboardingState>,
 }
 
 /// Wrap stages 14b–18: run auth recovery, then either post-process the model's
@@ -185,6 +188,7 @@ pub async fn run_recovery_and_post_process(
         llm_messages,
         active_model,
         peer_roster,
+        guided_walk,
     } = inputs;
     // Guardian short-circuits take precedence over re-auth: a tool blocked by
     // the runtime Guardian (enforce mode) renders the deterministic "blocked
@@ -238,6 +242,7 @@ pub async fn run_recovery_and_post_process(
             active_model,
             peer_roster,
             locale: &profile.locale,
+            guided_walk,
         },
         input,
         result,

@@ -12,12 +12,6 @@ use pierre_database::database::{ConversationRecord, MessageRecord};
 use crate::envelope::QuotaState;
 use crate::stages::agent_mention::MentionedAgent;
 
-/// Result of creating a new conversation, including the validated model.
-pub struct CreateConversationResult {
-    /// The created conversation record.
-    pub conversation: ConversationRecord,
-}
-
 /// Who authored the message a turn answers.
 ///
 /// The pipeline's second stage writes the turn's prompt to `chat_messages` as

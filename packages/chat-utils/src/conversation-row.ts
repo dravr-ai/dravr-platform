@@ -122,6 +122,12 @@ export interface ConversationRowModel {
   unreadCount: number;
   /** ISO 8601 of the last activity — what {@link sortRowsByActivity} orders on. */
   lastActivityAt: string;
+  /**
+   * `/reset` archived the thread: it holds none of the athlete's conversation
+   * slots, and a turn into it has to take one back. Both lists mark the row so
+   * a refusal at the cap does not come as a surprise.
+   */
+  archived: boolean;
 }
 
 /** The kind a row is, by the precedence documented on {@link ConversationKind}. */
@@ -260,6 +266,7 @@ export function buildConversationRow(
     timestamp: formatListTimestamp(lastActivityAt, labels.locale, now),
     unreadCount: Math.max(0, conversation.unread_count ?? 0),
     lastActivityAt,
+    archived: Boolean(conversation.archived_at),
   };
 }
 

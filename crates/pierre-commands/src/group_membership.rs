@@ -106,7 +106,9 @@ impl GroupCreateHandler {
     /// slash command's own rows (stamped
     /// [`COMMAND_FINISH_REASON`](pierre_core::models::COMMAND_FINISH_REASON),
     /// this command's line included) do not count as history: a thread whose
-    /// only rows are commands has never held a coaching turn. Any
+    /// only rows are commands has never held a coaching turn. An archived
+    /// thread is never adopted: `/group create` claims its thread before this
+    /// runs, and `/group join` claims none. Any
     /// other thread is left as it is and a group-scoped conversation named
     /// after the group is created beside it, which is how a member's group
     /// chat is made everywhere else (`POST /api/chat/conversations` with a
@@ -126,7 +128,7 @@ impl GroupCreateHandler {
         let group_id = group.id.to_string();
 
         let in_app = ctx.sender_id.is_none();
-        if in_app && thread.group_id.is_none() {
+        if in_app && thread.group_id.is_none() && thread.archived_at.is_none() {
             let messages = chat
                 .get_messages(&thread.id, &user_id, ctx.conversation_tenant_id)
                 .await?;
@@ -174,6 +176,11 @@ impl GroupCreateHandler {
 
 #[async_trait]
 impl CommandHandler for GroupCreateHandler {
+    /// Adopts an empty thread as the new group's room.
+    fn resumes_thread(&self, _args: &[String]) -> bool {
+        true
+    }
+
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
         let reg = ctx.ctx.messaging_strings_registry();
         let locale = ctx.locale.as_str();
@@ -445,6 +452,14 @@ impl GroupJoinHandler {
 
 #[async_trait]
 impl CommandHandler for GroupJoinHandler {
+    /// A join never claims the thread it is typed in: a member code always
+    /// files a room beside it, and a coach code adopts the thread only while
+    /// it is active (see [`GroupCreateHandler::file_creator_conversation`]),
+    /// so an archived thread is left archived and holds no slot.
+    fn resumes_thread(&self, _args: &[String]) -> bool {
+        false
+    }
+
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
         let Some(code) = ctx.args.first().map(|a| a.trim()).filter(|a| !a.is_empty()) else {
             return Ok(Self::invalid_code(ctx));

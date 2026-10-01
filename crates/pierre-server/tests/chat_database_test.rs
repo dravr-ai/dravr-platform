@@ -17,7 +17,7 @@ use pierre_core::models::{
 };
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
-use pierre_database::repositories::ChatRepository;
+use pierre_database::repositories::{ChatRepository, NewConversation, Reactivation, SlotClaim};
 use pierre_test_support::db::create_test_db;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
@@ -1791,6 +1791,268 @@ async fn test_count_keeps_owner_semantics() {
             .len(),
         2
     );
+}
+
+/// An archived thread stops counting against the quota but stays readable and
+/// listed; only its owner, in its own tenant, can archive it; and reactivating
+/// puts it back in the count, under the cap it is given.
+#[tokio::test]
+async fn archiving_frees_a_quota_slot_for_the_owner_only() {
+    let fx = open_fixture().await;
+    let manager = fx.chat();
+    let tenant_id = test_tenant_id();
+
+    let mut owned = Vec::new();
+    for i in 0..3 {
+        owned.push(
+            manager
+                .create_conversation(fx.athlete(), tenant_id, &format!("T{i}"), "m", None, None)
+                .await
+                .unwrap(),
+        );
+    }
+    let foreign = manager
+        .create_conversation(fx.other_owner(), tenant_id, "Theirs", "m", None, None)
+        .await
+        .unwrap();
+    manager
+        .add_participant(&foreign.id, tenant_id, fx.athlete(), fx.other_owner())
+        .await
+        .unwrap();
+    assert_eq!(
+        manager
+            .count_conversations(fx.athlete(), tenant_id)
+            .await
+            .unwrap(),
+        3
+    );
+
+    assert!(manager
+        .archive_conversation(&owned[0].id, fx.athlete(), tenant_id)
+        .await
+        .unwrap());
+    assert_eq!(
+        manager
+            .count_conversations(fx.athlete(), tenant_id)
+            .await
+            .unwrap(),
+        2,
+        "an archived thread holds no slot"
+    );
+    // Archiving twice frees nothing more.
+    assert!(!manager
+        .archive_conversation(&owned[0].id, fx.athlete(), tenant_id)
+        .await
+        .unwrap());
+    assert_eq!(
+        manager
+            .count_conversations(fx.athlete(), tenant_id)
+            .await
+            .unwrap(),
+        2
+    );
+
+    // The archived thread is still the athlete's to read, and still listed.
+    let archived = manager
+        .get_conversation(&owned[0].id, fx.athlete(), tenant_id)
+        .await
+        .unwrap()
+        .expect("an archived thread stays readable");
+    assert_eq!(archived.title, "T0");
+    assert_eq!(
+        manager
+            .list_conversations(fx.athlete(), tenant_id, 10, 0)
+            .await
+            .unwrap()
+            .items
+            .len(),
+        4
+    );
+
+    // A participant cannot archive a thread someone else opened, a stranger
+    // cannot archive the athlete's, and the wrong tenant matches nothing.
+    assert!(!manager
+        .archive_conversation(&foreign.id, fx.athlete(), tenant_id)
+        .await
+        .unwrap());
+    assert!(!manager
+        .archive_conversation(&owned[1].id, fx.other_owner(), tenant_id)
+        .await
+        .unwrap());
+    assert!(!manager
+        .archive_conversation(&owned[1].id, fx.athlete(), test_tenant_id_2())
+        .await
+        .unwrap());
+    assert_eq!(
+        manager
+            .count_conversations(fx.athlete(), tenant_id)
+            .await
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        manager
+            .count_conversations(fx.other_owner(), tenant_id)
+            .await
+            .unwrap(),
+        1
+    );
+
+    // Reactivation is scoped the same way: another user's thread, an active
+    // thread and the wrong tenant are all "not archived" for this caller.
+    for (id, user, tenant) in [
+        (&owned[0].id, fx.other_owner(), tenant_id),
+        (&owned[1].id, fx.athlete(), tenant_id),
+        (&owned[0].id, fx.athlete(), test_tenant_id_2()),
+    ] {
+        assert_eq!(
+            manager
+                .reactivate_conversation(id, user, tenant, None)
+                .await
+                .unwrap(),
+            Reactivation::NotArchived
+        );
+    }
+    // Two active against a cap of two: the archived thread stays archived.
+    assert_eq!(
+        manager
+            .reactivate_conversation(&owned[0].id, fx.athlete(), tenant_id, Some(2))
+            .await
+            .unwrap(),
+        Reactivation::AtCap { current: 2 }
+    );
+    assert_eq!(
+        manager
+            .count_conversations(fx.athlete(), tenant_id)
+            .await
+            .unwrap(),
+        2
+    );
+    // A cap of three leaves room, and it takes the slot back.
+    assert_eq!(
+        manager
+            .reactivate_conversation(&owned[0].id, fx.athlete(), tenant_id, Some(3))
+            .await
+            .unwrap(),
+        Reactivation::Reactivated
+    );
+    assert_eq!(
+        manager
+            .count_conversations(fx.athlete(), tenant_id)
+            .await
+            .unwrap(),
+        3
+    );
+    // Uncapped reactivation — the /reset rollback — ignores the count.
+    assert!(manager
+        .archive_conversation(&owned[0].id, fx.athlete(), tenant_id)
+        .await
+        .unwrap());
+    assert_eq!(
+        manager
+            .reactivate_conversation(&owned[0].id, fx.athlete(), tenant_id, None)
+            .await
+            .unwrap(),
+        Reactivation::Reactivated
+    );
+    assert_eq!(
+        manager
+            .count_conversations(fx.athlete(), tenant_id)
+            .await
+            .unwrap(),
+        3
+    );
+}
+
+/// The capped create counts only active rows, writes nothing at the cap, and
+/// reports the count it refused at; `is_conversation_archived` answers for
+/// the owner alone; the list carries the archive stamp.
+#[tokio::test]
+async fn the_capped_create_and_the_archive_read_follow_the_active_count() {
+    let fx = open_fixture().await;
+    let manager = fx.chat();
+    let tenant_id = test_tenant_id();
+    let new = |title: &'static str| NewConversation {
+        user_id: fx.athlete(),
+        tenant_id,
+        title,
+        model: "m",
+        agent_id: None,
+        group_id: None,
+    };
+
+    let first = match manager
+        .create_conversation_within_cap(&new("One"), Some(2))
+        .await
+        .unwrap()
+    {
+        SlotClaim::Claimed(conversation) => *conversation,
+        SlotClaim::AtCap { current } => panic!("refused at {current} below a cap of 2"),
+    };
+    assert_eq!(first.title, "One");
+    assert!(matches!(
+        manager
+            .create_conversation_within_cap(&new("Two"), Some(2))
+            .await
+            .unwrap(),
+        SlotClaim::Claimed(_)
+    ));
+    match manager
+        .create_conversation_within_cap(&new("Three"), Some(2))
+        .await
+        .unwrap()
+    {
+        SlotClaim::AtCap { current } => assert_eq!(current, 2),
+        SlotClaim::Claimed(c) => panic!("created {} past the cap", c.title),
+    }
+    assert_eq!(
+        manager
+            .count_conversations(fx.athlete(), tenant_id)
+            .await
+            .unwrap(),
+        2,
+        "a refused create writes nothing"
+    );
+
+    // Archiving one frees the slot the capped create then takes.
+    assert!(!manager
+        .is_conversation_archived(&first.id, fx.athlete(), tenant_id)
+        .await
+        .unwrap());
+    assert!(manager
+        .archive_conversation(&first.id, fx.athlete(), tenant_id)
+        .await
+        .unwrap());
+    assert!(manager
+        .is_conversation_archived(&first.id, fx.athlete(), tenant_id)
+        .await
+        .unwrap());
+    assert!(
+        !manager
+            .is_conversation_archived(&first.id, fx.other_owner(), tenant_id)
+            .await
+            .unwrap(),
+        "only the owner's archived row reads as archived"
+    );
+    assert!(matches!(
+        manager
+            .create_conversation_within_cap(&new("Three"), Some(2))
+            .await
+            .unwrap(),
+        SlotClaim::Claimed(_)
+    ));
+
+    let page = manager
+        .list_conversations(fx.athlete(), tenant_id, 10, 0)
+        .await
+        .unwrap();
+    let stamped: Vec<&str> = page
+        .items
+        .iter()
+        .filter(|c| c.archived_at.is_some())
+        .map(|c| c.title.as_str())
+        .collect();
+    assert_eq!(stamped, vec!["One"]);
 }
 
 #[tokio::test]

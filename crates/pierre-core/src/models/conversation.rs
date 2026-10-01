@@ -178,6 +178,11 @@ pub struct ConversationRecord {
     /// normal coaching conversations.
     #[serde(default)]
     pub onboarding_state: Option<String>,
+    /// When `/reset` archived the thread (RFC 3339); `None` while it is
+    /// active. An archived thread holds none of its owner's
+    /// `max_active_conversations` slots until a turn reactivates it.
+    #[serde(default)]
+    pub archived_at: Option<String>,
 }
 
 /// Runtime context for an agent attached to a conversation.
@@ -482,6 +487,11 @@ pub struct ConversationSummary {
     /// a conversation that came in over a messaging app. Durable badge signal
     /// that survives a title rename (unlike parsing the title prefix).
     pub channel_type: Option<String>,
+    /// When `/reset` archived the thread (RFC 3339); `None` while it is
+    /// active. An archived thread stays listed and readable but holds none of
+    /// its owner's `max_active_conversations` slots, so deleting it frees
+    /// nothing — the client marks it so the quota advice stays actionable.
+    pub archived_at: Option<String>,
     /// The newest `user`/`assistant` row, for the row preview; `None` for an
     /// empty conversation.
     pub last_message: Option<ConversationLastMessage>,

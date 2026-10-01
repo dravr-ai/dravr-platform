@@ -20,7 +20,9 @@ mod discover_over_messaging {
     use axum::http::StatusCode;
     use chrono::Utc;
     use dravr_canot::commands::CommandResponse;
-    use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
+    use pierre_commands::dispatch::{
+        try_dispatch, CommandAuthor, DispatchOutcome, DispatchRequest,
+    };
     use pierre_commands::load_command_catalog;
     use pierre_contremaitre::messaging_strings::{
         KEY_DISCOVER_CARD_TITLE, KEY_DISCOVER_INSTALLED, KEY_DISCOVER_INSTALL_ALREADY,
@@ -236,6 +238,7 @@ mod discover_over_messaging {
             sender_id: Some(&athlete.sender_id),
             text,
             tool_runtime: &tool_runtime,
+            author: CommandAuthor::Athlete,
         })
         .await
         .unwrap();

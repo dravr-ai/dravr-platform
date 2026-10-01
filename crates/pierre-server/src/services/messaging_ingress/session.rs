@@ -25,7 +25,7 @@ use pierre_core::errors::AppError;
 use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
 use pierre_services::conversation_forge::{
     agent_title, dated_title, forge_conversation, selected_agent_id, selected_or_system_agent_for,
-    ForgeAgent, ForgeParams,
+    ForgeAgent, ForgeParams, SlotQuota,
 };
 use pierre_services::locale::resolve_user_locale;
 use pierre_services::messaging_broadcast::proactive_text;
@@ -139,6 +139,9 @@ pub(super) async fn forge_fresh_session_conversation(
             channel_type,
             selection_source: AgentSelectionSource::MessagingSession,
             guided_flow: is_direct_message,
+            // The platform repairs or opens the channel's thread; refusing it
+            // at the cap would leave the channel dead.
+            quota: SlotQuota::Exempt,
         },
     )
     .await?;
@@ -597,6 +600,9 @@ async fn open_new_session(
             channel_type,
             selection_source: AgentSelectionSource::MessagingSession,
             guided_flow: is_direct_message,
+            // The platform repairs or opens the channel's thread; refusing it
+            // at the cap would leave the channel dead.
+            quota: SlotQuota::Exempt,
         },
     )
     .await?;

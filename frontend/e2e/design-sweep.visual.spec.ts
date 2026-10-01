@@ -114,6 +114,42 @@ async function sweep(
 // shared pane declaration reaches the sweep without anyone listing it here.
 async function sweepSettings(page: Page, theme: (typeof THEMES)[number]) {
   await setupDashboardMocks(page, { role: 'user' });
+  // The messaging pane's chat-app groups hold one linked app and one still to
+  // link, so both row shapes reach the capture. The onboarding chat-app steps
+  // read the same channel list, so the record says they were skipped — else
+  // they would intercept the sign-in.
+  await page.route('**/api/me/onboarding-status', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        needs_provider_connection: false,
+        steps: [
+          { step_id: 'messaging_channel', status: 'skipped' },
+          { step_id: 'messaging_configure', status: 'skipped' },
+        ],
+      }),
+    }),
+  );
+  await page.route('**/api/messaging/channels/available', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        { channel: 'telegram', display_name: 'Telegram', method: 'deep_link', recommended: true },
+        { channel: 'slack', display_name: 'Slack', method: 'oauth', recommended: false },
+      ]),
+    }),
+  );
+  await page.route('**/api/messaging/links', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        links: [{ channel: 'telegram', channel_user_id: 'tg-42', display_name: '@athlete', linked_at: '2026-09-01T10:00:00Z' }],
+      }),
+    }),
+  );
   await loginToDashboard(page);
   page.setDefaultTimeout(5_000);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();

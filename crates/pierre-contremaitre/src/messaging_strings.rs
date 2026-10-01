@@ -360,6 +360,13 @@ pub const KEY_QUOTA_WARNING: &str = "messaging.quota_warning";
 /// REFUSED. A burst turn ran and the athlete got their answer.
 pub const KEY_QUOTA_BURST: &str = "messaging.quota_burst";
 
+/// Key: a turn into an archived thread refused because reactivating it would
+/// take the athlete past the conversation cap. `{0}` = the cap.
+///
+/// Distinct from [`KEY_RESET_QUOTA`], which refuses a *new* conversation: here
+/// the thread already exists, and the athlete has to free a slot for it.
+pub const KEY_ARCHIVED_CONVERSATION_QUOTA: &str = "messaging.archived_conversation_quota";
+
 /// Key: user has not connected any fitness provider yet.
 ///
 /// Surfaced by [`super::super::services::onboarding_gate`] when a messaging

@@ -65,6 +65,7 @@ export {
   API_ERROR_KEYS,
   prefersServerDetail,
   describeApiError,
+  describeQuotaRefusal,
   describeLoginFailure,
   refusalReason,
 } from './apiError';

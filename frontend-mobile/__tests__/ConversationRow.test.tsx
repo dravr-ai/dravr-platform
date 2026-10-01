@@ -74,6 +74,17 @@ describe('ConversationRow', () => {
     expect(touchable?.props.className).not.toContain('border-b');
   });
 
+  it('labels an archived thread in words and in its spoken name, and only an archived one', () => {
+    const archived = renderRow(row({ archived_at: '2026-08-25T07:00:00Z' }));
+    expect(archived.getByTestId('conversation-archived-conv-1')).toHaveTextContent('Archived');
+    expect(archived.getByTestId('conversation-row-conv-1').props.accessibilityLabel).toContain('Archived');
+    archived.unmount();
+
+    const active = renderRow(row({ archived_at: null }));
+    expect(active.queryByTestId('conversation-archived-conv-1')).toBeNull();
+    expect(active.getByTestId('conversation-row-conv-1').props.accessibilityLabel).not.toContain('Archived');
+  });
+
   it('weights the title semibold while unread and medium once read', () => {
     expect(renderRow(row({ unread_count: 2 })).getByTestId('conversation-title-conv-1').props.className).toContain('font-semibold');
     expect(renderRow(row({ unread_count: 0 })).getByTestId('conversation-title-conv-1').props.className).toContain('font-medium');

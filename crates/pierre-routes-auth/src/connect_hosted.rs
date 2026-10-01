@@ -14,13 +14,15 @@
 //!    usable so the user can try one provider, fail, and try another; the
 //!    reusable window is capped by the deliberately short
 //!    `CONNECT_LINK_TOKEN_TTL_MINUTES`, not by a burn).
-//! 2. Renders the three provider cards, computed from the SAME
+//! 2. Renders the provider cards, computed from the SAME
 //!    [`crate::oauth::compute_providers_status`] the web/mobile onboarding uses,
 //!    so Strava is OAuth-first while shared-app seats remain and falls back to
 //!    the Sciotte credential flow once the cap is reached.
-//! 3. Routes the user's choice to either the Sciotte credential state machine
-//!    (`/api/providers/sciotte/*`) or the link-token-authed OAuth init
-//!    (`/api/providers/connect/oauth-init/{provider}`).
+//! 3. Routes the user's choice to the Sciotte credential state machine
+//!    (`/api/providers/sciotte/*`), the link-token-authed OAuth init
+//!    (`/api/providers/connect/oauth-init/{provider}`), or — for Intervals.icu,
+//!    which takes an athlete id + API key — the hosted API-key form
+//!    (`/providers/connect/intervals_icu`, [`crate::connect_hosted_intervals`]).
 //!
 //! Passwords and OAuth consent happen here over TLS — never in the chat
 //! transcript. Identity (`user_id` + `tenant_id`) comes from the signed token,
@@ -36,6 +38,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 use urlencoding::encode;
 
+use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_middleware::provider_link_token::{
@@ -50,12 +53,10 @@ use crate::connect_hosted_templates;
 use crate::oauth::{compute_providers_status, require_oauth_start_notice};
 use crate::AuthRoutesContext;
 
-/// Catalogue cards the connect picker does not offer: the API-key and
-/// synthetic providers are out of the messaging connect scope. A raw card a
-/// mirror covers (`strava`, `garmin`) is never served by the catalogue.
-/// LIMITATION(registre#645): `HIDDEN_FROM_PICKER` hides `intervals_icu` because
-/// the hosted page has no API-key form, so Intervals.icu cannot be connected from a chat.
-const HIDDEN_FROM_PICKER: &[&str] = &["synthetic", "synthetic_sleep", "intervals_icu"];
+/// Catalogue cards the connect picker does not offer: the synthetic providers
+/// are out of the messaging connect scope. A raw card a mirror covers
+/// (`strava`, `garmin`) is never served by the catalogue.
+const HIDDEN_FROM_PICKER: &[&str] = &["synthetic", "synthetic_sleep"];
 
 /// Query parameters for the hosted connect page.
 #[derive(Debug, Deserialize)]
@@ -97,9 +98,11 @@ struct ConnectProviderCard {
     description: String,
     /// Already connected — the card is shown disabled.
     connected: bool,
-    /// "oauth" (full-page redirect to consent) or "sciotte" (credential form).
+    /// "oauth" (full-page redirect to consent), "sciotte" (credential form) or
+    /// "`api_key`" (the hosted Intervals.icu API-key form).
     kind: &'static str,
-    /// Sciotte target ("strava" / "garmin" / "trainingpeaks" / "coros"); empty for OAuth cards.
+    /// Sciotte target ("strava" / "garmin" / "trainingpeaks" / "coros"), or
+    /// `intervals_icu` for the API-key card; empty for OAuth cards.
     target: String,
     /// The page must show the provider's notice, with a required checkbox,
     /// before the credentials form (TrainingPeaks and COROS) or before the
@@ -117,7 +120,7 @@ struct ConnectProviderCard {
 /// Verify a connect-scoped link-token. A narrow per-provider token (e.g. a
 /// Canot-minted `provider:sciotte:login`) is rejected here — only a connect
 /// token may drive the picker and the OAuth-init endpoint.
-fn validate_connect_token(
+pub fn validate_connect_token(
     resources: &AuthRoutesContext,
     token: &str,
 ) -> Result<ProviderLinkTokenClaims, AppError> {
@@ -187,6 +190,19 @@ async fn build_connect_providers(
                     });
                 }
             }
+            // Intervals.icu: an athlete id + API key, collected by the hosted
+            // API-key form rather than an OAuth consent screen.
+            INTERVALS_ICU => cards.push(ConnectProviderCard {
+                provider: p.provider,
+                display_name: p.display_name,
+                description: p.description,
+                connected: p.connected,
+                kind: "api_key",
+                target: INTERVALS_ICU.to_owned(),
+                consent_required: false,
+                notice: None,
+                login_identifier: "email",
+            }),
             // Any remaining OAuth provider (Whoop, and future keepers).
             _ if p.requires_oauth => cards.push(ConnectProviderCard {
                 provider: p.provider,
