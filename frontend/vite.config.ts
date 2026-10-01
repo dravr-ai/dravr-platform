@@ -27,9 +27,10 @@ export default defineConfig(({ mode }) => {
         // 'prompt', not 'autoUpdate'. autoUpdate activates a new worker and
         // reloads the page underneath whoever is using it — and this is a chat
         // app, so the reload lands mid-sentence and takes the unsent message
-        // with it. The app now asks, via ServiceWorkerUpdatePrompt.
+        // with it. ServiceWorkerUpdatePrompt takes the waiting build itself
+        // when no typed text would be lost, and asks when some would.
         registerType: 'prompt',
-        // The registration is owned by useServiceWorkerUpdate rather than
+        // The registration is owned by ServiceWorkerUpdatePrompt rather than
         // injected into index.html, because the app has to hold the
         // updateServiceWorker callback to offer the reload at all.
         injectRegister: null,
