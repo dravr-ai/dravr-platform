@@ -321,56 +321,58 @@ module "backend" {
       AUTO_APPROVE_USERS   = "false"
       AUTO_APPROVE_DOMAINS = "dravr.ai"
 
-      # LLM provider chain, as it runs today (JF, 2026-09-21): claude_code
-      # primary, then its second account (claude-code#2, from
+      # LLM provider chain (JF, 2026-10-01): copilot_sdk leads, then
+      # claude_code and its second account (claude-code#2, from
       # CLAUDE_CODE_OAUTH_TOKEN_2 below — a spent account moves the turn to
-      # the next account before the chain leaves Claude, carnet#480),
-      # copilot_sdk, then Gemini; Cohere is out.
+      # the next account before the chain leaves Claude, carnet#480 and
+      # carnet#688), then Gemini; Cohere is out.
       #
-      # Primary = the Claude Code CLI in the image on CLAUDE_CODE_OAUTH_TOKEN,
-      # serving claude-sonnet-5. It is the primary until the jfarcand Copilot
-      # account's monthly premium quota resets: on 2026-09-21 every copilot_sdk
-      # turn answered quota_exceeded and the athlete saw "temporairement
-      # indisponible" (carnet#478). This is the direct Anthropic subscription —
-      # the one switched off on 2026-05-13 for burning Opus credits during
-      # Copilot blips with no spend cap — so it runs Sonnet, and it is a
-      # month-end arrangement, not the resting state.
+      # Primary = GitHub's Rust Copilot runtime over stdio, on the jfarcand
+      # Copilot account, serving claude-opus-5.5. Its monthly credits reset
+      # on the 1st and have no overage: on 2026-09-21 every turn answered
+      # quota_exceeded and the athlete saw "temporairement indisponible"
+      # (carnet#478). Since embacle 0.28.1 a tier's RateLimit falls through
+      # to the next tier, so a spent Copilot is skipped rather than ending
+      # the turn — any quota answer fires dravr-llm-tier-rate-limited and
+      # more than three skips in five minutes fire
+      # dravr-llm-chain-fallthrough (llm_chain_monitoring.tf).
       #
-      # Runtime chain = copilot_sdk then Gemini (Google free tier via
-      # GEMINI_API_KEY), gated on PIERRE_LLM_RUNTIME_FALLBACK=true and built by
-      # embacle's FallbackProvider (crates/pierre-llm/src/embacle_provider.rs).
-      # Cohere is out of the chain: it answered "nothing deliverable" on the
-      # day it was needed and JF's verdict is that it never worked.
+      # Runtime chain = claude_code, its pooled account, then Gemini (Google
+      # free tier via GEMINI_API_KEY), gated on
+      # PIERRE_LLM_RUNTIME_FALLBACK=true and built by embacle's
+      # FallbackProvider (crates/pierre-llm/src/embacle_provider.rs). The
+      # Claude tier is the direct Anthropic subscription — the one switched
+      # off on 2026-05-13 for burning Opus credits during Copilot blips with
+      # no spend cap — so it runs Sonnet. Cohere is out of the chain: it
+      # answered "nothing deliverable" on the day it was needed and JF's
+      # verdict is that it never worked.
+      PIERRE_LLM_PROVIDER = "copilot_sdk"
+      # Coaching model on the primary: claude-opus-5.5 (JF, 2026-10-01).
+      # PIERRE_LLM_MODEL is the model of every tier built without its own
+      # override, which here is the primary alone: each later tier takes its
+      # *_PROVIDER_MODEL. A whole turn is capped by
+      # EMBACLE_SDK_PROMPT_TIMEOUT_SECS below — a turn that ends on
+      # "copilot-sdk: turn exceeded 300s" is the signal that the model is
+      # too slow for that cap. (COPILOT_HEADLESS_MODEL only drives the
+      # sciotte vision-login fallback, not chat.)
       #
-      # copilot_sdk is the second tier (claude_code -> copilot_sdk -> gemini,
-      # JF 2026-09-21). Its account may still be out of monthly quota: since
-      # carnet#478 (embacle 0.28.1 + the bridge in pierre-core) a tier's
-      # RateLimit falls through to the next tier, so a quota-exhausted Copilot
-      # is skipped in one call rather than ending the turn — and every such
-      # skip fires the dravr-llm-tier-rate-limited alert (llm_chain_monitoring.tf).
-      PIERRE_LLM_PROVIDER = "claude_code"
-      # Coaching model. Sonnet, not Opus: the coaching bench found raters could
-      # not distinguish Opus output and it tied last on quality, while Opus is
-      # the slowest model — slow enough that an Autopilot tool turn overruns the
-      # ACP prompt timeout below. Sonnet is faster (keeps turns under budget) at
-      # equal coaching quality. PIERRE_LLM_MODEL is the unified primary-model
-      # override for all providers; PIERRE_LLM_DEFAULT_MODEL must match it so the
-      # chain stamps the right primary model name. (COPILOT_HEADLESS_MODEL stays
-      # on Opus — it only drives the sciotte vision-login fallback, not chat.)
-      PIERRE_LLM_MODEL                   = "claude-sonnet-5"
-      PIERRE_LLM_DEFAULT_MODEL           = "claude-sonnet-5"
+      # PIERRE_LLM_DEFAULT_MODEL is a Gemini model name: the only code that
+      # reads it is the Gemini provider built with no model of its own — a
+      # Gemini primary, or a BYO-Gemini tenant that stored no model
+      # (crates/pierre-llm/src/http_env.rs).
+      PIERRE_LLM_MODEL                   = "claude-opus-5.5"
+      PIERRE_LLM_DEFAULT_MODEL           = "gemini-flash-lite-latest"
       PIERRE_LLM_FALLBACK_MODEL          = "claude-sonnet-5"
       PIERRE_LLM_RUNTIME_FALLBACK        = "true"
-      PIERRE_LLM_FALLBACK_PROVIDER       = "copilot_sdk"
+      PIERRE_LLM_FALLBACK_PROVIDER       = "claude_code"
       PIERRE_LLM_FALLBACK_PROVIDER_MODEL = "claude-sonnet-5"
       PIERRE_LLM_TERTIARY_PROVIDER       = "gemini"
       PIERRE_LLM_TERTIARY_PROVIDER_MODEL = "gemini-flash-lite-latest"
 
       # The synthetic LLM probe runs once per instance start and never again:
-      # its "ping" is a real turn on the primary's account, and the 30-minute
-      # idle cadence was set for Copilot's silently-expiring session token,
-      # which is not the Claude token's failure mode. Athlete turns and the
-      # chain-fallthrough alert cover a credential that dies mid-day.
+      # its "ping" is a real turn on the primary's account — a Copilot credit
+      # each time, from a monthly allowance with no overage. Athlete turns
+      # and the chain-fallthrough alert cover a credential that dies mid-day.
       # (JF, 2026-09-21: "startup only".)
       PIERRE_LLM_HEALTH_PROBE_INTERVAL_SECS = "0"
 
@@ -558,8 +560,9 @@ module "backend" {
       # and only falls back to LLM screenshot reasoning when selectors fail
       # (e.g. a Strava login DOM change). COPILOT_HEADLESS_MODEL is the model
       # for that vision fallback only — PIERRE_LLM_MODEL shadows it for the chat
-      # provider. Kept on claude-opus-4.8 for the heavier vision-reasoning task;
-      # chat/coaching runs the cheaper, faster claude-sonnet-5 via PIERRE_LLM_MODEL.
+      # provider. It runs claude-opus-4.8 for the heavier vision-reasoning task;
+      # the chat chain's models are set by PIERRE_LLM_MODEL and the
+      # *_PROVIDER_MODEL variables above.
       DRAVR_SCIOTTE_LOGIN_MODE = "hybrid"
       COPILOT_HEADLESS_MODEL   = "claude-opus-4.8"
 
@@ -649,7 +652,7 @@ module "backend" {
     GEMINI_API_KEY          = module.secrets.secret_ids["gemini_api_key"]
     COPILOT_GITHUB_TOKEN    = module.secrets.secret_ids["copilot_github_token"]
     CLAUDE_CODE_OAUTH_TOKEN = module.secrets.secret_ids["claude_code_oauth_token"]
-    # The second Claude account, pooled as the tier right behind the primary
+    # The second Claude account, pooled as the tier right behind the first
     # (claude-code#2). Further accounts are _3, _4, … — the platform reads
     # them in order and stops at the first unset one (carnet#480).
     CLAUDE_CODE_OAUTH_TOKEN_2 = module.secrets.secret_ids["claude_code_oauth_token_2"]
