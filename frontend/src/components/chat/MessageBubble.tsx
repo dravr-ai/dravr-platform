@@ -62,7 +62,11 @@ export default function MessageBubble({
         data-finish={finishReason}
         className={clsx('group flex min-w-0 justify-end', groupStart ? 'mt-4' : 'mt-1')}
       >
-        <div className="flex min-w-0 flex-col items-end">
+        {/* The column spans the row so the bubble's percentage width bound
+            is measured against the thread, not against the bubble itself: a
+            shrink-wrapped column would cap each message at 85% of its own
+            width and break a short word like `/season` mid-word. */}
+        <div className="flex min-w-0 flex-1 flex-col items-end">
           <div className="chat-bubble-user">
             {children}
             {footer}

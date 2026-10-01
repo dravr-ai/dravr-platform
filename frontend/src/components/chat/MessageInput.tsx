@@ -4,7 +4,7 @@
 // ABOUTME: Chat message input component with textarea, a "/" commands button and a send button
 // ABOUTME: Handles keyboard shortcuts and the slash-command and @handle palettes
 
-import { useRef, useEffect, useState, useCallback, useId } from 'react';
+import { useRef, useEffect, useLayoutEffect, useState, useCallback, useId } from 'react';
 import { clsx } from 'clsx';
 import { Slash } from 'lucide-react';
 import CommandPalette from '../CommandPalette';
@@ -13,6 +13,12 @@ import { IconButton } from '../ui';
 import { useCommandPalette } from '../../hooks/useCommandPalette';
 import { useMentionPalette } from '../../hooks/useMentionPalette';
 import { useTranslation } from '@pierre/i18n';
+
+/**
+ * The most lines the composer shows before it scrolls, so a long draft never
+ * pushes the thread off the screen.
+ */
+const COMPOSER_MAX_LINES = 8;
 
 interface MessageInputProps {
   value: string;
@@ -76,6 +82,27 @@ export default function MessageInput({
   }, [value]);
   const mentions = useMentionPalette({ value, caret, onChange: applyMention });
 
+  // The field grows with what is typed, one line at a time, up to the cap and
+  // then scrolls — the way every messenger composer behaves. Measured after
+  // React commits the value so a paste or a cleared send resizes at once. The
+  // cap is read off the field's own line height and padding, which differ
+  // between a fine and a coarse pointer, so it is eight whole lines on both.
+  useLayoutEffect(() => {
+    const field = inputRef.current;
+    if (!field) return;
+    field.style.height = 'auto';
+    const border = field.offsetHeight - field.clientHeight;
+    const wanted = field.scrollHeight + border;
+    const style = getComputedStyle(field);
+    const cap =
+      COMPOSER_MAX_LINES * parseFloat(style.lineHeight) +
+      parseFloat(style.paddingTop) +
+      parseFloat(style.paddingBottom) +
+      border;
+    field.style.height = `${Math.min(wanted, cap)}px`;
+    field.style.overflowY = wanted > cap ? 'auto' : 'hidden';
+  }, [value]);
+
   // Focus input on mount
   useEffect(() => {
     if (focusOnMount) inputRef.current?.focus();
@@ -135,7 +162,7 @@ export default function MessageInput({
               onChange('/');
               inputRef.current?.focus();
             }}
-            className="absolute left-1.5 top-1/2 z-10 -translate-y-1/2"
+            className="absolute bottom-1.5 left-1.5 z-10 [@media(pointer:coarse)]:bottom-2.5"
           >
             <Slash className="h-4 w-4" aria-hidden="true" />
           </IconButton>
@@ -157,7 +184,7 @@ export default function MessageInput({
             onClick={syncCaret}
             onSelect={syncCaret}
             placeholder={t('chat.messageDravrPlaceholder')}
-            className="w-full resize-none overflow-hidden rounded-xl border ghost-border bg-surface-container-lowest py-2 pl-11 pr-12 text-base text-on-surface transition-colors placeholder:text-outline focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary/40 [@media(pointer:coarse)]:min-h-[48px] [@media(pointer:coarse)]:py-3"
+            className="block w-full resize-none overflow-hidden rounded-xl border ghost-border bg-surface-container-lowest py-2 pl-11 pr-12 text-base text-on-surface transition-colors placeholder:text-outline focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary/40 [@media(pointer:coarse)]:min-h-[48px] [@media(pointer:coarse)]:py-3"
             rows={1}
             disabled={isStreaming || disabled}
           />
@@ -166,7 +193,7 @@ export default function MessageInput({
             disabled={!value.trim() || isStreaming || disabled}
             aria-label={t('chat.sendMessageAria')}
             className={clsx(
-              'absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full transition-colors touch-target',
+              'absolute bottom-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-full transition-colors touch-target [@media(pointer:coarse)]:bottom-2.5',
               value.trim() && !isStreaming && !disabled
                 ? 'bg-primary text-on-primary hover:bg-primary-hover'
                 : 'text-on-surface-variant cursor-not-allowed'
