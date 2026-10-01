@@ -23,7 +23,7 @@
 //!    fields.
 //! 5. Resolve a platform-composed turn — the same ownership check with no
 //!    write at all, for a prompt the athlete did not send. See
-//!    [`resolve_platform_turn`] and [`crate::turn::TurnOrigin`].
+//!    [`resolve_platform_turn`] and [`TurnOrigin`].
 //!
 //! Both message writers also fan the row out to the group's shared room
 //! transcript (`group_transcript_entries`) when the conversation is
@@ -37,11 +37,11 @@ use pierre_database::database::repositories::ChatRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_database::repositories::CoachingGroupRepository;
 
-use crate::turn::{TurnInput, TurnOrigin, UserMessageResult};
+use crate::turn::{TurnInput, UserMessageResult};
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{NewGroupTranscriptEntry, TranscriptSpeaker};
-use pierre_core::models::TenantId;
+use pierre_core::models::{TenantId, TurnOrigin};
 use pierre_core::uuid_utils::parse_uuid;
 use tracing::warn;
 use uuid::Uuid;

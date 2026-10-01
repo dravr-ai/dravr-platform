@@ -9,7 +9,7 @@ use std::sync::Arc;
 use dravr_canot::commands::{CommandMatcher, CommandRegistry, CommandResponse};
 use pierre_contremaitre::messaging_strings::KEY_UNKNOWN_COMMAND;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::TenantId;
+use pierre_core::models::{TenantId, TurnOrigin};
 use pierre_runtime_context::CommandCtx;
 use pierre_services::conversation_forge::reactivate_for_turn;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -91,19 +91,12 @@ pub struct DispatchRequest<'a> {
     /// behind a separate trait to avoid a crate cycle through
     /// `pierre-runtime-context`.
     pub tool_runtime: &'a Arc<dyn ToolRuntime>,
-    /// Who typed [`Self::text`]. Only an athlete's command takes an archived
-    /// thread's quota slot back (see [`crate::CommandHandler::resumes_thread`]).
-    pub author: CommandAuthor,
-}
-
-/// Who a dispatched command's text came from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CommandAuthor {
-    /// The athlete typed it, on any surface.
-    Athlete,
-    /// The platform composed it — a re-entry turn replaying an earlier
-    /// question. It runs, but never reactivates an archived thread.
-    Platform,
+    /// Who [`Self::text`] came from. Only an athlete's command takes an
+    /// archived thread's quota slot back (see
+    /// [`crate::CommandHandler::resumes_thread`]); one the platform composed —
+    /// a re-entry turn replaying an earlier question — runs, but never
+    /// reactivates the thread.
+    pub origin: TurnOrigin,
 }
 
 /// Outcome of a single dispatch attempt.
@@ -217,7 +210,7 @@ pub async fn try_dispatch(req: DispatchRequest<'_>) -> AppResult<DispatchOutcome
     // thread `/reset` archived, takes a quota slot back before it runs — or
     // is refused at the cap before it writes anything. The refusal is the
     // command's outcome, recorded below like any other failure.
-    let claimed = if req.author == CommandAuthor::Athlete && handler.resumes_thread(&ctx.args) {
+    let claimed = if req.origin == TurnOrigin::Athlete && handler.resumes_thread(&ctx.args) {
         match req.conversation_id {
             Some(conversation_id) => {
                 reactivate_for_turn(

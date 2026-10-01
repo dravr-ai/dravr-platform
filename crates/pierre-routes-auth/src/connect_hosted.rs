@@ -86,7 +86,8 @@ pub struct ConnectSuccessQuery {
 }
 
 /// One selectable card on the hosted picker. Serialized into the page so its JS
-/// can route a click to the OAuth or Sciotte sub-flow.
+/// can route a click to the OAuth or Sciotte sub-flow, or to the card's own
+/// hosted form.
 #[derive(Debug, Serialize)]
 struct ConnectProviderCard {
     /// Provider id passed to `oauth-init` (OAuth kind) or used for routing.
@@ -112,6 +113,12 @@ struct ConnectProviderCard {
     /// the card is picked. Absent for a provider with none.
     #[serde(skip_serializing_if = "Option::is_none")]
     notice: Option<ExposureNotice>,
+    /// Where picking the card navigates, for a card whose flow is a hosted
+    /// page of its own (the Intervals.icu API-key form): a same-origin path
+    /// carrying the connect link-token. Absent for the OAuth and Sciotte
+    /// cards, whose flows the picker page runs itself.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    form_url: Option<String>,
     /// What the provider's own login asks for: `"username"` (TrainingPeaks)
     /// or `"email"`. Read by the page for Sciotte cards only.
     login_identifier: &'static str,
@@ -133,6 +140,7 @@ async fn build_connect_providers(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Option<Uuid>,
+    link_token: &str,
 ) -> Result<Vec<ConnectProviderCard>, AppError> {
     let status = compute_providers_status(resources, user_id, tenant_id).await?;
 
@@ -164,6 +172,7 @@ async fn build_connect_providers(
                     target: "strava".to_owned(),
                     consent_required: p.consent_required,
                     notice: exposure_notice("strava").cloned(),
+                    form_url: None,
                     login_identifier: "email",
                 });
             }
@@ -180,6 +189,7 @@ async fn build_connect_providers(
                         target: target.to_owned(),
                         consent_required: p.consent_required,
                         notice: exposure_notice(target).cloned(),
+                        form_url: None,
                         login_identifier: if SciotteTarget::from_target_param(target)
                             .signs_in_with_username()
                         {
@@ -201,6 +211,10 @@ async fn build_connect_providers(
                 target: INTERVALS_ICU.to_owned(),
                 consent_required: false,
                 notice: None,
+                form_url: Some(format!(
+                    "/providers/connect/{INTERVALS_ICU}?token={}",
+                    encode(link_token)
+                )),
                 login_identifier: "email",
             }),
             // Any remaining OAuth provider (Whoop, and future keepers).
@@ -213,6 +227,7 @@ async fn build_connect_providers(
                 target: String::new(),
                 consent_required: p.consent_required,
                 notice: exposure_notice(&provider_name).cloned(),
+                form_url: None,
                 login_identifier: "email",
             }),
             // Non-OAuth, non-Sciotte (e.g. synthetic) is not offered in chat.
@@ -255,7 +270,7 @@ pub async fn handle_connect_hosted_page(
     // The link-token names the session's tenant; one it cannot parse asks
     // for no notice, as a session without a tenant does.
     let tenant_id = Uuid::parse_str(&claims.tid).ok();
-    let cards = match build_connect_providers(&resources, user_id, tenant_id).await {
+    let cards = match build_connect_providers(&resources, user_id, tenant_id, token).await {
         Ok(cards) => cards,
         Err(e) => {
             warn!(user_id = %user_id, error = %e, "Could not read the user's connections for the hosted connect picker");

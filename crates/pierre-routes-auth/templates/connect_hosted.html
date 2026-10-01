@@ -153,7 +153,7 @@
                 channel: "{{CHANNEL}}",
                 channelLabel: "{{CHANNEL_LABEL}}",
                 // Providers JSON embedded server-side (mirrors GET /api/providers):
-                // [{ provider, display_name, description, connected, kind: 'oauth'|'sciotte'|'api_key', target, consent_required, notice?, login_identifier }]
+                // [{ provider, display_name, description, connected, kind: 'oauth'|'sciotte'|'api_key', target, consent_required, notice?, form_url?, login_identifier }]
                 // `notice` is shown before the credentials (sciotte) or before the
                 // OAuth redirect (oauth) while `consent_required` holds.
                 providers: {{PROVIDERS_JSON}},
@@ -292,17 +292,13 @@
                 showPhase('oauth-consent');
             }
 
-            // Full-page navigation to the hosted API-key form (Intervals.icu),
-            // carrying the same connect token.
-            function openApiKeyForm(provider) {
-                window.location.assign('/providers/connect/' + encodeURIComponent(provider)
-                    + '?token=' + encodeURIComponent(CONFIG.token));
-            }
-
             function pickProvider(p) {
                 clearError();
-                if (p.kind === 'api_key') {
-                    openApiKeyForm(p.provider);
+                // A card with a hosted form of its own (the Intervals.icu
+                // API-key form): full-page navigation to the URL the server
+                // put on the card, which carries the same connect token.
+                if (p.form_url) {
+                    window.location.assign(p.form_url);
                     return;
                 }
                 if (p.kind === 'oauth') {

@@ -18,14 +18,18 @@
 mod common;
 mod helpers;
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 
+use axum::extract::connect_info::MockConnectInfo;
 use axum::http::StatusCode;
 use axum::Router;
 use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::capture_logs;
+use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
+use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_middleware::provider_link_token::{
     mint_connect_link_token, mint_link_token, MintProviderLinkTokenArgs,
@@ -194,10 +198,24 @@ async fn picker_offers_intervals_icu_as_an_api_key_card() {
     assert_eq!(card["target"], INTERVALS_ICU);
     assert_eq!(card["connected"], false);
     assert_eq!(card["display_name"], "Intervals.icu");
+    // The card carries its own destination, and that destination is the form.
+    let destination = card["form_url"]
+        .as_str()
+        .unwrap_or_else(|| panic!("an api_key card names its hosted form: {card}"));
+    assert_eq!(destination, form_url(&token));
+    let form = AxumTestRequest::get(destination)
+        .send(fixture.router.clone())
+        .await;
+    assert_eq!(form.status(), 200);
+    let form = form.text();
     assert!(
-        body.contains("p.kind === 'api_key'") && body.contains("'/providers/connect/'"),
-        "the page routes an api_key card to the hosted form"
+        form.contains(r#"name="athlete_id""#) && form.contains(r#"name="api_key""#),
+        "the card's destination is the athlete id + API key form: {form}"
     );
+    // Only a card with a hosted form of its own carries one.
+    for other in cards.iter().filter(|c| c["provider"] != INTERVALS_ICU) {
+        assert!(other.get("form_url").is_none(), "{other}");
+    }
     stub.abort();
 }
 
@@ -519,4 +537,67 @@ async fn posting_with_a_bad_token_is_rejected_and_stores_nothing() {
     assert!(intervals_connections(&fixture).await.is_empty());
     assert!(!stub.is_finished(), "Intervals.icu is never called");
     stub.abort();
+}
+
+// ============================================================================
+// Through the server's own router, CSRF layer included
+// ============================================================================
+
+/// An athlete signed in to the web app carries its session cookie to the
+/// hosted form, and an HTML form cannot send `X-CSRF-Token`. The CSRF layer
+/// lets the POST through — the signed connect token in its body is what
+/// authorizes it — so the form's own handler answers: here it refuses an
+/// empty key with the form again, where the CSRF layer would answer 401.
+#[tokio::test]
+async fn a_web_app_session_cookie_does_not_refuse_the_form_post() {
+    common::init_server_config();
+    let resources = common::create_test_server_resources().await.unwrap();
+    let (user, session) = common::create_test_tenant(&resources, "intervals-csrf@example.test")
+        .await
+        .unwrap();
+    let tenant_id = resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(user.id)
+        .await
+        .expect("list tenants")
+        .first()
+        .expect("user has a tenant")
+        .id;
+    let token = mint_connect_link_token(
+        user.id,
+        tenant_id.as_uuid(),
+        "telegram",
+        None,
+        &resources.auth.admin_jwt_secret,
+    )
+    .expect("mint connect token");
+    // The web app's cookie: the one the CSRF layer demands a header for.
+    let cookie = format!("{}={session}", auth_cookie_name());
+    let app = ProviderToolRouter::build_http_app(&resources)
+        .layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40_645))));
+
+    let resp = AxumTestRequest::post(FORM_PATH)
+        .header("cookie", &cookie)
+        .form(&[
+            ("token", token.as_str()),
+            ("athlete_id", "i123456"),
+            ("api_key", "   "),
+        ])
+        .send(app)
+        .await;
+
+    let status = resp.status();
+    let body = resp.text();
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "the form handler answers, not the CSRF layer: {body}"
+    );
+    assert!(body.contains("api_key is required"), "{body}");
+    assert!(
+        body.contains(r#"name="athlete_id" value="i123456""#),
+        "the form is shown again with the athlete id refilled: {body}"
+    );
 }

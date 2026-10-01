@@ -241,7 +241,7 @@ pub async fn reactivate_for_turn(
 /// The athlete's words for a `max_active_conversations` refusal on a
 /// messaging surface, in `locale`: the cap they hit and what to do about it.
 ///
-/// A refusal that names [`ARCHIVED_CONVERSATION_REASON`] says the thread they
+/// A refusal whose `details.reason` is `conversation_archived` says the thread they
 /// wrote into is archived, since "before starting another" would be wrong
 /// there — they started nothing. `None` for any other error, which keeps its
 /// own rendering.
@@ -276,7 +276,7 @@ const CONVERSATION_CAP_LIMIT_TYPE: &str = "max_active_conversations";
 /// Both clients read it (`quotaKey` in `@pierre/ui-logic`) to word the refusal
 /// as "this conversation is archived" rather than "delete one to start a new
 /// one", and [`conversation_cap_reply`] does the same on messaging.
-pub const ARCHIVED_CONVERSATION_REASON: &str = "conversation_archived";
+const ARCHIVED_CONVERSATION_REASON: &str = "conversation_archived";
 
 /// The one refusal shape for the conversation cap, whichever path hit it.
 fn conversation_cap_error(current: i64, cap: i64) -> AppError {

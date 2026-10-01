@@ -227,9 +227,9 @@ pub use conversation::{
     is_in_app_channel, split_visuals, AddMessageParams, AgentRuntimeContext,
     ConversationLastMessage, ConversationPage, ConversationParticipant, ConversationRecord,
     ConversationSummary, ConversationTurnId, MessageFeedbackRecord, MessageRecord, ParticipantRole,
-    PersistedAction, PersistedReplyBlock, UpsertMessageFeedbackParams, ACTIONS_BLOCK_TYPE,
-    CHANNEL_TYPE_MOBILE, CHANNEL_TYPE_WEB, COMMAND_FINISH_REASON, FILTERED_REPLY_FINISH_REASON,
-    STOP_CAVEAT_SEPARATOR, TRUNCATED_REPLY_FINISH_REASON,
+    PersistedAction, PersistedReplyBlock, TurnOrigin, UpsertMessageFeedbackParams,
+    ACTIONS_BLOCK_TYPE, CHANNEL_TYPE_MOBILE, CHANNEL_TYPE_WEB, COMMAND_FINISH_REASON,
+    FILTERED_REPLY_FINISH_REASON, STOP_CAVEAT_SEPARATOR, TRUNCATED_REPLY_FINISH_REASON,
     UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON, WITHHELD_REPLY_FINISH_REASON,
 };
 

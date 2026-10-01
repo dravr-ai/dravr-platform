@@ -34,10 +34,10 @@
 
 use std::sync::Arc;
 
-use pierre_commands::dispatch::{try_dispatch, CommandAuthor, DispatchOutcome, DispatchRequest};
+use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::TranscriptSpeaker;
-use pierre_core::models::{ConversationTurnId, TenantId};
+use pierre_core::models::{ConversationTurnId, TenantId, TurnOrigin};
 use pierre_llm::ChatProvider;
 use pierre_services::conversation_forge::reactivate_for_turn;
 use pierre_services::tenant_chat_provider::resolve_tenant_chat_provider;
@@ -53,7 +53,7 @@ use crate::stages::command_persistence::{
 };
 use crate::stages::persistence::fan_out_to_group_transcript;
 use crate::surface_profile::SurfaceProfile;
-use crate::turn::{TurnInput, TurnOrigin};
+use crate::turn::TurnInput;
 use crate::usage_counters::{
     increment_usage_counters_scoped, tokens_from_envelope, UsageIncrementScope,
 };
@@ -420,10 +420,7 @@ pub async fn dispatch_slash(
         sender_id: request.sender_id,
         text: request.text,
         tool_runtime: &ctx.tool_runtime,
-        author: match request.origin {
-            TurnOrigin::Athlete => CommandAuthor::Athlete,
-            TurnOrigin::Platform => CommandAuthor::Platform,
-        },
+        origin: request.origin,
     })
     .await?;
 

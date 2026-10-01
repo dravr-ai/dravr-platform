@@ -41,9 +41,7 @@ mod guided_turn {
 
     use crate::common::{create_test_server_resources_with_llm, create_test_user_with_plan};
     use crate::helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_scraper};
-    use pierre_chat_pipeline::stages::capability_recovery::{
-        repair_messages, REPAIR_EVIDENCE_FRAME,
-    };
+    use pierre_chat_pipeline::stages::capability_recovery::REPAIR_EVIDENCE_FRAME;
     use pierre_chat_pipeline::{
         CommandPersistence, PipelineHooks, ServedTurn, SurfaceId, SurfaceProfile, SurfaceRequest,
         TurnOrigin, TurnRequest,
@@ -658,31 +656,5 @@ mod guided_turn {
             delivered, REASKED_REPLY,
             "the disproven claim is replaced by the re-ask's reply"
         );
-    }
-
-    /// An empty draft — the degenerate reply the stage also repairs — is left
-    /// out rather than sent as an empty assistant turn, which several
-    /// providers reject; the evidence still carries the frame.
-    #[test]
-    fn an_empty_draft_is_not_sent_as_an_assistant_turn() {
-        let turn = vec![
-            ChatMessage::system("persona"),
-            ChatMessage::user("Comment était ma semaine ?"),
-        ];
-
-        let with_draft = repair_messages(&turn, "by Dravr.", "EVIDENCE");
-        assert_eq!(with_draft.len(), 4);
-        assert_eq!(with_draft[2].role, MessageRole::Assistant);
-        assert_eq!(with_draft[2].content, "by Dravr.");
-        assert_eq!(
-            with_draft[3].content,
-            format!("{REPAIR_EVIDENCE_FRAME}\n\nEVIDENCE")
-        );
-
-        let without = repair_messages(&turn, "  \n", "EVIDENCE");
-        assert_eq!(without.len(), 3);
-        assert_eq!(without[1].content, "Comment était ma semaine ?");
-        assert_eq!(without[2].role, MessageRole::User);
-        assert!(without[2].content.starts_with(REPAIR_EVIDENCE_FRAME));
     }
 }

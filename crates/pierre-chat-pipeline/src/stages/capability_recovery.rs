@@ -695,7 +695,7 @@ async fn reask_with_verified_data(
 /// empty draft is left out rather than sent as an empty assistant turn, which
 /// several providers reject.
 #[must_use]
-pub fn repair_messages(
+pub(super) fn repair_messages(
     llm_messages: &[ChatMessage],
     draft: &str,
     evidence_turn: &str,
@@ -1160,5 +1160,38 @@ fn reask_verdict(content: &str) -> ReaskVerdict {
         ReaskVerdict::StillClaims
     } else {
         ReaskVerdict::Usable
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pierre_llm::MessageRole;
+
+    use super::*;
+
+    /// An empty draft — the degenerate reply the stage also repairs — is left
+    /// out rather than sent as an empty assistant turn, which several
+    /// providers reject; the evidence still carries the frame.
+    #[test]
+    fn an_empty_draft_is_not_sent_as_an_assistant_turn() {
+        let turn = vec![
+            ChatMessage::system("persona"),
+            ChatMessage::user("Comment était ma semaine ?"),
+        ];
+
+        let with_draft = repair_messages(&turn, "by Dravr.", "EVIDENCE");
+        assert_eq!(with_draft.len(), 4);
+        assert_eq!(with_draft[2].role, MessageRole::Assistant);
+        assert_eq!(with_draft[2].content, "by Dravr.");
+        assert_eq!(
+            with_draft[3].content,
+            format!("{REPAIR_EVIDENCE_FRAME}\n\nEVIDENCE")
+        );
+
+        let without = repair_messages(&turn, "  \n", "EVIDENCE");
+        assert_eq!(without.len(), 3);
+        assert_eq!(without[1].content, "Comment était ma semaine ?");
+        assert_eq!(without[2].role, MessageRole::User);
+        assert!(without[2].content.starts_with(REPAIR_EVIDENCE_FRAME));
     }
 }

@@ -3022,11 +3022,10 @@ mod command_tests {
     #[tokio::test]
     async fn dispatching_coaches_invite_runs_the_invite_handler() {
         use pierre_commands::agent::{AgentListHandler, CoachInviteHandler};
-        use pierre_commands::dispatch::{
-            try_dispatch, CommandAuthor, DispatchOutcome, DispatchRequest,
-        };
+        use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
         use pierre_commands::CommandHandlerRegistry;
         use pierre_core::models::groups::GroupInviteKind;
+        use pierre_core::models::TurnOrigin;
         use pierre_runtime_context::CommandCtx;
         use pierre_tool_runtime::runtime::ToolRuntime;
 
@@ -3058,7 +3057,7 @@ mod command_tests {
             sender_id: None,
             text: "/coaches invite",
             tool_runtime: &tool_runtime,
-            author: CommandAuthor::Athlete,
+            origin: TurnOrigin::Athlete,
         })
         .await
         .unwrap();
@@ -3313,10 +3312,9 @@ mod command_tests {
     #[tokio::test]
     async fn dispatching_coaches_add_with_a_handle_selects_the_coach() {
         use pierre_commands::agent::{AgentAddHandler, AgentListHandler};
-        use pierre_commands::dispatch::{
-            try_dispatch, CommandAuthor, DispatchOutcome, DispatchRequest,
-        };
+        use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
         use pierre_commands::CommandHandlerRegistry;
+        use pierre_core::models::TurnOrigin;
         use pierre_runtime_context::CommandCtx;
         use pierre_tool_runtime::runtime::ToolRuntime;
 
@@ -3349,7 +3347,7 @@ mod command_tests {
             sender_id: None,
             text: "/coaches add @recovery-coach",
             tool_runtime: &tool_runtime,
-            author: CommandAuthor::Athlete,
+            origin: TurnOrigin::Athlete,
         })
         .await
         .unwrap();

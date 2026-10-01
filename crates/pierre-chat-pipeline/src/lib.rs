@@ -77,7 +77,11 @@ pub use usage_counters::{
 // messaging ingress) can attach the same per-call recorder the chat
 // pipeline uses.
 pub use recorders::UsageRepoCallRecorder as TurnCallRecorder;
-pub use turn::{TurnInput, TurnOrigin, UserMessageResult};
+// Defined in `pierre-core` so the command dispatcher, which this crate
+// depends on, reads the same type; re-exported because [`TurnRequest`] and
+// [`SlashRequest`] carry it.
+pub use pierre_core::models::TurnOrigin;
+pub use turn::{TurnInput, UserMessageResult};
 
 use recovery::{run_recovery_and_post_process, RecoveryAndPostProcessInputs};
 use std::sync::Arc;

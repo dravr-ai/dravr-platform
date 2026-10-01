@@ -13,6 +13,40 @@ use uuid::Uuid;
 use crate::models::agents::AgentCategory;
 use crate::models::tenant::TenantId;
 
+/// Who authored the message a turn answers.
+///
+/// The pipeline's second stage writes the turn's prompt to `chat_messages` as
+/// a `user` row before it answers, and every later turn reads that row back as
+/// history. That is right for a message an athlete typed and wrong for one the
+/// platform composed on their behalf: the row is attributed to them, appears
+/// in their own thread as something they said, advances their read marker and
+/// fans out to a group room they never posted in.
+///
+/// A proactive turn therefore declares itself here, and the prompt reaches the
+/// model through the in-memory history instead of through a row.
+///
+/// The same answer decides whether the message may take an archived thread's
+/// `max_active_conversations` slot back: only one the athlete sent does,
+/// whether it is a coaching turn or a slash command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnOrigin {
+    /// The athlete sent this message. It is persisted as their turn.
+    Athlete,
+    /// The platform composed this prompt — a completed backfill re-asking the
+    /// athlete's own earlier question, say. Nothing is written as the
+    /// athlete's; only the reply is persisted, because the reply is real.
+    Platform,
+}
+
+impl TurnOrigin {
+    /// Whether this turn's prompt is written to the transcript as an athlete
+    /// message.
+    #[must_use]
+    pub const fn persists_user_row(self) -> bool {
+        matches!(self, Self::Athlete)
+    }
+}
+
 /// Identifier for a single conversation turn.
 ///
 /// A *turn* is one inbound user utterance plus the full chain of LLM

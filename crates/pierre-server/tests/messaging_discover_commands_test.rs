@@ -20,9 +20,7 @@ mod discover_over_messaging {
     use axum::http::StatusCode;
     use chrono::Utc;
     use dravr_canot::commands::CommandResponse;
-    use pierre_commands::dispatch::{
-        try_dispatch, CommandAuthor, DispatchOutcome, DispatchRequest,
-    };
+    use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
     use pierre_commands::load_command_catalog;
     use pierre_contremaitre::messaging_strings::{
         KEY_DISCOVER_CARD_TITLE, KEY_DISCOVER_INSTALLED, KEY_DISCOVER_INSTALL_ALREADY,
@@ -31,7 +29,8 @@ mod discover_over_messaging {
     use pierre_core::models::agents::{AgentHandle, CreateAgentRequest};
     use pierre_core::models::groups::GroupInviteKind;
     use pierre_core::models::{
-        ConnectionType, MessageRecord, PersistedReplyBlock, Tenant, TenantId, User, UserStatus,
+        ConnectionType, MessageRecord, PersistedReplyBlock, Tenant, TenantId, TurnOrigin, User,
+        UserStatus,
     };
     use pierre_database::backends::{
         CreateChannelLinkParams, CreateSessionParams, MessagingRepository,
@@ -238,7 +237,7 @@ mod discover_over_messaging {
             sender_id: Some(&athlete.sender_id),
             text,
             tool_runtime: &tool_runtime,
-            author: CommandAuthor::Athlete,
+            origin: TurnOrigin::Athlete,
         })
         .await
         .unwrap();
