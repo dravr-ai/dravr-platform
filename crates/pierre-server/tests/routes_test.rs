@@ -189,7 +189,8 @@ async fn test_register_user() {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     let routes = AuthService::new(
@@ -348,7 +349,8 @@ async fn test_register_duplicate_user() {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     let routes = AuthService::new(

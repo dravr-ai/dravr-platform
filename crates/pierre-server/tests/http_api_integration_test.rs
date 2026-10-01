@@ -293,7 +293,8 @@ async fn setup_test_context() -> Result<(Arc<Database>, Arc<ServerContext>, Tena
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     Ok((database, server_resources, tenant_id))

@@ -196,7 +196,8 @@ async fn test_oauth_authorization_url_generation() {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     let auth_routes = AuthService::new(
@@ -507,7 +508,8 @@ async fn test_oauth_state_validation() {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     let _oauth_routes = OAuthService::new(
@@ -717,7 +719,8 @@ async fn test_connection_status_no_providers() {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     let oauth_routes = OAuthService::new(
@@ -905,7 +908,8 @@ async fn test_invalid_provider_error() {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
     let oauth_routes = OAuthService::new(
         server_resources.data(),
@@ -1086,7 +1090,8 @@ async fn test_disconnect_provider() {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
     let oauth_routes = OAuthService::new(
         server_resources.data(),
@@ -1402,7 +1407,8 @@ async fn test_oauth_urls_contain_required_parameters() {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
     let oauth_routes = OAuthService::new(
         server_resources.data(),

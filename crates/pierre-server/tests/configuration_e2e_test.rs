@@ -120,7 +120,8 @@ async fn create_test_tool_executor_with_user() -> (Arc<UniversalToolExecutor>, S
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
     (
         Arc::new(

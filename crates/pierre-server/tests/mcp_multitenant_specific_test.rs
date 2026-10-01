@@ -50,7 +50,8 @@ async fn test_unknown_method_handler() -> Result<()> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
     let server = ProviderToolRouter::new(resources);
 
@@ -106,7 +107,8 @@ async fn test_connect_strava_handler_errors() -> Result<()> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
     let server = ProviderToolRouter::new(resources);
 
@@ -146,7 +148,8 @@ async fn test_disconnect_provider_handler() -> Result<()> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
     let server = ProviderToolRouter::new(resources);
 
@@ -187,7 +190,8 @@ async fn test_authentication_error_handling() -> Result<()> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
     let _server = ProviderToolRouter::new(resources);
 
@@ -236,7 +240,8 @@ async fn test_rate_limiting_enforcement() -> Result<()> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
     let server = ProviderToolRouter::new(resources);
 
@@ -284,7 +289,8 @@ async fn test_provider_initialization_errors() -> Result<()> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
     let server = ProviderToolRouter::new(resources);
 
@@ -325,7 +331,8 @@ async fn test_jsonrpc_error_responses() -> Result<()> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
     let _server = ProviderToolRouter::new(resources);
 
@@ -364,7 +371,8 @@ async fn test_session_state_edge_cases() -> Result<()> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
     let _server = ProviderToolRouter::new(resources);
 
@@ -403,7 +411,8 @@ async fn test_database_error_handling() -> Result<()> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
     let _server = ProviderToolRouter::new(resources);
 
@@ -442,7 +451,8 @@ async fn test_tool_call_parameter_validation() -> Result<()> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
     let server = ProviderToolRouter::new(resources);
 

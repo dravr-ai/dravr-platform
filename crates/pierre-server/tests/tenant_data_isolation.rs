@@ -487,7 +487,8 @@ async fn test_mcp_server_tenant_isolation() -> Result<()> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
     let _server = ProviderToolRouter::new(resources);
 

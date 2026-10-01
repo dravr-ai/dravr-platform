@@ -9,6 +9,7 @@ use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
 use pierre_cache::Cache;
 use pierre_core::billing::BillingProvider;
+use pierre_core::errors::{AppError, AppResult};
 use pierre_database::backends::factory::Database;
 use pierre_llm::ChatProvider;
 use pierre_llm::LlmProvider;
@@ -105,15 +106,24 @@ impl ServerContextBuilder {
     ///
     /// # Errors
     ///
-    /// Returns an error if any required fields are missing
-    pub async fn build(self) -> Result<ServerContext, &'static str> {
-        let database = self.database.ok_or("Database is required")?;
-        let auth_manager = self.auth_manager.ok_or("AuthManager is required")?;
+    /// Returns an error if any required fields are missing, or if
+    /// [`ServerContext::new`] fails
+    pub async fn build(self) -> AppResult<ServerContext> {
+        let database = self
+            .database
+            .ok_or_else(|| AppError::config("Database is required"))?;
+        let auth_manager = self
+            .auth_manager
+            .ok_or_else(|| AppError::config("AuthManager is required"))?;
         let admin_jwt_secret = self
             .admin_jwt_secret
-            .ok_or("Admin JWT secret is required")?;
-        let config = self.config.ok_or("Server config is required")?;
-        let cache = self.cache.ok_or("Cache is required")?;
+            .ok_or_else(|| AppError::config("Admin JWT secret is required"))?;
+        let config = self
+            .config
+            .ok_or_else(|| AppError::config("Server config is required"))?;
+        let cache = self
+            .cache
+            .ok_or_else(|| AppError::config("Cache is required"))?;
 
         let options = ServerContextOptions {
             rsa_key_size_bits: Some(self.rsa_key_size_bits),
@@ -125,7 +135,7 @@ impl ServerContextBuilder {
             turn_runner: None,
         };
 
-        let resources = ServerContext::new(
+        ServerContext::new(
             database,
             auth_manager,
             &admin_jwt_secret,
@@ -133,8 +143,7 @@ impl ServerContextBuilder {
             cache,
             options,
         )
-        .await;
-        Ok(resources)
+        .await
     }
 }
 

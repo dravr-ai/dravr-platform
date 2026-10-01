@@ -103,7 +103,8 @@ impl McpTestSetup {
                     turn_runner: None,
                 },
             )
-            .await,
+            .await
+            .unwrap(),
         );
 
         // Generate JWT token for the user
@@ -993,7 +994,8 @@ async fn setup_with_admin_flag(
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     let password_hash = bcrypt::hash("password123", bcrypt::DEFAULT_COST)?;

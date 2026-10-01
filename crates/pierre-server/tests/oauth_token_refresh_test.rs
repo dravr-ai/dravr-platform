@@ -444,7 +444,8 @@ async fn create_test_executor() -> (Arc<UniversalToolExecutor>, Arc<Database>) {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
     let executor = Arc::new(
         UniversalToolExecutor::new(server_resources).with_scopes(OAuthScope::self_grant()),
@@ -506,7 +507,8 @@ async fn create_test_executor_without_oauth() -> (Arc<UniversalToolExecutor>, Ar
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
     let executor = Arc::new(
         UniversalToolExecutor::new(server_resources).with_scopes(OAuthScope::self_grant()),

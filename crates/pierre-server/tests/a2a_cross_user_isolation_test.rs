@@ -89,7 +89,8 @@ async fn create_a2a_test_resources() -> Arc<ServerContext> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     )
 }
 

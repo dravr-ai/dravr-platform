@@ -110,7 +110,8 @@ async fn context() -> anyhow::Result<Arc<ServerContext>> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     ))
 }
 

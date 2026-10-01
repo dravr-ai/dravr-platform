@@ -89,7 +89,8 @@ impl FitnessConfigurationTestSetup {
                     turn_runner: None,
                 },
             )
-            .await,
+            .await
+            .unwrap(),
         );
 
         // Generate JWT token for the user

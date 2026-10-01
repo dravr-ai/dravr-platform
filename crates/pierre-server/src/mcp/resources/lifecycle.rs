@@ -167,6 +167,13 @@ impl ServerContext {
     ///
     /// # Parameters
     /// - `options`: Optional initialization parameters (RSA key size, JWKS manager, LLM provider)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when no JWKS manager is provided and the persisted RSA
+    /// keypairs cannot be read, or the first one cannot be generated and
+    /// stored: a context never signs with a key the store does not hold
+    /// (carnet#696).
     // Function exceeds line limit because it assembles 20+ interdependent resources
     // Splitting would reduce clarity without improving maintainability
     pub async fn new(
@@ -176,7 +183,7 @@ impl ServerContext {
         config: Arc<ServerConfig>,
         cache: Cache,
         options: ServerContextOptions,
-    ) -> Self {
+    ) -> AppResult<Self> {
         let rsa_key_size_bits = options.rsa_key_size_bits.unwrap_or(4096);
         let jwks_manager = options.jwks_manager;
         let llm_provider = options.llm_provider;
@@ -263,7 +270,7 @@ impl ServerContext {
         // Use provided JWKS manager or load/create new one for RS256 JWT signing
         let jwks_manager_arc =
             Self::resolve_jwks_manager(jwks_manager, database_arc.as_ref(), rsa_key_size_bits)
-                .await;
+                .await?;
 
         // Create SSE manager with configured buffer size
         #[cfg(feature = "transport-sse")]
@@ -641,7 +648,7 @@ impl ServerContext {
             contremaitre_config: ContremaitreConfig::from_env(),
         };
 
-        Self {
+        Ok(Self {
             common,
             auth,
             agent,
@@ -650,7 +657,7 @@ impl ServerContext {
             a2a,
             billing,
             mcp,
-        }
+        })
     }
 
     /// Build the outbound transactional email service, or `None` when Resend is
@@ -967,41 +974,25 @@ impl ServerContext {
         }
     }
 
-    /// Resolve JWKS manager from provided instance or create new one
+    /// Resolve JWKS manager from provided instance or load the persisted one
     ///
-    /// The production binary always provides one, built by
-    /// [`Self::load_or_create_jwks_manager`] so that a failed read stops the
-    /// boot. Without one (test and benchmark contexts), a failed read leaves
-    /// this context signing with a key held only in memory; nothing is
-    /// written to the store.
+    /// Without a provided manager the keypairs are loaded through
+    /// [`Self::load_or_create_jwks_manager`]; a failed read or a failed first
+    /// store is returned rather than replaced by a key held only in memory.
+    ///
+    /// # Errors
+    /// Returns an error if loading or storing the persisted keypairs fails
     async fn resolve_jwks_manager(
         provided: Option<Arc<JwksManager>>,
         database: &Database,
         rsa_key_size_bits: usize,
-    ) -> Arc<JwksManager> {
+    ) -> AppResult<Arc<JwksManager>> {
         if let Some(mgr) = provided {
-            return mgr;
+            return Ok(mgr);
         }
-
-        match Self::load_or_create_jwks_manager(database, rsa_key_size_bits).await {
-            Ok(jwks) => Arc::new(jwks),
-            Err(e) => {
-                error!(
-                    "Failed to initialize JWKS manager: {}. Signing with an in-memory key that is not persisted.",
-                    e
-                );
-                let mut new_jwks = JwksManager::new();
-                if let Err(e) =
-                    new_jwks.generate_rsa_key_pair_with_size("initial_key", rsa_key_size_bits)
-                {
-                    warn!(
-                        "Failed to generate initial JWKS key pair: {}. RS256 tokens will not be available.",
-                        e
-                    );
-                }
-                Arc::new(new_jwks)
-            }
-        }
+        Ok(Arc::new(
+            Self::load_or_create_jwks_manager(database, rsa_key_size_bits).await?,
+        ))
     }
 
     /// Load the persisted RSA keypairs, storing the first one when the table

@@ -348,7 +348,8 @@ async fn test_multitenant_auth_flow() -> Result<()> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     let auth_routes = AuthService::new(
@@ -822,7 +823,8 @@ async fn test_input_validation() -> Result<()> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     let auth_routes = AuthService::new(

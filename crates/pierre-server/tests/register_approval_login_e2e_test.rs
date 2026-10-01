@@ -100,7 +100,8 @@ async fn setup() -> anyhow::Result<Arc<ServerContext>> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     Ok(resources)

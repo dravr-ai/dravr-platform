@@ -345,7 +345,8 @@ impl DashboardTestSetup {
                     turn_runner: None,
                 },
             )
-            .await,
+            .await
+            .unwrap(),
         );
 
         // Create dashboard routes

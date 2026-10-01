@@ -126,7 +126,8 @@ pub async fn build_server_context() -> Arc<ServerContext> {
             cache,
             ServerContextOptions::testing().with_jwks_manager(Arc::new(jwks)),
         )
-        .await,
+        .await
+        .unwrap(),
     )
 }
 

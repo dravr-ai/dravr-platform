@@ -12,16 +12,21 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+mod common;
+
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_auth::admin::jwks::{load_or_store_first_keypair, JwksManager};
+use pierre_auth::auth::AuthManager;
+use pierre_config::environment::ServerConfig;
 use pierre_core::errors::AppResult;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::backends::SecurityRepository;
-use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_test_support::db::{create_concurrent_test_db, create_test_db};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
@@ -76,6 +81,68 @@ async fn rsa_read_error_fails_and_stores_no_keypair() {
             .unwrap()
             .is_empty(),
         "nothing is stored after a failed read"
+    );
+}
+
+/// A context built without an injected JWKS manager, as the server binary
+/// builds it, loads its signing keys from the store.
+async fn build_context_with_stored_keys(database: &Database) -> AppResult<ServerContext> {
+    common::init_server_config();
+    ServerContext::new(
+        database.clone(),
+        AuthManager::new(24),
+        "test_jwt_secret",
+        Arc::new(ServerConfig::default()),
+        common::create_test_cache().await.unwrap(),
+        ServerContextOptions::testing(),
+    )
+    .await
+}
+
+#[tokio::test]
+async fn server_context_construction_fails_on_a_failed_keypair_read() {
+    let database = create_test_db().await.unwrap();
+    execute_raw(
+        &database,
+        "ALTER TABLE rsa_keypairs RENAME TO rsa_keypairs_hidden",
+    )
+    .await;
+
+    let result = build_context_with_stored_keys(&database).await;
+
+    execute_raw(
+        &database,
+        "ALTER TABLE rsa_keypairs_hidden RENAME TO rsa_keypairs",
+    )
+    .await;
+    assert!(
+        result.is_err(),
+        "a failed keypair read must fail construction, not sign with an in-memory key"
+    );
+    assert!(
+        database
+            .as_security_repository()
+            .load_rsa_keypairs()
+            .await
+            .unwrap()
+            .is_empty(),
+        "nothing is stored after a failed read"
+    );
+}
+
+#[tokio::test]
+async fn server_context_signs_with_the_stored_keypair() {
+    let database = create_test_db().await.unwrap();
+    let stored = ServerContext::load_or_create_jwks_manager(&database, TEST_RSA_BITS)
+        .await
+        .unwrap();
+
+    let context = build_context_with_stored_keys(&database).await.unwrap();
+
+    assert_eq!(
+        active_identity(&context.auth.jwks_manager),
+        active_identity(&stored),
+        "a context without an injected manager signs with the stored keypair"
     );
 }
 

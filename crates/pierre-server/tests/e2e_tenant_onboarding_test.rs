@@ -237,7 +237,8 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
     let executor =
         UniversalToolExecutor::new(server_resources).with_scopes(OAuthScope::self_grant());

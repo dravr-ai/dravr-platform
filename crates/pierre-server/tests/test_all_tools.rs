@@ -278,7 +278,8 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     let executor =

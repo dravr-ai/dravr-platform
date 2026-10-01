@@ -215,7 +215,8 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     Ok(UniversalToolExecutor::new(server_resources).with_scopes(OAuthScope::self_grant()))

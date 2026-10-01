@@ -167,7 +167,8 @@ async fn test_email_validation() {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     let auth_routes = AuthService::new(
@@ -367,7 +368,8 @@ async fn test_password_validation() {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     let auth_routes = AuthService::new(
@@ -539,7 +541,8 @@ async fn test_duplicate_user_registration() {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     let auth_routes = AuthService::new(
@@ -702,7 +705,8 @@ async fn test_login_with_correct_credentials() {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     let auth_routes = AuthService::new(
@@ -918,7 +922,8 @@ async fn test_login_with_wrong_password() {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     let auth_routes = AuthService::new(
@@ -1089,7 +1094,8 @@ async fn test_login_with_non_existent_user() {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     let auth_routes = AuthService::new(

@@ -89,7 +89,8 @@ impl ConfigurationTestSetup {
                     turn_runner: None,
                 },
             )
-            .await,
+            .await
+            .unwrap(),
         );
 
         // Generate JWT token for the user

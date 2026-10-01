@@ -667,7 +667,8 @@ async fn create_test_server_resources_over(
                 turn_runner,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     ))
 }
 

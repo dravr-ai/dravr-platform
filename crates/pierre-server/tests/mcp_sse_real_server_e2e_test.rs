@@ -106,7 +106,8 @@ impl TestServer {
                     turn_runner: None,
                 },
             )
-            .await,
+            .await
+            .unwrap(),
         );
 
         let server = ProviderToolRouter::new(resources);

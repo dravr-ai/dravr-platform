@@ -85,7 +85,8 @@ impl UserMcpTokenTestSetup {
                     turn_runner: None,
                 },
             )
-            .await,
+            .await
+            .unwrap(),
         );
 
         // Create test user

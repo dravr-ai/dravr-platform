@@ -88,7 +88,8 @@ async fn create_test_auth_routes() -> Result<AuthService> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     Ok(AuthService::new(
@@ -317,7 +318,8 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     Ok((
@@ -606,7 +608,8 @@ async fn test_user_login_success() -> Result<()> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     let auth_routes = AuthService::new(
@@ -896,7 +899,8 @@ async fn test_token_refresh_success() -> Result<()> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     let auth_routes = AuthService::new(
@@ -1142,7 +1146,8 @@ async fn test_token_refresh_suspended_user() -> Result<()> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     let auth_routes = AuthService::new(
@@ -1657,7 +1662,8 @@ async fn test_complete_auth_flow() -> Result<()> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     let auth_routes = AuthService::new(
@@ -1973,7 +1979,8 @@ async fn test_concurrent_logins() -> Result<()> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     let auth_routes = AuthService::new(

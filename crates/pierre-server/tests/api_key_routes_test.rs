@@ -234,7 +234,8 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     // Create API key routes

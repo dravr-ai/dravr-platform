@@ -88,7 +88,8 @@ impl LoginAlgorithmTestSetup {
                     turn_runner: None,
                 },
             )
-            .await,
+            .await
+            .unwrap(),
         );
 
         Ok(Self {

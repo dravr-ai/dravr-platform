@@ -86,7 +86,8 @@ impl VerificationTestSetup {
                     turn_runner: None,
                 },
             )
-            .await,
+            .await
+            .unwrap(),
         );
 
         Ok(Self { resources })

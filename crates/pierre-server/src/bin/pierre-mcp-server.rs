@@ -804,12 +804,6 @@ async fn create_server(
     let rsa_key_size = get_rsa_key_size();
     info!("Using {}-bit RSA keys for JWT signing", rsa_key_size);
 
-    // Resolved here rather than inside ServerContext::new so a failed read of
-    // the stored signing keys stops the boot instead of signing with a key
-    // no other instance holds (carnet#696).
-    let jwks_manager =
-        Arc::new(ServerContext::load_or_create_jwks_manager(&database, rsa_key_size).await?);
-
     // Seed messaging channel configs from environment variables (idempotent upsert)
     #[cfg(feature = "client-messaging")]
     {
@@ -843,7 +837,9 @@ async fn create_server(
         cache,
         ServerContextOptions {
             rsa_key_size_bits: Some(rsa_key_size),
-            jwks_manager: Some(jwks_manager),
+            // Loaded from the store inside ServerContext::new; a failed read
+            // of the signing keys stops the boot (carnet#696).
+            jwks_manager: None,
             llm_provider: None, // Use ChatProvider::from_env() for LLM in production
             chat_provider: chat_provider_singleton,
             extra_tools: Vec::new(),
@@ -851,7 +847,7 @@ async fn create_server(
             turn_runner,
         },
     )
-    .await;
+    .await?;
 
     let resources = spawn_background_workers(resources_instance);
 

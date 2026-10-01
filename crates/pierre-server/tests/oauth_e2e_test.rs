@@ -334,7 +334,8 @@ async fn test_oauth_flow_through_mcp() {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
     let _server = ProviderToolRouter::new(resources);
 
@@ -651,7 +652,8 @@ async fn test_oauth_callback_error_handling() {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     let oauth_routes = OAuthService::new(
@@ -964,7 +966,8 @@ async fn test_oauth_state_csrf_protection() {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     let oauth_routes = OAuthService::new(
@@ -1136,7 +1139,8 @@ async fn test_connection_status_tracking() {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
 
     let auth_routes = AuthService::new(

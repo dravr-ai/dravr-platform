@@ -241,7 +241,8 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
     let executor =
         UniversalToolExecutor::new(server_resources).with_scopes(OAuthScope::self_grant());
@@ -668,7 +669,8 @@ async fn test_set_goal_tool() -> Result<()> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
     let executor =
         UniversalToolExecutor::new(server_resources).with_scopes(OAuthScope::self_grant());
@@ -1567,7 +1569,8 @@ async fn test_disconnect_provider_tool() -> Result<()> {
                 turn_runner: None,
             },
         )
-        .await,
+        .await
+        .unwrap(),
     );
     let executor =
         UniversalToolExecutor::new(server_resources).with_scopes(OAuthScope::self_grant());
