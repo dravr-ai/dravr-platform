@@ -567,7 +567,7 @@ async fn bootstrap_server(config: ServerConfig, stdio_only: bool) -> Result<()> 
 
     let (database, auth_manager, jwt_secret) = initialize_core_systems(&config).await?;
     let cache = initialize_cache().await?;
-    let server = create_server(database, auth_manager, &jwt_secret, &config, cache).await;
+    let server = create_server(database, auth_manager, &jwt_secret, &config, cache).await?;
     run_server(server, &config, stdio_only).await
 }
 
@@ -800,9 +800,15 @@ async fn create_server(
     jwt_secret: &str,
     config: &ServerConfig,
     cache: Cache,
-) -> ProviderToolRouter {
+) -> Result<ProviderToolRouter> {
     let rsa_key_size = get_rsa_key_size();
     info!("Using {}-bit RSA keys for JWT signing", rsa_key_size);
+
+    // Resolved here rather than inside ServerContext::new so a failed read of
+    // the stored signing keys stops the boot instead of signing with a key
+    // no other instance holds (carnet#696).
+    let jwks_manager =
+        Arc::new(ServerContext::load_or_create_jwks_manager(&database, rsa_key_size).await?);
 
     // Seed messaging channel configs from environment variables (idempotent upsert)
     #[cfg(feature = "client-messaging")]
@@ -837,7 +843,7 @@ async fn create_server(
         cache,
         ServerContextOptions {
             rsa_key_size_bits: Some(rsa_key_size),
-            jwks_manager: None, // Generate new JWKS manager for production
+            jwks_manager: Some(jwks_manager),
             llm_provider: None, // Use ChatProvider::from_env() for LLM in production
             chat_provider: chat_provider_singleton,
             extra_tools: Vec::new(),
@@ -854,7 +860,7 @@ async fn create_server(
     // Initialize product analytics (PostHog or noop)
     pierre_mcp_server::init_analytics();
 
-    ProviderToolRouter::new(resources)
+    Ok(ProviderToolRouter::new(resources))
 }
 
 /// The messaging turn runner the environment selects (registre#126).

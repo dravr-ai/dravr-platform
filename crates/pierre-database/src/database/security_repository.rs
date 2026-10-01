@@ -6,7 +6,7 @@
 
 use chrono::{DateTime, Utc};
 use pierre_core::admin::AdminJwtManager;
-use pierre_core::errors::{AppError, AppResult};
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use sqlx::Row;
 use tracing::warn;
 
@@ -15,9 +15,9 @@ use crate::backends::shared::encryption::{
 };
 use crate::database::Database;
 use crate::repositories::security::{
-    impl_security_repository, SecurityRepository, GET_SYSTEM_SECRET_SQL, INSERT_SYSTEM_SECRET_SQL,
-    LOAD_RSA_KEYPAIRS_SQL, REWRITE_RSA_PRIVATE_KEY_SQL, SAVE_RSA_KEYPAIR_SQL,
-    UPSERT_SYSTEM_SECRET_SQL,
+    impl_security_repository, SecurityRepository, GET_SYSTEM_SECRET_SQL,
+    INSERT_SYSTEM_SECRET_IF_ABSENT_SQL, LOAD_RSA_KEYPAIRS_SQL, REWRITE_RSA_PRIVATE_KEY_SQL,
+    SAVE_RSA_KEYPAIR_SQL, UPSERT_SYSTEM_SECRET_SQL,
 };
 
 impl_security_repository!(Database);

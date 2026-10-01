@@ -263,7 +263,8 @@ impl ServerContext {
 
         // Use provided JWKS manager or load/create new one for RS256 JWT signing
         let jwks_manager_arc =
-            Self::resolve_jwks_manager(jwks_manager, &database_arc, rsa_key_size_bits).await;
+            Self::resolve_jwks_manager(jwks_manager, database_arc.as_ref(), rsa_key_size_bits)
+                .await;
 
         // Create SSE manager with configured buffer size
         #[cfg(feature = "transport-sse")]
@@ -951,16 +952,17 @@ impl ServerContext {
         format!("key_{}", Utc::now().format("%Y%m%d_%H%M%S"))
     }
 
-    /// Generate and persist a new RSA keypair
+    /// Generate an RSA keypair and store it insert-if-absent; a racing
+    /// instance's row under the same key id is left untouched.
     async fn generate_and_persist_keypair(
-        database: &Arc<Database>,
-        jwks_manager: &mut JwksManager,
+        database: &Database,
         rsa_key_size_bits: usize,
     ) -> AppResult<()> {
         let kid = Self::generate_key_id();
-        jwks_manager.generate_rsa_key_pair_with_size(&kid, rsa_key_size_bits)?;
+        let mut candidate = JwksManager::new();
+        candidate.generate_rsa_key_pair_with_size(&kid, rsa_key_size_bits)?;
 
-        let key = jwks_manager
+        let key = candidate
             .get_active_key()
             .map_err(|e| AppError::internal(format!("Failed to get active key: {e}")))?;
 
@@ -981,7 +983,7 @@ impl ServerContext {
             )
             .await?;
 
-        info!("Generated and persisted new RSA keypair: {}", kid);
+        info!("Generated RSA keypair {kid} and stored it unless one was already present");
         Ok(())
     }
 
@@ -1008,10 +1010,14 @@ impl ServerContext {
 
     /// Resolve JWKS manager from provided instance or create new one
     ///
-    /// Uses provided manager if available, otherwise loads from database or creates new keys.
+    /// The production binary always provides one, built by
+    /// [`Self::load_or_create_jwks_manager`] so that a failed read stops the
+    /// boot. Without one (test and benchmark contexts), a failed read leaves
+    /// this context signing with a key held only in memory; nothing is
+    /// written to the store.
     async fn resolve_jwks_manager(
         provided: Option<Arc<JwksManager>>,
-        database: &Arc<Database>,
+        database: &Database,
         rsa_key_size_bits: usize,
     ) -> Arc<JwksManager> {
         if let Some(mgr) = provided {
@@ -1022,7 +1028,7 @@ impl ServerContext {
             Ok(jwks) => Arc::new(jwks),
             Err(e) => {
                 error!(
-                    "Failed to initialize JWKS manager: {}. Creating new keys without persistence.",
+                    "Failed to initialize JWKS manager: {}. Signing with an in-memory key that is not persisted.",
                     e
                 );
                 let mut new_jwks = JwksManager::new();
@@ -1039,64 +1045,38 @@ impl ServerContext {
         }
     }
 
-    /// Load persisted RSA keys from database or create new ones
+    /// Load the persisted RSA keypairs, storing the first one when the table
+    /// is empty.
+    ///
+    /// Only an empty table counts as "no keys": a failed read is returned, so
+    /// the caller cannot sign with a key the store does not hold. The first
+    /// keypair is stored insert-if-absent and the table is read again, so
+    /// instances that boot together against an empty table all load the same
+    /// rows and settle on the same active key (carnet#696).
     ///
     /// # Errors
-    /// Returns error if database operations fail
-    async fn load_or_create_jwks_manager(
-        database: &Arc<Database>,
+    /// Returns an error if a database read or write, or key import, fails
+    pub async fn load_or_create_jwks_manager(
+        database: &Database,
         rsa_key_size_bits: usize,
     ) -> AppResult<JwksManager> {
-        let mut jwks_manager = JwksManager::new();
+        let security = database.as_security_repository();
+        let mut keypairs = security.load_rsa_keypairs().await.inspect_err(|e| {
+            error!(error_code = ?e.code, error = %e, "Failed to read the persisted RSA keypairs");
+        })?;
 
-        match database.as_security_repository().load_rsa_keypairs().await {
-            Ok(keypairs) if !keypairs.is_empty() => {
-                Self::load_existing_keys(&mut jwks_manager, keypairs)?;
-            }
-            Ok(_) => {
-                Self::generate_new_keys(database, &mut jwks_manager, rsa_key_size_bits).await?;
-            }
-            Err(e) => {
-                Self::fallback_generate_keys(&mut jwks_manager, rsa_key_size_bits, &e)?;
-            }
+        if keypairs.is_empty() {
+            info!("No persisted RSA keys found, generating the first keypair");
+            Self::generate_and_persist_keypair(database, rsa_key_size_bits).await?;
+            keypairs = security.load_rsa_keypairs().await?;
         }
 
-        Ok(jwks_manager)
-    }
-
-    fn load_existing_keys(
-        jwks_manager: &mut JwksManager,
-        keypairs: Vec<(String, String, String, chrono::DateTime<Utc>, bool)>,
-    ) -> AppResult<()> {
         info!(
             "Loading {} persisted RSA keypairs from database",
             keypairs.len()
         );
+        let mut jwks_manager = JwksManager::new();
         jwks_manager.load_keys_from_database(keypairs)?;
-        info!("Successfully loaded RSA keys from database");
-        Ok(())
-    }
-
-    async fn generate_new_keys(
-        database: &Arc<Database>,
-        jwks_manager: &mut JwksManager,
-        rsa_key_size_bits: usize,
-    ) -> AppResult<()> {
-        info!("No persisted RSA keys found, generating new keypair");
-        Self::generate_and_persist_keypair(database, jwks_manager, rsa_key_size_bits).await
-    }
-
-    fn fallback_generate_keys(
-        jwks_manager: &mut JwksManager,
-        rsa_key_size_bits: usize,
-        error: &AppError,
-    ) -> AppResult<()> {
-        warn!(
-            "Failed to load RSA keys from database: {}. Generating new keys without persistence.",
-            error
-        );
-        let kid = Self::generate_key_id();
-        jwks_manager.generate_rsa_key_pair_with_size(&kid, rsa_key_size_bits)?;
-        Ok(())
+        Ok(jwks_manager)
     }
 }

@@ -154,7 +154,7 @@ async fn test_mek_ensures_consistent_jwt_storage() -> Result<()> {
 
 /// The secret store mints only the admin JWT secret. The wrapped
 /// data-encryption keys are written by key management under their own names
-/// through `update_system_secret`, so asking the store to create one is
+/// through `insert_system_secret_if_absent`, so asking the store to create one is
 /// refused rather than answered with a key the store made up — on both
 /// backends. `update_system_secret` rotates in place and `get_system_secret`
 /// reads the current value.
