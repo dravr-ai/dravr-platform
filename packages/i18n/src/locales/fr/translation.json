@@ -432,7 +432,6 @@
     "members": "Membres",
     "membersCount": "Membres ({{count}})",
     "memoryPanelBlurb": "Les faits que la plateforme a extraits de tes conversations pour donner à l'agent une mémoire d'une séance à l'autre. Tu peux oublier n'importe quel fait et l'agent cessera de l'utiliser dès le tour suivant.",
-    "mention": "Mentionner",
     "mentionOnlyOffNote": "Désactivé, l'agent répond à chaque message du canal lié.",
     "messageCopiedForSharing": "Message copié dans le presse-papiers pour le partage",
     "messaging": "Messagerie",
@@ -756,7 +755,10 @@
     "youllReceiveApproval": "Tu recevras un e-mail d'approbation",
     "yourActivitiesCount": "Tes activités ({{count}})",
     "brandTrainingPeaks": "TrainingPeaks",
-    "brandCoros": "COROS"
+    "brandCoros": "COROS",
+    "providerAccountConnected": "Ton compte {{provider}} est bien connecté à Dravr.",
+    "providerReadyToSync": "Tout est prêt pour synchroniser {{provider}}",
+    "oauthAppSetupIntro": "{{provider}} demande à chaque utilisateur d’enregistrer sa propre application de développeur. Crées-en une sur <portal>{{host}}</portal> et utilise l’URI de redirection indiquée ci-dessous."
   },
   "auth": {
     "activatesOnConfirm": "Ton compte s’active dès que l’adresse est confirmée",
@@ -883,6 +885,7 @@
     "categoryRecovery": "Récupération",
     "categoryTraining": "Entraînement",
     "chartAlt": "Graphique",
+    "chartAria": "Graphique : {{summary}}",
     "chatNameLabel": "Nom de la discussion",
     "clickForDetails": "Clique pour voir le détail",
     "close": "Fermer",
@@ -970,8 +973,8 @@
     "loadingMessages": "Chargement des messages...",
     "markUnread": "Marquer la conversation comme non lue",
     "maxToolIterations": "Tours d’outils max par échange",
-    "mentionHint": "fait intervenir cet agent pour une réponse, dans n’importe quel chat.",
-    "mentionLabel": "Mention :",
+    "mentionHandleAria": "Mentionner {{handle}}",
+    "mentionInAnyChat": "Mentionne <handle>{{handle}}</handle> dans n’importe quel chat pour faire intervenir cet agent le temps d’une réponse.",
     "messageActions": "Actions sur le message",
     "messageDravrLabel": "Écris à Dravr",
     "messageDravrPlaceholder": "Écris à Dravr...",
@@ -1014,6 +1017,7 @@
     "regenerateResponse": "Régénérer la réponse",
     "regenerateSuggestions": "Régénérer les suggestions",
     "removeFromChat": "Retirer de cette discussion",
+    "removeParticipantAria": "Retirer {{name}} de la conversation",
     "removeParticipantFailed": "Impossible de retirer le participant",
     "renameAction": "Renommer",
     "renameConversation": "Renommer la conversation",
@@ -1064,6 +1068,7 @@
     "systemBadge": "Système",
     "systemPromptLabel": "Consigne système",
     "systemPromptPlaceholder": "Définis la personnalité, la spécialité et le style de communication de ton agent...",
+    "systemPromptTokenEstimate": "~{{tokens, number}} jetons ({{percent, number(minimumFractionDigits: 1; maximumFractionDigits: 1)}} % du contexte)",
     "theClaim": "L’affirmation",
     "thinking": "Réflexion...",
     "timeFrameLabel": "Période",
@@ -1593,10 +1598,10 @@
     "whenToUseSection": "Quand l’utiliser"
   },
   "errors": {
-    "archivedConversationLimitReached": "Cette conversation est archivée, et tu as déjà {{limit}} conversations ouvertes — le maximum de ton forfait. Supprime-en une pour continuer ici.",
-    "conversationLimitReached": "Limite de discussions atteinte ({{current}}/{{limit}}). Supprime une discussion existante pour en commencer une nouvelle.",
-    "dailyMessageLimitReached": "Limite de messages quotidiens atteinte ({{current}}/{{limit}}). Réinitialisation demain.",
-    "dailyTokenLimitReached": "Limite de jetons quotidiens atteinte ({{current}}/{{limit}}). Réinitialisation demain.",
+    "archivedConversationLimitReached": "Cette conversation est archivée, et tu as déjà {{limit, number}} conversations ouvertes — le maximum de ton forfait. Supprime-en une pour continuer ici.",
+    "conversationLimitReached": "Limite de discussions atteinte ({{current, number}}/{{limit, number}}). Supprime une discussion existante pour en commencer une nouvelle.",
+    "dailyMessageLimitReached": "Limite de messages quotidiens atteinte ({{current, number}}/{{limit, number}}). Réinitialisation demain.",
+    "dailyTokenLimitReached": "Limite de jetons quotidiens atteinte ({{current, number}}/{{limit, number}}). Réinitialisation demain.",
     "firebaseNotConfigured": "La connexion Google n'est pas configurée.",
     "forbidden": "Tu n’as pas la permission de faire ça.",
     "generic": "Dravr est temporairement indisponible. L’équipe a été notifiée — réessaie dans quelques minutes.",
@@ -1609,9 +1614,9 @@
     "timeout": "Le délai d’attente est dépassé. Réessaie.",
     "unauthorized": "Ta session a expiré. Reconnecte-toi.",
     "unknown": "Quelque chose s’est mal passé",
-    "usageQuotaReached": "Quota d'utilisation atteint ({{current}}/{{limit}}). Réessaie plus tard.",
+    "usageQuotaReached": "Quota d'utilisation atteint ({{current, number}}/{{limit, number}}). Réessaie plus tard.",
     "validation": "Vérifie ce que tu as saisi, puis réessaie.",
-    "weeklyMessageLimitReached": "Limite de messages hebdomadaires atteinte ({{current}}/{{limit}}). Réinitialisation la semaine prochaine."
+    "weeklyMessageLimitReached": "Limite de messages hebdomadaires atteinte ({{current, number}}/{{limit, number}}). Réinitialisation la semaine prochaine."
   },
   "frag": {
     "allCaughtUp": "Tu es à jour !",
@@ -1636,7 +1641,6 @@
     "finishAuthPopup": "Termine l’autorisation dans la fenêtre pop-up. On te ramène au tableau de bord automatiquement dès que",
     "forOneTurn": "pour une réponse",
     "impersonating": "Tu incarnes",
-    "inYour": "Dans ton",
     "instructionsLabel": "Instructions :",
     "mayTakeUpTo": "Cela peut prendre jusqu’à {{budget}}",
     "noLimit": "Sans limite",
@@ -1657,8 +1661,7 @@
     "tokenCreatedLabel": "Jeton créé le :",
     "toolRoundsHelp": "Combien de tours d’appels d’outils une réponse peut faire avant que l’agent doive répondre avec ce qu’il a.",
     "used": "Utilisé",
-    "verdictEmitted": "Verdict émis",
-    "your": "Ton"
+    "verdictEmitted": "Verdict émis"
   },
   "groups": {
     "activeInvitesCount": "Invitations actives ({{n}})",
@@ -2306,6 +2309,8 @@
     "connectPreviewSample": "Ta charge est en hausse de 24 % par rapport à la semaine dernière et tu as dormi moins de six heures à deux reprises — des jambes lourdes sont le résultat attendu, pas un signal d'alarme. Garde ta sortie de samedi, passe-la en allure facile et retire les 5 derniers kilomètres. Ça protège l'habitude de la sortie longue sans alourdir une semaine déjà la plus grosse de ton bloc.",
     "connectPreviewSampleShort": "Ta charge est en hausse de 24 % par rapport à la semaine dernière et tu as dormi moins de six heures à deux reprises — des jambes lourdes sont le résultat attendu, pas un signal d'alarme. Garde ta sortie de samedi, passe-la en allure facile et retire les 5 derniers kilomètres.",
     "connectProviderIntro": "Connecte un service de fitness pour démarrer. Dravr te coache sur les activités que ton fournisseur enregistre déjà — sans lui, le modèle n’a rien à lire.",
+    "connectionUnconfirmedPullToRefresh": "Impossible de confirmer la connexion. Si tu as terminé la connexion, tire vers le bas pour actualiser ; sinon, réessaie.",
+    "connectionUnconfirmedRefreshPage": "Impossible de confirmer la connexion. Si tu as terminé la connexion, actualise la page ; sinon, réessaie.",
     "continueButton": "Continuer",
     "continueToDashboard": "Continuer vers le tableau de bord",
     "continueWithoutProvider": "Continuer sans connecter →",
@@ -2649,6 +2654,7 @@
     "neverExpires": "N’expire jamais",
     "neverValue": "Jamais",
     "password": "Mot de passe",
+    "providerAppSettingsSet": "Dans les paramètres de ton application {{provider}}, définis :",
     "reconnect": "Reconnecter",
     "remove": "Supprimer",
     "revoke": "Révoquer",
