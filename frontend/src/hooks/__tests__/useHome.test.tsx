@@ -393,6 +393,59 @@ describe('useRecentActivities', () => {
     expect(result.current.data).toEqual(FRESH);
   });
 
+  it('is fetching from the moment the retry goes out, and failed again only once it answers with the failure', async () => {
+    const paused: RecentActivitiesResponse = {
+      ...STALE,
+      stale: false,
+      sync_failure: {
+        provider: 'strava',
+        provider_name: 'Strava',
+        failed_at: '2026-09-24T11:58:00Z',
+        last_synced_at: '2026-09-23T06:00:00Z',
+      },
+    };
+    api.getRecentActivities.mockResolvedValue(paused);
+    const { result } = renderHook(() => useRecentActivities(), { wrapper });
+    await flush();
+    expect(result.current.sync).toBe('failed');
+    expect(result.current.retrying).toBe(false);
+
+    // The retry's answer is held back: the request is on the wire.
+    let answer!: (response: RecentActivitiesResponse) => void;
+    api.getRecentActivities.mockReturnValueOnce(
+      new Promise<RecentActivitiesResponse>((resolve) => {
+        answer = resolve;
+      }),
+    );
+    await act(async () => {
+      result.current.retry();
+    });
+    await flush();
+    expect(result.current.retrying).toBe(true);
+    expect(result.current.refreshing).toBe(false);
+    expect(result.current.sync).toBe('fetching');
+
+    // The server answers still paused — nothing is running — so the failure
+    // is said again.
+    await act(async () => {
+      answer(paused);
+    });
+    await flush();
+    expect(result.current.retrying).toBe(false);
+    expect(result.current.sync).toBe('failed');
+  });
+
+  it('is fetching while a stale answer is followed up, and settled once a fresh one lands', async () => {
+    api.getRecentActivities.mockResolvedValueOnce(STALE).mockResolvedValueOnce(FRESH);
+    const { result } = renderHook(() => useRecentActivities(), { wrapper });
+    await flush();
+    expect(result.current.sync).toBe('fetching');
+
+    await flush(DELAYS[0]);
+    expect(result.current.data).toEqual(FRESH);
+    expect(result.current.sync).toBe('settled');
+  });
+
   it('cancels the pending ask when the page goes away, before the first and in the middle of a schedule', async () => {
     api.getRecentActivities.mockResolvedValue(STALE);
     const first = renderHook(() => useRecentActivities(), { wrapper });

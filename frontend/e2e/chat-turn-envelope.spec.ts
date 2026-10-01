@@ -786,6 +786,16 @@ test.describe('Chat - one transport for every turn', () => {
     await expect(page.getByText('And next week?')).toBeVisible();
     // A spent quota meets a re-send with the same refusal: no retry is offered.
     await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0);
+
+    // The tinted error box hugs its sentence. The coach turn's content spans
+    // the message column so a route card or chart fills it; the error box is
+    // a filled block in that same wrapper and must not become a column-wide band.
+    const errorBox = page.getByTestId('turn-error-box');
+    const column = page.getByTestId('message-column').filter({ has: errorBox });
+    const boxWidth = (await errorBox.boundingBox())?.width ?? 0;
+    const columnWidth = (await column.boundingBox())?.width ?? 0;
+    expect(boxWidth).toBeGreaterThan(0);
+    expect(boxWidth).toBeLessThan(columnWidth - 40);
   });
 
   test('retry drops the answered turn and re-sends the question, with no composer round-trip', async ({

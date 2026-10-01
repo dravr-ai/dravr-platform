@@ -280,7 +280,7 @@ export default function MessageList({
       {/* Error message display */}
       {errorMessage && !isStreaming && (
         <MessageBubble side="assistant" authorLabel={author} avatar={<CoachAvatar label={author} />}>
-          <div className="rounded-lg border border-error/30 bg-error/10 px-3 py-2">
+          <div className="w-fit max-w-full rounded-lg border border-error/30 bg-error/10 px-3 py-2" data-testid="turn-error-box">
             <p className="text-sm text-error" data-testid="turn-error">{errorMessage}</p>
             <div className="mt-2 flex gap-3">
               {onRetryError && (

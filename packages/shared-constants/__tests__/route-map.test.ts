@@ -9,12 +9,10 @@ import {
   ESRI_WORLD_IMAGERY_ATTRIBUTION,
   ESRI_WORLD_TOPO_ATTRIBUTION,
   MAP_LAYERS,
-  MAP_LAYER_STORAGE_KEY,
   ROUTE_INK,
   localizeBasemapStyle,
   localizedLabel,
   mapLayerStyle,
-  storedMapLayer,
 } from '../src/index';
 
 /** WCAG 2.x relative luminance of a `#rrggbb` colour. */
@@ -56,7 +54,9 @@ describe('MAP_LAYERS', () => {
       'chat.routeLayerSatellite',
       'chat.routeLayerTerrain',
     ]);
+    // Every route map opens on the plain map, never imagery (carnet#699).
     expect(DEFAULT_MAP_LAYER).toBe('map');
+    expect(layer(DEFAULT_MAP_LAYER).kind).toBe('style');
     expect(mapLayerStyle(layer('map'), 'light')).toBe(BASEMAP_STYLE.light);
     expect(mapLayerStyle(layer('map'), 'dark')).toBe(BASEMAP_STYLE.dark);
   });
@@ -132,17 +132,6 @@ describe('ROUTE_INK', () => {
   it('dashes the climbs in an ink that clears 3:1 against the track and the casing', () => {
     expect(contrast(ROUTE_INK.climb, ROUTE_INK.track)).toBeGreaterThanOrEqual(3);
     expect(contrast(ROUTE_INK.climb, ROUTE_INK.casing)).toBeGreaterThanOrEqual(3);
-  });
-});
-
-describe('storedMapLayer', () => {
-  it('opens on the layer the device stored, and on the default for nothing or an unknown id', () => {
-    expect(MAP_LAYER_STORAGE_KEY).toBe('dravr.route_map_layer');
-    expect(storedMapLayer('satellite')).toBe('satellite');
-    expect(storedMapLayer('terrain')).toBe('terrain');
-    expect(storedMapLayer(null)).toBe(DEFAULT_MAP_LAYER);
-    expect(storedMapLayer('mapbox-streets')).toBe(DEFAULT_MAP_LAYER);
-    expect(storedMapLayer(42)).toBe(DEFAULT_MAP_LAYER);
   });
 });
 

@@ -241,12 +241,10 @@ export {
   BASEMAP_STYLE,
   DEFAULT_MAP_LAYER,
   MAP_LAYERS,
-  MAP_LAYER_STORAGE_KEY,
   ROUTE_INK,
   localizeBasemapStyle,
   localizedLabel,
   mapLayerStyle,
-  storedMapLayer,
 } from './route-map';
 export type {
   BasemapStyleDocument,

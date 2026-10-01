@@ -8,7 +8,13 @@ import React from 'react';
 import { Modal } from 'react-native';
 import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 import { i18n } from '@pierre/i18n';
-import { MAP_LAYERS, ROUTE_INK, mapLayerStyle } from '@pierre/shared-constants';
+import {
+  BASEMAP_STYLE,
+  DEFAULT_MAP_LAYER,
+  MAP_LAYERS,
+  ROUTE_INK,
+  mapLayerStyle,
+} from '@pierre/shared-constants';
 import type { RouteView as RouteBlock } from '@pierre/scene-types';
 
 import RouteView from '../RouteView';
@@ -18,21 +24,6 @@ import RouteView from '../RouteView';
 // "Cat HC", and a mock that printed `chat.routeClimbCategory HC` looked fine.
 
 let mockScheme: 'light' | 'dark' = 'dark';
-
-/**
- * The device's MMKV store for the picked layer, one map the tests can read and
- * clear: the jest.setup stand-in gives every `createMMKV` call its own storage,
- * and the route card opens its store once per process.
- */
-const mockLayerStore = new Map<string, string>();
-jest.mock('react-native-mmkv', () => ({
-  createMMKV: () => ({
-    getString: (key: string) => mockLayerStore.get(key),
-    set: (key: string, value: string) => {
-      mockLayerStore.set(key, value);
-    },
-  }),
-}));
 
 /**
  * The published style the card fetches to relabel: OpenFreeMap's place label,
@@ -110,7 +101,6 @@ function sourceData(testID: string) {
 
 beforeEach(() => {
   mockScheme = 'dark';
-  mockLayerStore.clear();
   fetchStyle.mockReset();
   fetchStyle.mockImplementation(() => new Promise<Response>(() => {}));
   global.fetch = fetchStyle as unknown as typeof fetch;
@@ -499,40 +489,104 @@ describe('RouteView full screen', () => {
   });
 });
 
-describe('RouteView layer memory', () => {
-  it('opens on the layer the device last picked, inline and full screen', () => {
-    mockLayerStore.set('dravr.route_map_layer', 'satellite');
+describe('RouteView control layout', () => {
+  // The full-screen button used to be docked absolutely over the switcher's
+  // corner, so on a narrow card it sat on the last option. Both now share one
+  // wrapping row: the switcher reserves the button's width, and where the two
+  // do not fit the button takes a row of its own instead of covering a label.
+  function expectOneWrappingRow(barId: string, switcherId: string, buttonId: string) {
+    const bar = screen.getByTestId(barId);
+    expect(bar.props.className).toEqual(expect.stringContaining('absolute'));
+    expect(bar.props.className.split(' ')).toEqual(
+      expect.arrayContaining(['flex-row', 'flex-wrap', 'gap-2']),
+    );
+    // A drag between the controls still reaches the map.
+    expect(bar.props.pointerEvents).toBe('box-none');
+
+    const switcher = within(bar).getByTestId(switcherId);
+    const button = within(bar).getByTestId(buttonId);
+    // Laid out by the row, never stacked over each other.
+    expect(switcher.props.className.split(' ')).not.toContain('absolute');
+    expect(button.props.className.split(' ')).not.toContain('absolute');
+    expect(button.props.className.split(' ')).toEqual(
+      expect.arrayContaining(['ml-auto', 'h-11', 'w-11']),
+    );
+    // The switcher shrinks to the row and wraps its options rather than clip one.
+    expect(switcher.props.className.split(' ')).toEqual(
+      expect.arrayContaining(['max-w-full', 'shrink', 'flex-wrap']),
+    );
+    for (const layer of MAP_LAYERS) {
+      const option = within(switcher).getByTestId(`${switcherId}-${layer.id}`);
+      expect(option.props.className.split(' ')).toContain('min-h-11');
+    }
+  }
+
+  it('keeps the switcher and the full-screen button in one wrapping row on the card', () => {
     render(<RouteView route={routeBlock()} />);
 
-    expect(screen.getByTestId('route-layers-satellite').props.accessibilityState).toEqual({
+    expectOneWrappingRow('route-controls', 'route-layers', 'route-fullscreen-open');
+  });
+
+  it('keeps them in one wrapping row full screen', () => {
+    render(<RouteView route={routeBlock()} />);
+    fireEvent.press(screen.getByLabelText('Full screen'));
+
+    expectOneWrappingRow('route-fullscreen-controls', 'route-fullscreen-layers', 'route-fullscreen-close');
+  });
+});
+
+describe('RouteView card width', () => {
+  // A short reply above the card once left the web map 174px wide. The card
+  // spans the coach's turn whatever its words, and the map keeps one height.
+  it('spans the message column, with a map of fixed height across its width', () => {
+    render(<RouteView route={routeBlock({ title: 'Morning Trail Run' })} />);
+
+    const card = screen.getByTestId('route-card').props.className.split(' ');
+    expect(card).toEqual(expect.arrayContaining(['w-full', 'self-stretch']));
+    for (const hug of ['self-start', 'self-center', 'self-end', 'items-start', 'items-center']) {
+      expect(card).not.toContain(hug);
+    }
+    expect(card.filter((name: string) => name.startsWith('max-w-'))).toEqual([]);
+
+    const map = screen.getByTestId('route-card-map').props.className.split(' ');
+    expect(map).toEqual(expect.arrayContaining(['w-full', 'h-64']));
+  });
+});
+
+describe('RouteView default layer', () => {
+  // carnet#699: an activity view opened on satellite imagery while Home showed
+  // the map, because one pick was remembered for every map opened after it.
+  it('opens on the plain map layer, inline and full screen', () => {
+    render(<RouteView route={routeBlock()} />);
+
+    expect(DEFAULT_MAP_LAYER).toBe('map');
+    expect(screen.getByTestId('route-layers-map').props.accessibilityState).toEqual({
       selected: true,
       checked: true,
     });
+    expect(screen.getByTestId('route-map').props.mapStyle).toBe(BASEMAP_STYLE.dark);
+    fireEvent.press(screen.getByLabelText('Full screen'));
+    expect(screen.getByTestId('route-fullscreen-map').props.mapStyle).toBe(BASEMAP_STYLE.dark);
+  });
+
+  it('does not carry a pick to the next map: every map opens on the map layer', () => {
+    render(<RouteView route={routeBlock()} />);
+    fireEvent.press(screen.getByTestId('route-layers-satellite'));
     expect(screen.getByTestId('route-map').props.mapStyle).toEqual(
       mapLayerStyle(MAP_LAYERS[1], 'dark'),
     );
-    fireEvent.press(screen.getByLabelText('Full screen'));
-    expect(screen.getByTestId('route-fullscreen-map').props.mapStyle).toEqual(
-      mapLayerStyle(MAP_LAYERS[1], 'dark'),
-    );
-  });
-
-  it('keeps a pick for the next map, and opens on the map layer for an id no longer registered', () => {
-    mockLayerStore.set('dravr.route_map_layer', 'retired-provider');
-    render(<RouteView route={routeBlock()} />);
-    expect(screen.getByTestId('route-map').props.mapStyle).toBe(
-      'https://tiles.openfreemap.org/styles/dark',
-    );
-
-    fireEvent.press(screen.getByTestId('route-layers-terrain'));
-    expect(mockLayerStore.get('dravr.route_map_layer')).toBe('terrain');
     screen.unmount();
 
     render(<RouteView route={routeBlock()} />);
-    expect(screen.getByTestId('route-layers-terrain').props.accessibilityState).toEqual({
+    expect(screen.getByTestId('route-layers-map').props.accessibilityState).toEqual({
       selected: true,
       checked: true,
     });
+    expect(screen.getByTestId('route-layers-satellite').props.accessibilityState).toEqual({
+      selected: false,
+      checked: false,
+    });
+    expect(screen.getByTestId('route-map').props.mapStyle).toBe(BASEMAP_STYLE.dark);
   });
 });
 

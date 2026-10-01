@@ -19,12 +19,11 @@ import {
   trackGeometry,
 } from '@pierre/chat-utils';
 import {
+  DEFAULT_MAP_LAYER,
   MAP_LAYERS,
-  MAP_LAYER_STORAGE_KEY,
   ROUTE_INK,
   localizedLabel,
   mapLayerStyle,
-  storedMapLayer,
   type MapLayer,
 } from '@pierre/shared-constants';
 import { useTheme } from '../../hooks/useTheme';
@@ -58,29 +57,6 @@ type Screen = 'inline' | 'native' | 'overlay';
 
 function layerById(id: string): MapLayer {
   return MAP_LAYERS.find((layer) => layer.id === id) ?? MAP_LAYERS[0];
-}
-
-/**
- * The layer this browser last picked, so Home's map, the activity view's and
- * full screen all open on it. Storage can be blocked (a private window, a
- * denied site-data setting) and then throws on access; the map opens on the
- * default layer, which is what a first visit gets anyway.
- */
-function readStoredLayer(): string {
-  try {
-    return storedMapLayer(window.localStorage.getItem(MAP_LAYER_STORAGE_KEY));
-  } catch {
-    return storedMapLayer(null);
-  }
-}
-
-/** Keeps the athlete's pick for the next map; blocked storage keeps it for this one only. */
-function storeLayer(id: string): void {
-  try {
-    window.localStorage.setItem(MAP_LAYER_STORAGE_KEY, id);
-  } catch {
-    // Blocked or full storage: the pick still holds on the map it was made on.
-  }
 }
 
 /**
@@ -166,11 +142,8 @@ export default function RouteView({ view }: { view: RouteViewData }) {
   );
   const bounds = useMemo(() => routeFrame(view.bounds), [view.bounds]);
   const stage = useRef<HTMLDivElement | null>(null);
-  const [layerId, setLayerId] = useState(readStoredLayer);
-  const pickLayer = useCallback((id: string) => {
-    setLayerId(id);
-    storeLayer(id);
-  }, []);
+  // Every map opens on the default layer; a pick holds for this map only (carnet#699).
+  const [layerId, pickLayer] = useState(DEFAULT_MAP_LAYER);
   const [screen, setScreen] = useState<Screen>('inline');
   const layer = layerById(layerId);
   const style = useMemo(() => mapLayerStyle(layer, scheme), [layer, scheme]);
@@ -415,43 +388,54 @@ export default function RouteView({ view }: { view: RouteViewData }) {
               : 'h-full w-full'
           }`}
         />
+        {/* One bar carries both controls, so the switcher reserves the
+            full-screen button's width instead of sliding under it: on a card
+            too narrow for the two side by side (a chat card can be under 200px)
+            the button wraps to its own row, still in the corner, and the
+            switcher wraps its own options rather than clip a label. The bar
+            lets a drag through to the map wherever it holds no control. */}
         <div
-          role="group"
-          data-map-control
-          aria-label={t('chat.routeLayers')}
-          className="absolute left-2 top-2 flex overflow-hidden rounded-[10px] border ghost-border bg-surface-container-lowest text-xs"
+          data-map-controls
+          className="pointer-events-none absolute inset-x-2 top-2 flex flex-wrap items-start gap-2"
         >
-          {MAP_LAYERS.map((option) => {
-            const active = option.id === layerId;
-            return (
-              <button
-                key={option.id}
-                type="button"
-                aria-pressed={active}
-                onClick={() => pickLayer(option.id)}
-                className={`px-2.5 py-1.5 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary ${
-                  active ? 'bg-primary text-on-primary' : 'text-on-surface hover:bg-surface-container'
-                }`}
-              >
-                {t(option.labelKey)}
-              </button>
-            );
-          })}
+          <div
+            role="group"
+            data-map-control
+            aria-label={t('chat.routeLayers')}
+            className="pointer-events-auto flex max-w-full flex-wrap overflow-hidden rounded-[10px] border ghost-border bg-surface-container-lowest text-xs"
+          >
+            {MAP_LAYERS.map((option) => {
+              const active = option.id === layerId;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => pickLayer(option.id)}
+                  className={`whitespace-nowrap px-2 py-1.5 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary ${
+                    active ? 'bg-primary text-on-primary' : 'text-on-surface hover:bg-surface-container'
+                  }`}
+                >
+                  {t(option.labelKey)}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            onClick={toggleScreen}
+            data-map-control
+            aria-label={screen === 'inline' ? t('chat.routeFullScreen') : t('chat.routeExitFullScreen')}
+            title={screen === 'inline' ? t('chat.routeFullScreen') : t('chat.routeExitFullScreen')}
+            className="pointer-events-auto ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] border ghost-border bg-surface-container-lowest text-on-surface hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            {screen === 'inline' ? (
+              <Maximize2 className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <Minimize2 className="h-4 w-4" aria-hidden="true" />
+            )}
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={toggleScreen}
-          data-map-control
-          aria-label={screen === 'inline' ? t('chat.routeFullScreen') : t('chat.routeExitFullScreen')}
-          title={screen === 'inline' ? t('chat.routeFullScreen') : t('chat.routeExitFullScreen')}
-          className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-[10px] border ghost-border bg-surface-container-lowest text-on-surface hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        >
-          {screen === 'inline' ? (
-            <Maximize2 className="h-4 w-4" aria-hidden="true" />
-          ) : (
-            <Minimize2 className="h-4 w-4" aria-hidden="true" />
-          )}
-        </button>
       </div>
       {view.climbs.length > 0 && (
         <>

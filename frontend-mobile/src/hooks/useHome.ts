@@ -13,7 +13,12 @@ import {
 } from '@pierre/shared-constants';
 import type { ActivityRouteResponse } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
-import { classifyApiError, readActivityRoute } from '@pierre/ui-logic';
+import {
+  classifyApiError,
+  readActivityRoute,
+  recentActivitiesSync,
+  useRequestsInFlight,
+} from '@pierre/ui-logic';
 import { athleteApi, oauthApi } from '../services/api';
 
 /**
@@ -85,6 +90,8 @@ export function useRecentActivities() {
   const judged = useRef<{ dataUpdatedAt: number; errorUpdateCount: number }>(NO_ANSWER);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const unsubscribeFocus = useRef<(() => void) | null>(null);
+  const retryRequest = useRequestsInFlight();
+  const { track } = retryRequest;
 
   // Unmounting cancels whatever is scheduled — the delay and the wait for
   // focus — and forgets the schedule with it.
@@ -200,30 +207,37 @@ export function useRecentActivities() {
     setStaleRefetch('none');
     // Written into the entry the screen reads; a failed retry leaves the rows
     // it had.
-    queryClient
-      .fetchQuery({
+    track(
+      queryClient.fetchQuery({
         queryKey: QUERY_KEYS.home.recentActivities(),
         queryFn: () => athleteApi.getRecentActivities(undefined, { retry: true }),
         staleTime: 0,
-      })
-      .catch(() => undefined);
-  }, [queryClient]);
+      }),
+    ).catch(() => undefined);
+  }, [queryClient, track]);
+
+  // What the page may say is under way. The server answers `stale` only
+  // when a refresh it started — or one already running — is reading a
+  // provider, so the answer is the evidence. An answer restored from disk
+  // or left by an earlier visit is not: it can be hours old, and the
+  // refresh it reported long finished. Until a read made since this mount
+  // answers, nothing is said to be checking; the schedule still judges the
+  // held answer, and its follow-up is the read that confirms or ends it.
+  const refreshing = stale && staleRefetch !== 'done' && query.isFetchedAfterMount;
+  const syncFailure = query.data?.sync_failure ?? null;
 
   return {
     activities: query.data?.activities ?? [],
     asOf: query.data?.as_of ?? null,
     /** The provider whose latest refresh failed after its last good sync, or null. */
-    syncFailure: query.data?.sync_failure ?? null,
+    syncFailure,
     stale,
     staleRefetch,
-    // What the page may say is under way. The server answers `stale` only
-    // when a refresh it started — or one already running — is reading a
-    // provider, so the answer is the evidence. An answer restored from disk
-    // or left by an earlier visit is not: it can be hours old, and the
-    // refresh it reported long finished. Until a read made since this mount
-    // answers, nothing is said to be checking; the schedule still judges the
-    // held answer, and its follow-up is the read that confirms or ends it.
-    refreshing: stale && staleRefetch !== 'done' && query.isFetchedAfterMount,
+    refreshing,
+    /** True while the athlete's `retry` request is in flight. */
+    retrying: retryRequest.inFlight,
+    /** Fetching, failed or settled — the one sync state the list shows ({@link recentActivitiesSync}). */
+    sync: recentActivitiesSync({ refreshing, retrying: retryRequest.inFlight, syncFailure }),
     hasData: query.data !== undefined,
     isError: query.isError,
     isRefetching: query.isRefetching,

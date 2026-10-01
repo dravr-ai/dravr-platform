@@ -448,7 +448,7 @@ describe('recent activities', () => {
     await waitFor(() => expect(mockGetRecentActivities).toHaveBeenLastCalledWith(undefined, { retry: true }));
     // The refresh the retry started is running: the list says it is checking,
     // not that the sync failed.
-    expect(await screen.findByTestId('home-activities-refreshing')).toBeTruthy();
+    expect(await screen.findByTestId('home-activities-fetching')).toBeTruthy();
     expect(screen.queryByTestId('home-activities-sync-failed')).toBeNull();
   });
 
@@ -582,8 +582,8 @@ describe('recent activities', () => {
     mockGetProvidersStatus.mockResolvedValue(PROVIDERS_ONLY_FLAGGED);
     const screen = renderHome();
 
-    expect(await screen.findByTestId('home-activities-refreshing')).toHaveTextContent(
-      'Checking your provider for new activities…',
+    expect(await screen.findByTestId('home-activities-fetching')).toHaveTextContent(
+      'Fetching your latest activities…',
     );
     await waitFor(() => expect(mockGetProvidersStatus).toHaveBeenCalledTimes(1));
     await mockGetProvidersStatus.mock.results[0].value;
@@ -620,16 +620,91 @@ describe('recent activities', () => {
     const screen = renderHome();
 
     expect(await screen.findByTestId('home-activities-synced-at')).toHaveTextContent(/^Last synced: /);
-    expect(screen.queryByTestId('home-activities-refreshing')).toBeNull();
+    expect(screen.queryByTestId('home-activities-fetching')).toBeNull();
   });
 
-  it('says it is checking the provider while the cache is stale', async () => {
+  it('heads the list with a polite status row while the cache is stale, above the rows it has', async () => {
     mockGetRecentActivities.mockResolvedValue(recentResponse({ stale: true }));
     const screen = renderHome();
 
-    expect(await screen.findByTestId('home-activities-refreshing')).toHaveTextContent(
-      'Checking your provider for new activities…',
+    const fetching = await screen.findByTestId('home-activities-fetching');
+    expect(fetching).toHaveTextContent('Fetching your latest activities…');
+    expect(fetching.props.role).toBe('status');
+    expect(fetching.props.accessibilityLiveRegion).toBe('polite');
+    expect(within(fetching).getByTestId('home-activities-fetching-spinner')).toBeTruthy();
+    // The top of the list: the row comes before the latest activity's map.
+    expect(
+      screen.getAllByTestId(/^home-activit(ies-fetching|y-latest)$/).map((node) => node.props.testID),
+    ).toEqual(['home-activities-fetching', 'home-activity-latest']);
+    expect(screen.getByTestId('home-activity-strava-9001')).toBeTruthy();
+  });
+
+  it('drops the row once a read answers fresh, and the new rows take its place', async () => {
+    const newest = { ...ACTIVITIES[0], id: '9100', name: 'Run of the day' };
+    mockGetRecentActivities
+      .mockResolvedValueOnce(recentResponse({ stale: true }))
+      .mockResolvedValue(recentResponse({ stale: false, activities: [newest, ...ACTIVITIES.slice(0, 4)] }));
+    const screen = renderHome();
+    await screen.findByTestId('home-activities-fetching');
+
+    await act(async () => {
+      screen.getByTestId('home-scroll').props.refreshControl.props.onRefresh();
+    });
+
+    expect(await screen.findByTestId('home-activity-strava-9100')).toHaveTextContent(/Run of the day/);
+    expect(screen.queryByTestId('home-activities-fetching')).toBeNull();
+  });
+
+  it('shows the failed sync and no fetching row once nothing is running', async () => {
+    mockGetRecentActivities.mockResolvedValue(
+      recentResponse({
+        stale: false,
+        sync_failure: {
+          provider: 'strava',
+          provider_name: 'Strava',
+          failed_at: '2026-09-29T14:04:00Z',
+          last_synced_at: '2026-09-28T21:15:00Z',
+        },
+      }),
     );
+    const screen = renderHome();
+
+    await screen.findByTestId('home-activities-sync-failed');
+    expect(screen.queryByTestId('home-activities-fetching')).toBeNull();
+  });
+
+  it('holds the row still when the athlete asked to reduce motion', async () => {
+    // The preset's AccessibilityInfo is already a mock answering false; it is
+    // told true here and put back after, never restored to no implementation.
+    const reduce = jest.mocked(AccessibilityInfo.isReduceMotionEnabled);
+    reduce.mockImplementation(() => Promise.resolve(true));
+    try {
+      mockGetRecentActivities.mockResolvedValue(recentResponse({ stale: true }));
+      const screen = renderHome();
+
+      const fetching = await screen.findByTestId('home-activities-fetching');
+      expect(await within(fetching).findByTestId('home-activities-fetching-still')).toBeTruthy();
+      expect(within(fetching).queryByTestId('home-activities-fetching-spinner')).toBeNull();
+    } finally {
+      reduce.mockImplementation(() => Promise.resolve(false));
+    }
+  });
+
+  it('tells VoiceOver the activities are being fetched, since iOS reads no live region', async () => {
+    const originalOS = Platform.OS;
+    (Platform as { OS: string }).OS = 'ios';
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+    try {
+      mockGetRecentActivities.mockResolvedValue(recentResponse({ stale: true }));
+      const screen = renderHome();
+
+      await screen.findByTestId('home-activities-fetching');
+      expect(announce).toHaveBeenCalledWith('Fetching your latest activities…');
+    } finally {
+      // Put back even when an assertion fails, so no later test runs as iOS.
+      announce.mockRestore();
+      (Platform as { OS: string }).OS = originalOS;
+    }
   });
 });
 

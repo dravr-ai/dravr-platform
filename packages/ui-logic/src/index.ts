@@ -119,3 +119,12 @@ export { type ActivityConversationState, createActivityConversationHook } from '
 
 // An agent system prompt's estimated size, worded by one catalogue sentence on both clients.
 export { PROMPT_TOKEN_ESTIMATE_KEY, estimatePromptTokens } from './promptTokens';
+
+// Home activity list: whether it is fetching, failed or settled, said once on both clients.
+export {
+  type RecentActivitiesSync,
+  type RecentActivitiesSyncInput,
+  type RequestsInFlight,
+  recentActivitiesSync,
+  useRequestsInFlight,
+} from './recentActivitiesSync';

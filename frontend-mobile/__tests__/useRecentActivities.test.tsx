@@ -120,6 +120,52 @@ describe('the retry after a failed sync', () => {
     expect(mockGetRecentActivities).toHaveBeenCalledTimes(5);
     expect(result.current.staleRefetch).toBe('done');
   });
+
+  it('is fetching from the moment the retry goes out, and failed again only once it answers with the failure', async () => {
+    const paused = recentResponse({
+      stale: false,
+      sync_failure: {
+        provider: 'strava',
+        provider_name: 'Strava',
+        failed_at: '2026-09-24T08:00:00Z',
+        last_synced_at: '2026-09-23T06:00:00Z',
+      },
+    });
+    mockGetRecentActivities.mockResolvedValue(paused);
+    const { result } = renderRecent();
+    await settle();
+    expect(result.current.sync).toBe('failed');
+
+    const held = heldAnswer();
+    mockGetRecentActivities.mockReturnValueOnce(held.promise);
+    await act(async () => {
+      result.current.retry();
+    });
+    await settle();
+    expect(result.current.retrying).toBe(true);
+    expect(result.current.refreshing).toBe(false);
+    expect(result.current.sync).toBe('fetching');
+
+    // Still paused: nothing runs, so the failure is said again.
+    await act(async () => {
+      held.answer(paused);
+    });
+    await settle();
+    expect(result.current.retrying).toBe(false);
+    expect(result.current.sync).toBe('failed');
+  });
+
+  it('is fetching while a stale answer is followed up, and settled once a fresh one lands', async () => {
+    mockGetRecentActivities
+      .mockResolvedValueOnce(recentResponse({ stale: true }))
+      .mockResolvedValue(recentResponse({ stale: false }));
+    const { result } = renderRecent();
+    await settle();
+    expect(result.current.sync).toBe('fetching');
+
+    await elapse(FIRST_DELAY);
+    expect(result.current.sync).toBe('settled');
+  });
 });
 
 describe('the stale follow-up schedule', () => {

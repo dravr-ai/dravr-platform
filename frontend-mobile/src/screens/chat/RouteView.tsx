@@ -1,7 +1,7 @@
 // ABOUTME: Draws a hydrated route block as a real MapLibre map over a switchable layer, full screen on demand
 // ABOUTME: The card under it names every climb in words, so no fact is carried by colour alone
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, View, Text } from 'react-native';
 import {
   Camera,
@@ -10,7 +10,6 @@ import {
   Map,
   type StyleSpecification,
 } from '@maplibre/maplibre-react-native';
-import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { Maximize2, X } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Line } from 'react-native-svg';
@@ -26,12 +25,11 @@ import {
   trackGeometry,
 } from '@pierre/chat-utils';
 import {
+  DEFAULT_MAP_LAYER,
   MAP_LAYERS,
-  MAP_LAYER_STORAGE_KEY,
   ROUTE_INK,
   localizeBasemapStyle,
   mapLayerStyle,
-  storedMapLayer,
   type MapLayer,
   type RasterStyle,
 } from '@pierre/shared-constants';
@@ -40,65 +38,6 @@ import { useTheme } from '../../constants/theme';
 
 function layerById(id: string): MapLayer {
   return MAP_LAYERS.find((layer) => layer.id === id) ?? MAP_LAYERS[0];
-}
-
-/** The slice of an MMKV instance the layer memory uses. */
-interface LayerStore {
-  getString: (key: string) => string | undefined;
-  set: (key: string, value: string) => void;
-}
-
-/** A store that lives as long as the app process. */
-function sessionStore(): LayerStore {
-  const entries = new globalThis.Map<string, string>();
-  return {
-    getString: (key) => entries.get(key),
-    set: (key, value) => {
-      entries.set(key, value);
-    },
-  };
-}
-
-/**
- * The device's store for the picked layer: MMKV, read synchronously so a map
- * opens on the athlete's layer on its first frame rather than switching to it.
- * Expo Go carries no MMKV native module and merely importing it there throws,
- * so there — and on any build where it cannot be opened — the pick is held
- * for the session, which is all a missing store can give.
- */
-function openLayerStore(): LayerStore {
-  if (Constants.executionEnvironment === ExecutionEnvironment.StoreClient) return sessionStore();
-  try {
-    const { createMMKV } = require('react-native-mmkv') as typeof import('react-native-mmkv');
-    return createMMKV({ id: 'dravr-route-map' });
-  } catch {
-    return sessionStore();
-  }
-}
-
-let layerStore: LayerStore | undefined;
-
-function storeHandle(): LayerStore {
-  if (layerStore === undefined) layerStore = openLayerStore();
-  return layerStore;
-}
-
-/** The layer the athlete last picked on this device, or the default. */
-function rememberedLayer(): string {
-  try {
-    return storedMapLayer(storeHandle().getString(MAP_LAYER_STORAGE_KEY) ?? null);
-  } catch {
-    return storedMapLayer(null);
-  }
-}
-
-/** Keeps the pick for every map opened after, on this device. */
-function rememberLayer(id: string): void {
-  try {
-    storeHandle().set(MAP_LAYER_STORAGE_KEY, id);
-  } catch {
-    // A store that refuses the write leaves the pick on the map it was made on.
-  }
 }
 
 /** Published basemap styles as fetched, by URL, shared by every map this session opens. */
@@ -287,7 +226,12 @@ function RouteMap({ mapStyle, bounds, track, climbs, interactive, testID }: Rout
   );
 }
 
-/** The layer switcher: one button per registered layer, the current one selected. */
+/**
+ * The layer switcher: one button per registered layer, the current one
+ * selected. It shrinks to the bar it sits in and wraps its own options before
+ * it would clip a label, since a chat card can be narrower than the three side
+ * by side; each option keeps a 44pt touch height.
+ */
 function LayerSwitcher({
   layerId,
   onPick,
@@ -303,7 +247,7 @@ function LayerSwitcher({
       testID={testID}
       accessibilityLabel={t('chat.routeLayers')}
       accessibilityRole="radiogroup"
-      className="flex-row overflow-hidden rounded-lg border border-outline-variant bg-surface-container-lowest"
+      className="max-w-full shrink flex-row flex-wrap overflow-hidden rounded-lg border border-outline-variant bg-surface-container-lowest"
     >
       {MAP_LAYERS.map((layer) => {
         const active = layer.id === layerId;
@@ -314,7 +258,7 @@ function LayerSwitcher({
             accessibilityRole="radio"
             accessibilityState={{ selected: active, checked: active }}
             onPress={() => onPick(layer.id)}
-            className={`min-h-[36px] justify-center px-3 ${active ? 'bg-primary' : ''}`}
+            className={`min-h-11 justify-center px-2.5 ${active ? 'bg-primary' : ''}`}
           >
             <Text
               className={`text-xs font-medium ${active ? 'text-on-primary' : 'text-text-primary'}`}
@@ -324,6 +268,36 @@ function LayerSwitcher({
           </Pressable>
         );
       })}
+    </View>
+  );
+}
+
+/**
+ * The row over the map's top edge that holds the layer switcher and the
+ * full-screen button. They share one row so the switcher always reserves the
+ * button's width: where both do not fit, the button wraps to a row of its own,
+ * still against the right edge, rather than sitting on the switcher's last
+ * option. Touches between the two fall through to the map.
+ */
+function MapControlBar({
+  testID,
+  className,
+  style,
+  children,
+}: {
+  testID: string;
+  className: string;
+  style?: { top: number };
+  children: React.ReactNode;
+}) {
+  return (
+    <View
+      testID={testID}
+      pointerEvents="box-none"
+      className={`absolute flex-row flex-wrap items-start gap-2 ${className}`}
+      style={style}
+    >
+      {children}
     </View>
   );
 }
@@ -341,11 +315,9 @@ export default function RouteView({ route }: { route: RouteBlock }) {
   const { t, language } = useTranslation();
   const { colors, scheme } = useTheme();
   const insets = useSafeAreaInsets();
-  const [layerId, setLayerId] = useState(rememberedLayer);
-  const pickLayer = useCallback((id: string) => {
-    setLayerId(id);
-    rememberLayer(id);
-  }, []);
+  // Every map opens on the default layer; a pick holds for this map, inline and
+  // full screen, and is not carried to the next one (carnet#699).
+  const [layerId, pickLayer] = useState(DEFAULT_MAP_LAYER);
   const [fullScreen, setFullScreen] = useState(false);
   const layer = layerById(layerId);
 
@@ -376,12 +348,15 @@ export default function RouteView({ route }: { route: RouteBlock }) {
     ? t('chat.routeAltTitled', { title: route.title })
     : t('chat.routeAlt');
 
+  // The card spans the coach's turn whatever the sentence above it, so a
+  // one-line reply never leaves a narrow map; the map under it keeps one
+  // height at every width.
   return (
-    <View className="my-3">
+    <View testID="route-card" className="my-3 w-full self-stretch">
       {route.title ? (
         <Text className="mb-2 text-sm font-medium text-text-primary">{route.title}</Text>
       ) : null}
-      <View className="h-64 w-full overflow-hidden rounded-lg border border-outline-variant bg-surface-container-lowest">
+      <View testID="route-card-map" className="h-64 w-full overflow-hidden rounded-lg border border-outline-variant bg-surface-container-lowest">
         {/* The map is one image to a screen reader; the controls over it are
             siblings, not children, so grouping the image does not swallow them. */}
         <View className="flex-1" accessible accessibilityRole="image" accessibilityLabel={label}>
@@ -395,19 +370,18 @@ export default function RouteView({ route }: { route: RouteBlock }) {
           />
         </View>
         <LayerCredit layer={layer} testID="route-credit" />
-        <View className="absolute left-2 top-2">
+        <MapControlBar testID="route-controls" className="left-2 right-2 top-2">
           <LayerSwitcher layerId={layerId} onPick={pickLayer} testID="route-layers" />
-        </View>
-        <Pressable
-          testID="route-fullscreen-open"
-          accessibilityRole="button"
-          accessibilityLabel={t('chat.routeFullScreen')}
-          onPress={() => setFullScreen(true)}
-          hitSlop={6}
-          className="absolute right-2 top-2 h-9 w-9 items-center justify-center rounded-lg border border-outline-variant bg-surface-container-lowest"
-        >
-          <Maximize2 size={16} color={colors.tokens.onSurface} />
-        </Pressable>
+          <Pressable
+            testID="route-fullscreen-open"
+            accessibilityRole="button"
+            accessibilityLabel={t('chat.routeFullScreen')}
+            onPress={() => setFullScreen(true)}
+            className="ml-auto h-11 w-11 items-center justify-center rounded-lg border border-outline-variant bg-surface-container-lowest"
+          >
+            <Maximize2 size={16} color={colors.tokens.onSurface} />
+          </Pressable>
+        </MapControlBar>
       </View>
       <Modal
         visible={fullScreen}
@@ -429,24 +403,26 @@ export default function RouteView({ route }: { route: RouteBlock }) {
             />
           </View>
           <LayerCredit layer={layer} testID="route-fullscreen-credit" />
-          <View className="absolute left-3" style={{ top: insets.top + 12 }}>
+          <MapControlBar
+            testID="route-fullscreen-controls"
+            className="left-3 right-3"
+            style={{ top: insets.top + 12 }}
+          >
             <LayerSwitcher
               layerId={layerId}
               onPick={pickLayer}
               testID="route-fullscreen-layers"
             />
-          </View>
-          <Pressable
-            testID="route-fullscreen-close"
-            accessibilityRole="button"
-            accessibilityLabel={t('chat.routeExitFullScreen')}
-            onPress={() => setFullScreen(false)}
-            hitSlop={6}
-            className="absolute right-3 h-11 w-11 items-center justify-center rounded-lg border border-outline-variant bg-surface-container-lowest"
-            style={{ top: insets.top + 12 }}
-          >
-            <X size={20} color={colors.tokens.onSurface} />
-          </Pressable>
+            <Pressable
+              testID="route-fullscreen-close"
+              accessibilityRole="button"
+              accessibilityLabel={t('chat.routeExitFullScreen')}
+              onPress={() => setFullScreen(false)}
+              className="ml-auto h-11 w-11 items-center justify-center rounded-lg border border-outline-variant bg-surface-container-lowest"
+            >
+              <X size={20} color={colors.tokens.onSurface} />
+            </Pressable>
+          </MapControlBar>
         </View>
       </Modal>
       {route.climbs.length > 0 ? (

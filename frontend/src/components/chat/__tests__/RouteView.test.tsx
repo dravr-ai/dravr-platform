@@ -11,7 +11,14 @@ import type { Map as MapLibreMap } from 'maplibre-gl';
 import type { RenderBlock, RouteView as RouteViewData } from '@pierre/scene-types';
 import { climbGeometry, trackGeometry } from '@pierre/chat-utils';
 import { i18n } from '@pierre/i18n';
-import { BASEMAP_STYLE, BOREAL, MAP_LAYERS, ROUTE_INK, mapLayerStyle } from '@pierre/shared-constants';
+import {
+  BASEMAP_STYLE,
+  BOREAL,
+  DEFAULT_MAP_LAYER,
+  MAP_LAYERS,
+  ROUTE_INK,
+  mapLayerStyle,
+} from '@pierre/shared-constants';
 import { ThemeProvider, useTheme } from '../../../hooks/useTheme';
 import RouteView from '../RouteView';
 import { SceneView } from '../SceneView';
@@ -581,8 +588,11 @@ describe('RouteView layer switcher', () => {
   });
 });
 
-describe('RouteView layer memory', () => {
-  it('opens on the layer this browser last picked, the way Home, the activity view and full screen all do', async () => {
+describe('RouteView default layer', () => {
+  // carnet#699: an activity view opened on satellite imagery while Home showed
+  // the map, because one pick was remembered in this browser for every map
+  // opened after it.
+  it('opens on the plain map layer even where an earlier build stored a pick', async () => {
     window.localStorage.setItem('dravr.route_map_layer', 'satellite');
     render(
       <ThemeProvider>
@@ -591,63 +601,37 @@ describe('RouteView layer memory', () => {
     );
     await waitFor(() => expect(harness.constructed).toHaveLength(1));
 
-    const esri = MAP_LAYERS.find((layer) => layer.id === 'satellite');
-    if (esri === undefined) throw new Error('no satellite layer');
-    expect(harness.constructed[0].style).toEqual(mapLayerStyle(esri, 'dark'));
-    expect(screen.getByRole('button', { name: 'Satellite' })).toHaveAttribute('aria-pressed', 'true');
-  });
-
-  it('keeps the pick for the next map, and opens on the map layer for an id no longer registered', async () => {
-    const user = userEvent.setup();
-    window.localStorage.setItem('dravr.route_map_layer', 'retired-provider');
-    const first = render(
-      <ThemeProvider>
-        <RouteView view={ROUTE} />
-      </ThemeProvider>
-    );
-    await waitFor(() => expect(harness.constructed).toHaveLength(1));
+    expect(DEFAULT_MAP_LAYER).toBe('map');
     expect(harness.constructed[0].style).toBe(BASEMAP_STYLE.dark);
-
-    await user.click(screen.getByRole('button', { name: 'Terrain' }));
-    expect(window.localStorage.getItem('dravr.route_map_layer')).toBe('terrain');
-    first.unmount();
-
-    render(
-      <ThemeProvider>
-        <RouteView view={ROUTE} />
-      </ThemeProvider>
-    );
-    await waitFor(() => expect(harness.constructed).toHaveLength(2));
-    expect(harness.constructed[1].style).toMatchObject({ sources: { terrain: {} } });
+    expect(screen.getByRole('button', { name: 'Map' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Satellite' })).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('still draws the map when storage is blocked', async () => {
-    // Only the layer key is blocked: the theme provider reads its own key.
-    const realGet = Storage.prototype.getItem;
-    const realSet = Storage.prototype.setItem;
-    const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(function (this: Storage, key) {
-      if (key === 'dravr.route_map_layer') throw new DOMException('blocked', 'SecurityError');
-      return realGet.call(this, key);
-    });
-    const setItem = vi
-      .spyOn(Storage.prototype, 'setItem')
-      .mockImplementation(function (this: Storage, key, value) {
-        if (key === 'dravr.route_map_layer') throw new DOMException('blocked', 'SecurityError');
-        realSet.call(this, key, value);
-      });
+  it('does not carry a pick to the next map, and writes nothing to storage', async () => {
+    const user = userEvent.setup();
+    const setItem = vi.spyOn(Storage.prototype, 'setItem');
     try {
-      const user = userEvent.setup();
-      render(
+      const first = render(
         <ThemeProvider>
           <RouteView view={ROUTE} />
         </ThemeProvider>
       );
       await waitFor(() => expect(harness.constructed).toHaveLength(1));
-      expect(harness.constructed[0].style).toBe(BASEMAP_STYLE.dark);
+      setItem.mockClear();
       await user.click(screen.getByRole('button', { name: 'Satellite' }));
       expect(screen.getByRole('button', { name: 'Satellite' })).toHaveAttribute('aria-pressed', 'true');
+      expect(setItem).not.toHaveBeenCalled();
+      first.unmount();
+
+      render(
+        <ThemeProvider>
+          <RouteView view={ROUTE} />
+        </ThemeProvider>
+      );
+      await waitFor(() => expect(harness.constructed).toHaveLength(2));
+      expect(harness.constructed[1].style).toBe(BASEMAP_STYLE.dark);
+      expect(screen.getByRole('button', { name: 'Map' })).toHaveAttribute('aria-pressed', 'true');
     } finally {
-      getItem.mockRestore();
       setItem.mockRestore();
     }
   });

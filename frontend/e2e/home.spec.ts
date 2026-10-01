@@ -640,7 +640,14 @@ test.describe('Athlete Home', () => {
 
     const section = page.getByTestId('home-activities');
     const latest = page.getByTestId('home-activity-latest');
-    await expect(section).toContainText('Checking your provider for new activities…');
+    // The list's top row says new activities are on their way, in words a
+    // screen reader hears politely, above the rows the cache already holds.
+    const fetching = section.getByTestId('home-activities-fetching');
+    await expect(fetching).toBeVisible();
+    await expect(fetching).toHaveText('Fetching your latest activities…');
+    await expect(fetching).toHaveAttribute('role', 'status');
+    await expect(fetching).toHaveAttribute('aria-live', 'polite');
+    await expect(section.getByRole('listitem').first()).toContainText('Fetching your latest activities…');
     await expect(latest).toContainText('Long ride');
     expect(calls.recent).toBe(1);
 
@@ -649,14 +656,15 @@ test.describe('Athlete Home', () => {
     // First follow-up: still stale, so the page keeps saying it is checking.
     await page.clock.fastForward(first);
     await expect(latest).toContainText('Lunch run');
-    await expect(section).toContainText('Checking your provider for new activities…');
+    await expect(fetching).toBeVisible();
     expect(calls.recent).toBe(2);
 
-    // Second follow-up, one wider delay on: the fresh answer ends the schedule.
+    // Second follow-up, one wider delay on: the fresh answer ends the
+    // schedule, and its rows take the fetching row's place.
     await page.clock.fastForward(second);
     await expect(latest).toContainText('Dawn ride');
     await expect(section).toContainText('Last synced:');
-    await expect(section).not.toContainText('Checking your provider for new activities…');
+    await expect(fetching).toHaveCount(0);
     expect(calls.recent).toBe(3);
 
     // Never a poll: the delays the schedule had left ask for nothing more.
@@ -684,8 +692,9 @@ test.describe('Athlete Home', () => {
 
     const section = page.getByTestId('home-activities');
     const latest = page.getByTestId('home-activity-latest');
+    const fetching = section.getByTestId('home-activities-fetching');
     await expect(latest).toContainText('Long ride, read 1');
-    await expect(section).toContainText('Checking your provider for new activities…');
+    await expect(fetching).toBeVisible();
 
     for (const [index, delay] of delays.entries()) {
       // Halfway through its delay the ask has not gone out. The page's clock
@@ -693,7 +702,7 @@ test.describe('Athlete Home', () => {
       // of the delay; the hook's own test pins it to the millisecond.
       await page.clock.fastForward(delay / 2);
       expect(calls.recent).toBe(index + 1);
-      await expect(section).toContainText('Checking your provider for new activities…');
+      await expect(fetching).toBeVisible();
       // The athlete is still here: a pointer move keeps the idle watch from
       // holding the ask back.
       await page.mouse.move(40 + index, 40);
@@ -704,7 +713,7 @@ test.describe('Athlete Home', () => {
 
     // The schedule ended on a stale answer: the rows stay, with their sync time.
     await expect(section).toContainText('Last synced:');
-    await expect(section).not.toContainText('Checking your provider for new activities…');
+    await expect(fetching).toHaveCount(0);
     await expect(page.getByTestId('home-activity-row')).toHaveCount(4);
 
     // Never a poll: however long the page stays open, nothing more is asked.
@@ -741,7 +750,10 @@ test.describe('Athlete Home', () => {
 
       const section = page.getByTestId('home-activities');
       const failed = page.getByTestId('home-sync-failed');
+      const fetching = section.getByTestId('home-activities-fetching');
       await expect(failed).toBeVisible();
+      // The failure and the fetching row are never on the card together.
+      await expect(fetching).toHaveCount(0);
       await expect(failed).toHaveAttribute('role', 'alert');
       await expect(failed).toContainText('Strava · Sync failed');
       await expect(failed).not.toContainText('Last synced');
@@ -753,7 +765,7 @@ test.describe('Athlete Home', () => {
 
       await failed.getByTestId('home-sync-retry').click();
       await expect.poll(() => calls.retriedRecent).toBe(1);
-      await expect(section).toContainText('Checking your provider for new activities…');
+      await expect(fetching).toBeVisible();
       await expect(failed).toHaveCount(0);
 
       await page.mouse.move(40, 40);
@@ -761,7 +773,7 @@ test.describe('Athlete Home', () => {
       await expect.poll(() => calls.recent).toBe(2);
       await expect(failed).toHaveCount(0);
       await expect(section).toContainText('Last synced:');
-      await expect(section).not.toContainText('Checking your provider for new activities…');
+      await expect(fetching).toHaveCount(0);
     });
   });
 

@@ -19,7 +19,8 @@ function loop(points: number): Array<[number, number]> {
 }
 
 const TRACK = loop(1936);
-const ROUTE = {
+/** The latest run's route block, as the server hydrates it — Home's map and a chat reply's carry the same one. */
+export const ROUTE = {
   coordinates: TRACK,
   bounds: {
     min_latitude: Math.min(...TRACK.map(([lat]) => lat)),

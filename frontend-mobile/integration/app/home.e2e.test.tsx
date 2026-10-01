@@ -381,14 +381,14 @@ describe('the Home tab over the wire', () => {
 
     fireEvent.press(screen.getByTestId('home-activities-sync-retry'));
     await elapse(0);
-    expect(screen.getByTestId('home-activities-refreshing')).toBeTruthy();
+    expect(screen.getByTestId('home-activities-fetching')).toBeTruthy();
     expect(screen.queryByTestId('home-activities-sync-failed')).toBeNull();
 
     // The schedule restarts from the retry: its first follow-up lands the fresh answer.
     await elapse(HOME_STALE_REFETCH_DELAYS_MS[0]);
     expect(followUps).toBe(2);
     expect(screen.queryByTestId('home-activities-sync-failed')).toBeNull();
-    expect(screen.queryByTestId('home-activities-refreshing')).toBeNull();
+    expect(screen.queryByTestId('home-activities-fetching')).toBeNull();
     expect(stub.requestsFor('GET').filter((request) => request.url === `${RECENT_PATH}?retry=true`)).toHaveLength(1);
   });
 
@@ -412,11 +412,11 @@ describe('the Home tab over the wire', () => {
     await screen.findByTestId('home-activities-sync-failed');
     fireEvent.press(screen.getByTestId('home-activities-sync-retry'));
     await elapse(0);
-    expect(screen.getByTestId('home-activities-refreshing')).toBeTruthy();
+    expect(screen.getByTestId('home-activities-fetching')).toBeTruthy();
 
     await elapse(HOME_STALE_REFETCH_DELAYS_MS[0]);
     expect(await screen.findByTestId('home-activities-sync-failed')).toHaveTextContent(/^Strava · Sync failed/);
-    expect(screen.queryByTestId('home-activities-refreshing')).toBeNull();
+    expect(screen.queryByTestId('home-activities-fetching')).toBeNull();
   });
 
   it('points an athlete with nothing connected at Connections', async () => {
@@ -477,7 +477,7 @@ describe('the Home tab over the wire', () => {
     expect(screen.queryByTestId('home-section-activities')).toBeNull();
     expect(screen.queryByText('Reconnect needed')).toBeNull();
     expect(screen.queryByTestId('home-activities-empty')).toBeNull();
-    expect(screen.queryByTestId('home-activities-refreshing')).toBeNull();
+    expect(screen.queryByTestId('home-activities-fetching')).toBeNull();
   });
 
   // The server says stale only when it started a refresh — for a flagged
@@ -493,8 +493,8 @@ describe('the Home tab over the wire', () => {
     const screen = renderHome();
 
     const section = await screen.findByTestId('home-section-activities');
-    expect(await within(section).findByTestId('home-activities-refreshing')).toHaveTextContent(
-      'Checking your provider for new activities…',
+    expect(await within(section).findByTestId('home-activities-fetching')).toHaveTextContent(
+      'Fetching your latest activities…',
     );
     await waitFor(() => expect(stub.requests.some((request) => request.url === '/api/providers')).toBe(true));
     expect(within(section).queryByText('Reconnect needed')).toBeNull();
@@ -511,7 +511,7 @@ describe('the Home tab over the wire', () => {
     const screen = renderHome();
 
     expect(await screen.findByTestId('home-activities-synced-at')).toBeTruthy();
-    expect(screen.queryByTestId('home-activities-refreshing')).toBeNull();
+    expect(screen.queryByTestId('home-activities-fetching')).toBeNull();
   });
 
   // A stale answer held from an earlier visit reports a refresh that may
@@ -544,14 +544,14 @@ describe('the Home tab over the wire', () => {
 
     // The held rows draw at once, without a claim that a refresh is running.
     expect(await screen.findByTestId('home-activity-strava-9001')).toBeTruthy();
-    expect(screen.queryByTestId('home-activities-refreshing')).toBeNull();
+    expect(screen.queryByTestId('home-activities-fetching')).toBeNull();
 
     // This visit's read answers fresh: the sync time, still no spinner.
     await act(async () => {
       answer?.();
     });
     expect(await screen.findByTestId('home-activities-synced-at')).toBeTruthy();
-    expect(screen.queryByTestId('home-activities-refreshing')).toBeNull();
+    expect(screen.queryByTestId('home-activities-fetching')).toBeNull();
     apiClient.defaults.adapter = adapter;
   });
 
@@ -580,20 +580,28 @@ describe('the Home tab over the wire', () => {
     );
     const screen = renderHome();
 
-    expect(await screen.findByTestId('home-activities-refreshing')).toBeTruthy();
+    // The list is headed by the row that says new activities are on their
+    // way, a polite status, above the rows the cache already holds.
+    const fetching = await screen.findByTestId('home-activities-fetching');
+    expect(fetching).toHaveTextContent('Fetching your latest activities…');
+    expect(fetching.props.role).toBe('status');
+    expect(fetching.props.accessibilityLiveRegion).toBe('polite');
+    expect(
+      screen.getAllByTestId(/^home-activit(ies-fetching|y-latest)$/).map((node) => node.props.testID),
+    ).toEqual(['home-activities-fetching', 'home-activity-latest']);
     expect(reads).toBe(1);
 
     // The first follow-up finds the server still refreshing.
     await elapse(HOME_STALE_REFETCH_DELAYS_MS[0]);
     expect(reads).toBe(2);
-    expect(screen.getByTestId('home-activities-refreshing')).toBeTruthy();
+    expect(screen.getByTestId('home-activities-fetching')).toBeTruthy();
     expect(screen.queryByTestId('home-activity-strava-9002')).toBeNull();
 
     // The second finds the new ride.
     await elapse(HOME_STALE_REFETCH_DELAYS_MS[1]);
     expect(await screen.findByTestId('home-activity-strava-9002')).toBeTruthy();
     expect(reads).toBe(3);
-    expect(screen.queryByTestId('home-activities-refreshing')).toBeNull();
+    expect(screen.queryByTestId('home-activities-fetching')).toBeNull();
 
     await elapse(SCHEDULE_MS * 2);
     expect(reads).toBe(3);
@@ -607,16 +615,16 @@ describe('the Home tab over the wire', () => {
     const screen = renderHome();
     const recentReads = () => stub.requestsFor('GET').filter((request) => request.url === RECENT_PATH);
 
-    await screen.findByTestId('home-activities-refreshing');
+    await screen.findByTestId('home-activities-fetching');
     for (const [index, delay] of HOME_STALE_REFETCH_DELAYS_MS.entries()) {
       // A follow-up is still owed, and the page says it is checking.
-      expect(screen.getByTestId('home-activities-refreshing')).toBeTruthy();
+      expect(screen.getByTestId('home-activities-fetching')).toBeTruthy();
       await elapse(delay);
       expect(recentReads()).toHaveLength(index + 2);
     }
 
-    expect(await screen.findByTestId('home-activities-synced-at')).toHaveTextContent(/^Last synced: /);
-    expect(screen.queryByTestId('home-activities-refreshing')).toBeNull();
+    await waitFor(() => expect(screen.queryByTestId('home-activities-fetching')).toBeNull());
+    expect(screen.getByTestId('home-activities-synced-at')).toHaveTextContent(/^Last synced: /);
 
     await elapse(SCHEDULE_MS * 2);
     expect(recentReads()).toHaveLength(1 + HOME_STALE_REFETCH_DELAYS_MS.length);
@@ -630,7 +638,7 @@ describe('the Home tab over the wire', () => {
     const screen = renderHome();
     const recentReads = () => stub.requestsFor('GET').filter((request) => request.url === RECENT_PATH);
 
-    await screen.findByTestId('home-activities-refreshing');
+    await screen.findByTestId('home-activities-fetching');
     for (const delay of HOME_STALE_REFETCH_DELAYS_MS) {
       await elapse(delay);
     }
@@ -646,7 +654,7 @@ describe('the Home tab over the wire', () => {
 
     // The pull's own read, and the page is checking again.
     expect(recentReads()).toHaveLength(afterFirstSchedule + 1);
-    expect(await screen.findByTestId('home-activities-refreshing')).toBeTruthy();
+    expect(await screen.findByTestId('home-activities-fetching')).toBeTruthy();
 
     await elapse(HOME_STALE_REFETCH_DELAYS_MS[0]);
     expect(recentReads()).toHaveLength(afterFirstSchedule + 2);

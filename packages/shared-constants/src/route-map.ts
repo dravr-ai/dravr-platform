@@ -155,7 +155,16 @@ const TERRAIN = esriRaster(
  */
 export const MAP_LAYERS: readonly MapLayer[] = [MAP, SATELLITE, TERRAIN];
 
-/** The layer a map opens on. */
+/**
+ * The layer every route map opens on — Home's latest card, the activity view,
+ * the chat's route card, on web and phone alike: the plain map ("Plan").
+ *
+ * A pick in the switcher holds for the map it was made on, inline and full
+ * screen, and is not remembered for the next one. A device-wide memory used to
+ * carry one satellite pick into every map opened after it, so an athlete's
+ * activity view opened on imagery while Home, mounted before the pick, still
+ * showed the map (carnet#699).
+ */
 export const DEFAULT_MAP_LAYER = MAP.id;
 
 /**
@@ -191,24 +200,6 @@ export function mapLayerStyle(layer: MapLayer, scheme: ColorScheme): string | Ra
     },
     layers: [{ id: layer.id, type: 'raster', source: layer.id }],
   };
-}
-
-/**
- * Where a device keeps the layer the athlete last picked, so every route map
- * — Home's, the activity view's, full screen — opens on it. Per device: the
- * web app's `localStorage` and the phone's storage each hold their own.
- */
-export const MAP_LAYER_STORAGE_KEY = 'dravr.route_map_layer';
-
-/**
- * The layer a stored choice names, or the default when nothing is stored or
- * the stored id is no longer a registered layer — a provider dropped from
- * the registry must not leave a device opening on nothing.
- */
-export function storedMapLayer(stored: unknown): string {
-  return typeof stored === 'string' && MAP_LAYERS.some((layer) => layer.id === stored)
-    ? stored
-    : DEFAULT_MAP_LAYER;
 }
 
 /**

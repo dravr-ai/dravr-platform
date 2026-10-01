@@ -96,7 +96,7 @@ export default function MessageBubble({
       <div className="w-6 shrink-0 pt-px" aria-hidden={avatar ? undefined : 'true'}>
         {groupStart ? avatar : null}
       </div>
-      <div className="flex min-w-0 max-w-[620px] flex-1 flex-col items-start">
+      <div data-testid="message-column" className="flex min-w-0 max-w-[620px] flex-1 flex-col items-start">
         {groupStart && (authorLabel || timestamp) ? (
           <div className="mb-1 flex items-baseline gap-2">
             {authorLabel ? <span className="text-sm font-semibold text-on-surface">{authorLabel}</span> : null}
@@ -107,7 +107,13 @@ export default function MessageBubble({
             ) : null}
           </div>
         ) : null}
-        <div className="min-w-0 max-w-full text-on-surface">
+        {/* The content spans the column rather than hugging its words: a rich
+            card — a route map, a chart — is as wide as the column whatever the
+            sentence above it, where a one-line reply once left a map 174px
+            wide. Every block child spans it too: a markdown code block's fill
+            and a table's rules reach the column edge, and a filled box that
+            should hug its text (the turn-error box) says so itself with w-fit. */}
+        <div className="w-full min-w-0 text-on-surface">
           {children}
           {footer}
         </div>

@@ -121,7 +121,7 @@ export function HomeScreen() {
           activities={recent.activities}
           hasData={recent.hasData}
           isError={recent.isError}
-          refreshing={recent.refreshing}
+          sync={recent.sync}
           asOf={recent.asOf}
           syncFailure={recent.syncFailure}
           onRetry={() => void refetchRecent()}

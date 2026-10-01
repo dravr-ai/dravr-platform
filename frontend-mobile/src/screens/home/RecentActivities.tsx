@@ -2,16 +2,17 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The Home "Recent activities" section — the latest on a live map, the four before it with a route sketch
-// ABOUTME: No GPS in the recording, a stale cache and a failed sync are each said in words; a tap opens the activity's own view
+// ABOUTME: A fetch in progress heads the list as its own row; no GPS and a failed sync are said in words; a tap opens the activity's view
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AccessibilityInfo, ActivityIndicator, Platform, Pressable, Text, View } from 'react-native';
 import type { HomeActivity, SyncFailure } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
+import type { RecentActivitiesSync } from '@pierre/ui-logic';
 import { EmptyState, Section } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import { ActivityMap } from './ActivityMap';
-import { ActivitySketch } from './RouteSketch';
+import { ActivitySketch, SKETCH_SIZE } from './RouteSketch';
 import { activityFigures, instantShortDate, sportLabel, syncedAtLabel } from './homeFormat';
 
 type OpenActivity = (activity: HomeActivity) => void;
@@ -66,22 +67,13 @@ function ActivityButton({
 }
 
 /**
- * Where the list stands against the provider: checking while the server says
- * a refresh is running, otherwise when it last synced — the web page's rule.
- * After a failed sync that time is the failing provider's own last good one,
- * which the caller passes as `asOf`: the page says a time once.
+ * When the list last synced with the provider. After a failed sync that time
+ * is the failing provider's own last good one, which the caller passes as
+ * `asOf`: the page says a time once. A fetch in progress is said by the
+ * list's own top row ({@link FetchingRow}), not here.
  */
-function SyncLine({ refreshing, asOf }: { refreshing: boolean; asOf: string | null }) {
+function SyncLine({ asOf }: { asOf: string | null }) {
   const { t, language } = useTranslation();
-  const colors = useThemeColors();
-  if (refreshing) {
-    return (
-      <View className="flex-row items-center px-4 pb-2" testID="home-activities-refreshing">
-        <ActivityIndicator size="small" color={colors.text.secondary} />
-        <Text className="ml-2 text-sm text-text-secondary">{t('home.activities.refreshing')}</Text>
-      </View>
-    );
-  }
   if (asOf === null) {
     return null;
   }
@@ -89,6 +81,74 @@ function SyncLine({ refreshing, asOf }: { refreshing: boolean; asOf: string | nu
     <Text className="px-4 pb-2 text-sm text-text-secondary" testID="home-activities-synced-at">
       {t('home.activities.syncedAt', { time: syncedAtLabel(asOf, language) })}
     </Text>
+  );
+}
+
+/**
+ * Whether the athlete asked the system to reduce motion, kept current while
+ * the screen is open. False until the setting is read.
+ */
+function useReduceMotion(): boolean {
+  const [reduce, setReduce] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      if (active) {
+        setReduce(enabled);
+      }
+    });
+    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduce);
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, []);
+  return reduce;
+}
+
+/**
+ * The row at the top of the list while new activities are read from a
+ * provider, shaped like an activity row — a sketch-sized slot holding a
+ * spinner, the sentence over a placeholder second line — so the rows that
+ * land take its place without the list jumping.
+ *
+ * A polite live region for TalkBack; iOS, which has none, has VoiceOver told
+ * in words when it appears. With reduced motion asked for, the slot holds
+ * still: a plain tile instead of the spinner.
+ */
+function FetchingRow({ separated }: { separated: boolean }) {
+  const { t } = useTranslation();
+  const colors = useThemeColors();
+  const reduceMotion = useReduceMotion();
+  const message = t('home.activities.fetching');
+  useEffect(() => {
+    if (Platform.OS === 'ios') {
+      AccessibilityInfo.announceForAccessibility(message);
+    }
+  }, [message]);
+  return (
+    <View
+      role="status"
+      accessibilityLiveRegion="polite"
+      accessible
+      accessibilityLabel={message}
+      className={`flex-row items-center px-4 py-2 min-h-11 ${separated ? 'border-b border-border-faint' : ''}`}
+      testID="home-activities-fetching"
+    >
+      <View
+        className="items-center justify-center rounded-lg bg-surface-container-low"
+        style={{ width: SKETCH_SIZE, height: SKETCH_SIZE }}
+        testID={reduceMotion ? 'home-activities-fetching-still' : 'home-activities-fetching-spinner'}
+      >
+        {reduceMotion ? null : <ActivityIndicator size="small" color={colors.tokens.primary} />}
+      </View>
+      <View className="ml-3 flex-1 min-w-0">
+        <Text className="text-base text-text-primary" numberOfLines={1}>
+          {message}
+        </Text>
+        <View className="mt-1.5 h-2.5 w-32 rounded bg-surface-container-high" />
+      </View>
+    </View>
   );
 }
 
@@ -135,10 +195,12 @@ interface RecentActivitiesProps {
   hasData: boolean;
   isError: boolean;
   /**
-   * Whether a provider refresh is running, as a read made on this visit said
-   * (`stale: true`) and no follow-up has since settled; see `useRecentActivities`.
+   * Fetching, failed or settled — the one sync state the list shows, from
+   * `useRecentActivities`: a refresh a read made on this visit reported
+   * (`stale: true`) and no follow-up has since settled, or the athlete's
+   * retry in flight, is `fetching`.
    */
-  refreshing: boolean;
+  sync: RecentActivitiesSync;
   asOf: string | null;
   /** The provider whose latest refresh failed after its own last good sync, or null. */
   syncFailure: SyncFailure | null;
@@ -172,15 +234,19 @@ interface RecentActivitiesProps {
  * With no rows and every connected provider flagged, the section is left
  * out: the empty sentence would promise a sync no connection can make, and
  * the only true thing left to say — reconnect — is the banner's. It stays
- * only while the server says a refresh is running, which for a flagged
- * scrape session is its retry, or while a read has failed, and then shows
- * just that.
+ * only while new activities are fetched — a refresh the server says is
+ * running, which for a flagged scrape session is its retry, or the
+ * athlete's own Retry — or while a read has failed, and then shows just that.
+ *
+ * While new activities are fetched the list is headed by a row that says so;
+ * the rows that land replace it. It and the failed sync are never shown
+ * together: the failure is said once nothing is running.
  */
 export function RecentActivities({
   activities,
   hasData,
   isError,
-  refreshing,
+  sync,
   asOf,
   syncFailure,
   onRetry,
@@ -192,6 +258,7 @@ export function RecentActivities({
 }: RecentActivitiesProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
+  const fetching = sync === 'fetching';
 
   let body: React.ReactNode;
   if (!hasData) {
@@ -215,9 +282,13 @@ export function RecentActivities({
         </View>
       );
     } else if (providerConnected) {
-      if (syncing === false) {
+      if (fetching) {
+        // The first activities are on their way: the row that says so, not a
+        // sentence that says there are none.
+        body = <FetchingRow separated={false} />;
+      } else if (syncing === false) {
         // A failed read still shows its retry below.
-        if (!refreshing && !isError) {
+        if (!isError) {
           return null;
         }
         body = null;
@@ -238,6 +309,7 @@ export function RecentActivities({
     const [latest, ...older] = activities;
     body = (
       <View>
+        {fetching ? <FetchingRow separated /> : null}
         <View testID="home-activity-latest">
           <ActivityMap activity={latest} testIDPrefix="home-latest" burst />
           <ActivityButton
@@ -262,10 +334,8 @@ export function RecentActivities({
 
   return (
     <Section title={t('home.activities.heading')} testID="home-section-activities">
-      {hasData ? (
-        <SyncLine refreshing={refreshing} asOf={syncFailure !== null ? syncFailure.last_synced_at : asOf} />
-      ) : null}
-      {hasData && syncFailure !== null && !refreshing ? (
+      {hasData ? <SyncLine asOf={syncFailure !== null ? syncFailure.last_synced_at : asOf} /> : null}
+      {hasData && syncFailure !== null && sync === 'failed' ? (
         <SyncFailed failure={syncFailure} onRetry={onRetrySync} />
       ) : null}
       {body}

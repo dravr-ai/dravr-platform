@@ -4,10 +4,11 @@
 // ABOUTME: Tests Home's recent activities — the latest on the chat's map, the rest as sketches, who asks for a route, who is told to connect
 // ABOUTME: Red if a stored no-GPS activity or one with a polyline costs a route call, a never-read route is called trackless, or a dead connection hides its rows
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, focusManager, notifyManager } from '@tanstack/react-query';
+import { HOME_STALE_REFETCH_DELAYS_MS } from '@pierre/shared-constants';
 import type {
   ActivityRouteResponse,
   ExtendedProviderStatus,
@@ -372,8 +373,9 @@ describe('RecentActivities', () => {
     await userEvent.click(retry);
     await waitFor(() => expect(api.getRecentActivities).toHaveBeenCalledTimes(2));
     expect(api.getRecentActivities).toHaveBeenLastCalledWith(undefined, { retry: true });
-    // While that refresh runs the card says so, and not that the sync failed.
-    expect(await screen.findByText('Checking your provider for new activities…')).toBeInTheDocument();
+    // While that refresh runs the list's top row says so, and nothing says
+    // the sync failed.
+    expect(await screen.findByTestId('home-activities-fetching')).toHaveTextContent('Fetching your latest activities…');
     expect(screen.queryByTestId('home-sync-failed')).toBeNull();
   });
 
@@ -442,7 +444,7 @@ describe('RecentActivities', () => {
     expect(screen.queryByTestId('home-connect-provider')).toBeNull();
   });
 
-  it('says it is checking a connection to reconnect only when the server answered that a refresh is in flight', async () => {
+  it('shows the fetching row for a connection to reconnect only when the server answered that a refresh is in flight', async () => {
     providers(toReconnect('garmin', 'Garmin'));
     api.getRecentActivities.mockResolvedValue(recentResponse({ stale: false }));
     const first = renderSection();
@@ -451,7 +453,7 @@ describe('RecentActivities', () => {
     // last synced — not a search that is not happening.
     expect(await screen.findByText(/^Last synced: /)).toBeInTheDocument();
     await first.settled();
-    expect(screen.queryByText('Checking your provider for new activities…')).toBeNull();
+    expect(screen.queryByTestId('home-activities-fetching')).toBeNull();
     expect(screen.queryByText(/Reconnect Garmin/)).toBeNull();
     cleanup();
 
@@ -459,8 +461,8 @@ describe('RecentActivities', () => {
     // is retried on its own schedule), so saying it is checking is true.
     api.getRecentActivities.mockResolvedValue(recentResponse({ stale: true }));
     renderSection();
-    expect(await screen.findByText('Checking your provider for new activities…')).toBeInTheDocument();
-    expect(screen.queryByText(/^Last synced: /)).toBeNull();
+    expect(await screen.findByTestId('home-activities-fetching')).toHaveTextContent('Fetching your latest activities…');
+    expect(screen.getByText(/^Last synced: /)).toBeInTheDocument();
     expect(screen.queryByText(/Reconnect Garmin/)).toBeNull();
     expect(screen.getAllByTestId('home-activity-row')).toHaveLength(4);
   });
@@ -500,7 +502,7 @@ describe('RecentActivities', () => {
     renderSection();
 
     expect(await screen.findByText(/^Last synced: /)).toBeInTheDocument();
-    expect(screen.queryByText('Checking your provider for new activities…')).toBeNull();
+    expect(screen.queryByTestId('home-activities-fetching')).toBeNull();
   });
 
   it('heads its section at the level of Today and This week', async () => {
@@ -533,5 +535,96 @@ describe('RecentActivities', () => {
     expect(screen.queryByTestId('home-sketch-slot')).toBeNull();
     await settled();
     expect(api.getActivityRoute).not.toHaveBeenCalled();
+  });
+});
+
+describe('RecentActivities while new activities are fetched', () => {
+  const FAILURE = {
+    provider: 'strava',
+    provider_name: 'Strava',
+    failed_at: '2026-09-29T14:04:00Z',
+    last_synced_at: '2026-09-28T21:15:00Z',
+  };
+
+  /** Let resolved promises and timers due within `ms` run, under act. */
+  async function flush(ms = 0) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  }
+
+  beforeEach(() => {
+    // The follow-up schedule is timers; the clock is faked with them so two
+    // answers never share an instant, and React Query's notifications run
+    // inline so the fake clock only drives the schedule.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    vi.setSystemTime(new Date('2026-09-29T15:00:00Z'));
+    notifyManager.setScheduler((callback) => callback());
+    focusManager.setFocused(true);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    notifyManager.setScheduler((callback) => setTimeout(callback, 0));
+    focusManager.setFocused(undefined);
+  });
+
+  it('heads the list with a polite status row while stale, and the new rows replace it once fresh', async () => {
+    const newest = activity({ id: 'act-new', name: 'Run of the day', start_date: '2026-09-29T12:00:00Z' });
+    const stale = recentResponse({ stale: true });
+    api.getRecentActivities
+      .mockResolvedValueOnce(stale)
+      .mockResolvedValueOnce(recentResponse({ stale: false, activities: [newest, ...stale.activities.slice(0, 4)] }));
+    renderSection();
+    await flush();
+
+    const fetching = screen.getByTestId('home-activities-fetching');
+    expect(fetching).toHaveAttribute('role', 'status');
+    expect(fetching).toHaveAttribute('aria-live', 'polite');
+    expect(fetching).toHaveTextContent('Fetching your latest activities…');
+    // At the top of the list, above the latest activity, with the rows it has.
+    const list = screen.getByTestId('home-activity-latest').closest('ul');
+    expect(list?.firstElementChild).toContainElement(fetching);
+    expect(screen.getAllByTestId('home-activity-row')).toHaveLength(4);
+    expect(screen.queryByText('Checking your provider for new activities…')).toBeNull();
+
+    await flush(HOME_STALE_REFETCH_DELAYS_MS[0]);
+    expect(api.getRecentActivities).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId('home-activities-fetching')).toBeNull();
+    expect(within(screen.getByTestId('home-activity-latest')).getByText('Run of the day')).toBeInTheDocument();
+  });
+
+  it('shows the row, not the empty sentence, while the first activities are fetched', async () => {
+    api.getRecentActivities.mockResolvedValue(recentResponse({ activities: [], stale: true }));
+    renderSection();
+    await flush();
+
+    expect(screen.getByTestId('home-activities-fetching')).toHaveTextContent('Fetching your latest activities…');
+    expect(screen.queryByText('No activities yet. They show up here once your provider syncs.')).toBeNull();
+  });
+
+  it('shows the failed sync and no fetching row once nothing is running', async () => {
+    api.getRecentActivities.mockResolvedValue(recentResponse({ stale: false, sync_failure: FAILURE }));
+    renderSection();
+    await flush();
+
+    expect(screen.getByTestId('home-sync-failed')).toHaveTextContent('Strava · Sync failed');
+    expect(screen.queryByTestId('home-activities-fetching')).toBeNull();
+  });
+
+  it('says the sync failed again, without the row, when the last follow-up still finds it failing', async () => {
+    // The server's own retry after the pause: stale with the failure, then the
+    // failure standing once it gives up.
+    api.getRecentActivities
+      .mockResolvedValueOnce(recentResponse({ stale: true, sync_failure: FAILURE }))
+      .mockResolvedValue(recentResponse({ stale: false, sync_failure: FAILURE }));
+    renderSection();
+    await flush();
+    expect(screen.getByTestId('home-activities-fetching')).toBeInTheDocument();
+    expect(screen.queryByTestId('home-sync-failed')).toBeNull();
+
+    await flush(HOME_STALE_REFETCH_DELAYS_MS[0]);
+    expect(screen.getByTestId('home-sync-failed')).toBeInTheDocument();
+    expect(screen.queryByTestId('home-activities-fetching')).toBeNull();
   });
 });

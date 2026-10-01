@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The Home page's recent activities — the latest on the chat's live map, the four before it as route sketches
-// ABOUTME: A tap opens the activity's own view; no provider, no GPS, no rows and a failed sync are each said in words
+// ABOUTME: A tap opens the activity's own view; a fetch in progress, no provider, no GPS, no rows and a failed sync are each said in words
 
 import { useMemo, type ReactNode } from 'react';
 import { clsx } from 'clsx';
@@ -123,6 +123,39 @@ function ActivityRow({
 }
 
 /**
+ * The row at the top of the list while new activities are read from a
+ * provider: shaped like an activity row — the sketch column holds a spinner,
+ * the text column says what is happening over a placeholder second line — so
+ * the rows that land take its place without the list jumping. A polite live
+ * region, so a screen reader hears it without losing its place; with reduced
+ * motion asked for, the spinner and the placeholder hold still.
+ */
+function FetchingRow() {
+  const { t } = useTranslation();
+  return (
+    <li className="border-b ghost-border-faint last:border-0">
+      <div
+        role="status"
+        aria-live="polite"
+        data-testid="home-activities-fetching"
+        className="flex w-full items-center gap-3 rounded-lg px-2 py-2"
+      >
+        <span className="flex h-12 w-16 shrink-0 items-center justify-center" aria-hidden="true">
+          <span className="pierre-spinner motion-reduce:animate-none" />
+        </span>
+        <span className="block min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium text-on-surface">{t('home.activities.fetching')}</span>
+          <span
+            aria-hidden="true"
+            className="mt-1.5 block h-2.5 w-32 max-w-full animate-pulse rounded bg-surface-container-high motion-reduce:animate-none"
+          />
+        </span>
+      </div>
+    </li>
+  );
+}
+
+/**
  * The section: its heading and sync line, then the rows, the connect prompt
  * or the empty sentence — never a made-up row.
  *
@@ -136,20 +169,19 @@ export function RecentActivities({ onNavigate }: RecentActivitiesProps) {
   const recent = useRecentActivities();
   const providers = useProviderConnection();
 
-  // One time on the card, once: while a refresh runs, that it is checking;
-  // after a failed sync, when the provider that failed last synced well —
-  // its rows are that old, whatever another provider did since; otherwise
-  // the last sync across every provider. The failure itself is said in its
-  // own line with its retry, and is not shown while a new attempt runs.
+  // One time on the card, once: after a failed sync, when the provider that
+  // failed last synced well — its rows are that old, whatever another
+  // provider did since; otherwise the last sync across every provider. A
+  // fetch in progress is the list's own top row, and the failure is said in
+  // its own line with its retry; one or the other, never both
+  // (`recent.sync`).
   const failure = recent.data?.sync_failure ?? null;
+  const fetching = recent.sync === 'fetching';
   const lastGood = failure !== null ? failure.last_synced_at : (recent.data?.as_of ?? null);
-  const status = recent.refreshing
-    ? t('home.activities.refreshing')
-    : lastGood !== null
-      ? t('home.activities.syncedAt', { time: formatSyncTime(lastGood, language) })
-      : undefined;
+  const status =
+    lastGood !== null ? t('home.activities.syncedAt', { time: formatSyncTime(lastGood, language) }) : undefined;
   const syncFailed =
-    failure !== null && !recent.refreshing ? (
+    failure !== null && recent.sync === 'failed' ? (
       <p
         role="alert"
         data-testid="home-sync-failed"
@@ -196,6 +228,14 @@ export function RecentActivities({ onNavigate }: RecentActivitiesProps) {
   } else if (activities.length === 0) {
     if (noProvider) {
       body = connectPrompt;
+    } else if (fetching) {
+      // The first activities are on their way: the row that says so, not a
+      // sentence that says there are none.
+      body = (
+        <ul>
+          <FetchingRow />
+        </ul>
+      );
     } else {
       body = <EmptyState>{t('home.activities.empty')}</EmptyState>;
     }
@@ -209,6 +249,7 @@ export function RecentActivities({ onNavigate }: RecentActivitiesProps) {
       <>
         {noProvider && connectPrompt}
         <ul className={clsx(noProvider && 'mt-2')}>
+          {fetching && <FetchingRow />}
           <LatestActivity key={`${latest.provider}:${latest.id}`} activity={latest} onOpen={openActivity} />
           {earlier.map((activity) => (
             <ActivityRow

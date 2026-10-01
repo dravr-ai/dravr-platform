@@ -4,9 +4,10 @@
 // ABOUTME: The Home map's layer switcher, full screen and control text, run by the production bundle under the production CSP
 // ABOUTME: Asserts Satellite and Terrain load keyless Esri tiles row-before-column and repaint the track, and French reads French
 
-import { test, expect, type Page } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard } from '../e2e/test-helpers';
+import { test, expect, type Locator, type Page } from '@playwright/test';
+import { setupDashboardMocks, loginToDashboard, openChat } from '../e2e/test-helpers';
 import { serveBasemapStandIn } from './basemap-stand-in';
+import { CHAT_ROUTE_QUESTION, CHAT_ROUTE_TITLE, mockChatRoute } from './chat-route-fixture';
 import { mockHome, paintedPixels, recordCspViolations } from './home-map-fixture';
 
 /** A tile from the keyless ArcGIS Online pyramid: `/tile/{z}/{y}/{x}`, no token. */
@@ -150,6 +151,163 @@ test("MapLibre's own control text reads French for a French athlete", async ({ p
     /Utilise (⌘|Ctrl) \+ défilement pour zoomer sur la carte/,
   );
   await expect(map.locator('.maplibregl-cooperative-gesture-screen')).not.toContainText('Use');
+});
+
+interface Box {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/**
+ * Where the map's top controls landed: the full-screen button's box, each
+ * layer option's box and label, and whether that label is clipped — the
+ * option's text overflowing its own box, or the box running out of the card.
+ */
+async function controlGeometry(map: Locator, toggleLabel: string) {
+  return map.locator('[data-map-screen]').evaluate((stage, label) => {
+    const box = (node: Element): Box => {
+      const rect = node.getBoundingClientRect();
+      return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+    };
+    const group = stage.querySelector('[role="group"]');
+    // Found by its own name: MapLibre's zoom buttons carry a title as well.
+    const toggle = [...stage.querySelectorAll('button')].find(
+      (button) => button.getAttribute('aria-label') === label,
+    );
+    if (group === null || toggle === undefined) throw new Error('the map drew no controls');
+    const card = box(stage);
+    return {
+      card,
+      toggle: box(toggle),
+      options: [...group.querySelectorAll('button')].map((option) => ({
+        label: option.textContent ?? '',
+        box: box(option),
+        clipped:
+          option.scrollWidth > option.clientWidth ||
+          option.getBoundingClientRect().left < card.left ||
+          option.getBoundingClientRect().right > card.right,
+      })),
+    };
+  }, toggleLabel);
+}
+
+function intersects(a: Box, b: Box): boolean {
+  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+}
+
+async function expectControlsApart(map: Locator, labels: string[], toggleLabel: string, where: string) {
+  const geometry = await controlGeometry(map, toggleLabel);
+  expect(geometry.options.map((option) => option.label), where).toEqual(labels);
+  for (const option of geometry.options) {
+    expect(option.clipped, `${where}: "${option.label}" is clipped`).toBe(false);
+    expect(
+      intersects(option.box, geometry.toggle),
+      `${where}: the full-screen button covers "${option.label}" (${JSON.stringify(option.box)} vs ${JSON.stringify(geometry.toggle)})`,
+    ).toBe(false);
+  }
+  expect(geometry.toggle.right, `${where}: the full-screen button leaves the card`).toBeLessThanOrEqual(
+    geometry.card.right,
+  );
+}
+
+// A chat card is as wide as the message around it — under 200px for a short
+// one — and the full-screen button used to sit on the switcher's last option
+// there ("Relief" read "R").
+for (const { language, name, labels, fullScreen, exitFullScreen } of [
+  {
+    language: 'en',
+    name: 'Map of the recorded route: Morning Trail Run',
+    labels: ['Map', 'Satellite', 'Terrain'],
+    fullScreen: 'Full screen',
+    exitFullScreen: 'Exit full screen',
+  },
+  {
+    language: 'fr',
+    name: 'Carte du parcours enregistré : Morning Trail Run',
+    labels: ['Plan', 'Satellite', 'Relief'],
+    fullScreen: 'Plein écran',
+    exitFullScreen: 'Quitter le plein écran',
+  },
+]) {
+  test(`the full-screen button never covers a layer option, at any card width (${language})`, async ({
+    page,
+    context,
+  }) => {
+    await page.addInitScript((value) => window.localStorage.setItem('pierre_app_language', value), language);
+    await serveBasemapStandIn(context);
+    const map = await openHomeMap(page, name);
+
+    // The card at its own desktop width first, then narrowed to a chat card's.
+    await expectControlsApart(map, labels, fullScreen, 'desktop card');
+    for (const width of [310, 240, 174]) {
+      await map.evaluate((node, value) => {
+        (node as HTMLElement).style.width = `${value}px`;
+      }, width);
+      await expect.poll(async () => (await map.boundingBox())?.width).toBe(width);
+      await expectControlsApart(map, labels, fullScreen, `${width}px card`);
+    }
+
+    // Full screen on a small phone, where the overlay is the viewport.
+    await page.setViewportSize({ width: 320, height: 640 });
+    await map.getByRole('button', { name: fullScreen }).click();
+    await expect(map.locator('[data-map-screen]')).not.toHaveAttribute('data-map-screen', 'inline');
+    await expectControlsApart(map, labels, exitFullScreen, 'full screen at 320px');
+  });
+}
+
+/** The route card under a one-line coach reply, opened from the conversation list. */
+async function openChatRoute(page: Page) {
+  await setupDashboardMocks(page, { role: 'user', email: 'alice@acme.com', displayName: 'Alice Test' });
+  await mockChatRoute(page);
+  await loginToDashboard(page, { email: 'alice@acme.com', password: 'password123' });
+  await openChat(page);
+  await page.getByText(CHAT_ROUTE_TITLE).first().click();
+  await expect(page.getByText(CHAT_ROUTE_QUESTION)).toBeVisible({ timeout: 10_000 });
+  const turn = page.locator('[data-testid="message-row"][data-role="assistant"]');
+  const map = turn.getByRole('figure', { name: 'Map of the recorded route: Morning Trail Run' });
+  await expect(map).toHaveAttribute('data-route-drawn', 'true', { timeout: 30_000 });
+  return { map, column: turn.getByTestId('message-column') };
+}
+
+/** The width the card and its column were laid out at, and the column's own cap. */
+async function cardAndColumn(map: Locator, column: Locator) {
+  const card = await map.locator('[data-map-screen]').evaluate((node) => node.getBoundingClientRect().width);
+  const { width, cap } = await column.evaluate((node) => ({
+    width: node.getBoundingClientRect().width,
+    cap: Number.parseFloat(getComputedStyle(node).maxWidth),
+  }));
+  return { card, width, cap };
+}
+
+// A one-line reply left its route card as wide as the sentence — about 174px
+// — because the turn's content hugged its words. The card spans the message
+// column whatever the reply says: the column's own cap on a wide screen, the
+// whole column on a phone.
+test('a route card under a one-line reply fills the message column', async ({ page, context }) => {
+  await serveBasemapStandIn(context);
+  const { map, column } = await openChatRoute(page);
+
+  const desktop = await cardAndColumn(map, column);
+  expect(Number.isFinite(desktop.cap), 'the message column has a max width').toBe(true);
+  // At desktop width the thread is wider than the column's cap, so the column
+  // sits at it, and the card is as wide as the column.
+  expect(desktop.width).toBeCloseTo(desktop.cap, 0);
+  expect(desktop.card).toBeGreaterThanOrEqual(desktop.width - 0.5);
+  await expectControlsApart(map, ['Map', 'Satellite', 'Terrain'], 'Full screen', 'chat card, desktop');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(async () => (await cardAndColumn(map, column)).width).toBeLessThan(desktop.width);
+  // Read until the narrower layout settles: the card follows its column a frame behind.
+  await expect
+    .poll(async () => {
+      const phone = await cardAndColumn(map, column);
+      return phone.card - phone.width;
+    })
+    .toBeGreaterThanOrEqual(-0.5);
+  await expectControlsApart(map, ['Map', 'Satellite', 'Terrain'], 'Full screen', 'chat card, phone');
+  await expect.poll(() => paintedPixels(page, map), { timeout: 15_000 }).toBeGreaterThan(400);
 });
 
 test('the full-screen toggle fills the viewport with the map and gives it back', async ({ page, context }) => {

@@ -17,7 +17,13 @@ import type {
   TrainingPlanResponse,
 } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
-import { classifyApiError, readActivityRoute } from '@pierre/ui-logic';
+import {
+  classifyApiError,
+  readActivityRoute,
+  recentActivitiesSync,
+  useRequestsInFlight,
+  type RecentActivitiesSync,
+} from '@pierre/ui-logic';
 import { athleteApi, providersApi } from '../services/api';
 
 /** What the Home page reads from the recent-activities query. */
@@ -39,6 +45,13 @@ export interface RecentActivitiesState {
    * instead of asking again.
    */
   refreshing: boolean;
+  /** True while the athlete's `retry` request is in flight. */
+  retrying: boolean;
+  /**
+   * Whether the list is fetching, failed or settled, from `refreshing`,
+   * `retrying` and the answer's `sync_failure` ({@link recentActivitiesSync}).
+   */
+  sync: RecentActivitiesSync;
 }
 
 /**
@@ -81,6 +94,8 @@ export function useRecentActivities(): RecentActivitiesState {
   const [endedOn, setEndedOn] = useState<number | null>(null);
   // How many retries the athlete has made: each one restarts the schedule.
   const [retries, setRetries] = useState(0);
+  const retryRequest = useRequestsInFlight();
+  const { track } = retryRequest;
   const waiting = query.data?.stale === true && query.dataUpdatedAt !== endedOn;
 
   useEffect(() => {
@@ -127,14 +142,14 @@ export function useRecentActivities(): RecentActivitiesState {
     setRetries((count) => count + 1);
     // Written into the same cache entry the page reads, so the answer is
     // judged like any other; a failed retry leaves the rows it had.
-    queryClient
-      .fetchQuery({
+    track(
+      queryClient.fetchQuery({
         queryKey: QUERY_KEYS.home.recentActivities(),
         queryFn: () => athleteApi.getRecentActivities(undefined, { retry: true }),
         staleTime: 0,
-      })
-      .catch(() => undefined);
-  }, [queryClient]);
+      }),
+    ).catch(() => undefined);
+  }, [queryClient, track]);
 
   return {
     data: query.data,
@@ -143,6 +158,12 @@ export function useRecentActivities(): RecentActivitiesState {
     refetch: () => void refetch(),
     retry,
     refreshing: waiting,
+    retrying: retryRequest.inFlight,
+    sync: recentActivitiesSync({
+      refreshing: waiting,
+      retrying: retryRequest.inFlight,
+      syncFailure: query.data?.sync_failure ?? null,
+    }),
   };
 }
 
