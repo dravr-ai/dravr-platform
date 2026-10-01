@@ -71,9 +71,7 @@ pub use surface_profile::{
 pub use turn_service::{
     detect_turn_locale, dispatch_slash, execute, CommandTurn, ServedTurn, SlashRequest, TurnRequest,
 };
-pub use usage_counters::{
-    increment_usage_counters_scoped, tokens_from_envelope, UsageIncrementScope,
-};
+pub use usage_counters::{increment_usage_counters_scoped, UsageIncrementScope};
 // Re-exported so that flows which build `ToolLoopParams` directly (the
 // messaging ingress) can attach the same per-call recorder the chat
 // pipeline uses.

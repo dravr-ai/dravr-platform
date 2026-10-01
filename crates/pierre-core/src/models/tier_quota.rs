@@ -15,9 +15,11 @@ use crate::models::user::UserTier;
 pub struct TierQuotaConfig {
     /// Daily cap on user-originated chat messages.
     pub daily_messages: i64,
-    /// Daily cap on billable LLM tokens (prompt + completion, excluding cached).
+    /// Daily cap on billable LLM tokens: fresh prompt + cache-write prompt +
+    /// completion. Prompt-cache reads are weighted by the chat pipeline's
+    /// `CACHE_READ_QUOTA_WEIGHT_PERCENT`, which is zero (carnet#691).
     pub daily_tokens: i64,
-    /// Weekly cap on billable LLM tokens.
+    /// Weekly cap on billable LLM tokens, counted like `daily_tokens`.
     pub weekly_tokens: i64,
     /// Monthly cap on billable LLM tokens.
     pub monthly_tokens: i64,

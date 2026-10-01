@@ -68,8 +68,20 @@ mod turn_service_quota_tests {
     use tokio::time::sleep;
     use uuid::Uuid;
 
-    /// Deterministic agent: one short reply, real token counts, no tools.
-    struct CountingMockProvider;
+    /// Deterministic agent: one short reply, the given token counts, no tools.
+    struct CountingMockProvider {
+        usage: TokenUsage,
+    }
+
+    impl CountingMockProvider {
+        /// A provider reporting no prompt-cache split, as most non-ACP
+        /// providers do.
+        fn plain() -> Self {
+            Self {
+                usage: TokenUsage::new(25, 15, 40),
+            }
+        }
+    }
 
     #[async_trait]
     impl LlmProvider for CountingMockProvider {
@@ -93,7 +105,7 @@ mod turn_service_quota_tests {
             Ok(ChatResponse {
                 content: "Ta semaine est bien dosée: garde le volume et dors davantage.".to_owned(),
                 model: "mock-model".to_owned(),
-                usage: Some(TokenUsage::new(25, 15, 40)),
+                usage: Some(self.usage.clone()),
                 finish_reason: Some("stop".to_owned()),
                 warnings: None,
                 tool_calls: None,
@@ -254,9 +266,10 @@ mod turn_service_quota_tests {
     async fn telegram_turn_increments_one_message_on_the_athletes_tenant() {
         env::set_var("PIERRE_LLM_MODEL", "mock-model");
 
-        let resources = create_test_server_resources_with_llm(Arc::new(CountingMockProvider))
-            .await
-            .unwrap();
+        let resources =
+            create_test_server_resources_with_llm(Arc::new(CountingMockProvider::plain()))
+                .await
+                .unwrap();
         let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         let (athlete_id, athlete_tenant) =
@@ -347,17 +360,19 @@ mod turn_service_quota_tests {
         );
     }
 
-    /// A web turn spends the same counter, through the same service.
-    #[tokio::test]
-    #[serial]
-    async fn web_turn_increments_one_message_on_the_athletes_tenant() {
+    /// Run one plain-prose web turn through
+    /// [`pierre_chat_pipeline::execute`] with `provider` as the agent, and
+    /// return the athlete it was served for once the turn has completed.
+    async fn serve_web_turn(
+        provider: CountingMockProvider,
+        email: &str,
+    ) -> (Arc<ServerContext>, Uuid, TenantId) {
         env::set_var("PIERRE_LLM_MODEL", "mock-model");
 
-        let resources = create_test_server_resources_with_llm(Arc::new(CountingMockProvider))
+        let resources = create_test_server_resources_with_llm(Arc::new(provider))
             .await
             .unwrap();
-        let (athlete_id, athlete_tenant) =
-            create_athlete(&resources, "web-quota-pin@example.com").await;
+        let (athlete_id, athlete_tenant) = create_athlete(&resources, email).await;
 
         let conversation = resources
             .common
@@ -417,6 +432,16 @@ mod turn_service_quota_tests {
             "the turn's own locale rides back out on the envelope"
         );
 
+        (resources, athlete_id, athlete_tenant)
+    }
+
+    /// A web turn spends the same counter, through the same service.
+    #[tokio::test]
+    #[serial]
+    async fn web_turn_increments_one_message_on_the_athletes_tenant() {
+        let (resources, athlete_id, athlete_tenant) =
+            serve_web_turn(CountingMockProvider::plain(), "web-quota-pin@example.com").await;
+
         assert_eq!(
             counter(&resources, athlete_tenant, athlete_id, "daily_messages").await,
             1,
@@ -431,6 +456,32 @@ mod turn_service_quota_tests {
             counter(&resources, athlete_tenant, athlete_id, "daily_tokens").await,
             40,
             "the provider's own token counts are what the budget is charged"
+        );
+    }
+
+    /// Prompt-cache reads are not charged against the token budget
+    /// (carnet#691). The usage is the 2026-10-01 incident turn's: 455,493
+    /// prompt tokens split by the Copilot ACP usage line as cachedRead 378,608
+    /// + cachedWrite 76,873 + 12 fresh. Charged gross, that one question spent
+    /// 91% of the Starter plan's 500k daily budget.
+    #[tokio::test]
+    #[serial]
+    async fn web_turn_charges_no_prompt_cache_reads_against_the_token_budget() {
+        let provider = CountingMockProvider {
+            usage: TokenUsage::new(455_493, 15, 455_508).with_cache(Some(378_608), Some(76_873)),
+        };
+        let (resources, athlete_id, athlete_tenant) =
+            serve_web_turn(provider, "web-cache-quota-pin@example.com").await;
+
+        assert_eq!(
+            counter(&resources, athlete_tenant, athlete_id, "daily_tokens").await,
+            76_885 + 15,
+            "fresh + cache-write prompt + output is the charge, never the 455,508 gross"
+        );
+        assert_eq!(
+            counter(&resources, athlete_tenant, athlete_id, "weekly_tokens").await,
+            76_885 + 15,
+            "the weekly budget is charged the same weighed count"
         );
     }
 }

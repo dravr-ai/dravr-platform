@@ -55,7 +55,7 @@ use crate::stages::persistence::fan_out_to_group_transcript;
 use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
 use crate::usage_counters::{
-    increment_usage_counters_scoped, tokens_from_envelope, UsageIncrementScope,
+    increment_usage_counters_scoped, quota_tokens_from_envelope, UsageIncrementScope,
 };
 use crate::ChatPipelineContext;
 
@@ -351,12 +351,12 @@ pub async fn execute(
 
     let envelope = crate::run(&ctx_for_turn, turn_input, &profile, &request.hooks).await?;
 
-    let (prompt_tokens, completion_tokens) = tokens_from_envelope(&envelope, &request.content);
+    let quota_tokens = quota_tokens_from_envelope(&envelope, &request.content);
     increment_usage_counters_scoped(
         ctx,
         request.tool_tenant_id,
         request.user_id,
-        i64::from(prompt_tokens) + i64::from(completion_tokens),
+        quota_tokens,
         &UsageIncrementScope {
             conversation_id: Some(request.conversation_id.as_str()),
             agent_id: agent_id.as_deref(),

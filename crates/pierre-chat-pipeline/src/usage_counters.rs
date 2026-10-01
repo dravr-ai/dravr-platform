@@ -15,6 +15,7 @@
 
 use pierre_core::models::TenantId;
 use pierre_core::tokens::estimate_chat_tokens;
+use pierre_llm::TokenUsage;
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
 use pierre_services::usage_counter::UsageCounterService;
 use tracing::warn;
@@ -38,18 +39,55 @@ pub struct UsageIncrementScope<'a> {
     pub agent_id: Option<&'a str>,
 }
 
-/// Resolve prompt/completion token counts from a completed turn.
+/// Weight, in percent of a fresh token, that a prompt-cache read carries
+/// against the token quotas (`daily_tokens`, `weekly_tokens`).
 ///
-/// Prefers real provider-reported counts. When the provider does not report
-/// usage (CLI-based providers such as Copilot headless), falls back to
+/// Zero by product decision (carnet#691): a cache read is context the provider
+/// already holds and bills at a steep discount, and on the Copilot ACP path it
+/// is mostly the vendor's own preamble re-served on every tool-loop iteration.
+/// One five-tool activity question reported 455,493 prompt tokens of which
+/// 378,608 were cache reads; charged at full weight that single turn spent 91%
+/// of the Starter plan's daily budget. Fresh input, cache writes and output are
+/// charged in full. The `llm_usage` cost rows are unaffected — they record the
+/// read split as reported and price it with the model's own cache multiplier.
+pub(crate) const CACHE_READ_QUOTA_WEIGHT_PERCENT: i64 = 0;
+
+/// Tokens one provider-reported usage charges against the token quotas.
+///
+/// `prompt_tokens` is gross — every embacle provider folds cache reads and
+/// writes into it — so the cache-read share is carved back out and re-added at
+/// [`CACHE_READ_QUOTA_WEIGHT_PERCENT`]. The read is clamped to the prompt so a
+/// provider over-reporting it can never drive the charge below the output.
+/// A provider that reports no cache split charges the gross prompt, as it
+/// always has.
+#[must_use]
+pub(crate) fn quota_tokens_for_usage(usage: &TokenUsage) -> i64 {
+    let prompt = i64::from(usage.prompt_tokens);
+    let cached_read = usage
+        .cached_read_tokens
+        .map_or(0, i64::from)
+        .clamp(0, prompt);
+    let charged_prompt = prompt - cached_read + cached_read * CACHE_READ_QUOTA_WEIGHT_PERCENT / 100;
+    charged_prompt + i64::from(usage.completion_tokens)
+}
+
+/// Tokens a completed turn charges against the token quotas.
+///
+/// Prefers real provider-reported counts, weighed by
+/// [`quota_tokens_for_usage`]. When the provider does not report usage
+/// (CLI-based providers such as Copilot headless), falls back to
 /// character-based estimation on the athlete's input for the prompt side and
 /// on the persisted assistant row — the same bytes the athlete was sent — for
 /// the completion side.
 #[must_use]
-pub fn tokens_from_envelope(envelope: &TurnEnvelope, user_content: &str) -> (u32, u32) {
+pub(crate) fn quota_tokens_from_envelope(envelope: &TurnEnvelope, user_content: &str) -> i64 {
     envelope.telemetry.usage.as_ref().map_or_else(
-        || estimate_chat_tokens(user_content, &envelope.assistant.message.content),
-        |usage| (usage.prompt_tokens, usage.completion_tokens),
+        || {
+            let (prompt, completion) =
+                estimate_chat_tokens(user_content, &envelope.assistant.message.content);
+            i64::from(prompt) + i64::from(completion)
+        },
+        quota_tokens_for_usage,
     )
 }
 
@@ -129,5 +167,44 @@ async fn increment_scoped_counters(
         {
             warn!("Failed to increment daily_coach_messages:{agent_id} counter: {e}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The 2026-10-01 incident turn: five Copilot ACP tool-loop calls,
+    /// split by the usage line as cachedRead 378,608 + cachedWrite 76,873
+    /// + 12 fresh.
+    fn incident_usage(completion: u32) -> TokenUsage {
+        TokenUsage::new(455_493, completion, 455_493 + completion)
+            .with_cache(Some(378_608), Some(76_873))
+    }
+
+    #[test]
+    fn incident_turn_charges_fresh_plus_cache_write_plus_output() {
+        assert_eq!(
+            quota_tokens_for_usage(&incident_usage(1_204)),
+            76_885 + 1_204
+        );
+    }
+
+    #[test]
+    fn provider_without_cache_split_charges_the_gross_prompt() {
+        let usage = TokenUsage::new(455_493, 1_204, 456_697);
+        assert_eq!(quota_tokens_for_usage(&usage), 456_697);
+    }
+
+    #[test]
+    fn cache_write_only_turn_charges_in_full() {
+        let usage = TokenUsage::new(62_564, 40, 62_604).with_cache(Some(0), Some(62_564));
+        assert_eq!(quota_tokens_for_usage(&usage), 62_604);
+    }
+
+    #[test]
+    fn over_reported_cache_read_never_charges_below_output() {
+        let usage = TokenUsage::new(1_000, 25, 1_025).with_cache(Some(5_000), None);
+        assert_eq!(quota_tokens_for_usage(&usage), 25);
     }
 }
