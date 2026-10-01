@@ -126,8 +126,7 @@ async fn existing_keypair_is_never_replaced() {
         .export_private_key_pem()
         .unwrap();
 
-    // Another key under the same id, as a racing instance in the same second
-    // would generate.
+    // Another key under the same id, as a racing instance would generate.
     let mut other = JwksManager::new();
     other
         .generate_rsa_key_pair_with_size(&kid, TEST_RSA_BITS)

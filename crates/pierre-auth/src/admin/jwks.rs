@@ -59,15 +59,15 @@ use pierre_database::backends::SecurityRepository;
 use tracing::{error, info};
 
 /// RSA key size in bits for RS256 (2048 bits minimum, 4096 bits recommended)
-const RSA_KEY_SIZE: usize = 4096;
+pub const RSA_KEY_SIZE: usize = 4096;
 
 /// Key id of the first keypair a store ever holds.
 ///
 /// Fixed rather than time-derived so that instances booting together against
 /// an empty table all insert under the same primary key: the first insert
 /// wins, every other one is a no-op, and every instance then re-reads the one
-/// stored row. A per-second id let racing instances store distinct keys and
-/// each settle on a different active one (carnet#696).
+/// stored row. A time-derived id would let racing instances store distinct
+/// keys and each settle on a different active one (carnet#696).
 pub const FIRST_KEYPAIR_KID: &str = "key_first";
 
 /// Number of historical keys to retain for validation

@@ -22,6 +22,10 @@ use pierre_test_support::db::{create_concurrent_test_db, create_test_db_with_key
 
 /// System-secret name the version-1 wrapped DEK is stored under.
 const V1_SECRET: &str = "database_encryption_key";
+/// System-secret name a version-2 wrapped DEK is stored under.
+const V2_SECRET: &str = "database_encryption_key_v2";
+/// System-secret name the active DEK version is stored under.
+const ACTIVE_VERSION_SECRET: &str = "database_encryption_key_active_version";
 const MEK_BYTES: [u8; 32] = [7u8; 32];
 
 fn kek() -> LocalKekProvider {
@@ -58,19 +62,44 @@ async fn execute_raw(database: &Database, sql: &str) {
     }
 }
 
-/// Make reads of the stored version-1 DEK fail while the row stays in place.
+/// Run one statement binding `secret_type` as `$1` against whichever backend
+/// the factory opened.
+async fn execute_for_secret(database: &Database, sql: &str, secret_type: &str) {
+    match database.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
+            sqlx::query(sql)
+                .bind(secret_type)
+                .execute(sqlite.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(pg) => {
+            sqlx::query(sql)
+                .bind(secret_type)
+                .execute(pg.pool())
+                .await
+                .unwrap();
+        }
+    }
+}
+
+/// Make reads of the stored `secret_type` row fail while the row stays in
+/// place.
 ///
 /// On `SQLite` the value is re-typed as a BLOB, byte for byte, so the read
 /// fails but an upsert would still succeed — the incident's shape, where the
 /// read timed out and the write went through. `PostgreSQL` types the column
-/// strictly, so there the column is hidden behind a rename instead.
-async fn break_v1_reads(database: &Database) {
+/// strictly, so there the column is hidden behind a rename instead, which
+/// fails every secret read.
+async fn break_reads(database: &Database, secret_type: &str) {
     match database.backend() {
         DatabaseBackend::SQLite(_) => {
-            execute_raw(
+            execute_for_secret(
                 database,
                 "UPDATE system_secrets SET secret_value = CAST(secret_value AS BLOB) \
-                 WHERE secret_type = 'database_encryption_key'",
+                 WHERE secret_type = $1",
+                secret_type,
             )
             .await;
         }
@@ -85,14 +114,15 @@ async fn break_v1_reads(database: &Database) {
     }
 }
 
-/// Undo [`break_v1_reads`].
-async fn restore_v1_reads(database: &Database) {
+/// Undo [`break_reads`].
+async fn restore_reads(database: &Database, secret_type: &str) {
     match database.backend() {
         DatabaseBackend::SQLite(_) => {
-            execute_raw(
+            execute_for_secret(
                 database,
                 "UPDATE system_secrets SET secret_value = CAST(secret_value AS TEXT) \
-                 WHERE secret_type = 'database_encryption_key'",
+                 WHERE secret_type = $1",
+                secret_type,
             )
             .await;
         }
@@ -120,7 +150,7 @@ async fn read_error_never_writes_a_key_and_fails_initialization() {
         .await
         .unwrap();
 
-    break_v1_reads(&database).await;
+    break_reads(&database, V1_SECRET).await;
     let read_error = database
         .as_security_repository()
         .get_system_secret(V1_SECRET)
@@ -140,7 +170,7 @@ async fn read_error_never_writes_a_key_and_fails_initialization() {
         "a failed DEK read must fail initialization, not store a fresh key"
     );
 
-    restore_v1_reads(&database).await;
+    restore_reads(&database, V1_SECRET).await;
     assert_eq!(
         database
             .as_security_repository()
@@ -298,4 +328,85 @@ async fn concurrent_fresh_initializations_converge_on_one_key() {
             "ciphertext written by one instance must decrypt on the other"
         );
     }
+}
+
+#[tokio::test]
+async fn rotation_that_loses_the_race_fails_and_keeps_the_winner() {
+    let mut manager = booting_manager();
+    let original_key = *manager.database_key();
+    let mut database = create_test_db_with_key(original_key.to_vec())
+        .await
+        .unwrap();
+    manager
+        .complete_initialization(&mut database)
+        .await
+        .unwrap();
+
+    // A concurrent rotation stored version 2 first.
+    let winner = Base64Standard.encode(kek().wrap(&[9u8; 32]).await.unwrap());
+    database
+        .as_security_repository()
+        .insert_system_secret_if_absent(V2_SECRET, &winner)
+        .await
+        .unwrap();
+
+    let result = manager.rotate_dek(&mut database).await;
+    assert!(
+        result.is_err(),
+        "a rotation whose version was stored first by another must fail"
+    );
+    assert_eq!(
+        database
+            .as_security_repository()
+            .get_system_secret(V2_SECRET)
+            .await
+            .unwrap(),
+        winner,
+        "the version the other rotation stored must not change"
+    );
+    assert_ne!(
+        database
+            .as_security_repository()
+            .get_system_secret(ACTIVE_VERSION_SECRET)
+            .await
+            .ok()
+            .as_deref(),
+        Some("2"),
+        "the losing rotation must not activate a version it did not store"
+    );
+    assert_eq!(
+        *manager.database_key(),
+        original_key,
+        "the losing rotation keeps running on its current DEK"
+    );
+}
+
+#[tokio::test]
+async fn failed_active_version_read_fails_initialization() {
+    let mut first = booting_manager();
+    let mut database = create_test_db_with_key(first.database_key().to_vec())
+        .await
+        .unwrap();
+    first.complete_initialization(&mut database).await.unwrap();
+    assert_eq!(first.rotate_dek(&mut database).await.unwrap(), 2);
+
+    break_reads(&database, ACTIVE_VERSION_SECRET).await;
+    let mut booting = booting_manager();
+    let mut booting_database = database.clone();
+    let result = booting.complete_initialization(&mut booting_database).await;
+    restore_reads(&database, ACTIVE_VERSION_SECRET).await;
+
+    assert!(
+        result.is_err(),
+        "a failed active-version read must fail initialization, not boot on version 1"
+    );
+    assert_eq!(
+        database
+            .as_security_repository()
+            .get_system_secret(ACTIVE_VERSION_SECRET)
+            .await
+            .unwrap(),
+        "2",
+        "the stored active version is untouched"
+    );
 }
