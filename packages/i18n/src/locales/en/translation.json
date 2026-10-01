@@ -148,7 +148,6 @@
     "athlete": "Athlete",
     "athleteId": "Athlete ID",
     "available": "Available",
-    "awaiting": "Awaiting",
     "backToSignIn": "Back to sign in",
     "backToSignInTitle": "Back to Sign In",
     "backUpClaim": "Can you back up this claim with evidence? \"{{claim}}\"",
@@ -1618,7 +1617,6 @@
   "frag": {
     "allCaughtUp": "You're all caught up!",
     "analyzed": "Analyzed",
-    "awaiting": "Awaiting",
     "chatWith": "Chat with",
     "clientIdLabel": "Client ID:",
     "connectTo": "Connect to",
@@ -1634,7 +1632,6 @@
     "failedLoadMemory": "Failed to load memory facts:",
     "failedTo": "Failed to",
     "findAthleteIdUnder": "Find your athlete id and API key under",
-    "finishAuthPopup": "Finish the authorisation in the popup window. We'll route you to the dashboard automatically once",
     "forOneTurn": "for one turn",
     "impersonating": "You are impersonating",
     "instructionsLabel": "Instructions:",
@@ -2900,13 +2897,6 @@
     "title": "MCP tokens"
   },
   "usage": {
-    "blockedLimitReached": "{{label}} limit reached. Limits reset at {{time}}.",
-    "burstZone": "You're in the burst zone for {{label}} ({{current}}/{{limit}}). Limits reset at {{time}}.",
-    "dailyMessages": "your daily messages",
-    "dailyTokens": "your daily tokens",
-    "messageQuota": "your message quota",
-    "percentUsed": "You've used {{percent}}% of {{label}} ({{current}}/{{limit}}). Limits reset at {{time}}.",
-    "weeklyMessages": "your weekly messages",
     "counter": {
       "dailyMessages": "Daily messages",
       "dailyTokens": "Daily tokens",

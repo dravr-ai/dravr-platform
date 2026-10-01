@@ -148,7 +148,6 @@
     "athlete": "Athletin oder Athlet",
     "athleteId": "Athleten-ID",
     "available": "Verfügbar",
-    "awaiting": "Warten auf",
     "backToSignIn": "Zurück zur Anmeldung",
     "backToSignInTitle": "Zurück zur Anmeldung",
     "backUpClaim": "Kannst du diese Aussage mit Belegen stützen? „{{claim}}“",
@@ -1618,7 +1617,6 @@
   "frag": {
     "allCaughtUp": "Du bist auf dem neuesten Stand!",
     "analyzed": "Analysiert",
-    "awaiting": "Warten auf",
     "chatWith": "Chatten mit",
     "clientIdLabel": "Client-ID:",
     "connectTo": "Verbinden mit",
@@ -1634,7 +1632,6 @@
     "failedLoadMemory": "Erinnerungen konnten nicht geladen werden:",
     "failedTo": "Fehlgeschlagen:",
     "findAthleteIdUnder": "Deine Athleten-ID und deinen API-Schlüssel findest du unter",
-    "finishAuthPopup": "Schließe die Autorisierung im Pop-up-Fenster ab. Wir bringen dich automatisch zum Dashboard, sobald",
     "forOneTurn": "für eine Runde",
     "impersonating": "Du agierst als",
     "instructionsLabel": "Anweisungen:",
@@ -2900,13 +2897,6 @@
     "title": "MCP-Tokens"
   },
   "usage": {
-    "blockedLimitReached": "Limit für {{label}} erreicht. Die Limits werden um {{time}} zurückgesetzt.",
-    "burstZone": "Du bist im Spitzenbereich für {{label}} ({{current}}/{{limit}}). Die Limits werden um {{time}} zurückgesetzt.",
-    "dailyMessages": "deine täglichen Nachrichten",
-    "dailyTokens": "deine täglichen Token",
-    "messageQuota": "dein Nachrichtenkontingent",
-    "percentUsed": "Du hast {{percent}} % von {{label}} ({{current}}/{{limit}}) verbraucht. Die Limits werden um {{time}} zurückgesetzt.",
-    "weeklyMessages": "deine wöchentlichen Nachrichten",
     "counter": {
       "dailyMessages": "Nachrichten pro Tag",
       "dailyTokens": "Tokens pro Tag",

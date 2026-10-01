@@ -148,7 +148,6 @@
     "athlete": "Athlète",
     "athleteId": "Identifiant athlète",
     "available": "Disponible",
-    "awaiting": "En attente",
     "backToSignIn": "Retour à la connexion",
     "backToSignInTitle": "Retour à la connexion",
     "backUpClaim": "Peux-tu étayer cette affirmation avec des preuves ? « {{claim}} »",
@@ -1618,7 +1617,6 @@
   "frag": {
     "allCaughtUp": "Tu es à jour !",
     "analyzed": "Analysé",
-    "awaiting": "En attente de",
     "chatWith": "Discuter avec",
     "clientIdLabel": "Identifiant client :",
     "connectTo": "Se connecter à",
@@ -1634,7 +1632,6 @@
     "failedLoadMemory": "Impossible de charger les souvenirs :",
     "failedTo": "Impossible de",
     "findAthleteIdUnder": "Trouve ton identifiant athlète et ta clé API dans",
-    "finishAuthPopup": "Termine l’autorisation dans la fenêtre pop-up. On te ramène au tableau de bord automatiquement dès que",
     "forOneTurn": "pour une réponse",
     "impersonating": "Tu incarnes",
     "instructionsLabel": "Instructions :",
@@ -2900,13 +2897,6 @@
     "title": "Jetons MCP"
   },
   "usage": {
-    "blockedLimitReached": "Limite {{label}} atteinte. Les limites se réinitialisent à {{time}}.",
-    "burstZone": "Tu es dans la zone de pointe pour {{label}} ({{current}}/{{limit}}). Les limites se réinitialisent à {{time}}.",
-    "dailyMessages": "tes messages quotidiens",
-    "dailyTokens": "tes jetons quotidiens",
-    "messageQuota": "ton quota de messages",
-    "percentUsed": "Tu as utilisé {{percent}} % de {{label}} ({{current}}/{{limit}}). Les limites se réinitialisent à {{time}}.",
-    "weeklyMessages": "tes messages hebdomadaires",
     "counter": {
       "dailyMessages": "Messages par jour",
       "dailyTokens": "Jetons par jour",

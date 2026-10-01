@@ -148,7 +148,6 @@
     "athlete": "Atleta",
     "athleteId": "ID de atleta",
     "available": "Disponível",
-    "awaiting": "A aguardar",
     "backToSignIn": "Voltar a iniciar sessão",
     "backToSignInTitle": "Voltar a iniciar sessão",
     "backUpClaim": "Podes sustentar esta afirmação com provas? “{{claim}}”",
@@ -1618,7 +1617,6 @@
   "frag": {
     "allCaughtUp": "Estás em dia!",
     "analyzed": "Analisado",
-    "awaiting": "A aguardar",
     "chatWith": "Falar com",
     "clientIdLabel": "ID de cliente:",
     "connectTo": "Ligar a",
@@ -1634,7 +1632,6 @@
     "failedLoadMemory": "Não foi possível carregar as memórias:",
     "failedTo": "Não foi possível",
     "findAthleteIdUnder": "Encontra o teu id de atleta e a tua chave API em",
-    "finishAuthPopup": "Termina a autorização na janela pop-up. Levamos-te ao painel automaticamente assim que",
     "forOneTurn": "para um turno",
     "impersonating": "Estás a personificar",
     "instructionsLabel": "Instruções:",
@@ -2900,13 +2897,6 @@
     "title": "Tokens MCP"
   },
   "usage": {
-    "blockedLimitReached": "Limite de {{label}} atingido. Os limites são reiniciados às {{time}}.",
-    "burstZone": "Estás na zona de pico de {{label}} ({{current}}/{{limit}}). Os limites são reiniciados às {{time}}.",
-    "dailyMessages": "as tuas mensagens diárias",
-    "dailyTokens": "os teus tokens diários",
-    "messageQuota": "a tua quota de mensagens",
-    "percentUsed": "Usaste {{percent}} % de {{label}} ({{current}}/{{limit}}). Os limites são reiniciados às {{time}}.",
-    "weeklyMessages": "as tuas mensagens semanais",
     "counter": {
       "dailyMessages": "Mensagens diárias",
       "dailyTokens": "Tokens diários",
