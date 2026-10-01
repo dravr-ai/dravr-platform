@@ -31,7 +31,7 @@ use crate::repositories::{
     UsageCounterRepository, UsageRepository, UserMcpTokenRepository, UserOnboardingRepository,
     UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
     UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
-    WorkerRunRepository, WorkoutTemplateRepository,
+    WebsiteSignInTokenRepository, WorkerRunRepository, WorkoutTemplateRepository,
 };
 use dravr_riviere::TimeSeriesStore;
 
@@ -86,6 +86,8 @@ pub struct RepositoryRegistry {
     /// Standing per-email pre-approvals consulted by the registration approval
     /// decision; managed by `pierre-cli user allow / disallow / list-allowed`
     pub pre_approved_emails: Arc<dyn PreApprovedEmailRepository>,
+    /// Single-use magic links that open the members part of the dravr.ai docs
+    pub website_sign_in_tokens: Arc<dyn WebsiteSignInTokenRepository>,
     /// Provider connection tracking
     pub provider_connections: Arc<dyn ProviderConnectionRepository>,
     /// Recipe CRUD with nutrition
@@ -241,6 +243,7 @@ impl RepositoryRegistry {
             password_reset: db.clone(),
             pre_approved_emails: db.clone(),
             federated_identities: db.clone(),
+            website_sign_in_tokens: db.clone(),
             provider_connections: db.clone(),
             recipes: db.clone(),
             security: db.clone(),
@@ -323,6 +326,7 @@ impl RepositoryRegistry {
             password_reset: db.clone(),
             pre_approved_emails: db.clone(),
             federated_identities: db.clone(),
+            website_sign_in_tokens: db.clone(),
             provider_connections: db.clone(),
             recipes: db.clone(),
             security: db.clone(),

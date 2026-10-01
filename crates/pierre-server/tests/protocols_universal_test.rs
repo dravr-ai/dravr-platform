@@ -206,6 +206,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
 
     // Create ServerContext for the test
@@ -632,6 +633,7 @@ async fn test_set_goal_tool() -> Result<()> {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
 
     // Create ServerContext for the test
@@ -1530,6 +1532,7 @@ async fn test_disconnect_provider_tool() -> Result<()> {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
 
     // Create ServerContext for the test

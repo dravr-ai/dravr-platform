@@ -175,6 +175,7 @@ async fn test_oauth_authorization_url_generation() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -485,6 +486,7 @@ async fn test_oauth_state_validation() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -664,6 +666,7 @@ async fn test_connection_status_no_providers() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
 
     let user_id = Uuid::new_v4();
@@ -882,6 +885,7 @@ async fn test_invalid_provider_error() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
@@ -1062,6 +1066,7 @@ async fn test_disconnect_provider() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
@@ -1377,6 +1382,7 @@ async fn test_oauth_urls_contain_required_parameters() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(

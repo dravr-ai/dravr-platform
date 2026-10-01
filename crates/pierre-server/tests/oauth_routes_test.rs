@@ -146,6 +146,7 @@ async fn test_email_validation() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -345,6 +346,7 @@ async fn test_password_validation() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -516,6 +518,7 @@ async fn test_duplicate_user_registration() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -678,6 +681,7 @@ async fn test_login_with_correct_credentials() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -893,6 +897,7 @@ async fn test_login_with_wrong_password() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -1063,6 +1068,7 @@ async fn test_login_with_non_existent_user() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
 
     let cache = common::create_test_cache().await.unwrap();

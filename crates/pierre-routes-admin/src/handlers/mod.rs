@@ -62,3 +62,5 @@ pub mod user_removal;
 /// attributed). Still missing from this surface: the single-use invite table and
 /// redemption email from that issue.
 pub mod users;
+/// dravr.ai website endpoints for its Worker: the docs magic link's send and redemption.
+pub mod website;

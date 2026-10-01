@@ -83,4 +83,5 @@ fn super_admin_permission_set_includes_configuration_perms() {
     let perms = AdminPermissions::super_admin();
     assert!(perms.has_permission(&AdminPermission::ViewConfiguration));
     assert!(perms.has_permission(&AdminPermission::ManageConfiguration));
+    assert!(perms.has_permission(&AdminPermission::ManageWebsite));
 }

@@ -14,6 +14,7 @@
 use std::sync::Arc;
 
 use pierre_auth::auth::AuthManager;
+use pierre_config::environment::DEFAULT_WEBSITE_BASE_URL;
 use pierre_config::mcp::AppBehaviorConfig;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::{
@@ -59,6 +60,10 @@ pub struct AdminApiContext {
     pub email_service: Option<Arc<ResendEmailService>>,
     /// Public frontend URL used to build sign-in links in outbound emails
     pub frontend_url: Option<String>,
+    /// Public origin of the dravr.ai website, where docs sign-in links land
+    /// (`ServerConfig::website_base_url`; the default until the composition
+    /// root copies the configured value in)
+    pub website_base_url: String,
     /// Notifier that emails and messages a just-approved user across their
     /// linked channels (injected by the composition root; `None` until wired).
     pub approval_notifier: Option<Arc<dyn UserApprovalNotifier>>,
@@ -159,6 +164,7 @@ impl AdminApiContext {
             admin_api_key_monthly_limit: init.admin_api_key_monthly_limit,
             email_service: None,
             frontend_url: None,
+            website_base_url: DEFAULT_WEBSITE_BASE_URL.to_owned(),
             approval_notifier: None,
             provider_disconnector: None,
             harness_config_registry: init.harness_config_registry,

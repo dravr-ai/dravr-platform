@@ -4114,6 +4114,7 @@ dependencies = [
  "sha2",
  "tokio",
  "tracing",
+ "urlencoding",
  "uuid",
 ]
 

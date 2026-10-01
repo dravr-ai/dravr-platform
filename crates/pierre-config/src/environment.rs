@@ -89,6 +89,9 @@ pub struct ServerConfig {
     pub host: String,
     /// Base URL for OAuth and external URLs
     pub base_url: String,
+    /// Public origin of the dravr.ai website, where docs sign-in links land
+    /// (`WEBSITE_BASE_URL`, no trailing slash)
+    pub website_base_url: String,
     /// MCP server configuration
     pub mcp: McpConfig,
     /// CORS configuration
@@ -155,6 +158,7 @@ impl ServerConfig {
             sse: SseConfig::from_env()?,
             host: env::var("HOST").unwrap_or_else(|_| "localhost".to_owned()),
             base_url: env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8081".to_owned()),
+            website_base_url: website_base_url_from(env::var("WEBSITE_BASE_URL").ok().as_deref()),
             mcp: McpConfig::from_env(),
             cors: CorsConfig::from_env(),
             cache: CacheConfig::from_env(),
@@ -391,6 +395,20 @@ pub fn is_ephemeral_tunnel_base_url(base_url: &str) -> bool {
         .ends_with(".trycloudflare.com")
 }
 
+/// Public origin of the dravr.ai website when `WEBSITE_BASE_URL` is unset.
+pub const DEFAULT_WEBSITE_BASE_URL: &str = "https://dravr.ai";
+
+/// The website origin docs sign-in links are built on: `WEBSITE_BASE_URL`
+/// without its trailing slashes, or [`DEFAULT_WEBSITE_BASE_URL`] when it is
+/// unset or blank.
+fn website_base_url_from(value: Option<&str>) -> String {
+    value
+        .map(|v| v.trim().trim_end_matches('/'))
+        .filter(|v| !v.is_empty())
+        .unwrap_or(DEFAULT_WEBSITE_BASE_URL)
+        .to_owned()
+}
+
 /// Report the address the server hands out, beside the one it listens on.
 ///
 /// The listen address is where the process accepts connections; `BASE_URL` is
@@ -412,5 +430,25 @@ pub fn log_effective_base_url(base_url: &str) {
             base_url = %redact_url(base_url),
             "BASE_URL in effect for OAuth callbacks and reconnect links"
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{website_base_url_from, DEFAULT_WEBSITE_BASE_URL};
+
+    #[test]
+    fn the_website_origin_drops_trailing_slashes() {
+        assert_eq!(
+            website_base_url_from(Some(" https://staging.dravr.ai// ")),
+            "https://staging.dravr.ai"
+        );
+    }
+
+    #[test]
+    fn an_unset_or_blank_website_origin_is_dravr_ai() {
+        assert_eq!(website_base_url_from(None), DEFAULT_WEBSITE_BASE_URL);
+        assert_eq!(website_base_url_from(Some("  ")), DEFAULT_WEBSITE_BASE_URL);
+        assert_eq!(website_base_url_from(Some("/")), DEFAULT_WEBSITE_BASE_URL);
     }
 }

@@ -46,6 +46,7 @@ fn plain_admin_role_manages_users_without_super_permissions() {
         AdminPermission::ManageConfiguration,
         AdminPermission::ViewConfiguration,
         AdminPermission::ViewAuditLogs,
+        AdminPermission::ManageWebsite,
     ] {
         assert!(
             !token.permissions.has_permission(&super_only),

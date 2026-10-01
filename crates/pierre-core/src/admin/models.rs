@@ -168,6 +168,7 @@ impl AdminPermissions {
             AdminPermission::ManageUsers,
             AdminPermission::ViewConfiguration,
             AdminPermission::ManageConfiguration,
+            AdminPermission::ManageWebsite,
         ])
     }
 
@@ -237,6 +238,8 @@ pub enum AdminPermission {
     ViewConfiguration,
     /// Manage configuration settings (tool overrides, tenant settings)
     ManageConfiguration,
+    /// Serve the dravr.ai website: send docs sign-in links and redeem them
+    ManageWebsite,
 }
 
 impl Display for AdminPermission {
@@ -251,6 +254,7 @@ impl Display for AdminPermission {
             Self::ManageUsers => write!(f, "manage_users"),
             Self::ViewConfiguration => write!(f, "view_configuration"),
             Self::ManageConfiguration => write!(f, "manage_configuration"),
+            Self::ManageWebsite => write!(f, "manage_website"),
         }
     }
 }
@@ -269,6 +273,7 @@ impl FromStr for AdminPermission {
             "manage_users" => Ok(Self::ManageUsers),
             "view_configuration" => Ok(Self::ViewConfiguration),
             "manage_configuration" => Ok(Self::ManageConfiguration),
+            "manage_website" => Ok(Self::ManageWebsite),
             _ => Err(format!("Unknown permission: {s}")),
         }
     }

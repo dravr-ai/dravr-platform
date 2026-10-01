@@ -255,6 +255,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
 
     // Create ServerContext for the test

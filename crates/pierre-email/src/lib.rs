@@ -33,6 +33,9 @@ pub const SUBJECT_CHANNEL_LINKING_CODE: &str = "Your Dravr verification code";
 /// Subject line for the post-registration address-confirmation email.
 pub const SUBJECT_EMAIL_VERIFICATION: &str = "Confirm your email for Dravr";
 
+/// Subject line for the dravr.ai docs sign-in link.
+pub const SUBJECT_WEBSITE_SIGN_IN: &str = "Your sign-in link for the Dravr docs";
+
 /// Subject line for the operator-sent invitation.
 pub const SUBJECT_INVITATION: &str = "You're invited to Dravr";
 
@@ -158,6 +161,24 @@ impl ResendEmailService {
     ) -> AppResult<()> {
         let html = templates::email_verification_html(display_name, verify_url, ttl_minutes);
         self.send_email(to, SUBJECT_EMAIL_VERIFICATION, &html).await
+    }
+
+    /// Send the magic link that opens the members part of the dravr.ai docs.
+    ///
+    /// `sign_in_url` carries a single-use token and lands on the website's
+    /// callback; `ttl_minutes` is rendered into the copy.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if email delivery fails.
+    pub async fn send_website_sign_in_link(
+        &self,
+        to: &str,
+        sign_in_url: &str,
+        ttl_minutes: i64,
+    ) -> AppResult<()> {
+        let html = templates::website_sign_in_html(sign_in_url, ttl_minutes);
+        self.send_email(to, SUBJECT_WEBSITE_SIGN_IN, &html).await
     }
 
     /// Send an invitation carrying the sign-up link.

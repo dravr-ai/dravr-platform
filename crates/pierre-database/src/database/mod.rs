@@ -147,6 +147,8 @@ pub mod user_tool_overrides;
 pub mod users;
 /// dravr-meteo persistent weather cache (geographic + hourly buckets)
 pub mod weather_cache;
+/// dravr.ai docs sign-in link tokens (`SQLite`)
+pub mod website_sign_in_tokens;
 /// The periodic-worker ledger, claimed in one statement so two instances tick once
 pub mod worker_runs;
 /// Endurance user-authored `workout_templates` repository (`SQLite`)

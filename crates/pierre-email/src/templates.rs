@@ -291,6 +291,58 @@ pub fn email_verification_html(
     )
 }
 
+/// Generate the HTML body for the dravr.ai docs sign-in link email
+///
+/// `sign_in_url` carries a single-use `<selector>.<verifier>` token and lands on
+/// the website's callback; `ttl_minutes` is stated in the copy so the expiry is
+/// read rather than discovered.
+#[must_use]
+pub fn website_sign_in_html(sign_in_url: &str, ttl_minutes: i64) -> String {
+    let url_attr = encode_double_quoted_attribute(sign_in_url);
+    format!(
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign in to the Dravr docs</title>
+</head>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background-color:#0a0a0f;color:#e5e7eb;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;margin:0 auto;padding:40px 20px;">
+    <tr>
+      <td style="text-align:center;padding-bottom:32px;">
+        <h1 style="margin:0;font-size:24px;font-weight:700;color:#ffffff;">Dravr</h1>
+      </td>
+    </tr>
+    <tr>
+      <td style="background:linear-gradient(135deg,rgba(139,92,246,0.1),rgba(59,130,246,0.1));border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:32px;">
+        <h2 style="margin:0 0 16px;font-size:20px;font-weight:600;color:#ffffff;">Sign in to the Dravr docs</h2>
+        <p style="margin:0 0 24px;font-size:15px;line-height:1.5;color:#9ca3af;">
+          Use this link to open the full Dravr documentation with your account.
+        </p>
+        <div style="text-align:center;margin:0 0 24px;">
+          <a href="{url_attr}" style="display:inline-block;background:linear-gradient(135deg,#8b5cf6,#3b82f6);color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 28px;border-radius:10px;">Sign in to the docs</a>
+        </div>
+        <p style="margin:0 0 16px;font-size:13px;line-height:1.5;color:#6b7280;">
+          This link works once and expires in {ttl_minutes} minutes. If it has
+          expired, ask for a new one from any guide.
+        </p>
+        <p style="margin:0;font-size:13px;line-height:1.5;color:#6b7280;">
+          If you didn't ask to sign in, you can ignore this email.
+        </p>
+      </td>
+    </tr>
+    <tr>
+      <td style="text-align:center;padding-top:24px;">
+        <p style="margin:0;font-size:12px;color:#4b5563;">&copy; Dravr</p>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"#
+    )
+}
+
 /// Generate the HTML body for a channel linking verification code email
 ///
 /// Displays a 6-digit code for the user to type back in their messaging app

@@ -312,6 +312,7 @@ async fn test_oauth_flow_through_mcp() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
 
     // Create server instance
@@ -629,6 +630,7 @@ async fn test_oauth_callback_error_handling() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -941,6 +943,7 @@ async fn test_oauth_state_csrf_protection() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -1112,6 +1115,7 @@ async fn test_connection_status_tracking() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
 
     let cache = common::create_test_cache().await.unwrap();

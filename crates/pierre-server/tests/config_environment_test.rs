@@ -330,6 +330,7 @@ fn config_with_resend(
     let mut config = ServerConfig {
         resend_api_key: api_key.map(str::to_owned),
         resend_from_email: from_email.map(str::to_owned),
+        website_base_url: "https://dravr.ai".to_owned(),
         ..Default::default()
     };
     config.app_behavior.ci_mode = ci_mode;

@@ -30,6 +30,9 @@
 //! # Generate a super admin token
 //! pierre-cli token generate --service admin_console --super-admin
 //!
+//! # Generate the dravr.ai website Worker's token (docs sign-in links only)
+//! pierre-cli token generate --service dravr_website --permissions manage_website --expires-days 0
+//!
 //! # List all admin tokens
 //! pierre-cli token list
 //!

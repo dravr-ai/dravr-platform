@@ -55,6 +55,10 @@ const PERMISSION_DESCRIPTIONS: Record<AdminPermission, { label: string; descript
     description: 'Change server configuration, prompts and guardrails',
     danger: true,
   },
+  manage_website: {
+    label: 'Manage Website',
+    description: 'Send dravr.ai docs sign-in links and redeem them',
+  },
 };
 
 export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyProps) {

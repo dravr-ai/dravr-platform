@@ -179,6 +179,8 @@ pub mod users;
 pub mod uuid_columns;
 /// Repository traits for weather cache persistence.
 pub mod weather;
+/// Repository trait, statements and shared body for dravr.ai docs sign-in tokens.
+pub mod website_sign_in_tokens;
 /// Repository trait for the periodic-worker ledger: last tick and current lease per worker.
 pub mod worker_runs;
 /// `WorkoutTemplateRepository`: user-authored Endurance workout templates.
@@ -246,6 +248,7 @@ pub use user_tier_overrides::*;
 pub use user_tool_overrides::*;
 pub use users::*;
 pub use weather::*;
+pub use website_sign_in_tokens::WebsiteSignInTokenRepository;
 pub use worker_runs::*;
 pub use workout_templates::*;
 pub use workouts::*;

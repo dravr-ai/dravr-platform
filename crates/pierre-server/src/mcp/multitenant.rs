@@ -406,6 +406,9 @@ impl ProviderToolRouter {
             admin_context
                 .frontend_url
                 .clone_from(&resources.common.config.frontend_url);
+            admin_context
+                .website_base_url
+                .clone_from(&resources.common.config.website_base_url);
             #[cfg(feature = "client-messaging")]
             {
                 admin_context.approval_notifier = Some(ApprovalNotifier::from_context(resources));

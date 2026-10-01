@@ -30,7 +30,7 @@ use crate::handlers::{
     admin_rate_limit_override, agent_followups, agent_grading, agent_notes, api_keys,
     claim_verdicts, device_auth, device_web, feature_flags, guardian_config, harness_config,
     memory_worker, myth_busting, provider_data, settings, setup, strava_pool, tokens, user_removal,
-    users,
+    users, website,
 };
 
 /// Admin routes implementation (Axum).
@@ -82,6 +82,10 @@ impl AdminRoutes {
         );
 
         let settings_routes = Self::settings_routes(context.clone()).layer(
+            middleware::from_fn_with_state(auth_service.clone(), admin_auth_middleware),
+        );
+
+        let website_routes = Self::website_routes(context.clone()).layer(
             middleware::from_fn_with_state(auth_service, admin_auth_middleware),
         );
 
@@ -97,7 +101,24 @@ impl AdminRoutes {
             .merge(device_public_routes)
             .merge(device_approve_routes)
             .merge(settings_routes)
+            .merge(website_routes)
             .merge(setup_routes)
+    }
+
+    /// dravr.ai website routes (admin-token auth, `ManageWebsite`), called by
+    /// the website's Cloudflare Worker through the public frontend's `/admin/`
+    /// proxy: the docs magic link's send and redemption.
+    fn website_routes(context: Arc<AdminApiContext>) -> Router {
+        Router::new()
+            .route(
+                "/admin/website/sign-in-link",
+                post(website::handle_send_sign_in_link),
+            )
+            .route(
+                "/admin/website/sign-in-link/consume",
+                post(website::handle_consume_sign_in_link),
+            )
+            .with_state(context)
     }
 
     /// Human-admin routes mounted at `/api/admin/...` behind cookie/session

@@ -16,7 +16,8 @@ export type AdminPermission =
   | 'view_audit_logs'
   | 'manage_users'
   | 'view_configuration'
-  | 'manage_configuration';
+  | 'manage_configuration'
+  | 'manage_website';
 
 /** An admin token for internal services */
 export interface AdminToken {

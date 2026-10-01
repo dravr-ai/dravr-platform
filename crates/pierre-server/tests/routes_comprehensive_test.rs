@@ -295,6 +295,7 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -583,6 +584,7 @@ async fn test_user_login_success() -> Result<()> {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -872,6 +874,7 @@ async fn test_token_refresh_success() -> Result<()> {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -1117,6 +1120,7 @@ async fn test_token_refresh_suspended_user() -> Result<()> {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -1631,6 +1635,7 @@ async fn test_complete_auth_flow() -> Result<()> {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -1946,6 +1951,7 @@ async fn test_concurrent_logins() -> Result<()> {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
     });
 
     let cache = common::create_test_cache().await.unwrap();
