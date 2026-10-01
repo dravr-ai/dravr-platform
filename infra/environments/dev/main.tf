@@ -383,21 +383,14 @@ module "backend" {
       # makes the headless provider advertise SDK_TOOL_CALLING and enables the
       # per-turn MCP-bridge token minting.
       #
-      # TEMPORARILY DISABLED (2026-06-22): the native MCP-bridge path has two
-      # open defects that break the messaging coach — (1) the originating
-      # Re-enabled 2026-08-18. Disabled 2026-06-22 as a "temporary mitigation"
-      # whose premise was that turns would fall back to the text <tool_call>
-      # loop, which parses and executes those blocks. Measured today: they do
-      # not. Every messaging turn since has recorded tool_calls_count = 0 —
-      # eight weeks with no working tool path at all, which is strictly worse
-      # than either native defect it was avoiding. Replies looked grounded only
-      # because activities are pre-injected into the prompt.
-      #
-      # The two native-path defects it cited (conversation id not carried
-      # through bridged calls, so a chat-triggered backfill never pushes; and
-      # scaffolding parroted to empty) are real, but the second now has a
-      # response-boundary strip in front of it, and the first degrades a push
-      # notification rather than the turn.
+      # The text <tool_call> loop is not a working alternative: with this
+      # off, messaging turns record tool_calls_count = 0 (measured over
+      # eight weeks, 2026-06-22 to 2026-08-18) and replies look grounded
+      # only because activities are pre-injected into the prompt. Two
+      # native-path defects remain: the conversation id is not carried
+      # through bridged calls, so a chat-triggered backfill never pushes
+      # (that degrades a push notification, not the turn), and scaffolding
+      # parroted to empty, which a response-boundary strip sits in front of.
       COPILOT_HEADLESS_MCP_TOOL_CALLING = "true"
 
       # Deny every ACP permission request from the copilot subprocess.
@@ -410,11 +403,8 @@ module "backend" {
       # coding CLI. Athlete-supplied text drives that session, so auto-approval
       # is an injection-to-execution path.
       #
-      # Nothing is lost by denying, but NOT for the reason this comment used to
-      # give. It said Dravr tools run through the text <tool_call> loop, which
-      # stopped being true when MCP_TOOL_CALLING went to "true" twelve lines
-      # above: Dravr tool execution happens inside the session now, over the
-      # loopback MCP server declared in session/new.
+      # Nothing is lost by denying: Dravr tool execution happens inside the
+      # session, over the loopback MCP server declared in session/new.
       #
       # What makes deny_all free is that those calls never raise a permission
       # request. embacle sets the session to Autopilot whenever mcp_servers is
@@ -424,7 +414,7 @@ module "backend" {
       # The sciotte vision path sends inline base64 PNGs rather than file paths,
       # so it needs no runnable tool either.
       #
-      # The dependency runs the other way now: if Autopilot ever fails to arm
+      # The dependency runs through Autopilot: if it ever fails to arm
       # (embacle logs "ACP: failed to set Autopilot mode" and continues), every
       # Dravr tool call becomes a permission prompt that this policy cancels, and
       # the turn answers with no data. That warning is the signal to watch.
@@ -463,14 +453,12 @@ module "backend" {
       # ACP messages — never the length of a turn. A turn that streams chunks for
       # ten minutes never trips it; a session that has gone quiet does.
       #
-      # It was raised to 300 to stop turns being "cut off mid-synthesis". That
-      # reasoning did not hold: synthesis streams, so this timeout was never what
-      # cut those turns off — the whole-turn cap below was. What raising it DID
-      # do was set the two equal, which disarms the idle detector outright: the
-      # prompt timeout always fires first, so a parked session burns the full
-      # 300s of silence instead of failing at the first sign of one. That is the
-      # 2026-08-22 group turn, which sat silent for 4m15s after a tool result
-      # returned and then fell to a broken fallback.
+      # It must stay strictly below the whole-turn cap below. Synthesis
+      # streams, so this timeout never cuts a healthy turn; set equal to the
+      # prompt cap, the prompt timeout always fires first and a parked
+      # session burns the full 300s of silence — the 2026-08-22 group turn,
+      # which sat silent for 4m15s after a tool result returned and then
+      # fell to a broken fallback.
       #
       # The floor is the longest LEGITIMATE silence, which is a loopback tool
       # call: the CLI emits nothing while it awaits a tool result the platform is
@@ -496,12 +484,9 @@ module "backend" {
 
       # Whole-turn ACP timeout. Must encompass a full Autopilot turn, which runs
       # the entire tool loop AND synthesis inside ONE ACP prompt — so this caps
-      # total turn duration, not a single request/response. The old 150s cap was
-      # justified by a "heaviest real coaching turn ~48s" figure measured in the
-      # pre-Autopilot text-sim era (many short prompts); once Autopilot collapsed
-      # the turn into one long prompt, healthy multi-tool turns hit 150s+ and got
-      # guillotined mid-synthesis (then fell to a broken Cohere fallback -> generic
-      # error). 300 is the ceiling on a legitimately long turn. Failing a STALLED
+      # total turn duration, not a single request/response. Healthy
+      # multi-tool Autopilot turns run past 150s, so 300 is the ceiling on
+      # a legitimately long turn. Failing a STALLED
       # one fast is the idle timeout's job, and it can only do that job while it
       # stays strictly below this number — raising this alone is safe, setting
       # the two equal disarms the idle detector entirely.
