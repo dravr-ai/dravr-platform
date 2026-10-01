@@ -339,7 +339,7 @@ dravr-stripe = { workspace = true }
 # The Home sync-truth suite builds its scraper stand-in's answers with the
 # scraper's own types and serializer, so it can only play a shape the scraper
 # can send.
-dravr-sciotte = { workspace = true }
+dravr-sciotte = { workspace = true, features = ["client"] }
 
 # Flamegraph profiler hook for criterion benches (`-- --profile-time N`).
 # pprof builds on libc signals and does not compile on Windows, and cargo

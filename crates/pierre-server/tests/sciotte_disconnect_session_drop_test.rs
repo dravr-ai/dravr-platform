@@ -33,13 +33,13 @@ use axum::routing::delete;
 use axum::{Json, Router};
 use chrono::Utc;
 use common::{create_test_server_resources, create_test_user_with_email};
+use dravr_sciotte::client::{ENV_AUDIENCE, ENV_REMOTE_URL};
 use pierre_core::constants::oauth_providers::{
     GARMIN, SCIOTTE, SCIOTTE_GARMIN, SCIOTTE_TRAININGPEAKS, STRAVA, TOKEN_TYPE_SESSION,
     TRAININGPEAKS,
 };
 use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_providers::sciotte_remote::{ENV_AUDIENCE, ENV_REMOTE_URL};
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::provider_revocation::{DisconnectReason, RevocationOutcome};
 use serde_json::{json, Value};

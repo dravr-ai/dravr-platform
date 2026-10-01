@@ -1,5 +1,5 @@
 // ABOUTME: Health sync's daily-summary reads, made on the dedicated dravr-sciotte scraper service
-// ABOUTME: Implements dravr-enforme's DailySummaryReader over RemoteSciotteClient (ADR-021)
+// ABOUTME: Implements dravr-enforme's DailySummaryReader over the sciotte service client (ADR-021)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,8 +10,10 @@
 //! time through a [`DailySummaryReader`]. Here that read runs on the
 //! dedicated scraper service, exactly as the platform's activity reads do
 //! (ADR-021): the platform-held session is imported first, which re-hydrates
-//! a service that scaled to zero, then the day is scraped over HTTP. No
-//! browser runs in the API pod.
+//! a service that scaled to zero, then the day is scraped over HTTP. A read
+//! that reaches an instance the import did not is imported once more and
+//! re-sent, so that instance holding no session is never reported as the
+//! athlete's credentials having expired. No browser runs in the API pod.
 //!
 //! The service's answers map onto the scraper errors the adapters branch on:
 //! a dead session is [`ScraperError::SessionExpired`] (the sync reports expired
@@ -23,8 +25,9 @@ use chrono::NaiveDate;
 use dravr_enforme::providers::sciotte_reader::{
     AuthSession, DailySummary, DailySummaryReader, ScraperError, ScraperResult,
 };
+use dravr_sciotte::client::SciotteClient;
 use pierre_core::errors::{AppError, ErrorCode};
-use pierre_providers::sciotte_remote::{shed_retry_after_secs, RemoteSciotteClient};
+use pierre_providers::sciotte_error::{shed_retry_after_secs, to_app_error};
 
 /// Reads daily summaries on the dravr-sciotte scraper service.
 ///
@@ -42,15 +45,14 @@ impl DailySummaryReader for SciotteServiceReader {
         session: &AuthSession,
         date: NaiveDate,
     ) -> ScraperResult<DailySummary> {
-        let remote = RemoteSciotteClient::require_from_env().map_err(scraper_error)?;
-        let session_id = remote
-            .import_session(session, provider)
-            .await
-            .map_err(scraper_error)?;
+        let remote =
+            SciotteClient::require_from_env().map_err(|e| scraper_error(to_app_error(e)))?;
         remote
-            .get_daily_summary(&session_id, date)
+            .read_imported(session, provider, || {
+                remote.get_daily_summary(&session.session_id, date)
+            })
             .await
-            .map_err(scraper_error)
+            .map_err(|e| scraper_error(to_app_error(e)))
     }
 }
 

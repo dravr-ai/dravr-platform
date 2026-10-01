@@ -26,10 +26,10 @@
 use std::env;
 
 use chrono::{TimeZone, Utc};
+use dravr_sciotte::client::{ENV_AUDIENCE, ENV_REMOTE_URL};
 use dravr_sciotte::models::AuthSession;
 use pierre_providers::core::{FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory};
 use pierre_providers::sciotte_provider::SciotteProviderFactory;
-use pierre_providers::sciotte_remote::{ENV_AUDIENCE, ENV_REMOTE_URL};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 

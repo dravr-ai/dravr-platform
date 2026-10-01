@@ -34,6 +34,8 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::Utc;
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
+use dravr_sciotte::client::{ENV_AUDIENCE, ENV_REMOTE_URL};
+use dravr_sciotte::models::CoachedAthlete;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::oauth::providers::provider_terms_version;
@@ -48,7 +50,6 @@ use pierre_core::models::{
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::ChatRoutes;
-use pierre_providers::sciotte_remote::{CoachedAthlete, ENV_AUDIENCE, ENV_REMOTE_URL};
 use pierre_routes_auth::AuthRoutes;
 use pierre_routes_groups::{DelegatedConnectionRoutes, GroupRoutes, NotificationRoutes};
 use pierre_services::delegated_connections::{end_off_roster, roster_cache_key};

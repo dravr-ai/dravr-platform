@@ -27,6 +27,7 @@ use std::time::Duration as StdDuration;
 
 use chrono::{Duration, Utc};
 use common::{create_test_server_resources, create_test_user_with_plan};
+use dravr_sciotte::models::CoachedAthlete;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::oauth_providers::TOKEN_TYPE_SESSION;
 use pierre_core::models::groups::{
@@ -38,7 +39,6 @@ use pierre_core::models::{
 };
 use pierre_groups::delegation::{DelegationStore, UnbackedLink};
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_providers::sciotte_remote::CoachedAthlete;
 use pierre_services::delegated_connections::roster_cache_key;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::provider_revocation::DisconnectReason;

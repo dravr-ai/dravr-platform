@@ -43,6 +43,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use chrono::Utc;
+use dravr_sciotte::models::{AthleteId, AuthSession, CoachedAthlete};
 use pierre_cache::{Cache, CacheKey, CacheResource};
 use pierre_core::constants::oauth_providers::{SCIOTTE_TRAININGPEAKS, TRAININGPEAKS};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
@@ -55,7 +56,6 @@ use pierre_database::RepositoryRegistry;
 use pierre_groups::delegation::DelegationStore;
 use pierre_notifications::{triggers, NotificationService, TenantId as NoticeTenantId};
 use pierre_providers::backend_resolver::user_facing_name;
-use pierre_providers::sciotte_remote::{AthleteId, AuthSession, CoachedAthlete};
 use serde_json::json;
 use tracing::{info, warn};
 use unicode_normalization::char::is_combining_mark;

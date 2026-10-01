@@ -21,6 +21,8 @@
 //! simpler than a sweeper).
 
 use chrono::{Duration, Utc};
+use dravr_sciotte::client::{ClientError, SciotteClient, SessionRemoval};
+use dravr_sciotte::models::AuthSession;
 use pierre_auth::oauth2_client::OAuth2Config;
 use pierre_core::constants::oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
@@ -29,7 +31,6 @@ use pierre_core::models::{DelegationEndReason, ProviderAccountRole, TenantId, Us
 use pierre_database::RepositoryRegistry;
 use pierre_groups::delegation::DelegationStore;
 use pierre_providers::backend_resolver::is_mirror_backend;
-use pierre_providers::sciotte_remote::{AuthSession, RemoteSciotteClient, SessionRemoval};
 use pierre_providers::utils::{refresh_oauth_token, RefreshRequest};
 use pierre_runtime_context::DataContext;
 use serde::Serialize;
@@ -391,8 +392,8 @@ pub async fn drop_scrape_session(
 /// The sciotte client a session drop goes through, or `None` — logged — when
 /// the service is not configured (so holds no session to drop) or the client
 /// cannot be built.
-fn sciotte_client(user_id: Uuid, backend: &str) -> Option<RemoteSciotteClient> {
-    match RemoteSciotteClient::from_env() {
+fn sciotte_client(user_id: Uuid, backend: &str) -> Option<SciotteClient> {
+    match SciotteClient::from_env() {
         Ok(Some(remote)) => Some(remote),
         Ok(None) => {
             debug!(
@@ -418,7 +419,7 @@ fn sciotte_client(user_id: Uuid, backend: &str) -> Option<RemoteSciotteClient> {
 /// a session it no longer held at DEBUG, and a failure at WARN, never an
 /// error, since the local deletion proceeds regardless.
 fn log_session_removal(
-    removal: &AppResult<SessionRemoval>,
+    removal: &Result<SessionRemoval, ClientError>,
     user_id: Uuid,
     tenant_id: TenantId,
     backend: &str,

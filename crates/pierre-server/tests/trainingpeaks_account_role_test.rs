@@ -38,6 +38,9 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use common::{create_test_server_resources, create_test_user_with_email, generate_test_token};
+use dravr_sciotte::client::{ENV_AUDIENCE, ENV_REMOTE_URL};
+use dravr_sciotte::models::{AthleteProfile, AuthSession};
+use dravr_sciotte::wire::ATHLETE_REQUIRED;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::oauth::providers::provider_terms_version;
@@ -48,14 +51,12 @@ use pierre_core::models::{
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::core::ActivityQueryParams;
-use pierre_providers::sciotte_remote::{
-    sciotte_refusal, AthleteProfile, ATHLETE_REQUIRED, ENV_AUDIENCE, ENV_REMOTE_URL,
-};
+use pierre_providers::sciotte_error::sciotte_refusal;
 use pierre_routes_auth::AuthRoutes;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::provider_revocation::DisconnectReason;
 use pierre_services::trainingpeaks_accounts::{
-    record_trainingpeaks_profile, AccountReading, EmailBinding,
+    account_role, record_trainingpeaks_profile, trainingpeaks_profile, AccountReading, EmailBinding,
 };
 use pierre_tool_runtime::activity_fetch::fetch_provider_head;
 use pierre_tool_runtime::protocol::{auth_required_provider, AuthService};
@@ -85,6 +86,9 @@ const LEGACY_LOGIN_SESSION: &str = "legacy-coach-login";
 const STALE_SESSION: &str = "stale-session";
 /// A coach account whose TrainingPeaks email is not the user's.
 const STRANGER_COACH_SESSION: &str = "stranger-coach-session";
+/// An athlete account whose first profile read reaches a scraper instance the
+/// import never did.
+const ROAMING_SESSION: &str = "roaming-athlete-session";
 
 /// How long before a login the stale session was stored: well past the window
 /// in which a login reuses the stored session instead of signing in.
@@ -194,27 +198,42 @@ async fn spawn_scraper(calls: Calls) -> String {
             get(
                 |State(calls): State<Calls>, headers: HeaderMap| async move {
                     let session = session_header(&headers);
-                    calls
-                        .lock()
-                        .unwrap()
-                        .push(format!("/api/athlete {session}"));
+                    let call = format!("/api/athlete {session}");
+                    let earlier_reads = {
+                        let mut calls = calls.lock().unwrap();
+                        let earlier = calls.iter().filter(|seen| **seen == call).count();
+                        calls.push(call);
+                        earlier
+                    };
+                    if session == ROAMING_SESSION && earlier_reads == 0 {
+                        return (
+                            StatusCode::UNAUTHORIZED,
+                            Json(json!({ "error": "session_not_found" })),
+                        );
+                    }
                     if is_coach(&session) {
                         sleep(COACH_PROFILE_DELAY).await;
-                        return Json(json!({
-                            "id": "900101",
-                            "role": "coach",
-                            "email": coach_email(&session),
-                            "coached_athletes": [
-                                { "id": "900001", "display_name": "Alex Athlete" }
-                            ],
-                            "display_name": "Casey Coach"
-                        }));
+                        return (
+                            StatusCode::OK,
+                            Json(json!({
+                                "id": "900101",
+                                "role": "coach",
+                                "email": coach_email(&session),
+                                "coached_athletes": [
+                                    { "id": "900001", "display_name": "Alex Athlete" }
+                                ],
+                                "display_name": "Casey Coach"
+                            })),
+                        );
                     }
-                    Json(json!({
-                        "id": "900001",
-                        "role": "athlete",
-                        "display_name": "Alex Athlete"
-                    }))
+                    (
+                        StatusCode::OK,
+                        Json(json!({
+                            "id": "900001",
+                            "role": "athlete",
+                            "display_name": "Alex Athlete"
+                        })),
+                    )
                 },
             ),
         )
@@ -756,6 +775,32 @@ async fn a_stale_session_signs_in_again(resources: &Arc<ServerContext>, calls: &
     );
 }
 
+/// The scraper keeps a session in the memory of the instance that imported
+/// it. A profile read that reaches another instance is answered
+/// `401 session_not_found`, which says nothing about the account's session:
+/// taken for a dead one, it tells a coach to reconnect an account that works.
+async fn a_profile_read_that_misses_the_import_is_imported_once_more(calls: &Calls) {
+    let session: AuthSession = serde_json::from_value(session_json(ROAMING_SESSION)).unwrap();
+
+    let profile = trainingpeaks_profile(&session)
+        .await
+        .expect("an instance that holds no session is not a dead session");
+
+    assert_eq!(profile.id.as_deref(), Some("900001"));
+    assert_eq!(profile.display_name.as_deref(), Some("Alex Athlete"));
+    assert_eq!(account_role(&profile), ProviderAccountRole::Athlete);
+    assert_eq!(
+        calls_to(calls, "/auth/import-session", ROAMING_SESSION),
+        2,
+        "the import, and exactly one more after the miss"
+    );
+    assert_eq!(
+        calls_to(calls, "/api/athlete", ROAMING_SESSION),
+        2,
+        "the read that missed, and the one re-sent after the second import"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_trainingpeaks_account_role_is_read_recorded_and_acted_on() {
     let calls: Calls = Arc::new(Mutex::new(Vec::new()));
@@ -772,6 +817,7 @@ async fn a_trainingpeaks_account_role_is_read_recorded_and_acted_on() {
     a_reused_legacy_session_is_probed(&resources, &calls).await;
     a_stale_session_signs_in_again(&resources, &calls).await;
     a_coach_account_that_is_not_the_users_earns_nothing(&resources).await;
+    a_profile_read_that_misses_the_import_is_imported_once_more(&calls).await;
 
     env::remove_var(ENV_REMOTE_URL);
 }

@@ -63,6 +63,9 @@ dravr-meteo = { workspace = true }
 # dated conversation title, shared with the chart axis ticks.
 photograveur = { workspace = true }
 dravr-enforme = { workspace = true, optional = true, features = ["provider-whoop", "provider-garmin", "provider-coros"] }
+# The scraper service's typed client and the session, roster and athlete types
+# its reads and session drops name.
+dravr-sciotte = { workspace = true, features = ["client"] }
 
 dravr-tronc = { workspace = true, features = ["notifications"] }
 dravr-equilibre-sync = { workspace = true, optional = true }

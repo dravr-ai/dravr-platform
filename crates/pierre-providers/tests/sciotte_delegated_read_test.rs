@@ -32,17 +32,16 @@ use std::env;
 use std::sync::{Arc, Mutex};
 
 use chrono::{NaiveDate, TimeZone, Utc};
-use dravr_sciotte::models::AuthSession;
+use dravr_sciotte::client::{ENV_AUDIENCE, ENV_REMOTE_URL};
+use dravr_sciotte::models::{AthleteId, AuthSession};
+use dravr_sciotte::wire::{ATHLETE_NOT_ACCESSIBLE, ATHLETE_REQUIRED};
 use pierre_providers::core::{FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory};
 use pierre_providers::errors::{AppError, ErrorCode};
 use pierre_providers::registry::global_registry;
+use pierre_providers::sciotte_error::sciotte_refusal;
 use pierre_providers::sciotte_provider::{
     delegated_session_expired, is_delegated_session_expired, SciotteProviderFactory,
     SciotteTrainingPeaksProviderFactory,
-};
-use pierre_providers::sciotte_remote::{
-    sciotte_refusal, AthleteId, ATHLETE_NOT_ACCESSIBLE, ATHLETE_REQUIRED, ENV_AUDIENCE,
-    ENV_REMOTE_URL,
 };
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -63,6 +62,9 @@ const LINKED_ATHLETE: &str = "900001";
 const UNNAMED_ATHLETE: &str = "900002";
 /// An athlete the coach's roster does not list.
 const OFF_ROSTER_ATHLETE: &str = "900003";
+
+/// The deployment switch that turns the detail-page pass on.
+const ENRICH_DETAILS_ENV: &str = "PIERRE_SCIOTTE_ENRICH_DETAILS";
 
 /// The TrainingPeaks detail id of the linked athlete's one workout.
 const LINKED_WORKOUT: &str = "900001:5001";
@@ -99,6 +101,25 @@ fn athlete_of(target: &str) -> Option<String> {
     query.split('&').find_map(|pair| {
         let (name, value) = pair.split_once('=')?;
         (name == "athlete").then(|| value.to_owned())
+    })
+}
+
+/// The name of every query parameter a request carried, in the order sent.
+fn query_names(target: &str) -> Vec<&str> {
+    target.split_once('?').map_or_else(Vec::new, |(_, query)| {
+        query
+            .split('&')
+            .map(|pair| pair.split_once('=').map_or(pair, |(name, _)| name))
+            .collect()
+    })
+}
+
+/// The value a request carried under query parameter `name`, if any.
+fn query_value<'a>(target: &'a str, name: &str) -> Option<&'a str> {
+    let query = target.split_once('?')?.1;
+    query.split('&').find_map(|pair| {
+        let (key, value) = pair.split_once('=')?;
+        (key == name).then_some(value)
     })
 }
 
@@ -203,7 +224,14 @@ fn spawn_scraper_stub(listener: TcpListener, seen: Arc<Mutex<Vec<String>>>) {
                 .and_then(|line| line.split(' ').nth(1))
                 .unwrap_or_default()
                 .to_owned();
-            let path = target.split('?').next().unwrap_or_default();
+            // The client sends a detail id as one encoded path segment, so the
+            // `athlete:workout` id of a TrainingPeaks workout arrives as `%3A`.
+            let path = target
+                .split('?')
+                .next()
+                .unwrap_or_default()
+                .replace("%3A", ":");
+            let path = path.as_str();
             let session = session_of(&request);
             let athlete = athlete_of(&target);
             let detail_path = format!("/api/activities/{LINKED_WORKOUT}");
@@ -316,11 +344,65 @@ async fn every_read_names_the_athlete_under_the_coach_session(seen: &Mutex<Vec<S
     let lists = targets(seen, "/api/activities?", COACH_SESSION);
     assert_eq!(lists.len(), 1, "{lists:?}");
     assert_eq!(athlete_of(&lists[0]).as_deref(), Some(LINKED_ATHLETE));
+    assert_eq!(
+        query_names(&lists[0]),
+        ["limit", "athlete"],
+        "with the enrichment switch unset no detail pass is asked for"
+    );
     let plans = targets(seen, "/api/planned-workouts", COACH_SESSION);
     assert_eq!(
         plans,
         vec!["/api/planned-workouts?after=2026-09-28&before=2026-10-04&athlete=900001".to_owned()]
     );
+}
+
+/// The deployment switch picks the detail pass the provider asks for: every
+/// activity's detail page, with no cap of the platform's own, or none at all.
+/// A scope the service does not know fails the whole list read with a 400, so
+/// the value on the wire is pinned here, at the provider that chooses it.
+async fn the_enrichment_switch_asks_for_every_detail_page_uncapped(seen: &Mutex<Vec<String>>) {
+    let provider = delegated(UNNAMED_ATHLETE, COACH_SESSION).await;
+    let list_for = |seen: &Mutex<Vec<String>>| {
+        targets(seen, "/api/activities?", COACH_SESSION)
+            .into_iter()
+            .rfind(|target| athlete_of(target).as_deref() == Some(UNNAMED_ATHLETE))
+            .expect("the list read reached the scraper") // Safe: each read below is recorded
+    };
+
+    for on in ["true", "1"] {
+        env::set_var(ENRICH_DETAILS_ENV, on);
+        provider
+            .get_activities(Some(7), None)
+            .await
+            .expect("the unnamed athlete's empty list is served"); // Safe: the stand-in serves 900002
+        let target = list_for(seen);
+        assert_eq!(
+            query_names(&target),
+            ["limit", "detail", "athlete"],
+            "{on}: {target}"
+        );
+        assert_eq!(query_value(&target, "limit"), Some("7"), "{on}");
+        assert_eq!(query_value(&target, "detail"), Some("every"), "{on}");
+        assert_eq!(query_value(&target, "detail_limit"), None, "{on}");
+    }
+
+    for off in [Some("false"), Some("yes"), None] {
+        match off {
+            Some(value) => env::set_var(ENRICH_DETAILS_ENV, value),
+            None => env::remove_var(ENRICH_DETAILS_ENV),
+        }
+        provider
+            .get_activities(Some(7), None)
+            .await
+            .expect("the unnamed athlete's empty list is served"); // Safe: the stand-in serves 900002
+        let target = list_for(seen);
+        assert_eq!(
+            query_names(&target),
+            ["limit", "athlete"],
+            "{off:?}: {target}"
+        );
+    }
+    env::remove_var(ENRICH_DETAILS_ENV);
 }
 
 async fn a_detail_outside_the_athlete_never_reaches_the_scraper(seen: &Mutex<Vec<String>>) {
@@ -356,7 +438,11 @@ async fn a_detail_outside_the_athlete_never_reaches_the_scraper(seen: &Mutex<Vec
     assert_eq!(detail.id(), LINKED_WORKOUT);
     assert_eq!(
         targets(seen, "/api/activities/", COACH_SESSION),
-        vec![format!("/api/activities/{LINKED_WORKOUT}")]
+        vec![format!(
+            "/api/activities/{}",
+            LINKED_WORKOUT.replace(':', "%3A")
+        )],
+        "the detail id travels as one encoded path segment"
     );
 }
 
@@ -500,8 +586,10 @@ async fn a_delegated_read_names_its_athlete_and_reaches_no_other() {
 
     env::set_var(ENV_REMOTE_URL, format!("http://{addr}"));
     env::remove_var(ENV_AUDIENCE);
+    env::remove_var(ENRICH_DETAILS_ENV);
 
     every_read_names_the_athlete_under_the_coach_session(&seen).await;
+    the_enrichment_switch_asks_for_every_detail_page_uncapped(&seen).await;
     a_detail_outside_the_athlete_never_reaches_the_scraper(&seen).await;
     the_athlete_is_read_off_the_coach_roster_as_data().await;
     an_athlete_the_scraper_refuses_keeps_its_refusal().await;

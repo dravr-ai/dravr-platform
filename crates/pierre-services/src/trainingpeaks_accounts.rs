@@ -38,14 +38,14 @@
 //! A coach link binds a roster athlete to a member the same way, and every
 //! read through it checks that binding again ([`link_binding`]).
 
+use dravr_sciotte::client::SciotteClient;
+use dravr_sciotte::models::{AccountRole, AthleteProfile, AuthSession};
 use pierre_core::constants::oauth_providers::SCIOTTE_TRAININGPEAKS;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{normalize_email, DelegatedConnection, ProviderAccountRole, TenantId};
 use pierre_database::RepositoryRegistry;
+use pierre_providers::sciotte_error::to_app_error;
 use pierre_providers::sciotte_provider::SciotteTarget;
-use pierre_providers::sciotte_remote::{
-    AccountRole, AthleteProfile, AuthSession, RemoteSciotteClient,
-};
 use tracing::info;
 use uuid::Uuid;
 
@@ -347,19 +347,25 @@ async fn purge_misfiled_activities(
 /// on the scraper service: its names, whether it trains or coaches, and a
 /// coach account's roster.
 ///
+/// The session is imported first, and imported once more when the read
+/// reaches an instance the import did not: that instance holding no session
+/// says nothing about the account's, so it must not read as a session to
+/// reconnect.
+///
 /// # Errors
 ///
 /// Returns an error when the scraper service is not configured, or when it
 /// cannot import the session or read the profile.
 pub async fn trainingpeaks_profile(session: &AuthSession) -> AppResult<AthleteProfile> {
-    let remote = RemoteSciotteClient::require_from_env()?;
+    let remote = SciotteClient::require_from_env().map_err(to_app_error)?;
     remote
-        .import_session(
+        .read_imported(
             session,
             SciotteTarget::TrainingPeaks.scraper_provider_name(),
+            || remote.get_athlete(&session.session_id),
         )
-        .await?;
-    remote.get_athlete(&session.session_id).await
+        .await
+        .map_err(to_app_error)
 }
 
 /// The platform's account role for a `TrainingPeaks` profile: a coach when

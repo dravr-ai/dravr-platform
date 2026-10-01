@@ -36,13 +36,13 @@ use dravr_enforme::traits::connection_store::UserConnectionStore;
 use dravr_enforme::traits::credential_store::CredentialStore;
 use dravr_enforme::traits::cursor_store::SyncCursorStore;
 use dravr_enforme::traits::recovery_store::RecoveryStore;
+use dravr_sciotte::client::{ENV_AUDIENCE, ENV_REMOTE_URL};
 use pierre_core::errors::AppError;
 use pierre_core::models::{
     OAuthNotification, RefreshConfig, StoredRecoveryMetrics, SyncStatus, TenantId, UserOAuthToken,
 };
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
-use pierre_providers::sciotte_remote::{ENV_AUDIENCE, ENV_REMOTE_URL};
 use pierre_services::health_sync::PierreSyncStorage;
 use pierre_services::provider_refresh::{scrape_sync_not_due, RefreshService, SyncNotifier};
 use pierre_services::sciotte_health_reader::SciotteServiceReader;
@@ -566,6 +566,106 @@ async fn stub_service(status: &'static str, body: &'static str) -> Seen {
     seen
 }
 
+/// A scraper service of several instances: it imports any session, and
+/// answers the first `misses` daily-summary reads `401 session_not_found`, as
+/// an instance the import never reached does, and every later one with
+/// `body`.
+async fn stub_service_missing_the_session(misses: usize, body: &'static str) -> Seen {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let seen: Seen = Arc::new(Mutex::new(Vec::new()));
+    let recorded = Arc::clone(&seen);
+    tokio::spawn(async move {
+        let mut reads = 0_usize;
+        while let Ok((mut stream, _)) = listener.accept().await {
+            let mut buf = vec![0_u8; 16384];
+            let n = stream.read(&mut buf).await.unwrap_or(0);
+            let request = String::from_utf8_lossy(&buf[..n]).into_owned();
+            recorded.lock().unwrap().push(request.clone());
+            let (status, body) = if request.contains("/auth/import-session") {
+                ("200 OK", r#"{"session_id":"sess-513"}"#)
+            } else {
+                reads += 1;
+                if reads <= misses {
+                    (
+                        "401 Unauthorized",
+                        r#"{"error":"session_not_found","message":"no such session"}"#,
+                    )
+                } else {
+                    ("200 OK", body)
+                }
+            };
+            let response = format!(
+                "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(response.as_bytes()).await;
+        }
+    });
+    env::set_var(ENV_REMOTE_URL, format!("http://{addr}"));
+    env::remove_var(ENV_AUDIENCE);
+    seen
+}
+
+/// How many of `requests` are imports, and how many are daily-summary reads.
+fn imports_and_reads(requests: &[String]) -> (usize, usize) {
+    let imports = requests
+        .iter()
+        .filter(|r| r.contains("/auth/import-session"))
+        .count();
+    let reads = requests
+        .iter()
+        .filter(|r| r.contains("GET /api/daily-summary"))
+        .count();
+    (imports, reads)
+}
+
+/// The service keeps a session in the memory of the instance that imported
+/// it, so a read sent straight after the import can reach an instance that
+/// holds none. That answer says nothing about the athlete's session: reported
+/// as expired credentials it stops the athlete's health sync until they log in
+/// again, for a session that works.
+async fn an_instance_that_never_saw_the_import_is_imported_once_more(day: NaiveDate) {
+    const MEASURED: &str = r#"{"date":"2026-09-22","provider":"coros","resting_heart_rate":47,"hrv_value":63,"vo2_max":52.5}"#;
+
+    // One miss: the session is imported again and the day is read.
+    let seen = stub_service_missing_the_session(1, MEASURED).await;
+    let summary = SciotteServiceReader
+        .daily_summary("coros", &session(), day)
+        .await
+        .expect("a session one instance did not hold is not a dead session");
+    assert_eq!(summary.date, day);
+    assert_eq!(summary.resting_heart_rate, Some(47));
+    assert_eq!(summary.hrv_value, Some(63));
+    assert_eq!(summary.vo2_max, Some(52.5));
+    let requests = seen.lock().unwrap().clone();
+    assert_eq!(
+        imports_and_reads(&requests),
+        (2, 2),
+        "the import and exactly one re-import, each followed by its read: {requests:?}"
+    );
+    assert!(requests[2].contains("/auth/import-session"), "{requests:?}");
+    assert!(
+        requests[3].contains("GET /api/daily-summary?date=2026-09-22")
+            && requests[3].contains("sess-513"),
+        "the re-sent read names the same day and session: {}",
+        requests[3]
+    );
+
+    // Two misses: the second answer stands, and nothing is sent a third time.
+    let seen = stub_service_missing_the_session(2, MEASURED).await;
+    let dead = SciotteServiceReader
+        .daily_summary("coros", &session(), day)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(dead, ScraperError::SessionExpired { .. }),
+        "{dead:?}"
+    );
+    let requests = seen.lock().unwrap().clone();
+    assert_eq!(imports_and_reads(&requests), (2, 2), "{requests:?}");
+}
+
 /// One test drives every service answer in turn: the service URL is process
 /// state, so the cases must not run concurrently.
 #[tokio::test]
@@ -603,8 +703,8 @@ async fn the_service_reader_imports_the_session_and_maps_every_answer() {
         "the scrape names the imported session"
     );
 
-    // A dead session is expired, not an empty day.
-    stub_service(
+    // A dead session is expired, not an empty day, and is not read twice.
+    let seen = stub_service(
         "401 Unauthorized",
         r#"{"error":"session_expired","message":"access token is invalid"}"#,
     )
@@ -616,6 +716,11 @@ async fn the_service_reader_imports_the_session_and_maps_every_answer() {
     assert!(
         matches!(dead, ScraperError::SessionExpired { .. }),
         "{dead:?}"
+    );
+    assert_eq!(
+        imports_and_reads(&seen.lock().unwrap()),
+        (1, 1),
+        "a session the provider refused is not imported again"
     );
 
     // A load-shed carries the service's own wait.
@@ -634,4 +739,6 @@ async fn the_service_reader_imports_the_session_and_maps_every_answer() {
         } => assert_eq!(retry_after_secs, 9),
         other => panic!("expected Busy, got {other:?}"),
     }
+
+    an_instance_that_never_saw_the_import_is_imported_once_more(day).await;
 }

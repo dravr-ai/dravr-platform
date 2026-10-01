@@ -63,6 +63,8 @@ pierre-formatters = { version = "0.3.0", path = "../pierre-formatters" }
 pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
 pierre-notifications = { version = "0.3.0", path = "../pierre-notifications", optional = true }
 dravr-enforme = { workspace = true, optional = true }
+# The athlete id a delegated read names and the scraper's athlete refusal markers.
+dravr-sciotte = { workspace = true }
 pierre-evals = { version = "0.3.0", path = "../pierre-evals", optional = true }
 pierre-external = { version = "0.3.0", path = "../pierre-external", optional = true }
 

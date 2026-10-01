@@ -48,8 +48,6 @@ use crate::sciotte_provider::{
     SciotteCorosProviderFactory, SciotteGarminProviderFactory, SciotteProvider,
     SciotteProviderFactory, SciotteTrainingPeaksProviderFactory,
 };
-#[cfg(feature = "provider-sciotte")]
-use crate::sciotte_remote::AthleteId;
 #[cfg(feature = "provider-coros")]
 use crate::spi::CorosDescriptor;
 #[cfg(feature = "provider-garmin")]
@@ -75,6 +73,8 @@ use crate::terra::constants::{
 use crate::terra::{TerraDataCache, TerraDescriptor, TerraProviderFactory};
 #[cfg(feature = "provider-whoop")]
 use crate::whoop_provider::WhoopProviderFactory;
+#[cfg(feature = "provider-sciotte")]
+use dravr_sciotte::models::AthleteId;
 
 /// Factory wrapper for bundle-based provider registration
 struct BundleFactory {

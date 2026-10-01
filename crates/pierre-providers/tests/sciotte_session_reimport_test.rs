@@ -36,6 +36,7 @@ use std::env;
 use std::sync::{Arc, Mutex};
 
 use chrono::{TimeZone, Utc};
+use dravr_sciotte::client::{ENV_AUDIENCE, ENV_REMOTE_URL};
 use dravr_sciotte::models::AuthSession;
 use pierre_providers::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
@@ -43,7 +44,6 @@ use pierre_providers::core::{
 use pierre_providers::errors::ErrorCode;
 use pierre_providers::models::Activity;
 use pierre_providers::sciotte_provider::{SciotteGarminProviderFactory, SciotteProviderFactory};
-use pierre_providers::sciotte_remote::{ENV_AUDIENCE, ENV_REMOTE_URL};
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};

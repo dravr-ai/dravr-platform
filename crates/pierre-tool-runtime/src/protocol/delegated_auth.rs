@@ -36,6 +36,8 @@
 use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
+use dravr_sciotte::models::AthleteId;
+use dravr_sciotte::wire::{ATHLETE_NOT_ACCESSIBLE, ATHLETE_REQUIRED};
 use pierre_core::constants::oauth_providers::SCIOTTE_TRAININGPEAKS;
 use pierre_core::errors::AppError;
 use pierre_core::models::{
@@ -44,10 +46,8 @@ use pierre_core::models::{
 };
 use pierre_core::untrusted::display_line;
 use pierre_groups::delegation::{DelegationStore, UnbackedLink};
+use pierre_providers::sciotte_error::sciotte_refusal;
 use pierre_providers::sciotte_provider::{is_delegated_session_expired, SciotteTarget};
-use pierre_providers::sciotte_remote::{
-    sciotte_refusal, AthleteId, ATHLETE_NOT_ACCESSIBLE, ATHLETE_REQUIRED,
-};
 use pierre_providers::{CoreFitnessProvider, OAuth2Credentials};
 use pierre_services::delegated_connections::{
     coach_session_state, end_off_roster, person_name, unbound_link_reason, CoachSession,

@@ -11,28 +11,28 @@
 //! concurrency budget is saturated: `503` with
 //! `{"error":"scraper_busy","reason":…,"retry_after_secs":N}` and a
 //! `Retry-After` header (its `busy_response`). That body carries no login
-//! `status` field, so before this fix it fell into `parse_login_outcome`'s
-//! catch-all and became an `AppError::internal`, which every login handler
-//! routed through `report_login_system_failure` — one `error!` forwarded to the
-//! `#dev-dravr-errors` Slack channel *plus* one `sync.failed` business event
-//! **per shed request**, precisely while the service was saturated. The
-//! `retry_after_secs` the service had computed was discarded.
+//! `status` field. Read as a system failure, every shed request cost one
+//! `error!` forwarded to the `#dev-dravr-errors` Slack channel *plus* one
+//! `sync.failed` business event, precisely while the service was saturated,
+//! and the `retry_after_secs` the service had computed was discarded.
 //!
-//! These tests pin the two halves of the fix: the classifier recognises a shed
-//! before any status match, and the login routes answer it with the service's
-//! own `503` + `Retry-After` while emitting neither the operator alert nor the
-//! business-failure event. A genuine failure still does both.
+//! The sciotte client names the shed (pinned in dravr-sciotte's own client
+//! tests) and `sciotte_error` maps it (pinned in that module's unit tests).
+//! These tests pin the route layer: the login routes answer a mapped shed with
+//! the service's own `503` + `Retry-After` while emitting neither the operator
+//! alert nor the business-failure event. A genuine failure still does both,
+//! and what it logs names the answer's marker without its body.
 
 use std::collections::HashMap;
 use std::fmt::Debug as FmtDebug;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use axum::body::to_bytes;
 use axum::http::{header, StatusCode};
+use dravr_sciotte::client::{ClientError, Exchange, Operation, RequestId, ServiceError};
 use pierre_core::errors::AppError;
-use pierre_providers::sciotte_remote::{
-    auth_required_error, backpressure_error, shed_retry_after_secs,
-};
+use pierre_providers::sciotte_error::to_app_error;
 use pierre_routes_auth::{friendly_login_failure_message, login_failure_response};
 use serde_json::{json, Value};
 use tracing::field::{Field, Visit};
@@ -44,13 +44,26 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::Layer;
 use uuid::Uuid;
 
-/// The service's shed body, verbatim from its `busy_response`.
-fn shed_body(retry_after_secs: u64) -> Value {
-    json!({
-        "error": "scraper_busy",
-        "reason": "all chrome permits in use",
-        "retry_after_secs": retry_after_secs,
-    })
+/// One attempt of `operation`, as the sciotte client reports it.
+fn exchange(operation: Operation) -> Exchange {
+    Exchange {
+        service: "sciotte".to_owned(),
+        operation: operation.as_str().to_owned(),
+        request_id: RequestId::mint(),
+        elapsed: Duration::from_millis(8),
+        resent: false,
+    }
+}
+
+/// The platform error for the service shedding a login step, as the sciotte
+/// client reports its `503` + `{"error":"scraper_busy","retry_after_secs":N}`.
+fn login_shed(retry_after_secs: u64) -> AppError {
+    to_app_error(ClientError::Service(ServiceError::Shed {
+        exchange: exchange(Operation::Login).into(),
+        status: StatusCode::SERVICE_UNAVAILABLE,
+        retry_after_secs,
+        reason: Some("all chrome permits in use".to_owned()),
+    }))
 }
 
 // ── Capture harness (same shape as `response_failure_log_test`) ─────────────
@@ -133,116 +146,11 @@ fn sync_failed_count(events: &Arc<Mutex<Vec<CapturedEvent>>>) -> usize {
         .count()
 }
 
-// ── Classification: a shed is not a system failure ──────────────────────────
-
-#[test]
-fn a_scraper_busy_503_is_classified_as_retryable_backpressure() {
-    let error = backpressure_error(StatusCode::SERVICE_UNAVAILABLE, &shed_body(12))
-        .expect("the service's documented shed response must be recognised");
-
-    assert_eq!(
-        error.http_status(),
-        503,
-        "a shed is service-unavailable, not a 500 fault"
-    );
-    assert_eq!(
-        shed_retry_after_secs(&error),
-        Some(12),
-        "the wait the service computed must survive the mapping instead of being discarded"
-    );
-}
-
-#[test]
-fn a_scraper_busy_body_is_backpressure_whatever_the_status() {
-    let error = backpressure_error(StatusCode::TOO_MANY_REQUESTS, &shed_body(7))
-        .expect("the `scraper_busy` marker is enough on its own");
-    assert_eq!(shed_retry_after_secs(&error), Some(7));
-}
-
-#[test]
-fn a_shed_without_a_wait_still_advertises_one() {
-    let error = backpressure_error(
-        StatusCode::SERVICE_UNAVAILABLE,
-        &json!({ "error": "scraper_busy", "reason": "queue full" }),
-    )
-    .expect("a shed missing its hint is still a shed");
-    let retry_after = shed_retry_after_secs(&error)
-        .expect("a shed must always advertise a wait so the caller knows to retry");
-    assert!(
-        (1..=300).contains(&retry_after),
-        "the fallback wait must be a usable retry window, got {retry_after}s"
-    );
-}
-
-// ── Classification: a dead session is auth-shaped, a bad key is not ─────────
-
-#[test]
-fn a_session_death_401_is_classified_as_provider_auth_required() {
-    for marker in ["session_not_found", "session_expired"] {
-        let error = auth_required_error(
-            StatusCode::UNAUTHORIZED,
-            &json!({ "error": marker, "message": "login first" }),
-        )
-        .unwrap_or_else(|| panic!("a 401 with `{marker}` means the athlete must re-login"));
-        assert_eq!(
-            error.provider_auth_required_provider().as_deref(),
-            Some("sciotte"),
-            "the auth-recovery stage needs the provider slug to mint a reconnect link"
-        );
-    }
-}
-
-#[test]
-fn a_rejected_identity_token_401_is_not_an_athlete_relogin() {
-    // `unauthorized` is the service gate's rejected-identity-token answer
-    // (audience mismatch, expired token): operator misconfiguration, which
-    // must keep alerting as an internal fault instead of sending the athlete
-    // on a pointless re-login.
-    assert!(auth_required_error(
-        StatusCode::UNAUTHORIZED,
-        &json!({ "error": "unauthorized", "message": "Missing bearer identity token" }),
-    )
-    .is_none());
-    // A markerless 401 body is unclassifiable and must stay internal too.
-    assert!(auth_required_error(StatusCode::UNAUTHORIZED, &json!({})).is_none());
-    // A session marker on a non-401 status never reads as auth-shaped.
-    assert!(auth_required_error(
-        StatusCode::INTERNAL_SERVER_ERROR,
-        &json!({ "error": "session_expired" }),
-    )
-    .is_none());
-}
-
-#[test]
-fn a_genuine_failure_is_not_backpressure() {
-    assert!(
-        backpressure_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &json!({ "error": "chrome crashed" }),
-        )
-        .is_none(),
-        "a 500 with no shed marker is a real fault and must keep alerting"
-    );
-    assert!(
-        backpressure_error(
-            StatusCode::UNAUTHORIZED,
-            &json!({ "error": "unauthorized" })
-        )
-        .is_none(),
-        "a rejected identity token must not masquerade as backpressure"
-    );
-    assert!(
-        shed_retry_after_secs(&AppError::internal("chrome crashed")).is_none(),
-        "an internal error advertises no retry window"
-    );
-}
-
 // ── Route layer: the shed answer, and what it must not emit ─────────────────
 
 #[tokio::test]
 async fn a_login_shed_answers_503_with_retry_after_and_pages_nobody() {
-    let shed = backpressure_error(StatusCode::SERVICE_UNAVAILABLE, &shed_body(45))
-        .expect("shed classified");
+    let shed = login_shed(45);
 
     let (events, guard) = setup_capture();
     let response = login_failure_response(
@@ -330,4 +238,55 @@ async fn a_login_system_failure_still_alerts_operators() {
         "the athlete still gets friendly, provider-aware copy"
     );
     assert_eq!(error.http_status(), 400);
+}
+
+#[tokio::test]
+async fn a_login_answer_with_no_status_alerts_with_its_marker_and_not_its_body() {
+    // The identity-token gate's 401: no login status, and a body an operator
+    // log must not carry beyond the marker that says what refused the call.
+    let failure = to_app_error(ClientError::Unexpected {
+        exchange: exchange(Operation::Login).into(),
+        status: StatusCode::UNAUTHORIZED,
+        body: json!({
+            "error": { "type": "unauthorized", "message": "audience mismatch for token eyJhbGci" },
+        }),
+    });
+
+    let (events, guard) = setup_capture();
+    login_failure_response(
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        "sciotte",
+        "credential_login",
+        &failure,
+    )
+    .expect_err("an answer with no login status is a system failure");
+
+    let reasons: Vec<String> = events
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|event| event.field("reason").map(str::to_owned))
+        .collect();
+    drop(guard);
+
+    assert_eq!(
+        reasons.len(),
+        2,
+        "the operator alert and the sync.failed event each carry the reason: {reasons:?}"
+    );
+    for reason in &reasons {
+        assert!(
+            reason.contains("HTTP 401 Unauthorized") && reason.contains("marker: unauthorized"),
+            "the alert says what answered: {reason}"
+        );
+        assert!(
+            reason.contains("DRAVR_SCIOTTE_AUDIENCE"),
+            "and where to look: {reason}"
+        );
+        assert!(
+            !reason.contains("eyJhbGci") && !reason.contains("audience mismatch"),
+            "the body stays out of the log and the business event: {reason}"
+        );
+    }
 }

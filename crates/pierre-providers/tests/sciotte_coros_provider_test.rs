@@ -27,6 +27,7 @@ use std::env;
 use std::sync::{Arc, Mutex};
 
 use chrono::{TimeZone, Utc};
+use dravr_sciotte::client::{ENV_AUDIENCE, ENV_REMOTE_URL};
 use dravr_sciotte::models::AuthSession;
 use pierre_core::constants::oauth_providers::SCIOTTE_COROS;
 use pierre_providers::core::{FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory};
@@ -34,7 +35,6 @@ use pierre_providers::coros_self_report::feel_from_coros;
 use pierre_providers::models::Feel;
 use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::sciotte_provider::{SciotteCorosProviderFactory, SciotteTarget};
-use pierre_providers::sciotte_remote::{ENV_AUDIENCE, ENV_REMOTE_URL};
 use pierre_providers::spi::ProviderCapabilities;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;

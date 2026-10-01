@@ -13,11 +13,14 @@
 //! platform (Strava, Garmin Connect, etc.) and returns activities.
 
 use async_trait::async_trait;
-use chrono::{NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
+use dravr_sciotte::client::SciotteClient;
 use dravr_sciotte::models::{
-    Activity as SciotteActivity, ActivityComment as SciotteComment, AuthSession, Lap as SciotteLap,
+    Activity as SciotteActivity, ActivityComment as SciotteComment, ActivityParams, AthleteId,
+    AthleteProfile, AuthSession, DetailPass, DetailScope, Lap as SciotteLap,
     RouteTrack as SciotteRouteTrack, Split as SciotteSplit, SportType as SciotteSportType,
 };
+use dravr_sciotte::wire::ATHLETE_REQUIRED;
 use pierre_core::untrusted::fence_athlete_text;
 use serde_json::{Map, Value};
 use std::env;
@@ -37,10 +40,7 @@ use crate::models::{
     TimeSeriesData,
 };
 use crate::pagination::{CursorPage, PaginationParams};
-use crate::sciotte_remote::{
-    athlete_not_accessible, sciotte_refusal, AthleteId, AthleteProfile, RemoteActivityQuery,
-    RemoteSciotteClient, ATHLETE_REQUIRED,
-};
+use crate::sciotte_error::{athlete_not_accessible, sciotte_refusal, to_app_error};
 use crate::spi::{
     ProviderDescriptor, SciotteCorosDescriptor, SciotteDescriptor, SciotteGarminDescriptor,
     SciotteTrainingPeaksDescriptor,
@@ -380,6 +380,25 @@ fn own_athlete(profile: AthleteProfile, target: SciotteTarget) -> Athlete {
     }
 }
 
+/// The instant a window bound's epoch seconds name, or `None` for no bound.
+///
+/// # Errors
+///
+/// [`ErrorCode::InvalidInput`] for an epoch no calendar instant has: the
+/// bound is refused, never dropped, so a read is never widened past the
+/// window its caller asked for.
+fn window_bound(epoch_secs: Option<i64>, bound: &str) -> AppResult<Option<DateTime<Utc>>> {
+    epoch_secs
+        .map(|secs| {
+            DateTime::from_timestamp(secs, 0).ok_or_else(|| {
+                AppError::invalid_input(format!(
+                    "`{bound}` is not a date the activity window can start or end on"
+                ))
+            })
+        })
+        .transpose()
+}
+
 /// The athlete a delegated provider reads, as the coach's roster lists them.
 ///
 /// The roster is the authority on who the coach may read: an athlete it no
@@ -707,13 +726,13 @@ impl FitnessProvider for SciotteProvider {
         // fallback since the Phase 4 cutover). Import the platform-held session
         // — re-hydrates the service after a scale-to-zero / redeploy — then fetch.
         let target = SciotteTarget::from_backend_name(self.provider_name);
-        let remote = RemoteSciotteClient::require_from_env()?;
+        let remote = SciotteClient::require_from_env().map_err(to_app_error)?;
         let profile = remote
             .read_imported(session, target.scraper_provider_name(), || {
                 remote.get_athlete(&session.session_id)
             })
             .await
-            .map_err(|e| self.tag_remote_auth(e))?;
+            .map_err(|e| self.tag_remote_auth(to_app_error(e)))?;
         match &self.subject {
             Some(athlete) => roster_athlete(profile, athlete),
             None => Ok(own_athlete(profile, target)),
@@ -741,28 +760,35 @@ impl FitnessProvider for SciotteProvider {
         // the Phase 4 cutover). Import the platform-held session — re-hydrates
         // the service after a scale-to-zero / redeploy — then scrape over HTTP;
         // convert_activity keeps the returned shape identical for every caller.
-        // before/after pass through as epoch seconds so the scrape bounds the
-        // fetch by date, matching the API providers (Strava/Whoop).
+        // before/after bound the scrape by date, matching the API providers
+        // (Strava/Whoop); the client sends each as epoch seconds.
         let target = SciotteTarget::from_backend_name(self.provider_name);
-        let remote = RemoteSciotteClient::require_from_env()?;
+        let remote = SciotteClient::require_from_env().map_err(to_app_error)?;
         // A delegated provider names its athlete. Otherwise no athlete is
         // named: the platform reads the signed-in account's own activities,
         // and a TrainingPeaks coach account, which has none, answers the
         // coach-account refusal `tag_remote_auth` words.
-        let query = RemoteActivityQuery {
+        let query = ActivityParams {
             limit: Some(limit as u32),
-            after_epoch: params.after,
-            before_epoch: params.before,
+            after: window_bound(params.after, "after")?,
+            before: window_bound(params.before, "before")?,
             sport_type: None,
-            enrich_details,
             athlete: self.subject.clone(),
+            detail: if enrich_details {
+                DetailPass::Navigate {
+                    scope: DetailScope::Every,
+                    cap: None,
+                }
+            } else {
+                DetailPass::Skip
+            },
         };
         let list = remote
             .read_imported(session, target.scraper_provider_name(), || {
                 remote.get_activities(&session.session_id, &query)
             })
             .await
-            .map_err(|e| self.tag_remote_auth(e))?;
+            .map_err(|e| self.tag_remote_auth(to_app_error(e)))?;
         self.head_complete
             .store(list.head_complete, Ordering::Relaxed);
         let activities: Vec<Activity> = list
@@ -822,13 +848,13 @@ impl FitnessProvider for SciotteProvider {
 
         // ADR-021: fetch the single activity's detail on the dedicated service.
         let target = SciotteTarget::from_backend_name(self.provider_name);
-        let remote = RemoteSciotteClient::require_from_env()?;
+        let remote = SciotteClient::require_from_env().map_err(to_app_error)?;
         let sciotte_activity = remote
             .read_imported(session, target.scraper_provider_name(), || {
                 remote.get_activity(&session.session_id, id)
             })
             .await
-            .map_err(|e| self.tag_remote_auth(e))?;
+            .map_err(|e| self.tag_remote_auth(to_app_error(e)))?;
         Ok(convert_activity(&sciotte_activity, target))
     }
 
@@ -872,7 +898,7 @@ impl FitnessProvider for SciotteProvider {
         // platform-held session, exactly as the activity list does, and for
         // the same athlete: a delegated provider's, or else the signed-in
         // account's own.
-        let remote = RemoteSciotteClient::require_from_env()?;
+        let remote = SciotteClient::require_from_env().map_err(to_app_error)?;
         let planned = remote
             .read_imported(session, target.scraper_provider_name(), || {
                 remote.get_planned_workouts(
@@ -883,7 +909,7 @@ impl FitnessProvider for SciotteProvider {
                 )
             })
             .await
-            .map_err(|e| self.tag_remote_auth(e))?;
+            .map_err(|e| self.tag_remote_auth(to_app_error(e)))?;
         info!(
             count = planned.len(),
             %after,
@@ -956,5 +982,38 @@ impl ProviderFactory for SciotteCorosProviderFactory {
 
     fn supported_providers(&self) -> &'static [&'static str] {
         &["sciotte_coros"]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_window_bound_is_the_instant_its_epoch_names_or_no_bound() {
+        assert_eq!(window_bound(None, "after").ok(), Some(None));
+        let bound = window_bound(Some(1_790_000_000), "after")
+            .ok()
+            .flatten()
+            .map(|instant| instant.timestamp());
+        assert_eq!(bound, Some(1_790_000_000));
+    }
+
+    #[test]
+    fn an_epoch_no_instant_has_is_refused_never_dropped() {
+        for (epoch, bound) in [(i64::MAX, "before"), (i64::MIN, "after")] {
+            let error = window_bound(Some(epoch), bound).err();
+            assert_eq!(
+                error.as_ref().map(|e| e.code),
+                Some(ErrorCode::InvalidInput),
+                "{bound}"
+            );
+            assert_eq!(
+                error.map(|e| e.message),
+                Some(format!(
+                    "`{bound}` is not a date the activity window can start or end on"
+                ))
+            );
+        }
     }
 }

@@ -30,13 +30,13 @@ use std::env;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, TimeZone, Utc};
+use dravr_sciotte::client::{ENV_AUDIENCE, ENV_REMOTE_URL};
 use dravr_sciotte::models::AuthSession;
 use pierre_providers::core::{FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory};
 use pierre_providers::models::{ActivityComment, Feel};
 use pierre_providers::sciotte_provider::{
     SciotteProviderFactory, SciotteTrainingPeaksProviderFactory,
 };
-use pierre_providers::sciotte_remote::{ENV_AUDIENCE, ENV_REMOTE_URL};
 use pierre_providers::trainingpeaks_self_report::{
     feel_from_trainingpeaks, rpe_from_trainingpeaks,
 };

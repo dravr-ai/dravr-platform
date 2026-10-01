@@ -45,6 +45,8 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{Days, Duration as ChronoDuration, Utc};
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
+use dravr_sciotte::client::{ENV_AUDIENCE, ENV_REMOTE_URL};
+use dravr_sciotte::wire::ATHLETE_NOT_ACCESSIBLE;
 use dravr_tronc::mcp::schema::ToolResponse;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
@@ -61,10 +63,8 @@ use pierre_core::models::{
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::core::ActivityQueryParams;
+use pierre_providers::sciotte_error::sciotte_refusal;
 use pierre_providers::sciotte_provider::is_delegated_session_expired;
-use pierre_providers::sciotte_remote::{
-    sciotte_refusal, ATHLETE_NOT_ACCESSIBLE, ENV_AUDIENCE, ENV_REMOTE_URL,
-};
 use pierre_providers::CoreFitnessProvider;
 use pierre_routes_auth::AuthRoutes;
 use pierre_routes_groups::DelegatedConnectionRoutes;

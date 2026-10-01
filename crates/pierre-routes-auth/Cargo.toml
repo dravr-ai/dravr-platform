@@ -51,7 +51,7 @@ urlencoding = "2.1"
 uuid = { version = "1.22", features = ["v4", "serde"] }
 
 # Sciotte (provider-sciotte feature)
-dravr-sciotte = { workspace = true, optional = true }
+dravr-sciotte = { workspace = true, optional = true, features = ["client"] }
 
 # Health backfill (health-sync feature)
 dravr-enforme = { workspace = true, optional = true }

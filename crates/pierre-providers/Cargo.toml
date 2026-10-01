@@ -17,7 +17,7 @@ provider-garmin = []
 provider-terra = []
 provider-whoop = []
 provider-coros = []
-provider-sciotte = ["dep:dravr-sciotte", "dep:dravr-tronc", "dep:hyper"]
+provider-sciotte = ["dep:dravr-sciotte"]
 provider-intervals-icu = []
 all-providers = [
     "provider-strava",
@@ -51,12 +51,7 @@ ring = "0.17"
 subtle = "2.6"
 hex = "0.4"
 dravr-equilibre = { workspace = true }
-dravr-sciotte = { workspace = true, optional = true }
-dravr-tronc = { workspace = true, features = ["google-iam"], optional = true }
-# Only its error type: the remote sciotte client tells a connection closed
-# before any response (`hyper::Error::is_incomplete_message`) from a timeout.
-# Already in the tree through reqwest, which it unifies with.
-hyper = { version = "1", default-features = false, optional = true }
+dravr-sciotte = { workspace = true, optional = true, features = ["client"] }
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid", "derive"], default-features = false, optional = true }
 
 [dev-dependencies]
@@ -64,6 +59,9 @@ sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono"
 # which pins the bytes we put on the wire (the HTTP Basic username in particular).
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "net", "io-util"] }
 base64 = "0.22"
+# Only `IamError`: the sciotte error mapping's unit test builds the client's
+# identity-token failure, whose cause the sciotte client does not re-export.
+dravr-tronc = { workspace = true, features = ["google-iam"] }
 
 [lints]
 workspace = true

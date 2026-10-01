@@ -36,13 +36,13 @@ use common::{
     create_test_server_resources, create_test_user, create_test_user_with_email,
     generate_test_token,
 };
+use dravr_sciotte::client::{ENV_AUDIENCE, ENV_REMOTE_URL};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::feature_flags::FeatureKey;
 use pierre_core::models::TenantId;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_providers::sciotte_remote::{ENV_AUDIENCE, ENV_REMOTE_URL};
 use pierre_routes_auth::AuthRoutes;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::provider_revocation::DisconnectReason;

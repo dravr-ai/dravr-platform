@@ -7,7 +7,8 @@
 # enforme-specific knowledge, and nothing else:
 #
 # * Why this listens to enforme rather than to sciotte. This repo pins dravr-sciotte
-#   directly (pierre-logging, pierre-providers, pierre-routes-auth) and also depends
+#   directly (pierre-logging, pierre-providers, pierre-routes-auth, pierre-services,
+#   pierre-tool-runtime) and also depends
 #   on dravr-enforme, which pins dravr-sciotte itself for its Garmin and Strava
 #   scraping — a diamond. ci-backend.yml hard-fails any build where a dravr-* crate
 #   resolves to two versions, so moving the sciotte pin alone produces a lockfile with
