@@ -1,10 +1,9 @@
 // ABOUTME: Facade for the ServerContext dependency-injection container split across this directory
-// ABOUTME: Re-exports the public surface (ServerContext, ServerContextOptions, ServerContextBuilder) for crate::mcp::resources::*
+// ABOUTME: Re-exports the public surface (ServerContext, ServerContextOptions) for crate::mcp::resources::*
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-mod builder;
 mod context;
 mod contremaitre;
 mod lifecycle;
@@ -15,7 +14,6 @@ mod tool_runtime;
 #[cfg(feature = "client-chat")]
 pub mod tool_surface;
 
-pub use builder::ServerContextBuilder;
 pub use context::ServerContext;
 pub use options::ServerContextOptions;
 pub use slices::{

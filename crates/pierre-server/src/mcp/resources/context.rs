@@ -21,7 +21,6 @@ use std::env;
 use super::slices::{
     A2ASlice, AgentSlice, AuthSlice, BillingSlice, CommonSlice, FitnessSlice, McpSlice, SseSlice,
 };
-use super::ServerContextBuilder;
 // Gated on `client-chat`, the feature that owns the only consumer
 // (`chat_pipeline_context`). It previously sat behind `provider-sciotte`, which
 // did not match its use — that combination is not a supported build today, so
@@ -84,12 +83,6 @@ pub struct ServerContext {
 }
 
 impl ServerContext {
-    /// Create a new builder for `ServerContext`
-    #[must_use]
-    pub const fn builder() -> ServerContextBuilder {
-        ServerContextBuilder::new()
-    }
-
     /// Get the group coaching service
     #[cfg(feature = "tools-groups")]
     #[must_use]

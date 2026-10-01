@@ -58,7 +58,7 @@ pub async fn create_chat_provider() -> Result<ChatProvider, AppError> {
 /// 1. `chat_provider` singleton (production path)
 /// 2. `llm_provider` wrapped in [`ChatProvider::Custom`]
 ///    (test path — fixtures inject a mock via
-///    `ServerContextBuilder::with_llm_provider`)
+///    `ServerContextOptions::with_llm_provider`)
 /// 3. Otherwise: return [`AppError::internal`] — no silent copilot spawn
 ///
 /// The per-call `from_env()` fallback was a footgun: under load (`cargo
@@ -86,7 +86,7 @@ pub fn chat_provider_from_resources_arc(
     }
     Err(AppError::internal(
         "No ChatProvider configured on ServerContext — \
-         wire one via ServerContextBuilder::with_chat_provider (production) \
+         wire one via ServerContextOptions::with_chat_provider (production) \
          or ::with_llm_provider (tests). Per-call ChatProvider::from_env() \
          is intentionally disabled here to prevent copilot --acp spawn storms.",
     ))
