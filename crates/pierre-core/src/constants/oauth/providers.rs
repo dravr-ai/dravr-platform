@@ -74,6 +74,10 @@ pub const SCIOTTE_COROS: &str = "sciotte_coros";
 // LIMITATION(registre#657): no `NOLIO` provider identifier, descriptor or factory exists, so a
 // coach whose roster and plans live in Nolio (OAuth 2.0 API at nolio.io) cannot connect it.
 
+// LIMITATION(registre#713): no `VEKTA` provider identifier, descriptor or factory exists, so a
+// coach or athlete whose sessions, CP/W' and sleep live in Vekta (bearer-key API at
+// api.joinvekta.com) cannot connect it.
+
 /// Which accounts a provider's notice is asked of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NoticeAudience {
