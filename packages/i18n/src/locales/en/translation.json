@@ -2296,6 +2296,7 @@
     "almostThere": "Almost there",
     "analyzingTrainingData": "Analyzing your training data…",
     "athleteCardDescription": "Track your own training and get coaching tuned to how you actually train.",
+    "awaitingProviderConsent": "Awaiting {{provider}} consent…",
     "cancelChooseOtherProvider": "Cancel and try a different provider",
     "channelOneTap": "Connect with one tap",
     "channelRecommended": "Recommended",
@@ -2311,6 +2312,7 @@
     "continueToDashboard": "Continue to dashboard",
     "continueWithoutProvider": "Continue without connecting &rarr;",
     "credentialsEncryptedHint": "Your credentials are encrypted at rest and used only to fetch your activity data.",
+    "finishAuthInPopup": "Finish the authorisation in the popup window. We'll route you to the dashboard automatically once {{provider}} confirms.",
     "goalLabel": "What are you working toward?",
     "goalPlaceholder": "A first half-marathon in the spring, say",
     "imAnAthlete": "I'm an athlete",
@@ -2320,6 +2322,7 @@
     "messagingStartButton": "Start",
     "northStarLabel": "And why does it matter to you?",
     "northStarPlaceholder": "Keeping up with my kids on the trail",
+    "oauthNoReply": "Didn’t hear back from {{provider}} within {{seconds, number}} seconds. If the popup is still open, finish authorising there; otherwise try again.",
     "otherSportLabel": "Or something else",
     "otherSportPlaceholder": "Type another sport",
     "parqAnswerAll": "Answer all to continue",
@@ -2911,6 +2914,23 @@
       "dailyToolCalls": "Daily tool calls",
       "dailyConversations": "Daily conversations",
       "activeCoaches": "Active agents"
+    },
+    "reached": {
+      "dailyMessages": "Daily message limit reached. Limits reset at {{time}}.",
+      "dailyTokens": "Daily token limit reached. Limits reset at {{time}}.",
+      "weeklyMessages": "Weekly message limit reached. Limits reset at {{time}}."
+    },
+    "burst": {
+      "dailyMessages": "You're in the burst zone for your daily messages ({{current}}/{{limit}}). Limits reset at {{time}}.",
+      "dailyTokens": "You're in the burst zone for your daily tokens ({{current}}/{{limit}}). Limits reset at {{time}}.",
+      "weeklyMessages": "You're in the burst zone for your weekly messages ({{current}}/{{limit}}). Limits reset at {{time}}.",
+      "messageQuota": "You're in the burst zone for your message quota ({{current}}/{{limit}}). Limits reset at {{time}}."
+    },
+    "used": {
+      "dailyMessages": "You've used {{percent}}% of your daily messages ({{current}}/{{limit}}). Limits reset at {{time}}.",
+      "dailyTokens": "You've used {{percent}}% of your daily tokens ({{current}}/{{limit}}). Limits reset at {{time}}.",
+      "weeklyMessages": "You've used {{percent}}% of your weekly messages ({{current}}/{{limit}}). Limits reset at {{time}}.",
+      "messageQuota": "You've used {{percent}}% of your message quota ({{current}}/{{limit}}). Limits reset at {{time}}."
     }
   },
   "validation": {

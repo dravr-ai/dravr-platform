@@ -2296,6 +2296,7 @@
     "almostThere": "On y est presque",
     "analyzingTrainingData": "Analyse de tes données d’entraînement…",
     "athleteCardDescription": "Suis ton propre entraînement et reçois un coaching ajusté à ta vraie façon de t'entraîner.",
+    "awaitingProviderConsent": "En attente de l’autorisation de {{provider}}…",
     "cancelChooseOtherProvider": "Annuler et essayer un autre fournisseur",
     "channelOneTap": "Connexion en un seul appui",
     "channelRecommended": "Recommandé",
@@ -2311,6 +2312,7 @@
     "continueToDashboard": "Continuer vers le tableau de bord",
     "continueWithoutProvider": "Continuer sans connecter →",
     "credentialsEncryptedHint": "Tes identifiants sont chiffrés au repos et servent uniquement à récupérer tes données d’activité.",
+    "finishAuthInPopup": "Termine l’autorisation dans la fenêtre pop-up. On te ramène au tableau de bord automatiquement dès que {{provider}} aura confirmé.",
     "goalLabel": "Tu t’entraînes pour quoi ?",
     "goalPlaceholder": "Un premier semi-marathon au printemps, par exemple",
     "imAnAthlete": "Je suis athlète",
@@ -2320,6 +2322,7 @@
     "messagingStartButton": "Démarrer",
     "northStarLabel": "Et pourquoi ça compte pour toi ?",
     "northStarPlaceholder": "Suivre le rythme de mes enfants sur les sentiers",
+    "oauthNoReply": "Aucune réponse de {{provider}} en {{seconds, number}} secondes. Si la fenêtre pop-up est encore ouverte, termine l’autorisation là-bas ; sinon, réessaie.",
     "otherSportLabel": "Ou autre chose",
     "otherSportPlaceholder": "Écris un autre sport",
     "parqAnswerAll": "Réponds à tout pour continuer",
@@ -2911,6 +2914,23 @@
       "dailyToolCalls": "Appels d'outils par jour",
       "dailyConversations": "Conversations par jour",
       "activeCoaches": "Agents actifs"
+    },
+    "reached": {
+      "dailyMessages": "Limite de messages quotidiens atteinte. Les limites se réinitialisent à {{time}}.",
+      "dailyTokens": "Limite de jetons quotidiens atteinte. Les limites se réinitialisent à {{time}}.",
+      "weeklyMessages": "Limite de messages hebdomadaires atteinte. Les limites se réinitialisent à {{time}}."
+    },
+    "burst": {
+      "dailyMessages": "Tu es dans la zone de pointe pour tes messages quotidiens ({{current}}/{{limit}}). Les limites se réinitialisent à {{time}}.",
+      "dailyTokens": "Tu es dans la zone de pointe pour tes jetons quotidiens ({{current}}/{{limit}}). Les limites se réinitialisent à {{time}}.",
+      "weeklyMessages": "Tu es dans la zone de pointe pour tes messages hebdomadaires ({{current}}/{{limit}}). Les limites se réinitialisent à {{time}}.",
+      "messageQuota": "Tu es dans la zone de pointe pour ton quota de messages ({{current}}/{{limit}}). Les limites se réinitialisent à {{time}}."
+    },
+    "used": {
+      "dailyMessages": "Tu as utilisé {{percent}} % de tes messages quotidiens ({{current}}/{{limit}}). Les limites se réinitialisent à {{time}}.",
+      "dailyTokens": "Tu as utilisé {{percent}} % de tes jetons quotidiens ({{current}}/{{limit}}). Les limites se réinitialisent à {{time}}.",
+      "weeklyMessages": "Tu as utilisé {{percent}} % de tes messages hebdomadaires ({{current}}/{{limit}}). Les limites se réinitialisent à {{time}}.",
+      "messageQuota": "Tu as utilisé {{percent}} % de ton quota de messages ({{current}}/{{limit}}). Les limites se réinitialisent à {{time}}."
     }
   },
   "validation": {
