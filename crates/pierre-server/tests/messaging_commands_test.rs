@@ -1355,7 +1355,7 @@ mod command_tests {
 
         // A group that already has a human coach attached — the state
         // `/group invite agent` leaves behind.
-        let human_coach = Uuid::new_v4();
+        let (human_coach, _) = create_test_user(&resources, "detach-coach@test.com").await;
         let group_id = Uuid::new_v4();
         resources
             .common

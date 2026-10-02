@@ -30,15 +30,15 @@ use uuid::Uuid;
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::groups::{
-    CoachingGroup, GroupAggregateStats, GroupHealthFlag, GroupInvite, GroupInviteKind, GroupMember,
-    GroupRole, GroupWeeklyReport, UpdateGroupRequest,
+    CoachingGroup, CreateGroupRequest, GroupAggregateStats, GroupHealthFlag, GroupInvite,
+    GroupInviteKind, GroupMember, GroupRole, GroupWeeklyReport, UpdateGroupRequest,
 };
 use pierre_core::models::TenantId;
 use pierre_groups::creation_policy::{
-    is_tenant_group_admin, policy_permits_group_creation, DEFAULT_GROUP_CREATION_POLICY,
-    GROUP_CREATION_POLICY_KEY,
+    check_create_group_permission, is_tenant_group_admin, may_coach_group,
+    policy_permits_group_creation, DEFAULT_GROUP_CREATION_POLICY, GROUP_CREATION_POLICY_KEY,
 };
-use pierre_groups::strategies::tier::tier_enables_digest;
+use pierre_groups::strategies::tier::{tier_enables_digest, tier_strategy_for};
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
 use pierre_services::locale::resolve_user_locale;
@@ -220,6 +220,26 @@ pub struct CreateInviteBody {
     pub kind: GroupInviteKind,
 }
 
+/// Request to create a coaching group — the onboarding group step's call
+#[derive(Debug, Deserialize)]
+pub struct CreateGroupBody {
+    /// Group name
+    pub name: String,
+    /// Optional description
+    #[serde(default)]
+    pub description: Option<String>,
+    /// The AI agent the group answers with; omitted → the caller's selected
+    /// agent, the one onboarding's agent step chose
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    /// Make the caller the group's human coach. Honoured only when they may
+    /// coach it ([`may_coach_group`]); otherwise the group is still created
+    /// and answers with no `coach_user_id`, which the client reads as coach
+    /// access pending.
+    #[serde(default)]
+    pub coach_is_me: bool,
+}
+
 /// Request to update a member's role
 #[derive(Debug, Deserialize)]
 pub struct UpdateRoleBody {
@@ -259,6 +279,7 @@ impl GroupRoutes {
     pub fn routes<C: GroupsCtx + MiddlewareCtx>(resources: Arc<C>) -> Router {
         Router::new()
             // Group CRUD
+            .route("/api/groups", post(Self::handle_create_group::<C>))
             .route("/api/groups/{group_id}", get(Self::handle_get_group::<C>))
             .route(
                 "/api/groups/{group_id}",
@@ -443,6 +464,91 @@ impl GroupRoutes {
     // ========================================================================
     // Group CRUD handlers
     // ========================================================================
+
+    /// POST /api/groups — Create a coaching group, its creator optionally as
+    /// its human coach.
+    ///
+    /// Behind the same gates as `/group create`: the tenant's creation policy
+    /// and the plan's per-group cap (zero refuses). The creator's group chat
+    /// is opened by the client through `POST /api/chat/conversations` with
+    /// the returned id, under the conversation quota every thread obeys.
+    async fn handle_create_group<C: GroupsCtx + MiddlewareCtx>(
+        State(resources): State<Arc<C>>,
+        auth: AuthenticatedUser,
+        Json(body): Json<CreateGroupBody>,
+    ) -> Result<Response, AppError> {
+        let auth = auth.into_inner();
+        let tenant_id = Self::get_tenant_id(&auth)?;
+        let repos = resources.repos();
+
+        let name = body.name.trim();
+        if name.is_empty() {
+            return Err(AppError::invalid_input("Group name must not be empty"));
+        }
+
+        check_create_group_permission(
+            repos.tenants.as_ref(),
+            auth.user_id,
+            tenant_id,
+            Self::group_creation_policy(&resources, tenant_id),
+        )
+        .await?;
+
+        // The agent must be one the caller can read in this tenant, so a
+        // stale or foreign id never makes a group nobody can talk to.
+        let agent_id = match body.agent_id {
+            Some(id) => Some(id),
+            None => {
+                repos
+                    .tenants
+                    .get_selected_agent(tenant_id, auth.user_id)
+                    .await?
+            }
+        };
+        let Some(agent_id) = agent_id else {
+            return Err(AppError::invalid_input(
+                "Choose an agent before creating a group",
+            ));
+        };
+        let agent = repos
+            .agents
+            .get_by_id(&agent_id, auth.user_id, tenant_id)
+            .await?
+            .ok_or_else(|| AppError::not_found(format!("Agent {agent_id}")))?;
+
+        // ADR-018: asking to coach never grants coaching. A caller without
+        // the right gets the group, coachless, and the client says so.
+        let coach_user_id = if body.coach_is_me {
+            let user = repos
+                .users
+                .get_global(auth.user_id)
+                .await?
+                .ok_or_else(|| AppError::not_found("User not found"))?;
+            may_coach_group(&user, tenant_id, tenant_id).then_some(auth.user_id)
+        } else {
+            None
+        };
+
+        let plan = repos.tenants.get_by_id(tenant_id).await?.plan;
+        let tier_cap =
+            i32::try_from(tier_strategy_for(&plan).max_members_per_group()).unwrap_or(i32::MAX);
+
+        let request = CreateGroupRequest {
+            name: name.to_owned(),
+            description: body.description,
+            agent_id: agent.id.to_string(),
+            max_members: None,
+            coach_user_id,
+        };
+        // `group.created` is emitted by the service, once for every surface.
+        let created = resources
+            .group_service()
+            .create_group(&request, auth.user_id, tenant_id, tier_cap)
+            .await?;
+
+        let response = Self::group_response(&resources, created, auth.user_id).await?;
+        Ok((StatusCode::CREATED, Json(response)).into_response())
+    }
 
     /// The tenant's configured group-creation policy, when it has set one.
     async fn group_creation_policy<C: GroupsCtx + MiddlewareCtx>(

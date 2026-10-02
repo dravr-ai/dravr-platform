@@ -147,6 +147,8 @@ export const ENDPOINTS = {
 
   // ==================== GROUPS ====================
   GROUPS: {
+    /** Create a group */
+    CREATE: '/api/groups',
     /** Get/update/delete a group */
     GROUP: (id: string) => `/api/groups/${id}`,
     /** List/manage members */

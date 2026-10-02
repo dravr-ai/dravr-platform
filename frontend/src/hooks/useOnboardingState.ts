@@ -32,6 +32,8 @@ export interface OnboardingState {
   completeParq: (status?: 'complete' | 'skipped') => void;
   /** Coach proposal dismissed/accepted — persist + advance to the dashboard. */
   completeCoachProposal: () => void;
+  /** The coach's group step finished (`complete`) or put off (`skipped`) — persist + advance. */
+  completeCoachGroup: (status: 'complete' | 'skipped') => void;
   /** Session-only "continue without connecting" — escapes the flow to the dashboard. */
   skipProvider: () => void;
   /** Messaging channels the tenant has configured (for the picker step). */
@@ -124,6 +126,13 @@ export function useOnboardingState(): OnboardingState {
     setProfileTypeChosenLocal(profileTypeKey ? localStorage.getItem(profileTypeKey) === '1' : true);
   }, [profileTypeKey]);
 
+  // The coach's group step, same local-plus-server shape as the steps above.
+  const coachGroupKey = user?.user_id ? `dravr.coach_group_done.${user.user_id}` : null;
+  const [coachGroupDoneLocal, setCoachGroupDoneLocal] = useState(false);
+  useEffect(() => {
+    setCoachGroupDoneLocal(coachGroupKey ? localStorage.getItem(coachGroupKey) === '1' : true);
+  }, [coachGroupKey]);
+
   // A coach who does not train: the athlete steps leave the journey. Unlike the
   // done-flags above this one defaults to false with no user — it removes
   // steps, so failing open would skip the PAR-Q for an athlete.
@@ -149,6 +158,8 @@ export function useOnboardingState(): OnboardingState {
   const aboutYouDone = aboutYouDoneLocal || isServerStepComplete(serverSteps, 'about_you');
   const parqDone = parqDoneLocal || isServerStepComplete(serverSteps, 'parq');
   const athleteStepsWaived = athleteStepsWaivedLocal || serverAthleteStepsWaived(serverSteps);
+  const coachGroupDone = coachGroupDoneLocal || isServerStepComplete(serverSteps, 'coach_group');
+  const coachesOthers = onboardingStatus?.coaches_others === true;
 
   // Messaging derivations. The chosen channel is the one picked this session,
   // else the server-persisted `chosen_channel`, else the sole configured channel
@@ -216,6 +227,15 @@ export function useOnboardingState(): OnboardingState {
     persistStep('coach_proposal', 'complete');
   }, [coachProposalKey, persistStep]);
 
+  const completeCoachGroup = useCallback(
+    (status: 'complete' | 'skipped') => {
+      if (coachGroupKey) localStorage.setItem(coachGroupKey, '1');
+      setCoachGroupDoneLocal(true);
+      persistStep('coach_group', status);
+    },
+    [coachGroupKey, persistStep],
+  );
+
   const completeAboutYou = useCallback(
     (status: 'complete' | 'skipped' = 'complete') => {
       if (aboutYouKey) localStorage.setItem(aboutYouKey, '1');
@@ -265,6 +285,8 @@ export function useOnboardingState(): OnboardingState {
     aboutYouDone,
     parqDone,
     athleteStepsWaived,
+    coachesOthers,
+    coachGroupDone,
     messagingAvailableCount,
     messagingChannelChosen,
     messagingChannelDone,
@@ -277,6 +299,7 @@ export function useOnboardingState(): OnboardingState {
     completeAboutYou,
     completeParq,
     completeCoachProposal,
+    completeCoachGroup,
     skipProvider,
     availableChannels,
     chosenChannel,

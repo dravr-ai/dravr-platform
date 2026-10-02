@@ -7,13 +7,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   athleteStepsWaived as serverAthleteStepsWaived,
+  isServerStepComplete,
   type OnboardingContext,
 } from '@pierre/shared-constants';
 import { useAuth } from '../contexts/AuthContext';
 import { useOnboardingStatus } from './useOnboardingStatus';
 import { useCoachProposalSeen } from './useCoachProposalSeen';
 import { useProfileTypeChosen } from './useProfileTypeChosen';
-import { ATHLETE_STEPS_WAIVED_PREFIX, useOnboardingFlag } from './useOnboardingFlag';
+import {
+  ATHLETE_STEPS_WAIVED_PREFIX,
+  COACH_GROUP_DONE_PREFIX,
+  useOnboardingFlag,
+} from './useOnboardingFlag';
 import { useProviderSkipped } from './useProviderSkipped';
 import { useMessagingOnboarding } from './useMessagingOnboarding';
 
@@ -62,6 +67,12 @@ export function useOnboardingContext(): OnboardingContextState {
   );
   const athleteStepsWaived =
     athleteStepsWaivedLocal === true || serverAthleteStepsWaived(onboardingStatus?.steps);
+  // The coach's group step: server truth for who coaches, the usual fail-open
+  // flag plus the server step row for whether it is done.
+  const coachesOthers = onboardingStatus?.coaches_others === true;
+  const { done: coachGroupDoneLocal } = useOnboardingFlag(COACH_GROUP_DONE_PREFIX, user?.id);
+  const coachGroupDone =
+    coachGroupDoneLocal !== false || isServerStepComplete(onboardingStatus?.steps, 'coach_group');
   // Session-only escape from the provider gate, matching web. Not persisted:
   // the nudge should come back next launch.
   const { skipped: skippedProvider } = useProviderSkipped(user?.id);
@@ -87,7 +98,9 @@ export function useOnboardingContext(): OnboardingContextState {
       aboutYouDone === undefined ||
       parqDone === undefined ||
       athleteStepsWaivedLocal === undefined);
-  const postConnectPending = postConnect && (coachProposalSeen === undefined || messaging.loading);
+  const postConnectPending =
+    postConnect &&
+    (coachProposalSeen === undefined || coachGroupDoneLocal === undefined || messaging.loading);
 
   const context = useMemo<OnboardingContext>(
     () => ({
@@ -99,6 +112,8 @@ export function useOnboardingContext(): OnboardingContextState {
       aboutYouDone: aboutYouDone ?? true,
       parqDone: parqDone ?? true,
       athleteStepsWaived,
+      coachesOthers,
+      coachGroupDone,
       coachProposalDone: coachProposalSeen ?? true,
       messagingAvailableCount: messaging.availableCount,
       messagingChannelChosen: messaging.channelChosen,
@@ -114,6 +129,8 @@ export function useOnboardingContext(): OnboardingContextState {
       aboutYouDone,
       parqDone,
       athleteStepsWaived,
+      coachesOthers,
+      coachGroupDone,
       coachProposalSeen,
       messaging.availableCount,
       messaging.channelChosen,

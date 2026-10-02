@@ -28,7 +28,7 @@ use tracing::info;
 
 use crate::mcp::resources::ServerContext;
 use pierre_core::errors::AppError;
-use pierre_core::models::{CoverageMap, TenantId};
+use pierre_core::models::{CoachingPersona, CoverageMap, TenantId};
 use pierre_middleware::extract_auth_from_headers;
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_services::intake::{self, INTAKE_TOPICS};
@@ -57,6 +57,9 @@ pub struct OnboardingStatusResponse {
     pub steps: Vec<OnboardingStepState>,
     /// The messaging channel the user chose during onboarding, if any.
     pub chosen_channel: Option<String>,
+    /// The user answered "I coach others" (`coaching_persona = coach`, which
+    /// both coach choices write) — the group step is part of their journey.
+    pub coaches_others: bool,
 }
 
 /// A single onboarding step's persisted status, for the client progress model.
@@ -74,12 +77,13 @@ const ONBOARDING_TOPIC_TOTAL: usize = 7;
 
 /// The onboarding step ids the `PUT` endpoint accepts, kept in sync with the
 /// client step registry (`frontend/src/onboarding/steps.ts`).
-const ONBOARDING_STEP_IDS: [&str; 7] = [
+const ONBOARDING_STEP_IDS: [&str; 8] = [
     "profile_type",
     "about_you",
     "parq",
     "connect_provider",
     "coach_proposal",
+    "coach_group",
     "messaging_channel",
     "messaging_configure",
 ];
@@ -174,6 +178,18 @@ pub async fn handle_self_get(
         })
         .collect();
 
+    // Best-effort like the rest: an unreadable user reads as an athlete,
+    // which only leaves the group step out.
+    let coaches_others = resources
+        .common
+        .repos
+        .users
+        .get_global(auth.user_id)
+        .await
+        .ok()
+        .flatten()
+        .is_some_and(|u| u.coaching_persona == CoachingPersona::Coach);
+
     Ok((
         StatusCode::OK,
         Json(OnboardingStatusResponse {
@@ -183,6 +199,7 @@ pub async fn handle_self_get(
             onboarding_complete,
             steps,
             chosen_channel,
+            coaches_others,
         }),
     )
         .into_response())

@@ -104,11 +104,12 @@ macro_rules! invite_columns {
 // coaching_groups
 // ============================================================================
 
-/// One group, active from the start; `$13` serves both timestamps.
+/// One group, active from the start; `$13` serves both timestamps. `$14` is
+/// the human coach it starts with, `NULL` until one is attached.
 pub(crate) const INSERT_GROUP_SQL: &str = r"INSERT INTO coaching_groups (id, tenant_id, name, description, agent_id, owner_id,
               peer_data_sharing, max_members, is_active, channel_type, channel_chat_id,
-              respond_mode, digest_mode, created_at, updated_at)
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, $9, $10, $11, $12, $13, $13)";
+              respond_mode, digest_mode, created_at, updated_at, coach_user_id)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, $9, $10, $11, $12, $13, $13, $14)";
 
 /// One group by id. Coaching groups are intentionally cross-tenant: members
 /// join the same group from different tenants, so the group's globally
@@ -621,6 +622,7 @@ macro_rules! impl_coaching_group_repository {
                     .bind(group.respond_mode.as_str())
                     .bind(group.digest_mode.as_str())
                     .bind(Utc::now())
+                    .bind($ids::bind_opt(group.coach_user_id))
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to create group: {e}")))?;

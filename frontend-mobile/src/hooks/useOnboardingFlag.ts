@@ -11,6 +11,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 /** Storage prefix for the coach-who-does-not-train flag; mirrors the web key. */
 export const ATHLETE_STEPS_WAIVED_PREFIX = 'dravr.athlete_steps_waived.';
 
+/** Storage prefix for the coach's group step (finished or put off); mirrors the web key. */
+export const COACH_GROUP_DONE_PREFIX = 'dravr.coach_group_done.';
+
 /**
  * Resolves whether a per-user onboarding step is already complete, backed by
  * AsyncStorage and cached in React Query so the routing gate (RootLayoutNav) and

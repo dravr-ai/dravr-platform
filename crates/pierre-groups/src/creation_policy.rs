@@ -1,5 +1,5 @@
-// ABOUTME: Who may create a coaching group — the tenant-role shortcut and the group_creation_policy config
-// ABOUTME: One decision shared by the REST create route, its permissions read and the /group create command
+// ABOUTME: Who may create a coaching group, and who may be a group's human coach
+// ABOUTME: One decision each, shared by the REST create route, its permissions read and the /group commands
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,7 +7,7 @@
 use std::future::Future;
 
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_core::models::TenantId;
+use pierre_core::models::{TenantId, User};
 use pierre_database::repositories::TenantRepository;
 use tracing::warn;
 use uuid::Uuid;
@@ -94,4 +94,58 @@ where
         .await
         .unwrap_or_else(|| DEFAULT_GROUP_CREATION_POLICY.to_owned());
     policy_permits_group_creation(&policy)
+}
+
+/// Whether `user`, acting in `caller_tenant`, may be the human coach of a
+/// group in `group_tenant`.
+///
+/// Coaching a group means reading its consenting athletes' training, so it
+/// takes `manages_roster` — earned by a `TrainingPeaks` coach account or
+/// granted by a super-admin, never self-served (ADR-018) — or platform
+/// admin. Athlete membership is cross-tenant; coach attachment is not, so the
+/// caller must act in the group's own tenant. The one rule behind redeeming a
+/// coach invite (`/group join`) and creating a group as its coach
+/// (`POST /api/groups`).
+#[must_use]
+pub fn may_coach_group(user: &User, caller_tenant: TenantId, group_tenant: TenantId) -> bool {
+    (user.manages_roster || user.is_admin) && caller_tenant == group_tenant
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn user(manages_roster: bool, is_admin: bool) -> User {
+        let mut user = User::new("coach@example.com".to_owned(), "hash".to_owned(), None);
+        user.manages_roster = manages_roster;
+        user.is_admin = is_admin;
+        user
+    }
+
+    #[test]
+    fn a_roster_manager_coaches_in_their_own_tenant() {
+        let tenant = TenantId::generate();
+        assert!(may_coach_group(&user(true, false), tenant, tenant));
+    }
+
+    #[test]
+    fn a_platform_admin_coaches_in_their_own_tenant() {
+        let tenant = TenantId::generate();
+        assert!(may_coach_group(&user(false, true), tenant, tenant));
+    }
+
+    #[test]
+    fn a_coach_without_the_grant_does_not() {
+        let tenant = TenantId::generate();
+        assert!(!may_coach_group(&user(false, false), tenant, tenant));
+    }
+
+    #[test]
+    fn no_one_coaches_across_tenants() {
+        assert!(!may_coach_group(
+            &user(true, true),
+            TenantId::generate(),
+            TenantId::generate()
+        ));
+    }
 }

@@ -131,6 +131,8 @@ export interface OnboardingStatusResponse {
   steps: OnboardingStepState[];
   /** The messaging channel the user chose during onboarding, if any. */
   chosen_channel: string | null;
+  /** The user answered "I coach others" — the group step is part of their journey. */
+  coaches_others: boolean;
 }
 
 /**

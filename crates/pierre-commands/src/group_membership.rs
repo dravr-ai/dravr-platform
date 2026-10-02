@@ -16,7 +16,9 @@ use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::agents::Agent;
 use pierre_core::models::groups::{CoachingGroup, CreateGroupRequest, GroupInviteKind};
 use pierre_core::models::{ConversationRecord, TenantId};
-use pierre_groups::creation_policy::{check_create_group_permission, GROUP_CREATION_POLICY_KEY};
+use pierre_groups::creation_policy::{
+    check_create_group_permission, may_coach_group, GROUP_CREATION_POLICY_KEY,
+};
 use pierre_groups::strategies::tier::tier_strategy_for;
 use pierre_runtime_context::ConfigLookupScope;
 use tracing::info;
@@ -244,6 +246,8 @@ impl CommandHandler for GroupCreateHandler {
             description: None,
             agent_id: agent.id.to_string(),
             max_members: None,
+            // A coach is attached by redeeming a coach invite.
+            coach_user_id: None,
         };
         // `group.created` is emitted by the service, once for every surface.
         let group = ctx
@@ -408,13 +412,11 @@ impl GroupJoinHandler {
         group: &CoachingGroup,
         group_tenant: TenantId,
     ) -> Result<CommandResponse, AppError> {
-        // Eligibility: a roster-managing agent
-        // (or a platform admin) who belongs to the group's tenant — athlete
-        // membership is cross-tenant, agent attachment is not.
+        // Eligibility: the one rule for being a group's human coach.
         let Some(user) = ctx.ctx.repos().users.get_global(ctx.user_id).await? else {
             return Ok(Self::invalid_code(ctx));
         };
-        if !(user.manages_roster || user.is_admin) || ctx.tenant_id != group_tenant {
+        if !may_coach_group(&user, ctx.tenant_id, group_tenant) {
             return Ok(Self::invalid_code(ctx));
         }
 

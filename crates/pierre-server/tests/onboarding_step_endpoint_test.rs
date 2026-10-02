@@ -17,6 +17,7 @@ use serde_json::json;
 
 use common::{create_test_server_resources, create_test_user, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
+use pierre_core::models::CoachingPersona;
 use pierre_mcp_server::routes::onboarding::OnboardingRoutes;
 
 async fn setup() -> (axum::Router, String) {
@@ -107,4 +108,53 @@ async fn put_step_accepts_not_applicable_and_status_reads_it_back() {
             .any(|s| s["step_id"] == "parq" && s["status"] == "not_applicable"),
         "the not_applicable parq row must be served back, got {steps:?}"
     );
+}
+
+#[tokio::test]
+async fn status_reports_an_athlete_with_no_coach_signals() {
+    let (router, token) = setup().await;
+    let status: serde_json::Value = AxumTestRequest::get("/api/me/onboarding-status")
+        .header("Authorization", &token)
+        .send(router)
+        .await
+        .assert_status(StatusCode::OK)
+        .json();
+    assert_eq!(status["coaches_others"], false);
+}
+
+#[tokio::test]
+async fn status_reports_a_coach_and_accepts_the_group_step() {
+    let resources = create_test_server_resources()
+        .await
+        .expect("server resources");
+    let (user_id, user) = create_test_user(&resources.agent.database)
+        .await
+        .expect("test user");
+    let repos = resources.agent.database.repositories();
+    repos
+        .users
+        .set_coaching_persona(user_id, CoachingPersona::Coach)
+        .await
+        .unwrap();
+    let token = format!("Bearer {}", generate_test_token(&resources, &user).await);
+    let router = OnboardingRoutes::routes(Arc::clone(&resources));
+
+    let resp = AxumTestRequest::put("/api/me/onboarding/steps/coach_group")
+        .header("Authorization", &token)
+        .json(&json!({ "status": "complete" }))
+        .send(router.clone())
+        .await;
+    assert_eq!(resp.status_code(), StatusCode::NO_CONTENT);
+
+    let status: serde_json::Value = AxumTestRequest::get("/api/me/onboarding-status")
+        .header("Authorization", &token)
+        .send(router)
+        .await
+        .assert_status(StatusCode::OK)
+        .json();
+    assert_eq!(status["coaches_others"], true);
+    let steps = status["steps"].as_array().expect("steps array");
+    assert!(steps
+        .iter()
+        .any(|s| s["step_id"] == "coach_group" && s["status"] == "complete"));
 }

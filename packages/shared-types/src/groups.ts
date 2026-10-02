@@ -115,6 +115,19 @@ export interface UpdateGroupRequest {
   is_active?: boolean;
 }
 
+/**
+ * Request to create a coaching group (onboarding's group step).
+ * `coach_is_me` makes the caller its human coach when they hold coach access;
+ * otherwise the group is created with no `coach_user_id` — access pending.
+ */
+export interface CreateGroupRequest {
+  name: string;
+  description?: string;
+  /** Omitted → the caller's selected agent */
+  agent_id?: string;
+  coach_is_me?: boolean;
+}
+
 /** Request to update a member's role */
 export interface UpdateMemberRoleRequest {
   role: GroupRole;

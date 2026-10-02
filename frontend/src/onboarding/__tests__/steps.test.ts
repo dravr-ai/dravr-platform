@@ -28,6 +28,9 @@ function ctx(overrides: Partial<OnboardingContext> = {}): OnboardingContext {
     aboutYouDone: true,
     parqDone: true,
     athleteStepsWaived: false,
+    // An athlete unless a test says otherwise: the group step is a coach's.
+    coachesOthers: false,
+    coachGroupDone: false,
     // Messaging defaults: no channels configured, so the messaging steps are
     // inapplicable + auto-complete unless a test opts in with a positive count.
     messagingAvailableCount: 0,
@@ -398,5 +401,44 @@ describe('athleteStepsWaived — durable coach-only record', () => {
 
   it('is not a completion: a not_applicable step never reads done', () => {
     expect(isServerStepComplete([{ step_id: 'parq', status: 'not_applicable' }], 'parq')).toBe(false);
+  });
+});
+
+describe('coach_group — the coach leaves onboarding with a group', () => {
+  it('follows the agent step for a coach who has connected', () => {
+    expect(
+      currentOnboardingStep(ctx({ coachesOthers: true, justOnboarded: true, coachProposalDone: false }))
+        ?.id,
+    ).toBe('coach_proposal');
+    expect(currentOnboardingStep(ctx({ coachesOthers: true }))?.id).toBe('coach_group');
+  });
+
+  it('is offered to a coach who onboarded before it existed', () => {
+    expect(currentOnboardingStep(ctx({ coachesOthers: true, justOnboarded: false }))?.id).toBe(
+      'coach_group',
+    );
+  });
+
+  it('comes before the messaging steps', () => {
+    expect(
+      currentOnboardingStep(
+        ctx({ coachesOthers: true, messagingAvailableCount: 2 }),
+      )?.id,
+    ).toBe('coach_group');
+  });
+
+  it('is never an athlete step', () => {
+    expect(currentOnboardingStep(ctx())).toBeNull();
+    expect(onboardingProgress(ctx()).map((s) => s.id)).not.toContain('coach_group');
+  });
+
+  it('waits for the provider connection', () => {
+    expect(
+      currentOnboardingStep(ctx({ coachesOthers: true, needsProviderConnection: true }))?.id,
+    ).toBe('connect_provider');
+  });
+
+  it('is done once finished or put off', () => {
+    expect(currentOnboardingStep(ctx({ coachesOthers: true, coachGroupDone: true }))).toBeNull();
   });
 });

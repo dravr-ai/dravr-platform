@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Groups domain API - read, manage, invite and leave a coaching group
-// ABOUTME: Creating and joining a group are the /group create and /group join commands
+// ABOUTME: Groups domain API - create, read, manage, invite and leave a coaching group
+// ABOUTME: Joining a group is the /group join command; chat creation is also /group create
 
 import type { AxiosInstance } from 'axios';
 import type {
   CoachingGroup,
+  CreateGroupRequest,
   UpdateGroupRequest,
   UpdateMemberRoleRequest,
   UpdatePeerConsentRequest,
@@ -41,6 +42,7 @@ const ROOM_PAGE_SIZE = 200;
 // Re-export types for consumers
 export type {
   CoachingGroup,
+  CreateGroupRequest,
   UpdateGroupRequest,
   GroupMember,
   GroupInvite,
@@ -88,6 +90,16 @@ export function createGroupsApi(axios: AxiosInstance) {
 
   return {
     // ==================== GROUP CRUD ====================
+
+    /**
+     * Create a group, the caller optionally as its human coach. A response
+     * with no `coach_user_id` after `coach_is_me` means coach access is
+     * pending — the server never grants it here.
+     */
+    async createGroup(request: CreateGroupRequest): Promise<CoachingGroup> {
+      const response = await axios.post<CoachingGroup>(ENDPOINTS.GROUPS.CREATE, request);
+      return response.data;
+    },
 
     /** Get a specific group by ID */
     async getGroup(groupId: string): Promise<CoachingGroup> {

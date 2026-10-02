@@ -461,6 +461,12 @@ pub struct CreateGroupRequest {
     pub agent_id: String,
     /// Maximum members (defaults to 20)
     pub max_members: Option<i32>,
+    /// The human coach the group starts with. Server-set only, after the
+    /// caller passed `pierre_groups::creation_policy::may_coach_group`; never
+    /// read from a client body. `None` leaves the group waiting for a coach
+    /// invite.
+    #[serde(skip)]
+    pub coach_user_id: Option<Uuid>,
 }
 
 /// Request to update a coaching group

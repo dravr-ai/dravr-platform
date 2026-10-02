@@ -13,6 +13,7 @@ export type OnboardingStepId =
   | 'parq'
   | 'connect_provider'
   | 'coach_proposal'
+  | 'coach_group'
   | 'messaging_channel'
   | 'messaging_configure';
 
@@ -52,6 +53,13 @@ export interface OnboardingContext {
    * `athleteStepsWaived`), which the chat intake writes too.
    */
   athleteStepsWaived: boolean;
+  /**
+   * The user answered "I coach others" (server truth: `coaches_others`), so the
+   * group step — create the group, share the athlete invite — is theirs.
+   */
+  coachesOthers: boolean;
+  /** The group step has been finished or put off (`complete` / `skipped`). */
+  coachGroupDone: boolean;
   /** How many messaging channels the tenant has configured (0 ⇒ skip messaging). */
   messagingAvailableCount: number;
   /** A messaging channel is chosen — picked, or auto-selected when only one exists. */
@@ -139,6 +147,17 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     isApplicable: (c) =>
       c.onboardingActive && c.justOnboarded && c.needsProviderConnection === false,
     isComplete: (c) => c.coachProposalDone,
+  },
+  {
+    // A coach leaves onboarding with a group and an athlete invite link instead
+    // of discovering /group create in chat. Post-connect like the agent step,
+    // whose agent the group answers with; not gated on `justOnboarded`, so a
+    // coach who onboarded before this step existed is offered it once.
+    id: 'coach_group',
+    labelKey: 'onboarding.stepGroup',
+    isApplicable: (c) =>
+      c.onboardingActive && c.coachesOthers && c.needsProviderConnection === false,
+    isComplete: (c) => c.coachGroupDone,
   },
   {
     // Pick which messaging app to connect. Shown post-connect when the tenant has

@@ -296,8 +296,10 @@ impl GroupService {
             description: request.description.clone(),
             agent_id: request.agent_id.clone(),
             owner_id,
-            // No human coach until one redeems a coach-kind invite.
-            coach_user_id: None,
+            // The creator when the caller checked they may coach the group
+            // (onboarding's group step); otherwise no human coach until one
+            // redeems a coach-kind invite.
+            coach_user_id: request.coach_user_id,
             // `peer_data_sharing` is the admin kill switch — defaults
             // to TRUE so individual members' `/group consent yes` opt-
             // ins immediately surface their data. Owner can flip to

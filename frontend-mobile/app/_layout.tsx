@@ -66,6 +66,8 @@ function routeForStep(id: OnboardingStepId) {
       return '/(onboarding)/connect' as const;
     case 'coach_proposal':
       return '/(onboarding)/agent-proposal' as const;
+    case 'coach_group':
+      return '/(onboarding)/coach-group' as const;
     case 'messaging_channel':
       return '/(onboarding)/messaging-channel' as const;
     case 'messaging_configure':

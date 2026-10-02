@@ -123,6 +123,7 @@ async fn create_group(
         description: None,
         agent_id: agent_persona.to_owned(),
         max_members: Some(10),
+        coach_user_id: None,
     };
     res.group_service()
         .create_group(&request, owner_id, tenant, 50)
@@ -271,4 +272,133 @@ async fn test_member_invite_does_not_attach_coach() {
         resp.json::<Value>()["coach_user_id"].is_null(),
         "a member invite must never attach a human coach"
     );
+}
+
+// ============================================================================
+// POST /api/groups — a creator can be the group's coach (carnet#715)
+// ============================================================================
+
+/// POST `/api/groups` as `auth` and return the status and body.
+async fn post_group(router: &axum::Router, auth: &str, body: Value) -> (StatusCode, Value) {
+    let resp = AxumTestRequest::post("/api/groups")
+        .header("authorization", auth)
+        .json(&body)
+        .send(router.clone())
+        .await;
+    let status = resp.status_code();
+    (status, resp.json())
+}
+
+#[tokio::test]
+async fn test_create_group_makes_a_granted_creator_its_coach() {
+    let (res, router, owner_auth, owner_id, _tid, persona) = setup().await;
+    res.agent
+        .database
+        .repositories()
+        .users
+        .set_manages_roster(owner_id, true)
+        .await
+        .unwrap();
+
+    let (status, group) = post_group(
+        &router,
+        &owner_auth,
+        json!({"name": "Les Rouleurs", "agent_id": persona, "coach_is_me": true}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(group["name"], "Les Rouleurs");
+    assert_eq!(group["agent_id"], persona);
+    assert_eq!(group["coach_user_id"], owner_id.to_string());
+    assert!(
+        group["coach_display_name"].is_string(),
+        "the coach is named for the reader"
+    );
+}
+
+#[tokio::test]
+async fn test_create_group_never_grants_coaching_to_an_ungranted_creator() {
+    let (_res, router, owner_auth, _owner_id, _tid, persona) = setup().await;
+
+    // ADR-018: asking to coach without manages_roster still creates the
+    // group, with no coach — the client reads that as access pending.
+    let (status, group) = post_group(
+        &router,
+        &owner_auth,
+        json!({"name": "Sans coach", "agent_id": persona, "coach_is_me": true}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert!(group["coach_user_id"].is_null());
+}
+
+#[tokio::test]
+async fn test_create_group_sets_no_coach_unless_asked() {
+    let (res, router, owner_auth, owner_id, _tid, persona) = setup().await;
+    res.agent
+        .database
+        .repositories()
+        .users
+        .set_manages_roster(owner_id, true)
+        .await
+        .unwrap();
+
+    let (status, group) = post_group(
+        &router,
+        &owner_auth,
+        json!({"name": "Plain", "agent_id": persona}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert!(group["coach_user_id"].is_null());
+}
+
+#[tokio::test]
+async fn test_create_group_refuses_a_blank_name() {
+    let (_res, router, owner_auth, _owner_id, _tid, persona) = setup().await;
+    let (status, _) = post_group(
+        &router,
+        &owner_auth,
+        json!({"name": "   ", "agent_id": persona}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_create_group_refuses_an_agent_the_caller_cannot_read() {
+    let (res, router, owner_auth, _owner_id, _tid, _persona) = setup().await;
+    // An agent owned by someone in another tenant.
+    let (foreign_owner, _other, _t) =
+        create_test_user_with_plan(&res.agent.database, "other@test.com", "professional")
+            .await
+            .unwrap();
+    let foreign_tenant = res
+        .agent
+        .database
+        .repositories()
+        .tenants
+        .list_for_user(foreign_owner)
+        .await
+        .unwrap()
+        .first()
+        .unwrap()
+        .id;
+    let foreign = create_test_agent(&res, foreign_owner, foreign_tenant).await;
+
+    let (status, _) = post_group(
+        &router,
+        &owner_auth,
+        json!({"name": "Foreign", "agent_id": foreign}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_create_group_without_an_agent_asks_for_one() {
+    let (_res, router, owner_auth, _owner_id, _tid, _persona) = setup().await;
+    // No agent_id and no selected agent.
+    let (status, _) = post_group(&router, &owner_auth, json!({"name": "No agent"})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }

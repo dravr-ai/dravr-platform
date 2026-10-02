@@ -223,6 +223,7 @@ export type {
   UpdateGroupRequest,
   UpdateMemberRoleRequest,
   UpdatePeerConsentRequest,
+  CreateGroupRequest,
   CreateInviteRequest,
   GroupAggregateStats,
   GroupHealthFlag,

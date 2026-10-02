@@ -38,12 +38,10 @@ import { CONNECTIONS_ROUTE } from '../../navigation/routes';
 import type { GroupDigestMode, GroupMember, GroupRole, UpdateGroupRequest } from '../../types';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
+import { inviteLink } from '../../constants/inviteLink';
 
 /** How long an invite created from this sheet stays redeemable. */
 const INVITE_LIFETIME_DAYS = 7;
-
-/** Where a shared invite code sends someone; the web app re-homes it into chat. */
-const INVITE_LINK_BASE = 'https://app.dravr.ai/groups/join';
 
 /** Each weekly-digest mode, in the order the sheet offers them, with its label and one-line hint. */
 const DIGEST_MODES: ReadonlyArray<{ mode: GroupDigestMode; labelKey: string; hintKey: string }> = [
@@ -185,11 +183,15 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
             ? { expires_in_days: INVITE_LIFETIME_DAYS, kind: 'coach' as const }
             : { expires_in_days: INVITE_LIFETIME_DAYS },
         );
+        const shareArgs = {
+          group: group?.name ?? fallbackName ?? t('app.group'),
+          link: inviteLink(invite.code),
+        };
         await Share.share({
           message:
             kind === 'coach'
-              ? `Coach invite for ${group?.name ?? 'our group'}: ${INVITE_LINK_BASE}/${invite.code}`
-              : `Join ${group?.name ?? 'our group'}: ${INVITE_LINK_BASE}/${invite.code}`,
+              ? t('humanCoach.inviteShareMessage', shareArgs)
+              : t('groups.inviteShareMessage', shareArgs),
         });
       } catch (err) {
         Alert.alert(t('common.error'), describeApiError(err, { t, fallbackKey: 'app.failedCreateInvite' }));

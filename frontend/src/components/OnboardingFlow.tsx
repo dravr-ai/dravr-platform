@@ -10,6 +10,7 @@ import OnboardingAboutYou from './OnboardingAboutYou';
 import OnboardingParq from './OnboardingParq';
 import OnboardingConnectProvider from './OnboardingConnectProvider';
 import OnboardingCoachProposal from './OnboardingCoachProposal';
+import OnboardingCoachGroup from './OnboardingCoachGroup';
 import OnboardingMessagingChannel from './OnboardingMessagingChannel';
 import OnboardingMessagingConfigure from './OnboardingMessagingConfigure';
 import OnboardingProgress from './OnboardingProgress';
@@ -83,6 +84,13 @@ function renderStep(
         <OnboardingCoachProposal
           userDisplayName={userDisplayName}
           onComplete={state.completeCoachProposal}
+        />
+      );
+    case 'coach_group':
+      return (
+        <OnboardingCoachGroup
+          userDisplayName={userDisplayName}
+          onComplete={state.completeCoachGroup}
         />
       );
     case 'messaging_channel':

@@ -87,6 +87,8 @@ describe('useOnboardingContext', () => {
       aboutYouDone: false,
       parqDone: false,
       athleteStepsWaived: false,
+      coachesOthers: false,
+      coachGroupDone: false,
       coachProposalDone: false,
       messagingAvailableCount: 0,
       messagingChannelChosen: false,
@@ -241,5 +243,37 @@ describe('useOnboardingProgress', () => {
         ['coach_proposal', 'current'],
       ]),
     );
+  });
+
+  it('a coach who has connected is routed to the group step, until they finish or put it off', async () => {
+    mockGetOnboardingStatus.mockResolvedValue({ ...status(false), coaches_others: true });
+    await markDone('dravr.coach_proposal_done.');
+    const { wrapper } = setup();
+
+    const { result } = renderHook(() => useOnboardingContext(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.context.coachesOthers).toBe(true);
+      expect(result.current.settled).toBe(true);
+    });
+    expect(currentOnboardingStep(result.current.context)?.id).toBe('coach_group');
+  });
+
+  it('a group step recorded on the server is done on a new device', async () => {
+    mockGetOnboardingStatus.mockResolvedValue({
+      ...status(false),
+      coaches_others: true,
+      steps: [{ step_id: 'coach_group', status: 'skipped' }],
+    });
+    const { wrapper } = setup();
+
+    const { result } = renderHook(() => useOnboardingContext(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.context.coachesOthers).toBe(true);
+      expect(result.current.settled).toBe(true);
+    });
+    expect(result.current.context.coachGroupDone).toBe(true);
+    expect(currentOnboardingStep(result.current.context)).toBeNull();
   });
 });

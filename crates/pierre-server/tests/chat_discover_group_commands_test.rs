@@ -976,6 +976,7 @@ async fn seed_group_with_invite(
         description: None,
         agent_id: agent_id.to_owned(),
         max_members: None,
+        coach_user_id: None,
     };
     let group = resources
         .group_service()

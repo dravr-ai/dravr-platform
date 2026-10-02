@@ -498,6 +498,7 @@ async fn chat_auto_bind_is_exempt_from_the_owner_group_allowance() {
                 description: None,
                 agent_id: agent_id.clone(),
                 max_members: None,
+                coach_user_id: None,
             },
             user_id,
             tenant_id,

@@ -105,6 +105,7 @@ async fn setup() -> Fixture {
         description: None,
         agent_id,
         max_members: None,
+        coach_user_id: None,
     };
     let group_id = res
         .group_service()
