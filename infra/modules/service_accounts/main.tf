@@ -189,6 +189,11 @@ locals {
     # serverless NEG: the first apply (run 35646635471) created everything up
     # to it and then 403'd on compute.regionNetworkEndpointGroups.create.
     "roles/compute.loadBalancerAdmin",
+    # The cost monitor in cost_monitoring.tf (carnet#731): a BigQuery scheduled
+    # query and dataset IAM on billing_export. bigquery.admin is the only
+    # predefined role carrying bigquery.transfers.update; dataEditor, held
+    # out-of-band since billing.tf, lacks both it and datasets.setIamPolicy.
+    "roles/bigquery.admin",
   ]
 }
 

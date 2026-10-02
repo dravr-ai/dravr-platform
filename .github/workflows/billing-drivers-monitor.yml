@@ -31,11 +31,10 @@
 #     work to do — the earlier "zero cancellations on a busy day" guard could
 #     not tell those apart and fired on red-main days.
 #
-# LIMITATION(registre#731): this monitor counts builds and never reads cost.
-# The billing export to dravr-dev:billing_export has been live since 2026-09-04,
-# so GiB of Artifact Registry egress per build is queryable; reading it here
-# needs roles/bigquery.jobUser plus dataViewer on that dataset for this job's
-# identity and `id-token: write` for WIF auth, neither of which it has.
+# Cost itself is watched in GCP, not here: infra/environments/dev/
+# cost_monitoring.tf reads the billing export each morning and posts registry
+# egress and total spend to #gcp-cost-alerts (carnet#731). This job stays a
+# count of builds so it never needs a GCP identity.
 #
 # Read-only: it reads this repository's own Actions history and nothing else.
 
