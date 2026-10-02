@@ -85,9 +85,10 @@ sleep 600 & peer_pid=$!
 printf '{"pid":%s,"sessionId":"%s","name":"PeerSession"}\n' "$peer_pid" "$PEER" > "$tmp/cfg/sessions/$peer_pid.json"
 
 # ------------------------------------------------------------------ fixtures
-issue() { # <state> <labels-json> <assignees-json>
-    printf '{"number":42,"title":"[test] Thing","html_url":"https://github.com/dravr-ai/dravr-carnet/issues/42","state":"%s","labels":%s,"assignees":%s}\n' \
-        "$(printf '%s' "$1" | tr 'A-Z' 'a-z')" "$2" "$3" > "$S/issue.json"
+issue() { # <state> <labels-json> <assignees-json> [body]
+    jq -cn --arg st "$(printf '%s' "$1" | tr 'A-Z' 'a-z')" --argjson l "$2" --argjson a "$3" --arg b "${4:-where / what / fix}" \
+        '{number:42, title:"[test] Thing", html_url:"https://github.com/dravr-ai/dravr-carnet/issues/42",
+          state:$st, labels:$l, assignees:$a, body:$b}' > "$S/issue.json"
 }
 issue_open()   { issue OPEN '[{"name":"dravr-test"}]' '[]'; }
 issue_held()   { issue OPEN '[{"name":"dravr-test"},{"name":"in-progress"}]' '[{"login":"tester"}]'; }
@@ -356,7 +357,7 @@ assert_no_grep "removing the label drops the line" '"kind":"limitation"' "$ledge
 section "status"
 reset
 run_carnet status 42 --short
-assert_grep "unclaimed" '^carnet#42 · open · unclaimed · \[test\] Thing' "$tmp/out"
+assert_grep "unclaimed" '^carnet#42 · open · unclaimed · model: unset · \[test\] Thing' "$tmp/out"
 issue_held
 run_carnet status 42 --short
 assert_grep "a label without a marker is called stale" 'stale in-progress label' "$tmp/out"
@@ -383,6 +384,71 @@ assert_grep "status with no number lists in-progress issues" '^carnet#42' "$tmp/
 : > "$S/list.txt"
 run_carnet status
 assert_grep "and says when nothing is" 'no issue in dravr-ai/dravr-carnet is in progress' "$tmp/out"
+
+# ================================================================== model directive
+section "model directive"
+reset
+issue OPEN '[{"name":"dravr-test"}]' '[]' $'Model: sonnet\n\nwhere / what / fix'
+run_carnet status 42 --short
+assert_grep "status shows the directive from line 1" '· model: sonnet · \[test\] Thing' "$tmp/out"
+run_carnet claim 42
+assert_grep "claim restates the directive" 'model directive: sonnet — if this session runs another model, stop' "$tmp/out"
+run_carnet model 42
+assert_grep "model reads it" '^carnet#42 · model: sonnet$' "$tmp/out"
+
+reset
+issue OPEN '[{"name":"dravr-test"}]' '[]' $'**Model:** Opus\nwhere'
+run_carnet model 42
+assert_grep "bold and case are tolerated" 'model: opus$' "$tmp/out"
+
+reset
+issue OPEN '[{"name":"dravr-test"}]' '[]' $'where / what\nModel: opus'
+run_carnet status 42 --short
+assert_grep "a directive below line 1 is not a directive" 'model: unset' "$tmp/out"
+run_carnet claim 42
+assert_grep "an undirected claim asks the session to propose first" 'no model directive — propose opus or sonnet to the user before the first edit' "$tmp/out"
+
+reset
+run_carnet model 42 sonnet
+assert_eq "model sets a directive" "$rc" 0
+assert_grep "line 1 becomes the directive, the body follows" '^BODY Model: sonnet$' "$S/calls.log"
+assert_grep "through a PATCH of the body" 'issues/42 -X PATCH --input' "$S/calls.log"
+assert_grep "says what changed" 'model: unset → sonnet' "$tmp/out"
+
+reset
+issue OPEN '[{"name":"dravr-test"}]' '[]' $'Model: opus\n\nwhere / what / fix'
+run_carnet model 42 sonnet
+assert_grep "a new directive replaces the old line" '^BODY Model: sonnet$' "$S/calls.log"
+assert_eq "and leaves exactly one" "$(grep -c 'Model:' "$S/calls.log")" 1
+run_carnet model 42 none
+assert_grep "none clears it" '^BODY where / what / fix$' "$S/calls.log"
+
+reset
+issue OPEN '[{"name":"dravr-test"}]' '[]' $'Model: opus\nx'
+run_carnet model 42 opus
+assert_eq "an unchanged directive writes nothing" "$(count_calls "$WRITES")" 0
+run_carnet model 42 haiku
+assert_eq "an unknown model is refused" "$rc" 1
+run_carnet model 42 sonnet --dry-run
+assert_eq "dry-run sets nothing" "$(count_calls "$WRITES")" 0
+
+reset
+run_carnet create --title "Directed" --model opus --body "where / what / fix"
+assert_eq "create --model exits 0" "$rc" 0
+assert_grep "create writes the directive as line 1" '^BODY Model: opus$' "$S/calls.log"
+assert_grep "and says so" '^   model: opus$' "$tmp/out"
+
+reset
+printf 'Model: sonnet\n\nbody\n' > "$tmp/directed.md"
+run_carnet create --title "Body directed" --model opus --body-file "$tmp/directed.md"
+assert_eq "an explicit --model replaces the body's own line" "$(grep -c 'Model:' "$S/calls.log")" 1
+assert_grep "with the flag's value" '^BODY Model: opus$' "$S/calls.log"
+
+reset
+run_carnet create --title "Undirected" --body b
+assert_grep "create without a directive says how to set one" 'no model directive — set one with: carnet.sh model 321' "$tmp/out"
+run_carnet create --title "Bad" --model haiku --body b
+assert_eq "create refuses an unknown model" "$rc" 1
 
 # ================================================================== mine
 section "mine"
@@ -577,6 +643,7 @@ reset; rm -rf "$pending_dir_h"
 peer_msg='<cross-session-message from=\"uds:/tmp/cc-socks/1.sock\" from-name=\"dravr-platform-e8\" from-mode=\"bypass\">\nI hold carnet#42 and am moving the pins, stay off these files.\n</cross-session-message>'
 printf '{"prompt":"%s","session_id":"%s"}' "$peer_msg" "$ME" | bash "$here/hooks/prompt-status.sh" > "$tmp/hookp"
 assert_grep "peer message: still prints the status line" '^carnet#42' "$tmp/hookp"
+assert_no_grep "peer message: no model check is asked for" 'compare each issue' "$tmp/hookp"
 assert_grep "peer message: says a mention is not an assignment" 'NOT by your user' "$tmp/hookp"
 assert_grep "peer message: tells an unrelated session to just answer" 'unrelated, one line saying so' "$tmp/hookp"
 [ -f "$pending_dir_h/$ME.txt" ] && bad "peer message: armed the pending list" || ok "peer message: arms nothing"
@@ -598,6 +665,7 @@ assert_grep "task notification: still prints the status line" '^carnet#42' "$tmp
 # The user is still the user. A typed prompt arms, and gets no peer note.
 reset; rm -rf "$pending_dir_h"
 printf '{"prompt":"go fix carnet#42","session_id":"%s"}' "$ME" | bash "$here/hooks/prompt-status.sh" > "$tmp/hooku"
+assert_grep "a typed prompt asks for the model check before the first edit" 'compare each issue.s `model:` with the model you run' "$tmp/hooku"
 assert_grep "typed prompt: still arms the pending list" '^42$' "$pending_dir_h/$ME.txt"
 assert_no_grep "typed prompt: gets no peer note" 'NOT by your user' "$tmp/hooku"
 

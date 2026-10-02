@@ -22,6 +22,19 @@ MARKER_VERSION=1
 CLAIM_LABEL="in-progress"
 DRY_RUN=0
 
+# The model directive: line 1 of an issue's body names the Claude model that should work it,
+# `Model: opus` or `Model: sonnet`. It sits in the body rather than a label so it is the first
+# thing anyone reads, on GitHub or in `gh api`, and a session compares it with its own model
+# before the first edit (see SKILL.md). No line means nobody has decided yet.
+MODELS="opus sonnet"
+MODEL_JQ='def directive_re: "^[\\s*_]*model[\\s*_]*:[\\s*_]*(?<m>opus|sonnet)\\b";
+    def directive: (.body // "") | (split("\n")[0] // "") | (capture(directive_re; "i").m | ascii_downcase) // "";
+    def undirected: split("\n")
+        | if (.[0] // "" | test(directive_re; "i")) then .[1:] else . end
+        | until(length == 0 or (.[0] | test("^\\s*$") | not); .[1:])
+        | join("\n");
+    def directed($m): ($m | if . == "" then "" else "Model: \(.)\n\n" end) + undirected;'
+
 # ------------------------------------------------------------------ output helpers
 say()  { printf '%s\n' "$*"; }
 warn() { printf '⚠️  %s\n' "$*" >&2; }
@@ -85,8 +98,10 @@ carnet — the private register, from the command line
                                                    release everything this session (or <uuid>) still holds
   carnet.sh status  [<n>] [--short]               who holds carnet#n — or every in-progress issue
   carnet.sh mine    [--verify]                    what this session holds, from its local ledger
-  carnet.sh create  --title <t> [--label <l>]... (--body <b> | --body-file <f> | stdin) [--claim]
-                                                   file an issue: "[<project>] <t>", project label, private tracker
+  carnet.sh create  --title <t> [--label <l>]... [--model opus|sonnet] (--body <b> | --body-file <f> | stdin) [--claim]
+                                                   file an issue: "[<project>] <t>", project label, private tracker;
+                                                   --model writes the directive "Model: <m>" as line 1 of the body
+  carnet.sh model   <n> [opus|sonnet|none]        read carnet#n's model directive, or set / clear it
   carnet.sh close   <n> --why <text> [--commit <sha>]
                                                    close with a mandatory reason and the commit that resolved it
   carnet.sh label   <n> +<label> -<label> ...     add / remove labels
@@ -318,7 +333,8 @@ issue_json() {
     local raw
     raw=$(api "repos/$TRACKER/issues/$1" 2>/dev/null) \
         || die "carnet#$1 does not exist in $TRACKER"
-    jq -c '{number, title, url: .html_url, state: (.state | ascii_upcase), labels, assignees}' <<<"$raw"
+    jq -c "$MODEL_JQ"'{number, title, url: .html_url, state: (.state | ascii_upcase), labels, assignees,
+                       model: directive}' <<<"$raw"
 }
 
 # Newest marker comment on the issue, or nothing. Claims and releases share one stream, so the
@@ -355,6 +371,7 @@ cmd_claim() { # <n> <steal>
         hh=$(jq -r .host <<<"$holder");    hp=$(jq -r .pid <<<"$holder");  ha=$(jq -r .at <<<"$holder")
         if [ "$hs" = "${SESSION_ID:-manual}" ]; then
             say "🔒 carnet#$n is already held by this session ($NAME)"
+            model_hint "$n" "$(jq -r .model <<<"$issue")"
             return 0
         fi
         if holder_alive "$hh" "$hp" "$hs"; then st=0; else st=$?; fi
@@ -388,6 +405,39 @@ cmd_claim() { # <n> <steal>
     rm -f "$body"
     [ "$DRY_RUN" = 1 ] || ledger_add "$n"
     say "🔒 carnet#$n claimed by @$USER_LOGIN · session $NAME ($SHORT_ID) · $(jq -r .title <<<"$issue")"
+    model_hint "$n" "$(jq -r .model <<<"$issue")"
+}
+
+# The claim is the last moment before the first edit, so it restates the directive and what the
+# session owes it. The comparison is the session's: it knows its own model and this script does not.
+model_hint() { # <n> <model-or-empty>
+    if [ -n "$2" ]; then
+        say "🧭 carnet#$1 model directive: $2 — if this session runs another model, stop before the first edit and ask the user to switch (/model $2) or to keep this one"
+    else
+        say "🧭 carnet#$1 has no model directive — propose opus or sonnet to the user before the first edit, then record the answer: carnet.sh model $1 <opus|sonnet>"
+    fi
+}
+
+# ------------------------------------------------------------------ model
+cmd_model() { # <n> <model-or-empty>
+    local n=$1 want=$2 raw cur payload
+    raw=$(api "repos/$TRACKER/issues/$n" 2>/dev/null) || die "carnet#$n does not exist in $TRACKER"
+    cur=$(jq -r "$MODEL_JQ"'directive' <<<"$raw")
+    if [ -z "$want" ]; then
+        say "carnet#$n · model: ${cur:-unset}"
+        return 0
+    fi
+    [ "$want" = none ] && want=""
+    [ -z "$want" ] || case " $MODELS " in *" $want "*) ;; *) die "model must be one of: $MODELS, none" ;; esac
+    if [ "$want" = "$cur" ]; then
+        say "carnet#$n · model: ${cur:-unset} (unchanged)"
+        return 0
+    fi
+    payload=$(mktemp)
+    jq -c --arg m "$want" "$MODEL_JQ$UNSIGNED"'{body: ((.body // "") | directed($m) | unsigned)}' <<<"$raw" > "$payload"
+    run api "repos/$TRACKER/issues/$n" -X PATCH --input "$payload" >/dev/null
+    rm -f "$payload"
+    say "🧭 carnet#$n · model: ${cur:-unset} → ${want:-unset}"
 }
 
 # ------------------------------------------------------------------ release
@@ -495,9 +545,10 @@ cmd_close() { # <n> <why> <commit>
 }
 
 # ------------------------------------------------------------------ create
-cmd_create() { # <title> <body> <body_file> <claim> labels...
-    local title=$1 body=$2 body_file=$3 claim=$4; shift 4
+cmd_create() { # <title> <body> <body_file> <claim> <model> labels...
+    local title=$1 body=$2 body_file=$3 claim=$4 model=$5; shift 5
     [ -n "$title" ] || die "create needs --title"
+    [ -z "$model" ] || case " $MODELS " in *" $model "*) ;; *) die "--model must be one of: $MODELS" ;; esac
 
     # The whole point of a private register: an entry states where a defence is incomplete.
     local private
@@ -530,10 +581,14 @@ cmd_create() { # <title> <body> <body_file> <claim> labels...
 
     local payload
     payload=$(mktemp)
-    jq -n --arg t "$title" --rawfile b "$bf" --args \
-        "$UNSIGNED"'{title:$t, body:($b|unsigned), labels:$ARGS.positional}' "${labels[@]}" > "$payload"
+    # An explicit --model wins over a directive line already in the body; without one, the
+    # body's own line 1 stands.
+    jq -n --arg t "$title" --rawfile b "$bf" --arg m "$model" --args \
+        "$MODEL_JQ$UNSIGNED"'{title:$t, body:(if $m == "" then $b else ($b|directed($m)) end | unsigned),
+                            labels:$ARGS.positional}' "${labels[@]}" > "$payload"
 
-    local url n
+    local url n directive
+    directive=$(jq -r "$MODEL_JQ"'directive' "$payload")
     if [ "$DRY_RUN" = 1 ]; then
         run api "repos/$TRACKER/issues" -X POST --input "$payload"
         url="https://github.com/$TRACKER/issues/0"
@@ -547,6 +602,8 @@ cmd_create() { # <title> <body> <body_file> <claim> labels...
     [ "$DRY_RUN" = 1 ] || [ "$n" = 0 ] || [ $has_limitation = 0 ] || ledger_limitation "$n" on
     say "📝 $url"
     say "   $title"
+    if [ -n "$directive" ]; then say "   model: $directive"
+    elif [ "$claim" != 1 ]; then say "   no model directive — set one with: carnet.sh model $n <opus|sonnet>"; fi
     [ $has_limitation = 0 ] || say "   marker: LIMITATION(registre#$n): <name the limited item on this line>"
     [ "$claim" = 1 ] && [ "$n" != 0 ] && cmd_claim "$n" 0
     return 0
@@ -602,6 +659,7 @@ status_line() { # <n> <short>
         fi
     fi
 
+    [ "$state" != OPEN ] || line="$line · model: $(jq -r '.model | if . == "" then "unset" else . end' <<<"$issue")"
     if [ "$short" = 1 ]; then
         say "$line · $title"
     else
@@ -690,7 +748,7 @@ case "$sub" in
         exit 0 ;;
 esac
 
-steal=0 reason="" session="" all=0 why="" commit="" title="" body="" body_file="" claim=0 short=0 verify=0
+steal=0 reason="" session="" all=0 why="" commit="" title="" body="" body_file="" claim=0 short=0 verify=0 model=""
 labels=()
 positional=()
 while [ $# -gt 0 ]; do
@@ -709,6 +767,7 @@ while [ $# -gt 0 ]; do
         --body)      body=${2:-}; shift ;;
         --body-file) body_file=${2:-}; shift ;;
         --label)     labels+=("${2:-}"); shift ;;
+        --model)     model=${2:-}; shift ;;
         -h|--help)   usage; exit 0 ;;
         -*)          die "unknown flag: $1 (see: carnet.sh help)" ;;
         *)           positional+=("$1") ;;
@@ -731,7 +790,8 @@ case "$sub" in
         if [ "$all" = 1 ]; then cmd_release_all "${reason:-done}" "$session"
         else cmd_release "$(issue_arg)" "${reason:-done}"; fi ;;
     close)   cmd_close "$(issue_arg)" "$why" "$commit" ;;
-    create)  cmd_create "$title" "$body" "$body_file" "$claim" ${labels[@]+"${labels[@]}"} ;;
+    create)  cmd_create "$title" "$body" "$body_file" "$claim" "$model" ${labels[@]+"${labels[@]}"} ;;
+    model)   cmd_model "$(issue_arg)" "${positional[1]:-}" ;;
     status)
         if [ -n "${positional[0]:-}" ]; then status_line "$(issue_arg)" "$short"
         else cmd_status_all; fi ;;

@@ -156,6 +156,18 @@ for n in $nums; do
     printed=1
 done
 
+# Your user assigned these, so the model directive on line 1 of each is now a decision this
+# session owes before its first edit. Only the session knows which model it runs; no hook can
+# switch it. So the comparison and the question are the session's, and they come first.
+if [ "$printed" = 1 ] && [ "$from_peer" = 0 ] && [ -n "$armable" ]; then
+    cat <<'NOTE'
+↑ Before the first edit, compare each issue's `model:` with the model you run. If it differs,
+  stop and ask the user to switch (/model <m>) or to keep this one. If it is `unset`, propose
+  opus or sonnet in one line of reasoning, wait for the answer, then record it on line 1:
+  .agents/skills/carnet/carnet.sh model <n> <opus|sonnet>
+NOTE
+fi
+
 # The mechanical half is done above -- nothing was armed. This is the other half: the model
 # still reads an issue number and can decide, on its own, to go and fix it. Say what the
 # message is and is not, at the moment the number enters context.

@@ -1,7 +1,7 @@
 ---
 name: carnet
 description: Work the private register (dravr-carnet) from a session — claim an issue before touching it so peers see who holds it and which session, release or close it when done, file new issues in the one canonical shape. Use whenever an issue number is mentioned, when you start or stop work that an issue tracks, or when you are about to run gh issue against the tracker.
-argument-hint: <claim|release|status|mine|create|close|label> [args]
+argument-hint: <claim|release|status|mine|create|close|label|model> [args]
 user-invocable: true
 ---
 
@@ -50,6 +50,19 @@ title shape uniform.
    `[<project>] <Thing>` — one shape, no variants, capitalised first word unless it is an
    identifier. The `limitation` label goes only on an issue that a `LIMITATION(registre#n)`
    marker in source will point at; plain findings get the project label alone.
+6. **Settle the model before the first edit.** Line 1 of an issue's body is its model
+   directive, `Model: opus` or `Model: sonnet`, and `status` and `claim` print it as
+   `model: <m>` or `model: unset`. No hook can switch a running session's model: only the
+   user can, with `/model`. So the check is yours, and it comes before you touch anything:
+   - **It matches the model you run:** start.
+   - **It differs:** stop and say so in one line, e.g. "carnet#712 says sonnet; this session
+     is Opus. `/model sonnet` and say go, or tell me to keep Opus." Then wait.
+   - **It is unset:** propose opus or sonnet with one line of reasoning, wait for the answer,
+     then record it with `model <n> <m>` so the next session on the issue does not ask again.
+
+   File with `--model` whenever you can tell. Sonnet suits work whose shape is already known,
+   such as a mechanical change, a well-specified fix or a sweep. Opus suits design, diagnosis
+   with no known cause, and work across several systems.
 
 ## Commands
 
@@ -65,6 +78,9 @@ $C mine                           # what this session holds (no API call); --ver
 $C create --title "Tier 1e is blind to a symbol move" --label bug --body-file /tmp/body.md --claim
 $C close 197 --why "Tier 1e-move greps the old path" --commit 8720f8343
 $C label 197 +critical -bug
+$C model 197                      # read the directive on line 1 of the body
+$C model 197 sonnet               # set it (opus | sonnet), or `none` to clear it
+$C create --title "…" --model sonnet --body-file /tmp/body.md   # file with the directive
 ```
 
 Add `--dry-run` to any of them to see the `gh` calls without making them.
