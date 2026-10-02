@@ -45,6 +45,13 @@ export interface OnboardingContext {
   aboutYouDone: boolean;
   /** The PAR-Q medical screen has been answered or skipped. */
   parqDone: boolean;
+  /**
+   * The user coaches others and does not train themselves, so the athlete
+   * steps (`about_you`, `parq`) are not part of their journey — neither asked
+   * nor shown on the progress bar. Durable as `not_applicable` step rows (see
+   * `athleteStepsWaived`), which the chat intake writes too.
+   */
+  athleteStepsWaived: boolean;
   /** How many messaging channels the tenant has configured (0 ⇒ skip messaging). */
   messagingAvailableCount: number;
   /** A messaging channel is chosen — picked, or auto-selected when only one exists. */
@@ -97,17 +104,24 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     id: 'about_you',
     labelKey: 'onboarding.stepAboutTraining',
     isApplicable: (c) =>
-      c.onboardingActive && c.needsProviderConnection === true && !c.skippedProvider,
+      c.onboardingActive &&
+      c.needsProviderConnection === true &&
+      !c.skippedProvider &&
+      !c.athleteStepsWaived,
     isComplete: (c) => c.aboutYouDone,
   },
   {
     // Pre-participation medical screen. Ahead of the provider gate for the same
     // reason it exists at all: an agent should not prescribe load before we have
     // asked. A "yes" raises an agent-visible flag and never blocks sign-up.
+    // A coach who does not train is not screened: no load is prescribed to them.
     id: 'parq',
     labelKey: 'onboarding.stepHealthCheck',
     isApplicable: (c) =>
-      c.onboardingActive && c.needsProviderConnection === true && !c.skippedProvider,
+      c.onboardingActive &&
+      c.needsProviderConnection === true &&
+      !c.skippedProvider &&
+      !c.athleteStepsWaived,
     isComplete: (c) => c.parqDone,
   },
   {
@@ -186,6 +200,28 @@ export function isServerStepComplete(
 ): boolean {
   return (steps ?? []).some(
     (s) => s.step_id === stepId && (s.status === 'complete' || s.status === 'skipped'),
+  );
+}
+
+/**
+ * Step status for a step outside this person's journey. Distinct from
+ * `skipped`: a skipped step was offered and declined, a not-applicable one was
+ * never theirs. Not a completion — `isServerStepComplete` ignores it, so the
+ * step stays off the progress bar instead of reading "done".
+ */
+export const STEP_NOT_APPLICABLE = 'not_applicable';
+
+/** The steps that ask about the user's own training and body. */
+export const ATHLETE_STEP_IDS: readonly OnboardingStepId[] = ['about_you', 'parq'];
+
+/**
+ * Whether the server records the athlete steps as not part of this user's
+ * journey — a coach who does not train, as answered on any surface. The wizard
+ * marks both athlete steps; the chat intake marks `parq`, so any one suffices.
+ */
+export function athleteStepsWaived(steps: PersistedOnboardingStep[] | undefined): boolean {
+  return (steps ?? []).some(
+    (s) => ATHLETE_STEP_IDS.includes(s.step_id as OnboardingStepId) && s.status === STEP_NOT_APPLICABLE,
   );
 }
 

@@ -67,6 +67,16 @@ pub const STEP_PARQ: &str = "parq";
 pub const STATUS_COMPLETE: &str = "complete";
 /// Step status meaning the intake stood aside without an answer.
 pub const STATUS_SKIPPED: &str = "skipped";
+/// Step status meaning the step is not part of this person's journey.
+///
+/// Written for the athlete-only steps (`about_you`, `parq`) when someone says
+/// they coach others and do not train themselves. Distinct from
+/// [`STATUS_SKIPPED`] on purpose: a skipped screen was offered and declined, a
+/// not-applicable one was never theirs to answer — and every surface reads it
+/// to keep the athlete questions, and the pillar walk, away from that coach.
+pub const STATUS_NOT_APPLICABLE: &str = "not_applicable";
+/// Step id for the about-you answers, shared with the web wizard.
+pub(crate) const STEP_ABOUT_YOU: &str = "about_you";
 
 /// One question in the intake, in the order it is asked.
 ///
@@ -188,8 +198,20 @@ impl IntakeTopic {
 pub enum PersonaAnswer {
     /// Trains for themselves.
     Athlete,
-    /// Coaches other people.
+    /// Coaches other people and does not train themselves.
     Coach,
+    /// Coaches other people and trains too.
+    CoachAndAthlete,
+}
+
+impl PersonaAnswer {
+    /// Whether the athlete-only questions (PAR-Q+, about-you, the pillar walk)
+    /// belong to this person's journey. Only a coach who does not train is
+    /// spared them.
+    #[must_use]
+    pub const fn trains(self) -> bool {
+        !matches!(self, Self::Coach)
+    }
 }
 
 /// Affirmative tokens across the five compiled-in locales.
@@ -215,6 +237,12 @@ const COACH_TOKENS: [&str; 6] = [
     "treinador",
     "coaching",
 ];
+
+/// Tokens naming someone who coaches others and trains too.
+///
+/// Compared against the whole normalised message, like the other tables, so
+/// the two-word French answer is listed as it is typed.
+const BOTH_TOKENS: [&str; 6] = ["both", "les deux", "deux", "ambos", "ambas", "beides"];
 
 /// Lowercase, trim, and fold the accents the token tables do not carry.
 ///
@@ -257,7 +285,7 @@ pub fn parse_yes_no(text: &str) -> Option<bool> {
 /// Parse a reply to the profile-type question.
 ///
 /// Same strictness as [`parse_yes_no`], and the same numbering the question
-/// presents: 1 is the athlete, 2 is the agent.
+/// presents: 1 is the athlete, 2 the coach who does not train, 3 both.
 #[must_use]
 pub fn parse_persona(text: &str) -> Option<PersonaAnswer> {
     let token = normalise(text);
@@ -266,6 +294,9 @@ pub fn parse_persona(text: &str) -> Option<PersonaAnswer> {
     }
     if token == "2" || COACH_TOKENS.contains(&token.as_str()) {
         return Some(PersonaAnswer::Coach);
+    }
+    if token == "3" || BOTH_TOKENS.contains(&token.as_str()) {
+        return Some(PersonaAnswer::CoachAndAthlete);
     }
     None
 }
@@ -332,7 +363,7 @@ where
 pub const fn persona_to_store(answer: PersonaAnswer) -> Option<CoachingPersona> {
     match answer {
         PersonaAnswer::Athlete => None,
-        PersonaAnswer::Coach => Some(CoachingPersona::Coach),
+        PersonaAnswer::Coach | PersonaAnswer::CoachAndAthlete => Some(CoachingPersona::Coach),
     }
 }
 
@@ -370,4 +401,60 @@ where
 pub fn is_outstanding(steps: &[OnboardingStepRecord]) -> bool {
     let recorded = |id: &str| steps.iter().any(|step| step.step_id == id);
     !(recorded(STEP_PROFILE_TYPE) && recorded(STEP_PARQ))
+}
+
+/// Whether this person said they coach others and do not train themselves.
+///
+/// Read from the durable step rows, which every surface writes: any
+/// athlete-only step marked [`STATUS_NOT_APPLICABLE`] means the athlete
+/// questions are not theirs. The chat intake marks `parq`; the wizard marks
+/// both `about_you` and `parq`.
+#[must_use]
+pub(crate) fn athlete_steps_waived(steps: &[OnboardingStepRecord]) -> bool {
+    steps.iter().any(|step| {
+        (step.step_id == STEP_PARQ || step.step_id == STEP_ABOUT_YOU)
+            && step.status == STATUS_NOT_APPLICABLE
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn step(step_id: &str, status: &str) -> OnboardingStepRecord {
+        OnboardingStepRecord {
+            step_id: step_id.to_owned(),
+            status: status.to_owned(),
+            chosen_channel: None,
+        }
+    }
+
+    #[test]
+    fn only_a_coach_who_does_not_train_is_spared_the_athlete_steps() {
+        assert!(PersonaAnswer::Athlete.trains());
+        assert!(PersonaAnswer::CoachAndAthlete.trains());
+        assert!(!PersonaAnswer::Coach.trains());
+    }
+
+    #[test]
+    fn either_athlete_step_marked_not_applicable_waives_them() {
+        assert!(athlete_steps_waived(&[step(
+            STEP_PARQ,
+            STATUS_NOT_APPLICABLE
+        )]));
+        assert!(athlete_steps_waived(&[step(
+            STEP_ABOUT_YOU,
+            STATUS_NOT_APPLICABLE
+        )]));
+    }
+
+    #[test]
+    fn a_skipped_screen_or_another_step_does_not_waive_them() {
+        assert!(!athlete_steps_waived(&[step(STEP_PARQ, STATUS_SKIPPED)]));
+        assert!(!athlete_steps_waived(&[step(
+            STEP_PROFILE_TYPE,
+            STATUS_NOT_APPLICABLE
+        )]));
+        assert!(!athlete_steps_waived(&[]));
+    }
 }

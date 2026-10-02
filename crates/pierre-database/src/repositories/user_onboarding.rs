@@ -19,7 +19,7 @@ pub struct OnboardingStepRecord {
     /// Step identifier (`profile_type`, `connect_provider`, `agent_proposal`,
     /// `messaging_channel`, `messaging_configure`).
     pub step_id: String,
-    /// `complete` or `skipped`.
+    /// `complete`, `skipped` or `not_applicable`.
     pub status: String,
     /// The messaging channel chosen at the `messaging_channel` step, if any.
     pub chosen_channel: Option<String>,

@@ -5,12 +5,15 @@
 // ABOUTME: The one assembly behind the root layout's routing gate and the onboarding progress hairline
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { OnboardingContext } from '@pierre/shared-constants';
+import {
+  athleteStepsWaived as serverAthleteStepsWaived,
+  type OnboardingContext,
+} from '@pierre/shared-constants';
 import { useAuth } from '../contexts/AuthContext';
 import { useOnboardingStatus } from './useOnboardingStatus';
 import { useCoachProposalSeen } from './useCoachProposalSeen';
 import { useProfileTypeChosen } from './useProfileTypeChosen';
-import { useOnboardingFlag } from './useOnboardingFlag';
+import { ATHLETE_STEPS_WAIVED_PREFIX, useOnboardingFlag } from './useOnboardingFlag';
 import { useProviderSkipped } from './useProviderSkipped';
 import { useMessagingOnboarding } from './useMessagingOnboarding';
 
@@ -49,6 +52,16 @@ export function useOnboardingContext(): OnboardingContextState {
   // The two pre-connect steps added alongside profile-type; same fail-open flag.
   const { done: aboutYouDone } = useOnboardingFlag('dravr.about_you_done.', user?.id);
   const { done: parqDone } = useOnboardingFlag('dravr.parq_done.', user?.id);
+  // A coach who does not train: the athlete steps leave the journey. Fails
+  // closed — see useOnboardingFlag's `fallback`. The server's not_applicable
+  // step rows carry it across devices and from the chat intake.
+  const { done: athleteStepsWaivedLocal } = useOnboardingFlag(
+    ATHLETE_STEPS_WAIVED_PREFIX,
+    user?.id,
+    false,
+  );
+  const athleteStepsWaived =
+    athleteStepsWaivedLocal === true || serverAthleteStepsWaived(onboardingStatus?.steps);
   // Session-only escape from the provider gate, matching web. Not persisted:
   // the nudge should come back next launch.
   const { skipped: skippedProvider } = useProviderSkipped(user?.id);
@@ -70,7 +83,10 @@ export function useOnboardingContext(): OnboardingContextState {
 
   const preConnectPending =
     needsProviderConnection === true &&
-    (profileTypeChosen === undefined || aboutYouDone === undefined || parqDone === undefined);
+    (profileTypeChosen === undefined ||
+      aboutYouDone === undefined ||
+      parqDone === undefined ||
+      athleteStepsWaivedLocal === undefined);
   const postConnectPending = postConnect && (coachProposalSeen === undefined || messaging.loading);
 
   const context = useMemo<OnboardingContext>(
@@ -82,6 +98,7 @@ export function useOnboardingContext(): OnboardingContextState {
       profileTypeChosen: profileTypeChosen ?? true,
       aboutYouDone: aboutYouDone ?? true,
       parqDone: parqDone ?? true,
+      athleteStepsWaived,
       coachProposalDone: coachProposalSeen ?? true,
       messagingAvailableCount: messaging.availableCount,
       messagingChannelChosen: messaging.channelChosen,
@@ -96,6 +113,7 @@ export function useOnboardingContext(): OnboardingContextState {
       profileTypeChosen,
       aboutYouDone,
       parqDone,
+      athleteStepsWaived,
       coachProposalSeen,
       messaging.availableCount,
       messaging.channelChosen,

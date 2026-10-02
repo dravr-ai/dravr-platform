@@ -45,7 +45,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::agent_selection::{record_agent_selection, AgentSelectionSource};
-use crate::intake::is_outstanding;
+use crate::intake::{athlete_steps_waived, is_outstanding};
 
 /// Which agent the fresh conversation binds to.
 #[derive(Debug, Clone, Copy)]
@@ -624,6 +624,10 @@ async fn maybe_start_intake(
 ///
 /// Public because the intake hands over to it: an athlete who has just
 /// finished the two intake questions is offered the walk on the same thread.
+///
+/// Never starts for a coach who said they do not train: the walk asks about
+/// the person's own life and training, which is the athlete questionnaire the
+/// coach was promised they would not get.
 pub async fn maybe_start_pillar_walk(
     repos: &RepositoryRegistry,
     tenant_id: TenantId,
@@ -633,6 +637,14 @@ pub async fn maybe_start_pillar_walk(
     let Ok(user_uuid) = Uuid::parse_str(user_id) else {
         return;
     };
+    match repos.user_onboarding.get_onboarding_steps(user_id).await {
+        Ok(steps) if athlete_steps_waived(&steps) => return,
+        Ok(_) => {}
+        Err(e) => {
+            warn!(error = %e, "pillar walk: could not read the onboarding steps; not starting");
+            return;
+        }
+    }
     let Ok(dossier) = repos.dossier.compose_dossier(tenant_id, user_uuid).await else {
         return;
     };

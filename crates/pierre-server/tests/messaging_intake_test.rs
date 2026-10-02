@@ -558,6 +558,12 @@ mod intake_tests {
         assert_eq!(parse_persona("1"), Some(PersonaAnswer::Athlete));
         assert_eq!(parse_persona("2"), Some(PersonaAnswer::Coach));
         assert_eq!(parse_persona("coach"), Some(PersonaAnswer::Coach));
+        assert_eq!(parse_persona("3"), Some(PersonaAnswer::CoachAndAthlete));
+        assert_eq!(
+            parse_persona("Les deux"),
+            Some(PersonaAnswer::CoachAndAthlete)
+        );
+        assert_eq!(parse_persona("both"), Some(PersonaAnswer::CoachAndAthlete));
         assert_eq!(parse_persona("I coach a masters squad"), None);
     }
 
@@ -786,15 +792,68 @@ mod intake_tests {
         assert!(wait_for_probes(&resources, user_id, 1).await);
 
         send_turn(&resources, 8202, 82, "2", false).await;
-        assert!(
-            wait_for_probes(&resources, user_id, 2).await,
-            "the persona answer must be followed by the first PAR-Q question"
-        );
 
+        // A coach who does not train is not screened: the intake ends on the
+        // persona answer, with the PAR-Q recorded as not theirs.
+        assert!(
+            wait_for_step(&resources, user_id, "parq", "not_applicable").await,
+            "'I coach others' must record the PAR-Q as not applicable, got {:?}",
+            onboarding_steps(&resources, user_id).await
+        );
+        assert!(
+            onboarding_steps(&resources, user_id)
+                .await
+                .contains(&("profile_type".to_owned(), "complete".to_owned())),
+            "the persona answer must still record profile type complete"
+        );
+        assert_eq!(
+            probed_count(&resources, user_id).await,
+            0,
+            "no PAR-Q question may follow, and the intake must retire"
+        );
         assert_eq!(
             coaching_persona(&resources, user_id).await,
             "coach",
             "'I coach others' must persist the coach persona, as the web step does"
+        );
+        // The pillar walk asks about the person's own training — the athlete
+        // questionnaire this coach was told they would not get.
+        sleep(Duration::from_millis(500)).await;
+        assert_ne!(
+            active_flow(&resources, user_id).await.as_deref(),
+            Some("pillars"),
+            "the pillar walk must not start for a coach who does not train"
+        );
+    }
+
+    /// A human coach who also trains gets `coaching_persona=coach` AND the PAR-Q.
+    #[tokio::test]
+    #[serial]
+    async fn choosing_both_sets_the_persona_and_keeps_the_screen() {
+        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        let mock = MockLlm::new();
+        let calls = mock.counter();
+        let resources = create_test_server_resources_with_llm(Arc::new(mock))
+            .await
+            .unwrap();
+
+        let (user_id, tenant_id) =
+            create_user_with_own_tenant(&resources, "intake_coach_both@example.com").await;
+        link_channel(&resources, tenant_id, user_id, "87").await;
+
+        send_turn(&resources, 8701, 87, "Bonjour", false).await;
+        assert!(wait_for_turns(&calls, 1).await);
+        assert!(wait_for_probes(&resources, user_id, 1).await);
+
+        send_turn(&resources, 8702, 87, "3", false).await;
+        assert!(
+            wait_for_probes(&resources, user_id, 2).await,
+            "a coach who trains must be asked the first PAR-Q question"
+        );
+        assert_eq!(
+            coaching_persona(&resources, user_id).await,
+            "coach",
+            "'both' must persist coaching_persona=coach"
         );
     }
 

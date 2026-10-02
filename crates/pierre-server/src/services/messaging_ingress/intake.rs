@@ -37,8 +37,8 @@
 //! so the screen does not reopen on their next message.
 
 use pierre_contremaitre::messaging_strings::{
-    KEY_INTAKE_COMPLETE_CLEAR, KEY_INTAKE_COMPLETE_FLAGGED, KEY_INTAKE_OPENER,
-    KEY_INTAKE_PARQ_INTRO, KEY_INTAKE_RETRY, KEY_INTAKE_YESNO_HINT,
+    KEY_INTAKE_COMPLETE_CLEAR, KEY_INTAKE_COMPLETE_COACH, KEY_INTAKE_COMPLETE_FLAGGED,
+    KEY_INTAKE_OPENER, KEY_INTAKE_PARQ_INTRO, KEY_INTAKE_RETRY, KEY_INTAKE_YESNO_HINT,
 };
 use pierre_core::models::messaging::{ChannelType, OutgoingMessage};
 use pierre_core::models::{GuidedFlow, OnboardingState, TenantId, TopicSlug};
@@ -47,7 +47,8 @@ use pierre_memory::PredicateCode;
 use pierre_memory::{FactKind, FactSource};
 use pierre_services::intake::{
     parse_persona, parse_yes_no, persona_to_store, record_parq_no, record_parq_yes, record_steps,
-    IntakeTopic, PersonaAnswer, MAX_ANSWER_ATTEMPTS, STATUS_COMPLETE, STATUS_SKIPPED,
+    IntakeTopic, PersonaAnswer, MAX_ANSWER_ATTEMPTS, STATUS_COMPLETE, STATUS_NOT_APPLICABLE,
+    STATUS_SKIPPED,
 };
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -186,6 +187,25 @@ pub(super) async fn try_handle_intake(params: IntakeParams<'_>) -> IntakeOutcome
 
     persist_answer(resources, tenant_id, &user_id_str, awaiting, answer).await;
 
+    // A coach who does not train is not screened: the PAR-Q+ asks about the
+    // body of the person answering, and theirs is not the one being coached.
+    if let Answer::Persona(persona) = answer {
+        if !persona.trains() {
+            let reply = complete_coach_only(CompleteArgs {
+                resources,
+                tenant_id,
+                conversation_id,
+                channel_type,
+                sender_id,
+                user_id: &user_id_str,
+                locale,
+                raw_state,
+            })
+            .await;
+            return IntakeOutcome::Answered(Box::new(reply));
+        }
+    }
+
     let reply = match IntakeTopic::next(&state.probed) {
         Some(next) => {
             deliver(DeliverArgs {
@@ -225,8 +245,8 @@ pub(super) async fn try_handle_intake(params: IntakeParams<'_>) -> IntakeOutcome
 /// What an athlete's reply resolved to, in whichever question asked it.
 #[derive(Debug, Clone, Copy)]
 enum Answer {
-    /// Profile type: `true` when they agent other people.
-    Coaches(bool),
+    /// Profile type: athlete, coach who does not train, or both.
+    Persona(PersonaAnswer),
     /// PAR-Q+: `true` for a "yes", which raises a flag.
     Parq(bool),
 }
@@ -234,7 +254,7 @@ enum Answer {
 /// Parse the reply against the question that is outstanding.
 fn interpret(topic: IntakeTopic, text: &str) -> Option<Answer> {
     if topic == IntakeTopic::Persona {
-        return parse_persona(text).map(|p| Answer::Coaches(p == PersonaAnswer::Coach));
+        return parse_persona(text).map(Answer::Persona);
     }
     parse_yes_no(text).map(Answer::Parq)
 }
@@ -252,26 +272,25 @@ async fn persist_answer(
     answer: Answer,
 ) {
     match answer {
-        Answer::Coaches(true) => persist_coach_persona(resources, user_id).await,
+        Answer::Persona(persona) => persist_persona(resources, user_id, persona).await,
         Answer::Parq(true) => persist_parq_flag(resources, tenant_id, user_id, topic).await,
         // A clean answer raises no flag by definition; it retires the one an
         // earlier "yes" to the same question left, as the API path does.
         Answer::Parq(false) => retire_parq_flag(resources, tenant_id, user_id, topic).await,
-        // "I'm an athlete" has no user-row value to store — `coaching_persona`
-        // has no athlete variant, Casual *is* the default. That the athlete
-        // answered at all is carried by the step row.
-        Answer::Coaches(false) => {}
     }
 }
 
-/// Mark the athlete as someone who agents other people.
+/// Mark someone who coaches others — whether or not they also train.
 ///
-/// The one profile-type answer with a user-row write, mirroring the web step.
-async fn persist_coach_persona(resources: &ServerContext, user_id: &str) {
+/// "I'm an athlete" has no user-row value to store — `coaching_persona` has no
+/// athlete variant, Casual *is* the default — so [`persona_to_store`] returns
+/// `None` for it and that the athlete answered at all is carried by the step
+/// row. Mirrors the web step.
+async fn persist_persona(resources: &ServerContext, user_id: &str, answer: PersonaAnswer) {
     let Ok(uuid) = Uuid::parse_str(user_id) else {
         return;
     };
-    let Some(persona) = persona_to_store(PersonaAnswer::Coach) else {
+    let Some(persona) = persona_to_store(answer) else {
         return;
     };
     if let Err(e) = resources
@@ -465,6 +484,43 @@ async fn complete(args: CompleteArgs<'_>) -> Option<OutgoingMessage> {
     Some(proactive_text(channel_type, sender_id.to_owned(), body))
 }
 
+/// A coach who does not train answered the profile question: record the
+/// screen as not theirs and close the intake.
+///
+/// `parq` is written as not-applicable rather than skipped, which is what the
+/// wizard reads to leave the athlete steps out of this coach's journey and
+/// what keeps the pillar walk [`finish`] hands off to from starting.
+async fn complete_coach_only(args: CompleteArgs<'_>) -> OutgoingMessage {
+    let CompleteArgs {
+        resources,
+        tenant_id,
+        conversation_id,
+        channel_type,
+        sender_id,
+        user_id,
+        locale,
+        raw_state,
+    } = args;
+
+    finish(FinishArgs {
+        resources,
+        tenant_id,
+        conversation_id,
+        user_id,
+        raw_state,
+        persona_status: STATUS_COMPLETE,
+        parq_status: STATUS_NOT_APPLICABLE,
+    })
+    .await;
+
+    info!("intake: complete — a coach who does not train, PAR-Q recorded as not applicable");
+    let body = resources
+        .mcp
+        .messaging_strings_registry
+        .get(KEY_INTAKE_COMPLETE_COACH, locale);
+    proactive_text(channel_type, sender_id.to_owned(), body)
+}
+
 /// How many medical flags this athlete's onboarding has raised.
 ///
 /// Read back from the facts rather than counted in flow state: the facts are
@@ -546,6 +602,13 @@ async fn finish(args: FinishArgs<'_>) {
     // never run for anyone who arrived through a channel. The walk makes its own
     // decision from dossier coverage; an athlete who already has context is left
     // alone, exactly as at conversation creation.
+    //
+    // A coach who does not train never gets it. The walk would also refuse on
+    // the not-applicable row, but that row is the write above, which can fail —
+    // so the answer this turn already has decides, not the store.
+    if parq_status == STATUS_NOT_APPLICABLE {
+        return;
+    }
     maybe_start_pillar_walk(&resources.common.repos, tenant_id, user_id, conversation_id).await;
 }
 

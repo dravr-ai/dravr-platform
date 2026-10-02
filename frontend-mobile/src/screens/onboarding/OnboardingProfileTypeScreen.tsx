@@ -1,5 +1,5 @@
-// ABOUTME: First-run onboarding step (mobile) — asks whether the user is an athlete or a coach
-// ABOUTME: Mirrors the web OnboardingProfileType; "coach" sets coaching_persona=coach; advances via the shared flag cache
+// ABOUTME: First-run onboarding step (mobile) — asks whether the user is an athlete, a coach, or both
+// ABOUTME: Mirrors the web OnboardingProfileType; coach answers set coaching_persona=coach; coach-only drops the athlete steps
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,36 +12,59 @@ import { OnboardingProgressBar } from '../../components/ui/OnboardingProgressBar
 import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useProfileTypeChosen } from '../../hooks/useProfileTypeChosen';
+import { ATHLETE_STEPS_WAIVED_PREFIX, useOnboardingFlag } from '../../hooks/useOnboardingFlag';
 import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
 import { useThemeColors } from '../../constants/theme';
-import type { OnboardingProgressItem } from '@pierre/shared-constants';
+import { ATHLETE_STEP_IDS, type OnboardingProgressItem } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 
+/** The three answers the step offers. */
+type ProfileChoice = 'athlete' | 'coach' | 'coach_and_athlete';
+
 /**
- * Athlete-vs-coach onboarding step (mobile).
+ * Athlete / coach / both onboarding step (mobile).
  *
  * Reached via RootLayoutNav for a fresh account before the connect-provider step.
- * Picking t('humanCoach.iCoachOthers') persists `coaching_persona=coach`; either choice marks
- * the profile-type step done (locally + on the server) and flips the shared
- * `useProfileTypeChosen` cache, which routes the user on.
+ * Both coach answers persist `coaching_persona=coach`. A coach who does not
+ * train also takes the athlete steps (about-you, PAR-Q) out of the journey —
+ * locally, and as `not_applicable` step rows on the server — before the
+ * profile-type step is marked done, so the routing gate never lands them on
+ * an athlete question. Mirrors the web OnboardingProfileType.
  */
 export function OnboardingProfileTypeScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const { user } = useAuth();
   const { markChosen } = useProfileTypeChosen(user?.id);
+  const { mark: markAthleteStepsWaived } = useOnboardingFlag(
+    ATHLETE_STEPS_WAIVED_PREFIX,
+    user?.id,
+    false,
+  );
   const progress = useOnboardingProgress('profile_type');
-  const [choosing, setChoosing] = useState<'athlete' | 'coach' | null>(null);
+  const [choosing, setChoosing] = useState<ProfileChoice | null>(null);
+  const [saveFailed, setSaveFailed] = useState(false);
 
-  const finish = async (persona: 'athlete' | 'coach') => {
+  const finish = async (choice: ProfileChoice) => {
     if (choosing) return;
-    setChoosing(persona);
-    if (persona === 'coach') {
+    setChoosing(choice);
+    setSaveFailed(false);
+    if (choice !== 'athlete') {
       try {
         await userApi.setCoachingPersona('coach');
       } catch {
-        // Non-fatal: the default Casual voice is a harmless start; changeable in Settings.
+        // The persona unlocks the coach tools this choice promises: keep the
+        // user here to retry rather than route them on without them.
+        setChoosing(null);
+        setSaveFailed(true);
+        return;
       }
+    }
+    if (choice === 'coach') {
+      for (const stepId of ATHLETE_STEP_IDS) {
+        userApi.setOnboardingStep(stepId, 'not_applicable').catch(() => {});
+      }
+      await markAthleteStepsWaived();
     }
     userApi.setOnboardingStep('profile_type', 'complete').catch(() => {});
     await markChosen();
@@ -73,10 +96,27 @@ export function OnboardingProfileTypeScreen() {
           trailing={choosing === 'coach' ? <ActivityIndicator size="small" color={colors.tokens.primary} /> : undefined}
           onPress={() => void finish('coach')}
           accessibilityLabel={t('humanCoach.iCoachOthers')}
-          last
           testID="profile-type-coach"
         />
+        <Row
+          title={t('humanCoach.iCoachAndTrain')}
+          subtitle={t('humanCoach.coachAndTrainCardDescription')}
+          trailing={choosing === 'coach_and_athlete' ? <ActivityIndicator size="small" color={colors.tokens.primary} /> : undefined}
+          onPress={() => void finish('coach_and_athlete')}
+          accessibilityLabel={t('humanCoach.iCoachAndTrain')}
+          last
+          testID="profile-type-coach-and-athlete"
+        />
       </View>
+      {saveFailed ? (
+        <Text
+          accessibilityRole="alert"
+          testID="profile-type-save-failed"
+          className="mt-4 px-4 text-sm text-error"
+        >
+          {t('onboarding.profileTypeSaveFailed')}
+        </Text>
+      ) : null}
     </Shell>
   );
 }

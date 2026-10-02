@@ -1,4 +1,4 @@
-// ABOUTME: HTTP tests for PUT /api/me/onboarding/steps/{step_id} — status + chosen_channel validation
+// ABOUTME: HTTP tests for PUT /api/me/onboarding/steps/{step_id} — status (incl. not_applicable) + chosen_channel validation
 // ABOUTME: Pins the slug guard so only [a-z0-9_] channel slugs (not markup) reach the durable step store
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -75,5 +75,36 @@ async fn put_step_rejects_an_unknown_status() {
         resp.status_code(),
         StatusCode::BAD_REQUEST,
         "an unknown status must be rejected"
+    );
+}
+
+/// A coach who does not train records the athlete steps as outside their
+/// journey; the status round-trips so every surface reads it back.
+#[tokio::test]
+async fn put_step_accepts_not_applicable_and_status_reads_it_back() {
+    let (router, token) = setup().await;
+    let resp = AxumTestRequest::put("/api/me/onboarding/steps/parq")
+        .header("Authorization", &token)
+        .json(&json!({ "status": "not_applicable" }))
+        .send(router.clone())
+        .await;
+    assert_eq!(
+        resp.status_code(),
+        StatusCode::NO_CONTENT,
+        "not_applicable must be an accepted status"
+    );
+
+    let status: serde_json::Value = AxumTestRequest::get("/api/me/onboarding-status")
+        .header("Authorization", &token)
+        .send(router)
+        .await
+        .assert_status(StatusCode::OK)
+        .json();
+    let steps = status["steps"].as_array().expect("steps array");
+    assert!(
+        steps
+            .iter()
+            .any(|s| s["step_id"] == "parq" && s["status"] == "not_applicable"),
+        "the not_applicable parq row must be served back, got {steps:?}"
     );
 }

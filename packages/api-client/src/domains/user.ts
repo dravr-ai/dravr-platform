@@ -453,7 +453,7 @@ export function createUserApi(axios: AxiosInstance) {
      */
     async setOnboardingStep(
       stepId: string,
-      status: 'complete' | 'skipped',
+      status: 'complete' | 'skipped' | 'not_applicable',
       chosenChannel?: string,
     ): Promise<void> {
       await axios.put(ENDPOINTS.USER.ONBOARDING_STEP(stepId), {

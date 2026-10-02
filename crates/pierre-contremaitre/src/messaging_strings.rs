@@ -623,7 +623,7 @@ pub const KEY_MEMORY_PREDICATE_STATES: &str = "messaging.memory.predicate.states
 // ── messaging intake keys ─────────────────────────────────────────────────
 /// Key: intake opener — sent with the first question after a channel is linked.
 pub const KEY_INTAKE_OPENER: &str = "messaging.intake.opener";
-/// Key: intake profile-type question (athlete vs agent), numbered 1/2.
+/// Key: intake profile-type question (athlete / coach / both), numbered 1/2/3.
 pub const KEY_INTAKE_PERSONA: &str = "humanCoach.intake_persona";
 /// Key: framing sent with the first PAR-Q+ question — a "yes" blocks nothing.
 pub const KEY_INTAKE_PARQ_INTRO: &str = "messaging.intake.parq.intro";
@@ -649,6 +649,8 @@ pub const KEY_INTAKE_RETRY: &str = "messaging.intake.retry";
 pub const KEY_INTAKE_COMPLETE_CLEAR: &str = "messaging.intake.complete_clear";
 /// Key: intake wrap-up when at least one flag was raised. `{0}` is the count.
 pub const KEY_INTAKE_COMPLETE_FLAGGED: &str = "messaging.intake.complete_flagged";
+/// Key: intake wrap-up for a coach who does not train — the PAR-Q+ was never asked.
+pub const KEY_INTAKE_COMPLETE_COACH: &str = "messaging.intake.complete_coach";
 
 // ── /calibrate command keys ───────────────────────────────────────────────
 

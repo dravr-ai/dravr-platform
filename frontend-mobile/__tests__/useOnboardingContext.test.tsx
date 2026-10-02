@@ -86,6 +86,7 @@ describe('useOnboardingContext', () => {
       profileTypeChosen: true,
       aboutYouDone: false,
       parqDone: false,
+      athleteStepsWaived: false,
       coachProposalDone: false,
       messagingAvailableCount: 0,
       messagingChannelChosen: false,
@@ -109,6 +110,40 @@ describe('useOnboardingContext', () => {
     expect(result.current.context.profileTypeChosen).toBe(true);
     expect(result.current.context.aboutYouDone).toBe(true);
     expect(result.current.context.parqDone).toBe(true);
+    // The coach-only flag removes steps, so it fails closed instead.
+    expect(result.current.context.athleteStepsWaived).toBe(false);
+  });
+
+  it('a coach who does not train (local flag) goes from profile type straight to connect', async () => {
+    mockGetOnboardingStatus.mockResolvedValue(status(true));
+    await markDone('dravr.profile_type_chosen.', 'dravr.athlete_steps_waived.');
+    const { wrapper } = setup();
+
+    const { result } = renderHook(() => useOnboardingContext(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.context.needsProviderConnection).toBe(true);
+      expect(result.current.settled).toBe(true);
+    });
+    expect(result.current.context.athleteStepsWaived).toBe(true);
+    expect(currentOnboardingStep(result.current.context)?.id).toBe('connect_provider');
+  });
+
+  it('a coach who does not train (server not_applicable rows, e.g. from chat) skips the athlete steps on a new device', async () => {
+    mockGetOnboardingStatus.mockResolvedValue({
+      ...status(true),
+      steps: [
+        { step_id: 'profile_type', status: 'complete' },
+        { step_id: 'parq', status: 'not_applicable' },
+      ],
+    });
+    await markDone('dravr.profile_type_chosen.');
+    const { wrapper } = setup();
+
+    const { result } = renderHook(() => useOnboardingContext(), { wrapper });
+
+    await waitFor(() => expect(result.current.context.athleteStepsWaived).toBe(true));
+    expect(currentOnboardingStep(result.current.context)?.id).toBe('connect_provider');
   });
 
   it('observes the first connect as justOnboarded and makes the coach proposal current', async () => {

@@ -11,13 +11,21 @@ import { userApi } from '../services/api';
 import type { AvailableChannel } from '@pierre/api-client';
 import { useAuth } from './useAuth';
 import { useAvailableChannels } from './useAvailableChannels';
-import { isServerStepComplete, type OnboardingContext } from '../onboarding/steps';
+import {
+  ATHLETE_STEP_IDS,
+  athleteStepsWaived as serverAthleteStepsWaived,
+  isServerStepComplete,
+  type OnboardingContext,
+} from '../onboarding/steps';
 
 /** The onboarding context plus the per-step completion callbacks the flow wires into each step. */
 export interface OnboardingState {
   ctx: OnboardingContext;
-  /** Athlete/coach choice made — persist + advance. */
-  completeProfileType: () => void;
+  /**
+   * Athlete/coach choice made — persist + advance. `trains: false` (a coach who
+   * does not train) takes the athlete steps out of the journey.
+   */
+  completeProfileType: (choice: { trains: boolean }) => void;
   /** About-you answers submitted or skipped — persist + advance. */
   completeAboutYou: (status?: 'complete' | 'skipped') => void;
   /** PAR-Q answered or skipped — persist + advance. */
@@ -116,6 +124,19 @@ export function useOnboardingState(): OnboardingState {
     setProfileTypeChosenLocal(profileTypeKey ? localStorage.getItem(profileTypeKey) === '1' : true);
   }, [profileTypeKey]);
 
+  // A coach who does not train: the athlete steps leave the journey. Unlike the
+  // done-flags above this one defaults to false with no user — it removes
+  // steps, so failing open would skip the PAR-Q for an athlete.
+  const athleteStepsWaivedKey = user?.user_id
+    ? `dravr.athlete_steps_waived.${user.user_id}`
+    : null;
+  const [athleteStepsWaivedLocal, setAthleteStepsWaivedLocal] = useState(false);
+  useEffect(() => {
+    setAthleteStepsWaivedLocal(
+      athleteStepsWaivedKey ? localStorage.getItem(athleteStepsWaivedKey) === '1' : false,
+    );
+  }, [athleteStepsWaivedKey]);
+
   // A step counts as done when EITHER the local flag or the durable server
   // record says so. The server record is what makes onboarding survive device
   // changes / cache clears (a step done on desktop is skipped on mobile). The OR
@@ -127,6 +148,7 @@ export function useOnboardingState(): OnboardingState {
     coachProposalDoneLocal || isServerStepComplete(serverSteps, 'coach_proposal');
   const aboutYouDone = aboutYouDoneLocal || isServerStepComplete(serverSteps, 'about_you');
   const parqDone = parqDoneLocal || isServerStepComplete(serverSteps, 'parq');
+  const athleteStepsWaived = athleteStepsWaivedLocal || serverAthleteStepsWaived(serverSteps);
 
   // Messaging derivations. The chosen channel is the one picked this session,
   // else the server-persisted `chosen_channel`, else the sole configured channel
@@ -163,17 +185,29 @@ export function useOnboardingState(): OnboardingState {
   // failed server write is non-fatal (mirrors the coaching-persona write). The
   // server record is read on the user's next session / other device.
   const persistStep = useCallback(
-    (stepId: string, status: 'complete' | 'skipped', chosenChannel?: string) => {
+    (
+      stepId: string,
+      status: 'complete' | 'skipped' | 'not_applicable',
+      chosenChannel?: string,
+    ) => {
       void userApi.setOnboardingStep(stepId, status, chosenChannel).catch(() => {});
     },
     [],
   );
 
-  const completeProfileType = useCallback(() => {
-    if (profileTypeKey) localStorage.setItem(profileTypeKey, '1');
-    setProfileTypeChosenLocal(true);
-    persistStep('profile_type', 'complete');
-  }, [profileTypeKey, persistStep]);
+  const completeProfileType = useCallback(
+    ({ trains }: { trains: boolean }) => {
+      if (!trains) {
+        if (athleteStepsWaivedKey) localStorage.setItem(athleteStepsWaivedKey, '1');
+        setAthleteStepsWaivedLocal(true);
+        for (const stepId of ATHLETE_STEP_IDS) persistStep(stepId, 'not_applicable');
+      }
+      if (profileTypeKey) localStorage.setItem(profileTypeKey, '1');
+      setProfileTypeChosenLocal(true);
+      persistStep('profile_type', 'complete');
+    },
+    [athleteStepsWaivedKey, profileTypeKey, persistStep],
+  );
 
   const completeCoachProposal = useCallback(() => {
     if (coachProposalKey) localStorage.setItem(coachProposalKey, '1');
@@ -230,6 +264,7 @@ export function useOnboardingState(): OnboardingState {
     coachProposalDone,
     aboutYouDone,
     parqDone,
+    athleteStepsWaived,
     messagingAvailableCount,
     messagingChannelChosen,
     messagingChannelDone,

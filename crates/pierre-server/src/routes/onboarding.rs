@@ -31,7 +31,7 @@ use pierre_core::errors::AppError;
 use pierre_core::models::{CoverageMap, TenantId};
 use pierre_middleware::extract_auth_from_headers;
 use pierre_middleware::extractors::AuthenticatedUser;
-use pierre_services::intake::INTAKE_TOPICS;
+use pierre_services::intake::{self, INTAKE_TOPICS};
 use pierre_services::locale::resolve_user_locale;
 use pierre_services::{about_you, onboarding_gate, parq};
 
@@ -65,7 +65,7 @@ pub struct OnboardingStepState {
     /// Step id (`profile_type`, `connect_provider`, `agent_proposal`,
     /// `messaging_channel`, `messaging_configure`).
     pub step_id: String,
-    /// `complete` or `skipped`.
+    /// `complete`, `skipped` or `not_applicable`.
     pub status: String,
 }
 
@@ -85,7 +85,15 @@ const ONBOARDING_STEP_IDS: [&str; 7] = [
 ];
 
 /// The statuses a step may be set to. A missing row means "pending".
-const ONBOARDING_STATUSES: [&str; 2] = ["complete", "skipped"];
+///
+/// `not_applicable` marks a step outside this person's journey — the athlete
+/// steps for a coach who does not train (see
+/// [`pierre_services::intake::STATUS_NOT_APPLICABLE`]).
+const ONBOARDING_STATUSES: [&str; 3] = [
+    intake::STATUS_COMPLETE,
+    intake::STATUS_SKIPPED,
+    intake::STATUS_NOT_APPLICABLE,
+];
 
 /// Max length for a `chosen_channel` value (channel names are short slugs).
 const MAX_CHOSEN_CHANNEL_LEN: usize = 32;
@@ -354,7 +362,7 @@ pub async fn handle_about_you_post(
 /// Request body for `PUT /api/me/onboarding/steps/{step_id}`.
 #[derive(Debug, Deserialize)]
 pub struct SetOnboardingStepRequest {
-    /// `complete` or `skipped`.
+    /// `complete`, `skipped` or `not_applicable`.
     pub status: String,
     /// For the `messaging_channel` step: the messaging app the user chose.
     #[serde(default)]

@@ -6,6 +6,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  athleteStepsWaived,
   currentOnboardingStep,
   isServerStepComplete,
   onboardingProgress,
@@ -26,6 +27,7 @@ function ctx(overrides: Partial<OnboardingContext> = {}): OnboardingContext {
     // test exercising a later step isn't intercepted by them.
     aboutYouDone: true,
     parqDone: true,
+    athleteStepsWaived: false,
     // Messaging defaults: no channels configured, so the messaging steps are
     // inapplicable + auto-complete unless a test opts in with a positive count.
     messagingAvailableCount: 0,
@@ -351,5 +353,50 @@ describe('isServerStepComplete — durable cross-device step state', () => {
   it('ignores unknown statuses (e.g. a future "pending")', () => {
     const steps = [{ step_id: 'profile_type', status: 'pending' }];
     expect(isServerStepComplete(steps, 'profile_type')).toBe(false);
+  });
+});
+
+describe('coach who does not train — athlete steps leave the journey', () => {
+  const coachOnly = (overrides: Partial<OnboardingContext> = {}) =>
+    ctx({
+      needsProviderConnection: true,
+      profileTypeChosen: true,
+      aboutYouDone: false,
+      parqDone: false,
+      coachProposalDone: false,
+      athleteStepsWaived: true,
+      ...overrides,
+    });
+
+  it('goes straight from profile_type to connect_provider, never asking about_you or parq', () => {
+    expect(currentOnboardingStep(coachOnly())?.id).toBe('connect_provider');
+  });
+
+  it('keeps the athlete steps off the progress bar instead of showing them done', () => {
+    expect(onboardingProgress(coachOnly()).map((s) => s.id)).toEqual([
+      'profile_type',
+      'connect_provider',
+    ]);
+  });
+
+  it('a coach who trains still gets the athlete steps', () => {
+    expect(currentOnboardingStep(coachOnly({ athleteStepsWaived: false }))?.id).toBe('about_you');
+  });
+});
+
+describe('athleteStepsWaived — durable coach-only record', () => {
+  it('is true when either athlete step is recorded not_applicable', () => {
+    expect(athleteStepsWaived([{ step_id: 'parq', status: 'not_applicable' }])).toBe(true);
+    expect(athleteStepsWaived([{ step_id: 'about_you', status: 'not_applicable' }])).toBe(true);
+  });
+
+  it('is false for skipped athlete steps, other steps, and no record', () => {
+    expect(athleteStepsWaived([{ step_id: 'parq', status: 'skipped' }])).toBe(false);
+    expect(athleteStepsWaived([{ step_id: 'profile_type', status: 'not_applicable' }])).toBe(false);
+    expect(athleteStepsWaived(undefined)).toBe(false);
+  });
+
+  it('is not a completion: a not_applicable step never reads done', () => {
+    expect(isServerStepComplete([{ step_id: 'parq', status: 'not_applicable' }], 'parq')).toBe(false);
   });
 });

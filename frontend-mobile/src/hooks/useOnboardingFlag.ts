@@ -8,6 +8,9 @@ import { useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+/** Storage prefix for the coach-who-does-not-train flag; mirrors the web key. */
+export const ATHLETE_STEPS_WAIVED_PREFIX = 'dravr.athlete_steps_waived.';
+
 /**
  * Resolves whether a per-user onboarding step is already complete, backed by
  * AsyncStorage and cached in React Query so the routing gate (RootLayoutNav) and
@@ -22,19 +25,27 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
  * resolves, avoiding a flash of the wrong screen. Fails **open** (no user, or a
  * storage error ⇒ `true`) on purpose: a storage hiccup must never trap someone on
  * an onboarding step they've already finished.
+ *
+ * `fallback` overrides that for a flag whose `true` *removes* steps rather than
+ * marking one finished (the coach-who-does-not-train flag): failing open there
+ * would skip an athlete's PAR-Q, so it passes `false`.
  */
-export function useOnboardingFlag(storagePrefix: string, userId: string | undefined) {
+export function useOnboardingFlag(
+  storagePrefix: string,
+  userId: string | undefined,
+  fallback = true,
+) {
   const queryClient = useQueryClient();
   const queryKey = ['onboarding-flag', storagePrefix, userId] as const;
 
   const { data: done } = useQuery({
     queryKey,
     queryFn: async () => {
-      if (!userId) return true;
+      if (!userId) return fallback;
       try {
         return (await AsyncStorage.getItem(`${storagePrefix}${userId}`)) === '1';
       } catch {
-        return true;
+        return fallback;
       }
     },
     staleTime: Infinity,
