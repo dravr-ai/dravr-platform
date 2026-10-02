@@ -57,6 +57,12 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_ARTIFACTS_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_IMAGE_PUBLISHER_SA }}
 
+      # Installs gcloud for every later step (docker auth, the rollout waits):
+      # server-binaries frees disk with a large-packages sweep that uninstalls
+      # the runner's preinstalled Google Cloud SDK.
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
       - name: Configure Docker for Artifact Registry
         run: |
           REGISTRY_HOST="$(echo '${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}' | cut -d'/' -f1)"

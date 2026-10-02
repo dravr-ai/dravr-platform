@@ -301,10 +301,11 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_ARTIFACTS_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_IMAGE_PUBLISHER_SA }}
 
+      # Installs gcloud rather than using the runner's: server-binaries frees disk
+      # with a large-packages sweep that uninstalls the preinstalled Google Cloud
+      # SDK, so `skip_install` would find no gcloud on PATH.
       - name: Configure Docker credential helper
         uses: google-github-actions/setup-gcloud@v3
-        with:
-          skip_install: true
 
       - name: Configure Docker for Artifact Registry
         run: |
