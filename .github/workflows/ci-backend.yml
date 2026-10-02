@@ -306,7 +306,7 @@ jobs:
           ./scripts/ci/pre-push-validate.test.sh
           ./scripts/ci/sync-contremaitre-fallback.test.sh
           ./scripts/ci/check-deploy-ancestry.test.sh
-          ./scripts/ci/pick-deploy-recovery.test.sh
+          ./scripts/ci/pick-newest-green.test.sh
           ./scripts/ci/check-lockfile-duplicates.test.sh
           ./scripts/ci/satellite-pin.test.sh
           ./scripts/ci/satellite-bump-gate.test.sh

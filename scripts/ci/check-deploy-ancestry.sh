@@ -6,9 +6,10 @@
 # Copyright (c) 2026 dravr.ai
 #
 # Why this exists:
-#   `publish-images.yml` builds the TRIGGERING CI run's commit on a workflow_run
-#   event, and CI runs on main finish in whatever order the runners allow. So a
-#   deploy for an older commit can complete AFTER a deploy for a newer one, and
+#   `publish-images.yml` deploys on a workflow_run event, and CI runs on main
+#   finish in whatever order the runners allow. So a deploy can resolve a commit
+#   older than the one dev already serves (the newest-green picker narrows this
+#   but falls back to the triggering commit when it cannot answer), and
 #   dev — which is the environment the team actually uses — moves backwards
 #   with every run green. Observed 2026-09-04 00:56Z: run 33822126457 put
 #   2ad52f348 on dev twenty minutes after e49774745 was already serving

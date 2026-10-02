@@ -1,15 +1,16 @@
 # ABOUTME: Builds and publishes Docker images to the central Artifact Registry, then deploys to Cloud Run
-# ABOUTME: Builds when Backend CI starts on main and deploys only once that run is green; v*.*.* tags trigger directly
+# ABOUTME: Builds and deploys once Backend CI on main is green; docker/** pushes and v*.*.* tags trigger directly
 
 name: "Deploy: Build & Ship (dev)"
 
-# The built commit, in the run's own title.
+# The triggering commit, in the run's own title.
 #
 # GitHub stamps a `workflow_run` run with the branch TIP at run-creation, while
-# `resolve-sha` below deliberately builds `workflow_run.head_sha` — the tree CI
-# actually validated. When CI completes out of order those are different
-# commits, and every reporting surface (the Actions UI, `gh run list --json
-# headSha`) shows the tip. The build is right; the reporting is not.
+# `resolve-sha` below deliberately builds a commit CI validated: the trigger
+# `workflow_run.head_sha`, or the newest green commit that contains it. When CI
+# completes out of order the tip is neither, and every reporting surface (the
+# Actions UI, `gh run list --json headSha`) shows the tip. The build is right;
+# the reporting is not.
 #
 # On 2026-09-03 that cost a full misdiagnosis: run 33816926276 reported
 # `ecc8ab1f4` and built `19bc985c4`, which read as "the same commit produced
@@ -19,30 +20,31 @@ name: "Deploy: Build & Ship (dev)"
 # was simply never compiled (carnet#262).
 #
 # `run-name` is evaluated at run creation, where the workflow_run payload is
-# already available, so the title carries the commit this run will build.
+# already available, so the title carries the triggering commit. The picker
+# runs later, so when it builds a newer green commit it says so in a notice.
 run-name: "Deploy ${{ github.event.workflow_run.head_sha || inputs.sha || github.sha }}"
 
 on:
   workflow_dispatch:
     inputs:
-      # Set by recover-last-green below when it redeploys the newest green
-      # commit after a refused deploy; a person may set it too. Empty builds
-      # the tip of the ref the run was started on, as before.
+      # Redeploys a chosen commit by hand (a rollback, or a commit whose deploy
+      # was superseded). Empty builds the tip of the ref the run was started on.
       sha:
         description: 'Commit on main to build and deploy (default: the tip)'
         required: false
         type: string
-  # The image build starts when Backend CI STARTS on main and the deploy waits
-  # for that same CI run to go green (the await-ci job), so broken code is still
-  # never deployed. Until 2026-09-21 this fired on `completed`: the ~28-minute
-  # image build began only after the ~35-minute CI had finished, back to back,
-  # and a fix took 65 to 95 minutes from push to serving (carnet#498). Build and
-  # CI need nothing from each other; only the deploy needs CI's verdict.
-  # `requested` keeps everything else as it was: one run per Backend CI run,
-  # so the same path scoping, and `workflow_run.head_sha` is still the commit.
+  # The images are built only once Backend CI on main has gone green, so a red
+  # commit costs nothing: no build, no Artifact Registry egress, no runner. The
+  # gate is the `conclusion == 'success'` test in resolve-sha's `if:` and in the
+  # concurrency group below, which must stay in step. From 2026-09-21 the build
+  # started when CI was requested (carnet#498), which took the build off the
+  # push-to-serving path but built every red commit too (13.5% of September's
+  # builds) and held four runners beside CI on a 20-job plan that CI was already
+  # saturating. The build compiles on the runner against the rust-cache CI has
+  # just saved, so after green it is the shorter half of that trade.
   workflow_run:
     workflows: ["CI: Backend (Rust)"]
-    types: [requested]
+    types: [completed]
     branches: [main]
   # Docker/infra changes and version tags trigger directly
   push:
@@ -57,7 +59,6 @@ on:
 permissions:
   contents: read
   id-token: write
-  actions: read  # await-ci reads the Backend CI run that created this deploy
   security-events: write  # For Trivy SARIF upload
 
 # A push burst on main fires one workflow_run event per Backend CI run,
@@ -76,15 +77,16 @@ permissions:
 #
 # A run that will skip every job gets a group of its own. GitHub claims the
 # concurrency group at run creation, BEFORE the job-level `if:` on resolve-sha
-# below is evaluated — so a no-op shell for a cron- or dispatch-triggered CI run
-# would otherwise enter the deploy group and displace real work. That is what
-# happened on 2026-08-29: run 33270799943, every job skipped, cancelled run
-# 33270484029 seven minutes into building fc9f52542 with its frontend image
-# already pushed; that commit never reached dev. The condition mirrors the
-# resolve-sha gate exactly, so a run is either in the deploy group or does
-# nothing. Tags group on their own ref, so a release build never waits on main.
+# below is evaluated — so a no-op shell for a red, cancelled, cron- or
+# dispatch-triggered CI run would otherwise enter the deploy group and displace
+# a green commit's waiting run. That is what happened on 2026-08-29: run
+# 33270799943, every job skipped, cancelled run 33270484029 seven minutes into
+# building fc9f52542 with its frontend image already pushed; that commit never
+# reached dev. The condition mirrors the resolve-sha gate exactly, so a run is
+# either in the deploy group or does nothing. Tags group on their own ref, so a
+# release build never waits on main.
 concurrency:
-  group: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.event != 'push') && format('deploy-noop-{0}', github.run_id) || format('deploy-dev-{0}', github.event.workflow_run.head_branch || github.ref_name) }}
+  group: ${{ (github.event_name == 'workflow_run' && (github.event.workflow_run.event != 'push' || github.event.workflow_run.conclusion != 'success')) && format('deploy-noop-{0}', github.run_id) || format('deploy-dev-{0}', github.event.workflow_run.head_branch || github.ref_name) }}
   cancel-in-progress: false
 
 jobs:
@@ -94,15 +96,15 @@ jobs:
   resolve-sha:
     name: Resolve Commit SHA
     runs-on: ubuntu-latest
-    # Skip a CI run that was itself triggered by a schedule (cron) or by hand —
-    # nightly CI on main rebuilds the same commit SHA and would create a new
-    # Cloud Run revision for zero code change. Only a CI run started by a real
-    # push builds; whether that run PASSES is await-ci's question, asked while
-    # the images build.
+    # Build only for a CI run that a real push started AND that went green. A
+    # schedule- or dispatch-triggered CI run rebuilds a commit main already has,
+    # which would create a Cloud Run revision for zero code change; a red or
+    # cancelled one must never deploy. The concurrency group above mirrors this
+    # condition exactly — change both or neither.
     if: >
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.event == 'push'
+      (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success')
 
     outputs:
       sha: ${{ steps.sha.outputs.sha }}
@@ -111,18 +113,68 @@ jobs:
       # 'true' only when the guard below PROVED this deploy would roll dev
       # back; empty on push and workflow_dispatch, where the guard does not run.
       rollback: ${{ steps.guard.outputs.rollback }}
-      # The commit dev was serving when this run started; empty when unread.
-      live: ${{ steps.live.outputs.sha }}
+    # Job-level permissions replace the workflow's for this job, so the two it
+    # inherits are restated. actions: read lets the picker list Backend CI runs.
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
 
     steps:
+      # Commits only (`tree:0`), every branch, no depth limit: 2 MB for the
+      # whole history, against a 100+ MB full clone. `merge-base` walks commit
+      # parents and touches no tree, so nothing is fetched lazily; the sparse
+      # checkout pulls only the blobs the scripts below need. Both the picker
+      # and the rollback guard read it, and both run on workflow_run only.
+      - name: Checkout commit history
+        if: github.event_name == 'workflow_run'
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          filter: tree:0
+          sparse-checkout: scripts/ci
+
+      # Build the newest green commit, not just the one whose CI started this
+      # run. The concurrency group keeps one waiting run and a newer ARRIVAL
+      # replaces it, and CI finishes out of order — so an older commit's late
+      # CI can displace a newer green commit's waiting run. Picking the newest
+      # green commit makes arrival order irrelevant. Fail-safe: when the run
+      # list cannot be read or the picker refuses, the trigger is built, which
+      # is what this workflow always did.
+      - name: Pick the newest green commit
+        id: newest
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRIGGER: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          PICKED="$TRIGGER"
+          if GREEN="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci-backend.yml/runs?branch=main&event=push&status=success&per_page=50" \
+                        --jq '.workflow_runs[].head_sha')"; then
+            if OUT="$(printf '%s\n' "$GREEN" | ./scripts/ci/pick-newest-green.sh "$TRIGGER" .)"; then
+              PICKED="$OUT"
+            else
+              echo "::warning title=Newest-green pick refused::pick-newest-green.sh refused its arguments; building the trigger ${TRIGGER}"
+            fi
+          else
+            echo "::warning title=Newest-green pick inert::could not list green Backend CI runs; building the trigger ${TRIGGER}"
+          fi
+          # The run title names the trigger (run-name is fixed at creation),
+          # so say so when the build is a different, newer commit.
+          if [ "$PICKED" != "$TRIGGER" ]; then
+            echo "::notice title=Building a newer green commit::triggered by ${TRIGGER}; building ${PICKED}, the newest commit on main whose Backend CI is green"
+          fi
+          echo "sha=${PICKED}" >> "$GITHUB_OUTPUT"
+
       - name: Resolve SHA
         id: sha
         # An input reaches the shell through the environment, never interpolated.
         env:
           REQUESTED_SHA: ${{ inputs.sha }}
+          NEWEST_GREEN: ${{ steps.newest.outputs.sha }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            SHA="${{ github.event.workflow_run.head_sha }}"
+            SHA="$NEWEST_GREEN"
           elif [ -n "$REQUESTED_SHA" ]; then
             if ! [[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
               echo "::error::the sha input must be a full 40-character commit id"
@@ -152,15 +204,17 @@ jobs:
       # -----------------------------------------------------------------------
       # Monotonic-deploy guard: never move dev to a commit it already serves.
       #
-      # A workflow_run deploy builds the TRIGGERING CI run's commit, and CI runs
-      # on main finish in whatever order the runners allow. So a deploy for an
-      # older commit can complete AFTER the deploy for a newer one: on
-      # 2026-09-04 00:56Z run 33822126457 put 2ad52f348 on dev twenty minutes
-      # after e49774745 was already serving, every run green (carnet#262). The
-      # concurrency group above serialises deploys by ARRIVAL, not by commit,
-      # so it cannot prevent this — but it does guarantee that when this job
-      # runs no other deploy is in flight, so the label read here is the
-      # commit dev will still be serving when the build finishes.
+      # CI runs on main finish in whatever order the runners allow, so a deploy
+      # can resolve a commit dev already serves: on 2026-09-04 00:56Z run
+      # 33822126457 put 2ad52f348 on dev twenty minutes after e49774745 was
+      # already serving, every run green (carnet#262). Picking the newest green
+      # commit above makes that rarer, not impossible — when the picker falls
+      # back to the trigger, or when the newest green commit is the one dev
+      # already runs, this guard is what stops the rebuild. The concurrency
+      # group serialises deploys by ARRIVAL, not by commit, so it cannot prevent
+      # this — but it does guarantee that when this job runs no other deploy is
+      # in flight, so the label read here is the commit dev will still be
+      # serving when the build finishes.
       #
       # The steps sit in this job, before publish-server pulls from the
       # registry buildcache, so a refused deploy costs a few seconds and no
@@ -213,18 +267,6 @@ jobs:
             echo "dev serves revision ${REV}, built from ${LIVE}"
           fi
           echo "sha=${LIVE}" >> "$GITHUB_OUTPUT"
-
-      # Commits only (`tree:0`), every branch, no depth limit: 2 MB for the
-      # whole history, against a 100+ MB full clone. `merge-base` walks commit
-      # parents and touches no tree, so nothing is fetched lazily; the sparse
-      # checkout pulls only the blobs the guard script itself needs.
-      - name: Checkout commit history
-        if: steps.live.outputs.sha != ''
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          filter: tree:0
-          sparse-checkout: scripts/ci
 
       - name: Refuse to roll dev back
         id: guard
@@ -318,8 +360,9 @@ jobs:
           REGISTRY="${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}"
           SHORT_SHA="${{ needs.resolve-sha.outputs.short_sha }}"
 
-          # `latest` is not pushed here: the build now runs before CI has
-          # spoken, and terraform.tfvars names `server:latest`. tag-deployed-dev
+          # `latest` is not pushed here: terraform.tfvars names `server:latest`,
+          # and it must name what dev serves, not merely what was built — a
+          # build can still fail its Trivy gate or its rollout. tag-deployed-dev
           # moves it once this image is deployed.
           SERVER_TAGS="${REGISTRY}/server:${SHORT_SHA}"
 
@@ -570,142 +613,14 @@ jobs:
   # ---------------------------------------------------------------------------
   # Deploy to development (every successful CI run on main)
   # ---------------------------------------------------------------------------
-  # ---------------------------------------------------------------------------
-  # Hold the deploy until the Backend CI run that created this one is green
-  #
-  # Runs beside the two image builds, so the wait costs nothing when CI is the
-  # faster of the two and only CI's remainder when it is the slower. It polls
-  # the exact run that fired the `requested` event — never "the latest run on
-  # main", which under a burst is another commit's verdict. Fail closed: a CI
-  # run that ends in anything but success, or that cannot be read for the whole
-  # window, fails this job, and deploy-dev and everything after it skip. The
-  # images of a red commit stay in the registry under their SHA tag only.
-  #
-  # A push or workflow_dispatch deploy has no CI run behind it and never had a
-  # CI gate; the step says so and passes. The job is skipped only together
-  # with the publish jobs (same `if:`), because a skipped `needs` would skip
-  # deploy-dev and every job after it.
-  # ---------------------------------------------------------------------------
-  await-ci:
-    name: Await Backend CI
-    runs-on: ubuntu-latest
-    needs: resolve-sha
-    if: needs.resolve-sha.outputs.gcp_configured == 'true' && needs.resolve-sha.outputs.rollback != 'true'
-    timeout-minutes: 100
-
-    steps:
-      - name: Wait for the CI run that created this deploy
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EVENT: ${{ github.event_name }}
-          CI_RUN_ID: ${{ github.event.workflow_run.id }}
-          CI_RUN_URL: ${{ github.event.workflow_run.html_url }}
-        run: |
-          if [ "$EVENT" != "workflow_run" ]; then
-            echo "This deploy was started by '${EVENT}', not by a CI run; there is no verdict to wait for."
-            exit 0
-          fi
-
-          deadline=$(( $(date +%s) + 90 * 60 ))
-          while :; do
-            # Exit status first, content second: a failed read is not a verdict.
-            if out="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${CI_RUN_ID}" \
-                        --jq '[.status, (.conclusion // "")] | @tsv')"; then
-              status="${out%%$'\t'*}"
-              conclusion="${out#*$'\t'}"
-              if [ "$status" = "completed" ]; then
-                if [ "$conclusion" = "success" ]; then
-                  echo "Backend CI run ${CI_RUN_ID} is green; the deploy may proceed."
-                  exit 0
-                fi
-                echo "::error title=Deploy refused — Backend CI is not green::${CI_RUN_URL} concluded '${conclusion}'. The images were built and keep their SHA tag; nothing was deployed."
-                exit 1
-              fi
-              echo "Backend CI run ${CI_RUN_ID}: ${status}"
-            else
-              echo "::warning::could not read Backend CI run ${CI_RUN_ID}; retrying"
-            fi
-
-            if [ "$(date +%s)" -ge "$deadline" ]; then
-              echo "::error title=Deploy refused — no CI verdict::${CI_RUN_URL} gave no verdict within 90 minutes."
-              exit 1
-            fi
-            sleep 60
-          done
-
-  # ---------------------------------------------------------------------------
-  # A refused deploy hands over to the newest green commit behind it
-  #
-  # The group keeps one waiting run and a newer arrival replaces it. That loses
-  # nothing while the newer commit is green — it contains the older one. But a
-  # commit whose CI ends RED has by then displaced a green commit's waiting
-  # run, and under the old completed-CI trigger that green commit would have
-  # deployed. So when await-ci refuses, this job starts a deploy of the newest
-  # green commit behind the refused one (scripts/ci/pick-deploy-recovery.sh,
-  # which names nothing whenever dev already serves it or the answer would be
-  # a guess). It costs the one build the old trigger would have run anyway.
-  #
-  # It steps aside when another deploy run is waiting or running: that run is
-  # for a newer commit and carries the green work with it, and a dispatched
-  # run arriving now would replace it as the group's waiter — an older commit
-  # displacing a newer one, the exact harm this job exists to undo.
-  # ---------------------------------------------------------------------------
-  recover-last-green:
-    name: Hand over to the last green commit
-    runs-on: ubuntu-latest
-    needs: [resolve-sha, await-ci]
-    if: always() && github.event_name == 'workflow_run' && needs.await-ci.result == 'failure'
-    permissions:
-      contents: read
-      actions: write  # starts the workflow_dispatch deploy
-
-    steps:
-      # Commits only, as in resolve-sha: the picker walks parents and asks
-      # merge-base, and touches no tree.
-      - name: Checkout commit history
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          filter: tree:0
-          sparse-checkout: scripts/ci
-
-      - name: Start a deploy of the newest green commit
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REFUSED: ${{ needs.resolve-sha.outputs.sha }}
-          LIVE: ${{ needs.resolve-sha.outputs.live }}
-          SELF: ${{ github.run_id }}
-        run: |
-          if ! others="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/publish-images.yml/runs?per_page=30" \
-                           --jq "[.workflow_runs[] | select(.id != ${SELF}) | select(.status != \"completed\")] | length")"; then
-            echo "::warning title=No hand-over::could not list the other deploy runs; starting nothing on a guess"
-            exit 0
-          fi
-          if [ "$others" != "0" ]; then
-            echo "::notice title=No hand-over needed::${others} other deploy run(s) waiting or running; the newest carries the green work"
-            exit 0
-          fi
-
-          if ! target="$(./scripts/ci/pick-deploy-recovery.sh "$REFUSED" "$LIVE" .)"; then
-            echo "::warning title=No hand-over::pick-deploy-recovery.sh refused its arguments (refused '${REFUSED}', live '${LIVE}')"
-            exit 0
-          fi
-          if [ -z "$target" ]; then
-            echo "::notice title=No hand-over needed::nothing green behind ${REFUSED} that dev does not already serve"
-            exit 0
-          fi
-
-          gh workflow run publish-images.yml --repo "$GITHUB_REPOSITORY" --ref main -f sha="$target"
-          echo "::notice title=Handed over::deploy of ${target} started — the newest green commit behind the refused ${REFUSED}"
-
   deploy-dev:
     name: Deploy to Development
     runs-on: ubuntu-latest
     # resolve-sha is already an ancestor through the publish jobs; it is named
-    # here because `needs.<job>.outputs` reaches direct dependencies only.
-    # await-ci is the CI gate: no status function in the `if:` below, so a
-    # failed await-ci skips this job and every job after it.
-    needs: [resolve-sha, publish-server, publish-frontend, await-ci]
+    # here because `needs.<job>.outputs` reaches direct dependencies only. The
+    # CI gate is resolve-sha's `if:`: a run for a CI run that is not green
+    # skips resolve-sha, and with it every job here.
+    needs: [resolve-sha, publish-server, publish-frontend]
     if: github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
     environment: development
 
@@ -812,9 +727,9 @@ jobs:
         # rule. The tag moves on the next deploy — the superseded digest keeps
         # its SHA tag and resumes normal ageing.
         #
-        # `latest` moves here too, not at build time: the images are built
-        # before CI has spoken, and `latest` (named by terraform.tfvars) must
-        # never point at a commit CI refused.
+        # `latest` moves here too, not at build time: `latest` (named by
+        # terraform.tfvars) must name a digest that passed its Trivy gate and
+        # rolled out, which only a deployed one has.
         run: |
           for IMAGE in \
             "${{ needs.publish-server.outputs.image }}" \
