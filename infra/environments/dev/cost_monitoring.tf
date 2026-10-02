@@ -85,7 +85,9 @@ locals {
     DECLARE ar_cad FLOAT64;
     DECLARE total_cad FLOAT64;
     DECLARE row_count INT64;
-    DECLARE breaches ARRAY<STRING>;
+    -- Not named after the breaches column: inside the MERGE a column wins
+    -- over a script variable of the same name.
+    DECLARE breach_list ARRAY<STRING>;
 
     SET (ar_gib, ar_cad, total_cad, row_count) = (
       SELECT AS STRUCT
@@ -99,7 +101,7 @@ locals {
         AND DATE(_PARTITIONTIME) BETWEEN DATE_SUB(day, INTERVAL 1 DAY) AND DATE_ADD(day, INTERVAL 5 DAY)
     );
 
-    SET breaches = ARRAY(
+    SET breach_list = ARRAY(
       SELECT b FROM UNNEST([
         IF(ar_gib > ${var.cost_alert_ar_egress_gib}, FORMAT('registry egress %.1f GiB > ${var.cost_alert_ar_egress_gib} GiB', ar_gib), NULL),
         IF(total_cad > ${var.cost_alert_daily_cad}, FORMAT('total CA$%.2f > ${var.cost_alert_daily_cad} CAD', total_cad), NULL)
@@ -113,19 +115,19 @@ locals {
     WHEN MATCHED THEN UPDATE SET
       evaluated_at = CURRENT_TIMESTAMP(), billing_rows = row_count,
       ar_egress_gib = ar_gib, ar_egress_cad = ar_cad, total_net_cad = total_cad,
-      breaches = ARRAY_TO_STRING(breaches, '; ')
+      breaches = ARRAY_TO_STRING(breach_list, '; ')
     WHEN NOT MATCHED THEN INSERT
       (day, evaluated_at, billing_rows, ar_egress_gib, ar_egress_cad, total_net_cad, breaches)
-      VALUES (day, CURRENT_TIMESTAMP(), row_count, ar_gib, ar_cad, total_cad, ARRAY_TO_STRING(breaches, '; '));
+      VALUES (day, CURRENT_TIMESTAMP(), row_count, ar_gib, ar_cad, total_cad, ARRAY_TO_STRING(breach_list, '; '));
 
     IF row_count = 0 THEN
       RAISE USING MESSAGE = FORMAT('COST ALERT %t: the billing export has no rows for this day; the export is late or has stopped, so nothing was checked', day);
     END IF;
 
-    IF ARRAY_LENGTH(breaches) > 0 THEN
+    IF ARRAY_LENGTH(breach_list) > 0 THEN
       RAISE USING MESSAGE = FORMAT(
         'COST ALERT %t: %s. Registry egress %.1f GiB = CA$%.2f, total CA$%.2f',
-        day, ARRAY_TO_STRING(breaches, ' and '), ar_gib, ar_cad, total_cad);
+        day, ARRAY_TO_STRING(breach_list, ' and '), ar_gib, ar_cad, total_cad);
     END IF;
   SQL
 }
