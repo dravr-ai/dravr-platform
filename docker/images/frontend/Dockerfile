@@ -78,15 +78,17 @@ RUN echo "apk security epoch: ${APK_SECURITY_EPOCH}" && \
     ln -sf /dev/stdout /var/log/nginx/access.log && \
     ln -sf /dev/stderr /var/log/nginx/error.log
 
-# Copy built assets from the builder stage
-COPY --from=builder /app/frontend/dist /usr/share/nginx/html
+# Copy built assets from the builder stage. --link on every COPY below keeps
+# each layer independent of the apk layer above, so a CI build whose cache holds
+# that layer pushes it by reference instead of downloading it from the registry.
+COPY --link --from=builder /app/frontend/dist /usr/share/nginx/html
 
 # Copy nginx config template (envsubst injects BACKEND_URL at startup)
-COPY docker/images/frontend/nginx.conf /etc/nginx/nginx.conf.template
+COPY --link docker/images/frontend/nginx.conf /etc/nginx/nginx.conf.template
 
 # Shared security-header snippet `include`d per-location by the config above.
 # No env vars, so it is copied verbatim (not run through envsubst).
-COPY docker/images/frontend/security-headers.conf /etc/nginx/security-headers.conf
+COPY --link docker/images/frontend/security-headers.conf /etc/nginx/security-headers.conf
 
 EXPOSE 8080
 

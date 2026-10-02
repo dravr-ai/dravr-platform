@@ -117,13 +117,13 @@ run "deployed_digest_tags_are_kept" {
   }
 }
 
-# The buildcache prefix is not cosmetic. The server image is a cargo-chef
-# multi-stage build published with registry buildcache mode=max; the cache
-# manifests carry a buildcache tag and are otherwise ordinary tagged images, so
-# without this prefix the delete-superseded rule reaps them on the same 6-hour
-# window as a stale CI build and the next run pays a full dependency recompile
-# (~+10-20min). `latest` rides along for the same reason on the deploy side: it
-# is the reference the Cloud Run services actually hold.
+# The buildcache prefix is not cosmetic. Each image is published with a registry
+# buildcache; the cache manifests carry a buildcache tag and are otherwise
+# ordinary tagged images, so without this prefix the delete-superseded rule reaps
+# them on the same 6-hour window as a stale CI build and the next run rebuilds
+# every cached layer — for the server, the apt/chromium/node/CLI runtime layers.
+# `latest` rides along for the same reason on the deploy side: it is the
+# reference the Cloud Run services actually hold.
 run "buildcache_and_latest_tags_are_kept" {
   command = plan
 

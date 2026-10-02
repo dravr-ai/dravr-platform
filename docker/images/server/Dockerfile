@@ -1,5 +1,15 @@
 # ABOUTME: Multi-stage production Dockerfile for Pierre MCP Server (Rust binary)
-# ABOUTME: Uses cargo-chef for dependency caching; runtime stage uses debian-slim with non-root user
+# ABOUTME: Compiles with cargo-chef, or takes CI's prebuilt binaries; runtime stage is debian-slim, non-root
+
+# Where the two binaries come from. `builder` (the default — docker-compose and
+# any local `docker build`) compiles them in the stages below. `prebuilt` takes
+# them from a `prebuilt-bin` named build context instead: publish-images.yml
+# compiles on the runner against the GitHub-hosted rust-cache and passes
+# `--build-context prebuilt-bin=<dir>`, so the CI image build never pulls the
+# ~0.9 GB cargo-chef dependency layer back out of Artifact Registry — billed
+# internet egress, because the runners sit outside GCP. Only the selected stage
+# is built: with `prebuilt`, chef/planner/builder never run.
+ARG BINARY_SOURCE=builder
 
 # Stage 0: base image with build dependencies and cargo-chef installed
 FROM --platform=linux/amd64 rust:1.98-slim AS chef
@@ -28,9 +38,10 @@ COPY . .
 # that rewrites https://github.com/ to an x-access-token URL. HOME (/root) is a
 # tmpfs mount for the duration of the RUN, so that rendered config — which holds
 # the token in plaintext — lives in memory and never enters the stage snapshot.
-# Persisting it would publish the token: buildx exports every stage of this
-# build to a registry buildcache tag (cache-to mode=max) whose read access is
-# granted project-wide. The credential has to stay a real file rather than move
+# Persisting it would publish the token to anything this stage is exported to:
+# a registry buildcache with cache-to mode=max exports every stage of the build,
+# and read access to the Artifact Registry cache packages is granted
+# project-wide. The credential has to stay a real file rather than move
 # to git's GIT_CONFIG_COUNT/KEY/VALUE environment form, because this build
 # leaves CARGO_NET_GIT_FETCH_WITH_CLI unset and cargo's libgit2 fetch path reads
 # config from files only.
@@ -69,7 +80,24 @@ RUN --mount=type=secret,id=git_token \
 # Verify binaries were built
 RUN ls -la target/release-lto/pierre-mcp-server target/release-lto/pierre-cli
 
+# Stage 2b: the same two binaries, compiled outside Docker (BINARY_SOURCE=prebuilt).
+# The `prebuilt-bin` context is a directory holding exactly pierre-mcp-server and
+# pierre-cli, built with the builder stage's profile and features.
+FROM scratch AS prebuilt
+COPY --from=prebuilt-bin pierre-mcp-server pierre-cli /app/target/release-lto/
+
+FROM ${BINARY_SOURCE} AS binaries
+
 FROM --platform=linux/amd64 debian:trixie-slim
+
+# Before the apt and npm layers, so it depends on the base image alone. Nothing
+# after the large layers below may be a RUN: a RUN mounts its parent filesystem,
+# which forces BuildKit to download every cached layer under it (~1 GB of
+# chromium, node and the CLIs) from the registry cache on each build. The COPYs
+# further down are --link with --chown/--chmod for the same reason.
+RUN useradd -m -u 1001 appuser \
+    && mkdir -p /app/data \
+    && chown -R appuser:appuser /app
 
 # Cache-bust token for the apt layer below. The build uses a registry-backed
 # buildx cache, so the `apt-get upgrade` layer is otherwise reused verbatim
@@ -243,31 +271,26 @@ RUN npm install -g "@github/copilot-linux-x64@${COPILOT_CLI_VERSION}" \
     && claude --version \
     && rm -rf "$NPM_PREFIX/lib/node_modules/npm" "$NPM_PREFIX/bin/npm" "$NPM_PREFIX/bin/npx"
 
-# Create app user and directories
-RUN useradd -m -u 1001 appuser \
-    && mkdir -p /app/data \
-    && chown -R appuser:appuser /app
-
-# Copy server binary, pierre-cli (seeders + admin tools), and entrypoint scripts
-COPY --from=builder /app/target/release-lto/pierre-mcp-server /app/pierre-mcp-server
-COPY --from=builder /app/target/release-lto/pierre-cli /app/pierre-cli
-COPY --from=builder /app/commands /app/commands
+# Server binary, pierre-cli (seeders + admin tools), and entrypoint scripts.
+# --link builds each layer independently of the filesystem underneath, and
+# --chown/--chmod set ownership and the exec bit in the copy itself rather than
+# in a RUN — so no step here reads the cached layers above, and BuildKit leaves
+# them in the registry.
+# Ownership is numeric (appuser is uid 1001, created above); /app itself keeps
+# appuser ownership through the merge.
+COPY --link --chown=1001:1001 --chmod=755 --from=binaries /app/target/release-lto/pierre-mcp-server /app/pierre-mcp-server
+COPY --link --chown=1001:1001 --chmod=755 --from=binaries /app/target/release-lto/pierre-cli /app/pierre-cli
+# commands/ and the eval fixtures are source files, so they come from the build
+# context, which the builder stage copied them from under the same .dockerignore.
+COPY --link --chown=1001:1001 commands /app/commands
 # Eval harness golden fixtures — admin /admin/evals/fixtures browser walks
 # this directory at runtime. PIERRE_EVALS_FIXTURES_DIR (set below) points
 # the runtime at this baked-in path so the route returns real data instead
 # of the empty fallback when the workspace tree isn't present.
-COPY --from=builder /app/crates/pierre-evals/fixtures /app/fixtures
-COPY docker/images/server/entrypoint.sh /app/docker-entrypoint.sh
-COPY docker/images/server/seed-entrypoint.sh /app/seed-entrypoint.sh
-COPY docker/images/server/chromium-headless.sh /usr/local/bin/chromium-headless
-
-# Make binaries and entrypoints executable and owned by appuser
-RUN chmod +x /app/pierre-mcp-server \
-    && chmod +x /app/pierre-cli \
-    && chmod +x /app/docker-entrypoint.sh \
-    && chmod +x /app/seed-entrypoint.sh \
-    && chmod +x /usr/local/bin/chromium-headless \
-    && chown -R appuser:appuser /app
+COPY --link --chown=1001:1001 crates/pierre-evals/fixtures /app/fixtures
+COPY --link --chown=1001:1001 --chmod=755 docker/images/server/entrypoint.sh /app/docker-entrypoint.sh
+COPY --link --chown=1001:1001 --chmod=755 docker/images/server/seed-entrypoint.sh /app/seed-entrypoint.sh
+COPY --link --chmod=755 docker/images/server/chromium-headless.sh /usr/local/bin/chromium-headless
 
 # Switch to non-root user
 USER appuser

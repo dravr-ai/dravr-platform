@@ -31,13 +31,11 @@
 #     work to do — the earlier "zero cancellations on a busy day" guard could
 #     not tell those apart and fired on red-main days.
 #
-# It does NOT check cost. Cost is not queryable: the BigQuery billing export
-# dataset created by infra/environments/dev/billing.tf on 2026-06-11 has never
-# been enabled (zero tables), the Cloud Billing API exposes no way to enable it,
-# and Cloud Monitoring carries no billing metric. A cost branch added here also
-# needs, beyond the export: roles/bigquery.jobUser plus dataViewer on
-# dravr-dev:billing_export for the deployer service account (it holds neither),
-# and `id-token: write` on this job for WIF auth. All three are missing today.
+# LIMITATION(registre#731): this monitor counts builds and never reads cost.
+# The billing export to dravr-dev:billing_export has been live since 2026-09-04,
+# so GiB of Artifact Registry egress per build is queryable; reading it here
+# needs roles/bigquery.jobUser plus dataViewer on that dataset for this job's
+# identity and `id-token: write` for WIF auth, neither of which it has.
 #
 # Read-only: it reads this repository's own Actions history and nothing else.
 

@@ -68,6 +68,17 @@ The helper script loads environment variables from `.envrc`:
 docker build -f docker/images/server/Dockerfile -t pierre-mcp-server:latest .
 ```
 
+This compiles the binaries inside Docker (cargo-chef). CI does not: it compiles on
+the runner with `.github/actions/server-binaries` and hands the result in, which
+keeps the dependency cache out of Artifact Registry (billed egress):
+
+```bash
+docker buildx build -f docker/images/server/Dockerfile \
+  --build-arg BINARY_SOURCE=prebuilt \
+  --build-context prebuilt-bin=<dir holding pierre-mcp-server and pierre-cli> \
+  -t pierre-mcp-server:latest .
+```
+
 ### Test Image
 
 ```bash

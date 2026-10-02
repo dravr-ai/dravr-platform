@@ -130,6 +130,16 @@ jobs:
         with:
           version: v0.70.0
 
+      # Layer-analysis cache so the scan does not re-download the pushed image
+      # from Artifact Registry — see publish-images.yml's server job.
+      - name: Restore Trivy layer cache
+        id: trivy-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/trivy/fanal
+          key: trivy-fanal-photograveur-${{ hashFiles('photograveur/Dockerfile') }}
+          restore-keys: trivy-fanal-photograveur-
+
       - name: Scan photograveur image for vulnerabilities (report)
         # Reporting pass: no allowlist, never blocks. Trivy applies --ignorefile
         # as a result filter before it writes the report, so a SARIF from the
@@ -143,6 +153,13 @@ jobs:
             --severity CRITICAL,HIGH --ignore-unfixed \
             --scanners vuln --exit-code 0 \
             "${{ steps.tags.outputs.registry }}/photograveur@${{ steps.build.outputs.digest }}"
+
+      - name: Save Trivy layer cache
+        if: steps.trivy-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/trivy/fanal
+          key: trivy-fanal-photograveur-${{ hashFiles('photograveur/Dockerfile') }}
 
       - name: Scan photograveur image for vulnerabilities (gate)
         # Gating pass over the same digest with an explicit --ignorefile — the

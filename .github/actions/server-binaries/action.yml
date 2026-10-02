@@ -1,0 +1,106 @@
+# ABOUTME: Compiles the server binaries with the exact profile, features and env the server image ships
+# ABOUTME: Single source for ci-backend.yml's release-binary and the image build, so both share one rust-cache
+
+name: Server Binaries
+description: >-
+  Builds pierre-mcp-server (and optionally pierre-cli) with the release-lto profile and the
+  production feature set, then stages them in one directory for `docker build --build-context`.
+
+inputs:
+  deps-token:
+    description: Token with read access to the private dravr-* git dependencies
+    required: true
+  bins:
+    description: Space-separated binaries to build (each is passed as --bin)
+    default: pierre-mcp-server pierre-cli
+
+outputs:
+  dir:
+    description: Directory holding exactly the built binaries — the image's `prebuilt-bin` context
+    value: ${{ steps.stage.outputs.dir }}
+
+runs:
+  using: composite
+  steps:
+    # ci-backend.yml sets these at workflow level; the image build does not. They
+    # are written to GITHUB_ENV BEFORE rust-setup on purpose: Swatinem/rust-cache
+    # hashes the CARGO_* variables present when it runs into its key, so this is
+    # what lets the image build restore the dependency cache release-binary saves
+    # under `shared-key: release` instead of compiling every dependency cold.
+    - name: Match the CI cargo environment
+      shell: bash
+      run: |
+        {
+          echo "COPILOT_SKIP_CLI_DOWNLOAD=1"
+          echo "CARGO_TERM_COLOR=always"
+          echo "CARGO_NET_GIT_FETCH_WITH_CLI=true"
+        } >> "$GITHUB_ENV"
+
+    - name: Configure git for private deps
+      shell: bash
+      env:
+        DEPS_TOKEN: ${{ inputs.deps-token }}
+      run: git config --global url."https://x-access-token:${DEPS_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+    - name: Setup Rust environment
+      uses: ./.github/actions/rust-setup
+      with:
+        shared-key: release
+        free-disk-space: 'true'
+
+    - name: Build release binaries
+      # The invocation of docker/images/server/Dockerfile's builder stage —
+      # profile and features — so the binary CI validates is the one the image
+      # ships. RUSTFLAGS and CARGO_INCREMENTAL are step-scoped, as they were in
+      # release-binary: rust-cache never hashed them, but cargo fingerprints on
+      # them, so every caller must build with the same pair to reuse artifacts.
+      shell: bash
+      env:
+        CARGO_INCREMENTAL: 0
+        RUSTFLAGS: "-C opt-level=3"
+        BINS: ${{ inputs.bins }}
+      run: |
+        set -euo pipefail
+        BIN_ARGS=()
+        for b in ${BINS}; do BIN_ARGS+=(--bin "$b"); done
+        cargo build --profile release-lto --no-default-features \
+          --features "server-production,postgresql,sqlx/migrate,telemetry,gcp-kms" \
+          "${BIN_ARGS[@]}" --verbose
+
+    - name: Stage binaries for the image
+      id: stage
+      # The binary links glibc dynamically and runs on debian:trixie-slim, whose
+      # glibc is 2.41. A runner image newer than the runtime would emit symbol
+      # versions trixie cannot resolve, and the revision would crash at start
+      # rather than here — so the highest GLIBC_ version any binary requires is
+      # checked against the runtime's before the image is built.
+      shell: bash
+      env:
+        BINS: ${{ inputs.bins }}
+        RUNTIME_GLIBC: "2.41"
+      run: |
+        set -euo pipefail
+        DIR="${RUNNER_TEMP}/prebuilt-bin"
+        rm -rf "${DIR}" && mkdir -p "${DIR}"
+        for b in ${BINS}; do
+          cp "target/release-lto/${b}" "${DIR}/${b}"
+          # objdump's exit status is checked on its own, and a binary that
+          # reports no GLIBC_ version at all fails: a dynamically linked binary
+          # always has some, so an empty answer means the check verified nothing.
+          if ! SYMS="$(objdump -T "${DIR}/${b}")"; then
+            echo "::error::objdump could not read ${b}'s dynamic symbol table"
+            exit 1
+          fi
+          NEED="$(printf '%s\n' "${SYMS}" | grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -1 || true)"
+          if [ -z "${NEED}" ]; then
+            echo "::error::${b} reports no GLIBC_ symbol version; the glibc check verified nothing"
+            exit 1
+          fi
+          if [ "$(printf '%s\n%s\n' "${NEED}" "${RUNTIME_GLIBC}" | sort -V | tail -1)" != "${RUNTIME_GLIBC}" ]; then
+            echo "::error::${b} requires GLIBC_${NEED}, newer than the runtime image's ${RUNTIME_GLIBC} (debian:trixie-slim)"
+            exit 1
+          fi
+          echo "${b}: requires GLIBC_${NEED} (runtime ${RUNTIME_GLIBC})"
+        done
+        ls -lh "${DIR}"
+        echo "dir=${DIR}" >> "$GITHUB_OUTPUT"

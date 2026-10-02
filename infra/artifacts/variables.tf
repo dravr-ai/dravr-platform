@@ -101,8 +101,9 @@ variable "release_tag_prefixes" {
   description = "Tag prefixes for images kept indefinitely (deploy / rollback anchors: semver releases, plus the moving deployed-<env> tag each Cloud Run deploy applies to the digest it ships, plus latest and buildcache which the delete rules would otherwise reap)."
   type        = list(string)
   # `latest` and `buildcache` are here because the live repository has them and
-  # dropping them is not free: the server image is a cargo-chef multi-stage build
-  # whose registry buildcache is mode=max, so reaping cache manifests costs a full
-  # dependency recompile (~+10-20min) on the next CI run.
+  # dropping them is not free: the server buildcache holds the runtime layers
+  # (apt with chromium, node, the Copilot and Claude CLIs), so reaping its
+  # manifest rebuilds them on the next CI run — minutes of apt and npm, ~1 GB of
+  # new layers, and a Trivy layer-cache miss that re-downloads them as egress.
   default = ["v", "deployed-", "latest", "buildcache"]
 }

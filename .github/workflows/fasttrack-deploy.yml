@@ -36,6 +36,17 @@ jobs:
           submodules: recursive
           token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
 
+      # Compiled on the runner against the rust-cache ci-backend.yml saves, as
+      # publish-images.yml does — the registry buildcache is mode=min and holds
+      # no cargo-chef layer to compile against. Before buildx: free-disk-space
+      # prunes docker images.
+      - name: Build server binaries
+        if: inputs.component == 'server' || inputs.component == 'both'
+        id: binaries
+        uses: ./.github/actions/server-binaries
+        with:
+          deps-token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -69,19 +80,20 @@ jobs:
           push: true
           tags: ${{ steps.tags.outputs.server_tag }}
           # Registry-backed buildx cache (Artifact Registry) — durable + reliable
-          # vs the flaky type=gha cache; reuses the cargo-chef dep layer so cold
-          # fasttrack server builds drop from ~20min to ~3-5min. It lives in the
-          # server-cache package that publish-images.yml writes, never in server:
-          # the retention policy's keep-recent-versions floor counts versions per
-          # package, so cache manifests sharing the image package would consume
-          # the rollback window that is meant to hold images. Sharing the one
-          # package is also what gives a fasttrack build a warm dep layer.
+          # vs the flaky type=gha cache; reuses the runtime layers (apt, node,
+          # CLIs) so they are not rebuilt. It lives in the server-cache package
+          # that publish-images.yml writes, never in server: the retention
+          # policy's keep-recent-versions floor counts versions per package, so
+          # cache manifests sharing the image package would consume the rollback
+          # window that is meant to hold images. mode=min for the reason given
+          # in publish-images.yml.
           cache-from: type=registry,ref=${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}/server-cache:buildcache
-          cache-to: type=registry,ref=${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}/server-cache:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
+          cache-to: type=registry,ref=${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}/server-cache:buildcache,mode=min,image-manifest=true,oci-mediatypes=true
+          build-contexts: |
+            prebuilt-bin=${{ steps.binaries.outputs.dir }}
           build-args: |
+            BINARY_SOURCE=prebuilt
             GIT_COMMIT_SHA=${{ github.sha }}
-          secrets: |
-            "git_token=${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}"
 
       - name: Build and push frontend image
         if: inputs.component == 'frontend' || inputs.component == 'both'
