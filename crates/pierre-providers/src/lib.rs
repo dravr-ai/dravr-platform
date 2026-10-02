@@ -18,6 +18,8 @@ pub use pierre_core::pagination;
 // Core provider infrastructure
 /// Shared page-count policy every provider's activity fetch clamps to.
 pub mod activity_paging;
+/// When a read is for a model, the typed AI-policy filters, and the governed provider
+pub mod ai_scope;
 /// Backend resolver for routing user-facing provider names to OAuth vs sciotte mirror backends
 pub mod backend_resolver;
 /// Circuit breaker pattern for provider resilience
@@ -28,6 +30,8 @@ pub mod core;
 pub mod deduplication;
 /// Shared HTTP client for provider API calls
 pub mod http_client;
+/// AI rules each provider's terms set on its data
+pub mod provider_ai_terms;
 /// Global provider registry and factory
 pub mod registry;
 /// Service Provider Interface for external providers
@@ -52,6 +56,9 @@ pub mod intervals_icu_provider;
 /// Intervals.icu athlete self-report: the inverted `feel` scale, RPE, and the activity comment thread.
 #[cfg(feature = "provider-intervals-icu")]
 mod intervals_icu_self_report;
+/// Intervals.icu activity provenance: the service that recorded a relayed activity.
+#[cfg(feature = "provider-intervals-icu")]
+mod intervals_icu_source;
 /// Sciotte remote-service provider — routes scrapes to the dedicated dravr-sciotte service
 #[cfg(feature = "provider-sciotte")]
 pub mod sciotte_provider;

@@ -62,6 +62,8 @@ pub mod activity_backfill;
 pub mod activity_backfill_resume;
 /// Shared provider activity fetching (used by group snapshots + agent recs).
 pub mod activity_fetch;
+/// What a model may see of provider data under each provider's AI policy.
+pub mod ai_view;
 /// The one display-name rule a member is rendered by, on every build.
 pub mod athlete_display_name;
 pub mod capabilities;

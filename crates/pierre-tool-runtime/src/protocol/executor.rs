@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::auth::AuthService;
+use crate::ai_view;
 use crate::context::{
     AuthMethod, CONVERSATION_ID, CONVERSATION_TENANT, GRANTED_SCOPES, GUARDIAN_TURN_TOKEN,
     TURN_AGENT_ID,
@@ -35,6 +36,7 @@ use pierre_core::models::{Activity, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_database::repositories::PendingGuardianAction;
+use pierre_providers::ai_scope;
 use pierre_services::onboarding_gate::user_has_connected_provider;
 use pierre_services::usage_counter::increment_counter;
 use serde_json::Value as JsonValue;
@@ -635,28 +637,28 @@ impl UniversalExecutor {
         // recover it — the tronc `ToolContext` has no field to carry it through.
         // Scope BOTH the conversation id (for detached-work correlation) and the
         // Guardian turn token (so nested tool dispatch inherits this turn's key —
-        // #6) around the tool body.
-        let response = CONVERSATION_ID
-            .scope(
-                self.conversation_id.clone(),
-                CONVERSATION_TENANT.scope(
-                    self.conversation_tenant_id,
-                    TURN_AGENT_ID.scope(
-                        self.turn_agent_id.clone(),
-                        GUARDIAN_TURN_TOKEN.scope(
-                            Some(resolved_turn_token.clone()),
-                            // The grant travels with the turn token for the same
-                            // reason: a nested dispatch must run under exactly
-                            // what authorized this call, never wider.
-                            GRANTED_SCOPES.scope(
-                                self.scopes.clone(),
-                                tool.execute(&self.resources, &ctx, args),
-                            ),
+        // #6) around the tool body. The AI-policy tally rides the same way: what
+        // the tool's reads held back reaches the result's withheld note below.
+        let (response, read_side_withheld) = ai_scope::ai_read(CONVERSATION_ID.scope(
+            self.conversation_id.clone(),
+            CONVERSATION_TENANT.scope(
+                self.conversation_tenant_id,
+                TURN_AGENT_ID.scope(
+                    self.turn_agent_id.clone(),
+                    GUARDIAN_TURN_TOKEN.scope(
+                        Some(resolved_turn_token.clone()),
+                        // The grant travels with the turn token for the same
+                        // reason: a nested dispatch must run under exactly
+                        // what authorized this call, never wider.
+                        GRANTED_SCOPES.scope(
+                            self.scopes.clone(),
+                            tool.execute(&self.resources, &ctx, args),
                         ),
                     ),
                 ),
-            )
-            .await;
+            ),
+        ))
+        .await;
 
         // Guardian POST. Taint was folded atomically with the dispatch decision
         // in `decide_and_reserve` above (before the body ran), so it is already
@@ -692,7 +694,16 @@ impl UniversalExecutor {
             }
         }
 
-        let universal = tool_response_to_universal_response(&tool_name, &response);
+        let mut universal = tool_response_to_universal_response(&tool_name, &response);
+
+        // Every transport's result passes here on its way to a model, so each
+        // provider's AI policy is enforced here once (carnet#723): the backstop
+        // for structured items a read path left, plus the withheld note.
+        ai_view::withhold_from_model(
+            self.resources.provider_registry().as_ref(),
+            &mut universal,
+            read_side_withheld,
+        );
 
         // A window the athlete's healthy connections served without the elected
         // provider carries the dead backend's slug in its own payload. The

@@ -10,6 +10,7 @@ use pierre_core::errors::AppError;
 use pierre_core::models::{
     AddMessageParams, GuidedFlow, GuidedWindow, LoadSnapshot, OnboardingState, Pillar, WalkAudience,
 };
+use pierre_providers::registry::global_registry;
 use pierre_services::recent_load::recent_load_snapshot;
 use serde_json::Value;
 use tracing::{info, warn};
@@ -130,6 +131,7 @@ async fn record_start_and_snapshot(
     }
     recent_load_snapshot(
         repos.activity_cache.as_ref(),
+        global_registry().as_ref(),
         ctx.user_id,
         &ctx.tenant_id,
     )

@@ -343,6 +343,38 @@ if [ -n "$FACTORY_BYPASS" ]; then
     exit 1
 fi
 
+# Provider AI policies (carnet#723): code that builds a model's input reads the
+# activity cache only through `ai_scope`, which applies each provider's terms
+# (some bar their data from AI). Live provider reads are governed by
+# construction — every authenticated provider is an AiGovernedProvider — so
+# this guards the other door, a direct cache read in model-facing code.
+echo -e "${BLUE}Checking that model-facing cache reads apply the provider AI policies...${NC}"
+AI_POLICY_BYPASS=""
+# Gate on rg's exit status apart from its output: 2 is a scan that crashed
+# (a moved directory, a bad pattern), and 1 is a scan that found no cache
+# reader at all — known readers exist, so that verified nothing. Both fail.
+AI_POLICY_SCAN_RC=0
+AI_POLICY_READERS=$(rg -l '\.get_cached_activit(y|ies|ies_rows)\(|get::<Vec<Activity>>' \
+    crates/pierre-chat-pipeline/src crates/pierre-commands/src \
+    crates/pierre-tool-runtime/src/implementations crates/pierre-server/src/tools \
+    -g '*.rs') || AI_POLICY_SCAN_RC=$?
+if [ "$AI_POLICY_SCAN_RC" -ne 0 ] || [ -z "$AI_POLICY_READERS" ]; then
+    fail_validation "Model-facing cache-read scan verified nothing (rg exit $AI_POLICY_SCAN_RC)"
+fi
+for f in $AI_POLICY_READERS; do
+    if ! rg -q 'ai_scope::' "$f"; then
+        AI_POLICY_BYPASS="${AI_POLICY_BYPASS}${f}"$'\n'
+    fi
+done
+if [ -n "$AI_POLICY_BYPASS" ]; then
+    echo -e "${RED}❌ CRITICAL: model-facing code reads cached activities without ai_scope${NC}"
+    printf '%s' "$AI_POLICY_BYPASS"
+    echo "   Filter what the read returns with pierre_providers::ai_scope::filter_activities"
+    echo "   before it is formatted, aggregated or merged, so a provider's terms that keep"
+    echo "   its data from AI hold on this path too."
+    fail_validation "Model-facing cache reads must apply the provider AI policies"
+fi
+
 # NULL UUID detection (absolute blocker)
 NULL_UUIDS=$(prod_src_matches "00000000-0000-0000-0000-000000000000" crates/pierre-server/src/ | wc -l | tr -d ' ')
 if [ "$NULL_UUIDS" -gt 0 ]; then

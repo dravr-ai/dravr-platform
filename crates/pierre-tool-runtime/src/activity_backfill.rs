@@ -65,6 +65,7 @@ use crate::runtime::ToolRuntime;
 use crate::training_history_compute::{
     compute_and_persist_history, default_window, TrainingHistoryComputed,
 };
+use pierre_providers::ai_scope;
 
 /// Default age (days) past which an activity request is served via background
 /// backfill instead of an inline provider scrape.
@@ -677,7 +678,10 @@ async fn fetch_backfill_activities(
         }
     };
 
-    match provider.get_activities_with_params(&job.query_params).await {
+    // A backfill only fills the cache, which holds the athlete's full data; a
+    // tool that runs one inline reads the window back through the filtered
+    // cache read (carnet#723).
+    match ai_scope::unfiltered(provider.get_activities_with_params(&job.query_params)).await {
         Ok(activities) => capture_with_head(job, provider.as_ref(), activities),
         Err(e) => {
             // sciotte surfaces a lapsed session HERE (cookies existed at auth

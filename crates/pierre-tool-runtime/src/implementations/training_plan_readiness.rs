@@ -45,6 +45,7 @@ use crate::implementations::training_plans_output::{
     DayReplacement, ReadinessSubstitution, ReplacementBasis, WeekReadiness,
 };
 use crate::runtime::ToolRuntime;
+use crate::training_history_compute::history_rows_for_model;
 
 /// Seconds in an hour, for the nightly sleep total.
 const SECONDS_PER_HOUR: f64 = 3600.0;
@@ -100,7 +101,7 @@ pub(super) async fn read_ladder(
     };
 
     let today = Utc::now().date_naive();
-    let input = gather(repos, tenant, user_id, today).await;
+    let input = gather(state, repos, tenant, user_id, today).await;
     let raised = alerts(&input.alert_input);
     let level = readiness_level(&ReadinessInput {
         form_pct: input.form_pct,
@@ -333,15 +334,14 @@ struct Gathered {
 /// itself, so the week-long recovery alerts read their own seven days out of
 /// the same span the 28-day baselines read.
 async fn gather(
+    state: &Arc<dyn ToolRuntime>,
     repos: &RepositoryRegistry,
     tenant: TenantId,
     user_id: Uuid,
     today: NaiveDate,
 ) -> Gathered {
     let from = today - Duration::days(i64::from(BASELINE_DAYS));
-    let history = repos
-        .training_history
-        .get_training_history(tenant, user_id, from, today)
+    let history = history_rows_for_model(state, tenant, user_id, from, today)
         .await
         .unwrap_or_else(|e| {
             warn!(error = %e, "week readiness: training history unreadable");

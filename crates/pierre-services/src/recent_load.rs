@@ -21,9 +21,11 @@
 //! baseline.
 
 use chrono::{Duration, Utc};
+use pierre_core::ai_policy::AiPolicyLookup;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, LoadSnapshot, SportFamily, TenantId};
 use pierre_database::repositories::ActivityCacheRepository;
+use pierre_providers::ai_scope;
 use uuid::Uuid;
 
 /// How many weeks of history the snapshot averages over.
@@ -49,6 +51,7 @@ const ACTIVITY_FETCH_LIMIT: i64 = 500;
 /// Returns the repository error when the activity cache cannot be read.
 pub async fn recent_load_snapshot(
     activities: &dyn ActivityCacheRepository,
+    policies: &dyn AiPolicyLookup,
     user_id: Uuid,
     tenant_id: &TenantId,
 ) -> AppResult<Option<LoadSnapshot>> {
@@ -57,6 +60,9 @@ pub async fn recent_load_snapshot(
     let window = activities
         .get_cached_activities(user_id, tenant_id, None, start, end, ACTIVITY_FETCH_LIMIT)
         .await?;
+    // The snapshot is quoted to a model; inside a read for one it sums only
+    // what each provider's terms let it see (carnet#723).
+    let window = ai_scope::filter_activities(policies, window);
     let families = SportFamily::distinct(window.iter().map(Activity::sport_type));
     Ok(snapshot_from_durations(
         &window

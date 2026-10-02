@@ -17,6 +17,7 @@ use pierre_core::constants::oauth_providers;
 use pierre_core::errors::AppError;
 use pierre_core::http_client::api_client;
 use pierre_core::models::{connection_needs_reauth, TenantId, UserOAuthToken};
+use pierre_providers::ai_scope::AiGovernedProvider;
 use pierre_providers::backend_resolver;
 use pierre_providers::utils::{refresh_oauth_token, RefreshRequest};
 use pierre_providers::whoop_provider::owner_id_for_access_token;
@@ -733,9 +734,26 @@ impl AuthService {
     /// sciotte* row in the database the resolver swaps that for the mirror
     /// backend — callers never need to know about that distinction.
     ///
+    /// Every provider it returns is an [`AiGovernedProvider`]: inside a read
+    /// for a model its reads are filtered by each provider's AI policy, and
+    /// everywhere else they pass through (carnet#723). This is the one place
+    /// a tool's live reads are governed.
+    ///
     /// # Errors
     /// Returns a boxed `UniversalResponse` error if provider is unsupported or authentication fails
     pub async fn create_authenticated_provider(
+        &self,
+        requested_provider: &str,
+        user_id: Uuid,
+        tenant_id: Option<&str>,
+    ) -> Result<Box<dyn CoreFitnessProvider>, Box<UniversalResponse>> {
+        let registry = Arc::clone(self.resources.provider_registry());
+        self.authenticate_provider(requested_provider, user_id, tenant_id)
+            .await
+            .map(|provider| AiGovernedProvider::wrap(provider, registry))
+    }
+
+    async fn authenticate_provider(
         &self,
         requested_provider: &str,
         user_id: Uuid,

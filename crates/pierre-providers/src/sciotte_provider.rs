@@ -507,6 +507,9 @@ fn convert_activity(sciotte: &SciotteActivity, target: SciotteTarget) -> Activit
         sciotte.duration_seconds,
         "sciotte",
     )
+    // The service the scraper read: its terms bind its data whichever path
+    // brought it in (carnet#723).
+    .source(target.scraper_provider_name())
     .distance_meters_opt(sciotte.distance_meters)
     .elevation_gain_opt(sciotte.elevation_gain)
     .average_heart_rate_opt(sciotte.average_heart_rate)
@@ -988,6 +991,28 @@ impl ProviderFactory for SciotteCorosProviderFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_scraped_activity_names_the_service_it_was_read_from() {
+        let scraped: SciotteActivity = serde_json::from_value(serde_json::json!({
+            "id": "s1",
+            "name": "Tempo",
+            "sport_type": "run",
+            "start_date": "2026-09-30T06:00:00Z",
+            "duration_seconds": 1800,
+            "provider": "strava",
+        }))
+        .expect("a minimal scraped activity");
+        for (target, origin) in [
+            (SciotteTarget::Strava, "strava"),
+            (SciotteTarget::Garmin, "garmin"),
+            (SciotteTarget::Coros, "coros"),
+        ] {
+            let activity = convert_activity(&scraped, target);
+            assert_eq!(activity.provider(), "sciotte");
+            assert_eq!(activity.source(), Some(origin));
+        }
+    }
 
     #[test]
     fn a_window_bound_is_the_instant_its_epoch_names_or_no_bound() {

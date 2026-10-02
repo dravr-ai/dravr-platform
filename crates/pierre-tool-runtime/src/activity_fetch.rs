@@ -24,6 +24,7 @@ use pierre_core::models::{Activity, ConnectionStatus, TenantId};
 use pierre_database::repositories::BackfillCoverage;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig, FragmentReport};
+use pierre_providers::CoreFitnessProvider;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -33,6 +34,7 @@ use crate::protocol::auth::AuthService;
 use crate::protocol::reauth_notice::flag_needs_reauth;
 use crate::protocol::types::{auth_required_provider, UniversalResponse};
 use crate::runtime::ToolRuntime;
+use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver;
 use serde_json::Value;
 
@@ -44,8 +46,11 @@ pub mod sync_verdict;
 /// The activity cache's write-through, and what a write says about freshness
 pub mod write_through;
 
-use sync_verdict::{read_provider_head, record_head_outcome, sync_backoff_until, HeadVerdict};
-use write_through::{write_through_activity_cache, WriteThrough};
+use sync_verdict::{
+    judge_live_read, read_provider_head, record_head_outcome, sync_backoff_until, HeadRead,
+    HeadVerdict, LiveRead,
+};
+use write_through::{write_through_activity_cache, write_through_served_window, WriteThrough};
 
 /// Read limit for the single deterministic durable-cache read on the historical
 /// backfill path.
@@ -746,6 +751,74 @@ pub async fn fetch_provider_head(
     tenant_id: &str,
     params: &ActivityQueryParams,
 ) -> AppResult<Vec<Activity>> {
+    // The verdict and the write-through see the provider's full answer — the
+    // cache is the athlete's — and only what is handed back is filtered for a
+    // model (a no-op outside one).
+    let head = ai_scope::unfiltered(fetch_and_persist_head(
+        runtime,
+        provider_slug,
+        user_id,
+        tenant_id,
+        params,
+    ))
+    .await?;
+    Ok(ai_scope::filter_activities(
+        runtime.provider_registry().as_ref(),
+        head,
+    ))
+}
+
+/// The elected provider's live list read for `get_activities`: judged,
+/// recorded and written through on the provider's full answer, then handed
+/// back as a model may see it.
+///
+/// Only a `Complete` read of a tenant's connection is written: an incomplete
+/// capture is served but never persisted (carnet#149, carnet#151), and the
+/// rows are the provider's own, so `write_through_served_window` applies.
+///
+/// # Errors
+///
+/// The provider's own read error, unchanged.
+pub async fn read_live_window(
+    runtime: &Arc<dyn ToolRuntime>,
+    provider: &dyn CoreFitnessProvider,
+    live: LiveRead<'_>,
+    tenant: Option<TenantId>,
+) -> AppResult<HeadRead> {
+    let LiveRead {
+        provider_slug,
+        user_id,
+        params,
+        ..
+    } = live;
+    let read = ai_scope::unfiltered(judge_live_read(runtime, live, provider)).await;
+    if let Some(tenant) = tenant {
+        record_head_outcome(runtime, user_id, tenant, provider_slug, params, &read).await;
+    }
+    let mut head = read?;
+    if let (HeadVerdict::Complete, Some(tenant)) = (&head.verdict, tenant) {
+        write_through_served_window(
+            runtime,
+            user_id,
+            &tenant,
+            provider_slug,
+            params,
+            &head.activities,
+        )
+        .await;
+    }
+    head.activities =
+        ai_scope::filter_activities(runtime.provider_registry().as_ref(), head.activities);
+    Ok(head)
+}
+
+async fn fetch_and_persist_head(
+    runtime: &Arc<dyn ToolRuntime>,
+    provider_slug: &str,
+    user_id: Uuid,
+    tenant_id: &str,
+    params: &ActivityQueryParams,
+) -> AppResult<Vec<Activity>> {
     let tenant = TenantId::parse_str(tenant_id).ok();
     let read = read_provider_head(runtime, provider_slug, user_id, tenant_id, params).await;
     if let Some(tenant) = tenant {
@@ -864,7 +937,13 @@ pub(crate) async fn read_cached_window(
         .get_cached_activities(user_id, &tenant, Some(provider_slug), start, end, limit)
         .await
     {
-        Ok(cached) if !cached.is_empty() => Some(cached),
+        // Emptiness is judged on the athlete's rows, so a window that holds
+        // only withheld rows still reads as cached and starts no live fetch;
+        // what is handed back is filtered for a model (a no-op outside one).
+        Ok(cached) if !cached.is_empty() => Some(ai_scope::filter_activities(
+            runtime.provider_registry().as_ref(),
+            cached,
+        )),
         Ok(_) => None,
         Err(e) => {
             warn!(

@@ -107,6 +107,7 @@ use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_database::RepositoryRegistry;
 use pierre_llm::health::{LlmHealthState, LlmHealthStatus};
 use pierre_llm::{ChatMessage, ChatProvider, LlmProvider};
+use pierre_providers::ai_scope;
 use pierre_runtime_context::{AdminConfigLookup, CommandCtx, DataContext};
 use pierre_services::advice_capture::{
     spawn_capture_advice, AdviceCaptureStrategy, CapturedTurn, HeuristicGatedLlmExtraction,
@@ -694,7 +695,11 @@ pub async fn run(
         ));
     }
 
-    let outcome = run_turn(ctx, input, profile, hooks).await;
+    // A turn exists to feed a model, so every read its stages make is a read
+    // for one: each provider's AI policy governs what the prompt builders see
+    // (carnet#723). Tools scope themselves the same way in the executor; a
+    // chart drawn for the athlete lifts it (`ai_scope::for_display`).
+    let outcome = ai_scope::for_model(Box::pin(run_turn(ctx, input, profile, hooks))).await;
 
     if outcome.is_ok() {
         // A real served turn is the strongest proof the LLM provider is

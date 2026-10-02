@@ -39,6 +39,7 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::groups::TranscriptSpeaker;
 use pierre_core::models::{ConversationTurnId, TenantId, TurnOrigin};
 use pierre_llm::ChatProvider;
+use pierre_providers::ai_scope;
 use pierre_services::conversation_forge::reactivate_for_turn;
 use pierre_services::tenant_chat_provider::resolve_tenant_chat_provider;
 use tracing::{debug, info, warn};
@@ -437,7 +438,9 @@ pub async fn dispatch_slash(
         return Ok(None);
     };
 
-    let outcome = try_dispatch(DispatchRequest {
+    // A command's replies and walk prompts are model input like a turn's, so
+    // its reads are reads for a model (carnet#723).
+    let outcome = ai_scope::for_model(try_dispatch(DispatchRequest {
         ctx: &ctx.command_ctx,
         command_registry,
         command_handler_registry: handler_registry,
@@ -453,7 +456,7 @@ pub async fn dispatch_slash(
         text: request.text,
         tool_runtime: &ctx.tool_runtime,
         origin: request.origin,
-    })
+    }))
     .await?;
 
     let Some(mut command) = command_turn(outcome, request.channel_type) else {

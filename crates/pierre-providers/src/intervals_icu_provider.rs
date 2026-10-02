@@ -77,6 +77,7 @@ use crate::intervals_icu_calendar::{
 use crate::intervals_icu_self_report::{
     comments_from_messages, feel_from_icu, rpe_from_icu, IntervalsIcuMessage, MAX_ACTIVITY_MESSAGES,
 };
+use crate::intervals_icu_source::upstream_source;
 use crate::models::{
     Activity, ActivityBuilder, ActivityComment, Athlete, CalendarEventRef, PlannedSession,
     SportType, Stats, TimeSeriesData,
@@ -306,6 +307,11 @@ struct IntervalsIcuActivity {
     /// The athlete's free-text notes on the activity.
     #[serde(default)]
     description: Option<String>,
+    /// Where intervals.icu got the activity: a connected service
+    /// (`GARMIN_CONNECT`, `STRAVA`, …) or the athlete (`UPLOAD`, `MANUAL`).
+    /// Read only through [`upstream_source`].
+    #[serde(default)]
+    source: Option<String>,
 }
 
 /// Intervals.icu athlete profile shape.
@@ -810,6 +816,7 @@ fn map_activity(
     let name = raw
         .name
         .unwrap_or_else(|| format!("Intervals.icu {}", raw.id));
+    let source = upstream_source(raw.source.as_deref());
     let mut builder = ActivityBuilder::new(
         raw.id,
         name,
@@ -817,7 +824,8 @@ fn map_activity(
         start_date,
         raw.elapsed_time.unwrap_or(0),
         "intervals_icu".to_owned(),
-    );
+    )
+    .source_opt(source);
     if let Some(d) = raw.distance {
         builder = builder.distance_meters(d);
     }

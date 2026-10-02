@@ -923,6 +923,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 Some(
                     emit_ramp_check(
                         repos,
+                        state.provider_registry().as_ref(),
                         tenant,
                         &user_id,
                         &bundle.plan.id,

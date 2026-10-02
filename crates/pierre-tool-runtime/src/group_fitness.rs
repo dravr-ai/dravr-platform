@@ -34,6 +34,7 @@ use crate::group_activity_cache::fetch_member_activities;
 use crate::implementations::stored_physiology::member_athlete_inputs;
 use crate::protocol::AuthService;
 use crate::runtime::ToolRuntime;
+use pierre_providers::ai_scope;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 
 /// Lookback (days) for the `recent_activities` roster list rendered into
@@ -126,7 +127,13 @@ impl ActivityMergeStrategy for AllProvidersMerge {
             })
             .collect();
 
-        let results = join_all(futures).await;
+        // Fetched and written through on the providers' full answers — the
+        // cache is the athlete's. Each provider's rows are then filtered for a
+        // model BEFORE the merge: a merge fills one recording's gaps from
+        // another's, so filtering after it would let a withheld recording's
+        // values ride in on a permitted one (carnet#723).
+        let results = ai_scope::unfiltered(join_all(futures)).await;
+        let policies = auth_service.runtime().provider_registry();
 
         // Merge all successful results
         let mut all_activities = Vec::new();
@@ -168,7 +175,10 @@ impl ActivityMergeStrategy for AllProvidersMerge {
                         "Snapshot: capture is missing the list head; served without write-through"
                     );
                 }
-                all_activities.extend(fetched.activities);
+                all_activities.extend(ai_scope::filter_activities(
+                    policies.as_ref(),
+                    fetched.activities,
+                ));
                 provider_count += 1;
             }
         }

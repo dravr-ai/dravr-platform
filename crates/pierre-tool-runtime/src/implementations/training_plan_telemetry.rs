@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use chrono::NaiveDate;
+use pierre_core::ai_policy::AiPolicyLookup;
 use pierre_core::models::periodization::{Confidence, FlavourVerdict};
 use pierre_core::models::{LoadSnapshot, TenantId};
 use pierre_database::RepositoryRegistry;
@@ -222,6 +223,7 @@ pub(super) async fn emit_coverage_check(
 /// cannot be read. Never propagates an error: the plan is already saved.
 pub(super) async fn ramp_baseline(
     repos: &RepositoryRegistry,
+    policies: &dyn AiPolicyLookup,
     tenant: TenantId,
     user_id: &str,
 ) -> Option<LoadSnapshot> {
@@ -232,7 +234,7 @@ pub(super) async fn ramp_baseline(
             return None;
         }
     };
-    recent_load_snapshot(repos.activity_cache.as_ref(), uuid, &tenant)
+    recent_load_snapshot(repos.activity_cache.as_ref(), policies, uuid, &tenant)
         .await
         .unwrap_or_else(|e| {
             warn!(error = %e, "ramp check: activity cache unreadable");

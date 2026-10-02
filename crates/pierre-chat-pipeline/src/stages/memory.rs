@@ -31,6 +31,8 @@ use pierre_database::repositories::{
 use pierre_database::RepositoryRegistry;
 use pierre_memory::playbooks::{ArchetypePrior, Playbook};
 use pierre_memory::training_plans::{PlanWeek, TrainingPlan};
+use pierre_providers::ai_scope;
+use pierre_providers::registry::global_registry;
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use pierre_services::memory_facts::SentenceRenderer;
 use pierre_services::okf::render_okf_bundle_default;
@@ -345,6 +347,9 @@ async fn recent_activity_sports(
     else {
         return HashSet::new();
     };
+    // The sports seed the prompt's archetype priors: a session a provider's
+    // terms deny to AI does not name the athlete's sport (carnet#723).
+    let activities = ai_scope::filter_activities(global_registry().as_ref(), activities);
     activities
         .iter()
         .filter_map(|a| sport_slug(a.sport_type()))

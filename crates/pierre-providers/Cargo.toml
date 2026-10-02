@@ -42,7 +42,7 @@ tracing = "0.1"
 thiserror = "2.0"
 async-trait = "0.1"
 reqwest = { version = "0.12", features = ["json"] }
-tokio = { version = "1", features = ["sync", "time"] }
+tokio = { version = "1", features = ["rt", "sync", "time"] }
 async-stream = "0.3"
 bitflags = { version = "2.11", features = ["serde"] }
 futures-util = "0.3"

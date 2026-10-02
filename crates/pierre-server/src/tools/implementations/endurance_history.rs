@@ -28,7 +28,7 @@ use pierre_tool_runtime::conversions::{
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::security::RuntimeTool;
 use pierre_tool_runtime::training_history_compute::{
-    compute_and_persist_history, default_window, fetch_history_rows, HistoryCoverage,
+    compute_and_persist_history, default_window, history_rows_for_model, HistoryCoverage,
     TrainingHistoryComputed, DEFAULT_BACKFILL_DAYS,
 };
 use pierre_tools_core::ToolResult;
@@ -344,7 +344,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
             let user_id = context.user_id;
             let (from, to) = resolve_window(&context.resources, user_id, &args).await?;
             let rows =
-                fetch_history_rows(&context.resources.data(), tenant_id, user_id, from, to).await?;
+                history_rows_for_model(&context.resources, tenant_id, user_id, from, to).await?;
 
             // Every row carries its own form reading, and the payload carries
             // the method that produced it. This is the tool the endurance agent

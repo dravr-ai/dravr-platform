@@ -39,6 +39,7 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::models::TenantId;
 use pierre_llm::{ChatProvider, LlmProvider};
+use pierre_providers::ai_scope;
 use pierre_runtime_context::DataContext;
 use pierre_services::athlete_snapshot::build_athlete_metrics;
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
@@ -715,6 +716,9 @@ async fn build_athlete_record(
         .get_cached_activities(uuid, &tenant_id, None, start, end, ATHLETE_RECORD_LIMIT)
         .await
         .unwrap_or_default();
+    // A claim is checked against what the model could have seen (carnet#723).
+    let activities =
+        ai_scope::filter_activities(ctx.tool_runtime.provider_registry().as_ref(), activities);
 
     Some(AthleteRecord {
         has_provider: true,
@@ -770,6 +774,7 @@ async fn build_personalized_inputs(
     let cageux = ctx.cageux_config_registry.current();
     let metrics = build_athlete_metrics(
         ctx.repos.as_ref(),
+        ctx.tool_runtime.provider_registry().as_ref(),
         &cageux.algorithms,
         &ctx.config.training_zones,
         tenant_id,

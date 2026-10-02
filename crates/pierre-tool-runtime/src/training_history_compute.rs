@@ -46,6 +46,7 @@ use pierre_core::models::{Activity, DailyTrainingState, TenantId};
 use pierre_fitness_compute::training_history_compute::{
     compute_training_history, warmup_days, AthleteInputs, MAX_BACKFILL_DAYS,
 };
+use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver;
 #[cfg(feature = "tools-data")]
 use pierre_providers::core::ActivityQueryParams;
@@ -164,6 +165,22 @@ async fn user_timezone(
 /// Returns [`AppError`] when the window is invalid, no provider is connected,
 /// or a repository read/write fails.
 pub async fn compute_and_persist_history(
+    resources: &Arc<dyn ToolRuntime>,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    from: NaiveDate,
+    to: NaiveDate,
+) -> AppResult<TrainingHistoryComputed> {
+    // The rollup is the athlete's, read by their own surfaces: it is computed
+    // from every stored row even when a tool triggers it (carnet#723). What a
+    // model reads back goes through `history_rows_for_model`.
+    ai_scope::unfiltered(compute_and_persist_unfiltered(
+        resources, tenant_id, user_id, from, to,
+    ))
+    .await
+}
+
+async fn compute_and_persist_unfiltered(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
@@ -573,11 +590,17 @@ async fn read_cached_window(
     let start_ts = Utc.from_utc_datetime(&(start - slack).and_hms_opt(0, 0, 0).unwrap_or_default());
     let end_ts = Utc.from_utc_datetime(&(to + slack).and_hms_opt(0, 0, 0).unwrap_or_default());
     let limit = i64::try_from(HISTORICAL_WINDOW_READ_LIMIT).unwrap_or(i64::MAX);
-    resources
+    let rows = resources
         .repos()
         .activity_cache
         .get_cached_activities(user_id, &tenant_id, Some(backend), start_ts, end_ts, limit)
-        .await
+        .await?;
+    // A history computed for a model sums only what it may see; the persisted
+    // rollup is computed unfiltered (`compute_and_persist_history`).
+    Ok(ai_scope::filter_activities(
+        resources.provider_registry().as_ref(),
+        rows,
+    ))
 }
 
 /// Per-user physiology, absent where the profile is silent.
@@ -674,6 +697,37 @@ pub async fn fetch_history_rows(
         .training_history
         .get_training_history(tenant_id, user_id, from, to)
         .await
+}
+
+/// The history rows a model may read for `[from, to]`.
+///
+/// The persisted rollup sums every stored activity. Inside a read for a model
+/// whose window holds activities a provider's terms withhold from AI, the rows
+/// are computed on the fly from the permitted activities instead — the same
+/// warm-up rule as the rollup, so with nothing withheld the two agree and the
+/// stored rows are served as before (carnet#723).
+///
+/// # Errors
+///
+/// Returns an error when the window is inverted or a read fails.
+pub async fn history_rows_for_model(
+    resources: &Arc<dyn ToolRuntime>,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    from: NaiveDate,
+    to: NaiveDate,
+) -> AppResult<Vec<DailyTrainingState>> {
+    if ai_scope::policies_apply() {
+        let (computed, withheld) = ai_scope::ai_read(read_history_from_cache(
+            resources, tenant_id, user_id, from, to,
+        ))
+        .await;
+        if !withheld.is_empty() {
+            ai_scope::record_withheld(withheld);
+            return Ok(computed?.states);
+        }
+    }
+    fetch_history_rows(&resources.data(), tenant_id, user_id, from, to).await
 }
 
 /// What happened to the athlete's stored daily rollup when the thresholds it

@@ -30,6 +30,7 @@ use crate::group_fitness::{ActivityMergeStrategy, AllProvidersMerge};
 use crate::protocol::AuthService;
 use crate::revalidation::{revalidation_timeout, RevalidationRegistry};
 use crate::runtime::ToolRuntime;
+use pierre_providers::ai_scope;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 
 /// Age beyond which cached activities trigger a revalidation
@@ -129,6 +130,11 @@ pub(crate) async fn fetch_member_activities(
     // sciotte/Garmin) is cached twice. The live-fetch path dedups before
     // returning (see `AllProvidersMerge::fetch_and_merge`); the warm-cache path
     // must do the same or cross-provider duplicates double-count in the snapshot.
+    //
+    // Filtered for a model first, when this read is for one: the dedup fills a
+    // recording's gaps from its duplicates, so a withheld recording must be
+    // gone before it can lend values to a permitted one (carnet#723).
+    let cached = ai_scope::filter_activities(runtime.provider_registry().as_ref(), cached);
     let before_dedup = cached.len();
     let (cached, _) = merge_duplicates(cached, &DedupConfig::from_env());
     info!(

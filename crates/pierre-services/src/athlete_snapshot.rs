@@ -25,11 +25,13 @@
 use chrono::{Duration, NaiveDate, Utc};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::config::intelligence::{TrainingZonesConfig, VO2MaxCalculator};
+use pierre_core::ai_policy::AiPolicyLookup;
 use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
 use pierre_core::models::{Activity, TenantId, UserPhysiologicalProfile};
 use pierre_database::RepositoryRegistry;
 use pierre_evals::AthleteMetrics;
 use pierre_fitness_compute::{compute_training_history, AthleteInputs};
+use pierre_providers::ai_scope;
 use uuid::Uuid;
 
 /// Lookback window for the activity read backing `data_days` and the TSB compute.
@@ -69,6 +71,7 @@ async fn load_user_timezone(repos: &RepositoryRegistry, user_id: Uuid) -> Option
 /// never erroring the turn.
 pub async fn build_athlete_metrics(
     repos: &RepositoryRegistry,
+    policies: &dyn AiPolicyLookup,
     algorithm_config: &AlgorithmConfig,
     training_zones: &TrainingZonesConfig,
     tenant_id: TenantId,
@@ -136,6 +139,9 @@ pub async fn build_athlete_metrics(
             Vec::new()
         }
     };
+    // The metrics judge what a model said, so they read what it may see
+    // (carnet#723).
+    let activities = ai_scope::filter_activities(policies, activities);
 
     // data_days = distinct calendar days with an activity — the density signal
     // gating whether the personalized layer trusts the snapshot enough to contradict an agent.

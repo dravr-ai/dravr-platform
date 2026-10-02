@@ -14,6 +14,7 @@ use crate::spi::{ProviderBundle, ProviderCapabilities, ProviderDescriptor};
     feature = "provider-coros"
 ))]
 use pierre_auth::config::oauth::load_provider_env_config;
+use pierre_core::ai_policy::{AiPolicyLookup, SourcePolicy};
 #[cfg(any(
     feature = "provider-strava",
     feature = "provider-garmin",
@@ -555,7 +556,15 @@ impl ProviderRegistry {
     pub fn get_descriptor(&self, provider_name: &str) -> Option<&dyn ProviderDescriptor> {
         self.descriptors.get(provider_name).map(AsRef::as_ref)
     }
+}
 
+impl AiPolicyLookup for ProviderRegistry {
+    fn ai_policy(&self, provider: &str) -> Option<&'static SourcePolicy> {
+        self.descriptors.get(provider).map(|d| d.ai_policy())
+    }
+}
+
+impl ProviderRegistry {
     /// Get all providers that support OAuth
     #[must_use]
     pub fn oauth_providers(&self) -> Vec<&'static str> {

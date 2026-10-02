@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use pierre_core::ai_policy::AiPolicyLookup;
 use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::parse_plan_date;
@@ -33,12 +34,13 @@ pub(super) fn earliest_week(weeks: &[WeekPayload]) -> Option<&WeekPayload> {
 /// degrades to an unmeasurable verdict rather than an error.
 pub(super) async fn emit_ramp_check(
     repos: &RepositoryRegistry,
+    policies: &dyn AiPolicyLookup,
     tenant: TenantId,
     user_id: &str,
     plan_id: &str,
     opening_week: Option<&WeekPayload>,
 ) -> RampVerdict {
-    let baseline = ramp_baseline(repos, tenant, user_id).await;
+    let baseline = ramp_baseline(repos, policies, tenant, user_id).await;
     let durations: Vec<Option<u32>> = opening_week
         .map(|w| w.days.iter().map(|d| d.duration_min).collect())
         .unwrap_or_default();

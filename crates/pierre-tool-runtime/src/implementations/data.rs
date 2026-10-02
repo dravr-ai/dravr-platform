@@ -37,14 +37,11 @@ use crate::activity_backfill::{
     backfill_inline_and_serve, is_historical_backfill_window, provider_tenant_id_str,
     spawn_activity_backfill, ActivityBackfillJob, InlineHistoricalServe,
 };
-use crate::activity_fetch::sync_verdict::{
-    judge_live_read, record_head_outcome, HeadRead, HeadVerdict, LiveRead,
-};
-use crate::activity_fetch::write_through::write_through_served_window;
+use crate::activity_fetch::sync_verdict::{HeadRead, HeadVerdict, LiveRead};
 use crate::activity_fetch::{
     activity_date_span, historical_depth_covered, maybe_merge_other_connections,
-    read_cached_window, serve_historical_window, serve_stale_activities, serve_without_primary,
-    sort_activities, touch_connection_used,
+    read_cached_window, read_live_window, serve_historical_window, serve_stale_activities,
+    serve_without_primary, sort_activities, touch_connection_used,
 };
 use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
@@ -522,6 +519,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             ) {
                 if let Some(cached_response) = try_get_cached_activities(CachedActivitiesParams {
                     cache,
+                    policies: context.resources.provider_registry().as_ref(),
                     cache_key: &cache_key,
                     user_uuid: context.user_id,
                     tenant_id: tenant_id_str.clone(),
@@ -569,11 +567,6 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // The merge `serve_without_primary` already ran when it stood in, so
             // the fold below does not merge the same window twice.
             let mut stand_in_merge: Option<FragmentReport> = None;
-            // Set when the historical branch answered out of the durable cache, so
-            // the write-through below can tell rows we just read from rows a
-            // provider just produced. Writing the former back re-stamps their
-            // `synced_at`, and `latest_activity_sync` reads that as a fresh sync.
-            let mut served_from_cache = false;
             let mut served_by: Vec<String> = Vec::new();
             // An explicit `provider` argument pins the ask to ONE source — the
             // same rule `maybe_merge_other_connections` follows. A pinned
@@ -667,7 +660,6 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         served,
                     )
                     .await;
-                    served_from_cache = true;
                     (served, None)
                 } else {
                     // Synchronous reconnect (priority): if this provider's
@@ -744,10 +736,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                                     ),
                                 })));
                             }
-                            InlineHistoricalServe::Served(served) => {
-                                served_from_cache = true;
-                                (served, None)
-                            }
+                            InlineHistoricalServe::Served(served) => (served, None),
                         }
                     } else {
                         // Cold cache OR a shallow (limit-capped / never-backfilled)
@@ -821,8 +810,12 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
 
                 match authenticated {
                     Ok(provider) => {
-                        let read = judge_live_read(
+                        // Judged, recorded and written through on the provider's
+                        // full answer inside `read_live_window`; what comes back
+                        // is already as a model may see it (carnet#723).
+                        let read = read_live_window(
                             &context.resources,
+                            provider.as_ref(),
                             LiveRead {
                                 provider_slug: &provider_name,
                                 user_id: context.user_id,
@@ -830,20 +823,9 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                                 params: &query_params,
                                 attempt_started_at,
                             },
-                            provider.as_ref(),
+                            context.tenant_id.is_some().then_some(tenant_id),
                         )
                         .await;
-                        if context.tenant_id.is_some() {
-                            record_head_outcome(
-                                &context.resources,
-                                context.user_id,
-                                tenant_id,
-                                &provider_name,
-                                &query_params,
-                                &read,
-                            )
-                            .await;
-                        }
                         let live = match read {
                             Ok(HeadRead {
                                 activities,
@@ -943,29 +925,11 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 }
             };
 
-            // Only rows a PROVIDER produced are written through — never rows this
-            // table produced, and never a sibling's rows filed under a missing
-            // primary. `write_through_served_window` carries both reasons. A
-            // capture whose head the provider never saw is served but not
-            // persisted either: the upsert would stamp it fresh and disarm
-            // `refresh_stale_head`, the gate `fetch_provider_head` applies
+            // Only rows a PROVIDER produced are written through, and only by the
+            // live read itself (`read_live_window`): never rows this table
+            // produced, never a sibling's rows filed under a missing primary,
+            // and never a capture whose head the provider did not see
             // (carnet#149, carnet#151).
-            let head_complete = provider.as_ref().is_none_or(|p| p.head_complete());
-            if stood_in.is_none()
-                && !served_from_cache
-                && head_complete
-                && context.tenant_id.is_some()
-            {
-                write_through_served_window(
-                    &context.resources,
-                    context.user_id,
-                    &tenant_id,
-                    &provider_name,
-                    &query_params,
-                    &activities,
-                )
-                .await;
-            }
 
             // Record the serve against the connection that actually produced it, so
             // `resolve_most_recent` elects the backend the athlete trains on rather

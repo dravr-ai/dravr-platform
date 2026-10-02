@@ -66,6 +66,9 @@
 //! ```
 
 use super::core::{FitnessProvider, ProviderConfig};
+#[cfg(feature = "provider-whoop")]
+use crate::provider_ai_terms;
+use pierre_core::ai_policy::SourcePolicy;
 use std::fmt;
 
 #[cfg(feature = "provider-intervals-icu")]
@@ -237,6 +240,13 @@ pub trait ProviderDescriptor: Send + Sync {
     ///
     /// Returns an empty slice for providers without OAuth.
     fn default_scopes(&self) -> &'static [&'static str];
+
+    /// What of this provider's data its terms let a model see, per upstream
+    /// source. No restriction unless the provider's terms set one; the
+    /// declared policies live in [`crate::provider_ai_terms`].
+    fn ai_policy(&self) -> &'static SourcePolicy {
+        &SourcePolicy::ALLOW_ALL
+    }
 
     /// Whether this provider requires OAuth authentication
     fn requires_oauth(&self) -> bool {
@@ -490,6 +500,10 @@ impl ProviderDescriptor for WhoopDescriptor {
 
     fn api_base_url(&self) -> &'static str {
         "https://api.prod.whoop.com/developer/v2"
+    }
+
+    fn ai_policy(&self) -> &'static SourcePolicy {
+        &provider_ai_terms::WHOOP
     }
 
     fn default_scopes(&self) -> &'static [&'static str] {

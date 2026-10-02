@@ -24,6 +24,7 @@ use std::collections::BTreeMap;
 use pierre_core::models::TimeSeriesData;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_fitness_compute::route_track::RouteTrack;
+use pierre_providers::ai_scope;
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
 use serde_json::{json, Value};
 use tracing::warn;
@@ -170,7 +171,9 @@ async fn read_one_track(
         protocol: "chat".to_owned(),
         tenant_id: Some(input.tool_tenant_id.to_string()),
     };
-    let response = match executor.execute_tool(request).await {
+    // The track becomes a map the athlete sees; the model only ever reads the
+    // failure sentence below. Display, so no provider's AI policy applies.
+    let response = match ai_scope::for_display(executor.execute_tool(request)).await {
         Ok(response) => response,
         Err(e) => {
             warn!(error = %e, activity_id, "viz-blocks: reading an activity's track failed");
