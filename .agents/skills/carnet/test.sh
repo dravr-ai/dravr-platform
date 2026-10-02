@@ -429,6 +429,9 @@ run_carnet model 42 opus
 assert_eq "an unchanged directive writes nothing" "$(count_calls "$WRITES")" 0
 run_carnet model 42 haiku
 assert_eq "an unknown model is refused" "$rc" 1
+run_carnet model 42 "opus sonnet"
+assert_eq "a value naming two models is refused" "$rc" 1
+assert_eq "and writes nothing" "$(count_calls "$WRITES")" 0
 run_carnet model 42 sonnet --dry-run
 assert_eq "dry-run sets nothing" "$(count_calls "$WRITES")" 0
 

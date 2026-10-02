@@ -51,8 +51,8 @@ title shape uniform.
    identifier. The `limitation` label goes only on an issue that a `LIMITATION(registre#n)`
    marker in source will point at; plain findings get the project label alone.
 6. **Settle the model before the first edit.** Line 1 of an issue's body is its model
-   directive, `Model: opus` or `Model: sonnet`, and `status` and `claim` print it as
-   `model: <m>` or `model: unset`. No hook can switch a running session's model: only the
+   directive, `Model: opus` or `Model: sonnet`. `status` prints it as `model: <m>` or
+   `model: unset` on an open issue, and `claim` restates it (or says there is none). No hook can switch a running session's model: only the
    user can, with `/model`. So the check is yours, and it comes before you touch anything:
    - **It matches the model you run:** start.
    - **It differs:** stop and say so in one line, e.g. "carnet#712 says sonnet; this session

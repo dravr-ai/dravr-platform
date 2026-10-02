@@ -35,6 +35,13 @@ MODEL_JQ='def directive_re: "^[\\s*_]*model[\\s*_]*:[\\s*_]*(?<m>opus|sonnet)\\b
         | join("\n");
     def directed($m): ($m | if . == "" then "" else "Model: \(.)\n\n" end) + undirected;'
 
+# True when $1 is exactly one of $MODELS — a value holding a space would otherwise match a
+# substring of the padded list ("opus sonnet" matches " opus sonnet ").
+is_model() { # <value>
+    case "$1" in *" "*|"") return 1 ;; esac
+    case " $MODELS " in *" $1 "*) return 0 ;; *) return 1 ;; esac
+}
+
 # ------------------------------------------------------------------ output helpers
 say()  { printf '%s\n' "$*"; }
 warn() { printf '⚠️  %s\n' "$*" >&2; }
@@ -428,7 +435,7 @@ cmd_model() { # <n> <model-or-empty>
         return 0
     fi
     [ "$want" = none ] && want=""
-    [ -z "$want" ] || case " $MODELS " in *" $want "*) ;; *) die "model must be one of: $MODELS, none" ;; esac
+    [ -z "$want" ] || is_model "$want" || die "model must be one of: $MODELS, none"
     if [ "$want" = "$cur" ]; then
         say "carnet#$n · model: ${cur:-unset} (unchanged)"
         return 0
@@ -548,7 +555,7 @@ cmd_close() { # <n> <why> <commit>
 cmd_create() { # <title> <body> <body_file> <claim> <model> labels...
     local title=$1 body=$2 body_file=$3 claim=$4 model=$5; shift 5
     [ -n "$title" ] || die "create needs --title"
-    [ -z "$model" ] || case " $MODELS " in *" $model "*) ;; *) die "--model must be one of: $MODELS" ;; esac
+    [ -z "$model" ] || is_model "$model" || die "--model must be one of: $MODELS"
 
     # The whole point of a private register: an entry states where a defence is incomplete.
     local private
@@ -603,7 +610,7 @@ cmd_create() { # <title> <body> <body_file> <claim> <model> labels...
     say "📝 $url"
     say "   $title"
     if [ -n "$directive" ]; then say "   model: $directive"
-    elif [ "$claim" != 1 ]; then say "   no model directive — set one with: carnet.sh model $n <opus|sonnet>"; fi
+    elif [ "$claim" != 1 ] && [ "$n" != 0 ]; then say "   no model directive — set one with: carnet.sh model $n <opus|sonnet>"; fi
     [ $has_limitation = 0 ] || say "   marker: LIMITATION(registre#$n): <name the limited item on this line>"
     [ "$claim" = 1 ] && [ "$n" != 0 ] && cmd_claim "$n" 0
     return 0
