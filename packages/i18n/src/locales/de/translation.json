@@ -1007,6 +1007,8 @@
     "providersConnectedOne": "{{providers}} verbunden",
     "quickConnectProvider": "Daten verbinden",
     "quickDiscover": "Agenten finden",
+    "quickRoute": "Strecke für die heutige Einheit",
+    "quickRouteDraft": "Schlag mir eine Strecke in meiner Nähe für meine heutige Einheit vor.",
     "readyToAnalyze": "Bereit, deine Form zu analysieren",
     "recommendedForYou": "Für dich empfohlen",
     "refreshPageHint": "Versuch, die Seite neu zu laden",
@@ -1048,6 +1050,7 @@
     "share": "Teilen",
     "shareToFeed": "Im Feed teilen",
     "slashHint": "Tippe / für Befehle · @name holt einen Agenten für eine Antwort dazu",
+    "stopTurnAria": "Diese Antwort stoppen",
     "startConversation": "Starte eine Unterhaltung",
     "startConversationPrompt": "Starte eine Unterhaltung",
     "startupQueryLabel": "Startanfrage (optional)",
@@ -1815,6 +1818,9 @@
       "buildDraft": "Erstelle mir einen Trainingsplan für meinen Zielwettkampf.",
       "dayDraft": "Erklär mir meine Einheit am {{date}}: {{workout}}",
       "restDayDraft": "Warum ist {{date}} in meinem Plan ein Ruhetag?",
+      "routeCta": "Strecke für diese Einheit finden",
+      "routeDraft": "Schlag mir eine Strecke in meiner Nähe für meine Einheit am {{date}} vor: {{workout}}",
+      "routeDistanceDraft": "Schlag mir eine {{distance}} lange Strecke in meiner Nähe für meine Einheit am {{date}} vor: {{workout}}",
       "loadFailed": "Dein Plan konnte nicht geladen werden."
     },
     "activities": {
@@ -1869,6 +1875,39 @@
         "adjustLabel": "Was anpassen",
         "adjustText": "Was sollte ich nach meiner Aktivität „{{name}}“ vom {{date}} in meinen nächsten Einheiten anpassen?"
       }
+    },
+    "status": {
+      "heading": "Trainingsstatus",
+      "form": "Form bei {{pct}} % deiner Fitness",
+      "band": {
+        "insufficientHistory": "Zu wenig Verlauf",
+        "deepFatigue": "Tiefe Ermüdung",
+        "heavyBlock": "Harter Block",
+        "productive": "Produktiv",
+        "balanced": "Ausgeglichen",
+        "fresh": "Frisch",
+        "detraining": "Sehr frisch"
+      },
+      "bandDetail": {
+        "insufficientHistory": "Noch zu wenig Trainingsverlauf, um deine Form zu lesen.",
+        "deepFatigue": "Deine Form liegt weit unter deiner eigenen Fitness.",
+        "heavyBlock": "Das untere Ende der produktiven Zone.",
+        "productive": "Du baust Fitness unter normaler Trainingsermüdung auf.",
+        "balanced": "Weder ermüdet noch in Topform.",
+        "fresh": "Bereit für Qualitätseinheiten oder einen Wettkampf.",
+        "detraining": "Möglicher Formabbau."
+      },
+      "trendLabel": "Deine Form in den letzten {{days}} Tagen",
+      "trendHint": "Über der Linie bist du frischer als deine Fitness, darunter trägst du Ermüdung.",
+      "trendAlt": "Form als Anteil deiner Fitness vom {{from}} bis {{to}}: von {{first}} % auf {{last}} %",
+      "trendDay": "{{date}} · {{pct}} % · {{band}}",
+      "trendTooShort": "Dein Verlauf erscheint hier, sobald mehr Tage zusammenkommen.",
+      "loadRatio": "Letzte {{acute}} Tage: {{ratio}} × dein {{chronic}}-Tage-Schnitt",
+      "recoveryNone": "Deine Form verlangt keinen zusätzlichen leichten Tag.",
+      "recoveryOne": "Deine Form verlangt 1 leichten Tag.",
+      "recoveryMany": "Deine Form verlangt {{count}} leichte Tage.",
+      "empty": "Noch zu wenig Trainingsverlauf, um deine Form zu lesen. Sie erscheint hier, sobald deine Aktivitäten weit genug zurückreichen.",
+      "loadFailed": "Dein Trainingsstatus konnte nicht geladen werden."
     }
   },
   "hosted": {
@@ -2165,6 +2204,7 @@
       "language": "## Sprache der Antwort\n\nDieses Gespräch wird auf Deutsch geführt. Schreibe deine gesamte Antwort auf Deutsch: jeden Satz, jede Überschrift und jeden Listenpunkt, auch eine Absage, eine Entschuldigung oder eine Rückfrage.\n\nDer Kontext, die Werkzeugergebnisse und die Daten, die du erhältst, sind auf Englisch. Übersetze sie: Übernimm niemals einen englischen Satz unverändert. Eigennamen (Strava, WHOOP, Garmin) und Einheiten bleiben unverändert.\n\nWechsle die Sprache nicht mitten in der Antwort, und wechsle sie nicht, weil die letzte Nachricht kurz ist oder englische Wörter enthält (\"Yes\", \"ok\", \"ride\"). Diese Anweisung legt die Sprache fest, nicht die Länge der Nachricht."
     },
     "turn_interrupted": "Meine Antwort wurde abgebrochen, bevor sie bei dir ankam — ich habe diesmal nichts für dich. Schick deine Frage noch einmal und ich mache weiter.",
+    "turn_stopped": "Antwort gestoppt.",
     "unknown_command": "Unbekannter Befehl. Tippe /help für die Liste der verfügbaren Befehle.",
     "verification": {
       "block_fallback": "Ich habe angefangen zu antworten, aber einige der geplanten Aussagen passten nicht zu den Quellen, denen ich vertraue. Lass mich umformulieren — kannst du deine Frage noch einmal stellen, mit etwas mehr Kontext zu dem, was du verstehen willst?",

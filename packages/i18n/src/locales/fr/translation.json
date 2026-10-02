@@ -1007,6 +1007,8 @@
     "providersConnectedOne": "{{providers}} connecté",
     "quickConnectProvider": "Connecter tes données",
     "quickDiscover": "Trouver un agent",
+    "quickRoute": "Parcours pour la séance du jour",
+    "quickRouteDraft": "Propose-moi un parcours près d'où je suis pour ma séance d'aujourd'hui.",
     "readyToAnalyze": "Prêt à analyser ta forme",
     "recommendedForYou": "Recommandé pour toi",
     "refreshPageHint": "Essaie de recharger la page",
@@ -1048,6 +1050,7 @@
     "share": "Partager",
     "shareToFeed": "Partager sur le fil",
     "slashHint": "Tape / pour les commandes · @nom fait intervenir un agent pour une réponse",
+    "stopTurnAria": "Arrêter cette réponse",
     "startConversation": "Commence une discussion",
     "startConversationPrompt": "Démarre une conversation",
     "startupQueryLabel": "Requête de démarrage (facultatif)",
@@ -1815,6 +1818,9 @@
       "buildDraft": "Construis-moi un plan d’entraînement pour ma course objectif.",
       "dayDraft": "Explique-moi ma séance du {{date}} : {{workout}}",
       "restDayDraft": "Pourquoi le {{date}} est-il un jour de repos dans mon plan ?",
+      "routeCta": "Trouver un parcours pour cette séance",
+      "routeDraft": "Propose-moi un parcours près d'où je suis pour ma séance du {{date}} : {{workout}}",
+      "routeDistanceDraft": "Propose-moi un parcours de {{distance}} près d'où je suis pour ma séance du {{date}} : {{workout}}",
       "loadFailed": "Impossible de charger ton plan."
     },
     "activities": {
@@ -1869,6 +1875,39 @@
         "adjustLabel": "Quoi ajuster",
         "adjustText": "Après mon activité « {{name}} » du {{date}}, que devrais-je ajuster dans mes prochaines séances ?"
       }
+    },
+    "status": {
+      "heading": "État d’entraînement",
+      "form": "Forme à {{pct}} % de ta condition physique",
+      "band": {
+        "insufficientHistory": "Historique insuffisant",
+        "deepFatigue": "Fatigue profonde",
+        "heavyBlock": "Bloc chargé",
+        "productive": "Productif",
+        "balanced": "Équilibré",
+        "fresh": "Frais",
+        "detraining": "Très frais"
+      },
+      "bandDetail": {
+        "insufficientHistory": "Pas encore assez d’historique d’entraînement pour lire ta forme.",
+        "deepFatigue": "Ta forme est très en dessous de ta propre condition physique.",
+        "heavyBlock": "La limite basse de la zone productive.",
+        "productive": "Tu construis ta condition sous une fatigue d’entraînement normale.",
+        "balanced": "Ni fatigué ni au pic de forme.",
+        "fresh": "Prêt pour du travail de qualité ou une course.",
+        "detraining": "Possible désentraînement."
+      },
+      "trendLabel": "Ta forme sur les {{days}} derniers jours",
+      "trendHint": "Au-dessus de la ligne, tu es plus frais que ta condition physique ; en dessous, tu portes de la fatigue.",
+      "trendAlt": "Forme en part de ta condition physique, du {{from}} au {{to}} : de {{first}} % à {{last}} %",
+      "trendDay": "{{date}} · {{pct}} % · {{band}}",
+      "trendTooShort": "Ta tendance s’affichera ici au fil des jours.",
+      "loadRatio": "{{acute}} derniers jours : {{ratio}} × ta moyenne sur {{chronic}} jours",
+      "recoveryNone": "Ta forme n’appelle aucun jour allégé de plus.",
+      "recoveryOne": "Ta forme appelle 1 jour allégé.",
+      "recoveryMany": "Ta forme appelle {{count}} jours allégés.",
+      "empty": "Pas encore assez d’historique d’entraînement pour lire ta forme. Elle s’affichera ici quand tes activités remonteront assez loin.",
+      "loadFailed": "Impossible de charger ton état d’entraînement."
     }
   },
   "hosted": {
@@ -2165,6 +2204,7 @@
       "language": "## Langue de la réponse\n\nCette conversation se déroule en français. Rédige l'intégralité de ta réponse en français : chaque phrase, chaque titre, chaque élément de liste, y compris un refus, une excuse ou une demande de précision.\n\nLe contexte, les résultats d'outils et les données qui te sont fournis sont rédigés en anglais. Traduis-les : ne recopie jamais une phrase anglaise telle quelle. Les noms propres (Strava, WHOOP, Garmin) et les unités restent inchangés.\n\nNe change pas de langue en cours de réponse, et n'en change pas parce que le dernier message est court ou contient des mots anglais (« Yes », « ok », « ride »). C'est cette instruction qui fixe la langue, pas la longueur du message."
     },
     "turn_interrupted": "Ma réponse a été interrompue avant de t'arriver — je n'ai rien à te donner sur ce coup-là. Renvoie ta question et je reprends.",
+    "turn_stopped": "Réponse arrêtée.",
     "unknown_command": "Commande inconnue. Tape /help pour voir la liste des commandes disponibles.",
     "verification": {
       "block_fallback": "J'ai commencé à répondre, mais quelques-unes des affirmations que j'allais faire ne correspondaient pas aux sources que je considère fiables. Laisse-moi reformuler — peux-tu me reposer la question avec un peu plus de contexte sur ce que tu cherches à comprendre?",

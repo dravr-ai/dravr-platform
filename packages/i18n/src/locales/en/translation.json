@@ -1007,6 +1007,8 @@
     "providersConnectedOne": "{{providers}} connected",
     "quickConnectProvider": "Connect your data",
     "quickDiscover": "Find an agent",
+    "quickRoute": "Route for today's session",
+    "quickRouteDraft": "Suggest a route close to where I am for today's session.",
     "readyToAnalyze": "Ready to analyze your fitness",
     "recommendedForYou": "Recommended for you",
     "refreshPageHint": "Please try refreshing the page",
@@ -1048,6 +1050,7 @@
     "share": "Share",
     "shareToFeed": "Share to feed",
     "slashHint": "Type / for commands · @handle brings an agent in for one turn",
+    "stopTurnAria": "Stop this reply",
     "startConversation": "Start a discussion",
     "startConversationPrompt": "Start a conversation",
     "startupQueryLabel": "Startup Query (optional)",
@@ -1815,6 +1818,9 @@
       "buildDraft": "Build me a training plan for my goal race.",
       "dayDraft": "Walk me through my session on {{date}}: {{workout}}",
       "restDayDraft": "Why is {{date}} a rest day in my plan?",
+      "routeCta": "Find a route for this session",
+      "routeDraft": "Suggest a route close to where I am for my session on {{date}}: {{workout}}",
+      "routeDistanceDraft": "Suggest a {{distance}} route close to where I am for my session on {{date}}: {{workout}}",
       "loadFailed": "Your plan couldn't be loaded."
     },
     "activities": {
@@ -1869,6 +1875,39 @@
         "adjustLabel": "What to adjust",
         "adjustText": "After my activity “{{name}}” from {{date}}, what should I adjust in my next sessions?"
       }
+    },
+    "status": {
+      "heading": "Training status",
+      "form": "Form {{pct}}% of your fitness",
+      "band": {
+        "insufficientHistory": "Not enough history",
+        "deepFatigue": "Deep fatigue",
+        "heavyBlock": "Heavy block",
+        "productive": "Productive",
+        "balanced": "Balanced",
+        "fresh": "Fresh",
+        "detraining": "Very fresh"
+      },
+      "bandDetail": {
+        "insufficientHistory": "Not enough training history yet to read your form.",
+        "deepFatigue": "Your form is far below your own fitness.",
+        "heavyBlock": "The deep end of the productive zone.",
+        "productive": "Building fitness under normal training fatigue.",
+        "balanced": "Neither fatigued nor peaked.",
+        "fresh": "Ready for quality work or racing.",
+        "detraining": "Possibly detraining."
+      },
+      "trendLabel": "Your form over the last {{days}} days",
+      "trendHint": "Above the line you are fresher than your fitness; below it you are carrying fatigue.",
+      "trendAlt": "Form as a share of your fitness from {{from}} to {{to}}: from {{first}}% to {{last}}%",
+      "trendDay": "{{date}} · {{pct}}% · {{band}}",
+      "trendTooShort": "Your trend shows up here as the days add up.",
+      "loadRatio": "Last {{acute}} days: {{ratio}}× your {{chronic}}-day average",
+      "recoveryNone": "Your form calls for no extra lighter day.",
+      "recoveryOne": "Your form calls for 1 lighter day.",
+      "recoveryMany": "Your form calls for {{count}} lighter days.",
+      "empty": "Not enough training history yet to read your form. It shows up here once your activities go back far enough.",
+      "loadFailed": "Your training status couldn't be loaded."
     }
   },
   "hosted": {
@@ -2165,6 +2204,7 @@
       "language": "## Reply language\n\nThis conversation is conducted in English. Write your entire reply in English: every sentence, every heading, every list item, including a refusal, an apology or a request for clarification.\n\nDo not switch language mid-reply, and do not switch because the last message is short or carries words from another language. This instruction sets the language, not the length of the message."
     },
     "turn_interrupted": "My reply was cut off before it reached you — I have nothing to give you on this one. Send your question again and I'll pick it back up.",
+    "turn_stopped": "Reply stopped.",
     "unknown_command": "Unknown command. Type /help to see the available commands.",
     "verification": {
       "block_fallback": "I started to answer, but a couple of the claims I was about to make didn't match the evidence I trust. Let me reword that — can you ask me again with a bit more context on what you're trying to figure out?",
