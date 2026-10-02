@@ -13,8 +13,8 @@ use pierre_config::admin_definitions::{
     register_llm_pricing, register_llm_provider_config, register_mcp_network, register_monitoring,
     register_recommendation_engine, register_sleep_recovery, register_sqlx_pool,
     register_strava_provider, register_strava_seat_reclaim, register_tokio_runtime,
-    register_tool_execution, register_training_stress_balance, register_usage_quotas,
-    register_weather_analysis, ParameterDefinition, ORDERED_PARAMETERS,
+    register_tool_execution, register_usage_quotas, register_weather_analysis, ParameterDefinition,
+    ORDERED_PARAMETERS,
 };
 use pierre_config::admin_env::{EnvConfigError, EnvConfigPins};
 use pierre_config::admin_types::{
@@ -221,9 +221,6 @@ impl AdminConfigService {
 
         // Sleep & Recovery — see config::admin::definitions::register_sleep_recovery
         register_sleep_recovery(&mut defs);
-
-        // Training Stress Balance — see config::admin::definitions::register_training_stress_balance
-        register_training_stress_balance(&mut defs);
 
         // Weather Analysis — see config::admin::definitions::register_weather_analysis
         register_weather_analysis(&mut defs);

@@ -409,24 +409,6 @@ fn test_sleep_recovery_config_efficiency_validation() {
 }
 
 #[test]
-fn test_sleep_recovery_config_tsb_validation() {
-    let config = IntelligenceConfig::default();
-    let tsb = &config.sleep_recovery.training_stress_balance;
-
-    // Test TSB thresholds are in ascending order
-    assert!(tsb.highly_fatigued_tsb < tsb.fatigued_tsb);
-    assert!(tsb.fresh_tsb_min < tsb.fresh_tsb_max);
-    assert!(tsb.fresh_tsb_max < tsb.detraining_tsb);
-
-    // Test reasonable TSB values (typically in range -20 to +30)
-    assert!(tsb.highly_fatigued_tsb < 0.0);
-    assert!(tsb.fatigued_tsb < 0.0);
-    assert!(tsb.fresh_tsb_min >= 0.0);
-    assert!(tsb.fresh_tsb_max > 0.0);
-    assert!(tsb.detraining_tsb > 0.0);
-}
-
-#[test]
 fn test_sleep_recovery_config_scoring_validation() {
     let config = IntelligenceConfig::default();
     let recovery = &config.sleep_recovery.recovery_scoring;

@@ -739,58 +739,6 @@ pub fn register_sleep_recovery<S: BuildHasher>(defs: &mut HashMap<String, Parame
     );
 }
 
-/// Register the `Training Stress Balance` catalog entries.
-pub fn register_training_stress_balance<S: BuildHasher>(
-    defs: &mut HashMap<String, ParameterDefinition, S>,
-) {
-    // Training Stress Balance
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "tsb.fatigued_threshold".to_owned(),
-            display_name: "Fatigued TSB Threshold".to_owned(),
-            description: "TSB value below which athlete is considered fatigued".to_owned(),
-            category: "training_stress".to_owned(),
-            data_type: ConfigDataType::Float,
-            default_value: serde_json::json!(-10.0),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(-30.0),
-                max: serde_json::json!(-5.0),
-                step: Some(1.0),
-            }),
-            enum_options: None,
-            units: Some("TSB".to_owned()),
-            scientific_basis: Some("Banister's Impulse-Response Model".to_owned()),
-            env: None,
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "tsb.fresh_min".to_owned(),
-            display_name: "Fresh Range Minimum".to_owned(),
-            description: "Minimum TSB value for optimal performance readiness".to_owned(),
-            category: "training_stress".to_owned(),
-            data_type: ConfigDataType::Float,
-            default_value: serde_json::json!(5.0),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(0.0),
-                max: serde_json::json!(15.0),
-                step: Some(1.0),
-            }),
-            enum_options: None,
-            units: Some("TSB".to_owned()),
-            scientific_basis: Some("Banister's Impulse-Response Model".to_owned()),
-            env: None,
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-}
-
 /// Register the `Weather Analysis` catalog entries.
 pub fn register_weather_analysis<S: BuildHasher>(
     defs: &mut HashMap<String, ParameterDefinition, S>,

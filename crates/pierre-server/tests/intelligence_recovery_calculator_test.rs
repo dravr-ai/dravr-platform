@@ -1,5 +1,5 @@
 // ABOUTME: Unit tests for recovery calculator module, moved from src/intelligence/recovery_calculator.rs
-// ABOUTME: Tests holistic recovery scoring combining TSB, sleep quality, and HRV analysis
+// ABOUTME: Tests holistic recovery scoring combining form (TSB as a share of CTL), sleep quality, and HRV
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -39,17 +39,30 @@ fn test_algorithm() -> RecoveryAggregationAlgorithm {
     }
 }
 
+/// Training load whose form is `pct` percent of a CTL-100 base.
+fn load_at_form_pct(pct: f64) -> TrainingLoad {
+    TrainingLoad {
+        ctl: 100.0,
+        atl: 100.0 - pct,
+        tsb: pct,
+        form_ctl: 100.0,
+        tss_history: vec![],
+    }
+}
+
+fn form_score(pct: f64) -> f64 {
+    RecoveryCalculator::score_form(&load_at_form_pct(pct))
+}
+
 #[test]
-fn test_tsb_scoring_optimal_range() {
-    let config = test_config();
-    let score = RecoveryCalculator::score_tsb(10.0, &config);
+fn test_form_scoring_fresh_band() {
+    let score = form_score(10.0);
     assert!((99.0..=100.0).contains(&score));
 }
 
 #[test]
-fn test_tsb_scoring_highly_fatigued() {
-    let config = test_config();
-    let score = RecoveryCalculator::score_tsb(-20.0, &config);
+fn test_form_scoring_deep_fatigue() {
+    let score = form_score(-40.0);
     assert!(score < 30.0);
 }
 
@@ -68,105 +81,86 @@ fn test_recovery_category_poor() {
 }
 
 // ============================================================================
-// COMPREHENSIVE TESTS FOR TSB SCORING ACROSS ALL RANGES
+// LOAD SCORING ON FORM (TSB AS A SHARE OF CTL) ACROSS ALL BANDS
 // ============================================================================
 
 #[test]
-fn test_tsb_scoring_extreme_fatigue() {
-    let config = test_config();
-    // TSB = -25 (well below -15 threshold)
-    let score = RecoveryCalculator::score_tsb(-25.0, &config);
+fn test_form_scoring_same_tsb_differs_by_fitness() {
+    // TSB -20 is -13% of fitness at CTL 150 and -50% at CTL 40.
+    let fit = RecoveryCalculator::score_form(&TrainingLoad {
+        ctl: 150.0,
+        atl: 170.0,
+        tsb: -20.0,
+        form_ctl: 150.0,
+        tss_history: vec![],
+    });
+    let base = RecoveryCalculator::score_form(&TrainingLoad {
+        ctl: 40.0,
+        atl: 60.0,
+        tsb: -20.0,
+        form_ctl: 40.0,
+        tss_history: vec![],
+    });
     assert!(
-        score < 20.0,
-        "Extreme fatigue (TSB=-25) should score very low (<20)"
+        (50.0..70.0).contains(&fit),
+        "productive block should score 50-70"
     );
+    assert!(base < 30.0, "deep fatigue should score below 30");
 }
 
 #[test]
-fn test_tsb_scoring_highly_fatigued_boundary() {
-    let config = test_config();
-    // TSB = -15 (exactly at highly fatigued threshold)
-    let score =
-        RecoveryCalculator::score_tsb(config.training_stress_balance.highly_fatigued_tsb, &config);
-    assert!((20.0..=35.0).contains(&score));
-}
-
-#[test]
-fn test_tsb_scoring_fatigued_range() {
-    let config = test_config();
-    // TSB = -12 (between -15 and -10)
-    let score = RecoveryCalculator::score_tsb(-12.0, &config);
+fn test_form_scoring_heavy_block() {
+    let score = form_score(-25.0);
     assert!(
         (30.0..50.0).contains(&score),
-        "Moderate fatigue should score 30-50"
+        "Heavy block should score 30-50"
     );
 }
 
 #[test]
-fn test_tsb_scoring_fatigued_boundary() {
-    let config = test_config();
-    // TSB = -10 (exactly at fatigued threshold)
-    let score = RecoveryCalculator::score_tsb(config.training_stress_balance.fatigued_tsb, &config);
-    assert!((40.0..=60.0).contains(&score));
-}
-
-#[test]
-fn test_tsb_scoring_slightly_fatigued() {
-    let config = test_config();
-    // TSB = -5 (between -10 and 0)
-    let score = RecoveryCalculator::score_tsb(-5.0, &config);
+fn test_form_scoring_productive() {
+    let score = form_score(-15.0);
     assert!(
-        (50.0..75.0).contains(&score),
-        "Slight fatigue should score 50-75"
+        (50.0..70.0).contains(&score),
+        "Productive block should score 50-70"
     );
 }
 
 #[test]
-fn test_tsb_scoring_neutral() {
-    let config = test_config();
-    // TSB = 0 (neutral point)
-    let score = RecoveryCalculator::score_tsb(0.0, &config);
+fn test_form_scoring_balanced() {
+    let score = form_score(0.0);
     assert!(
-        (70.0..=85.0).contains(&score),
-        "Neutral TSB should score 70-85"
+        (70.0..100.0).contains(&score),
+        "Balanced form should score 70-100"
     );
 }
 
 #[test]
-fn test_tsb_scoring_fresh_lower_boundary() {
-    let config = test_config();
-    // TSB = +5 (entering optimal range)
-    let score =
-        RecoveryCalculator::score_tsb(config.training_stress_balance.fresh_tsb_min, &config);
-    assert!(score >= 90.0, "Fresh lower boundary should score >=90");
+fn test_form_scoring_fresh_boundaries() {
+    assert!((form_score(5.0) - 100.0).abs() < 1e-9);
+    assert!((form_score(20.0) - 100.0).abs() < 1e-9);
 }
 
 #[test]
-fn test_tsb_scoring_fresh_upper_boundary() {
-    let config = test_config();
-    // TSB = +15 (upper optimal range)
-    let score =
-        RecoveryCalculator::score_tsb(config.training_stress_balance.fresh_tsb_max, &config);
-    assert!(score >= 95.0, "Fresh upper boundary should score >=95");
-}
-
-#[test]
-fn test_tsb_scoring_overtrained() {
-    let config = test_config();
-    // TSB = +25 (too much rest, detraining risk)
-    let score = RecoveryCalculator::score_tsb(25.0, &config);
+fn test_form_scoring_detraining() {
+    let score = form_score(30.0);
     assert!(
         score <= 90.0,
-        "Excessive rest (TSB=+25) should score lower due to detraining"
+        "Very fresh (+30%) should score lower due to detraining"
     );
+    assert!(form_score(200.0) >= 70.0, "Detraining floors at 70");
 }
 
 #[test]
-fn test_tsb_scoring_extreme_overtrained() {
-    let config = test_config();
-    // TSB = +35 (severe detraining)
-    let score = RecoveryCalculator::score_tsb(35.0, &config);
-    assert!(score <= 80.0, "Severe detraining should score <=80");
+fn test_form_scoring_without_chronic_base_is_neutral() {
+    let score = RecoveryCalculator::score_form(&TrainingLoad {
+        ctl: 10.0,
+        atl: 14.0,
+        tsb: -4.0,
+        form_ctl: 10.0,
+        tss_history: vec![],
+    });
+    assert!((score - 70.0).abs() < 1e-9);
 }
 
 // ============================================================================
@@ -972,11 +966,16 @@ fn test_tsb_only_recovery_score_neutral() {
     assert!(result.is_ok());
     let recovery = result.unwrap();
 
-    // Neutral TSB (0) should be in fair to good range (includes 85 as upper bound)
+    // Form 0% of CTL sits in the balanced band (70-100 across -10%..+5%)
     assert!(
-        (60.0..=85.0).contains(&recovery.overall_score),
-        "TSB=0 should score 60-85, got {}",
+        (recovery.overall_score - 90.0).abs() < 1e-9,
+        "form 0% should score 90, got {}",
         recovery.overall_score
+    );
+    // Balanced is not fresh: TSB-only mode holds hard work for the fresh band
+    assert_eq!(
+        recovery.training_readiness,
+        TrainingReadiness::ReadyForModerate
     );
 }
 
