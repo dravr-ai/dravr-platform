@@ -11,7 +11,9 @@ use std::sync::{Arc, OnceLock};
 use async_trait::async_trait;
 use chrono::Utc;
 use dravr_enforme::error::{EnformeError, EnformeResult};
-use dravr_enforme::models::connection::{ConnectedUser, ProviderCredentials};
+use dravr_enforme::models::connection::{
+    ConnectedUser, CredentialKind as EnformeCredentialKind, ProviderCredentials,
+};
 use dravr_enforme::models::cursor::SyncCursor;
 use dravr_enforme::models::deletion::DeletionPolicy;
 use dravr_enforme::providers::build_provider_registry_with_reader;
@@ -30,6 +32,7 @@ use pierre_core::models::{TenantId, UserOAuthToken};
 use pierre_database::repositories::SyncCursorRow;
 use pierre_database::{AuthRepos, FitnessRepos, RepositoryRegistry};
 use pierre_providers::backend_resolver::sync_backend;
+use pierre_providers::CredentialKind;
 use tracing::info;
 use uuid::Uuid;
 
@@ -558,6 +561,16 @@ impl SyncCursorStore for PierreSyncStorage {
 // CredentialStore
 // ============================================================================
 
+/// The enforme credential kind of a platform credential: an OAuth token goes
+/// out as a bearer, a pasted API key (intervals.icu) as HTTP Basic.
+#[must_use]
+pub const fn enforme_credential_kind(kind: CredentialKind) -> EnformeCredentialKind {
+    match kind {
+        CredentialKind::OAuthBearer => EnformeCredentialKind::OAuthBearer,
+        CredentialKind::ApiKey => EnformeCredentialKind::ApiKey,
+    }
+}
+
 #[async_trait]
 impl CredentialStore for PierreSyncStorage {
     async fn get_credentials(
@@ -603,6 +616,7 @@ impl CredentialStore for PierreSyncStorage {
                 user_id: t.user_id.to_string(),
                 provider: t.provider,
                 provider_user_id: t.provider_user_id,
+                kind: enforme_credential_kind(CredentialKind::from_token_type(&t.token_type)),
             }
         }))
     }
@@ -765,5 +779,25 @@ fn sync_cursor_to_row(cursor: &SyncCursor, tenant_id: &TenantId) -> SyncCursorRo
         error_message: cursor.error_message.clone(),
         retry_count: cursor.retry_count.cast_signed(),
         next_retry_at: cursor.next_retry_at,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pierre_core::models::API_KEY_TOKEN_TYPE;
+
+    #[test]
+    fn a_pasted_api_key_reaches_enforme_as_an_api_key() {
+        // intervals.icu sends an API key as HTTP Basic and an OAuth token as a
+        // bearer; the stored token_type is all that tells them apart.
+        assert_eq!(
+            enforme_credential_kind(CredentialKind::from_token_type(API_KEY_TOKEN_TYPE)),
+            EnformeCredentialKind::ApiKey
+        );
+        assert_eq!(
+            enforme_credential_kind(CredentialKind::from_token_type("Bearer")),
+            EnformeCredentialKind::OAuthBearer
+        );
     }
 }

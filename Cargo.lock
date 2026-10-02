@@ -1445,8 +1445,8 @@ source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=a0ab5fd6916
 
 [[package]]
 name = "dravr-enforme"
-version = "0.6.10"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.6.10#0d9cd83b09087792f4114dbd22b016547d0f6250"
+version = "0.7.0"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.7.0#61831fe146e364e7355294230ad4b0b38deabe95"
 dependencies = [
  "async-trait",
  "base64 0.22.1",

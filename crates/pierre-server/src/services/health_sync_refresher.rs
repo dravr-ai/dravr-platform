@@ -9,7 +9,7 @@ use std::sync::{Arc, Weak};
 use async_trait::async_trait;
 use dravr_enforme::error::{EnformeError, EnformeResult};
 use dravr_enforme::models::connection::ProviderCredentials;
-use pierre_services::health_sync::SyncCredentialRefresher;
+use pierre_services::health_sync::{enforme_credential_kind, SyncCredentialRefresher};
 use pierre_tool_runtime::protocol::auth::{OAuthError, TokenData};
 use pierre_tool_runtime::protocol::AuthService;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -61,6 +61,7 @@ fn token_to_credentials(user_id: Uuid, token: TokenData) -> ProviderCredentials 
         user_id: user_id.to_string(),
         provider: token.provider,
         provider_user_id: token.provider_user_id,
+        kind: enforme_credential_kind(token.kind),
     }
 }
 
