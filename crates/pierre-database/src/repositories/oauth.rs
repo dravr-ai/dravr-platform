@@ -33,6 +33,20 @@ pub trait OAuthTokenRepository: Send + Sync {
         token: &UserOAuthToken,
         expected_id: Option<&str>,
     ) -> AppResult<bool>;
+    /// Record the provider-side owner id of the token row `stored` (a WHOOP
+    /// user id read from the profile after a refresh), and only that: the
+    /// token pair and `updated_at` stay as they are, so a refresh that landed
+    /// since `stored` was read keeps its pair, and one still in flight keeps
+    /// the row it will swap over.
+    ///
+    /// Returns `false`, writing nothing, when the row stored for that user,
+    /// tenant and provider no longer carries `stored`'s `id`: a reconnect
+    /// replaced it, and the id read for the old grant is not the new one's.
+    async fn record_provider_user_id(
+        &self,
+        stored: &UserOAuthToken,
+        provider_user_id: &str,
+    ) -> AppResult<bool>;
     /// Get user OAuth token for a specific tenant-provider combination
     async fn get_token(
         &self,
@@ -147,10 +161,16 @@ pub trait OAuthTokenRepository: Send + Sync {
     /// Store a refreshed access and refresh token over `stored`, the row the
     /// refresh read; the row keeps its `id` and every other column.
     ///
+    /// A compare-and-swap on `stored` exactly as it was read (its `id` and
+    /// `updated_at`), so `stored` must be a row [`Self::get_token`] returned,
+    /// not one built in memory: Postgres stores microseconds.
+    ///
     /// Returns `false`, writing nothing, when that row is no longer the one
     /// stored for its user, tenant and provider: a reconnect replaced it
     /// (every store writes a fresh `id`) while the refresh was in flight, and
-    /// the refreshed pair belongs to the grant the reconnect superseded.
+    /// the refreshed pair belongs to the grant the reconnect superseded; or
+    /// another refresh of the same row landed first (a new `updated_at`), and
+    /// its pair is the one the provider now honours.
     async fn refresh_token(
         &self,
         stored: &UserOAuthToken,

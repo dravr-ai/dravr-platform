@@ -1,10 +1,10 @@
-// ABOUTME: The Stage 7g.3 slot is never empty — every turn ships with a concrete task
-// ABOUTME: An empty slot is what let the 2026-08-05 Telegram identity break through
+// ABOUTME: What the ordinary-turn directive says and what it must never say — a task, no identity, no format
+// ABOUTME: An empty slot is what let the 2026-08-05 Telegram identity break through; this block fills it
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The turn directive: what it says, what it must never say, and when it yields.
+//! The turn directive: what it says and what it must never say.
 //!
 //! Measured against a production-scale fixture (`pierre_system.md` + the platform
 //! tool list + the embacle catalogue + an 18-message history, ~73 KB) driving the
@@ -16,25 +16,19 @@
 //! | guided interview block   | 0      | 14   |
 //! | this block               | 0      | 8    |
 //!
-//! The content contract is unit-testable against the constant. Placement and
-//! the suppression rule are not reachable without the whole async assembly
-//! stage, so they are asserted against the source the same way
-//! `onboarding_directive_tail_test` and `progression_guardrails_test` do —
-//! source-level because getting them wrong is silent.
+//! This file holds the content contract, which is a property of the constant.
+//! Where the block lands and when it yields — the ordinary arm is never empty,
+//! every arm of the slot carries exactly one directive — are properties of an
+//! assembled prompt, and are asserted on the prompt a real turn sends in
+//! `crates/pierre-server/tests/prompt_assembly_wire_test.rs`. That the re-ask
+//! after an identity leak finds its provider under production wiring is
+//! `the_reask_fires_when_the_provider_is_wired_as_production_wires_it` in
+//! `crates/pierre-server/tests/chat_reply_narration_scrub_e2e_test.rs`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use std::fs;
-use std::path::{Path, PathBuf};
-
 use pierre_chat_pipeline::stages::prompt_assembly::TURN_DIRECTIVE;
-
-fn prompt_assembly_source() -> String {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/stages/prompt_assembly.rs");
-    let display = path.display().to_string();
-    fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {display}: {e}"))
-}
 
 /// The block must give the turn a concrete job.
 ///
@@ -112,165 +106,4 @@ fn the_turn_directive_owns_no_formatting_rule() {
             "formatting belongs to Stage 7g / 7g.2b, not the turn directive: found {banned:?}"
         );
     }
-}
-
-/// The ordinary-turn arm must actually append the directive.
-///
-/// Before this change the arm read `None => raw_system_prompt` — the slot sat
-/// empty on exactly the turns that leaked. Both production breaks
-/// (2026-07-28 `a7c05c5e`, 2026-08-05 `b58447a5`) landed here.
-#[test]
-fn the_ordinary_turn_arm_is_never_empty() {
-    let source = prompt_assembly_source();
-    let stage = slice_between(&source, "// Stage 7g.3:", "// Stage 7g.4:");
-
-    assert!(
-        stage.contains("None => format!(\"{raw_system_prompt}{TURN_DIRECTIVE}\")"),
-        "the ordinary-turn arm must append TURN_DIRECTIVE; an empty slot is the defect \
-         this change exists to close"
-    );
-    assert!(
-        !stage.contains("None => raw_system_prompt,"),
-        "the empty ordinary-turn arm must be gone, not merely shadowed"
-    );
-}
-
-/// Every arm of the slot leaves a task behind.
-///
-/// The guided arm probes a topic, the release arm says "call the tool and
-/// report what it actually returned", and the ordinary arm carries this
-/// block. Three arms, no empty slot.
-#[test]
-fn every_arm_of_the_slot_carries_a_task() {
-    let source = prompt_assembly_source();
-    // Bounded by Stage 7g.3b, the turn-language block, rather than by the
-    // identity anchor. The rebinding count below is a claim about this slot's
-    // three arms sharing one binding; blocks appended after the slot would
-    // inflate it without bearing on that.
-    let stage = slice_between(&source, "// Stage 7g.3:", "// Stage 7g.3b:");
-
-    for arm in [
-        "super::onboarding::directive(turn)",
-        "super::onboarding::release_directive(",
-        "TURN_DIRECTIVE",
-    ] {
-        assert!(stage.contains(arm), "Stage 7g.3 lost its {arm} arm");
-    }
-    assert_eq!(
-        stage.matches("let raw_system_prompt =").count(),
-        1,
-        "the arms are alternatives in ONE rebinding — a turn must never carry two \
-         directives, and the tail invariant depends on this count"
-    );
-}
-
-fn slice_between<'a>(source: &'a str, from: &str, to: &str) -> &'a str {
-    let start = source
-        .find(from)
-        .unwrap_or_else(|| panic!("marker {from} not found"));
-    let end = source
-        .find(to)
-        .unwrap_or_else(|| panic!("marker {to} not found"));
-    assert!(start < end, "{from} must precede {to}");
-    &source[start..end]
-}
-
-/// The re-ask must resolve its provider exactly the way dispatch does.
-///
-/// This is what makes the re-ask verifiable without waiting for a leak. Stage
-/// 11 resolves a provider through `chat_provider_from_resources_arc` and
-/// propagates failure with `?`, so a turn that produced a reply at all proves
-/// the resolution succeeded. The re-ask then calls the same function with the
-/// same two arguments on the same, unmutated context — so it cannot fail to
-/// find a provider on any turn that has a reply to re-ask.
-///
-/// That property is why the first implementation was dead in production: it
-/// read `ctx.llm_provider` directly, a DIFFERENT source than dispatch used, and
-/// the server binary leaves that field `None`. Two independent resolutions
-/// could disagree; one shared resolution cannot.
-///
-/// Asserted at source level because the alternative — proving it end to end —
-/// requires a leak to occur, which is stochastic at ~1.7% and therefore not
-/// something a test can arrange.
-/// Read the crate source file that DEFINES `needle`, whatever file that is.
-///
-/// The re-ask used to live in `lib.rs` and now lives in `recovery.rs`, because
-/// `lib.rs` was 226 lines over its frozen size ceiling and had to be split. A
-/// test that named the file failed the moment the code moved, even though the
-/// property it guards was untouched — the string it wanted had simply walked to
-/// the next file over.
-///
-/// Following the definition instead means a future move relocates the check
-/// with it, and a genuine removal still fails. Panics with the name it was
-/// looking for, so the failure says what to restore rather than that a string
-/// went missing.
-/// Strip everything rustfmt is free to change, so the guard survives a
-/// reflow of the very call it is checking.
-///
-/// Whitespace goes entirely, and a trailing comma before a closing paren goes
-/// with it: rustfmt adds both the moment the argument list grows past one line,
-/// which changes nothing about behaviour while silently defeating a substring
-/// match. A guard that a formatter can switch off is not a guard.
-fn normalize(text: &str) -> String {
-    let dense: String = text.chars().filter(|c| !c.is_whitespace()).collect();
-    dense.replace(",)", ")")
-}
-
-fn source_defining(needle: &str) -> String {
-    fn walk(dir: &Path, needle: &str) -> Option<String> {
-        for entry in fs::read_dir(dir).ok()? {
-            let path = entry.ok()?.path();
-            if path.is_dir() {
-                if let Some(found) = walk(&path, needle) {
-                    return Some(found);
-                }
-            } else if path.extension().is_some_and(|e| e == "rs") {
-                let body = fs::read_to_string(&path).ok()?;
-                if body.contains(needle) {
-                    return Some(body);
-                }
-            }
-        }
-        None
-    }
-    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
-    walk(&src, needle).unwrap_or_else(|| {
-        panic!("no file under src/ defines {needle:?} — it was removed, not moved")
-    })
-}
-
-#[test]
-fn the_reask_resolves_its_provider_the_same_way_dispatch_does() {
-    const RESOLVER: &str =
-        "chat_provider_from_resources_arc(ctx.chat_provider.as_ref(), ctx.llm_provider.as_ref())";
-
-    // Located by what they define, not by where they currently sit, and
-    // compared with whitespace collapsed. Both brittleness classes are real:
-    // the file moved once already, and wrapping the call across lines — which
-    // rustfmt will do the moment the arguments grow — changes nothing about
-    // behaviour while silently defeating a substring match.
-    let pipeline = normalize(&source_defining("fn resolve_reask_provider"));
-    let dispatch = normalize(&source_defining(
-        "pub(crate) async fn dispatch_llm_with_tools",
-    ));
-    let resolver = normalize(RESOLVER);
-
-    assert!(
-        dispatch.contains(&resolver),
-        "Stage 11 must resolve through the shared factory — this test compares \
-         the re-ask against it, so a change here invalidates the comparison"
-    );
-    assert!(
-        pipeline.contains(&resolver),
-        "the re-ask must resolve through the SAME factory call as Stage 11. \
-         Reading ctx.llm_provider directly is what made it dead code in \
-         production: the server binary sets that field to None and wires \
-         chat_provider instead"
-    );
-    assert!(
-        !pipeline.contains("let Some(provider) = ctx.llm_provider"),
-        "the re-ask must not read ctx.llm_provider directly — production leaves \
-         it None, so this returns early on every live turn while tests that \
-         inject through that field stay green"
-    );
 }

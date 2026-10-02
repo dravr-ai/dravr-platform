@@ -6,7 +6,9 @@
 
 #![allow(missing_docs)]
 
-use pierre_core::config::fitness::{activity_detail_threshold, DEFAULT_ACTIVITY_DETAIL_THRESHOLD};
+use pierre_core::config::fitness::{
+    activity_detail_threshold, auto_promotes_to_detail, DEFAULT_ACTIVITY_DETAIL_THRESHOLD,
+};
 use std::env;
 use std::sync::{Mutex, PoisonError};
 
@@ -29,15 +31,30 @@ fn with_env<F: FnOnce()>(key: &str, value: Option<&str>, f: F) {
 }
 
 #[test]
-fn default_threshold_is_twenty() {
+fn an_unconfigured_server_promotes_up_to_twenty_activities_and_no_more() {
     with_env("ACTIVITY_DETAIL_THRESHOLD", None, || {
-        assert_eq!(
-            activity_detail_threshold(),
-            DEFAULT_ACTIVITY_DETAIL_THRESHOLD
-        );
-        // 20 matches Strava's per-15-minute rate-limit budget (100 requests / 15 min / user)
-        // — a single `limit <= 20` auto-promoted query burns at most 20% of the window.
-        assert_eq!(DEFAULT_ACTIVITY_DETAIL_THRESHOLD, 20);
+        let threshold = activity_detail_threshold();
+        // Twenty detail fetches is a fifth of Strava's per-15-minute budget
+        // (100 requests / 15 min / user); the twenty-first would be the first
+        // request of a window nobody asked to spend.
+        assert!(auto_promotes_to_detail(19, threshold));
+        assert!(auto_promotes_to_detail(20, threshold));
+        assert!(!auto_promotes_to_detail(21, threshold));
+    });
+}
+
+#[test]
+fn a_zero_threshold_promotes_nothing() {
+    assert!(!auto_promotes_to_detail(0, 0));
+    assert!(!auto_promotes_to_detail(1, 0));
+}
+
+#[test]
+fn a_raised_threshold_moves_the_boundary_with_it() {
+    with_env("ACTIVITY_DETAIL_THRESHOLD", Some("10"), || {
+        let threshold = activity_detail_threshold();
+        assert!(auto_promotes_to_detail(10, threshold));
+        assert!(!auto_promotes_to_detail(11, threshold));
     });
 }
 

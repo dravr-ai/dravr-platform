@@ -72,6 +72,9 @@ describe('statusForProgress', () => {
     ].map(status => status?.key ?? '');
 
     for (const language of ['fr', 'en', 'es', 'de', 'pt']) {
+      // Why this reads files: the locale JSON is a catalogue this package
+      // cannot import, so the keys the function returned above are looked up
+      // in each locale's file — the data under test, not source.
       const bundle = JSON.parse(
         fs.readFileSync(
           path.join(__dirname, `../../i18n/src/locales/${language}/translation.json`),

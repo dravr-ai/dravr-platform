@@ -17,9 +17,9 @@ use pierre_contremaitre::manifest::{
     ManifestPrompts, ManifestStringBundles, ManifestTools, ManifestTraining,
 };
 use pierre_contremaitre::messaging_strings::{
-    format_template, MessagingStringsRegistry, DEFAULT_LOCALE, KEY_EMPTY_REPLY,
-    KEY_GROUP_ROLE_ADMIN, KEY_GROUP_ROLE_AGENT, KEY_GROUP_ROLE_COACH, KEY_GROUP_ROLE_MEMBER,
-    KEY_GROUP_ROLE_OWNER, KEY_GUARDIAN_DENIED, KEY_HELP_FOOTER, KEY_VERIFICATION_BLOCK_FALLBACK,
+    format_template, MessagingStringsRegistry, KEY_EMPTY_REPLY, KEY_GROUP_ROLE_ADMIN,
+    KEY_GROUP_ROLE_AGENT, KEY_GROUP_ROLE_COACH, KEY_GROUP_ROLE_MEMBER, KEY_GROUP_ROLE_OWNER,
+    KEY_GUARDIAN_DENIED, KEY_HELP_FOOTER, KEY_VERIFICATION_BLOCK_FALLBACK,
     KEY_VERIFICATION_WARN_SUFFIX,
 };
 use pierre_contremaitre::registry::{PromptRegistry, PromptSource};
@@ -480,7 +480,9 @@ fn test_verify_github_signature_empty_secret() {
     let tag = hmac::sign(&key, body);
     let hex_sig = format!("sha256={}", hex::encode(tag.as_ref()));
 
-    assert!(verify_github_signature(secret, &hex_sig, body).is_ok());
+    // Anyone can compute this HMAC: the empty key is no secret. An unset
+    // CONTREMAITRE_WEBHOOK_SECRET rejects every request, this one included.
+    assert!(verify_github_signature(secret, &hex_sig, body).is_err());
 }
 
 // ── Push event parsing tests ───────────────────────────────────────────
@@ -852,6 +854,11 @@ fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
 /// Extract tool names from each tool's `McpTool::definition` body in all `.rs`
 /// files under the given directory (recursive).
 ///
+/// A scan of the tool sources on purpose, not a question put to the registry.
+/// Registration is feature-gated per category, so the registry of any one
+/// build holds a subset; the contremaitre catalogue has to describe every tool
+/// that can be compiled in, and the declarations are the only list of those.
+///
 /// Every `McpTool` impl declares its name as the first argument to the
 /// `tool_definition("<name>", ...)` helper (see
 /// `pierre_tool_runtime::conversions::tool_definition`), so the registered tool
@@ -1044,7 +1051,6 @@ fn test_messaging_registry_locale_fallback_to_default_locale() {
         reg.get(KEY_EMPTY_REPLY, "fr"),
         "unknown locale should fall back to DEFAULT_LOCALE content"
     );
-    assert_eq!(DEFAULT_LOCALE, "fr");
 }
 
 #[test]

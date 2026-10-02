@@ -5,8 +5,9 @@
 // Copyright (c) 2026 dravr.ai
 
 //! The seeder repository had no direct test on either backend: `demo_data`
-//! swallowed insert errors with `.is_ok()`, and the shape test read source
-//! text. Every test here seeds one row through `SeederRepository` and reads
+//! swallowed insert errors with `.is_ok()`, and the one test of the agent
+//! statements counted placeholders in their source text instead of running
+//! them. Every test here seeds one row through `SeederRepository` and reads
 //! it back the way the application does, so a value that lands differently
 //! on `SQLite` and `PostgreSQL` fails on the wrong side. `create_test_db`
 //! opens whichever `DATABASE_URL` names, so the same assertions cover both.
@@ -17,11 +18,11 @@ use chrono::{DateTime, Duration, Timelike, Utc};
 use pierre_core::models::mobility::{
     DifficultyLevel, StretchingCategory, StretchingExercise, YogaCategory, YogaPose, YogaPoseType,
 };
-use pierre_core::models::{ApiKey, ApiKeyTier, User};
+use pierre_core::models::{ApiKey, ApiKeyTier, Tenant, TenantId, User};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::SeedTable;
 use pierre_database::seed_models::{
-    SeedA2AClient, SeedA2AUsage, SeedApiKey, SeedApiKeyUsage, SeedDemoUser,
+    SeedA2AClient, SeedA2AUsage, SeedAgent, SeedApiKey, SeedApiKeyUsage, SeedDemoUser,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db;
@@ -522,5 +523,161 @@ async fn reseeding_under_a_fresh_id_refreshes_the_row_carrying_the_name() {
             .unwrap()
             .is_none(),
         "no second pose is written under the fresh id"
+    );
+}
+
+/// Every column the agent seed statements write, as text, in one fixed order.
+const AGENT_ROW_SQL: &str = "SELECT \
+    CAST(user_id AS TEXT), CAST(tenant_id AS TEXT), title, description, system_prompt, \
+    category, tags, sample_prompts, CAST(token_count AS TEXT), visibility, slug, purpose, \
+    when_to_use, instructions, example_inputs, example_outputs, success_criteria, \
+    prerequisites, source_file, content_hash, startup_query, data_requirements, visuals, \
+    source \
+    FROM agents WHERE id = $1";
+
+/// The row [`AGENT_ROW_SQL`] reads, column by column.
+async fn agent_row(db: &Database, id: &str) -> Vec<Option<String>> {
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
+            let row = sqlx::query(AGENT_ROW_SQL)
+                .bind(id)
+                .fetch_one(sqlite.pool())
+                .await
+                .unwrap();
+            (0..row.len()).map(|column| row.get(column)).collect()
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(pg) => {
+            let row = sqlx::query(AGENT_ROW_SQL)
+                .bind(id)
+                .fetch_one(pg.pool())
+                .await
+                .unwrap();
+            (0..row.len()).map(|column| row.get(column)).collect()
+        }
+    }
+}
+
+/// What [`agent_row`] must read back for `agent`: each field in the column it
+/// belongs to, and the catalogue stamp both statements write.
+fn expected_agent_row(agent: &SeedAgent) -> Vec<Option<String>> {
+    vec![
+        Some(agent.user_id.to_string()),
+        Some(agent.tenant_id.to_string()),
+        Some(agent.title.clone()),
+        Some(agent.description.clone()),
+        Some(agent.system_prompt.clone()),
+        Some(agent.category.clone()),
+        Some(agent.tags_json.clone()),
+        Some(agent.sample_prompts_json.clone()),
+        Some(agent.token_count.to_string()),
+        Some(agent.visibility.clone()),
+        Some(agent.slug.clone()),
+        agent.purpose.clone(),
+        agent.when_to_use.clone(),
+        agent.instructions.clone(),
+        agent.example_inputs.clone(),
+        agent.example_outputs.clone(),
+        agent.success_criteria.clone(),
+        Some(agent.prerequisites_json.clone()),
+        agent.source_file.clone(),
+        agent.content_hash.clone(),
+        agent.startup_query.clone(),
+        agent.data_requirements.clone(),
+        agent.visuals.clone(),
+        Some("contremaitre".to_owned()),
+    ]
+}
+
+/// A catalogue agent whose every field holds a value no other field holds, so
+/// a bind that lands one column over reads back as the wrong text.
+fn seed_agent(user_id: Uuid, tenant_id: TenantId, mark: &str) -> SeedAgent {
+    let id = Uuid::new_v4().to_string();
+    let now = Utc::now();
+    SeedAgent {
+        slug: format!("agent-{id}"),
+        id,
+        user_id,
+        tenant_id,
+        title: format!("title {mark}"),
+        description: format!("description {mark}"),
+        system_prompt: format!("system prompt {mark}"),
+        category: "training".to_owned(),
+        tags_json: format!(r#"["tag {mark}"]"#),
+        sample_prompts_json: format!(r#"["sample {mark}"]"#),
+        token_count: 4_242,
+        visibility: "tenant".to_owned(),
+        purpose: Some(format!("purpose {mark}")),
+        when_to_use: Some(format!("when to use {mark}")),
+        instructions: Some(format!("instructions {mark}")),
+        example_inputs: Some(format!("example inputs {mark}")),
+        example_outputs: Some(format!("example outputs {mark}")),
+        success_criteria: Some(format!("success criteria {mark}")),
+        prerequisites_json: format!(r#"["prerequisite {mark}"]"#),
+        source_file: Some(format!("agents/{mark}/en.md")),
+        content_hash: Some(format!("hash-{mark}")),
+        startup_query: Some(format!("startup query {mark}")),
+        data_requirements: Some(format!(r#"{{"requires":"{mark}"}}"#)),
+        visuals: Some(format!("chart,{mark}")),
+        created_at: now,
+        updated_at: now,
+    }
+}
+
+/// The agent insert and update each bind two dozen values by position, and a
+/// column added to one clause but not its neighbour used to surface only on a
+/// live seed against `PostgreSQL`, which gates the deploy: on 2026-08-14
+/// `visuals` joined the column list while VALUES still ended at `$26`. A
+/// later edit had the UPDATE's WHERE reuse an assignment's placeholder, so it
+/// matched on the wrong value.
+///
+/// Both are asserted by running the statements: every field must come back
+/// from the column it was written to, an update must change exactly the row
+/// it names, and a neighbouring agent must be left as it was.
+#[tokio::test]
+async fn an_agent_seed_lands_every_field_in_its_own_column_and_updates_only_its_row() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let user_id = fresh_user(repos).await;
+    let tenant = Tenant::new(
+        "Seeder Tenant".to_owned(),
+        format!("seeder-tenant-{}", Uuid::new_v4()),
+        None,
+        "starter".to_owned(),
+        user_id,
+    );
+    repos.tenants.create(&tenant).await.unwrap();
+
+    let agent = seed_agent(user_id, tenant.id, "first");
+    let neighbour = seed_agent(user_id, tenant.id, "neighbour");
+    repos.seeder.seed_insert_agent(&agent).await.unwrap();
+    repos.seeder.seed_insert_agent(&neighbour).await.unwrap();
+
+    assert_eq!(
+        agent_row(&db, &agent.id).await,
+        expected_agent_row(&agent),
+        "the insert writes each field to its own column"
+    );
+
+    // The refresh a re-seed performs: same id and slug, every other field new.
+    let refreshed = SeedAgent {
+        id: agent.id.clone(),
+        slug: agent.slug.clone(),
+        category: "recovery".to_owned(),
+        visibility: "global".to_owned(),
+        token_count: 9_001,
+        ..seed_agent(user_id, tenant.id, "refreshed")
+    };
+    repos.seeder.seed_update_agent(&refreshed).await.unwrap();
+
+    assert_eq!(
+        agent_row(&db, &agent.id).await,
+        expected_agent_row(&refreshed),
+        "the update writes each field to its own column of the row it names"
+    );
+    assert_eq!(
+        agent_row(&db, &neighbour.id).await,
+        expected_agent_row(&neighbour),
+        "an update keyed on one agent leaves every other agent untouched"
     );
 }

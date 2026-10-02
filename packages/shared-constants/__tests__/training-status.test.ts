@@ -24,6 +24,9 @@ import {
 const LOCALES = ['fr', 'en', 'es', 'de', 'pt'] as const;
 const LOCALES_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../i18n/src/locales');
 
+// Why this reads files: the locale JSON is a catalogue, and this package sits
+// below @pierre/i18n so it cannot import it. The keys the module emits are
+// looked up in every locale's file — the data under test, not source.
 function catalogue(locale: string): Record<string, unknown> {
   return JSON.parse(readFileSync(join(LOCALES_DIR, locale, 'translation.json'), 'utf8'));
 }

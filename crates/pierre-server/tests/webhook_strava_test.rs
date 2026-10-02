@@ -34,7 +34,9 @@ use axum::http::{Request, StatusCode};
 use axum::routing::get;
 use axum::{Json, Router};
 use chrono::Utc;
-use pierre_core::models::{ActivityBuilder, SportType, TenantId, UserOAuthToken};
+use pierre_core::models::{
+    ActivityBuilder, DelegatedConnection, RosterAthlete, SportType, TenantId, UserOAuthToken,
+};
 use pierre_database::repositories::{PersonalBest, PersonalBestSeed};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::strava_webhook_gate::{
@@ -45,6 +47,7 @@ use pierre_mcp_server::routes::webhooks::WebhookRoutes;
 use pierre_notifications::events::event_params;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::TenantId as CommereTenantId;
+use pierre_test_support::delegation::{add_group_member, create_coached_group, create_group_agent};
 use serde_json::{json, Value};
 use serial_test::serial;
 use std::collections::HashMap;
@@ -484,6 +487,122 @@ async fn unknown_owner_is_acknowledged_and_nothing_is_fetched() {
             .unwrap()
             .is_none(),
         "the linked athlete is untouched by someone else's event"
+    );
+}
+
+/// Seed a member whose Strava athlete `OWNER_ID` a coach's confirmed,
+/// email-bound delegated link names, while no token carries that id: the
+/// member is reachable only through the coach's connection.
+async fn seed_member_linked_through_a_coach(resources: &ServerContext) -> (Uuid, TenantId) {
+    let database = &resources.agent.database;
+    let repos = &resources.common.repos;
+    let (owner, _, owner_tenant) =
+        common::create_test_user_with_plan(database, "owner@strava-webhook.test", "professional")
+            .await
+            .unwrap();
+    let (coach, _, coach_tenant) =
+        common::create_test_user_with_plan(database, "coach@strava-webhook.test", "starter")
+            .await
+            .unwrap();
+    let member_email = "member@strava-webhook.test";
+    let (member, _, member_tenant) =
+        common::create_test_user_with_plan(database, member_email, "starter")
+            .await
+            .unwrap();
+    let agent_id = create_group_agent(repos, owner, owner_tenant)
+        .await
+        .unwrap();
+    let group = create_coached_group(repos, owner, owner_tenant, &agent_id, "Squad", coach)
+        .await
+        .unwrap();
+    add_group_member(repos, group, member, member_tenant)
+        .await
+        .unwrap();
+    repos
+        .email_verification
+        .mark_verified(member)
+        .await
+        .unwrap();
+    let link = repos
+        .delegated_connections
+        .propose(&DelegatedConnection::propose(
+            "strava".to_owned(),
+            group,
+            coach,
+            coach_tenant,
+            member,
+            RosterAthlete {
+                id: OWNER_ID.to_string(),
+                name: None,
+                email: Some(member_email.to_owned()),
+            },
+        ))
+        .await
+        .unwrap()
+        .expect("no live link holds this member or athlete yet");
+    repos
+        .delegated_connections
+        .confirm(link.id, member, member_tenant, Utc::now())
+        .await
+        .unwrap()
+        .expect("the member confirms their own proposal");
+    (member, member_tenant)
+}
+
+/// carnet#722: the Strava handler syncs with the owner's own token, so a
+/// member reached only through a coach's confirmed link is skipped exactly
+/// as an unknown owner was before links existed — nothing is fetched, no
+/// `last_sync` is stamped, and a delete event leaves the member's cache
+/// alone.
+#[tokio::test]
+#[serial]
+async fn member_reached_through_a_coach_link_is_skipped() {
+    let (api_base, mock) = mock_strava().await;
+    let (resources, _env) = context_pointed_at(&api_base).await;
+    let (member, member_tenant) = seed_member_linked_through_a_coach(&resources).await;
+    let ride = ActivityBuilder::new(
+        "9001",
+        "Morning ride",
+        SportType::Ride,
+        Utc::now() - chrono::Duration::hours(5),
+        3_600,
+        "strava",
+    )
+    .build();
+    resources
+        .common
+        .repos
+        .activity_cache
+        .upsert_activities(member, &member_tenant, "strava", &[ride])
+        .await
+        .unwrap();
+
+    let create = strava_event("create", OWNER_ID, Utc::now().timestamp());
+    assert_eq!(post_event(&resources, &create).await, StatusCode::OK);
+    let delete = strava_event("delete", OWNER_ID, Utc::now().timestamp());
+    assert_eq!(post_event(&resources, &delete).await, StatusCode::OK);
+    await_spawned_turns(&resources).await;
+
+    assert_eq!(
+        mock.hits.load(Ordering::SeqCst),
+        0,
+        "no fetch for a member who holds no Strava token"
+    );
+    assert!(
+        resources
+            .common
+            .repos
+            .oauth_tokens
+            .get_provider_last_sync(member, member_tenant, "strava")
+            .await
+            .unwrap()
+            .is_none(),
+        "no sync is recorded for the member"
+    );
+    assert_eq!(
+        cached_strava_rows(&resources, member, &member_tenant).await,
+        1,
+        "the delete event does not reach the member's cache"
     );
 }
 

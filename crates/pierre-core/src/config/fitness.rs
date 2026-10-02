@@ -455,3 +455,12 @@ pub fn activity_detail_threshold() -> usize {
         .and_then(|v| v.parse().ok())
         .unwrap_or(DEFAULT_ACTIVITY_DETAIL_THRESHOLD)
 }
+
+/// Whether a request for `limit` activities is small enough to be answered in
+/// detail without being asked to.
+///
+/// At or under `threshold` it is; a `threshold` of `0` promotes nothing.
+#[must_use]
+pub const fn auto_promotes_to_detail(limit: usize, threshold: usize) -> bool {
+    threshold > 0 && limit <= threshold
+}

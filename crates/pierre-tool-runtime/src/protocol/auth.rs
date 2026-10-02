@@ -4,8 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::protocol::reauth_notice::notify_needs_reauth;
-use crate::protocol::refresh_failure::classify_refresh_failure;
 use crate::protocol::token_writeback::persist_refreshed_token;
 use crate::protocol::types::{UniversalResponse, META_AUTH_REQUIRED_PROVIDER};
 use crate::runtime::ToolRuntime;
@@ -13,21 +11,21 @@ use chrono::{DateTime, Utc};
 use pierre_auth::tenant::oauth_manager::{issuing_client, IssuingLookup};
 use pierre_auth::tenant::TenantContext;
 use pierre_config::environment::get_oauth_config;
-use pierre_core::constants::oauth_providers;
 use pierre_core::errors::AppError;
-use pierre_core::http_client::api_client;
-use pierre_core::models::{connection_needs_reauth, TenantId, UserOAuthToken};
+use pierre_core::models::{TenantId, UserOAuthToken};
 use pierre_providers::ai_scope::AiGovernedProvider;
 use pierre_providers::backend_resolver;
-use pierre_providers::utils::{refresh_oauth_token, RefreshRequest};
-use pierre_providers::whoop_provider::owner_id_for_access_token;
 use pierre_providers::{CoreFitnessProvider, CredentialKind, OAuth2Credentials};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
-use std::env;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 use uuid::Uuid;
+
+/// One refresh at a time per connection, shared by its concurrent callers
+mod single_flight;
+/// The refresh of a stored token: descriptor-driven, single-flight, compare-and-swap
+mod token_refresh;
 
 /// OAuth token data structure
 #[derive(Debug, Clone)]
@@ -62,7 +60,10 @@ pub struct TokenData {
 }
 
 /// OAuth error types
-#[derive(Debug, thiserror::Error)]
+///
+/// `Clone`, because one refresh serves every caller waiting on it, a failed
+/// one included.
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum OAuthError {
     /// Failed to exchange authorization code for tokens
     #[error("Token exchange failed: {0}")]
@@ -113,77 +114,6 @@ impl OAuthError {
     }
 }
 
-/// A provider whose token endpoint this service refreshes against. A token
-/// of any other provider has nothing a refresh here can renew.
-#[derive(Debug, Clone, Copy)]
-enum RefreshEndpoint {
-    Strava,
-    Whoop,
-}
-
-impl RefreshEndpoint {
-    fn of(provider: &str) -> Option<Self> {
-        [Self::Strava, Self::Whoop]
-            .into_iter()
-            .find(|endpoint| provider.eq_ignore_ascii_case(endpoint.provider()))
-    }
-
-    const fn provider(self) -> &'static str {
-        match self {
-            Self::Strava => oauth_providers::STRAVA,
-            Self::Whoop => oauth_providers::WHOOP,
-        }
-    }
-
-    /// The endpoint's token URL: `PIERRE_<PROVIDER>_TOKEN_URL` when set (the
-    /// override the provider registry reads too), else the vendor's own. It
-    /// does not depend on which providers this build registers: a stored
-    /// token refreshes whatever the build compiles in.
-    fn token_url(self) -> String {
-        let (override_key, vendor_url) = match self {
-            Self::Strava => (
-                "PIERRE_STRAVA_TOKEN_URL",
-                "https://www.strava.com/oauth/token",
-            ),
-            Self::Whoop => (
-                "PIERRE_WHOOP_TOKEN_URL",
-                "https://api.prod.whoop.com/oauth/oauth2/token",
-            ),
-        };
-        env::var(override_key).unwrap_or_else(|_| vendor_url.to_owned())
-    }
-
-    /// The refresh this endpoint takes, in the shape its vendor requires:
-    /// the one the provider's own client sends when a call is refused.
-    const fn request<'a>(
-        self,
-        token_url: &'a str,
-        client_id: &'a str,
-        client_secret: &'a str,
-        refresh_token: &'a str,
-    ) -> RefreshRequest<'a> {
-        match self {
-            Self::Strava => RefreshRequest::form_fields(
-                oauth_providers::STRAVA,
-                token_url,
-                client_id,
-                client_secret,
-                refresh_token,
-            ),
-            Self::Whoop => {
-                RefreshRequest::whoop(token_url, client_id, client_secret, refresh_token)
-            }
-        }
-    }
-}
-
-/// What a refresh of an expired token posts: the endpoint's vendor shape and
-/// the stored refresh token.
-struct RefreshInputs<'a> {
-    endpoint: RefreshEndpoint,
-    refresh_token: &'a str,
-}
-
 /// Service responsible for authentication and provider creation
 /// Centralizes OAuth token management and reduces duplication across handlers
 pub struct AuthService {
@@ -210,8 +140,8 @@ impl AuthService {
     /// Get valid token for a provider, automatically refreshing if needed
     ///
     /// Returns `None` when there is no token, or none a refresh can renew: no
-    /// refresh token is stored, this service cannot refresh the provider's
-    /// tokens, or the provider refused the refresh (the connection is then
+    /// refresh token is stored, the provider's descriptor declares no refresh
+    /// grant, or the provider refused the refresh (the connection is then
     /// `needs_reauth`), now or on an earlier refresh whose flag still stands.
     /// Reconnecting is the remedy for each.
     ///
@@ -322,7 +252,7 @@ impl AuthService {
         if let Some(expires_at) = oauth_token.expires_at {
             if Self::is_token_expired(expires_at) {
                 return self
-                    .handle_expired_token(user_id, tenant_id, provider, &oauth_token)
+                    .refresh_stored_token(user_id, tenant_id, provider, &oauth_token)
                     .await;
             }
         }
@@ -386,344 +316,6 @@ impl AuthService {
             "Could not {what} on the OAuth token path"
         );
         OAuthError::TokenStoreUnavailable(provider.to_owned())
-    }
-
-    /// Handle expired token by attempting refresh
-    async fn handle_expired_token(
-        &self,
-        user_id: Uuid,
-        tenant_id: &str,
-        provider: &str,
-        oauth_token: &UserOAuthToken,
-    ) -> Result<Option<TokenData>, OAuthError> {
-        let Some(inputs) = Self::refresh_inputs(provider, oauth_token) else {
-            return Ok(None);
-        };
-
-        info!(
-            "Token expired for user {} provider {}, attempting refresh",
-            user_id, provider
-        );
-
-        // Attempt to refresh the token, under the app that issued it
-        match self
-            .refresh_provider_token(user_id, tenant_id, &inputs, oauth_token)
-            .await
-        {
-            Ok(None) => {
-                self.superseding_token(user_id, tenant_id, provider, oauth_token)
-                    .await
-            }
-            Ok(Some(mut refreshed_token)) => {
-                info!(
-                    "Token refreshed successfully for user {} provider {}",
-                    user_id, provider
-                );
-                // A successful refresh proves the token works — re-arm a connection that a
-                // prior transient/raced failure may have flipped to needs_reauth. No-op when
-                // already active.
-                self.mark_connection_active(user_id, tenant_id, provider)
-                    .await;
-                refreshed_token.provider_user_id = self
-                    .owner_id_after_refresh(oauth_token, &refreshed_token)
-                    .await;
-                Ok(Some(refreshed_token))
-            }
-            Err(e) => {
-                self.refresh_failed(user_id, tenant_id, provider, oauth_token, e)
-                    .await
-            }
-        }
-    }
-
-    /// The endpoint and refresh token an expired `token` of `provider`
-    /// refreshes with, or `None` when a refresh here cannot renew it: no
-    /// refresh token is stored, or the provider's refresh endpoint is not one
-    /// this service calls. Reconnecting is then the remedy.
-    fn refresh_inputs<'a>(provider: &str, token: &'a UserOAuthToken) -> Option<RefreshInputs<'a>> {
-        let refresh_token = token.refresh_token.as_deref().filter(|t| !t.is_empty())?;
-        Some(RefreshInputs {
-            endpoint: RefreshEndpoint::of(provider)?,
-            refresh_token,
-        })
-    }
-
-    /// The token that replaced the row `read` a refresh started from while the
-    /// refresh was in flight: a reconnect's (a fresh `id`), or the pair another
-    /// refresh of the same row wrote (a new `updated_at`). It is returned while
-    /// it is unexpired; whatever this refresh brought back is dropped. `None`
-    /// while the row stands as it was read.
-    async fn superseding_token(
-        &self,
-        user_id: Uuid,
-        tenant_id: &str,
-        provider: &str,
-        read: &UserOAuthToken,
-    ) -> Result<Option<TokenData>, OAuthError> {
-        let tenant = TenantId::parse_str(tenant_id).map_err(|_| {
-            OAuthError::DatabaseError(format!("Invalid tenant_id format: {tenant_id}"))
-        })?;
-        let current = self
-            .resources
-            .repos()
-            .oauth_tokens
-            .get_token(user_id, tenant, provider)
-            .await
-            .map_err(|e| Self::store_failed(user_id, provider, "re-read the token", &e))?;
-        let replacement = current.filter(|token| {
-            (token.id != read.id || token.updated_at != read.updated_at)
-                && token
-                    .expires_at
-                    .is_none_or(|expires_at| !Self::is_token_expired(expires_at))
-        });
-        if replacement.is_some() {
-            info!(
-                user_id = %user_id,
-                provider = %provider,
-                "The token was replaced while its refresh was in flight; the replacement stands"
-            );
-        }
-        Ok(replacement.map(|token| Self::token_data(provider, token)))
-    }
-
-    /// The provider-side owner id a refreshed token carries.
-    ///
-    /// The bearer providers' refresh endpoints return no owner id and the row
-    /// update leaves the stored one untouched, so a refreshed token reports the
-    /// id the row already holds. A WHOOP row that never captured one (its token
-    /// response carries none, and connections made before the OAuth flow read
-    /// the profile have `None`) is filled here: the profile is read with the
-    /// fresh access token and the id is written back to the row, so the next
-    /// webhook naming this athlete routes to them. Best-effort — a failed read
-    /// leaves the row as it was and the next refresh tries again.
-    async fn owner_id_after_refresh(
-        &self,
-        stored: &UserOAuthToken,
-        refreshed: &TokenData,
-    ) -> Option<String> {
-        if stored.provider_user_id.is_some() || stored.provider != oauth_providers::WHOOP {
-            return stored.provider_user_id.clone();
-        }
-        match owner_id_for_access_token(self.resources.provider_registry(), &refreshed.access_token)
-            .await
-        {
-            Ok(owner_id) => {
-                self.persist_owner_id(stored, refreshed, &owner_id).await;
-                Some(owner_id)
-            }
-            Err(e) => {
-                warn!(
-                    user_id = %stored.user_id,
-                    provider = %stored.provider,
-                    error = %e,
-                    "provider user id lookup failed after refresh; push events for this connection route only once a later refresh captures it"
-                );
-                None
-            }
-        }
-    }
-
-    /// Write a captured owner id onto the token row the refresh just updated.
-    ///
-    /// The row is re-written whole — the refreshed tokens plus the id — so
-    /// nothing the refresh stored is lost, and only while it is still the row
-    /// the refresh read: a reconnect that replaced it since stands. A write
-    /// failure is logged: the in-memory token still carries the id for this
-    /// request, and the next refresh captures it again.
-    async fn persist_owner_id(
-        &self,
-        stored: &UserOAuthToken,
-        refreshed: &TokenData,
-        owner_id: &str,
-    ) {
-        let row = UserOAuthToken {
-            access_token: refreshed.access_token.clone(),
-            refresh_token: Some(refreshed.refresh_token.clone()).filter(|t| !t.is_empty()),
-            expires_at: Some(refreshed.expires_at),
-            provider_user_id: Some(owner_id.to_owned()),
-            updated_at: Utc::now(),
-            ..stored.clone()
-        };
-        match self
-            .resources
-            .repos()
-            .oauth_tokens
-            .replace_token_if_current(&row, Some(&stored.id))
-            .await
-        {
-            Ok(true) => info!(
-                user_id = %stored.user_id,
-                provider = %stored.provider,
-                "captured provider user id on token refresh"
-            ),
-            Ok(false) => info!(
-                user_id = %stored.user_id,
-                provider = %stored.provider,
-                "the token was replaced since its refresh; the captured provider user id is not written over the replacement"
-            ),
-            Err(e) => warn!(
-                user_id = %stored.user_id,
-                provider = %stored.provider,
-                error = %e,
-                "failed to persist the provider user id captured on refresh"
-            ),
-        }
-    }
-
-    /// What a failed refresh of the stored row `stored` leaves the caller.
-    ///
-    /// Only the provider's answer is judged: a database failure storing the
-    /// pair is ours, and is returned as it is. A failure the provider did not
-    /// word as a refusal of the grant or of the client (a rate limit, a 5xx, a
-    /// transport failure) says nothing about the grant, so the connection is
-    /// left as it is and the grant's standing is the connection's (see
-    /// [`Self::unrefused_refresh_failed`]). The provider's answer is logged
-    /// here and nowhere else, since the error's text reaches the model and the
-    /// stored conversation. A refusal — a dead or rotated refresh token, a
-    /// revoked grant, a rejected client — means the user must reconnect: the
-    /// connection flips to `needs_reauth` while `stored` is still its token as
-    /// read, and a token a reconnect or another refresh stored meanwhile is
-    /// returned instead of `None`.
-    async fn refresh_failed(
-        &self,
-        user_id: Uuid,
-        tenant_id: &str,
-        provider: &str,
-        stored: &UserOAuthToken,
-        error: OAuthError,
-    ) -> Result<Option<TokenData>, OAuthError> {
-        warn!(
-            "Token refresh failed for user {} provider {}: {}",
-            user_id, provider, error
-        );
-        let OAuthError::TokenRefreshFailed(answer) = &error else {
-            return Err(error);
-        };
-        let Some(error_code) = classify_refresh_failure(answer) else {
-            return self
-                .unrefused_refresh_failed(user_id, tenant_id, provider)
-                .await;
-        };
-        self.mark_connection_needs_reauth(user_id, tenant_id, provider, stored, error_code)
-            .await;
-        self.superseding_token(user_id, tenant_id, provider, stored)
-            .await
-    }
-
-    /// What a refresh the provider failed without refusing leaves the caller.
-    ///
-    /// The failure revives nothing: a connection an earlier refusal left
-    /// `needs_reauth` (or that was revoked) still holds a grant only a
-    /// reconnect restores, and the athlete was already told so, so the caller
-    /// gets `None`, the reconnect every other surface shows. Any other
-    /// connection's grant stands, and the caller gets
-    /// [`OAuthError::RefreshUnavailable`]: read as "no token", it would send
-    /// every caller that tags a missing token as auth-required (the capture
-    /// sweep, the backfill) to flag a live connection and free its seat. A
-    /// status that cannot be read confirms neither, and is the store's
-    /// failure.
-    async fn unrefused_refresh_failed(
-        &self,
-        user_id: Uuid,
-        tenant_id: &str,
-        provider: &str,
-    ) -> Result<Option<TokenData>, OAuthError> {
-        let tenant = TenantId::parse_str(tenant_id).map_err(|_| {
-            OAuthError::DatabaseError(format!("Invalid tenant_id format: {tenant_id}"))
-        })?;
-        let connections = self
-            .resources
-            .repos()
-            .provider_connections
-            .get_for_user(user_id, Some(tenant))
-            .await
-            .map_err(|e| Self::store_failed(user_id, provider, "read the connection status", &e))?;
-        if connection_needs_reauth(&connections, provider) {
-            info!(
-                user_id = %user_id,
-                provider = %provider,
-                "The refresh failed transiently over a connection an earlier refusal flagged; it still needs reconnecting"
-            );
-            return Ok(None);
-        }
-        Err(OAuthError::RefreshUnavailable(provider.to_owned()))
-    }
-
-    /// Persist a refused refresh of the token row `stored` as `needs_reauth`
-    /// on the provider connection (best-effort), and nudge the user once when
-    /// it flipped.
-    ///
-    /// The connection row stays in the DB so the user/tenant mapping and history
-    /// survive; only its `status` flips, and only while `stored` is still its
-    /// token as the refresh read it: a reconnect that replaced it meanwhile
-    /// re-armed the connection, and a concurrent refresh that landed proved the
-    /// grant alive, so the refusal of what they replaced leaves either alone.
-    /// A write failure here must not abort the user's request — log and continue.
-    async fn mark_connection_needs_reauth(
-        &self,
-        user_id: Uuid,
-        tenant_id: &str,
-        provider: &str,
-        stored: &UserOAuthToken,
-        error_code: &str,
-    ) {
-        let Ok(tenant) = TenantId::parse_str(tenant_id) else {
-            warn!("Cannot mark {provider} needs_reauth for user {user_id}: invalid tenant_id");
-            return;
-        };
-        if self.flip_to_needs_reauth(stored, error_code).await {
-            notify_needs_reauth(&self.resources, user_id, tenant, provider).await;
-        }
-    }
-
-    /// Write the `needs_reauth` flip guarded on the token row `stored` as it
-    /// was read, and report whether the connection flipped. Every outcome is
-    /// logged; a failed write reads as not flipped, so it nudges nobody.
-    async fn flip_to_needs_reauth(&self, stored: &UserOAuthToken, error_code: &str) -> bool {
-        let (user_id, provider) = (stored.user_id, &stored.provider);
-        match self
-            .resources
-            .repos()
-            .provider_connections
-            .mark_needs_reauth_if_token_current(stored, error_code)
-            .await
-        {
-            Ok(true) => {
-                info!(
-                    "Provider {provider} flipped to needs_reauth for user {user_id} ({error_code})"
-                );
-                true
-            }
-            Ok(false) => {
-                info!(
-                    "Provider {provider} left as it was for user {user_id} ({error_code}): already needs_reauth, or its token changed since the refresh read it"
-                );
-                false
-            }
-            Err(e) => {
-                warn!("Failed to persist needs_reauth for user {user_id} provider {provider}: {e}");
-                false
-            }
-        }
-    }
-
-    /// Re-arm a provider connection to `active` after a successful refresh (best-effort).
-    ///
-    /// No-op when the connection is already active or the row does not exist. A write
-    /// failure must not abort the user's request — log and continue.
-    async fn mark_connection_active(&self, user_id: Uuid, tenant_id: &str, provider: &str) {
-        let Ok(tenant) = TenantId::parse_str(tenant_id) else {
-            return;
-        };
-        if let Err(e) = self
-            .resources
-            .repos()
-            .provider_connections
-            .mark_active(user_id, tenant, provider)
-            .await
-        {
-            warn!("Failed to re-arm connection for user {user_id} provider {provider}: {e}");
-        }
     }
 
     /// Create authenticated provider with proper tenant-aware credentials
@@ -977,95 +569,6 @@ impl AuthService {
         }
     }
 
-    /// Refresh an expired OAuth token for a provider
-    ///
-    /// Calls the provider's token refresh endpoint and stores the new token
-    /// over `stored`, the row it was read from.
-    ///
-    /// A refresh token only refreshes under the client that issued it. A Strava
-    /// token a shared-pool app issued names that app, and is refreshed under
-    /// its credentials whatever the user or tenant has configured since; any
-    /// other token resolves user-specific → tenant-level → env var defaults,
-    /// the chain that issued it.
-    ///
-    /// Returns `None` when the refreshed pair was not stored because `stored`
-    /// is no longer the row in place: a reconnect replaced it while the
-    /// refresh was in flight, and its token stands.
-    ///
-    /// # Errors
-    /// Returns `OAuthError` if token refresh or database operations fail
-    async fn refresh_provider_token(
-        &self,
-        user_id: Uuid,
-        tenant_id: &str,
-        inputs: &RefreshInputs<'_>,
-        stored: &UserOAuthToken,
-    ) -> Result<Option<TokenData>, OAuthError> {
-        let provider = inputs.endpoint.provider();
-        let issuing_app = stored.oauth_app_client_id.as_deref();
-        let (client_id, client_secret) = self
-            .issuing_client_credentials(user_id, Some(tenant_id), provider, issuing_app)
-            .await
-            .map_err(OAuthError::TokenRefreshFailed)?;
-
-        // The same refresh the provider's own client sends, through the one
-        // refresh shell: its vendor's client authentication and extra fields.
-        let token_url = inputs.endpoint.token_url();
-        let refreshed = refresh_oauth_token(
-            api_client(),
-            &inputs
-                .endpoint
-                .request(&token_url, &client_id, &client_secret, inputs.refresh_token),
-        )
-        .await
-        .map_err(|e| OAuthError::TokenRefreshFailed(e.to_string()))?;
-
-        let new_access_token = refreshed.access_token.ok_or_else(|| {
-            OAuthError::TokenRefreshFailed(format!(
-                "the {provider} token endpoint answered without an access token"
-            ))
-        })?;
-        // A provider that sends no refresh token back leaves the stored one
-        // standing: RFC 6749 section 6 makes issuing a new one optional.
-        let new_refresh_token = refreshed
-            .refresh_token
-            .unwrap_or_else(|| inputs.refresh_token.to_owned());
-        let new_expires_at = refreshed.expires_at;
-
-        // Update the token in the database, over the row this refresh read
-        let landed = self
-            .resources
-            .repos()
-            .oauth_tokens
-            .refresh_token(
-                stored,
-                &new_access_token,
-                Some(&new_refresh_token),
-                new_expires_at,
-            )
-            .await
-            .map_err(|e| Self::store_failed(user_id, provider, "store the refreshed token", &e))?;
-        if !landed {
-            return Ok(None);
-        }
-
-        // Return the refreshed token data. The refresh endpoints of the bearer
-        // providers (strava/whoop) return no owner id; the caller fills it
-        // from the stored row (`owner_id_after_refresh`). A refresh does not
-        // re-issue scopes, so the stored set carries across.
-        Ok(Some(TokenData {
-            provider: provider.to_owned(),
-            access_token: new_access_token,
-            refresh_token: new_refresh_token,
-            expires_at: new_expires_at.unwrap_or_else(chrono::Utc::now),
-            scopes: stored.scope.clone().unwrap_or_default(),
-            provider_user_id: None,
-            oauth_app_client_id: stored.oauth_app_client_id.clone(),
-            row_id: stored.id.clone(),
-            kind: CredentialKind::OAuthBearer,
-        }))
-    }
-
     /// The client credentials a stored token refreshes under: the client
     /// that issued it, as [`issuing_client`] resolves it from the Strava pool
     /// app the token names, the user's own app, the tenant's credentials and
@@ -1108,8 +611,8 @@ impl AuthService {
     /// DB-valid `expires_at` — revoked grant, rotated secret, clock skew).
     /// Persists the refreshed token and re-arms / flips the connection status
     /// exactly like the expiry-driven path. Returns `Ok(None)` when no token
-    /// row exists, no refresh token is stored, this service cannot refresh the
-    /// provider's tokens, or the provider refused the refresh.
+    /// row exists, no refresh token is stored, the provider's descriptor
+    /// declares no refresh grant, or the provider refused the refresh.
     ///
     /// # Errors
     /// Returns `OAuthError` if the tenant id is malformed, the token cannot be
@@ -1137,7 +640,7 @@ impl AuthService {
             return Ok(None);
         };
 
-        self.handle_expired_token(user_id, tenant_id, provider, &oauth_token)
+        self.refresh_stored_token(user_id, tenant_id, provider, &oauth_token)
             .await
     }
 }

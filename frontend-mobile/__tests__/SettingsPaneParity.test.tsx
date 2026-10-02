@@ -3,15 +3,62 @@
 
 import fs from 'fs';
 import path from 'path';
+import React from 'react';
+import { fireEvent, render, within } from '@testing-library/react-native';
+import type { User } from '@pierre/shared-types';
+import { i18n } from '@pierre/i18n';
 import { SETTINGS_PANES, settingsPanesFor } from '@pierre/shared-constants';
+
+const mockPush = jest.fn();
+jest.mock('expo-router', () => ({
+  useRouter: () => ({ push: mockPush, back: jest.fn() }),
+  useFocusEffect: () => undefined,
+}));
+
+jest.mock('../src/services/api', () => ({
+  userApi: { getMcpTokens: jest.fn().mockResolvedValue({ tokens: [] }) },
+  oauthApi: { getProvidersStatus: jest.fn().mockResolvedValue({ providers: [] }) },
+}));
+
+jest.mock('../src/contexts/AuthContext', () => ({
+  useAuth: () => ({
+    user: {
+      id: 'user-1',
+      email: 'mobiletest@pierre.dev',
+      display_name: 'Mobile Test User',
+      is_admin: false,
+      role: 'user',
+      user_status: 'active',
+    } as Partial<User>,
+    logout: jest.fn(),
+    isAuthenticated: true,
+    updateUser: jest.fn(),
+  }),
+}));
+
+// Every gate open, so the list under test is the whole declaration: a pane
+// behind a flag is still a pane the phone has to be able to serve.
+jest.mock('../src/hooks/useFeatureFlags', () => ({
+  useFeatureFlags: () => ({ flags: { api_tokens: true, billing_header: true }, known: [], isLoading: false, isError: false }),
+  FEATURE_KEYS: { apiTokens: 'api_tokens', billingHeader: 'billing_header' },
+}));
+jest.mock('../src/constants/features', () => ({
+  ...jest.requireActual('../src/constants/features'),
+  BILLING_ENABLED: true,
+}));
+
+import { SettingsScreen } from '../src/screens/settings/SettingsScreen';
 
 /**
  * Not a diff between web's tabs and mobile's rows. It checks one client
  * against the single declaration: adding a pane means editing
  * `SETTINGS_PANES` first, and this says whether mobile has caught up.
+ *
+ * Why the routes are checked on disk: expo-router's route table IS the file
+ * tree under app/ — a route exists exactly when its file does, and there is
+ * no other artefact to ask. The settings list itself is rendered.
  */
 const APP_DIR = path.join(__dirname, '..', 'app');
-const SETTINGS_SCREEN = path.join(__dirname, '..', 'src', 'screens', 'settings', 'SettingsScreen.tsx');
 
 /** Turn an expo-router path into the file that should serve it. */
 function routeFileCandidates(route: string): string[] {
@@ -72,11 +119,30 @@ describe('settings pane parity — mobile', () => {
   it('builds its rows from the declaration rather than a second hand-written list', () => {
     // A hand-written list is how the grouping drifted the first time: usage
     // stood alone here and sat inside Account on web, and both were correct
-    // according to their own source.
-    const source = fs.readFileSync(SETTINGS_SCREEN, 'utf8');
-    expect(source).toContain("settingsPanesFor('mobile')");
+    // according to their own source. So the rendered list is compared with
+    // the declaration whole — same panes, same order, the declaration's own
+    // name and hint on each row, and each row leading where it says. A list
+    // kept by hand passes this only for as long as someone keeps it equal by
+    // hand, and fails on the first pane the declaration gains.
+    //
+    // The rows are read off the rendered screen: a search of its source for
+    // `settingsPanesFor('mobile')` passes a second list beside that call.
+    const view = render(<SettingsScreen />);
+    const rows = within(view.getByTestId('settings-pane-list'))
+      .getAllByTestId(/^settings-pane-/)
+      .map((row) => row.props.testID as string)
+      // The list's own id and each row's inner pressable share the prefix.
+      .filter((id) => id !== 'settings-pane-list' && !id.endsWith('-inner'));
+    expect(rows).toEqual(mobilePanes.map((pane) => `settings-pane-${pane.id}`));
+    expect(mobilePanes.length).toBeGreaterThanOrEqual(11);
+
     for (const pane of mobilePanes) {
-      expect(source).not.toContain(`router.push('${pane.mobile}')`);
+      const row = within(view.getByTestId(`settings-pane-${pane.id}`));
+      expect(row.getByText(i18n.t(pane.nameKey))).toBeTruthy();
+      expect(row.getByText(i18n.t(pane.hintKey))).toBeTruthy();
+      mockPush.mockClear();
+      fireEvent.press(view.getByTestId(`settings-pane-${pane.id}`));
+      expect(mockPush.mock.calls).toEqual([[pane.mobile]]);
     }
   });
 

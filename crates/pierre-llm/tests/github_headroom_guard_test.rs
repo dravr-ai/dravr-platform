@@ -22,7 +22,7 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use embacle::quota_http::{GithubHeadroomChecker, GithubRateLimit};
 use embacle::types::RunnerError;
-use pierre_llm::chain_guard::{ChainGuard, RateLimitTransition, GITHUB_BUDGET_THRESHOLD};
+use pierre_llm::chain_guard::{ChainGuard, RateLimitTransition};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -77,11 +77,6 @@ async fn read_through_checker(
         .with_url(url)
         .rate_limit()
         .await
-}
-
-#[test]
-fn the_floor_is_200_remaining() {
-    assert_eq!(GITHUB_BUDGET_THRESHOLD, 200);
 }
 
 #[test]

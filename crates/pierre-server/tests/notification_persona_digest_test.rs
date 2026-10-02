@@ -462,6 +462,9 @@ personas:
             .len(),
             1
         );
+        // Pinned on purpose: this is the `notification_type` stored on every
+        // digest row and the key clients filter on. Renaming the value
+        // orphans the rows already written under it.
         assert_eq!(PERSONA_DIGEST_TYPE, "persona_digest");
     }
 

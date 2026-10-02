@@ -5,16 +5,29 @@
 // ABOUTME: The thread is named after its agent or the moment it starts, never for whatever was typed into it
 
 import React from 'react';
-import { KeyboardAvoidingView } from 'react-native';
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { KeyboardAvoidingView as ReactNativeKeyboardAvoidingView, Platform } from 'react-native';
+import { fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // The native header's height feeds the keyboard-avoiding column; there is no
-// navigator under a unit test, so the header is as tall as nothing.
+// navigator under a unit test, so the header is given a height to hand on.
+const mockHeaderHeight = 91;
 jest.mock('expo-router/react-navigation', () => ({
   ...jest.requireActual('expo-router/react-navigation'),
-  useHeaderHeight: () => 0,
+  useHeaderHeight: () => mockHeaderHeight,
 }));
+// The library's own jest mock renders its KeyboardAvoidingView as a bare View,
+// which a test cannot tell from any other. This one keeps the rest of that
+// mock and gives the view a name, so the column can be found and its props read.
+jest.mock('react-native-keyboard-controller', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  return {
+    ...require('react-native-keyboard-controller/jest'),
+    KeyboardAvoidingView: ({ children, ...props }: { children?: React.ReactNode }) =>
+      React.createElement(View, { testID: 'keyboard-controller-avoiding-view', ...props }, children),
+  };
+});
 jest.mock('@expo/vector-icons', () => {
   const View = require('react-native').View;
   const glyph = (props: Record<string, unknown>) =>
@@ -126,6 +139,42 @@ jest.mock('../src/screens/chat/useChatPlusActions', () => ({
 
 import { ChatScreen } from '../src/screens/chat/ChatScreen';
 
+// Every client below is built with `gcTime: Infinity`. React Query arms a
+// five-minute garbage-collection timer for each cached query when the screen
+// unmounts; nothing clears it, so jest sat for those five minutes after the
+// last test before the process could exit.
+describe('ChatScreen keyboard column', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  // carnet#353: React Native's own KeyboardAvoidingView measured nothing under
+  // Android edge-to-edge, so the composer sat behind the keyboard; the
+  // keyboard-controller one reads the IME inset itself. Android was the
+  // platform left without padding by a `Platform.OS === 'ios'` gate, so the
+  // screen is rendered on both.
+  it.each(['ios', 'android'] as const)('pads the composer clear of the keyboard on %s, through the tracker', (os) => {
+    jest.replaceProperty(Platform, 'OS', os);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { gcTime: Infinity } } });
+    const view = render(
+      <QueryClientProvider client={client}>
+        <ChatScreen />
+      </QueryClientProvider>,
+    );
+
+    const column = view.getByTestId('keyboard-controller-avoiding-view');
+    expect(column.props.behavior).toBe('padding');
+    // The native header sits above the column on both platforms.
+    expect(column.props.keyboardVerticalOffset).toBe(mockHeaderHeight);
+    expect(within(column).getByTestId('message-input')).toBeTruthy();
+    // And the composer is not also wrapped in React Native's own, inert one.
+    const inert = view.UNSAFE_queryAllByType(ReactNativeKeyboardAvoidingView);
+    for (const wrapper of inert) {
+      expect(within(wrapper).queryByTestId('message-input')).toBeNull();
+    }
+  });
+});
+
 describe('ChatScreen new-thread title', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -136,8 +185,8 @@ describe('ChatScreen new-thread title', () => {
   it('leaves the naming of a new thread to the server, never to the line that opened it', async () => {
     // The header's unread badge is a real query; give it a client rather than
     // mocking the bell away, so the screen renders the way it ships.
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const { getByTestId, UNSAFE_getByType } = render(
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { gcTime: Infinity } } });
+    const { getByTestId } = render(
       <QueryClientProvider client={client}>
         <ChatScreen />
       </QueryClientProvider>,
@@ -145,7 +194,7 @@ describe('ChatScreen new-thread title', () => {
 
     // The composer is in the layout, so the keyboard shortens the column
     // through this view rather than lifting an overlay (Boreal v2.2 P3.4).
-    expect(UNSAFE_getByType(KeyboardAvoidingView)).toBeTruthy();
+    expect(within(getByTestId('keyboard-controller-avoiding-view')).getByTestId('message-input')).toBeTruthy();
 
     fireEvent.changeText(
       getByTestId('message-input'),

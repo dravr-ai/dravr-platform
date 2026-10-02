@@ -26,9 +26,9 @@
 //! - `nutrition` - Nutrition/food log data
 //! - `auth` - Authentication events (user connected/disconnected)
 
+use pierre_core::constant_time::{is_unset_secret, matches_configured_secret};
 use ring::hmac;
 use std::sync::Arc;
-use subtle::ConstantTimeEq;
 use tracing::{debug, error, info, warn};
 
 use super::cache::TerraDataCache;
@@ -67,6 +67,11 @@ impl WebhookSignatureValidator {
     /// HMAC-SHA256 of `"{t}.{body}"` keyed by the signing secret. A header without
     /// a `t` timestamp or without a `v1` signature is invalid.
     ///
+    /// Under an unset signing secret (empty or whitespace only,
+    /// `is_unset_secret`) every signature is invalid: anyone can compute an
+    /// HMAC under the empty key or a lone newline, so one made with it proves
+    /// no one.
+    ///
     /// # Arguments
     /// * `signature_header` - Value of the `terra-signature` header
     /// * `body` - Raw, unaltered request body bytes
@@ -75,6 +80,9 @@ impl WebhookSignatureValidator {
     /// `SignatureValidation` indicating whether the signature is valid
     #[must_use]
     pub fn validate(&self, signature_header: Option<&str>, body: &[u8]) -> SignatureValidation {
+        if is_unset_secret(self.signing_secret.as_bytes()) {
+            return SignatureValidation::Invalid;
+        }
         let Some(header) = signature_header else {
             return SignatureValidation::Missing;
         };
@@ -85,7 +93,7 @@ impl WebhookSignatureValidator {
         let expected = self.expected_signature(parsed.timestamp, body);
         let matched = parsed.signatures.iter().any(|signature| {
             hex::decode(signature)
-                .is_ok_and(|candidate| bool::from(expected.as_ref().ct_eq(candidate.as_slice())))
+                .is_ok_and(|presented| matches_configured_secret(expected.as_ref(), &presented))
         });
 
         if matched {

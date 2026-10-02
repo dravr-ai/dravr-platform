@@ -109,6 +109,10 @@ describe('design system tokens', () => {
   });
 });
 
+// Why the reads below: the card folders (preview.html, README.md) are the
+// export's content catalogue, and dist/project is what the generator writes.
+// The generator is run for real and its output files are the result under
+// test — read, parsed and, for the bundle, executed.
 describe('design system cards', () => {
   const cards = readdirSync(path.join(CONTENT_ROOT, 'components')).filter((d) => d !== COVER);
 

@@ -49,6 +49,21 @@ describe('MessageItem tables', () => {
     expect(table).toHaveClass('!w-max');
   });
 
+  it('paints the table with the dark typography palette in dark mode only', () => {
+    // Applied unconditionally, Tailwind Typography's inverted palette wins in
+    // light mode too and the header row goes white on the cream canvas
+    // (observed 2026-08-13). Deleting the class is not the fix either: dark
+    // mode still needs it. ESLint refuses the bare spelling across the tree;
+    // this is the rendered half — the element that holds the table carries
+    // the palette, behind the `dark:` variant and no other way.
+    render(<MessageItem message={tableMessage} />);
+
+    const prose = screen.getByTestId('markdown-table-scroll').closest('.prose');
+    expect(prose).not.toBeNull();
+    const inverting = [...(prose as Element).classList].filter((name) => name.endsWith('-invert'));
+    expect(inverting).toEqual(['dark:prose-invert']);
+  });
+
   it('does not wrap a reply that has no table', () => {
     render(
       <MessageItem

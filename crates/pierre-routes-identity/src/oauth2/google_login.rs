@@ -39,6 +39,7 @@ use pierre_auth::oauth2_server::models::{AuthorizeRequest, OAuth2Error};
 use pierre_auth::security::cookies::{
     get_cookie_value, host_cookie_name, SameSitePolicy, SecureCookieConfig,
 };
+use pierre_core::constant_time::secrets_equal;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_database::database::repositories::SecurityRepository;
 use pierre_middleware::redaction::mask_email;
@@ -135,7 +136,7 @@ impl GoogleSignIn {
         if transaction.expires_at <= Utc::now().timestamp() {
             return OpenedTransaction::Expired;
         }
-        if state != Some(transaction.state.as_str()) {
+        if !state.is_some_and(|s| secrets_equal(s.as_bytes(), transaction.state.as_bytes())) {
             return OpenedTransaction::Refused;
         }
         OpenedTransaction::Live(Box::new(transaction))

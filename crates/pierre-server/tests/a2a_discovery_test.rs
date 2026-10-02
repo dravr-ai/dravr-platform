@@ -6,10 +6,24 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
 
+mod common;
+mod helpers;
+
+use std::net::SocketAddr;
+use std::sync::Arc;
+
+use axum::extract::connect_info::MockConnectInfo;
+use axum::Router;
+use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
+use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::a2a::agent_card::{
     AgentCard, SecurityScheme, BINDING_HTTP_JSON, BINDING_JSONRPC, OAUTH2_TOKEN_PATH,
 };
+use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_routes_auth::AuthRoutes;
+use pierre_routes_identity::oauth2::{OAuth2Context, OAuth2Routes};
+use serde_json::Value;
 
 #[test]
 fn test_agent_card_structure() {
@@ -218,19 +232,61 @@ fn test_agent_card_with_custom_base_url() {
         .starts_with(base_url));
 }
 
+/// The `OAuth2` authorization server's router, as the server mounts it.
+fn oauth2_routes(resources: &Arc<ServerContext>) -> Router {
+    let context = OAuth2Context {
+        database: resources.agent.database.clone(),
+        oauth2_server: resources.common.repos.oauth2_server.clone(),
+        tenants: resources.common.repos.tenants.clone(),
+        users: resources.common.repos.users.clone(),
+        auth_manager: resources.auth.auth_manager.clone(),
+        jwks_manager: resources.auth.jwks_manager.clone(),
+        config: Arc::new(resources.common.config.oauth2_server.clone()),
+        refresh_token_expiry_days: resources.common.config.auth.refresh_token_expiry_days,
+        csrf_manager: resources.auth.csrf_manager.clone(),
+        accounts: resources.oauth2_accounts(),
+        google_sign_in: None,
+        rate_limiter: Arc::new(OAuth2RateLimiter::new(
+            None,
+            OAuth2RateLimiter::local_window_store(),
+            &resources.common.config.rate_limiting,
+        )),
+    };
+    OAuth2Routes::routes(context).layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40_000))))
+}
+
+/// `POST` the `client_credentials` grant for a client nobody registered.
+async fn request_client_credentials(app: Router, path: &str) -> AxumTestResponse {
+    AxumTestRequest::post(path)
+        .form(&[
+            ("grant_type", "client_credentials"),
+            ("client_id", "unregistered-agent"),
+            ("client_secret", "not-a-secret"),
+        ])
+        .send(app)
+        .await
+}
+
 /// The agent card is the discovery contract for machine callers, so its
-/// advertised `clientCredentials` `token_url` must be the route that really
-/// dispatches the `client_credentials` grant. This pins the card against
-/// the three source facts that make that true: the authorization server
-/// mounts `/oauth2/token`, that server dispatches `client_credentials`, and
-/// the separate `/oauth/token` ROPC bridge rejects every grant but
-/// `password`.
-#[test]
-fn test_advertised_token_url_is_the_client_credentials_route() {
-    const IDENTITY_ROUTES: &str = include_str!("../../pierre-routes-identity/src/oauth2.rs");
-    const AUTHZ_SERVER: &str = include_str!("../../pierre-auth/src/oauth2_server/endpoints.rs");
-    const ROPC_ROUTES: &str = include_str!("../../pierre-routes-auth/src/lib.rs");
-    const ROPC_HANDLER: &str = include_str!("../../pierre-routes-auth/src/login.rs");
+/// advertised `clientCredentials` `token_url` must be a route the authorization
+/// server answers, and must not be the first-party `/oauth/token` bridge.
+///
+/// Asked of the two token routes themselves, with a client nobody registered.
+/// The advertised path reaches the authorization server's token endpoint,
+/// which refuses the client as `invalid_client`. That shows the path is
+/// mounted and nothing more: the endpoint authenticates the client before it
+/// reads the grant, so an unregistered client gets the same answer for any
+/// grant type. That the route dispatches `client_credentials` is held by
+/// `a_registered_client_gets_a_token_at_the_card_token_url_and_calls_a2a_with_it`
+/// in `a2a_client_credentials_token_test`, where a registered client is issued
+/// a token at this same path.
+///
+/// The bridge refuses the grant type outright, and that half is a dispatch
+/// claim this test can make: a card pointing there would hand every agent a
+/// protocol-level dead end.
+#[tokio::test]
+async fn test_advertised_token_url_is_mounted_and_is_not_the_password_bridge() {
+    let resources = common::create_test_server_resources().await.unwrap();
 
     let base_url = "https://api.dravr.ai";
     let card = AgentCard::with_base_url(base_url);
@@ -238,48 +294,47 @@ fn test_advertised_token_url_is_the_client_credentials_route() {
     let Some(SecurityScheme::OAuth2(oauth2)) = schemes.get("oauth2ClientCredentials") else {
         panic!("oauth2ClientCredentials must be an oauth2SecurityScheme");
     };
-    let token_url = &oauth2
+    let path = oauth2
         .flows
         .client_credentials
         .as_ref()
         .expect("clientCredentials flow")
-        .token_url;
-
-    let path = token_url
+        .token_url
         .strip_prefix(base_url)
-        .expect("token_url must be built from the card's base URL");
-    assert_eq!(path, OAUTH2_TOKEN_PATH);
+        .expect("token_url must be built from the card's base URL")
+        .to_owned();
 
-    // The advertised path is a mounted route of the OAuth 2.0 server...
-    assert!(
-        IDENTITY_ROUTES.contains(format!(r#".route("{path}", post(Self::handle_token))"#).as_str()),
+    // The advertised path is mounted on the authorization server: its token
+    // endpoint answers, in OAuth's own error shape, that it does not know this
+    // client.
+    let served = request_client_credentials(oauth2_routes(&resources), &path).await;
+    assert_ne!(
+        served.status(),
+        404,
         "no OAuth2 route mounts the advertised token path {path}"
     );
-    // ...and that server dispatches the client_credentials grant.
-    assert!(
-        AUTHZ_SERVER.contains(r#""client_credentials" => self.handle_client_credentials_grant"#),
-        "the OAuth2 authorization server no longer dispatches client_credentials"
+    let refusal: Value = served.json();
+    assert_eq!(
+        refusal["error"], "invalid_client",
+        "the advertised token path {path} must reach the authorization server's token \
+         endpoint, which refuses an unregistered client: {refusal}"
     );
 
-    // The first-party token route is a different route and serves only the
-    // password and refresh_token grants, so advertising it would be a
-    // protocol-level dead end.
-    assert!(
-        ROPC_ROUTES.contains(r#".route("/oauth/token", post(login::handle_oauth2_token))"#),
-        "the ROPC bridge route moved; re-verify which route serves client_credentials"
-    );
-    assert!(
-        ROPC_HANDLER.contains(r#""password" => {"#)
-            && ROPC_HANDLER.contains(r#""refresh_token" => {"#),
-        "the first-party token handler no longer dispatches by grant_type as expected"
-    );
-    assert!(
-        !ROPC_HANDLER.contains(r#""client_credentials""#),
-        "the first-party token handler now names client_credentials; re-verify the card"
+    // The first-party token route serves the password and refresh_token grants
+    // only, so advertising it would be wrong.
+    let bridge = request_client_credentials(
+        AuthRoutes::routes(resources.auth_routes_context()),
+        "/oauth/token",
+    )
+    .await;
+    let refusal: Value = bridge.json();
+    assert_eq!(
+        refusal["error"], "unsupported_grant_type",
+        "the first-party token route now serves client_credentials; re-verify the card: {refusal}"
     );
     assert_ne!(
         path, "/oauth/token",
-        "the card must not advertise the password-only ROPC bridge for client_credentials"
+        "the card must not advertise the password-only bridge for client_credentials"
     );
 }
 

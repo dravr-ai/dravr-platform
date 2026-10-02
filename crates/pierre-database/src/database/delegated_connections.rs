@@ -17,9 +17,9 @@ use crate::repositories::delegated_connections::{
     already_linked, column, impl_delegated_connection_repository, require_fresh_proposal,
     unknown_value, CONFIRM_SQL, END_CONFIRMED_FOR_MEMBER_SQL, END_FOR_COACH_SQL,
     END_FOR_GROUP_MEMBER_SQL, END_FOR_GROUP_SQL, END_ONE_SQL, FIND_ACTIVE_FOR_MEMBER_SQL,
-    GET_FOR_PARTICIPANT_SQL, LIST_BACKED_FOR_MEMBER_SQL, LIST_LIVE_FOR_COACH_IN_GROUP_SQL,
-    LIST_LIVE_FOR_COACH_SQL, LIST_LIVE_FOR_MEMBER_IN_GROUP_SQL, LIST_LIVE_FOR_MEMBER_SQL,
-    PROPOSE_SQL,
+    GET_FOR_PARTICIPANT_SQL, LIST_BACKED_FOR_MEMBER_SQL, LIST_CONFIRMED_FOR_ATHLETE_SQL,
+    LIST_LIVE_FOR_COACH_IN_GROUP_SQL, LIST_LIVE_FOR_COACH_SQL, LIST_LIVE_FOR_MEMBER_IN_GROUP_SQL,
+    LIST_LIVE_FOR_MEMBER_SQL, PROPOSE_SQL,
 };
 use crate::repositories::uuid_columns::TextUuid;
 use crate::repositories::DelegatedConnectionRepository;

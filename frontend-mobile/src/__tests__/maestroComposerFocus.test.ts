@@ -20,6 +20,9 @@ function flowFiles(dir: string): string[] {
 }
 
 const FLOWS = flowFiles(MAESTRO_DIR).sort();
+// Why this reads files: the Maestro flows are YAML the phone's test runner
+// executes, not code jest can import or run — the flows are the catalogue
+// under test, scanned whole so a flow added tomorrow is held to the same rule.
 const read = (flow: string): string => readFileSync(join(MAESTRO_DIR, flow), 'utf8');
 
 /** A `tapOn:` whose target is the composer, in the two-line shape every flow writes it in. */

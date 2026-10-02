@@ -5,7 +5,7 @@
 // ABOUTME: Drives the root layout's route guard with a finished onboarding context and renders the (chat) index route
 
 import React from 'react';
-import { render, waitFor } from '@testing-library/react-native';
+import { render, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { USER_SURFACES } from '@pierre/shared-constants';
 
@@ -32,6 +32,15 @@ jest.mock('expo-router', () => {
     Slot: () => React.createElement(View, { testID: 'slot' }),
   });
 });
+
+// NativeWind refuses setColorScheme outside a Tailwind `darkMode: class`
+// build, which jest is not: unstubbed, the theme provider's effect throws and
+// the root layout is replaced by its error boundary a tick after mounting, so
+// every assertion here would be racing a tree that is about to be torn down.
+jest.mock('nativewind', () => ({
+  ...jest.requireActual('nativewind'),
+  useColorScheme: () => ({ colorScheme: 'dark', setColorScheme: jest.fn() }),
+}));
 
 jest.mock('expo-splash-screen', () => ({
   preventAutoHideAsync: jest.fn(),
@@ -125,6 +134,25 @@ describe('the landing after onboarding', () => {
     expect(mockRouter.replace).not.toHaveBeenCalledWith(CHAT_LIST_ROUTE);
   });
 
+  // carnet#353: every FormScrollView and the chat column read the native
+  // keyboard tracker, so its provider has to enclose the navigator's slot —
+  // a form on a route mounted outside it has nothing to read and sits behind
+  // the keyboard on Android. (The library's jest mock renders the provider as
+  // a host element of this name.)
+  it('mounts the keyboard tracker above every route', async () => {
+    const view = render(<RootLayout />);
+
+    const slot = await view.findByTestId('slot');
+    const provider = view.UNSAFE_getByType('KeyboardProvider' as unknown as React.ComponentType);
+    expect(within(provider).getByTestId('slot')).toBe(slot);
+    // The layout that was inspected is the one that stays up: the theme
+    // provider's effects have run by the time the guard redirects, and the
+    // error boundary has not taken the tree over.
+    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith(HOME_ROUTE));
+    expect(view.queryByTestId('error-boundary-fallback')).toBeNull();
+    expect(view.getByTestId('slot')).toBeTruthy();
+  });
+
   it('leaves an athlete already in the app where they are', async () => {
     mockSegments = ['(app)', '(tabs)', '(discover)'];
     render(<RootLayout />);
@@ -154,7 +182,9 @@ describe('the landing after onboarding', () => {
       limit: 50,
       offset: 0,
     });
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    // gcTime: Infinity — the default arms a five-minute timer per cached query
+    // on unmount, and jest cannot exit until it fires.
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { gcTime: Infinity } } });
 
     const { findByTestId, getByTestId, queryByTestId, getByText } = render(
       <QueryClientProvider client={client}>

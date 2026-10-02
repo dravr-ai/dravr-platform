@@ -16,6 +16,7 @@ use tracing::{debug, error, info, warn};
 
 use super::core::{CredentialKind, OAuth2Credentials};
 use super::errors::provider::ProviderError;
+use super::spi::{OAuthRefresh, RefreshClientAuth};
 
 /// Configuration for retry behavior
 #[derive(Debug, Clone)]
@@ -295,6 +296,15 @@ pub const fn no_vendor_error(_status: StatusCode, _body: &str) -> Option<AppErro
     None
 }
 
+/// The form field a WHOOP refresh adds.
+///
+/// WHOOP rotates refresh tokens and returns a new one only when
+/// `scope=offline` is sent on the refresh; without it the single-use refresh
+/// token is consumed but not replaced, so the next refresh fails with HTTP 400
+/// `invalid_request`. Written once: the WHOOP descriptor declares it and
+/// [`RefreshRequest::whoop`] sends it.
+pub const WHOOP_REFRESH_EXTRA_FORM: &[(&str, &str)] = &[("scope", "offline")];
+
 /// One `OAuth2` refresh, with the vendor differences the standard flow leaves open.
 #[derive(Debug, Clone, Copy)]
 pub struct RefreshRequest<'a> {
@@ -310,6 +320,8 @@ pub struct RefreshRequest<'a> {
     pub provider_name: &'a str,
     /// Fields the vendor requires beyond the four standard ones.
     pub extra_form: &'a [(&'a str, &'a str)],
+    /// Where the client credentials travel: the form body, or a Basic header.
+    pub client_auth: RefreshClientAuth,
 }
 
 impl<'a> RefreshRequest<'a> {
@@ -330,13 +342,34 @@ impl<'a> RefreshRequest<'a> {
             refresh_token,
             provider_name,
             extra_form: &[],
+            client_auth: RefreshClientAuth::RequestBody,
         }
     }
 
-    /// A WHOOP refresh. WHOOP rotates refresh tokens and returns a new one
-    /// only when `scope=offline` is sent on the refresh; without it the
-    /// single-use refresh token is consumed but not replaced, so the next
-    /// refresh fails with HTTP 400 `invalid_request`.
+    /// The refresh a provider's descriptor declares
+    /// ([`ProviderDescriptor::oauth_refresh`](super::spi::ProviderDescriptor::oauth_refresh)):
+    /// its client authentication and its extra form fields.
+    #[must_use]
+    pub const fn described(
+        provider_name: &'a str,
+        token_url: &'a str,
+        client_id: &'a str,
+        client_secret: &'a str,
+        refresh_token: &'a str,
+        refresh: OAuthRefresh,
+    ) -> Self {
+        Self {
+            token_url,
+            client_id,
+            client_secret,
+            refresh_token,
+            provider_name,
+            extra_form: refresh.extra_form,
+            client_auth: refresh.client_auth,
+        }
+    }
+
+    /// A WHOOP refresh, carrying [`WHOOP_REFRESH_EXTRA_FORM`].
     #[must_use]
     pub const fn whoop(
         token_url: &'a str,
@@ -350,7 +383,8 @@ impl<'a> RefreshRequest<'a> {
             client_secret,
             refresh_token,
             provider_name: oauth_providers::WHOOP,
-            extra_form: &[("scope", "offline")],
+            extra_form: WHOOP_REFRESH_EXTRA_FORM,
+            client_auth: RefreshClientAuth::RequestBody,
         }
     }
 }
@@ -372,11 +406,11 @@ pub struct TokenRefreshResponse {
 
 /// Refresh `OAuth2` access token using refresh token
 ///
-/// The client credentials travel as fields of the form body, the `OAuth2`
-/// default every provider here expects, and `extra_form` carries the fields a
-/// vendor requires beyond the four standard ones (Whoop's `scope=offline`,
-/// without which it consumes the single-use refresh token and returns nothing
-/// to replace it, so the next refresh fails).
+/// The client credentials travel where `client_auth` says: as fields of the
+/// form body, the `OAuth2` default Strava and WHOOP expect, or in a Basic
+/// `Authorization` header with neither in the body. `extra_form` carries the
+/// fields a vendor requires beyond the standard ones
+/// ([`WHOOP_REFRESH_EXTRA_FORM`]).
 ///
 /// # Errors
 ///
@@ -397,28 +431,31 @@ pub async fn refresh_oauth_token(
         refresh_token,
         provider_name,
         extra_form,
+        client_auth,
     } = *request;
     info!("Refreshing {provider_name} access token");
 
-    let mut params: Vec<(&str, &str)> = vec![
-        ("client_id", client_id),
-        ("client_secret", client_secret),
-        ("grant_type", "refresh_token"),
-        ("refresh_token", refresh_token),
-    ];
+    let mut post = client.post(token_url);
+    let mut params: Vec<(&str, &str)> = Vec::with_capacity(4 + extra_form.len());
+    match client_auth {
+        RefreshClientAuth::RequestBody => {
+            params.push(("client_id", client_id));
+            params.push(("client_secret", client_secret));
+        }
+        RefreshClientAuth::BasicHeader => {
+            post = post.basic_auth(client_id, Some(client_secret));
+        }
+    }
+    params.push(("grant_type", "refresh_token"));
+    params.push(("refresh_token", refresh_token));
     params.extend_from_slice(extra_form);
 
-    let response = client
-        .post(token_url)
-        .form(&params)
-        .send()
-        .await
-        .map_err(|e| {
-            AppError::external_service(
-                provider_name,
-                format!("Failed to send token refresh request: {e}"),
-            )
-        })?;
+    let response = post.form(&params).send().await.map_err(|e| {
+        AppError::external_service(
+            provider_name,
+            format!("Failed to send token refresh request: {e}"),
+        )
+    })?;
 
     // A refusal carries the status and the vendor's error body: what the
     // grant's standing is read from (a dead refresh token, a rejected client,

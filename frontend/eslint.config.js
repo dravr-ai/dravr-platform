@@ -16,6 +16,22 @@ import {
   rawErrorMessageRestrictions,
 } from '@pierre/eslint-config';
 
+/**
+ * `prose-invert` is Tailwind Typography's *dark* palette. Applied
+ * unconditionally it wins in light mode too, painting `th` and headings white
+ * on the Boreal cream canvas — the header row of a coach's table goes
+ * invisible (observed 2026-08-13 on a five-column activity table).
+ * `darkMode: 'class'` is configured, so `dark:prose-invert` is always the
+ * correct spelling. A rule about how a class may be spelled anywhere in the
+ * tree is a lint rule; src/__tests__/designRuleLint.test.ts shows it fires.
+ */
+const PROSE_INVERT_MESSAGE =
+  'Write dark:prose-invert. Bare prose-invert applies the dark typography palette in light mode too, and table headers render white on the light canvas.';
+const proseInvertRestrictions = [
+  { selector: 'Literal[value=/(?<!dark:)\\bprose-invert\\b/]', message: PROSE_INVERT_MESSAGE },
+  { selector: 'TemplateElement[value.raw=/(?<!dark:)\\bprose-invert\\b/]', message: PROSE_INVERT_MESSAGE },
+];
+
 export default tseslint.config(
   { ignores: ['dist', 'coverage'] },
   {
@@ -46,7 +62,7 @@ export default tseslint.config(
     // error's own message: that is axios's English, under any locale.
     files: ['src/**/*.{ts,tsx}'],
     rules: {
-      'no-restricted-syntax': ['error', ...rawErrorMessageRestrictions],
+      'no-restricted-syntax': ['error', ...rawErrorMessageRestrictions, ...proseInvertRestrictions],
     },
   },
   {
@@ -56,11 +72,12 @@ export default tseslint.config(
     files: ['src/**/*.tsx'],
     ignores: ['src/components/ui/**'],
     rules: {
-      // One list per file, so the raw-error entries above are repeated here
-      // for the files this block also matches.
+      // One list per file, so the entries above are repeated here for the
+      // files this block also matches.
       'no-restricted-syntax': [
         'error',
         ...rawErrorMessageRestrictions,
+        ...proseInvertRestrictions,
         {
           selector: 'JSXOpeningElement[name.name="textarea"]',
           message:

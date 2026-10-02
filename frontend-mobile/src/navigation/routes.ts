@@ -87,7 +87,7 @@ export const COACH_EDIT_ROUTE = '/(app)/(tabs)/(discover)/edit/[agentId]' as con
  * The mobile route of a surface the shared registry declares this app serves.
  *
  * Throws at module load rather than returning null: the registry is static
- * data in this monorepo, and `SurfaceParity.test.ts` already fails when a
+ * data in this monorepo, and `SurfaceParity.test.tsx` already fails when a
  * surface declared for mobile has no screen, so a missing row is a build
  * error, not a runtime state to branch on.
  */
@@ -111,7 +111,7 @@ export const HOME_ROUTE = mobileRouteOf('home');
 /**
  * The mobile route of a settings pane, from the shared pane declaration.
  * Throws at module load for the same reason {@link mobileRouteOf} does:
- * `SettingsPaneParity.test.ts` fails when a pane declared for mobile has no
+ * `SettingsPaneParity.test.tsx` fails when a pane declared for mobile has no
  * screen, so a missing route is a build error.
  */
 function paneRouteOf(id: SettingsPaneId): string {

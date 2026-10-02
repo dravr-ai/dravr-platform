@@ -76,6 +76,8 @@ all-database = ["database-errors", "sqlx-types"]
 
 [dependencies]
 thiserror = "2.0"
+# Constant-time comparison behind `constant_time::secrets_equal`.
+subtle = "2.6"
 # Derives the JSON Schemas the MCP tools declare as their outputSchema.
 # chrono04 + uuid1: these types carry DateTime<Utc> and Uuid.
 schemars = { version = "1.2", features = ["chrono04", "uuid1"] }

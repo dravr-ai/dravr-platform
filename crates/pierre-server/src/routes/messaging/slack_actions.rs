@@ -14,6 +14,7 @@ use dravr_canot::channels::slack::transport::{
     parse_slack_body, verify_slack_signature as verify_slack_v0,
 };
 use dravr_tronc::notifications::{SlackClient, SlackConfig};
+use pierre_core::constant_time::{configured_secret, is_unset_secret};
 use pierre_core::models::TenantId;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
@@ -129,11 +130,21 @@ pub(crate) async fn handle_slack_action(
 /// canot owns the Slack v0 scheme (HMAC-SHA256 over `v0:{timestamp}:{body}`,
 /// a 300 s replay window, a constant-time compare) for its own webhook
 /// transport; the interactive route verifies with the same function.
+///
+/// An unset `signing_secret` (empty or whitespace only, [`is_unset_secret`])
+/// verifies nothing. canot keys the HMAC with whatever it is handed, and anyone
+/// can compute a signature under the empty key or a lone newline, so one made
+/// with it proves no one.
 pub(crate) fn verify_slack_signature(
     signing_secret: &str,
     headers: &HeaderMap,
     body: &[u8],
 ) -> AppResult<()> {
+    if is_unset_secret(signing_secret.as_bytes()) {
+        return Err(AppError::auth_invalid(
+            "Slack signature verification failed: no signing secret is configured",
+        ));
+    }
     verify_slack_v0(signing_secret, headers, body)
         .map_err(|e| AppError::auth_invalid(format!("Slack signature verification failed: {e}")))
 }
@@ -322,16 +333,21 @@ async fn authorize_postback(
 // Internal helpers
 // =============================================================================
 
+/// The Slack signing secret this deployment is configured with
+///
+/// `None` when `SLACK_SIGNING_SECRET` is unset or blank ([`configured_secret`]):
+/// a variable that is present but empty or whitespace only configures no
+/// secret, and the two read the same to every caller.
+pub(crate) fn configured_signing_secret() -> Option<String> {
+    configured_secret("SLACK_SIGNING_SECRET")
+}
+
 /// Build a `SlackClient` from a bot token for message updates
 fn build_slack_client(bot_token: &str) -> SlackClient {
-    let signing_secret = env::var("SLACK_SIGNING_SECRET")
-        .ok()
-        .filter(|s| !s.is_empty());
-
     let config = SlackConfig {
         bot_token: bot_token.to_owned(),
         error_channel: String::new(),
-        signing_secret,
+        signing_secret: configured_signing_secret(),
     };
 
     SlackClient::new(&config)
@@ -612,4 +628,69 @@ async fn reject_user(
     );
 
     Ok(updated_user.email)
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::{HeaderMap, HeaderValue};
+    use chrono::Utc;
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+
+    use super::verify_slack_signature;
+
+    const BODY: &[u8] = b"payload=%7B%22type%22%3A%22block_actions%22%7D";
+
+    /// Headers carrying Slack's v0 signature of [`BODY`], made now under `key`.
+    fn headers_signed_with(key: &str) -> HeaderMap {
+        let timestamp = Utc::now().timestamp().to_string();
+        let mut mac = Hmac::<Sha256>::new_from_slice(key.as_bytes())
+            .unwrap_or_else(|e| panic!("an HMAC takes a key of any length: {e}"));
+        mac.update(format!("v0:{timestamp}:").as_bytes());
+        mac.update(BODY);
+        let signature = format!("v0={}", hex::encode(mac.finalize().into_bytes()));
+
+        let mut headers = HeaderMap::new();
+        for (name, value) in [
+            ("x-slack-request-timestamp", timestamp),
+            ("x-slack-signature", signature),
+        ] {
+            let value = HeaderValue::from_str(&value)
+                .unwrap_or_else(|e| panic!("a signature header is ASCII: {e}"));
+            headers.insert(name, value);
+        }
+        headers
+    }
+
+    #[test]
+    fn a_signature_under_the_configured_secret_verifies() {
+        let headers = headers_signed_with("ops_signing_secret");
+        assert!(verify_slack_signature("ops_signing_secret", &headers, BODY).is_ok());
+    }
+
+    #[test]
+    fn a_signature_under_another_key_does_not_verify() {
+        let headers = headers_signed_with("some_other_secret");
+        assert!(verify_slack_signature("ops_signing_secret", &headers, BODY).is_err());
+    }
+
+    #[test]
+    fn an_empty_signing_secret_verifies_nothing() {
+        // The signature is a correct one under the empty key: anyone can make it.
+        let headers = headers_signed_with("");
+        assert!(verify_slack_signature("", &headers, BODY).is_err());
+    }
+
+    #[test]
+    fn a_whitespace_only_signing_secret_verifies_nothing() {
+        // A blank secret version is a lone newline; a signature under it is
+        // as forgeable as one under the empty key.
+        for blank in ["\n", " ", "\r\n", " \t "] {
+            let headers = headers_signed_with(blank);
+            assert!(
+                verify_slack_signature(blank, &headers, BODY).is_err(),
+                "a signature under {blank:?} must not verify"
+            );
+        }
+    }
 }

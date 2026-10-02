@@ -65,7 +65,7 @@ export interface UserSurface {
  * What the in-app chat renders, straight from the generated catalogue.
  *
  * One column for both clients because both resolve the same server-side
- * capabilities. That is proven rather than assumed: `SurfaceParity.test.ts` in
+ * capabilities. That is proven rather than assumed: `SurfaceParity.test.tsx` in
  * each client asserts the catalogue's `web_chat` and `mobile_chat` rows list
  * the same blocks, so the day they diverge the assertion fails instead of this
  * constant quietly describing only one of them.

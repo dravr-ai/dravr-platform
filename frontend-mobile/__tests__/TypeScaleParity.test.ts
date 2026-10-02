@@ -18,6 +18,9 @@ const tailwind = require('../tailwind.config.js') as {
   };
 };
 
+// Why this reads a file: global.css is the stylesheet NativeWind compiles —
+// config, like tailwind.config.js above, with no module to import. It is
+// checked for the web-only layers and scales that must not be copied into it.
 const mobileCss = readFileSync(join(__dirname, '..', 'global.css'), 'utf8');
 
 const px = (value: string) => Number.parseInt(value, 10);

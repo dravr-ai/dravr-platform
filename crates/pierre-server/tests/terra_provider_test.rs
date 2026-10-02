@@ -659,6 +659,20 @@ fn test_signature_validation_valid() {
     );
 }
 
+/// Anyone can sign under the empty key, so a validator holding no secret
+/// accepts nothing — not even a signature correctly computed with it.
+#[test]
+fn test_signature_validation_rejects_everything_under_an_empty_secret() {
+    let signature = terra_v1_signature("", WEBHOOK_TIMESTAMP, WEBHOOK_BODY);
+    let validator = WebhookSignatureValidator::new(String::new());
+    let header = format!("t={WEBHOOK_TIMESTAMP},v1={signature}");
+
+    assert_eq!(
+        validator.validate(Some(&header), WEBHOOK_BODY),
+        SignatureValidation::Invalid
+    );
+}
+
 #[test]
 fn test_signature_validation_known_vector() {
     // Computed independently of ring with:

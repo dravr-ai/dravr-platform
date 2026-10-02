@@ -76,7 +76,9 @@ use dravr_cageux::physiological_constants::api_limits::{
 use dravr_meteo::{provider_from_env, WeatherProvider};
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
-use pierre_core::config::fitness::{activity_detail_threshold, EXPENSIVE_DETAIL_PROMOTION_BUDGET};
+use pierre_core::config::fitness::{
+    activity_detail_threshold, auto_promotes_to_detail, EXPENSIVE_DETAIL_PROMOTION_BUDGET,
+};
 use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::connection_needs_reauth;
@@ -445,7 +447,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 });
             let detail_threshold = activity_detail_threshold();
             let auto_promote_to_detail =
-                !mode_explicit && detail_threshold > 0 && limit <= detail_threshold;
+                !mode_explicit && auto_promotes_to_detail(limit, detail_threshold);
             let detail_budget = if detail_is_cheap {
                 usize::MAX
             } else {

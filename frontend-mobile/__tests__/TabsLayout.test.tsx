@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Pins the shell: four labelled system tabs in order, Home first, the unread badge on Chat, and no floating chrome in the tree
-// ABOUTME: The glass pill and its "+" are gone; a bar drawn by hand, or a blur import anywhere, fails this
+// ABOUTME: Pins the shell: four labelled system tabs in order, Home first, and the unread badge on Chat
+// ABOUTME: The glass pill and its "+" are gone; ESLint, not this file, refuses a blur import or a hand-drawn bar
 
 import React from 'react';
-import { readdirSync, readFileSync, statSync } from 'fs';
-import { join } from 'path';
 import { render } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -27,21 +25,14 @@ import { TAB_BAR_TABS } from '../src/navigation/tabs';
 import { CHAT_LIST_ROUTE, HOME_ROUTE } from '../src/navigation/routes';
 
 function renderTabs() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // gcTime: Infinity — the default arms a five-minute timer per cached query
+  // on unmount, and jest cannot exit until it fires.
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { gcTime: Infinity } } });
   return render(
     <QueryClientProvider client={client}>
       <TabsLayout />
     </QueryClientProvider>,
   );
-}
-
-/** Every source file under `dir`, recursively. */
-function sourceFiles(dir: string): string[] {
-  return readdirSync(dir).flatMap((name) => {
-    const path = join(dir, name);
-    if (statSync(path).isDirectory()) return sourceFiles(path);
-    return /\.(ts|tsx)$/.test(name) ? [path] : [];
-  });
 }
 
 describe('the system tab bar', () => {
@@ -117,15 +108,10 @@ describe('the system tab bar', () => {
     expect(queryByTestId('tab-badge')).toBeNull();
   });
 
-  /**
-   * D1 of Boreal v2.2: the bar is the platform's. A blur import, or the glass
-   * container that hosted the old pill, means someone drew a bar again.
-   */
-  it('imports no blur anywhere in the app', () => {
-    const offenders = [...sourceFiles(join(__dirname, '..', 'src')), ...sourceFiles(join(__dirname, '..', 'app'))]
-      .filter((file) => /expo-blur|expo-glass-effect|BlurView|GlassContainer|ExpandableTabBar/.test(readFileSync(file, 'utf8')))
-      .map((file) => file.replace(join(__dirname, '..'), ''));
-
-    expect(offenders).toEqual([]);
-  });
+  // D1 of Boreal v2.2 — the bar is the platform's — was also pinned here by
+  // reading every file under src/ and app/ for a blur import or the glass
+  // container. That is a rule about what may be written anywhere in the tree,
+  // so it is an ESLint rule now (`drawnBarImports` and
+  // `schemeAndChromeRestrictions` in eslint.config.js), proven to fire by
+  // frontend/src/__tests__/designRuleLint.test.ts.
 });

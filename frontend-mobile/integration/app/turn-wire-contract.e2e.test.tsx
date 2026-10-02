@@ -158,6 +158,12 @@ describe('PHASE 2 — the mobile client does not read the removed wire fields', 
 
     const offenders: string[] = [];
     for (const file of files) {
+      // Why this reads source: a rule across the codebase that no lint
+      // expresses. The removed wire names can come back as a header string in
+      // any case, a property key, a type field or a destructured name, in this
+      // app or in the shared api-client package; a case-insensitive scan of
+      // both trees is the one check that sees all of those shapes. The tests
+      // above drive the behaviour; this keeps the dead names from returning.
       const contents = readFileSync(file, 'utf8').toLowerCase();
       for (const name of ['x-usage-', 'is_command_response', 'card_title']) {
         if (contents.includes(name)) {

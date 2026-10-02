@@ -29,5 +29,8 @@ pub mod notify_capture;
 /// drive the webhook route and must not depend on reaching a channel's API.
 #[cfg(feature = "client-messaging")]
 pub mod offline_channel;
+/// A model that records every request it is sent, for tests that assert on
+/// what a turn put on the wire.
+pub mod recording_llm;
 pub mod sciotte_mock;
 pub mod synthetic_data;

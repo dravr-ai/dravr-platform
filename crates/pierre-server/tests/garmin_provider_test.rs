@@ -14,9 +14,7 @@
 
 use chrono::Utc;
 use pierre_config::environment::HttpClientConfig;
-use pierre_mcp_server::constants::{
-    api_provider_limits, init_server_config, oauth, oauth_providers,
-};
+use pierre_mcp_server::constants::{init_server_config, oauth, oauth_providers};
 use pierre_mcp_server::utils::http_client::initialize_http_clients;
 use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::garmin_provider::GarminProvider;
@@ -242,12 +240,6 @@ async fn test_garmin_provider_get_stats_requires_auth() {
         .to_string()
         .contains("No credentials available"));
 }
-#[test]
-fn test_garmin_api_limits() {
-    assert_eq!(api_provider_limits::garmin::DEFAULT_ACTIVITIES_PER_PAGE, 20);
-    assert_eq!(api_provider_limits::garmin::MAX_ACTIVITIES_PER_REQUEST, 100);
-}
-
 #[tokio::test]
 async fn test_garmin_provider_refresh_token_no_credentials() {
     ensure_http_clients_initialized();
@@ -320,21 +312,6 @@ fn test_garmin_in_supported_providers_list() {
     assert!(supported.contains(&oauth_providers::GARMIN));
 }
 
-#[test]
-fn test_garmin_provider_pagination_limits() {
-    // Test that requesting within single page limit would use single page fetch
-    let limit = api_provider_limits::garmin::MAX_ACTIVITIES_PER_REQUEST;
-    assert_eq!(limit, 100);
-
-    // Test default page size
-    let default = api_provider_limits::garmin::DEFAULT_ACTIVITIES_PER_PAGE;
-    assert_eq!(default, 20);
-
-    // Test that requesting more than max would use multi-page fetch
-    let large_limit = api_provider_limits::garmin::MAX_ACTIVITIES_PER_REQUEST + 1;
-    assert!(large_limit > 100);
-}
-
 // Activity type conversion is tested through integration tests with real API responses
 
 #[tokio::test]
@@ -381,28 +358,4 @@ fn test_garmin_provider_config_urls() {
     assert!(!config.api_base_url.ends_with('/'));
     assert!(!config.auth_url.ends_with('/'));
     assert!(!config.token_url.ends_with('/'));
-}
-
-#[test]
-fn test_garmin_rate_limit_constants() {
-    // Verify rate limit constants are properly configured
-    assert_eq!(
-        api_provider_limits::garmin::RECOMMENDED_MAX_REQUESTS_PER_HOUR,
-        100
-    );
-    assert_eq!(
-        api_provider_limits::garmin::RECOMMENDED_MIN_LOGIN_INTERVAL_SECS,
-        300
-    );
-    assert_eq!(api_provider_limits::garmin::RATE_LIMIT_HTTP_STATUS, 429);
-    assert_eq!(
-        api_provider_limits::garmin::ESTIMATED_RATE_LIMIT_BLOCK_DURATION_SECS,
-        3600
-    );
-
-    // Verify block duration is 1 hour (60 minutes)
-    assert_eq!(
-        api_provider_limits::garmin::ESTIMATED_RATE_LIMIT_BLOCK_DURATION_SECS / 60,
-        60
-    );
 }

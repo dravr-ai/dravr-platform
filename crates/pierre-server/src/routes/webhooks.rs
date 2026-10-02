@@ -22,10 +22,12 @@ use serde::Deserialize;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+use pierre_core::constant_time::{configured_secret, matches_configured_secret};
 use pierre_core::models::{Activity, OAuthNotification, TenantId};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_services::personal_bests::is_measured_sport;
 use pierre_services::sync_failure_notice::health_sync_failure_is_told;
+use pierre_services::webhook_owner::{resolve_webhook_owner, WebhookOwner};
 use pierre_tool_runtime::activity_fetch::fetch_provider_head;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
@@ -41,6 +43,13 @@ use crate::services::personal_best_seed::strava_provider;
 /// rather than at it. A week bounds the read while still covering every
 /// realistic upload delay.
 const STRAVA_WEBHOOK_LOOKBACK_DAYS: i64 = 7;
+
+/// The variable holding the secret WHOOP signs its webhooks with.
+///
+/// dravr-enforme's WHOOP provider reads the same variable when the server
+/// builds it; the route reads it to refuse a blank value enforme would key
+/// its HMAC with.
+const WHOOP_WEBHOOK_SECRET_ENV: &str = "WHOOP_WEBHOOK_SECRET";
 
 /// Cap on rows a Strava webhook-triggered fetch reads.
 ///
@@ -106,6 +115,11 @@ impl WebhookRoutes {
     ///
     /// A body that fails validation is refused with 401 and nothing is
     /// synced; an unparseable one with 400; a missing secret with 503.
+    ///
+    /// A `WHOOP_WEBHOOK_SECRET` that is set but blank is a missing secret,
+    /// refused here before the orchestrator runs: enforme's WHOOP provider
+    /// keys the HMAC with any value the variable holds, the empty string
+    /// included, and a signature under the empty key is one anyone can make.
     async fn handle_whoop_event(
         State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
@@ -118,9 +132,9 @@ impl WebhookRoutes {
             "Received WHOOP webhook event"
         );
 
-        let Some(orchestrator) = resources.fitness.sync_orchestrator.clone() else {
-            warn!("WHOOP webhook received but sync orchestrator is not configured");
-            return StatusCode::SERVICE_UNAVAILABLE;
+        let orchestrator = match whoop_orchestrator(&resources) {
+            Ok(orchestrator) => orchestrator,
+            Err(status) => return status,
         };
 
         let events = match orchestrator.handle_webhook("whoop", &headers, &body).await {
@@ -161,11 +175,15 @@ impl WebhookRoutes {
         let verify_token = query.get("hub.verify_token").cloned().unwrap_or_default();
 
         // Validate the verify token against our configured secret. An unset
-        // token refuses every handshake: an empty expected value would
-        // otherwise let anyone register a subscription against this route.
+        // or blank token refuses every handshake (`matches_configured_secret`):
+        // an empty expected value would otherwise let anyone register a
+        // subscription against this route.
         let expected_token = env::var("STRAVA_WEBHOOK_VERIFY_TOKEN").unwrap_or_default();
 
-        if mode != "subscribe" || expected_token.is_empty() || verify_token != expected_token {
+        let token_matches =
+            matches_configured_secret(expected_token.as_bytes(), verify_token.as_bytes());
+
+        if mode != "subscribe" || !token_matches {
             warn!(
                 mode = %mode,
                 "Strava webhook verification failed: invalid mode or verify_token"
@@ -248,6 +266,25 @@ impl WebhookRoutes {
     }
 }
 
+/// The orchestrator a WHOOP event is validated by, or the 503 the route
+/// answers when it cannot verify one at all.
+///
+/// Both refusals come before the orchestrator runs: no orchestrator is
+/// configured, or `WHOOP_WEBHOOK_SECRET` is unset or blank
+/// ([`configured_secret`]). dravr-enforme's WHOOP provider keys its HMAC with
+/// whatever the variable holds, so a blank one must never reach it.
+fn whoop_orchestrator(resources: &ServerContext) -> Result<Arc<SyncOrchestrator>, StatusCode> {
+    let Some(orchestrator) = resources.fitness.sync_orchestrator.clone() else {
+        warn!("WHOOP webhook received but sync orchestrator is not configured");
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    };
+    if configured_secret(WHOOP_WEBHOOK_SECRET_ENV).is_none() {
+        warn!("WHOOP webhook refused: WHOOP_WEBHOOK_SECRET is unset or blank; nothing synced");
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    }
+    Ok(orchestrator)
+}
+
 /// The HTTP status a refused WHOOP webhook answers with.
 ///
 /// A signature that does not verify is the caller's problem (401); a body
@@ -276,24 +313,36 @@ fn distinct_owners(events: &[WebhookEvent]) -> Vec<String> {
     owners
 }
 
-/// Resolve the platform user owning a provider-side id.
+/// Resolve the platform user a Strava or WHOOP push event names.
 ///
 /// The id is captured into `provider_user_id` when the token is stored, so it
-/// resolves to exactly one `(user, tenant)`. An unknown owner is skipped and
-/// logged — a push event is never broadcast to every connected user.
+/// resolves to exactly one `(user, tenant)`. These handlers sync with the
+/// owner's own stored token, so only a direct token owner can be served: a
+/// member that [`resolve_webhook_owner`] reaches through a coach's confirmed
+/// link has no token of their own here, and the event is skipped and logged
+/// rather than synced with a token that does not exist. An unknown owner is
+/// skipped and logged too — a push event is never broadcast to every
+/// connected user.
 async fn resolve_owner(
     resources: &ServerContext,
     provider: &str,
     provider_user_id: &str,
-) -> Option<(Uuid, String)> {
-    match resources
-        .common
-        .repos
-        .oauth_tokens
-        .find_user_by_provider_user_id(provider, provider_user_id)
-        .await
-    {
-        Ok(Some(owner)) => Some(owner),
+) -> Option<WebhookOwner> {
+    match resolve_webhook_owner(&resources.common.repos, provider, provider_user_id).await {
+        Ok(Some(owner)) => {
+            if let Some(coach) = owner.read_through {
+                info!(
+                    provider = %provider,
+                    user_id = %owner.user_id,
+                    link_id = %coach.link_id,
+                    coach_user_id = %coach.coach_user_id,
+                    "webhook names a member read through their coach's connection; this \
+                     handler syncs with the owner's own token, so it is skipped"
+                );
+                return None;
+            }
+            Some(owner)
+        }
         Ok(None) => {
             warn!(
                 provider = %provider,
@@ -398,7 +447,10 @@ async fn notify_owner(resources: &ServerContext, user_id: Uuid, provider: &str, 
 /// picks its activity up.
 async fn sync_strava_owner(resources: &Arc<ServerContext>, event: &StravaWebhookEvent) {
     let owner_id = event.owner_id.to_string();
-    let Some((user_id, tenant_id)) = resolve_owner(resources, "strava", &owner_id).await else {
+    let Some(WebhookOwner {
+        user_id, tenant_id, ..
+    }) = resolve_owner(resources, "strava", &owner_id).await
+    else {
         return;
     };
 
@@ -444,7 +496,10 @@ async fn sync_strava_owner(resources: &Arc<ServerContext>, event: &StravaWebhook
 /// over cached rides and reported as a failed sync.
 async fn evict_deleted_strava_activity(resources: &ServerContext, event: &StravaWebhookEvent) {
     let owner_id = event.owner_id.to_string();
-    let Some((user_id, tenant_id)) = resolve_owner(resources, "strava", &owner_id).await else {
+    let Some(WebhookOwner {
+        user_id, tenant_id, ..
+    }) = resolve_owner(resources, "strava", &owner_id).await
+    else {
         return;
     };
     let Ok(tenant) = TenantId::parse_str(&tenant_id) else {
@@ -556,7 +611,9 @@ async fn sync_whoop_owner(
     orchestrator: &SyncOrchestrator,
     provider_user_id: &str,
 ) {
-    let Some((user_id, tenant_id)) = resolve_owner(resources, "whoop", provider_user_id).await
+    let Some(WebhookOwner {
+        user_id, tenant_id, ..
+    }) = resolve_owner(resources, "whoop", provider_user_id).await
     else {
         return;
     };

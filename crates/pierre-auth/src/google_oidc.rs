@@ -26,12 +26,12 @@ use base64::Engine as _;
 use dravr_tronc::http_client::describe_request_error;
 use dravr_tronc::iam::GoogleKeySet;
 use jsonwebtoken::{Algorithm, Validation};
+use pierre_core::constant_time::secrets_equal;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::http_client::api_inner_client;
 use pierre_core::models::normalize_email;
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::Deserialize;
-use subtle::ConstantTimeEq;
 use tracing::debug;
 
 use crate::config::GoogleSignInConfig;
@@ -253,7 +253,7 @@ impl GoogleOidcClient {
         let nonce_matches = claims
             .nonce
             .as_deref()
-            .is_some_and(|nonce| bool::from(nonce.as_bytes().ct_eq(expected_nonce.as_bytes())));
+            .is_some_and(|nonce| secrets_equal(nonce.as_bytes(), expected_nonce.as_bytes()));
         if !nonce_matches {
             debug!("Google ID token nonce is missing or belongs to another sign-in");
             return Err(AppError::auth_invalid("Invalid token"));

@@ -9,6 +9,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
 use dravr_canot::channels::descriptor_for;
+use pierre_core::constant_time::is_unset_secret;
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::TenantId;
 use pierre_database::backends::{MessagingRepository, TenantRepository, UpsertChannelConfigParams};
@@ -269,19 +270,28 @@ pub async fn upsert_channel_config(
     let phone_number = creds.get("phone_number").and_then(|v| v.as_str());
     let bot_token = creds.get("bot_token").and_then(|v| v.as_str());
 
+    // An empty or whitespace-only verify token is no token
+    // (`is_unset_secret`): stored, it would be the value Meta's subscription
+    // handshake is checked against, and a request carrying the same blank would
+    // present exactly that. Omit the field to configure no verify token.
+    if verify_token.is_some_and(|token| is_unset_secret(token.as_bytes())) {
+        return Err(AppError::invalid_input(
+            "verify_token cannot be blank — omit it to configure no verify token",
+        ));
+    }
+
     // `bot_username` is NOT persisted: `messaging_channel_configs` has no such
     // column, so a value sent here would be silently dropped. Say so instead of
     // accepting it — a caller who believes they configured the Telegram handle
     // and did not is exactly how every link URL ended up pointing at a
-    // third-party bot (see `linking.rs::telegram_bot_username`). The handle
-    // comes from PIERRE_TELEGRAM_BOT_USERNAME until there is a column to hold
-    // it.
+    // third-party bot (see `linking.rs::telegram_bot_username`). The handle is
+    // never configured anywhere: it is asked of Telegram with the stored
+    // `bot_token`.
     if creds.get("bot_username").is_some() {
         return Err(AppError::invalid_input(
             "bot_username cannot be stored in channel credentials — there is no \
-             column for it, so it would be silently discarded. Set the \
-             PIERRE_TELEGRAM_BOT_USERNAME environment variable on the server \
-             instead.",
+             column for it, so it would be silently discarded. Send bot_token \
+             instead: the bot's username is resolved from it.",
         ));
     }
 

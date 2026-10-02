@@ -151,7 +151,8 @@ async fn test_server_capabilities_declaration() {
 /// Test MCP-specific error codes compliance
 #[tokio::test]
 async fn test_mcp_error_codes_compliance() {
-    // Verify error codes follow MCP specification ranges
+    // Pinned on purpose: these three are wire values the JSON-RPC 2.0
+    // specification assigns, and a client branches on the number.
     assert_eq!(ERROR_METHOD_NOT_FOUND, -32601);
     assert_eq!(ERROR_INVALID_PARAMS, -32602);
     assert_eq!(ERROR_INTERNAL_ERROR, -32603);

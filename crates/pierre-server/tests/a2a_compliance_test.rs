@@ -40,6 +40,8 @@ fn request(method: &str, params: Option<serde_json::Value>) -> A2ARequest {
 #[test]
 fn test_protocol_version_is_major_minor() {
     // Spec §3.6: negotiated versions are Major.Minor — never a patch digit.
+    // Pinned on purpose: this is the wire value a client sends in `A2A-Version`
+    // and the card advertises, fixed by the A2A 1.0 specification.
     assert_eq!(A2A_VERSION, "1.0");
 }
 

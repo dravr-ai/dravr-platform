@@ -6,6 +6,7 @@ on:
     paths:
       - 'sdk/**'
       - 'packages/mcp-types/**'
+      - 'packages/eslint-config-pierre/testing/**'
       - 'crates/**'
       - 'migrations/**'
       - 'Cargo.toml'
@@ -16,6 +17,7 @@ on:
     paths:
       - 'sdk/**'
       - 'packages/mcp-types/**'
+      - 'packages/eslint-config-pierre/testing/**'
       - 'crates/**'
       - 'migrations/**'
       - 'Cargo.toml'

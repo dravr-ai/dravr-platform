@@ -141,11 +141,19 @@ async fn a_refreshed_token_round_trips_its_new_pair() {
     expired.expires_at = Some(seconds_ago(3600));
     repos.oauth_tokens.upsert_token(&expired).await.unwrap();
 
+    // A refresh swaps over the row as it was read, so it starts from a read.
+    let read = repos
+        .oauth_tokens
+        .get_token(user_id, tenant_id, "strava")
+        .await
+        .unwrap()
+        .expect("the stored token");
+
     let renewed_until = seconds_ago(-6 * 3600);
     assert!(repos
         .oauth_tokens
         .refresh_token(
-            &expired,
+            &read,
             "access-after-refresh",
             Some("refresh-after-refresh"),
             Some(renewed_until),
@@ -213,6 +221,235 @@ async fn a_refreshed_token_round_trips_its_new_pair() {
         .unwrap()
         .unwrap();
     assert_eq!(untouched.access_token, other.access_token);
+}
+
+/// Two refreshes read the same row, and the vendor rotated the refresh token
+/// for the first. The write is a compare-and-swap on the row as read: the
+/// first lands and stamps `updated_at`, and the second, which read the row
+/// before that, writes nothing, so the pair the vendor now honours stays. The
+/// row keeps its `id` throughout, so only `updated_at` tells them apart; the
+/// token columns cannot, being encrypted under a fresh nonce on every write.
+#[tokio::test]
+async fn a_refresh_that_lost_the_swap_leaves_the_winners_pair() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let user_id = fresh_user(repos).await;
+    let tenant_id = TenantId::generate();
+
+    let mut expired = token(user_id, &tenant_id, "whoop", seconds_ago(7 * 3600));
+    expired.expires_at = Some(seconds_ago(3600));
+    repos.oauth_tokens.upsert_token(&expired).await.unwrap();
+    let read_by_both = repos
+        .oauth_tokens
+        .get_token(user_id, tenant_id, "whoop")
+        .await
+        .unwrap()
+        .expect("the stored token");
+
+    assert!(
+        repos
+            .oauth_tokens
+            .refresh_token(
+                &read_by_both,
+                "access-of-the-winner",
+                Some("refresh-of-the-winner"),
+                Some(seconds_ago(-3600)),
+            )
+            .await
+            .unwrap(),
+        "the first refresh lands"
+    );
+    let landed = repos
+        .oauth_tokens
+        .refresh_token(
+            &read_by_both,
+            "access-of-the-loser",
+            Some("refresh-of-the-loser"),
+            Some(seconds_ago(-3600)),
+        )
+        .await
+        .unwrap();
+    assert!(!landed, "the second refresh read a row since rewritten");
+
+    let stored = repos
+        .oauth_tokens
+        .get_token(user_id, tenant_id, "whoop")
+        .await
+        .unwrap()
+        .expect("the row is still there");
+    assert_eq!(stored.id, read_by_both.id, "a refresh keeps the row's id");
+    assert_eq!(stored.access_token, "access-of-the-winner");
+    assert_eq!(
+        stored.refresh_token.as_deref(),
+        Some("refresh-of-the-winner")
+    );
+
+    // The winner's row, read again, is what the next refresh swaps over.
+    assert!(repos
+        .oauth_tokens
+        .refresh_token(&stored, "access-of-the-next", None, None)
+        .await
+        .unwrap());
+}
+
+/// The owner id a refresh captures is written after a round trip to the
+/// provider, and another refresh of the row can land in that time. The write
+/// records the id and nothing else: the newer pair stays, and so does the
+/// `updated_at` the next refresh swaps over. A row a reconnect replaced is not
+/// written at all.
+#[tokio::test]
+async fn recording_an_owner_id_leaves_a_newer_token_pair_alone() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let user_id = fresh_user(repos).await;
+    let tenant_id = TenantId::generate();
+
+    let mut minted = token(user_id, &tenant_id, "whoop", seconds_ago(3600));
+    minted.provider_user_id = None;
+    repos.oauth_tokens.upsert_token(&minted).await.unwrap();
+    let read_by_the_first = repos
+        .oauth_tokens
+        .get_token(user_id, tenant_id, "whoop")
+        .await
+        .unwrap()
+        .unwrap();
+
+    // The first refresh lands, then goes to read the owner's profile.
+    assert!(repos
+        .oauth_tokens
+        .refresh_token(
+            &read_by_the_first,
+            "access-of-the-first",
+            Some("refresh-of-the-first"),
+            Some(seconds_ago(-3600)),
+        )
+        .await
+        .unwrap());
+    // A second refresh lands meanwhile, spending the first one's refresh token.
+    let read_by_the_second = repos
+        .oauth_tokens
+        .get_token(user_id, tenant_id, "whoop")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(repos
+        .oauth_tokens
+        .refresh_token(
+            &read_by_the_second,
+            "access-of-the-second",
+            Some("refresh-of-the-second"),
+            Some(seconds_ago(-7200)),
+        )
+        .await
+        .unwrap());
+    let left_by_the_second = repos
+        .oauth_tokens
+        .get_token(user_id, tenant_id, "whoop")
+        .await
+        .unwrap()
+        .unwrap();
+
+    // The first refresh records the id, holding the row as it first read it.
+    assert!(repos
+        .oauth_tokens
+        .record_provider_user_id(&read_by_the_first, "12345")
+        .await
+        .unwrap());
+
+    let stored = repos
+        .oauth_tokens
+        .get_token(user_id, tenant_id, "whoop")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.provider_user_id.as_deref(), Some("12345"));
+    assert_eq!(stored.access_token, "access-of-the-second");
+    assert_eq!(
+        stored.refresh_token.as_deref(),
+        Some("refresh-of-the-second"),
+        "the spent refresh token is not put back"
+    );
+    assert_eq!(stored.expires_at, left_by_the_second.expires_at);
+    assert_eq!(
+        stored.updated_at, left_by_the_second.updated_at,
+        "the stamp a refresh swaps over is not moved"
+    );
+    assert!(
+        repos
+            .oauth_tokens
+            .refresh_token(&left_by_the_second, "access-of-the-third", None, None)
+            .await
+            .unwrap(),
+        "a refresh that read the row before the id was recorded still lands"
+    );
+    assert_eq!(
+        repos
+            .oauth_tokens
+            .find_user_by_provider_user_id("whoop", "12345")
+            .await
+            .unwrap(),
+        Some((user_id, tenant_id.to_string()))
+    );
+
+    // A reconnect replaces the row: the id read for the old grant is not
+    // written over the new one.
+    let mut reconnected = token(user_id, &tenant_id, "whoop", seconds_ago(5));
+    reconnected.provider_user_id = Some("67890".to_owned());
+    repos.oauth_tokens.upsert_token(&reconnected).await.unwrap();
+    assert!(!repos
+        .oauth_tokens
+        .record_provider_user_id(&read_by_the_first, "12345")
+        .await
+        .unwrap());
+    let stored = repos
+        .oauth_tokens
+        .get_token(user_id, tenant_id, "whoop")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.provider_user_id.as_deref(), Some("67890"));
+
+    // The live row is reachable only as its own tenant and user: the same row
+    // id named under another tenant, or another user, writes nothing.
+    let mut under_another_tenant = stored.clone();
+    under_another_tenant.tenant_id = TenantId::generate().to_string();
+    assert!(!repos
+        .oauth_tokens
+        .record_provider_user_id(&under_another_tenant, "11111")
+        .await
+        .unwrap());
+    let mut under_another_user = stored.clone();
+    under_another_user.user_id = fresh_user(repos).await;
+    assert!(!repos
+        .oauth_tokens
+        .record_provider_user_id(&under_another_user, "22222")
+        .await
+        .unwrap());
+    let untouched = repos
+        .oauth_tokens
+        .get_token(user_id, tenant_id, "whoop")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        untouched.provider_user_id.as_deref(),
+        Some("67890"),
+        "a write scoped to another tenant or user leaves the owner id alone"
+    );
+
+    // The same row, named by its own tenant and user, is written.
+    assert!(repos
+        .oauth_tokens
+        .record_provider_user_id(&stored, "24680")
+        .await
+        .unwrap());
+    let recorded = repos
+        .oauth_tokens
+        .get_token(user_id, tenant_id, "whoop")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(recorded.provider_user_id.as_deref(), Some("24680"));
 }
 
 /// A refresh lands only over the row it read. A reconnect that stored a new

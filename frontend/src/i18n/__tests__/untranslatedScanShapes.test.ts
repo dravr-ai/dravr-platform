@@ -350,6 +350,11 @@ describe('athlete scope is derived, and pinned where we know the answer', () => 
             walk(full);
           }
         } else if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) {
+          // Why this reads source: it guards the untranslated-string scanner's
+          // own blind spot across both apps. The scanner follows string-literal
+          // import specifiers through the tree; a computed one in either app
+          // hides files from it silently. The mobile tree is outside this
+          // package's ESLint config, so no single lint covers both roots.
           const source = fs.readFileSync(full, 'utf-8');
           for (const m of source.matchAll(/import\(\s*([^'"\s)])/g)) {
             offenders.push(`${path.relative(web, full)}: import(${m[1]}…`);

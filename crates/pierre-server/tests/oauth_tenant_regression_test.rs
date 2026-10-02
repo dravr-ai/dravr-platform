@@ -169,17 +169,25 @@ fn validate_tenant_slug(tenant_slug: &str) -> Result<String, String> {
     Ok(slug)
 }
 
-/// Test that OAuth providers constants are correct
+/// The provider slugs are persisted values, pinned on purpose.
+///
+/// Each is the `provider` column of every stored token and connection row and
+/// a path segment of the OAuth callback registered with the provider, so a
+/// changed value orphans the rows written under the old one.
 #[test]
 fn test_oauth_providers_constants() {
     use pierre_mcp_server::constants::oauth_providers;
 
-    // Verify provider names
     assert_eq!(oauth_providers::STRAVA, "strava");
     assert_eq!(oauth_providers::WHOOP, "whoop");
 }
 
-/// Test that the OAuth scope constants carry each provider's documented scopes
+/// The default scopes are wire values, pinned on purpose.
+///
+/// Each string is sent verbatim in the authorization request and its
+/// vocabulary belongs to the provider's API, not to this codebase: a scope the
+/// provider does not define fails the consent screen, and a missing one grants
+/// less than the tools read.
 #[test]
 fn test_oauth_scopes_for_all_providers() {
     use pierre_mcp_server::constants::oauth;

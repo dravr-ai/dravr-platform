@@ -5,8 +5,8 @@
 // Copyright (c) 2026 dravr.ai
 
 use base64::{engine::general_purpose, Engine as _};
+use pierre_core::constant_time::secrets_equal;
 use sha2::{Digest, Sha256};
-use subtle::ConstantTimeEq;
 use tracing::{debug, warn};
 
 use super::models::{AuthorizeRequest, OAuth2Error};
@@ -87,11 +87,7 @@ pub(super) fn verify_challenge(
     let computed_challenge = compute_challenge(verifier, method)?;
 
     // Constant-time comparison to prevent timing attacks
-    if computed_challenge
-        .as_bytes()
-        .ct_eq(stored_challenge.as_bytes())
-        .into()
-    {
+    if secrets_equal(computed_challenge.as_bytes(), stored_challenge.as_bytes()) {
         debug!("PKCE verification successful for client {}", client_id);
         Ok(())
     } else {

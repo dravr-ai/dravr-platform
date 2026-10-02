@@ -10,37 +10,13 @@
 //! Warp → Axum migration (commit 439da5853fbc209e36d34b4dd56eb2a3aed8c6f6)
 //! have been fixed and do not reoccur.
 //!
-//! Regressions tested:
-//! 1. OAuth client IDs were hardcoded as "`test_client_id`"
-//! 2. OAuth scopes were hardcoded instead of using constants
-//! 3. Tenant creation on user approval was lost
+//! The migration lost three things: OAuth client ids became a hardcoded
+//! "`test_client_id`", OAuth scopes were hardcoded, and tenant creation on user
+//! approval disappeared. The first two are read from configuration now and
+//! tested where that happens (`pierre-auth`'s `oauth_env_reader_test`); what is
+//! left here is the approval request body.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
-/// Regression Test #1 & #2: Verify OAuth constants are defined correctly
-///
-/// This test ensures that the OAuth scope constants exist and are used
-/// instead of hardcoded values.
-#[test]
-fn test_oauth_scopes_constants_exist() {
-    use pierre_mcp_server::constants::oauth;
-
-    // Verify Strava scope constant exists and has correct value
-    assert_eq!(
-        oauth::STRAVA_DEFAULT_SCOPES,
-        "activity:read_all",
-        "STRAVA_DEFAULT_SCOPES should be 'activity:read_all'"
-    );
-
-    // Verify it's NOT the old buggy value
-    assert_ne!(
-        oauth::STRAVA_DEFAULT_SCOPES,
-        "read,activity:read_all",
-        "STRAVA_DEFAULT_SCOPES should not contain unnecessary 'read' scope"
-    );
-
-    println!("✅ Regression test passed: OAuth scope constants exist and have correct values");
-}
 
 /// `ApproveUserRequest` deserializes, and ignores the tenant keys it no longer has
 ///
@@ -77,22 +53,4 @@ fn test_approve_user_request_ignores_removed_tenant_keys() {
     assert_eq!(bare.reason, None);
 
     println!("✅ ApproveUserRequest parses, and ignores the removed tenant keys");
-}
-
-/// Comprehensive test: Verify all regression fixes are in place
-#[test]
-fn test_all_regressions_fixed() {
-    use pierre_mcp_server::constants::oauth;
-    use pierre_routes_admin::ApproveUserRequest;
-
-    // Regression #1 & #2: OAuth constants exist
-    assert_eq!(oauth::STRAVA_DEFAULT_SCOPES, "activity:read_all");
-
-    // The approval body still exists; its tenant fields were deleted in
-    // registre#407 and are covered by the ignore-unknown-keys test above.
-    let _ = ApproveUserRequest { reason: None };
-
-    println!("✅ All regression fixes verified!");
-    println!("   1. OAuth client IDs use configuration (not hardcoded)");
-    println!("   2. OAuth scopes use constants (not hardcoded)");
 }

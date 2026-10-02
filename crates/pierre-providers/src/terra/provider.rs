@@ -26,7 +26,9 @@ use crate::errors::provider::ProviderError;
 use crate::errors::AppResult;
 use crate::models::{Activity, Athlete, Stats};
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
-use crate::spi::{OAuthEndpoints, OAuthParams, ProviderCapabilities, ProviderDescriptor};
+use crate::spi::{
+    OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderCapabilities, ProviderDescriptor,
+};
 
 use super::api_client::TerraApiClient;
 use super::cache::TerraDataCache;
@@ -317,6 +319,10 @@ impl ProviderDescriptor for TerraDescriptor {
             use_pkce: false, // Terra uses API keys
             additional_auth_params: &[],
         })
+    }
+
+    fn oauth_refresh(&self) -> Option<OAuthRefresh> {
+        None // Terra authenticates with an API key; there is no refresh grant
     }
 
     fn api_base_url(&self) -> &'static str {

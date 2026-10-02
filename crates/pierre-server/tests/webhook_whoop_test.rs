@@ -709,6 +709,49 @@ async fn bad_signature_syncs_nothing() {
     assert_eq!(sleep_rows(&resources, user_id, &tenant_id).await, 0);
 }
 
+/// A `WHOOP_WEBHOOK_SECRET` set to a blank is a missing secret: an event
+/// signed under that blank is refused with the route's missing-secret 503
+/// before the orchestrator runs, and nothing is synced. The provider keys its
+/// HMAC with whatever the variable holds, so without the route's refusal the
+/// forgery verifies. The same event signed under a real secret still syncs.
+#[tokio::test]
+#[serial]
+async fn a_blank_secret_verifies_no_event() {
+    for blank in ["", " ", "\n", " \t\r\n"] {
+        let _secret = EnvGuard::set(&[("WHOOP_WEBHOOK_SECRET", blank.to_owned())]);
+        let (resources, mock) = context_with_mock_whoop().await;
+        let (user_id, tenant_id) =
+            seed_linked_user(&resources, "whoop-blank@example.com", Some(WHOOP_USER_ID)).await;
+
+        let body = whoop_payload("sleep.updated", WHOOP_USER_ID, "sleep-uuid-1");
+        let forged = sign(blank, &body);
+        assert_eq!(
+            post_signed(&resources, body, Some(&forged)).await,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "a secret of {blank:?} is answered as a missing one"
+        );
+        assert_eq!(resources.common.turns.len(), 0, "no sync turn was spawned");
+        await_spawned_turns(&resources).await;
+        assert_eq!(mock.fetches.load(Ordering::SeqCst), 0, "nobody was synced");
+        assert_eq!(sleep_rows(&resources, user_id, &tenant_id).await, 0);
+    }
+
+    let _secret = EnvGuard::set(&[("WHOOP_WEBHOOK_SECRET", SECRET.to_owned())]);
+    let (resources, mock) = context_with_mock_whoop().await;
+    let (user_id, tenant_id) =
+        seed_linked_user(&resources, "whoop-real@example.com", Some(WHOOP_USER_ID)).await;
+    let body = whoop_payload("sleep.updated", WHOOP_USER_ID, "sleep-uuid-1");
+    let signature = sign(SECRET, &body);
+    assert_eq!(
+        post_signed(&resources, body, Some(&signature)).await,
+        StatusCode::OK,
+        "under a real secret a correctly signed event still passes"
+    );
+    await_spawned_turns(&resources).await;
+    assert_eq!(mock.fetches.load(Ordering::SeqCst), 1);
+    assert_eq!(sleep_rows(&resources, user_id, &tenant_id).await, 1);
+}
+
 /// A validated event whose WHOOP user id no token carries is acknowledged
 /// and syncs nobody — never broadcast to every connected user.
 #[tokio::test]

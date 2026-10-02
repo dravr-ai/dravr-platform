@@ -184,6 +184,21 @@ pub trait DelegatedConnectionRepository: Send + Sync {
         member_tenant_id: TenantId,
         provider: &str,
     ) -> AppResult<Option<DelegatedConnection>>;
+
+    /// The confirmed links naming one provider athlete that the group relation
+    /// still backs, oldest confirmation first.
+    ///
+    /// The lookup a provider push event starts from: it names an athlete and
+    /// arrives with no user and no tenant, so the athlete id is the key and
+    /// each row returned carries the member, the member's tenant and the coach
+    /// whose session reads for them. Fails closed on the same relation as
+    /// [`Self::find_active_for_member`]. More than one row means two coaches
+    /// each hold a confirmed link for that athlete; the caller decides.
+    async fn list_confirmed_for_athlete(
+        &self,
+        provider: &str,
+        provider_athlete_id: &str,
+    ) -> AppResult<Vec<DelegatedConnection>>;
 }
 
 /// The columns every read decodes, each prefixed with `$p` (`""` for the bare
@@ -372,6 +387,15 @@ pub(crate) const FIND_ACTIVE_FOR_MEMBER_SQL: &str = backed_links_sql!(
     "d.member_user_id = $1 AND d.member_tenant_id = $2 AND d.provider = $3
        AND d.status = 'confirmed'",
     ""
+);
+
+/// The confirmed links naming one provider athlete, only while the relation
+/// backs them. Keyed by the athlete because a push event carries no tenant;
+/// the tenants are read from the row.
+pub(crate) const LIST_CONFIRMED_FOR_ATHLETE_SQL: &str = backed_links_sql!(
+    "d.provider = $1 AND d.provider_athlete_id = $2 AND d.status = 'confirmed'",
+    "
+     ORDER BY d.confirmed_at, d.id"
 );
 
 /// Read one column by name via `try_get`, never `Row::get`, so a corrupt row
@@ -775,6 +799,25 @@ macro_rules! impl_delegated_connection_repository {
                     })?;
 
                 row.as_ref().map(row_to_delegated_connection).transpose()
+            }
+
+            async fn list_confirmed_for_athlete(
+                &self,
+                provider: &str,
+                provider_athlete_id: &str,
+            ) -> AppResult<Vec<DelegatedConnection>> {
+                let rows = sqlx::query(LIST_CONFIRMED_FOR_ATHLETE_SQL)
+                    .bind(provider)
+                    .bind(provider_athlete_id)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to find an athlete's confirmed delegated connections: {e}"
+                        ))
+                    })?;
+
+                rows.iter().map(row_to_delegated_connection).collect()
             }
         }
     };

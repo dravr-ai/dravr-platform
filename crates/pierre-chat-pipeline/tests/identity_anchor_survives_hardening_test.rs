@@ -1,5 +1,5 @@
-// ABOUTME: The identity anchor must reach the hardened prompt on EVERY path, agent-bound included
-// ABOUTME: Closes the gap where all anchor tests exercised the pure helper on a bare string
+// ABOUTME: The identity anchor survives everything applied after it — both closing arms, hardening, 50 KB prompts
+// ABOUTME: That it reaches the wire on the agent-bound path is pinned on real turns in pierre-server
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -20,87 +20,26 @@
 //! string. Agent-bound turns matched the boundary detector 5/21; no-agent turns
 //! 0/10.
 //!
-//! `assemble_prompt_and_messages` is `pub(crate)` and needs a live
-//! `ChatPipelineContext` (DB, registries, provider), so an integration test
-//! cannot drive it. These tests therefore attack the same invariant from the two
-//! seams that ARE reachable:
-//!
-//! 1. **Structurally** — the anchor call must be unconditional and sit AFTER the
-//!    agent/default branch, so reintroducing the branch-scoped bug reds. Same
-//!    technique as `onboarding_directive_tail_test`, and the same reason: the
-//!    regression guarded against is a source edit.
-//! 2. **Compositionally** — the anchor must survive canary hardening and the
-//!    conditions under which leaks were actually observed (very large prompts,
-//!    an appended compaction summary), since both real incidents were
-//!    long-context turns rather than the short provocations the live A/B used.
+//! That branch is exercised where it runs: `an_agent_bound_turn_closes_with_the_same_anchor`
+//! in `crates/pierre-server/tests/prompt_assembly_wire_test.rs` binds an agent,
+//! runs a real turn and asserts the request the model received closes with the
+//! anchor. What stays here is what a string-level test can honestly cover: the
+//! anchor must survive canary hardening and the conditions under which leaks
+//! were actually observed (very large prompts, an appended compaction summary),
+//! since both real incidents were long-context turns rather than the short
+//! provocations the live A/B used.
 
 use pierre_chat_pipeline::stages::prompt_assembly::{
     close_with_anchors, close_with_identity_anchor,
 };
 use pierre_core::models::TenantId;
 use pierre_services::prompt_leak::harden_system_prompt;
-use std::fs;
-use std::path::PathBuf;
-
-fn prompt_assembly_source() -> String {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/stages/prompt_assembly.rs");
-    fs::read_to_string(&path).expect("read prompt_assembly.rs")
-}
-
-/// Byte offset of a marker that must appear exactly once.
-fn sole_offset(source: &str, marker: &str) -> usize {
-    let count = source.matches(marker).count();
-    assert_eq!(
-        count, 1,
-        "expected exactly one occurrence of {marker:?}, found {count}"
-    );
-    source.find(marker).expect("checked above")
-}
-
-#[test]
-fn the_anchor_is_applied_unconditionally_after_the_agent_branch() {
-    let source = prompt_assembly_source();
-
-    // The `map_or_else` that chooses agent prompt vs pierre_system.md. The bug
-    // was that this branch decided whether any identity text existed at all.
-    let branch = sole_offset(&source, "agent_ctx.map_or_else(");
-    let anchor_call = sole_offset(&source, "close_with_anchors(&raw_system_prompt,");
-
-    assert!(
-        branch < anchor_call,
-        "the anchor must be applied AFTER the coach/default branch, so both paths \
-         receive it — applying it inside either arm is how coach-bound turns ended \
-         up with no identity text at all"
-    );
-
-    // And it must not be conditional. Anything that scopes the call to a branch
-    // recreates the original defect for the excluded path.
-    //
-    // Checked over the whole statement rather than the marker's own line:
-    // rustfmt is free to wrap `let x = f(a, b);` across two lines, and it does,
-    // which made the earlier line-prefix version fail on a formatting choice
-    // instead of on the defect it exists to catch.
-    let stmt_start = source[..anchor_call]
-        .rfind("let raw_system_prompt =")
-        .expect("the anchor call must be a rebinding of raw_system_prompt");
-    let between = &source[stmt_start..anchor_call];
-    assert!(
-        !between.contains(" if ")
-            && !between.contains("match ")
-            && !between.contains("=>")
-            && !between.contains('{'),
-        "the anchor call must be unconditional — nothing may scope it to a branch, found: {between:?}"
-    );
-}
 
 #[test]
 fn both_arms_of_the_close_carry_the_identity_anchor() {
-    // The single call site above used to be the whole guarantee: one call, so
-    // no branch could skip it. `close_with_anchors` now has two arms — a
-    // agent-bound turn also gets a voice anchor — so the hazard the structural
-    // test guards against moved inside that function, and this follows it there.
-    //
-    // Behavioural, not a grep: it asserts the string the model would receive.
+    // `close_with_anchors` has two arms — an agent-bound turn also gets a
+    // voice anchor — so a branch inside it is where the identity anchor could
+    // be skipped, and this drives both.
     for agent in [Some("strength"), None] {
         let out = close_with_anchors("## Your coaching style\nShort sessions.", agent);
         assert!(

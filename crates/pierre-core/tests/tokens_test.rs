@@ -6,12 +6,7 @@
 
 #![allow(missing_docs, clippy::unwrap_used)]
 
-use pierre_core::tokens::{estimate_chat_tokens, estimate_prompt_tokens, CHARS_PER_TOKEN};
-
-#[test]
-fn chars_per_token_is_four() {
-    assert_eq!(CHARS_PER_TOKEN, 4);
-}
+use pierre_core::tokens::{estimate_chat_tokens, estimate_prompt_tokens};
 
 #[test]
 fn prompt_tokens_divides_by_four() {

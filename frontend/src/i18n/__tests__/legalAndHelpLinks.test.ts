@@ -67,6 +67,11 @@ describe('help and legal destinations', () => {
     const offenders: string[] = [];
     for (const root of ROOTS) {
       for (const file of sourceFiles(root)) {
+        // Why this reads source: a rule across the codebase — no dead address in
+        // any string either client ships. The trees span three packages, each
+        // linted by its own config, and a link also hides in a template or a
+        // concatenation no literal selector sees; one scan with one list of dead
+        // paths is the single place a retired address is declared.
         const source = fs.readFileSync(file, 'utf8');
         for (const dead of DEAD_PATHS) {
           if (source.includes(dead)) {

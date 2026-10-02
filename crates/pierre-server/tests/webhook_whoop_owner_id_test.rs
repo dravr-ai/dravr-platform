@@ -25,6 +25,8 @@
 mod common;
 
 use std::env;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -76,6 +78,9 @@ struct MockWhoopApi {
     profile_hits: AtomicUsize,
     /// The `Authorization` header of every profile read.
     profile_bearers: Mutex<Vec<String>>,
+    /// Run once while a profile read is being answered, when set: what
+    /// happens to the connection while the refresh is away at WHOOP.
+    during_profile_read: Mutex<Option<Pin<Box<dyn Future<Output = ()> + Send>>>>,
 }
 
 /// Stand up a mock WHOOP: `POST /oauth/token` answers a token without any
@@ -113,6 +118,10 @@ async fn mock_whoop() -> (String, Arc<MockWhoopApi>) {
                         .unwrap_or_default()
                         .to_owned();
                     recorder.profile_bearers.lock().unwrap().push(bearer);
+                    let meanwhile = recorder.during_profile_read.lock().unwrap().take();
+                    if let Some(meanwhile) = meanwhile {
+                        meanwhile.await;
+                    }
                     Json(json!({
                         "user_id": WHOOP_USER_ID,
                         "email": "athlete@example.com",
@@ -316,6 +325,84 @@ async fn refresh_fills_a_missing_whoop_user_id() {
         "the id is persisted with the refreshed tokens"
     );
     assert!(stored.expires_at.unwrap() > Utc::now());
+}
+
+/// The owner id is written after the refreshed pair, with a profile read in
+/// between. Another refresh of the connection lands during that read (the
+/// WHOOP client's own, another server instance's), spending the refresh token
+/// the first one stored. The id is still recorded, and the later pair is the
+/// one left stored: writing the first pair back with the id would leave a
+/// spent refresh token, and the next refresh would cost the athlete the grant.
+#[tokio::test]
+#[serial]
+async fn a_refresh_landing_during_the_profile_read_keeps_its_pair() {
+    let (base, mock) = mock_whoop().await;
+    let (resources, _env) = context_pointed_at(&base).await;
+    let (user_id, tenant_id) = linked_user(&resources, "whoop-refresh-race@example.com").await;
+    seed_expired_whoop_token(&resources, user_id, tenant_id, None).await;
+
+    let left_by_the_later_refresh = Arc::new(Mutex::new(None));
+    {
+        let (resources, left) = (
+            Arc::clone(&resources),
+            Arc::clone(&left_by_the_later_refresh),
+        );
+        *mock.during_profile_read.lock().unwrap() = Some(Box::pin(async move {
+            let row = stored_whoop_token(&resources, user_id, tenant_id).await;
+            assert_eq!(
+                row.access_token, "whoop_new_access",
+                "the first refresh stored its pair before reading the profile"
+            );
+            let landed = resources
+                .common
+                .repos
+                .oauth_tokens
+                .refresh_token(
+                    &row,
+                    "access-of-the-later-refresh",
+                    Some("refresh-of-the-later-refresh"),
+                    Some(Utc::now() + chrono::Duration::hours(2)),
+                )
+                .await
+                .unwrap();
+            assert!(landed, "the later refresh swaps over the row it read");
+            let row = stored_whoop_token(&resources, user_id, tenant_id).await;
+            *left.lock().unwrap() = Some(row);
+        }));
+    }
+
+    let auth = AuthService::new(Arc::clone(&resources) as Arc<dyn ToolRuntime>);
+    let token = auth
+        .get_valid_token(user_id, "whoop", Some(&tenant_id.to_string()))
+        .await
+        .expect("lookup does not error")
+        .expect("the expired token is refreshed");
+    assert_eq!(token.provider_user_id.as_deref(), Some("12345"));
+    assert_eq!(mock.token_hits.load(Ordering::SeqCst), 1, "one refresh");
+    assert_eq!(mock.profile_hits.load(Ordering::SeqCst), 1);
+
+    let left = left_by_the_later_refresh
+        .lock()
+        .unwrap()
+        .take()
+        .expect("the later refresh landed during the profile read");
+    let stored = stored_whoop_token(&resources, user_id, tenant_id).await;
+    assert_eq!(
+        stored.provider_user_id.as_deref(),
+        Some("12345"),
+        "the id is recorded"
+    );
+    assert_eq!(stored.access_token, "access-of-the-later-refresh");
+    assert_eq!(
+        stored.refresh_token.as_deref(),
+        Some("refresh-of-the-later-refresh"),
+        "the refresh token the later refresh spent is not put back"
+    );
+    assert_eq!(stored.expires_at, left.expires_at);
+    assert_eq!(
+        stored.updated_at, left.updated_at,
+        "the row is otherwise as the later refresh left it"
+    );
 }
 
 /// A refresh of a WHOOP token that already carries its owner id keeps it and

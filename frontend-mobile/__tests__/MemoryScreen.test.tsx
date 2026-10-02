@@ -7,7 +7,7 @@ import React from 'react';
 import { ActionSheetIOS, Alert } from 'react-native';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { i18n } from '@pierre/i18n';
+import { defaultI18nConfig, i18n } from '@pierre/i18n';
 
 const mockListMemoryFacts = jest.fn();
 const mockForgetMemoryFact = jest.fn();
@@ -59,8 +59,10 @@ function createFact(overrides: Partial<Fact> = {}): Fact {
 }
 
 function renderScreen(): ReturnType<typeof render> {
+  // gcTime: Infinity — the default arms a five-minute timer per cached query
+  // on unmount, and jest cannot exit until it fires.
   const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { gcTime: Infinity } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
@@ -331,5 +333,73 @@ describe('MemoryScreen', () => {
     });
     expect(queryByTestId('back-button')).toBeNull();
     expect(mockRouterBack).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The phone's half of the memory copy parity. The title read "Ce que TON
+ * coach retient de toi" in the browser and "Ce que LE coach retient de toi"
+ * here, and the blurb differed by a whole rewrite, because each client had
+ * its own key. The browser's half is
+ * frontend/src/i18n/__tests__/memoryCopyParity.test.tsx, which renders the
+ * panel against the same keys; change this list and that one together.
+ */
+const SHARED_KEYS = {
+  title: 'shell.memoryTitle',
+  blurb: 'app.memoryPanelBlurb',
+  empty: 'shell.memoryEmpty',
+  emptyFiltered: 'shell.memoryEmptyFiltered',
+  showAllKinds: 'shell.memoryShowAllKinds',
+} as const;
+
+/** The hint under each empty sentence is the browser's alone: the phone's empty state is one sentence. */
+const WEB_ONLY_KEYS = ['shell.memoryEmptyHint', 'shell.memoryEmptyFilteredHint'];
+
+/**
+ * The catalogue's own French string for `key`, read from the bundle rather
+ * than through `t()`: a missing key makes `t()` answer with the key itself,
+ * which a screen reading the same missing key would match.
+ */
+function french(key: string): string {
+  const resources = defaultI18nConfig.resources as Record<string, { translation: Record<string, unknown> }>;
+  const text = key
+    .split('.')
+    .reduce<unknown>((node, part) => (node as Record<string, unknown> | undefined)?.[part], resources.fr.translation);
+  expect({ key, type: typeof text }).toEqual({ key, type: 'string' });
+  return text as string;
+}
+
+describe('MemoryScreen copy shared with the web panel', () => {
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    mockListMemoryFacts.mockResolvedValue({ facts: [], total: 0 });
+    // French is where the two copies had drifted.
+    await i18n.changeLanguage('fr');
+  });
+
+  afterEach(async () => {
+    await i18n.changeLanguage('en');
+  });
+
+  it('renders the title, blurb and empty sentence from the shared keys', async () => {
+    const { getByTestId, getByText, queryByText } = renderScreen();
+    await waitFor(() => expect(getByTestId('memory-empty')).toBeTruthy());
+
+    expect(getByTestId('stack-header-title').props.children).toBe(french(SHARED_KEYS.title));
+    expect(getByText(french(SHARED_KEYS.blurb))).toBeTruthy();
+    expect(getByText(french(SHARED_KEYS.empty))).toBeTruthy();
+    for (const key of WEB_ONLY_KEYS) expect(queryByText(french(key))).toBeNull();
+  });
+
+  it('renders the filtered empty sentence and the way back from the shared keys', async () => {
+    const { getByTestId, getByText, queryByText } = renderScreen();
+    await waitFor(() => expect(getByTestId('memory-empty')).toBeTruthy());
+
+    fireEvent.press(getByTestId('memory-kind-tab-injury'));
+
+    await waitFor(() => expect(getByTestId('memory-empty-filtered')).toBeTruthy());
+    expect(getByText(french(SHARED_KEYS.emptyFiltered))).toBeTruthy();
+    expect(getByText(french(SHARED_KEYS.showAllKinds))).toBeTruthy();
+    for (const key of WEB_ONLY_KEYS) expect(queryByText(french(key))).toBeNull();
   });
 });

@@ -234,6 +234,26 @@ jobs:
       - name: Install ripgrep
         run: sudo apt-get update && sudo apt-get install -y ripgrep
 
+      # The diff-scoped gates judge a push against its base. A pull request
+      # names it and a push to an existing branch names its before-sha, but a
+      # branch's FIRST push has an all-zero before-sha; the gates then fell back
+      # to HEAD~1 and judged only the newest commit, or failed outright when
+      # that one parent held a state the tip had already fixed. A new branch's
+      # base is where it forked from main.
+      - name: Resolve the gate base
+        id: gate_base
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          base="${PR_BASE:-$BEFORE}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            git fetch --no-tags --depth=200 origin main
+            base="$(git merge-base FETCH_HEAD HEAD)"
+          fi
+          echo "Gate base: $base"
+          echo "sha=$base" >> "$GITHUB_OUTPUT"
+
       - name: Architectural Validation (Custom Patterns + Security Skills)
         env:
           # The diff-scoped gates this script nests (file-size ratchet, migration
@@ -241,7 +261,7 @@ jobs:
           # from here. It has to be the push's own before-sha: actions/checkout
           # force-creates refs/heads/main from refs/remotes/origin/main, leaving
           # origin/main == HEAD, and a gate diffing against that inspects nothing.
-          GATE_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+          GATE_BASE_REF: ${{ steps.gate_base.outputs.sha }}
         run: ./scripts/ci/architectural-validation.sh --apply-skills
 
       # The fleet-wide text scans and this repo's validation-patterns.local.toml
@@ -256,10 +276,10 @@ jobs:
       # Compile-free, like everything else in this job. Both gates read source
       # with grep and awk; neither needs a toolchain or a running server.
       - name: Phantom Surface Detection
-        run: ./scripts/ci/check-phantom-surfaces.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
+        run: ./scripts/ci/check-phantom-surfaces.sh "${{ steps.gate_base.outputs.sha }}"
 
       - name: Turn Envelope Convergence
-        run: ./scripts/ci/check-turn-envelope.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
+        run: ./scripts/ci/check-turn-envelope.sh "${{ steps.gate_base.outputs.sha }}"
 
       # The hosted pages embed one stylesheet generated from the Boreal tokens
       # and committed, because the crates cannot run the generator; the web and
@@ -281,7 +301,7 @@ jobs:
       # not the other is first seen here. Fails a newly duplicated pair; reports
       # the pairs still awaiting conversion (carnet#436) without failing on them.
       - name: Backend Pair Duplication
-        run: ./scripts/ci/check-backend-pairs.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
+        run: ./scripts/ci/check-backend-pairs.sh "${{ steps.gate_base.outputs.sha }}"
 
       # Both fixture tests build throwaway repos and assert their gate FAILS on
       # a violation. They existed and ran nowhere, which is the failure mode
@@ -983,6 +1003,12 @@ jobs:
         id: changed
         run: |
           BEFORE="${{ github.event.before }}"
+          # A branch's first push has an all-zero before-sha: its tests are
+          # every test file the branch changed since it forked from main.
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            git fetch --no-tags --depth=200 origin main
+            BEFORE="$(git merge-base FETCH_HEAD HEAD 2>/dev/null || echo "")"
+          fi
           if [ -z "$BEFORE" ] || ! git rev-parse --verify --quiet "$BEFORE^{commit}" >/dev/null 2>&1; then
             BEFORE="$(git rev-parse HEAD~1 2>/dev/null || echo "")"
           fi

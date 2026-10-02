@@ -6,6 +6,7 @@
 
 use std::env;
 
+use pierre_core::constant_time::configured_secret;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_database::backends::UpsertChannelConfigParams;
@@ -109,9 +110,10 @@ async fn upsert_as_platform(
 /// Seed Slack channel config from `SLACK_BOT_TOKEN` + `SLACK_SIGNING_SECRET`
 async fn seed_slack(database: &(dyn MessagingRepository + '_), tenant_id: TenantId) -> Option<u32> {
     let bot_token = env::var("SLACK_BOT_TOKEN").ok()?;
-    let signing_secret = env::var("SLACK_SIGNING_SECRET").ok()?;
+    // A blank signing secret configures none, as the ops route reads it.
+    let signing_secret = configured_secret("SLACK_SIGNING_SECRET")?;
 
-    if bot_token.is_empty() || signing_secret.is_empty() {
+    if bot_token.is_empty() {
         return None;
     }
 
@@ -176,7 +178,7 @@ async fn seed_whatsapp(
     }
 
     let phone_number_id = env::var("META_WHATSAPP_PHONE_NUMBER_ID").ok();
-    let verify_token = env::var("META_WHATSAPP_VERIFY_TOKEN").ok();
+    let verify_token = configured_secret("META_WHATSAPP_VERIFY_TOKEN");
 
     let id = Uuid::new_v4().to_string();
     let params = UpsertChannelConfigParams {
@@ -208,7 +210,7 @@ async fn seed_messenger(
         return None;
     }
 
-    let verify_token = env::var("META_MESSENGER_VERIFY_TOKEN").ok();
+    let verify_token = configured_secret("META_MESSENGER_VERIFY_TOKEN");
 
     let id = Uuid::new_v4().to_string();
     let params = UpsertChannelConfigParams {

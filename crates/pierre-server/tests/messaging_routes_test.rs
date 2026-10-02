@@ -121,6 +121,44 @@ mod messaging_routes_tests {
         assert_eq!(body["action"], "upserted");
     }
 
+    /// An empty or whitespace-only `verify_token` is refused where it enters,
+    /// so it is never the value Meta's subscription handshake is checked
+    /// against.
+    #[tokio::test]
+    async fn test_upsert_channel_config_refuses_an_empty_verify_token() {
+        let (router, token) = setup_messaging_router().await;
+
+        for blank in ["", " ", "\n"] {
+            let response = AxumTestRequest::put("/api/messaging/channels/whatsapp")
+                .header("authorization", &token)
+                .json(&json!({
+                    "enabled": true,
+                    "credentials": {
+                        "api_key": "wa_key",
+                        "webhook_secret": "wa_app_secret",
+                        "verify_token": blank
+                    }
+                }))
+                .send(router.clone())
+                .await;
+            assert_eq!(
+                response.status_code(),
+                StatusCode::BAD_REQUEST,
+                "a verify_token of {blank:?} is refused"
+            );
+        }
+
+        let response = AxumTestRequest::get("/api/messaging/channels/whatsapp")
+            .header("authorization", &token)
+            .send(router)
+            .await;
+        let body: serde_json::Value = response.json();
+        assert!(
+            body["config"].is_null(),
+            "the refused request stored nothing: {body}"
+        );
+    }
+
     #[tokio::test]
     async fn test_get_channel_config() {
         let (router, token) = setup_messaging_router().await;
@@ -1145,6 +1183,74 @@ mod messaging_routes_tests {
 
         assert_eq!(response.status_code(), StatusCode::OK);
         assert_eq!(response.text(), "compat_challenge");
+    }
+
+    /// A stored verify token of "" is no token. Two empty strings are equal,
+    /// so a handshake carrying no token would otherwise pass against it.
+    #[tokio::test]
+    async fn test_meta_verify_refuses_an_empty_stored_verify_token() {
+        use pierre_database::backends::{MessagingRepository, UpsertChannelConfigParams};
+        use uuid::Uuid;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+
+        let (_user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
+        let tenants = resources
+            .common
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
+        let tenant_id = tenants[0].id;
+
+        let config_id = Uuid::new_v4().to_string();
+        let mut params = UpsertChannelConfigParams {
+            id: &config_id,
+            tenant_id,
+            channel_type: "whatsapp",
+            api_key: Some("wa_key"),
+            api_secret: None,
+            webhook_secret: Some("hmac_secret_do_not_leak"),
+            verify_token: Some(""),
+            account_id: None,
+            phone_number: Some("+15550002222"),
+            bot_token: None,
+            is_active: true,
+        };
+        db.upsert_channel_config(&params).await.unwrap();
+
+        let verify = |token: &'static str| {
+            let router = MessagingRoutes::routes(Arc::clone(&resources));
+            async move {
+                AxumTestRequest::get(&format!(
+                    "/api/messaging/webhook/whatsapp?hub.mode=subscribe\
+                     &hub.verify_token={token}&hub.challenge=challenge_789"
+                ))
+                .send(router)
+                .await
+            }
+        };
+
+        for presented in ["", "hmac_secret_do_not_leak", "anything"] {
+            assert_ne!(
+                verify(presented).await.status_code(),
+                StatusCode::OK,
+                "an empty stored verify token must refuse {presented:?}"
+            );
+        }
+
+        // The same channel with a real token: the right one passes, a wrong
+        // or absent one is refused.
+        params.verify_token = Some("my_verify_token");
+        db.upsert_channel_config(&params).await.unwrap();
+
+        let response = verify("my_verify_token").await;
+        assert_eq!(response.status_code(), StatusCode::OK);
+        assert_eq!(response.text(), "challenge_789");
+        assert_ne!(verify("wrong_token").await.status_code(), StatusCode::OK);
+        assert_ne!(verify("").await.status_code(), StatusCode::OK);
     }
 
     // ════════════════════════════════════════════════════════════════

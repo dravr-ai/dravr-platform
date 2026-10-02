@@ -7,6 +7,7 @@
 use std::env;
 use std::sync::Arc;
 
+use pierre_core::constant_time::configured_secret;
 use tracing::warn;
 
 use super::github::GitHubContentsClient;
@@ -69,10 +70,10 @@ impl ContremaitreConfig {
             }
         };
 
-        let webhook_secret = env::var("CONTREMAITRE_WEBHOOK_SECRET").unwrap_or_default();
-        if webhook_secret.is_empty() {
-            warn!("CONTREMAITRE_WEBHOOK_SECRET is empty — webhook verification will reject all requests");
-        }
+        let webhook_secret = configured_secret("CONTREMAITRE_WEBHOOK_SECRET").unwrap_or_else(|| {
+            warn!("CONTREMAITRE_WEBHOOK_SECRET is unset or blank — webhook verification will reject all requests");
+            String::new()
+        });
 
         let branch = env::var("CONTREMAITRE_BRANCH").unwrap_or_else(|_| DEFAULT_BRANCH.to_owned());
 

@@ -133,6 +133,11 @@ async fn a_clean_sweep_reports_nothing() {
 /// monitoring filter is not, the alert keeps passing while detecting nothing —
 /// silently, which is the exact failure mode this whole feature exists to end.
 /// Cheaper to fail a test than to discover it during the next incident.
+///
+/// A text check on purpose. The contract runs between a log line the sweeper
+/// writes and a filter Cloud Monitoring evaluates, and no test can cross that
+/// boundary: the marker is a private constant with no reader in the process,
+/// and the filter is Terraform. Both sides are read as text and compared.
 #[test]
 fn the_alert_filter_still_matches_the_marker_the_sweeper_emits() {
     let marker = include_str!("../../pierre-services/src/oauth_launch_sweeper.rs")

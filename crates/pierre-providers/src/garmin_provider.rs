@@ -20,6 +20,7 @@ use crate::models::{
     Activity, ActivityBuilder, Athlete, SportType, Stats,
 };
 use crate::pagination::{CursorPage, PaginationParams};
+use crate::spi::RefreshClientAuth;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
@@ -631,6 +632,7 @@ impl FitnessProvider for GarminProvider {
                 refresh_token: &refresh_token,
                 provider_name: "Garmin",
                 extra_form: &[],
+                client_auth: RefreshClientAuth::RequestBody,
             },
         )
         .await?;

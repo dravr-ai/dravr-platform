@@ -127,9 +127,21 @@ fn test_llm_provider_type_display() {
     assert_eq!(format!("{}", LlmProviderType::Gemini), "gemini");
 }
 
+/// The variable the server reads is the one the deployment sets.
+///
+/// A text check on purpose: the two sides are this binary and Cloud Run's
+/// environment, which Terraform writes, and nothing in a test process joins
+/// them. A rename on either side alone leaves production on the default
+/// provider without an error anywhere.
 #[test]
 fn test_llm_provider_type_env_var_name() {
-    assert_eq!(LlmProviderType::ENV_VAR, "PIERRE_LLM_PROVIDER");
+    let deployment = include_str!("../../../infra/environments/dev/main.tf");
+    assert!(
+        deployment.contains(&format!("{} = \"", LlmProviderType::ENV_VAR)),
+        "infra/environments/dev/main.tf no longer sets {}, the variable the \
+         server selects its LLM provider from",
+        LlmProviderType::ENV_VAR
+    );
 }
 
 #[test]

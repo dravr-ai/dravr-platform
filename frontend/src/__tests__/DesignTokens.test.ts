@@ -16,6 +16,10 @@ import { BOREAL_LIGHT, BOREAL_DARK, BORDER_INK, PRIMARY_HOVER, ghostBorder } fro
 // the design's own targets above that floor.
 
 const REPO = path.join(__dirname, '..', '..', '..');
+// Why this reads a file: a parity check between two artefacts nothing at
+// runtime joins — DESIGN.md's token table and shell rules, which people and
+// agents design from, and the shared tokens the clients are built from. The
+// document's value is read out of its table and compared with the token.
 const DESIGN_MD = fs.readFileSync(path.join(REPO, 'frontend', 'DESIGN.md'), 'utf8');
 
 /**

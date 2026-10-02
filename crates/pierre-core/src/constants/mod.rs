@@ -500,8 +500,6 @@ pub mod api_provider_limits {
         pub const RECOMMENDED_MAX_REQUESTS_PER_HOUR: usize = 100;
         /// Recommended minimum interval between login attempts (seconds)
         pub const RECOMMENDED_MIN_LOGIN_INTERVAL_SECS: u64 = 300;
-        /// Rate limit HTTP status code
-        pub const RATE_LIMIT_HTTP_STATUS: u16 = 429;
         /// Estimated rate limit block duration (seconds)
         pub const ESTIMATED_RATE_LIMIT_BLOCK_DURATION_SECS: u64 = 3600;
     }

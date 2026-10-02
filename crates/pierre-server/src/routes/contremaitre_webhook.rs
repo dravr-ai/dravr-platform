@@ -14,9 +14,9 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::Router;
+use pierre_core::constant_time::{is_unset_secret, matches_configured_secret};
 use ring::hmac;
 use serde::Deserialize;
-use subtle::ConstantTimeEq;
 use tracing::{info, warn};
 
 use crate::mcp::resources::ServerContext;
@@ -242,14 +242,24 @@ async fn handle_contremaitre_webhook(
 /// computes the HMAC-SHA256 of the request body using the webhook secret and
 /// verifies it matches using constant-time comparison.
 ///
+/// An unset `secret` (empty or whitespace only, `is_unset_secret`) rejects
+/// every request, as the startup warning for an unset
+/// `CONTREMAITRE_WEBHOOK_SECRET` says: anyone can compute an HMAC under the
+/// empty key or a lone newline, so a signature made with it proves no one.
+///
 /// # Errors
 ///
-/// Returns an error if the signature is invalid or malformed.
+/// Returns an error if the secret is unset, or the signature is invalid or
+/// malformed.
 pub fn verify_github_signature(
     secret: &str,
     signature: &str,
     body: &[u8],
 ) -> Result<(), ContremaitreError> {
+    if is_unset_secret(secret.as_bytes()) {
+        return Err(ContremaitreError::SignatureVerification);
+    }
+
     // Signature format: "sha256=<hex>"
     let hex_sig = signature
         .strip_prefix("sha256=")
@@ -260,15 +270,6 @@ pub fn verify_github_signature(
     let expected_sig = hmac::sign(&key, body);
     let expected_hex = hex::encode(expected_sig.as_ref());
 
-    // Constant-time comparison via ring
-    if hex_sig.len() != expected_hex.len() {
-        return Err(ContremaitreError::SignatureVerification);
-    }
-
-    (hex_sig
-        .as_bytes()
-        .ct_eq(expected_hex.as_bytes())
-        .unwrap_u8()
-        == 1)
+    matches_configured_secret(expected_hex.as_bytes(), hex_sig.as_bytes())
         .ok_or(ContremaitreError::SignatureVerification)
 }

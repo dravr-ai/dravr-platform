@@ -2,19 +2,21 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Regression tests proving a shell payload in an OAuth URL fragment is never executed
-// ABOUTME: Compiles src/browser-launcher.ts with esbuild and inspects every child process it starts
+// ABOUTME: Drives the launcher and both of its callers with a hostile URL and inspects every child process started
 
-const { readFileSync, readdirSync, writeFileSync, mkdtempSync, existsSync, rmSync } = require('fs');
+const { readFileSync, writeFileSync, mkdtempSync, existsSync, rmSync } = require('fs');
 const { join } = require('path');
 const { tmpdir } = require('os');
 const { transformSync } = require('esbuild');
 const childProcess = require('child_process');
+const { freePort, makeProvider, stopProvider } = require('./oauth-callback-harness.js');
+const { fastPoll, startDravr, wiredBridge } = require('../helpers/provider-connect-dravr.js');
 
 // The launcher is internal to the SDK (not re-exported from dist/index.js), so the
 // test compiles the real source with the same TypeScript-to-CJS transform the build
 // uses and requires the result. The code under test is therefore the shipped code.
-const SRC_DIR = join(__dirname, '..', '..', 'src');
-const LAUNCHER_SRC = join(SRC_DIR, 'browser-launcher.ts');
+// The source is read here to be compiled and run, never to be matched as text.
+const LAUNCHER_SRC = join(__dirname, '..', '..', 'src', 'browser-launcher.ts');
 
 // The proven vector: the fragment survives URL serialization byte-for-byte, so a
 // command substitution written there reaches whatever the launcher hands the URL to.
@@ -24,7 +26,10 @@ const shellPayloadUrl = (marker) =>
 
 const realExecFileSync = childProcess.execFileSync;
 const realExec = childProcess.exec;
+const realExecSync = childProcess.execSync;
 const realExecFile = childProcess.execFile;
+const realSpawn = childProcess.spawn;
+const realSpawnSync = childProcess.spawnSync;
 const realPlatform = process.platform;
 
 let launcher;
@@ -65,24 +70,45 @@ beforeEach(() => {
   delete process.env.CI;
   delete process.env.GITHUB_ACTIONS;
 
-  childProcess.execFile = (file, args, callback) => {
-    launched.push({ file, args });
+  // execFile is the one way in that takes an argv; options are recorded when given,
+  // so a `shell: true` slipped into them shows up in the captured call.
+  childProcess.execFile = (file, args, optionsOrCallback, maybeCallback) => {
+    const callback = typeof optionsOrCallback === 'function' ? optionsOrCallback : maybeCallback;
+    const options = typeof optionsOrCallback === 'function' ? undefined : optionsOrCallback;
+    launched.push(options === undefined ? { file, args } : { file, args, options });
     if (typeof callback === 'function') {
       callback(null, '', '');
     }
   };
+  // Every other way to start a process is a finding: exec and execSync parse a command
+  // line, and nothing in an OAuth launch has a reason to spawn.
   childProcess.exec = (command, callback) => {
     shellCalls.push(command);
     if (typeof callback === 'function') {
       callback(null, '', '');
     }
   };
+  childProcess.execSync = (command) => {
+    shellCalls.push(command);
+    return '';
+  };
+  childProcess.spawn = (file, args, spawnOptions) => {
+    shellCalls.push({ spawn: file, args, options: spawnOptions });
+    throw new Error(`unexpected spawn of ${file} during an OAuth browser launch`);
+  };
+  childProcess.spawnSync = (file, args, spawnOptions) => {
+    shellCalls.push({ spawnSync: file, args, options: spawnOptions });
+    throw new Error(`unexpected spawnSync of ${file} during an OAuth browser launch`);
+  };
 });
 
 afterEach(() => {
   jest.useRealTimers();
   childProcess.exec = realExec;
+  childProcess.execSync = realExecSync;
   childProcess.execFile = realExecFile;
+  childProcess.spawn = realSpawn;
+  childProcess.spawnSync = realSpawnSync;
   setPlatform(realPlatform);
 });
 
@@ -236,18 +262,68 @@ describe('browser launcher command injection', () => {
     expect(shellCalls).toEqual([]);
     expect(logs.filter((m) => m === `OAuth URL: ${url}`)).toHaveLength(3);
   });
+});
 
-  test('no SDK source opens a URL through a shell, and both callers use the launcher', () => {
-    const sources = readdirSync(SRC_DIR).filter((file) => file.endsWith('.ts'));
-    const shellStringCallers = sources.filter((file) =>
-      /\bexec\(\s*`/.test(readFileSync(join(SRC_DIR, file), 'utf-8')),
-    );
-    expect(shellStringCallers).toEqual([]);
+/**
+ * The launcher is safe only for callers that go through it. Both places the SDK
+ * opens a browser are driven here, from their public entry point, with the URL an
+ * attacker controls: the authorization endpoint a server's discovery document names,
+ * and the provider page Dravr's connect_provider tool mints. A caller that built its
+ * own command, or stopped using the launcher, would show up as a shell call or as a
+ * different argv. The rule that no file under src/ can import a shell API at all is
+ * ESLint's (eslint.config.js, proved in shell-free-lint.test.js).
+ *
+ * Linux is the platform under test because its launch is one execFile with no
+ * follow-up: macOS schedules a browser activation that would outlive these tests'
+ * real timers. The per-platform argv is covered above.
+ */
+describe('both callers hand a hostile URL to the launcher, never to a shell', () => {
+  beforeEach(() => {
+    // These drive real sockets and a real authorization timeout.
+    jest.useRealTimers();
+    setPlatform('linux');
+  });
 
-    for (const file of ['oauth-session-manager.ts', 'mcp-bridge.ts']) {
-      const source = readFileSync(join(SRC_DIR, file), 'utf-8');
-      expect(source).toContain('from "./browser-launcher.js"');
-      expect(source).not.toMatch(/openUrlInBrowserWithFocus\s*\(\s*url/);
+  test('the OAuth session opens the authorization endpoint as one argv element', async () => {
+    const url = shellPayloadUrl('session-caller');
+    const provider = makeProvider({
+      disableBrowser: false,
+      callbackPort: await freePort(),
+      authorizationTimeoutMs: 150,
+    });
+
+    try {
+      // Nobody completes the authorization, so the flow ends on its own timeout; by
+      // then the browser launch has happened.
+      await expect(provider.redirectToAuthorization(new URL(url))).rejects.toThrow(
+        /authorization was not completed within/i,
+      );
+    } finally {
+      stopProvider(provider);
     }
+
+    expect(shellCalls).toEqual([]);
+    expect(launched).toEqual([{ file: 'xdg-open', args: [url] }]);
+    expect(existsSync(join(PAYLOAD_DIR, 'session-caller'))).toBe(false);
+  });
+
+  test('connect_provider opens the page Dravr minted as one argv element', async () => {
+    const url = shellPayloadUrl('bridge-caller');
+    const dravr = await startDravr(['disconnected', 'connected'], url);
+    const wired = await wiredBridge(dravr, undefined, { disableBrowser: false });
+    fastPoll(wired.bridge);
+
+    try {
+      const result = await wired.connect();
+      expect(result.isError).toBe(false);
+    } finally {
+      await wired.cleanup();
+      await dravr.close();
+    }
+
+    expect(dravr.mints()).toHaveLength(1);
+    expect(shellCalls).toEqual([]);
+    expect(launched).toEqual([{ file: 'xdg-open', args: [url] }]);
+    expect(existsSync(join(PAYLOAD_DIR, 'bridge-caller'))).toBe(false);
   });
 });

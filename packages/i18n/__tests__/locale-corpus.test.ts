@@ -32,6 +32,10 @@ describe('client locale corpus', () => {
 
   it('binds every offered locale to its own catalogue file', () => {
     for (const language of SUPPORTED_LANGUAGES) {
+      // Why this reads a file: a parity check between two artefacts — the
+      // catalogue file on disk and the bundle the config binds to that locale.
+      // Both sides are read and compared whole; importing the JSON here would
+      // compare the config with the same import it makes.
       const file = JSON.parse(readFileSync(join(LOCALES_DIR, language, 'translation.json'), 'utf8'));
       expect({ language, bundle: bundleFor(language) }).toEqual({ language, bundle: file });
     }

@@ -37,5 +37,23 @@ fn the_cap_counts_characters_and_marks_the_cut() {
     let capped = display_line(&long, ACTIVITY_NAME_MAX_CHARS);
     assert_eq!(capped.chars().count(), ACTIVITY_NAME_MAX_CHARS);
     assert!(capped.ends_with('…'));
-    assert_eq!(ACTIVITY_NAME_MAX_CHARS, 120);
+}
+
+#[test]
+fn an_activity_name_is_cut_past_120_characters_and_not_before() {
+    let at_the_cap = "é".repeat(120);
+    assert_eq!(
+        display_line(&at_the_cap, ACTIVITY_NAME_MAX_CHARS),
+        at_the_cap,
+        "a name of exactly 120 characters crosses whole"
+    );
+
+    let one_over = "é".repeat(121);
+    let capped = display_line(&one_over, ACTIVITY_NAME_MAX_CHARS);
+    assert_eq!(capped.chars().count(), 120);
+    assert_eq!(
+        capped,
+        format!("{}…", "é".repeat(119)),
+        "the 121st character costs the name its tail, marked with an ellipsis"
+    );
 }

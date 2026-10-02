@@ -11,6 +11,9 @@ const { spawnSync } = require('child_process');
 
 const SDK_ROOT = path.join(__dirname, '..', '..');
 const CLI_PATH = path.join(SDK_ROOT, 'dist', 'cli.js');
+// Why this reads a file: package.json is the manifest npm and npx act on - config, and
+// the data under test. What it promises (bin, types, files) is checked against what the
+// build actually put in dist/.
 const manifest = JSON.parse(fs.readFileSync(path.join(SDK_ROOT, 'package.json'), 'utf8'));
 
 // A developer shell exports PIERRE_* variables (server URL, JWT, OAuth client) through
@@ -36,6 +39,9 @@ const LAUNCH_TIMEOUT_MS = 5000;
 
 describe('Published bin', () => {
   test('is executable by node, not by bun', () => {
+    // Why this reads a file: dist/cli.js is the build's output, and its first line is
+    // what the OS reads to pick an interpreter when npx runs the bin. Every other test
+    // here launches it through process.execPath, which never consults that line.
     const firstLine = fs.readFileSync(CLI_PATH, 'utf8').split('\n', 1)[0];
 
     expect(firstLine).toBe('#!/usr/bin/env node');
@@ -170,6 +176,9 @@ describe('Package manifest', () => {
   test('ships the declarations its types entry points at', () => {
     expect(manifest.types).toBe('dist/index.d.ts');
 
+    // Why this reads a file: a parity check between the manifest's `types` entry and
+    // the declarations the build generated - that the file it names exists and carries
+    // the public types. Nothing at runtime joins the two; a consumer's tsc does.
     const declarations = fs.readFileSync(path.join(SDK_ROOT, manifest.types), 'utf8');
     expect(declarations).toContain('PierreMcpClient');
     expect(declarations).toContain('BridgeConfig');

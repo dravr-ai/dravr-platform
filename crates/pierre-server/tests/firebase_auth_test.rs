@@ -54,6 +54,9 @@ fn test_firebase_config_defaults() {
     assert!(!config.enabled);
 }
 
+/// Pinned on purpose: the endpoint is Google's, published in the Firebase
+/// documentation for verifying ID tokens. A different URL verifies against
+/// keys that never signed a Firebase token.
 #[test]
 fn production_reads_googles_firebase_jwk_set() {
     assert_eq!(

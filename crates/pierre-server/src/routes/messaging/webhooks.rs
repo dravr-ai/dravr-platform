@@ -11,6 +11,7 @@ use axum::response::IntoResponse;
 use axum::Extension;
 use axum::Json;
 use dravr_canot::channel::MessagingChannel;
+use pierre_core::constant_time::matches_configured_secret;
 use pierre_core::models::messaging::{ChannelType, InboundReaction, IncomingMessage};
 use pierre_core::models::TenantId;
 use pierre_database::backends::MessagingRepository;
@@ -94,13 +95,19 @@ pub async fn verify_webhook(
         )));
     }
 
-    // Prefer verify_token; fall back to webhook_secret if verify_token is not configured
+    // Prefer verify_token; fall back to webhook_secret if verify_token is not
+    // configured. A stored token that is blank matches nothing, a request
+    // carrying no token included (`matches_configured_secret`), and does not
+    // fall back: the signing secret is never accepted in a verify token's place
+    // once that column holds a value.
     let token_matches = configs.iter().any(|config| {
         let stored_verify_token = config.get("verify_token").and_then(|v| v.as_str());
         let stored_webhook_secret = config.get("webhook_secret").and_then(|v| v.as_str());
         stored_verify_token
             .or(stored_webhook_secret)
-            .is_some_and(|t| t == query.verify_token)
+            .is_some_and(|expected| {
+                matches_configured_secret(expected.as_bytes(), query.verify_token.as_bytes())
+            })
     });
 
     if !token_matches {

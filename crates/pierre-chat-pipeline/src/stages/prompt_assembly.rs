@@ -614,8 +614,8 @@ pub(crate) type AssembledPrompt = (
 /// LIMITATION(registre#493): `assemble_prompt_and_messages` is never executed by the
 /// live scenario eval lane — its driver (`tests/helpers/chat_scenario/live_driver.rs`)
 /// layers the contract and the persona by hand — so a block reordered, dropped or added
-/// here is caught by the source-order tests in `pierre-chat-pipeline/tests` and by the
-/// live incident lane, never by a scenario.
+/// here is caught by `pierre-server/tests/prompt_assembly_wire_test.rs`, which reads the
+/// prompt a real turn sends, and by the live incident lane, never by a scenario.
 ///
 /// # Errors
 ///

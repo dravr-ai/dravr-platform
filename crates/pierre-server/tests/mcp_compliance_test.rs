@@ -458,5 +458,7 @@ fn test_protocol_version_compliance() {
 fn test_jsonrpc_version_compliance() {
     use pierre_mcp_server::constants::protocol::JSONRPC_VERSION;
 
+    // Pinned on purpose: the `jsonrpc` member of every message, fixed by the
+    // JSON-RPC 2.0 specification. A client rejects any other value.
     assert_eq!(JSONRPC_VERSION, "2.0", "Must use JSON-RPC 2.0");
 }

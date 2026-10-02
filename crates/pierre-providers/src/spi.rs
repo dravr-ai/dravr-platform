@@ -20,7 +20,8 @@
 //!
 //! ```rust,no_run
 //! use pierre_providers::spi::{
-//!     ProviderDescriptor, OAuthEndpoints, OAuthParams, ProviderCapabilities
+//!     OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderCapabilities, ProviderDescriptor,
+//!     RefreshClientAuth,
 //! };
 //!
 //! pub struct WhoopDescriptor;
@@ -55,6 +56,14 @@
 //!         })
 //!     }
 //!
+//!     fn oauth_refresh(&self) -> Option<OAuthRefresh> {
+//!         // WHOOP only returns a new refresh token when `scope=offline` is sent.
+//!         Some(OAuthRefresh {
+//!             client_auth: RefreshClientAuth::RequestBody,
+//!             extra_form: &[("scope", "offline")],
+//!         })
+//!     }
+//!
 //!     fn api_base_url(&self) -> &'static str {
 //!         "https://api.prod.whoop.com/developer/v2"
 //!     }
@@ -68,6 +77,7 @@
 use super::core::{FitnessProvider, ProviderConfig};
 #[cfg(feature = "provider-whoop")]
 use crate::provider_ai_terms;
+use crate::utils::WHOOP_REFRESH_EXTRA_FORM;
 use pierre_core::ai_policy::SourcePolicy;
 use std::fmt;
 
@@ -99,6 +109,42 @@ pub struct OAuthParams {
     /// Additional query parameters for authorization URL
     /// Example: Strava needs `"approval_prompt=force"`
     pub additional_auth_params: &'static [(&'static str, &'static str)],
+}
+
+/// How a refresh request presents the client's credentials to the token
+/// endpoint. RFC 6749 section 2.3.1 allows both and leaves the choice to the
+/// vendor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefreshClientAuth {
+    /// `client_id` and `client_secret` as fields of the form body.
+    RequestBody,
+    /// `Authorization: Basic base64(client_id:client_secret)`, with neither
+    /// credential in the form body.
+    BasicHeader,
+}
+
+/// The refresh grant a provider's token endpoint takes: what the platform
+/// posts to renew an expired access token, beyond the standard
+/// `grant_type=refresh_token` and `refresh_token` fields.
+///
+/// The token endpoint itself is the descriptor's
+/// [`OAuthEndpoints::token_url`], as the registry's default configuration
+/// carries it after the `PIERRE_<PROVIDER>_TOKEN_URL` override.
+#[derive(Debug, Clone, Copy)]
+pub struct OAuthRefresh {
+    /// Where the client credentials travel.
+    pub client_auth: RefreshClientAuth,
+    /// Form fields the vendor requires beyond the standard ones.
+    pub extra_form: &'static [(&'static str, &'static str)],
+}
+
+impl OAuthRefresh {
+    /// The `OAuth2` default: client credentials in the form body and no
+    /// vendor field.
+    pub const STANDARD: Self = Self {
+        client_auth: RefreshClientAuth::RequestBody,
+        extra_form: &[],
+    };
 }
 
 bitflags::bitflags! {
@@ -232,6 +278,14 @@ pub trait ProviderDescriptor: Send + Sync {
     /// Returns `None` for providers that don't require OAuth (e.g., synthetic provider).
     /// Defines provider-specific OAuth behavior like scope separators and additional parameters.
     fn oauth_params(&self) -> Option<OAuthParams>;
+
+    /// The refresh grant the platform posts to renew this provider's expired
+    /// access tokens, or `None` when it has none the platform can use.
+    ///
+    /// Required, with no default: a provider whose tokens the platform should
+    /// refresh says how, and one it should not says so. An expired token of a
+    /// provider answering `None` is a reconnect.
+    fn oauth_refresh(&self) -> Option<OAuthRefresh>;
 
     /// Base URL for provider API calls
     fn api_base_url(&self) -> &'static str;
@@ -402,6 +456,10 @@ impl ProviderDescriptor for StravaDescriptor {
         })
     }
 
+    fn oauth_refresh(&self) -> Option<OAuthRefresh> {
+        Some(OAuthRefresh::STANDARD)
+    }
+
     fn api_base_url(&self) -> &'static str {
         "https://www.strava.com/api/v3"
     }
@@ -443,6 +501,16 @@ impl ProviderDescriptor for GarminDescriptor {
             use_pkce: false, // Garmin uses OAuth 1.0a
             additional_auth_params: &[],
         })
+    }
+
+    fn oauth_refresh(&self) -> Option<OAuthRefresh> {
+        // LIMITATION(registre#737): `GarminDescriptor::oauth_refresh` declares no
+        // refresh grant. This descriptor's endpoints are Garmin's OAuth 1.0a ones
+        // (`oauth-service/oauth/access_token`, no PKCE), whose tokens have no refresh
+        // grant, while `GarminProvider::refresh_token_if_needed` posts an OAuth2
+        // `grant_type=refresh_token` form to that same URL, and neither is verified
+        // against the vendor.
+        None
     }
 
     fn api_base_url(&self) -> &'static str {
@@ -495,6 +563,13 @@ impl ProviderDescriptor for WhoopDescriptor {
             scope_separator: " ", // WHOOP uses space-separated scopes
             use_pkce: true,
             additional_auth_params: &[],
+        })
+    }
+
+    fn oauth_refresh(&self) -> Option<OAuthRefresh> {
+        Some(OAuthRefresh {
+            client_auth: RefreshClientAuth::RequestBody,
+            extra_form: WHOOP_REFRESH_EXTRA_FORM,
         })
     }
 
@@ -565,6 +640,13 @@ impl ProviderDescriptor for CorosDescriptor {
         })
     }
 
+    fn oauth_refresh(&self) -> Option<OAuthRefresh> {
+        // LIMITATION(registre#509): `CorosDescriptor::oauth_refresh` declares no refresh
+        // grant: the token endpoint above is a placeholder, and the partner API's refresh
+        // grant is undocumented.
+        None
+    }
+
     fn api_base_url(&self) -> &'static str {
         // Placeholder URL - update when COROS provides official API documentation
         "https://open.coros.com/api/v1"
@@ -605,6 +687,10 @@ impl ProviderDescriptor for SciotteDescriptor {
 
     fn oauth_params(&self) -> Option<OAuthParams> {
         None // Sciotte uses browser-based session cookies, not OAuth
+    }
+
+    fn oauth_refresh(&self) -> Option<OAuthRefresh> {
+        None // A browser session, not an OAuth grant
     }
 
     fn api_base_url(&self) -> &'static str {
@@ -649,6 +735,10 @@ impl ProviderDescriptor for SciotteGarminDescriptor {
         None
     }
 
+    fn oauth_refresh(&self) -> Option<OAuthRefresh> {
+        None // A browser session, not an OAuth grant
+    }
+
     fn api_base_url(&self) -> &'static str {
         ""
     }
@@ -689,6 +779,10 @@ impl ProviderDescriptor for SciotteTrainingPeaksDescriptor {
         None
     }
 
+    fn oauth_refresh(&self) -> Option<OAuthRefresh> {
+        None // A browser session, not an OAuth grant
+    }
+
     fn api_base_url(&self) -> &'static str {
         ""
     }
@@ -727,6 +821,10 @@ impl ProviderDescriptor for SciotteCorosDescriptor {
 
     fn oauth_params(&self) -> Option<OAuthParams> {
         None
+    }
+
+    fn oauth_refresh(&self) -> Option<OAuthRefresh> {
+        None // A browser session, not an OAuth grant
     }
 
     fn api_base_url(&self) -> &'static str {
@@ -787,6 +885,10 @@ impl ProviderDescriptor for IntervalsIcuDescriptor {
             use_pkce: false,
             additional_auth_params: &[],
         })
+    }
+
+    fn oauth_refresh(&self) -> Option<OAuthRefresh> {
+        None // Its tokens never expire and it has no refresh grant
     }
 
     fn api_base_url(&self) -> &'static str {

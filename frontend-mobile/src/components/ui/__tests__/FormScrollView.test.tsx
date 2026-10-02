@@ -5,13 +5,40 @@
 // ABOUTME: On a 1080x1600 Android screen the password field once sat entirely behind the keyboard (carnet#353)
 
 import React from 'react';
-import { Text } from 'react-native';
-import { render, screen } from '@testing-library/react-native';
+import { ScrollView, Text, TextInput } from 'react-native';
+import { render, screen, within } from '@testing-library/react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
-import { readFileSync } from 'fs';
-import { join } from 'path';
+
+jest.mock('nativewind', () => ({
+  useColorScheme: () => ({ colorScheme: 'light', setColorScheme: jest.fn() }),
+}));
+
+jest.mock('expo-router', () => ({
+  ...jest.requireActual('expo-router'),
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), back: jest.fn(), navigate: jest.fn(), canGoBack: () => true }),
+  useLocalSearchParams: () => ({ email: 'jean@example.com' }),
+  useFocusEffect: (cb: () => void) => { require('react').useEffect(cb, []); },
+}));
+
+jest.mock('@expo/vector-icons', () => {
+  const { View } = require('react-native');
+  return { AntDesign: (props: Record<string, unknown>) => require('react').createElement(View, { testID: `icon-${props.name}` }) };
+});
+
+jest.mock('../../../contexts/AuthContext', () => ({
+  useAuth: () => ({ login: jest.fn(), loginWithFirebase: jest.fn(), register: jest.fn() }),
+}));
+
+jest.mock('../../../services/api', () => ({
+  authApi: { forgotPassword: jest.fn(), resetPassword: jest.fn() },
+}));
+
 import { FormScrollView, FORM_KEYBOARD_GAP } from '../FormScrollView';
 import { spacing } from '../../../constants/theme';
+import { LoginScreen } from '../../../screens/auth/LoginScreen';
+import { RegisterScreen } from '../../../screens/auth/RegisterScreen';
+import { ForgotPasswordScreen } from '../../../screens/auth/ForgotPasswordScreen';
+import { ResetPasswordScreen } from '../../../screens/auth/ResetPasswordScreen';
 
 describe('FormScrollView', () => {
   /**
@@ -63,62 +90,48 @@ describe('FormScrollView', () => {
   });
 });
 
-const MOBILE_ROOT = join(__dirname, '..', '..', '..', '..');
-const read = (relative: string): string => readFileSync(join(MOBILE_ROOT, relative), 'utf8');
-
 /** Every screen that lays out a form the keyboard has to stay clear of. */
-const AUTH_SCREENS = [
-  'src/screens/auth/LoginScreen.tsx',
-  'src/screens/auth/RegisterScreen.tsx',
-  'src/screens/auth/ForgotPasswordScreen.tsx',
-  'src/screens/auth/ResetPasswordScreen.tsx',
+const AUTH_SCREENS: Array<[string, React.ComponentType]> = [
+  ['LoginScreen', LoginScreen],
+  ['RegisterScreen', RegisterScreen],
+  ['ForgotPasswordScreen', ForgotPasswordScreen],
+  ['ResetPasswordScreen', ResetPasswordScreen],
 ];
 
-describe.each(AUTH_SCREENS)('%s', (file) => {
-  const src = read(file);
+/**
+ * The screens are rendered, not searched for `<FormScrollView`: what matters is
+ * that the field the athlete types into sits inside the keyboard-aware
+ * container, whichever file the JSX is written in.
+ *
+ * The library's jest mock renders `KeyboardAwareScrollView` as React Native's
+ * own `ScrollView`, so the two cannot be told apart by type here. They are
+ * told apart by `bottomOffset`: only the keyboard-aware container takes it,
+ * and only `FormScrollView` sets it to the form gap.
+ *
+ * The root layout's `KeyboardProvider` and the chat column's
+ * `KeyboardAvoidingView` were read as text here too; they are rendered in
+ * __tests__/ChatLanding.test.tsx and __tests__/ChatScreenNewThreadTitle.test.tsx.
+ */
+describe.each(AUTH_SCREENS)('%s', (_name, Screen) => {
+  it('scrolls every field through FormScrollView, and through nothing else', () => {
+    const view = render(<Screen />);
 
-  it('reads a real screen, so an empty read cannot pass as compliance', () => {
-    expect(src.length).toBeGreaterThan(500);
-    expect(src).toContain('<Input');
-  });
+    const scrolls = view.UNSAFE_getAllByType(ScrollView);
+    // One container: a second, bare ScrollView around a field is the gap.
+    expect(scrolls).toHaveLength(1);
+    const form = scrolls[0];
+    expect(form.props.bottomOffset).toBe(FORM_KEYBOARD_GAP);
+    expect(form.props.keyboardShouldPersistTaps).toBe('handled');
 
-  it('scrolls its form through FormScrollView, not a bare ScrollView', () => {
-    expect(src).toContain('<FormScrollView');
-    expect(src).toContain('</FormScrollView>');
-    expect(src).not.toContain('<ScrollView');
+    const fields = view.UNSAFE_getAllByType(TextInput);
+    expect(fields.length).toBeGreaterThan(0);
+    expect(within(form).UNSAFE_getAllByType(TextInput)).toHaveLength(fields.length);
   });
 
   it('carries no per-screen copy of the iOS-only inset prop the container replaced', () => {
-    expect(src).not.toContain('automaticallyAdjustKeyboardInsets');
-  });
-});
-
-describe('the root layout', () => {
-  it('mounts the keyboard tracker every FormScrollView reads', () => {
-    const layout = read('app/_layout.tsx');
-    expect(layout).toContain("import { KeyboardProvider } from 'react-native-keyboard-controller';");
-    // Above the navigators: the provider must enclose <RootShell />, which is
-    // where every route mounts.
-    const provider = layout.indexOf('<KeyboardProvider>');
-    const shell = layout.indexOf('<RootShell />');
-    const close = layout.indexOf('</KeyboardProvider>');
-    expect(provider).toBeGreaterThan(-1);
-    expect(shell).toBeGreaterThan(provider);
-    expect(close).toBeGreaterThan(shell);
-  });
-});
-
-describe('the chat screen', () => {
-  const src = read('src/screens/chat/ChatScreen.tsx');
-
-  it('pads its column for the keyboard through the same tracker, on both platforms', () => {
-    // React Native's own KeyboardAvoidingView is the one that measured
-    // nothing under Android edge-to-edge, so the composer sat behind the
-    // keyboard; the keyboard-controller one reads the IME inset itself.
-    expect(src).toContain("import { KeyboardAvoidingView } from 'react-native-keyboard-controller';");
-    expect(src).toMatch(/<KeyboardAvoidingView\s+style=\{\{ flex: 1 \}\}\s+behavior="padding"\s+keyboardVerticalOffset=\{headerHeight\}/);
-    // No platform gate: Android was the platform left without padding.
-    expect(src).not.toMatch(/behavior=\{Platform\.OS/);
-    expect(src).not.toMatch(/keyboardVerticalOffset=\{Platform\.OS/);
+    const view = render(<Screen />);
+    for (const scroll of view.UNSAFE_getAllByType(ScrollView)) {
+      expect(scroll.props.automaticallyAdjustKeyboardInsets).toBeUndefined();
+    }
   });
 });

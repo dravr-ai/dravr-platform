@@ -11,6 +11,8 @@ use pierre_services::parq::{is_parq_question, PARQ_QUESTION_IDS};
 
 #[test]
 fn seven_questions_with_unique_ids() {
+    // Pinned on purpose: the PAR-Q is a published seven-question instrument,
+    // so a list of any other length is no longer the PAR-Q.
     assert_eq!(PARQ_QUESTION_IDS.len(), 7);
     let mut ids: Vec<&str> = PARQ_QUESTION_IDS.to_vec();
     ids.sort_unstable();

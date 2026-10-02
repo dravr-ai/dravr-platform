@@ -27,7 +27,8 @@ use pierre_providers::core::{
 use pierre_providers::provider_ai_terms::NOLIO;
 use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::spi::{
-    OAuthEndpoints, OAuthParams, ProviderBundle, ProviderCapabilities, ProviderDescriptor,
+    OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderBundle, ProviderCapabilities,
+    ProviderDescriptor,
 };
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest};
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -58,6 +59,10 @@ impl ProviderDescriptor for RelayDescriptor {
     }
 
     fn oauth_params(&self) -> Option<OAuthParams> {
+        None
+    }
+
+    fn oauth_refresh(&self) -> Option<OAuthRefresh> {
         None
     }
 

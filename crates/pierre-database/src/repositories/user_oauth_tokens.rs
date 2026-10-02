@@ -31,7 +31,7 @@
 
 use std::fmt::Display;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     ConnectionStatus, StravaPoolApp, StravaSeatHolder, UserOAuthApp, UserOAuthToken,
@@ -84,6 +84,28 @@ pub(crate) const REPLACE_TOKEN_IF_CURRENT_SQL: &str = r"
                 oauth_app_client_id = $9
             WHERE user_id = $10 AND tenant_id = $11 AND provider = $12 AND id = $13
             ";
+
+/// Record the provider-side owner id (`$5`) on the token row whose `id` is
+/// `$4`, and nothing else. The token columns are left alone, so the write can
+/// never put back a pair a later refresh replaced; so is `updated_at`, the
+/// stamp a refresh compares before it swaps its pair in: moving it would make
+/// a refresh already at the provider lose that swap, and with it the pair the
+/// provider just rotated to. A row a reconnect replaced carries a fresh `id`,
+/// possibly for another account, and is not written.
+pub(crate) const RECORD_PROVIDER_USER_ID_SQL: &str = r"
+            UPDATE user_oauth_tokens
+            SET provider_user_id = $5
+            WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND id = $4
+            ";
+
+/// The `updated_at` a refresh stamps over a row read with `read_at`: now, and
+/// always later than what it replaces, since the stamp is what the next
+/// compare-and-swap tells this write from the row it read by. A clock that
+/// stepped back, or two writes inside one tick, would otherwise leave it
+/// unchanged. One microsecond is the finest step both backends store.
+pub(crate) fn refresh_stamp(read_at: DateTime<Utc>) -> DateTime<Utc> {
+    Utc::now().max(read_at + Duration::microseconds(1))
+}
 
 /// One read of the token columns. `$filter` is the `WHERE` clause; `$order`
 /// closes the statement.
@@ -301,16 +323,30 @@ pub(crate) const DELETE_TOKEN_SQL: &str = r"
 
 /// Replace the credentials after a refresh: the path every expired token
 /// takes, with the new pair encrypted under the same AAD as the old. The row
-/// keeps its `id`, and is written only while it is still the one the refresh
-/// read (`$8`): a reconnect that stored a new token meanwhile wrote a fresh
-/// `id`, and the refresh of the grant it replaced must not land over it.
+/// keeps its `id`, and the write is a compare-and-swap on the row exactly as
+/// the refresh read it: the same `id` (`$8`) and the same `updated_at` (`$9`).
+/// A reconnect that stored a new token meanwhile wrote a fresh `id`, and a
+/// refresh that landed meanwhile stamped a new `updated_at` under the same
+/// `id`, so the pair of a grant a reconnect replaced, or one bought with a
+/// refresh token another refresh already spent, lands over neither.
+///
+/// The swap compares `updated_at` and not the refresh token being replaced:
+/// the token columns are AES-256-GCM ciphertext under a fresh random nonce per
+/// write, so the same refresh token never encrypts to the same bytes twice and
+/// `refresh_token = $old` could not match. `$9` is the value the read decoded,
+/// bound back unchanged, as [`MARK_NEEDS_REAUTH_IF_TOKEN_CURRENT_SQL`] binds
+/// it: `TIMESTAMPTZ` equality on Postgres, and on `SQLite` the RFC 3339 text
+/// every writer binds, which a decode and an encode return verbatim.
+///
+/// [`MARK_NEEDS_REAUTH_IF_TOKEN_CURRENT_SQL`]: super::provider_connections::MARK_NEEDS_REAUTH_IF_TOKEN_CURRENT_SQL
 pub(crate) const REFRESH_TOKEN_SQL: &str = r"
             UPDATE user_oauth_tokens
             SET access_token = $4,
                 refresh_token = $5,
                 expires_at = $6,
                 updated_at = $7
-            WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND id = $8
+            WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
+              AND id = $8 AND updated_at = $9
             ";
 
 /// Register or replace a user's own OAuth app for a provider.
@@ -656,6 +692,28 @@ macro_rules! impl_oauth_token_repository {
                 Ok(result.rows_affected() > 0)
             }
 
+            async fn record_provider_user_id(
+                &self,
+                stored: &UserOAuthToken,
+                provider_user_id: &str,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(RECORD_PROVIDER_USER_ID_SQL)
+                    .bind($ids::bind(stored.user_id))
+                    .bind(&stored.tenant_id)
+                    .bind(&stored.provider)
+                    .bind(&stored.id)
+                    .bind(provider_user_id)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to record the provider user id on a user OAuth token: {e}"
+                        ))
+                    })?;
+
+                Ok(result.rows_affected() > 0)
+            }
+
             async fn get_token(
                 &self,
                 user_id: Uuid,
@@ -969,8 +1027,9 @@ macro_rules! impl_oauth_token_repository {
                     .bind(&encrypted_access_token)
                     .bind(encrypted_refresh_token.as_deref())
                     .bind(expires_at)
-                    .bind(Utc::now())
+                    .bind(refresh_stamp(stored.updated_at))
                     .bind(&stored.id)
+                    .bind(stored.updated_at)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

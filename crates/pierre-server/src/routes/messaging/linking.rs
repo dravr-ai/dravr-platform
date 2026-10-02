@@ -10,7 +10,6 @@ use axum::response::IntoResponse;
 use axum::Json;
 use chrono::{Duration, Utc};
 use pierre_core::errors::messaging::MessagingError;
-use pierre_core::http_client::SharedHttpError;
 use pierre_core::models::messaging::{ChannelType, LinkingMethod, LINK_CODE_TTL_MINUTES};
 use pierre_core::models::TenantId;
 use pierre_database::backends::{
@@ -19,21 +18,20 @@ use pierre_database::backends::{
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::sync::{LazyLock, RwLock};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+mod destination;
 mod link_account;
 
 use super::templates;
 use crate::mcp::resources::ServerContext;
-use dravr_canot::http_client::describe_request_error;
+use destination::build_linking_url;
+pub use destination::can_complete_a_link;
 use link_account::resolve_user_from_form;
 use pierre_auth::auth::AuthResult;
-use pierre_config::utils::http_client::shared_client;
 use pierre_core::errors::AppError;
 use pierre_middleware::extract_auth_from_headers;
 use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
@@ -111,252 +109,6 @@ pub fn generate_link_code() -> String {
             CODE_CHARSET[idx] as char
         })
         .collect()
-}
-
-/// Cache of bot token -> username, so `getMe` is called once per token rather
-/// than once per link request. A bot's username changes only when an operator
-/// renames it in `BotFather`, and a stale entry would send codes to a handle that
-/// no longer resolves, so the process lifetime is the right bound: a redeploy
-/// re-reads it.
-static TELEGRAM_BOT_USERNAMES: LazyLock<RwLock<HashMap<String, String>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
-
-/// The Telegram bot a link code must be sent to.
-///
-/// Asked of Telegram, not configured. `getMe` returns the username belonging to
-/// the bot token we already store, which makes the answer correct by
-/// construction — there is no value for an operator to set, mistype, or leave
-/// stale, and no second place for it to drift from.
-///
-/// That matters more here than it usually would. This URL is where the athlete
-/// sends a one-time code that binds whoever sends it to their account, so a
-/// wrong handle is not a broken link, it is a credential disclosure. The
-/// previous implementation defaulted to a hardcoded `PierreBot` — a real bot
-/// belonging to a stranger — and every link went there, because the config
-/// write path never persisted a `bot_username` for the default to fall back
-/// from. An environment variable would have fixed that instance while leaving
-/// the same shape in place: a human-supplied name that nothing verifies.
-///
-/// A missing or rejected token is an error. Guessing is never correct.
-async fn telegram_bot_username(config: &serde_json::Value) -> Result<String, AppError> {
-    let token = config
-        .get("bot_token")
-        .and_then(|v| v.as_str())
-        .filter(|t| !t.is_empty())
-        .ok_or_else(|| {
-            AppError::internal(
-                "Telegram channel has no bot_token, so the bot's username cannot be \
-                 resolved and no linking URL can be built. Configure the channel \
-                 before issuing link codes.",
-            )
-        })?;
-
-    if let Some(cached) = TELEGRAM_BOT_USERNAMES
-        .read()
-        .ok()
-        .and_then(|m| m.get(token).cloned())
-    {
-        return Ok(cached);
-    }
-
-    // The token sits in the request path and a `reqwest::Error` displays that
-    // URL, while `AppError::internal` details reach Cloud Logging. Transport
-    // errors go through canot's `describe_request_error`, which strips the URL;
-    // a middleware error cannot be stripped, so the token is masked out of it.
-    let url = format!("https://api.telegram.org/bot{token}/getMe");
-    let response = shared_client().get(&url).send().await.map_err(|e| {
-        let detail = match e {
-            SharedHttpError::Reqwest(e) => describe_request_error(e),
-            SharedHttpError::Middleware(e) => format!("{e:#}").replace(token, "***"),
-        };
-        AppError::internal(format!("Telegram getMe request failed: {detail}"))
-    })?;
-
-    let body: serde_json::Value = response.json().await.map_err(|e| {
-        AppError::internal(format!(
-            "Telegram getMe returned no JSON: {}",
-            describe_request_error(e)
-        ))
-    })?;
-
-    let username = body
-        .get("result")
-        .and_then(|r| r.get("username"))
-        .and_then(|u| u.as_str())
-        .filter(|u| !u.is_empty())
-        .ok_or_else(|| {
-            // Deliberately does not log the body: a rejected token comes back
-            // with a description that can echo the token itself.
-            AppError::internal(
-                "Telegram getMe did not return a username — the stored bot_token is \
-                 rejected or the bot was deleted. Refusing to build a linking URL \
-                 without knowing which bot it points at.",
-            )
-        })?
-        .to_owned();
-
-    if let Ok(mut cache) = TELEGRAM_BOT_USERNAMES.write() {
-        cache.insert(token.to_owned(), username.clone());
-    }
-    info!(bot_username = %username, "resolved the Telegram bot username via getMe");
-    Ok(username)
-}
-
-/// The config keys `build_linking_url` needs before it can build a URL for this
-/// channel at all.
-///
-/// This exists so the channel picker can withhold a channel whose link cannot
-/// complete, instead of advertising a button that fails the moment the athlete
-/// taps it. `build_linking_url` below reads exactly these keys and errors when
-/// one is absent — the two must agree, so they sit next to each other and any
-/// new channel has to answer both in the same edit.
-///
-/// Presence only. Nothing here reads, logs or returns a credential's value.
-pub const fn required_credential_keys(channel_type: ChannelType) -> &'static [&'static str] {
-    match channel_type {
-        // The bot the code is sent to; resolved to a username via `getMe`.
-        ChannelType::Telegram => &["bot_token"],
-        // The number the pre-filled message is addressed to.
-        ChannelType::WhatsApp => &["phone_number"],
-        // The page the `m.me` link opens.
-        ChannelType::Messenger => &["account_id"],
-        // The authorize URL needs the client id, and the callback that follows
-        // needs the secret to exchange the code, so a link completes only with
-        // both.
-        ChannelType::Slack | ChannelType::Discord => &["api_key", "api_secret"],
-    }
-}
-
-/// Whether a channel config carries every credential its linking flow needs.
-///
-/// Reads only for presence — never logs or returns the values.
-pub fn can_complete_a_link(channel_type: ChannelType, config: &serde_json::Value) -> bool {
-    required_credential_keys(channel_type).iter().all(|key| {
-        config
-            .get(*key)
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|value| !value.is_empty())
-    })
-}
-
-/// Build the linking URL based on channel type and method.
-///
-/// Reads the keys [`required_credential_keys`] names for this channel and errors
-/// when one is absent, rather than guessing a target.
-async fn build_linking_url(
-    channel_type: ChannelType,
-    code: &str,
-    config: &serde_json::Value,
-    base_url: &str,
-) -> Result<String, AppError> {
-    match channel_type {
-        ChannelType::Telegram => {
-            // No fallback bot, deliberately. This used to default to
-            // "PierreBot" when the channel config carried no `bot_username` —
-            // and it always did, because the config write path never persists
-            // that key (see `config.rs`, which extracts api_key / api_secret /
-            // webhook_secret / verify_token / account_id / phone_number /
-            // bot_token and nothing else). So EVERY link pointed at
-            // https://t.me/PierreBot, which is a real bot belonging to a
-            // stranger.
-            //
-            // That is worse than a dead link. `detect_linking_code` +
-            // `execute_link_code` bind whoever sends the code to the requesting
-            // athlete's account inside the TTL, so pressing Start on that
-            // third-party bot hands an account-binding credential off-platform.
-            //
-            // Guessing a bot name is therefore never acceptable: an absent
-            // username must fail loudly rather than produce a plausible URL
-            // aimed at someone else's bot.
-            let bot_username = telegram_bot_username(config).await?;
-            Ok(format!("https://t.me/{bot_username}?start={code}"))
-        }
-        ChannelType::WhatsApp => {
-            // Same rule as Telegram above, for the same reason. An empty number
-            // yields `https://wa.me/?text=LINK+CODE`, which is not a dead link:
-            // WhatsApp opens the contact picker with the athlete's one-time
-            // binding code already typed, and whoever they pick receives it.
-            // Milder than aiming at a stranger's bot only because it takes a
-            // tap — the failure is identical in kind, so it fails identically.
-            let phone = config
-                .get("phone_number")
-                .and_then(|v| v.as_str())
-                .filter(|p| !p.is_empty())
-                .ok_or_else(|| {
-                    AppError::internal(
-                        "WhatsApp channel has no phone_number, so there is no recipient \
-                         for the link code. Refusing to build a URL that would open a \
-                         contact picker with the athlete's binding code pre-filled.",
-                    )
-                })?;
-            let message_text = format!("LINK {code}");
-            let encoded_message = urlencoding::encode(&message_text);
-            Ok(format!("https://wa.me/{phone}?text={encoded_message}"))
-        }
-        ChannelType::Messenger => {
-            // Same rule as Telegram and WhatsApp above: no guessed target. The
-            // page id identifies which Messenger page the link opens, and an
-            // absent one previously produced `.../link/callback/messenger?state=`
-            // — our own endpoint, which rejects the request for the
-            // `channel_user_id` nothing supplies. That is the 400 every Messenger
-            // link attempt hit.
-            //
-            // `ref` is Messenger's own deep-link parameter and comes back on the
-            // webhook (dravr-canot >= 0.4.20 parses it from both the bare
-            // `referral` and the `postback.referral` shape), which is what makes
-            // it the equivalent of Telegram's `?start=`.
-            let page_id = config
-                .get("account_id")
-                .and_then(|v| v.as_str())
-                .filter(|p| !p.is_empty())
-                .ok_or_else(|| {
-                    AppError::internal(
-                        "Messenger channel has no account_id, so there is no page for the \
-                         link to open. Refusing to build a URL that cannot complete.",
-                    )
-                })?;
-            Ok(format!("https://m.me/{page_id}?ref={code}"))
-        }
-        // Genuine OAuth channels. These used to return our OWN callback with only
-        // a `state` param — an endpoint that rejects the request for the
-        // `channel_user_id` nothing supplies, so every attempt 400'd. The user
-        // has to be sent to the provider first; the provider is what knows who
-        // they are, which is the whole point of the round trip.
-        //
-        // `api_key` carries the OAuth client id. The picker already refuses to
-        // advertise a channel whose credentials are absent, and this refuses to
-        // build a URL for one anyway — the same refuse-to-guess rule the
-        // deep-link channels follow.
-        ChannelType::Slack | ChannelType::Discord => {
-            let client_id = config
-                .get("api_key")
-                .and_then(|v| v.as_str())
-                .filter(|v| !v.is_empty())
-                .ok_or_else(|| {
-                    AppError::internal(format!(
-                        "{channel_type} channel has no OAuth client id, so the authorize URL \
-                         cannot identify this app. Refusing to build a link that cannot complete."
-                    ))
-                })?;
-
-            let redirect_uri = format!("{base_url}/api/messaging/link/callback/{channel_type}");
-            // Identity only. Linking needs to learn who the person is and
-            // nothing else; a broader scope would ask for consent we have no
-            // use for, which is both a worse prompt and more to leak.
-            let (authorize, scope) = match channel_type {
-                ChannelType::Slack => ("https://slack.com/openid/connect/authorize", "openid"),
-                _ => ("https://discord.com/oauth2/authorize", "identify"),
-            };
-
-            Ok(format!(
-                "{authorize}?response_type=code&client_id={}&scope={}&redirect_uri={}&state={}",
-                urlencoding::encode(client_id),
-                urlencoding::encode(scope),
-                urlencoding::encode(&redirect_uri),
-                urlencoding::encode(code),
-            ))
-        }
-    }
 }
 
 /// Render a QR code for a deep-link URL as an inline SVG string, or `None` on

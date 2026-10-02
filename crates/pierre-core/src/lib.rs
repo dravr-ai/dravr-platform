@@ -45,6 +45,9 @@ pub mod intelligence;
 /// URL redaction utility for safe logging of connection strings
 pub mod redaction;
 
+/// Constant-time equality for secrets, tokens and signatures
+pub mod constant_time;
+
 /// Phase C input sanitization — prompt injection detection for inbound user messages
 pub mod safety;
 

@@ -7,11 +7,24 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+mod common;
+
+use std::sync::Arc;
+
+use chrono::{Duration, Utc};
+use common::{create_test_server_resources, create_test_user};
+use embacle_tool_host::ToolSurface;
+use pierre_core::models::{ActivityBuilder, ConnectionType, SportType, TenantId};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_llm::{ChatMessage, FunctionResponse};
+use pierre_mcp_server::mcp::resources::tool_surface::TurnToolSurface;
+use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_tool_runtime::implementations::data_helpers::provider_reconnect_note;
+use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::tool_execution::add_function_responses_to_messages;
 use pierre_tool_runtime::tool_results::{format_tool_results_as_text, project_activities_payload};
 use serde_json::{json, Value};
+use uuid::Uuid;
 
 /// A realistic `get_activities` envelope: the prose block the agent cites, the
 /// structured array, the TOON copy, and the two sidecars — the shape
@@ -244,45 +257,240 @@ fn the_text_loop_and_the_recovery_reask_share_the_same_projection() {
 // The fourth seam — the loopback MCP surface (registre#128)
 // ============================================================================
 
-/// The loopback seam's source, read at compile time.
+/// An athlete whose `get_activities` answers a real window with no network.
 ///
-/// `TurnToolSurface::new` takes a concrete `Arc<UniversalToolExecutor>` rather
-/// than a trait, so a canned `get_activities` envelope cannot be injected and a
-/// true end-to-end assertion would need seeded provider data and OAuth tokens.
-/// What is cheap and worth guarding is the wiring: the projection is applied at
-/// this call site, and the payload still travels whole when it does not match.
-const LOOPBACK_SEAM_SRC: &str = include_str!("../src/mcp/resources/tool_surface.rs");
+/// Two rides sit in the durable cache under a Strava connection, and a Garmin
+/// connection with no session is elected primary: the tool cannot authenticate
+/// it and serves the window from the sibling's cache instead.
+async fn athlete_with_cached_rides(resources: &Arc<ServerContext>) -> (Uuid, TenantId) {
+    let (user_id, user) = create_test_user(&resources.agent.database)
+        .await
+        .expect("test user");
+    let tenant = resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(user.id)
+        .await
+        .expect("list tenants")
+        .first()
+        .expect("user has a tenant")
+        .id;
+
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(user_id, tenant, "strava", &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+    let rides: Vec<_> = [
+        ("strava-ride-1", "Sortie longue", 2),
+        ("strava-ride-2", "Tempo", 4),
+    ]
+    .into_iter()
+    .map(|(id, name, days_ago)| {
+        ActivityBuilder::new(
+            id.to_owned(),
+            name.to_owned(),
+            SportType::Ride,
+            Utc::now() - Duration::days(days_ago),
+            7_200,
+            "strava".to_owned(),
+        )
+        .distance_meters(80_000.0)
+        .build()
+    })
+    .collect();
+    resources
+        .common
+        .repos
+        .activity_cache
+        .upsert_activities(user_id, &tenant, "strava", &rides)
+        .await
+        .unwrap();
+
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(user_id, tenant, "garmin", &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+
+    (user_id, tenant)
+}
+
+/// The executor a loopback turn dispatches through, as `turn_surface` builds it.
+fn loopback_executor(resources: &Arc<ServerContext>) -> Arc<UniversalToolExecutor> {
+    Arc::new(
+        UniversalToolExecutor::new(resources.clone())
+            .with_scopes(OAuthScope::self_grant())
+            .with_conversation_id("conv-projection".into()),
+    )
+}
+
+/// The surface an ACP agent calls Dravr's tools through, for one turn.
+fn loopback_surface(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+) -> TurnToolSurface {
+    TurnToolSurface::new(
+        resources.mcp.tool_registry.clone(),
+        resources.common.repos.clone(),
+        loopback_executor(resources),
+        user_id.to_string(),
+        tenant,
+        64,
+    )
+}
+
+/// What the same tool returns when nothing stands between it and the caller:
+/// the envelope the loopback seam receives before it decides what to forward.
+async fn whole_payload(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+    tool_name: &str,
+    parameters: Value,
+) -> Value {
+    let response = loopback_executor(resources)
+        .execute_tool(UniversalRequest {
+            tool_name: tool_name.to_owned(),
+            parameters,
+            user_id: user_id.to_string(),
+            protocol: "mcp".to_owned(),
+            tenant_id: Some(tenant.to_string()),
+        })
+        .await
+        .expect("the tool dispatches");
+    assert!(response.success, "{tool_name} ran: {:?}", response.error);
+    response.result.expect("the tool returned a payload")
+}
 
 /// The seam production actually runs must project, like the other three.
 ///
 /// `copilot_headless` never reports `FUNCTION_CALLING`, so `tool_dispatch` takes
 /// the loopback branch — which makes this the live path and the other three the
-/// fallbacks. It was deliberately left unprojected by 3c2e5056a and is projected
-/// now; this fails if it is reverted to a bare `ToolOutcome::json(payload)`.
-#[test]
-fn the_loopback_seam_projects_the_activities_payload() {
+/// fallbacks. The agent re-sends what this seam hands it on every pass of its
+/// own loop, so a whole envelope here is the whole window, paid for repeatedly.
+#[tokio::test]
+async fn the_loopback_seam_projects_the_activities_payload() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant) = athlete_with_cached_rides(&resources).await;
+    let arguments = json!({ "limit": 10, "mode": "summary" });
+
+    // The fixture has to carry what the projection removes, or the assertions
+    // below pass on a payload that never had anything to drop.
+    let whole = whole_payload(
+        &resources,
+        user_id,
+        tenant,
+        "get_activities",
+        arguments.clone(),
+    )
+    .await;
     assert!(
-        LOOPBACK_SEAM_SRC.contains("project_activities_payload(tool_name, &payload)"),
-        "the loopback seam must route the success payload through the projection; \
-         a bare ToolOutcome::json(payload) here re-sends the whole window on every \
-         pass of the agent's own loop"
+        whole["activities"][0].get("distance_meters").is_some(),
+        "the unprojected envelope carries per-activity detail: {whole}"
+    );
+    assert!(
+        whole.get("token_estimate").is_some() || whole.get("retrieval_context").is_some(),
+        "the unprojected envelope carries a sidecar: {whole}"
+    );
+
+    let outcome = loopback_surface(&resources, user_id, tenant)
+        .call("get_activities", &arguments)
+        .await;
+    assert!(!outcome.is_error, "the call succeeded: {}", outcome.text);
+    let delivered = outcome
+        .structured
+        .expect("a served window reaches the agent as structured content");
+
+    let rows = delivered["activities"]
+        .as_array()
+        .expect("activities array");
+    let ids: Vec<&str> = rows.iter().filter_map(|row| row["id"].as_str()).collect();
+    assert_eq!(
+        ids,
+        vec!["strava-ride-1", "strava-ride-2"],
+        "every activity keeps the id a chained activity_id call needs"
+    );
+    for row in rows {
+        let fields: Vec<&str> = row
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert!(
+            fields
+                .iter()
+                .all(|field| ["id", "name", "sport_type", "start_date"].contains(field)),
+            "only the addressing fields cross the loopback seam, got {fields:?}"
+        );
+    }
+    assert!(
+        delivered["activity_list"].is_string(),
+        "the prose the agent cites survives"
+    );
+    for dropped in ["activities_toon", "token_estimate", "retrieval_context"] {
+        assert!(
+            delivered.get(dropped).is_none(),
+            "{dropped} must not cross the loopback seam"
+        );
+    }
+    // The text is what a model without structured-content support reads.
+    assert!(
+        !outcome.text.contains("distance_meters"),
+        "per-activity detail must not reach the agent in the text either: {}",
+        outcome.text
     );
 }
 
 /// An unrecognised shape must still travel whole.
 ///
-/// The projection returning `None` has to fall back to the original payload, not
-/// to null or an empty object. This is the half that keeps the reducer from ever
+/// The projection declining has to fall back to the original payload, not to
+/// null or an empty object. This is the half that keeps the reducer from ever
 /// being the reason an agent has no data.
-#[test]
-fn the_loopback_seam_passes_unrecognised_payloads_through() {
+#[tokio::test]
+async fn the_loopback_seam_passes_unrecognised_payloads_through() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant) = athlete_with_cached_rides(&resources).await;
+
+    let whole = whole_payload(
+        &resources,
+        user_id,
+        tenant,
+        "list_fitness_configs",
+        json!({}),
+    )
+    .await;
     assert!(
-        LOOPBACK_SEAM_SRC.contains(".unwrap_or(payload)"),
-        "the seam must fall back to the whole payload when the projection declines"
+        whole.as_object().is_some_and(|payload| !payload.is_empty()),
+        "the fixture tool answers with a real payload: {whole}"
     );
 
-    // And the projection does decline for anything that is not the envelope —
-    // asserted against the real function, not just the source text.
+    let outcome = loopback_surface(&resources, user_id, tenant)
+        .call("list_fitness_configs", &json!({}))
+        .await;
+    assert!(!outcome.is_error, "the call succeeded: {}", outcome.text);
+    // Two dispatches stamp two instants; everything else must be identical.
+    let without_stamp = |mut payload: Value| {
+        payload
+            .as_object_mut()
+            .expect("an object payload")
+            .remove("retrieved_at");
+        payload
+    };
+    assert_eq!(
+        outcome.structured.map(without_stamp),
+        Some(without_stamp(whole)),
+        "a payload the projection does not recognise crosses the seam untouched"
+    );
+
+    // And the projection does decline for anything that is not the envelope.
     assert!(
         project_activities_payload("get_activities", &json!({"error": "no provider"})).is_none(),
         "an error envelope carries no activity_list and must not be projected"

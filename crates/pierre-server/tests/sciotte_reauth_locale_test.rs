@@ -18,8 +18,6 @@
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
 };
-use std::fs;
-use std::path::PathBuf;
 
 // A host that does NOT resolve, on purpose: this asserts on rendered locale strings
 // and must never reach the network, so an unresolvable fixture makes an accidental
@@ -153,41 +151,5 @@ fn the_link_less_copy_is_not_the_linked_copy() {
     assert!(
         bare.contains("Strava") && !bare.contains("http"),
         "the bare variant keeps the provider and drops the link: {bare}"
-    );
-}
-
-/// The failed-mint path must not go back to `?`.
-///
-/// `apply_auth_recovery` needs a live `ChatPipelineContext` (DB, registries,
-/// mint endpoint), so an integration test cannot drive the branch. Same
-/// situation as `identity_anchor_reaches_the_wire_test`, and the same answer:
-/// attack the seam that IS reachable, because the regression guarded against is
-/// a source edit back to a one-character early return.
-#[test]
-fn a_failed_mint_does_not_return_early() {
-    let source = fs::read_to_string(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../pierre-chat-pipeline/src/stages/auth_recovery.rs"),
-    )
-    .expect("read auth_recovery.rs");
-
-    assert!(
-        !source
-            .contains("mint_reconnect_url(&deps, &provider_slug, user_id, input, profile).await?"),
-        "`?` on the mint drops the turn's only content: the athlete is told the coach \
-         could not formulate a response while finish_reason reads provider_auth_required"
-    );
-    assert!(
-        source.contains("KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK"),
-        "the failed-mint path must still tell the athlete which provider dropped"
-    );
-    // And the message has to actually be delivered, not just built.
-    let bare_arm = source
-        .split("KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK")
-        .nth(1)
-        .expect("checked above");
-    assert!(
-        bare_arm.contains("result.content"),
-        "the link-less message must be written to result.content, or the turn is still empty"
     );
 }

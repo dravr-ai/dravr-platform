@@ -5,19 +5,50 @@
 // ABOUTME: returnKeyType only relabels the return key — without a ref nothing moves the caret, which is the carnet#353 gap
 
 import React, { createRef } from 'react';
-import { readFileSync } from 'fs';
-import { join } from 'path';
-import { render } from '@testing-library/react-native';
-import type { TextInput } from 'react-native';
+import { Alert, TextInput } from 'react-native';
+import { fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
 
 jest.mock('nativewind', () => ({
   useColorScheme: () => ({ colorScheme: 'light', setColorScheme: jest.fn() }),
 }));
 
-import { Input } from '../../../components/ui/Input';
+const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), navigate: jest.fn(), canGoBack: () => true };
+jest.mock('expo-router', () => ({
+  ...jest.requireActual('expo-router'),
+  useRouter: () => mockRouter,
+  useLocalSearchParams: () => ({ email: 'jean@example.com' }),
+  useFocusEffect: (cb: () => void) => { require('react').useEffect(cb, []); },
+}));
 
-const AUTH_DIR = join(__dirname, '..');
-const read = (f: string): string => readFileSync(join(AUTH_DIR, f), 'utf8');
+jest.mock('@expo/vector-icons', () => {
+  const { View } = require('react-native');
+  return { AntDesign: (props: Record<string, unknown>) => require('react').createElement(View, { testID: `icon-${props.name}` }) };
+});
+
+const mockLogin = jest.fn();
+const mockRegister = jest.fn();
+jest.mock('../../../contexts/AuthContext', () => ({
+  useAuth: () => ({
+    login: (...args: unknown[]) => mockLogin(...args),
+    loginWithFirebase: jest.fn(),
+    register: (...args: unknown[]) => mockRegister(...args),
+  }),
+}));
+
+const mockForgotPassword = jest.fn();
+const mockResetPassword = jest.fn();
+jest.mock('../../../services/api', () => ({
+  authApi: {
+    forgotPassword: (...args: unknown[]) => mockForgotPassword(...args),
+    resetPassword: (...args: unknown[]) => mockResetPassword(...args),
+  },
+}));
+
+import { Input } from '../../../components/ui/Input';
+import { LoginScreen } from '../LoginScreen';
+import { RegisterScreen } from '../RegisterScreen';
+import { ForgotPasswordScreen } from '../ForgotPasswordScreen';
+import { ResetPasswordScreen } from '../ResetPasswordScreen';
 
 describe('Input ref forwarding', () => {
   it('hands back the underlying TextInput, so a screen can focus it', () => {
@@ -30,63 +61,123 @@ describe('Input ref forwarding', () => {
   });
 });
 
+const RESET_CODE = 'abcd1234EFGH5678.abcd1234EFGH5678ijkl9012MNOP3456';
+
 /**
- * The chain each form must implement, as (file, ordered testIDs). Every field
- * but the last hands off to the next; the last submits.
+ * Each form as the athlete fills it: the fields in order with a valid value,
+ * and the call the form makes once the last field's return key submits it.
+ * Every field but the last hands off to the next; the last submits.
  */
-const CHAINS: Array<[string, string[]]> = [
-  ['LoginScreen.tsx', ['email-input', 'password-input']],
-  [
-    'RegisterScreen.tsx',
-    [
-      'register-display-name-input',
-      'register-email-input',
-      'register-password-input',
-      'register-confirm-password-input',
+const FORMS: Array<{
+  name: string;
+  Screen: React.ComponentType;
+  fields: Array<[testID: string, value: string]>;
+  submit: jest.Mock;
+  submittedWith: unknown[];
+}> = [
+  {
+    name: 'LoginScreen',
+    Screen: LoginScreen,
+    fields: [
+      ['email-input', 'jean@example.com'],
+      ['password-input', 'ValidPassword123'],
     ],
-  ],
-  ['ResetPasswordScreen.tsx', ['reset-code-input', 'new-password-input', 'confirm-password-input']],
+    submit: mockLogin,
+    submittedWith: ['jean@example.com', 'ValidPassword123'],
+  },
+  {
+    name: 'RegisterScreen',
+    Screen: RegisterScreen,
+    fields: [
+      ['register-display-name-input', 'Jean'],
+      ['register-email-input', 'jean@example.com'],
+      ['register-password-input', 'ValidPassword123'],
+      ['register-confirm-password-input', 'ValidPassword123'],
+    ],
+    submit: mockRegister,
+    submittedWith: ['jean@example.com', 'ValidPassword123', 'Jean'],
+  },
+  {
+    name: 'ResetPasswordScreen',
+    Screen: ResetPasswordScreen,
+    fields: [
+      ['reset-code-input', RESET_CODE],
+      ['new-password-input', 'ValidPassword123'],
+      ['confirm-password-input', 'ValidPassword123'],
+    ],
+    submit: mockResetPassword,
+    submittedWith: [RESET_CODE, 'ValidPassword123'],
+  },
+  {
+    // A single field, so it submits with no chain.
+    name: 'ForgotPasswordScreen',
+    Screen: ForgotPasswordScreen,
+    fields: [['forgot-email-input', 'jean@example.com']],
+    submit: mockForgotPassword,
+    submittedWith: ['jean@example.com'],
+  },
 ];
 
-describe.each(CHAINS)('%s focus chain', (file, ids) => {
-  const src = read(file);
+/**
+ * The fields `focus()` was called on, in order, by test id.
+ *
+ * Under jest a `TextInput` is a class whose `focus` is one mock on the
+ * prototype, so each call's `this` is the input that was asked to take the
+ * caret — the field a screen's ref points at, not a name in its source.
+ */
+function focusedFields(): string[] {
+  const focus = TextInput.prototype.focus as unknown as jest.Mock;
+  return focus.mock.contexts.map((input) => (input as { props: { testID?: string } }).props.testID ?? '?');
+}
 
-  it('reads a real screen, so an empty read cannot pass as compliance', () => {
-    expect(src.length).toBeGreaterThan(500);
-    for (const id of ids) expect(src).toContain(`testID="${id}"`);
+/** Press the return key on a field, as the keyboard does. */
+function pressReturn(view: RenderResult, testID: string): void {
+  fireEvent(view.getByTestId(testID), 'submitEditing');
+}
+
+/**
+ * Each form is rendered and its return keys are pressed. Matching
+ * `returnKeyType="next"`, `onSubmitEditing={() => x.current?.focus()}` and
+ * `ref={x}` in a screen's source says nothing about WHICH field a ref lands
+ * on: an email field wired to focus itself passes it.
+ */
+describe.each(FORMS)('$name focus chain', ({ Screen, fields, submit, submittedWith }) => {
+  const ids = fields.map(([testID]) => testID);
+  const handoffs = ids.slice(0, -1).map((id, index) => [id, ids[index + 1]]);
+  const last = ids[ids.length - 1];
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    submit.mockResolvedValue(undefined);
   });
 
-  /** The props block of the `<Input>` carrying this testID. */
-  const blockFor = (id: string): string => {
-    const at = src.indexOf(`testID="${id}"`);
-    const open = src.lastIndexOf('<Input', at);
-    return src.slice(open, at);
-  };
+  if (handoffs.length > 0) {
+    it.each(handoffs)('%s hands the caret to %s', (from, to) => {
+      const view = render(<Screen />);
+      const field = view.getByTestId(from);
 
-  it.each(ids.slice(0, -1))('%s hands off to the next field', (id) => {
-    const block = blockFor(id);
-    expect(block).toContain('returnKeyType="next"');
-    expect(block).toMatch(/onSubmitEditing=\{\(\) => \w+\.current\?\.focus\(\)\}/);
-    // Without this the keyboard closes between fields and the handoff flickers.
-    expect(block).toContain('blurOnSubmit={false}');
-  });
+      expect(field.props.returnKeyType).toBe('next');
+      // Without this the keyboard closes between fields and the handoff flickers.
+      expect(field.props.blurOnSubmit).toBe(false);
 
-  it.each(ids.slice(1))('%s is reachable — it takes a ref', (id) => {
-    expect(blockFor(id)).toMatch(/ref=\{\w+\}/);
-  });
+      pressReturn(view, from);
 
-  it('the last field submits rather than handing off', () => {
-    const block = blockFor(ids[ids.length - 1]);
-    expect(block).toContain('returnKeyType="go"');
-    expect(block).toMatch(/onSubmitEditing=\{handle\w+\}/);
-  });
-});
+      expect(focusedFields()).toEqual([to]);
+      // Moving on is not submitting: nothing was sent, and nothing was refused.
+      expect(submit).not.toHaveBeenCalled();
+    });
+  }
 
-describe('ForgotPasswordScreen', () => {
-  it('has a single field, so it submits with no chain', () => {
-    const src = read('ForgotPasswordScreen.tsx');
-    expect(src).toContain('testID="forgot-email-input"');
-    expect(src).toContain('returnKeyType="go"');
-    expect(src).toMatch(/onSubmitEditing=\{handle\w+\}/);
+  it('the last field submits rather than handing off', async () => {
+    const view = render(<Screen />);
+    for (const [testID, value] of fields) fireEvent.changeText(view.getByTestId(testID), value);
+
+    expect(view.getByTestId(last).props.returnKeyType).toBe('go');
+    pressReturn(view, last);
+
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+    expect(submit).toHaveBeenCalledWith(...submittedWith);
+    expect(focusedFields()).toEqual([]);
   });
 });

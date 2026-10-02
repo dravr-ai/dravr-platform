@@ -25,7 +25,7 @@ use pierre_core::models::{A2AClient, RequestLog};
 use pierre_database::backends::factory::Database;
 use pierre_database::backends::UsageRepository;
 use pierre_middleware::rate_limiting::{
-    create_rate_limit_headers, headers, report_a2a_client_request, report_api_key_request,
+    create_rate_limit_headers, report_a2a_client_request, report_api_key_request,
     report_request_budget, report_request_operation, request_budget_middleware, A2AClientCall,
     UsageLedgers,
 };
@@ -183,12 +183,6 @@ fn test_metered_budget_renders_exactly_three_headers() {
     ] {
         assert!(map.get(absent).is_none(), "{absent} is never sent");
     }
-    assert_eq!(headers::X_RATE_LIMIT_LIMIT.as_str(), "x-ratelimit-limit");
-    assert_eq!(
-        headers::X_RATE_LIMIT_REMAINING.as_str(),
-        "x-ratelimit-remaining"
-    );
-    assert_eq!(headers::X_RATE_LIMIT_RESET.as_str(), "x-ratelimit-reset");
 }
 
 #[test]

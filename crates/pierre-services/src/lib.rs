@@ -372,5 +372,8 @@ pub mod trainingpeaks_accounts;
 /// A group's coach links `TrainingPeaks` roster athletes to members, who confirm; either side ends a link.
 pub mod delegated_connections;
 
+/// Whose data a provider push event is about: the token's owner, or the member a coach's confirmed link names.
+pub mod webhook_owner;
+
 /// Names a coaching group's AI agent and human coach for the person reading it.
 pub mod group_staff;

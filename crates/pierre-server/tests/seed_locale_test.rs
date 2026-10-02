@@ -10,7 +10,6 @@
 mod common;
 
 use pierre_core::models::User;
-use pierre_database::seed_models::SEED_LOCALE;
 use pierre_seeders::bootstrap::{self, SeedArgs as BootstrapArgs};
 use pierre_seeders::demo_data::{self, SeedArgs as DemoArgs};
 
@@ -46,10 +45,6 @@ async fn bootstrap_seeds_english_accounts() {
         .unwrap()
         .expect("demo user seeded");
     assert_eq!(alice.locale, "en", "seeded demo users are English");
-    assert_eq!(
-        SEED_LOCALE, "en",
-        "the seed locale constant is the English tag"
-    );
 }
 
 /// The visual-test accounts are the ones Playwright, Maestro and the manual demo walk

@@ -1,5 +1,5 @@
 // ABOUTME: Test fixtures for the workspace's integration tests, kept out of every shipped crate's src/
-// ABOUTME: Holds the test-database factory (`db`) and the user fixtures (`server`); a dev-dependency only
+// ABOUTME: Holds the test-database factory (`db`), user fixtures (`server`) and coaching-group rows (`delegation`); dev-dependency only
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -13,6 +13,8 @@
 //!
 //! - [`db`] — the single factory every test opens a database through
 //!   ([`db::create_test_db`] and friends), honouring `DATABASE_URL`.
+//! - [`delegation`] — the group, agent and membership a coach's delegated
+//!   link rests on.
 //! - [`server`] — `User` fixtures in a consistent default shape.
 //!
 //! ## Always a dev-dependency
@@ -39,5 +41,7 @@
 
 /// The test-database factory: `SQLite` image clones, `PostgreSQL` template clones.
 pub mod db;
+/// Coaching-group rows a coach's delegated link rests on.
+pub mod delegation;
 /// `User` fixtures in a consistent default shape.
 pub mod server;

@@ -42,8 +42,6 @@ use axum::{
 use serde_json::json;
 use std::sync::Arc;
 
-use std::env;
-
 use crate::mcp::resources::ServerContext;
 use axum::Extension;
 use pierre_core::errors::AppError;
@@ -137,14 +135,17 @@ impl MessagingRoutes {
 /// Verifies HMAC-SHA256 signature using `SLACK_SIGNING_SECRET` before
 /// delegating to the action handler. Returns 200 immediately on auth failure
 /// to avoid Slack retries.
+///
+/// A `SLACK_SIGNING_SECRET` that is set but blank is answered as an unset one:
+/// a request signed under the empty key is one anyone can forge.
 async fn handle_slack_ops_action(
     State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<impl IntoResponse, AppError> {
     // Verify signature using the same signing secret as the messaging webhook
-    let signing_secret = env::var("SLACK_SIGNING_SECRET")
-        .map_err(|_| AppError::internal("SLACK_SIGNING_SECRET not configured"))?;
+    let signing_secret = slack_actions::configured_signing_secret()
+        .ok_or_else(|| AppError::internal("SLACK_SIGNING_SECRET not configured"))?;
 
     if let Err(e) = slack_actions::verify_slack_signature(&signing_secret, &headers, &body) {
         tracing::warn!(error = %e, "Slack ops action signature verification failed");

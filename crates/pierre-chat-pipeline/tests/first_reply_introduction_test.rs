@@ -9,13 +9,12 @@
 //! introduction rule had ever existed, so this is the rule, and these are the
 //! decisions it is made of. The end-to-end half — real turns through the
 //! pipeline, a rebind, a guided walk, a room — is
-//! `crates/pierre-server/tests/first_reply_introduction_pipeline_test.rs`.
+//! `crates/pierre-server/tests/first_reply_introduction_pipeline_test.rs`, and
+//! that the introduction rides whichever directive owns the slot, once, is
+//! `crates/pierre-server/tests/prompt_assembly_wire_test.rs`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
-
-use std::fs;
-use std::path::PathBuf;
 
 use pierre_chat_pipeline::stages::introduction::{
     display_title, introduction_directive, introduction_thread, reply_names_agent,
@@ -216,39 +215,5 @@ fn a_name_deep_in_the_reply_is_a_mention_not_an_introduction() {
     assert!(
         !reply_names_agent(&reply, "Agent Semi-Marathon"),
         "the introduction opens the reply; a name hundreds of characters in did not"
-    );
-}
-
-/// The introduction follows the Stage 7g.3 slot's match, so it rides whichever
-/// arm owns the turn — the ordinary directive, a guided probe, the release —
-/// and no arm can carry it twice or drop it.
-#[test]
-fn the_introduction_follows_every_arm_of_the_slot() {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/stages/prompt_assembly.rs");
-    let source = fs::read_to_string(&path).expect("read prompt_assembly.rs");
-    let start = source.find("// Stage 7g.3:").expect("Stage 7g.3 marker");
-    let end = source.find("// Stage 7g.3b:").expect("Stage 7g.3b marker");
-    let slot = &source[start..end];
-
-    let resolved = slot
-        .find("super::introduction::resolve(")
-        .expect("Stage 7g.3 must decide the introduction from the turn itself");
-    let arms = slot
-        .find("let raw_system_prompt = match onboarding {")
-        .expect("the slot's arm match");
-    let ordinary = slot
-        .find("None => format!(\"{raw_system_prompt}{TURN_DIRECTIVE}\"),")
-        .expect("the ordinary arm");
-    let appended = slot
-        .find("} + introduction_line.as_str();")
-        .expect("the introduction is appended to the result of the arm match");
-    assert!(
-        resolved < arms && arms < ordinary && ordinary < appended,
-        "the introduction must be appended to the whole match, not inside one arm"
-    );
-    assert_eq!(
-        slot.matches("introduction_line").count(),
-        2,
-        "the introduction is built once and appended once"
     );
 }
