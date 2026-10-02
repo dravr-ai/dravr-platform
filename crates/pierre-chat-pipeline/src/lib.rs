@@ -281,12 +281,6 @@ async fn emit_step(hooks: &PipelineHooks<'_>, step: &str, status: &str) {
     }
 }
 
-/// Run the prompt-assembly stage with AG-UI step emissions.
-///
-/// Thin wrapper around
-/// [`stages::prompt_assembly::assemble_prompt_and_messages`] that
-/// emits `STEP_STARTED`/`STEP_FINISHED` around the call without
-/// inflating the cognitive complexity of [`run_turn`].
 /// Parameters for [`assemble_prompt_stage`]. Bundled into a struct to stay
 /// under the workspace `clippy::too_many_arguments` budget.
 struct AssemblePromptArgs<'a> {
@@ -308,6 +302,8 @@ struct AssemblePromptArgs<'a> {
     onboarding: Option<&'a stages::onboarding::OnboardingTurn>,
 }
 
+/// Run [`stages::prompt_assembly::assemble_prompt_and_messages`] between
+/// AG-UI `STEP_STARTED`/`STEP_FINISHED`, outside [`run_turn`]'s complexity.
 async fn assemble_prompt_stage(
     args: AssemblePromptArgs<'_>,
 ) -> AppResult<stages::prompt_assembly::AssembledPrompt> {
@@ -584,6 +580,8 @@ struct DispatchStageArgs<'a> {
     peer_roster: &'a [MemberFitnessSnapshot],
     /// The agent the turn answers as, bound on the tool executor.
     turn_agent_id: Option<&'a str>,
+    /// The sender coaches this turn's group (see `DispatchLlmInputs::coach_seat`).
+    coach_seat: Option<stages::group_subject::CoachSeat>,
 }
 
 /// Run the dispatch stage with AG-UI step emissions.
@@ -606,6 +604,7 @@ async fn dispatch_stage(
             guided_flow: args.guided_flow,
             peer_roster: args.peer_roster,
             turn_agent_id: args.turn_agent_id,
+            coach_seat: args.coach_seat,
         },
         llm_messages,
         max_iterations,
@@ -856,18 +855,25 @@ async fn run_turn(
 
     // Stages 7a–7h + 8: assemble the hardened system prompt and flatten the
     // conversation history into a ready-to-dispatch LLM message list.
-    let (prompt_guard, pending_followup_ids, mut llm_messages, source_ids, group_roster, intro) =
-        assemble_prompt_stage(AssemblePromptArgs {
-            hooks,
-            ctx,
-            input: &input,
-            profile,
-            conv: &conv,
-            agent_ctx: agent_ctx.as_ref(),
-            history: &history,
-            onboarding: onboarding_turn.as_ref(),
-        })
-        .await?;
+    let (
+        prompt_guard,
+        pending_followup_ids,
+        mut llm_messages,
+        source_ids,
+        group_roster,
+        intro,
+        coach_seat,
+    ) = assemble_prompt_stage(AssemblePromptArgs {
+        hooks,
+        ctx,
+        input: &input,
+        profile,
+        conv: &conv,
+        agent_ctx: agent_ctx.as_ref(),
+        history: &history,
+        onboarding: onboarding_turn.as_ref(),
+    })
+    .await?;
 
     // Stages 9–14: pre-dispatch preparation followed by the multi-turn tool loop.
     let stages::tool_dispatch::DispatchedTurn {
@@ -887,6 +893,7 @@ async fn run_turn(
             guided_flow: onboarding_turn.as_ref().map(|turn| turn.state.flow),
             peer_roster: &group_roster,
             turn_agent_id: input.turn_agent_id(&conv),
+            coach_seat,
         },
         &mut llm_messages,
     )

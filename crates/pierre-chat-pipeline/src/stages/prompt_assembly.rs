@@ -30,19 +30,14 @@ use tracing::error;
 
 use super::super::surface_profile::{ProseFormat, SurfaceProfile};
 use super::super::turn::TurnInput;
-use super::commitments::inject_commitments;
-use super::followups::inject_pending_followups;
-use super::memory::{
-    inject_agent_notes, inject_okf_bundle, inject_playbooks, inject_training_plan,
-};
+use super::memory::inject_training_plan;
 #[cfg(feature = "tools-groups")]
 use super::prompt_builder::resolve_group_context;
 use super::prompt_builder::{
     build_llm_messages_with_blocks, build_provider_context, render_tool_index, TOOL_BOUNDARY,
 };
-use super::refresh::inject_refresh_context;
+use super::subject_context::{inject_subject_context, SubjectContextInputs};
 use super::viz_blocks;
-use pierre_services::memory_facts::SentenceRenderer;
 
 /// Identity anchor appended to the tail of every assembled system prompt.
 ///
@@ -587,7 +582,8 @@ pub fn resolve_agent_base_prompt(
 /// per surviving message) that Tier 1 compaction uses to anchor block ids,
 /// the group roster snapshots (empty outside a group conversation) that
 /// peer grounding and the peer-claim verifier match names against, and the
-/// introduction the reply was asked to open with, recorded once it has.
+/// introduction the reply was asked to open with, recorded once it has, and
+/// the coach's seat when the sender coaches the conversation's group.
 pub(crate) type AssembledPrompt = (
     prompt_leak::PromptGuard,
     Vec<String>,
@@ -595,6 +591,7 @@ pub(crate) type AssembledPrompt = (
     Vec<Option<String>>,
     Vec<MemberFitnessSnapshot>,
     Option<super::introduction::PendingIntroduction>,
+    Option<super::group_subject::CoachSeat>,
 );
 
 /// Assemble the hardened system prompt and flatten history into an
@@ -691,6 +688,18 @@ pub(crate) async fn assemble_prompt_and_messages(
         &base_prompt,
     );
 
+    // Stage 7a.1b: Name the coach's seat. In a group the sender coaches, the
+    // sender is not the subject: none of the athlete-data stages below may load
+    // their own training as the group's (carnet#741).
+    let coach_seat = super::group_subject::coach_seat(
+        &ctx.repos,
+        conv,
+        input.conversation_tenant_id,
+        &input.user_id,
+    )
+    .await;
+    let sender_is_subject = coach_seat.is_none();
+
     // Stage 7a.2: State that the tool set is closed. The tools themselves are
     // advertised once, by the provider layer — embacle renders the full schemas
     // for text tool-calling, and native providers receive them over the API.
@@ -733,7 +742,11 @@ pub(crate) async fn assemble_prompt_and_messages(
     // Stage 7b: Append connected-provider context so the LLM never asks the
     // user to connect providers that are already connected.
     let user_uuid = parse_uuid(&input.user_id).unwrap_or_default();
-    let provider_context = build_provider_context(&ctx.data, user_uuid).await;
+    let provider_context = if sender_is_subject {
+        build_provider_context(&ctx.data, user_uuid).await
+    } else {
+        String::new()
+    };
     let base_prompt = if provider_context.is_empty() {
         base_prompt
     } else {
@@ -745,8 +758,13 @@ pub(crate) async fn assemble_prompt_and_messages(
     // from the user's membership.
     #[cfg(feature = "tools-groups")]
     let (base_prompt, group_roster) = {
-        let (resolved_group_id, snapshots) =
+        let (resolved_group_id, mut snapshots) =
             resolve_group_context(ctx, conv.group_id.as_deref(), input.tool_tenant_id).await?;
+        // The group context always shows the requester their own card, which
+        // for the coach would present the coach's training as the group's.
+        if !sender_is_subject {
+            snapshots.retain(|s| s.user_id != user_uuid);
+        }
         let injected = ctx
             .group_service
             .inject_group_context(
@@ -764,37 +782,12 @@ pub(crate) async fn assemble_prompt_and_messages(
     #[cfg(not(feature = "tools-groups"))]
     let group_roster: Vec<MemberFitnessSnapshot> = Vec::new();
 
-    // Stage 7d: Trigger background provider refresh and append freshness hint.
-    // Unconditional: how stale the athlete's provider data is has the same
-    // bearing on the answer everywhere, so there was never a surface that
-    // wanted it suppressed.
-    let auth_repos = ctx.repos.auth_repos();
-    let base_prompt = inject_refresh_context(
-        super::refresh::RefreshDeps {
-            auth_repos: &auth_repos,
-            activity_cache: ctx.repos.activity_cache.clone(),
-            #[cfg(feature = "health-sync")]
-            sync_orchestrator: &ctx.sync_orchestrator,
-            #[cfg(feature = "health-sync")]
-            sse_manager: &ctx.sse_manager,
-        },
-        &input.user_id,
-        input.tool_tenant_id,
-        base_prompt,
-    )
-    .await;
-
-    // Stage 7e: Render the per-user OKF context bundle (North Star + pillar +
-    // medical facts) from the read-time Dossier into the prompt. Single
-    // fact->prompt surface; user-wide (agent-agnostic) facts.
-    let base_prompt = inject_okf_bundle(
-        ctx.repos.dossier.as_ref(),
-        input.conversation_tenant_id,
-        user_uuid,
-        base_prompt,
-        SentenceRenderer::new(&ctx.messaging_strings_registry, &profile.locale),
-    )
-    .await;
+    // Stage 7c.1: Tell the agent it is talking to the group's coach, and how
+    // many athletes have joined.
+    let base_prompt = match coach_seat {
+        Some(seat) => format!("{base_prompt}{}", seat.directive()),
+        None => base_prompt,
+    };
 
     // Every per-agent block below follows the agent answering this turn — the
     // mentioned agent on a `@handle` turn — so a routed turn carries that
@@ -802,56 +795,24 @@ pub(crate) async fn assemble_prompt_and_messages(
     // persona.
     let turn_agent_id = input.turn_agent_id(conv);
 
-    // Stage 7e.2: Inject the athlete's proven coaching playbooks (learned from
-    // their own outcomes) so the agent prefers what has worked for them. Scoped
-    // to the TOOL tenant — where the activity data and playbooks live.
-    let playbook_tenant = input.tool_tenant_id.to_string();
-    let base_prompt = inject_playbooks(
-        ctx.repos.playbooks.as_ref(),
-        ctx.repos.activity_cache.as_ref(),
-        &playbook_tenant,
-        &input.user_id,
-        turn_agent_id,
-        base_prompt,
-    )
-    .await;
-
-    // Stage 7e.3: The notes the answering agent wrote about this athlete with
-    // `agent_note_add`, newest first, suppressed ones left out. Scoped to the
-    // TOOL tenant — the tenant the note tool writes under.
-    let base_prompt = inject_agent_notes(
-        ctx.repos.memory.as_ref(),
-        input.tool_tenant_id,
-        &input.user_id,
-        turn_agent_id,
-        base_prompt,
-    )
-    .await;
-
-    // Stage 7f: Render pending agent followups. Surfaced IDs are marked
-    // delivered after the turn succeeds.
-    let (base_prompt, pending_followup_ids) = inject_pending_followups(
-        &ctx.data,
-        input.conversation_tenant_id,
-        &input.user_id,
-        turn_agent_id,
-        base_prompt,
-    )
-    .await;
-
-    // Stage 7f.1: Render the athlete's own open commitments. Scoped to the
-    // TOOL tenant — the tenant `commitment_create` writes under and the one
-    // their activity data lives in, so the block and the sweep agree on which
-    // promises exist. Deliberately above the training plan: a promise the
-    // athlete made themselves outranks a plan the agent wrote for them.
-    let base_prompt = inject_commitments(
-        &ctx.data,
-        &input.tool_tenant_id.to_string(),
-        &input.user_id,
-        user_timezone.as_deref(),
-        base_prompt,
-    )
-    .await;
+    // Stages 7d–7f.1: the subject's own athlete context. The coach's seat skips
+    // it whole — the coach's own training is not the group's.
+    let (base_prompt, pending_followup_ids) = if sender_is_subject {
+        inject_subject_context(
+            SubjectContextInputs {
+                ctx,
+                input,
+                profile,
+                user_uuid,
+                turn_agent_id,
+                user_timezone: user_timezone.as_deref(),
+            },
+            base_prompt,
+        )
+        .await
+    } else {
+        (base_prompt, Vec::new())
+    };
 
     // Stage 7f.2: Render the athlete's persisted training plan (outline +
     // current/next week). Scoped to the TOOL tenant — the tenant
@@ -1159,6 +1120,7 @@ pub(crate) async fn assemble_prompt_and_messages(
         source_ids,
         group_roster,
         introduction,
+        coach_seat,
     ))
 }
 

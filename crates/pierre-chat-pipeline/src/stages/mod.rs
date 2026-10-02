@@ -48,6 +48,8 @@ pub mod completion;
 /// Turns the platform answers itself, without the LLM.
 pub mod deterministic_reply;
 pub mod followups;
+/// Whether a group turn's sender is the group's coach, not an athlete in it.
+pub(crate) mod group_subject;
 /// Guardian confirm-required recovery: short-circuit a turn with the
 /// localized confirmation ask when the Guardian parked a destructive call.
 pub(crate) mod guardian_confirm;
@@ -79,6 +81,8 @@ pub(crate) mod provider_stop;
 pub mod refresh;
 /// The language a platform note appended to a reply is written in.
 pub(crate) mod reply_locale;
+/// The turn subject's own athlete context (prompt stages 7d–7f.1).
+pub mod subject_context;
 /// Pre-dispatch prep + multi-turn tool execution loop.
 pub mod tool_dispatch;
 /// Post-turn memory extraction, recorded before it runs

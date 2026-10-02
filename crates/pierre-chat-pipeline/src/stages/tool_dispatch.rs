@@ -86,6 +86,10 @@ pub(crate) struct DispatchLlmInputs<'a> {
     /// Bound on the executor so a tool that records authorship — a plan week,
     /// an outline — names the agent the athlete was talking to.
     pub turn_agent_id: Option<&'a str>,
+    /// The sender holds the coach's seat of this turn's group. Their own
+    /// activities are not what the turn is about, so neither activity prefetch
+    /// runs for them (carnet#741).
+    pub coach_seat: Option<super::group_subject::CoachSeat>,
 }
 
 /// What the dispatch stage hands back to the pipeline.
@@ -132,7 +136,9 @@ pub(crate) async fn dispatch_llm_with_tools(
         guided_flow,
         peer_roster,
         turn_agent_id,
+        coach_seat,
     } = inputs;
+    let sender_is_subject = coach_seat.is_none();
     // Stage 9: MCP executor for tool calls. Bind the originating conversation id
     // so a tool that spawns detached work (e.g. a historical activity backfill)
     // can route a completion notice back to the channel that triggered it.
@@ -157,17 +163,20 @@ pub(crate) async fn dispatch_llm_with_tools(
     // The return value is provenance, not status: `true` means a real
     // `get_activities` run put the athlete's activities in front of the model.
     // Stage 14 folds that into `tools_called` so downstream gates can tell
-    // platform-fetched data from anything the model made up.
-    let mut prefetched_activities = inject_startup_context(
-        &executor,
-        llm_messages,
-        history,
-        agent_ctx,
-        &input.user_id,
-        input.tool_tenant_id,
-        guided_flow.is_some(),
-    )
-    .await;
+    // platform-fetched data from anything the model made up. Skipped for the
+    // coach's seat (here and at 12b): the sender's activities are not the
+    // group's.
+    let mut prefetched_activities = sender_is_subject
+        && inject_startup_context(
+            &executor,
+            llm_messages,
+            history,
+            agent_ctx,
+            &input.user_id,
+            input.tool_tenant_id,
+            guided_flow.is_some(),
+        )
+        .await;
 
     // Stage 11: LLM provider resolution.
     let provider_arc =
@@ -191,18 +200,19 @@ pub(crate) async fn dispatch_llm_with_tools(
     // real activities, not the agent persona alone. Runs AFTER compaction so
     // the freshly injected block is never summarized away and cannot desync
     // the `source_ids`/`llm_messages` vectors compaction consumed above.
-    prefetched_activities |= maybe_refresh_activity_context(
-        ActivityRefreshInputs {
-            executor: &executor,
-            history,
-            agent_ctx,
-            user_id: &input.user_id,
-            tenant_id: input.tool_tenant_id,
-            guided_flow_active: guided_flow.is_some(),
-        },
-        llm_messages,
-    )
-    .await;
+    prefetched_activities |= sender_is_subject
+        && maybe_refresh_activity_context(
+            ActivityRefreshInputs {
+                executor: &executor,
+                history,
+                agent_ctx,
+                user_id: &input.user_id,
+                tenant_id: input.tool_tenant_id,
+                guided_flow_active: guided_flow.is_some(),
+            },
+            llm_messages,
+        )
+        .await;
 
     // Stage 12c: Peer-mention grounding. A group turn that names a roster
     // member gets that member's real activities fetched platform-side and

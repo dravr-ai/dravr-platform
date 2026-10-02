@@ -410,7 +410,7 @@ pub fn is_outstanding(steps: &[OnboardingStepRecord]) -> bool {
 /// questions are not theirs. The chat intake marks `parq`; the wizard marks
 /// both `about_you` and `parq`.
 #[must_use]
-pub(crate) fn athlete_steps_waived(steps: &[OnboardingStepRecord]) -> bool {
+pub fn athlete_steps_waived(steps: &[OnboardingStepRecord]) -> bool {
     steps.iter().any(|step| {
         (step.step_id == STEP_PARQ || step.step_id == STEP_ABOUT_YOU)
             && step.status == STATUS_NOT_APPLICABLE
