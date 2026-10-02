@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Pins the thread geometry only a laid-out browser shows — a short athlete bubble on one line
-// ABOUTME: and a composer that grows with the draft, keeps its buttons on the last line, then scrolls
+// ABOUTME: and a composer that grows with the draft, keeps its icons centred on the last line, then scrolls
 
 import { test, expect, type Page } from '@playwright/test';
 import { setupDashboardMocks, loginToDashboard } from './test-helpers';
@@ -114,4 +114,41 @@ test.describe('thread geometry', () => {
     await composer.fill('');
     expect((await composer.boundingBox())!.height).toBe(oneLine);
   });
+
+  // Below 1024px `touch-target` grows the composer's buttons to 44px while
+  // the field stays one 41px line, so an icon offset a fixed distance from
+  // the bottom sits above the text; 846px is inside that range, 1280px is not.
+  for (const width of [1280, 846]) {
+    test(`the slash and send icons share the last line's centre at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await openThread(page);
+      const composer = page.getByPlaceholder('Message Dravr...').first();
+      const iconCentres = async () =>
+        composer.evaluate((el: HTMLTextAreaElement) => {
+          const style = getComputedStyle(el);
+          const box = el.getBoundingClientRect();
+          const centre = (svg: Element | null) => {
+            const r = svg!.getBoundingClientRect();
+            return r.top + r.height / 2;
+          };
+          const icons = el.parentElement!.querySelectorAll('svg');
+          return {
+            lastLine:
+              box.bottom -
+              parseFloat(style.borderBottomWidth) -
+              parseFloat(style.paddingBottom) -
+              parseFloat(style.lineHeight) / 2,
+            slash: centre(document.querySelector('[data-testid="slash-command-button"] svg')),
+            send: centre(icons[icons.length - 1]),
+          };
+        });
+
+      for (const draft of ['', 'une ligne\ndeux lignes\ntrois lignes']) {
+        await composer.fill(draft);
+        const at = await iconCentres();
+        expect(Math.abs(at.slash - at.lastLine), `slash on "${draft}"`).toBeLessThan(1);
+        expect(Math.abs(at.send - at.lastLine), `send on "${draft}"`).toBeLessThan(1);
+      }
+    });
+  }
 });

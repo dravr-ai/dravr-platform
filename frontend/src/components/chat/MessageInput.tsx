@@ -20,6 +20,15 @@ import { useTranslation } from '@pierre/i18n';
  */
 const COMPOSER_MAX_LINES = 8;
 
+/**
+ * The box each composer icon sits in: pinned to the field's bottom edge and as
+ * tall as the field holding one line (`py-2`, the 23px line and two 1px
+ * borders; `py-3` on a coarse pointer), so an icon shares the last line's
+ * centre whatever height its button takes.
+ */
+const COMPOSER_ICON_SLOT =
+  'absolute bottom-0 z-10 flex h-[41px] items-center [@media(pointer:coarse)]:h-[49px]';
+
 interface MessageInputProps {
   value: string;
   onChange: (value: string) => void;
@@ -150,7 +159,7 @@ export default function MessageInput({
         />
         {/* The composer is a chat surface, not a form field — DESIGN.md §5
             lists the two separately. It is the one white shape on the paper:
-            a 40px field with a hairline, radius 12, the slash on its left and
+            a 41px field with a hairline, radius 12, the slash on its left and
             the send on its right, both inside it. The measured chat products
             all draw the composer lighter than the page, never darker, and
             none of them puts a helper line under it — the placeholder says
@@ -160,21 +169,27 @@ export default function MessageInput({
               "Menu" button, in the one place a new athlete is already
               looking. It types the character the palette watches for rather
               than opening a second, parallel list. */}
-          <IconButton
-            variant="ghost"
-            size="sm"
-            aria-label={t('chat.commandsLabel')}
-            title={t('chat.commandsLabel')}
-            data-testid="slash-command-button"
-            disabled={isStreaming || disabled}
-            onClick={() => {
-              onChange('/');
-              inputRef.current?.focus();
-            }}
-            className="absolute bottom-1.5 left-1.5 z-10 [@media(pointer:coarse)]:bottom-2.5"
-          >
-            <Slash className="h-4 w-4" aria-hidden="true" />
-          </IconButton>
+          {/* Each icon is centred on the field's last line by a box one
+              line tall, never lifted off the bottom by a fixed amount:
+              `touch-target` grows a button to 44px below 1024px wide and on
+              a coarse pointer, and a fixed offset then puts its icon above
+              the text. */}
+          <div className={clsx(COMPOSER_ICON_SLOT, 'left-1.5')}>
+            <IconButton
+              variant="ghost"
+              size="sm"
+              aria-label={t('chat.commandsLabel')}
+              title={t('chat.commandsLabel')}
+              data-testid="slash-command-button"
+              disabled={isStreaming || disabled}
+              onClick={() => {
+                onChange('/');
+                inputRef.current?.focus();
+              }}
+            >
+              <Slash className="h-4 w-4" aria-hidden="true" />
+            </IconButton>
+          </div>
           {/* eslint-disable-next-line no-restricted-syntax */}
           <textarea
             ref={inputRef}
@@ -197,41 +212,43 @@ export default function MessageInput({
             rows={1}
             disabled={isStreaming || disabled}
           />
-          {isStreaming ? (
-            <button
-              type="button"
-              onClick={onStop}
-              disabled={isStopping}
-              aria-label={t('chat.stopTurnAria')}
-              title={t('chat.stopTurnAria')}
-              data-testid="stop-turn-button"
-              className={clsx(
-                'absolute bottom-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-full transition-colors touch-target [@media(pointer:coarse)]:bottom-2.5',
-                isStopping
-                  ? 'text-on-surface-variant cursor-not-allowed'
-                  : 'bg-primary text-on-primary hover:bg-primary-hover'
-              )}
-            >
-              <Square className="h-3 w-3 fill-current" aria-hidden="true" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onSend}
-              disabled={!value.trim() || disabled}
-              aria-label={t('chat.sendMessageAria')}
-              className={clsx(
-                'absolute bottom-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-full transition-colors touch-target [@media(pointer:coarse)]:bottom-2.5',
-                value.trim() && !disabled
-                  ? 'bg-primary text-on-primary hover:bg-primary-hover'
-                  : 'text-on-surface-variant cursor-not-allowed'
-              )}
-            >
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-              </svg>
-            </button>
-          )}
+          <div className={clsx(COMPOSER_ICON_SLOT, 'right-1.5')}>
+            {isStreaming ? (
+              <button
+                type="button"
+                onClick={onStop}
+                disabled={isStopping}
+                aria-label={t('chat.stopTurnAria')}
+                title={t('chat.stopTurnAria')}
+                data-testid="stop-turn-button"
+                className={clsx(
+                  'flex h-7 w-7 items-center justify-center rounded-full transition-colors touch-target',
+                  isStopping
+                    ? 'text-on-surface-variant cursor-not-allowed'
+                    : 'bg-primary text-on-primary hover:bg-primary-hover'
+                )}
+              >
+                <Square className="h-3 w-3 fill-current" aria-hidden="true" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onSend}
+                disabled={!value.trim() || disabled}
+                aria-label={t('chat.sendMessageAria')}
+                className={clsx(
+                  'flex h-7 w-7 items-center justify-center rounded-full transition-colors touch-target',
+                  value.trim() && !disabled
+                    ? 'bg-primary text-on-primary hover:bg-primary-hover'
+                    : 'text-on-surface-variant cursor-not-allowed'
+                )}
+              >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
