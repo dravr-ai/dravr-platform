@@ -298,8 +298,11 @@ resource "google_monitoring_alert_policy" "daily_cost" {
         AND severity >= ERROR
       EOT
 
+      # Data Transfer logs the run's error under jsonPayload.message
+      # ("Error code 3 : Query error: COST ALERT ... at [line:col]"), never
+      # textPayload.
       label_extractors = {
-        "detail" = "REGEXP_EXTRACT(textPayload, \"(COST ALERT[^;\\\"]*)\")"
+        "detail" = "REGEXP_EXTRACT(jsonPayload.message, \"(COST ALERT[^;\\\"]*)\")"
       }
     }
   }
