@@ -1,14 +1,14 @@
 // ABOUTME: Intervals.icu API-key link routes — validate athlete_id + API key live, then persist
-// ABOUTME: Non-OAuth linking: HTTP Basic (literal "API_KEY":api_key) stored as a ConnectionType::Manual connection
+// ABOUTME: The key is stored as a ConnectionType::Manual connection; the OAuth link runs through the shared OAuth routes
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! # Intervals.icu link routes
 //!
-//! Intervals.icu authenticates with an athlete-generated API key (HTTP Basic
-//! `API_KEY:<api key>`), not OAuth, so it has no redirect/callback flow. The
-//! athlete pastes their athlete id + API key and `POST`s them here. The handler
+//! An athlete links Intervals.icu through the Dravr OAuth app (the shared
+//! `/api/oauth/*` routes), or by pasting their athlete id + personal API key
+//! (HTTP Basic `API_KEY:<api key>`) and `POST`ing them here. The handler
 //! validates the pair against the live API before persisting: the API key is
 //! stored encrypted in the access-token column, the athlete id plaintext in
 //! `user_oauth_tokens.provider_user_id`, and a `Manual` provider connection is
@@ -21,8 +21,10 @@ use axum::Json;
 use chrono::Utc;
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::errors::AppError;
-use pierre_core::models::{Athlete, ConnectionType, TenantId, UserOAuthToken};
-use pierre_providers::OAuth2Credentials;
+use pierre_core::models::{Athlete, ConnectionType, TenantId, UserOAuthToken, API_KEY_TOKEN_TYPE};
+use pierre_providers::{CredentialKind, OAuth2Credentials};
+use pierre_services::oauth_flow::OAuthService;
+use pierre_services::provider_revocation::DisconnectReason;
 use serde::Deserialize;
 use tracing::info;
 use uuid::Uuid;
@@ -112,9 +114,10 @@ async fn authenticate(
 /// `GET /api/v1/athlete/{id}` round-trip) before persisting, so a bad key is
 /// rejected at link time rather than on the first data fetch.
 ///
-/// LIMITATION(registre#47): `handle_intervals_icu_link` stores a per-athlete API key as a
-/// `ConnectionType::Manual` connection; no intervals.icu OAuth app is registered, so athletes
-/// link on the key model intervals.icu reserves for single-user scripts (5,000 requests/day).
+/// LIMITATION(registre#47): `handle_intervals_icu_link` is still how every athlete links: the
+/// OAuth flow is built, but no intervals.icu OAuth app credentials are deployed and no client
+/// offers it yet, so athletes link on the key model intervals.icu reserves for single-user
+/// scripts (5,000 requests/day).
 ///
 /// # Errors
 ///
@@ -191,6 +194,7 @@ pub async fn link_intervals_icu_account(
             refresh_token: None,
             expires_at: None,
             scopes: vec![],
+            kind: CredentialKind::ApiKey,
         })
         .await?;
     let athlete = provider
@@ -208,7 +212,7 @@ pub async fn link_intervals_icu_account(
         // (The Basic username is the constant `API_KEY`, not this athlete id.)
         access_token: api_key,
         refresh_token: None,
-        token_type: "api_key".to_owned(),
+        token_type: API_KEY_TOKEN_TYPE.to_owned(),
         expires_at: None,
         scope: None,
         // The athlete id addresses the athlete-scoped API path — not secret,
@@ -246,7 +250,9 @@ pub async fn link_intervals_icu_account(
 
 /// `DELETE /api/providers/intervals_icu/disconnect`
 ///
-/// Removes the stored API key + athlete id and the provider connection.
+/// Disconnects through the domain chokepoint every other provider uses, so an
+/// OAuth link has its grant withdrawn at Intervals.icu, an API-key link has
+/// its stored key deleted, and both emit the `provider.disconnected` event.
 ///
 /// # Errors
 ///
@@ -256,19 +262,15 @@ pub async fn handle_intervals_icu_disconnect(
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let (user_id, tenant_id) = authenticate(&resources, &headers).await?;
-    let tenant = TenantId::from_uuid(tenant_id);
 
-    resources
-        .repos
-        .oauth_tokens
-        .delete_token(user_id, tenant, INTERVALS_ICU)
+    OAuthService::new(resources.data.clone(), resources.config.clone())
+        .disconnect_provider(
+            user_id,
+            INTERVALS_ICU,
+            Some(tenant_id),
+            DisconnectReason::Athlete,
+        )
         .await?;
-    resources
-        .repos
-        .provider_connections
-        .remove_connection(user_id, tenant, INTERVALS_ICU)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to remove connection: {e}")))?;
 
     info!(user_id = %user_id, "Intervals.icu account disconnected");
 

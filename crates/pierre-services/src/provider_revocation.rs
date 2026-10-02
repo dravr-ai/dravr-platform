@@ -27,7 +27,9 @@ use pierre_auth::oauth2_client::OAuth2Config;
 use pierre_core::constants::oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::http_client::{api_client, SharedHttpError};
-use pierre_core::models::{DelegationEndReason, ProviderAccountRole, TenantId, UserOAuthToken};
+use pierre_core::models::{
+    DelegationEndReason, ProviderAccountRole, TenantId, UserOAuthToken, API_KEY_TOKEN_TYPE,
+};
 use pierre_database::RepositoryRegistry;
 use pierre_groups::delegation::DelegationStore;
 use pierre_providers::backend_resolver::is_mirror_backend;
@@ -149,8 +151,9 @@ pub enum RevocationShape {
 /// The revocation a backend takes, or `None` for a backend that holds no
 /// upstream grant this service can withdraw.
 ///
-/// `intervals_icu` links by a per-athlete API key the athlete pasted — there
-/// is no OAuth grant, so deleting the local row is the whole disconnect.
+/// `intervals_icu` deregisters an OAuth grant like WHOOP does; a row holding
+/// the API key an athlete pasted instead is no grant, and
+/// [`revoke_with_shape`] reports it as [`RevocationOutcome::NoGrant`].
 /// `sciotte`, `sciotte_garmin` and `sciotte_trainingpeaks` are scrape
 /// sessions: the credential is a browser cookie jar, and there is nothing
 /// upstream to revoke either. The sciotte service's copy of that jar is
@@ -174,7 +177,7 @@ pub fn revocation_shape(service: &OAuthService, backend: &str) -> Option<Revocat
                 token_url: garmin.token_url.clone(),
             })
         }
-        oauth_providers::WHOOP => {
+        oauth_providers::WHOOP | oauth_providers::INTERVALS_ICU => {
             let (revoke_url, token_url) = registry_endpoints(&service.data, backend)?;
             Some(RevocationShape::BearerDeregistration {
                 revoke_url,
@@ -264,6 +267,12 @@ async fn revoke_with_shape(
     tenant_id: TenantId,
     backend: &str,
 ) -> RevocationOutcome {
+    // An API key the athlete pasted (intervals.icu) is no grant this app
+    // holds: the athlete revokes the key in their own settings, and deleting
+    // it here is the whole disconnect.
+    if token.token_type == API_KEY_TOKEN_TYPE {
+        return RevocationOutcome::NoGrant;
+    }
     let creds = match service
         .create_oauth_config_with_user(
             backend,

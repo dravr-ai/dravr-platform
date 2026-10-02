@@ -39,7 +39,8 @@ use chrono::{TimeZone, Utc};
 use dravr_sciotte::client::{ENV_AUDIENCE, ENV_REMOTE_URL};
 use dravr_sciotte::models::AuthSession;
 use pierre_providers::core::{
-    ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
+    ActivityQueryParams, CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig,
+    ProviderFactory,
 };
 use pierre_providers::errors::ErrorCode;
 use pierre_providers::models::Activity;
@@ -233,6 +234,7 @@ async fn provider_holding(
             refresh_token: None,
             expires_at: None,
             scopes: vec![],
+            kind: CredentialKind::OAuthBearer,
         })
         .await
         .expect("a serialized session is accepted"); // Safe: the JSON is a valid AuthSession

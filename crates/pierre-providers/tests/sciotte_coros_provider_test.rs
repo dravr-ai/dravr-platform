@@ -30,7 +30,9 @@ use chrono::{TimeZone, Utc};
 use dravr_sciotte::client::{ENV_AUDIENCE, ENV_REMOTE_URL};
 use dravr_sciotte::models::AuthSession;
 use pierre_core::constants::oauth_providers::SCIOTTE_COROS;
-use pierre_providers::core::{FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory};
+use pierre_providers::core::{
+    CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
+};
 use pierre_providers::coros_self_report::feel_from_coros;
 use pierre_providers::models::Feel;
 use pierre_providers::registry::ProviderRegistry;
@@ -187,6 +189,7 @@ async fn connected_provider() -> Box<dyn FitnessProvider> {
             refresh_token: None,
             expires_at: None,
             scopes: vec![],
+            kind: CredentialKind::OAuthBearer,
         })
         .await
         .expect("a serialized session is accepted"); // Safe: the JSON above is a valid AuthSession

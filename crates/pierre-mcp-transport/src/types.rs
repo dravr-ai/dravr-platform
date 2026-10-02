@@ -17,8 +17,10 @@ pub struct OAuthCallbackResponse {
     pub user_id: String,
     /// Name of the OAuth provider
     pub provider: String,
-    /// When the OAuth token expires (ISO 8601 format)
-    pub expires_at: String,
+    /// When the OAuth token expires (ISO 8601 format); absent for a token
+    /// that does not expire
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
     /// Space-separated list of granted OAuth scopes
     pub scopes: String,
     /// Optional mobile redirect URL from OAuth state (for mobile app flows)

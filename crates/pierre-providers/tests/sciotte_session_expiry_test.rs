@@ -20,7 +20,9 @@
 
 use chrono::{DateTime, Duration, Utc};
 use dravr_sciotte::models::AuthSession;
-use pierre_providers::core::{FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory};
+use pierre_providers::core::{
+    CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
+};
 use pierre_providers::sciotte_provider::SciotteProviderFactory;
 
 /// Build a bare sciotte provider (no scraper, no env — the remote client is only
@@ -59,6 +61,7 @@ async fn set_session(provider: &dyn FitnessProvider, expires_at: Option<DateTime
         refresh_token: None,
         expires_at: None,
         scopes: vec![],
+        kind: CredentialKind::OAuthBearer,
     };
     provider
         .set_credentials(creds)

@@ -842,9 +842,10 @@ async fn terra_backend_deauthenticates_user_with_developer_headers() {
 }
 
 /// Backends with no upstream grant stay local-only, and say so through the
-/// dispatch table rather than by accident: `intervals_icu` links by an API
-/// key, `sciotte`/`sciotte_garmin` are scrape sessions, and `coros` is the
-/// residue registered at `revocation_shape` (registre#509). A sciotte-backed
+/// dispatch table rather than by accident: `sciotte`/`sciotte_garmin` are
+/// scrape sessions, and `coros` is the residue registered at
+/// `revocation_shape` (registre#509). An `intervals_icu` API-key link is the
+/// row-level case, pinned in `intervals_icu_oauth_test`. A sciotte-backed
 /// "Strava" disconnect must not touch Strava's revoke endpoint either.
 #[tokio::test]
 async fn local_only_backends_send_nothing_upstream() {
@@ -856,7 +857,6 @@ async fn local_only_backends_send_nothing_upstream() {
     let service = oauth_service(&resources, config);
 
     for backend in [
-        "intervals_icu",
         "sciotte",
         "sciotte_garmin",
         "sciotte_trainingpeaks",

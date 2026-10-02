@@ -28,6 +28,8 @@ use helpers::axum_test::AxumTestRequest;
 use axum::http::StatusCode;
 use axum::Router;
 use pierre_core::constants::oauth::INTERVALS_ICU;
+use pierre_core::models::TenantId;
+use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::intervals_icu_provider::default_config;
 use pierre_providers::ProviderRegistry;
 use serde_json::json;
@@ -35,6 +37,7 @@ use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
+use uuid::Uuid;
 
 /// One-shot loopback stub standing in for Intervals.icu. Answers a single
 /// request with `status_line` + `body` and returns the captured request head.
@@ -71,6 +74,21 @@ async fn stub_once(status_line: &'static str, body: &'static str) -> (String, Jo
 
 /// Stand up the auth router with the Intervals.icu provider pointed at `base_url`.
 async fn setup(base_url: String) -> (Router, String) {
+    let linked = setup_linked_user(base_url).await;
+    (linked.router, linked.auth)
+}
+
+/// The router, its caller's bearer header, and the caller's ids and server
+/// context, for a test that inspects what a route stored.
+struct LinkedUser {
+    router: Router,
+    auth: String,
+    resources: Arc<ServerContext>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+}
+
+async fn setup_linked_user(base_url: String) -> LinkedUser {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
     // The handler resolves the active tenant from the token; a tenant-less token
@@ -104,7 +122,13 @@ async fn setup(base_url: String) -> (Router, String) {
     context.provider_registry = Arc::new(registry);
 
     let router = pierre_routes_auth::AuthRoutes::routes(context);
-    (router, format!("Bearer {token}"))
+    LinkedUser {
+        router,
+        auth: format!("Bearer {token}"),
+        resources,
+        user_id,
+        tenant_id,
+    }
 }
 
 #[tokio::test]
@@ -194,5 +218,63 @@ async fn accepted_api_key_links_the_account_and_echoes_the_athlete() {
     assert!(
         !head.contains("i123456:good-key"),
         "the athlete id must never appear in the credential pair"
+    );
+}
+
+#[tokio::test]
+async fn disconnect_removes_a_linked_api_key_and_its_connection() {
+    // The disconnect route goes through the shared disconnect chokepoint. For
+    // an API-key link that is local only: the stored key and the Manual
+    // connection are gone, and nothing is sent upstream (the one-shot stub
+    // serves the link call alone).
+    let (base_url, stub) = stub_once(
+        "HTTP/1.1 200 OK",
+        r#"{"id":"i123456","name":"Test Athlete"}"#,
+    )
+    .await;
+    let linked = setup_linked_user(base_url).await;
+
+    let response = AxumTestRequest::post("/api/providers/intervals_icu/link-credentials")
+        .header("authorization", &linked.auth)
+        .json(&json!({ "athlete_id": "i123456", "api_key": "good-key" }))
+        .send(linked.router.clone())
+        .await;
+    assert_eq!(response.status_code(), StatusCode::OK);
+    stub.await.expect("stub task joins");
+
+    let repos = &linked.resources.common.repos;
+    assert!(
+        repos
+            .oauth_tokens
+            .get_token(linked.user_id, linked.tenant_id, INTERVALS_ICU)
+            .await
+            .unwrap()
+            .is_some(),
+        "the link stored the key"
+    );
+
+    let response = AxumTestRequest::delete("/api/providers/intervals_icu/disconnect")
+        .header("authorization", &linked.auth)
+        .send(linked.router)
+        .await;
+    assert_eq!(response.status_code(), StatusCode::NO_CONTENT);
+
+    assert!(
+        repos
+            .oauth_tokens
+            .get_token(linked.user_id, linked.tenant_id, INTERVALS_ICU)
+            .await
+            .unwrap()
+            .is_none(),
+        "the stored key is deleted"
+    );
+    let connections = repos
+        .provider_connections
+        .get_for_user(linked.user_id, Some(linked.tenant_id))
+        .await
+        .unwrap();
+    assert!(
+        connections.iter().all(|c| c.provider != INTERVALS_ICU),
+        "the Manual connection is removed"
     );
 }

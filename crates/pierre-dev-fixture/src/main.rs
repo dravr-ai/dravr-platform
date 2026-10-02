@@ -509,7 +509,9 @@ mod tests {
     use chrono::{Duration, Utc};
     use pierre_config::environment::HttpClientConfig;
     use pierre_config::utils::http_client::initialize_http_clients;
-    use pierre_providers::core::{FitnessProvider, OAuth2Credentials, ProviderConfig};
+    use pierre_providers::core::{
+        CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig,
+    };
     use pierre_providers::strava_provider::StravaProvider;
     use std::sync::Once;
 
@@ -585,6 +587,7 @@ mod tests {
                 refresh_token: Some("dev".to_owned()),
                 expires_at: Some(Utc::now() + Duration::days(1)),
                 scopes: vec!["read".to_owned()],
+                kind: CredentialKind::OAuthBearer,
             })
             .await
             .expect("credentials");

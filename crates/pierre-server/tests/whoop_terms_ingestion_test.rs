@@ -48,7 +48,7 @@ use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::constants::init_server_config;
 use pierre_mcp_server::utils::http_client::initialize_http_clients;
-use pierre_providers::core::{FitnessProvider, OAuth2Credentials, ProviderConfig};
+use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::whoop_provider::WhoopProvider;
 use pierre_services::health_sync::PierreSyncStorage;
 use pierre_services::whoop_terms::{in_house_sleep_efficiency, sleep_session_to_store};
@@ -670,6 +670,7 @@ async fn a_whoop_workout_reaches_the_activity_model_without_its_strain() {
             refresh_token: None,
             expires_at: Some(Utc::now() + Duration::hours(1)),
             scopes: Vec::new(),
+            kind: CredentialKind::OAuthBearer,
         })
         .await
         .unwrap();

@@ -656,22 +656,30 @@ pub fn get_oauth_config(provider_name: &str) -> OAuthProviderConfig {
         p if p == oauth_providers::STRAVA => (
             "STRAVA_CLIENT_ID",
             "STRAVA_CLIENT_SECRET",
-            oauth_providers::STRAVA_DEFAULT_SCOPES,
+            parse_scopes(oauth_providers::STRAVA_DEFAULT_SCOPES),
         ),
         p if p == oauth_providers::GARMIN => (
             "GARMIN_CLIENT_ID",
             "GARMIN_CLIENT_SECRET",
-            oauth_providers::GARMIN_DEFAULT_SCOPES,
+            parse_scopes(oauth_providers::GARMIN_DEFAULT_SCOPES),
         ),
         p if p == oauth_providers::WHOOP => (
             "WHOOP_CLIENT_ID",
             "WHOOP_CLIENT_SECRET",
-            oauth_providers::WHOOP_DEFAULT_SCOPES,
+            parse_scopes(oauth_providers::WHOOP_DEFAULT_SCOPES),
         ),
         p if p == oauth_providers::TERRA => (
             "TERRA_DEV_ID",
             "TERRA_API_KEY",
-            oauth_providers::TERRA_DEFAULT_SCOPES,
+            parse_scopes(oauth_providers::TERRA_DEFAULT_SCOPES),
+        ),
+        p if p == oauth_providers::INTERVALS_ICU => (
+            "INTERVALS_ICU_CLIENT_ID",
+            "INTERVALS_ICU_CLIENT_SECRET",
+            oauth_providers::INTERVALS_ICU_DEFAULT_SCOPES
+                .iter()
+                .map(|scope| (*scope).to_owned())
+                .collect(),
         ),
         _ => {
             debug!(
@@ -690,7 +698,7 @@ pub fn get_oauth_config(provider_name: &str) -> OAuthProviderConfig {
         .ok();
     let scopes = env::var(format!("PIERRE_{upper}_SCOPES"))
         .or_else(|_| env::var(format!("{upper}_SCOPES")))
-        .map_or_else(|_| parse_scopes(default_scopes), |s| parse_scopes(&s));
+        .map_or(default_scopes, |s| parse_scopes(&s));
 
     OAuthProviderConfig {
         enabled: client_id.is_some() && client_secret.is_some(),

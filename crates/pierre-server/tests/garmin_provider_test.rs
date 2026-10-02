@@ -18,7 +18,7 @@ use pierre_mcp_server::constants::{
     api_provider_limits, init_server_config, oauth, oauth_providers,
 };
 use pierre_mcp_server::utils::http_client::initialize_http_clients;
-use pierre_providers::core::{FitnessProvider, OAuth2Credentials, ProviderConfig};
+use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::garmin_provider::GarminProvider;
 use pierre_providers::registry::{get_supported_providers, global_registry};
 use std::sync::Once;
@@ -91,6 +91,7 @@ async fn test_garmin_provider_authentication_lifecycle() {
         refresh_token: Some("test_refresh_token".to_owned()),
         expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
         scopes: vec!["wellness:read".to_owned(), "activities:read".to_owned()],
+        kind: CredentialKind::OAuthBearer,
     };
 
     provider
@@ -115,6 +116,7 @@ async fn test_garmin_provider_expired_token() {
         refresh_token: Some("test_refresh_token".to_owned()),
         expires_at: Some(Utc::now() - chrono::Duration::hours(1)), // Already expired
         scopes: vec!["wellness:read".to_owned()],
+        kind: CredentialKind::OAuthBearer,
     };
 
     provider
@@ -139,6 +141,7 @@ async fn test_garmin_provider_no_expiry() {
         refresh_token: Some("test_refresh_token".to_owned()),
         expires_at: None, // No expiry
         scopes: vec!["wellness:read".to_owned()],
+        kind: CredentialKind::OAuthBearer,
     };
 
     provider
@@ -272,6 +275,7 @@ async fn test_garmin_provider_refresh_token_not_needed() {
         refresh_token: Some("test_refresh_token".to_owned()),
         expires_at: Some(Utc::now() + chrono::Duration::hours(2)),
         scopes: vec!["wellness:read".to_owned()],
+        kind: CredentialKind::OAuthBearer,
     };
 
     provider
@@ -346,6 +350,7 @@ async fn test_garmin_credentials_without_access_token() {
         refresh_token: Some("test_refresh_token".to_owned()),
         expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
         scopes: vec!["wellness:read".to_owned()],
+        kind: CredentialKind::OAuthBearer,
     };
 
     provider

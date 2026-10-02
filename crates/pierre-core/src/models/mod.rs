@@ -185,7 +185,7 @@ pub use oauth::{
     connection_needs_reauth, AuthRequest, AuthResponse, ConnectionStatus, ConnectionType,
     DecryptedToken, EncryptedToken, OAuthAppCredentials, OAuthNotification, ProviderAccountRole,
     ProviderConnection, ReauthMark, StravaPoolApp, StravaSeatHolder, StravaSeatReclaimWarning,
-    StravaTokenApp, UserOAuthApp, UserOAuthToken, UserSession,
+    StravaTokenApp, UserOAuthApp, UserOAuthToken, UserSession, API_KEY_TOKEN_TYPE,
 };
 
 // OAuth client state for provider authorization flows

@@ -1,5 +1,5 @@
 // ABOUTME: Intervals.icu provider — FitnessProvider for athlete profile + activities + streams + wellness + the training-calendar write surface
-// ABOUTME: Uses HTTP Basic auth (literal "API_KEY" : api_key) over reqwest; calendar writes create, update, and delete events keyed by Dravr's external_id
+// ABOUTME: Authenticates with the athlete's OAuth bearer token or HTTP Basic API key; calendar writes create, update, and delete events keyed by Dravr's external_id
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -17,9 +17,8 @@
 //! # Intervals.icu Provider Module
 //!
 //! [`FitnessProvider`] for Intervals.icu (athlete profile, activities, streams,
-//! wellness, and the training-calendar write surface) authenticated via HTTP
-//! Basic auth with the literal username [`BASIC_AUTH_USERNAME`] and the
-//! athlete's API key as the password.
+//! wellness, and the training-calendar write surface), authenticated with the
+//! athlete's OAuth grant or their personal API key.
 //!
 //! ## Calendar writes
 //!
@@ -34,24 +33,29 @@
 //!
 //! ## Authentication
 //!
-//! Intervals.icu does not use OAuth. An athlete generates a personal API key in
-//! their account settings; the platform stores the athlete id in
-//! `user_oauth_tokens.provider_user_id` and the API key in the encrypted
-//! access-token column. At request time the registry builds the provider via
-//! [`IntervalsIcuProviderFactory`] and the serving path feeds those two values
-//! in as [`OAuth2Credentials`] `client_id` / `access_token`.
+//! An athlete links in one of two ways, and [`OAuth2Credentials::kind`] says
+//! which a credential is:
 //!
-//! The two values play different roles on the wire: the athlete id addresses
-//! the athlete-scoped URL path (`/api/v1/athlete/{id}/...`), while the Basic
-//! credential pair is always `API_KEY:<api key>`. Intervals.icu rejects an
-//! athlete id in the username position with 401 on every endpoint.
+//! - **OAuth** ([`CredentialKind::OAuthBearer`]): the athlete authorizes the
+//!   Dravr app and the token goes out as `Authorization: Bearer`. Tokens do not
+//!   expire and there is no refresh grant; a new authorization replaces the
+//!   token. Athlete-scoped paths use the id `0`, which Intervals.icu resolves to
+//!   the athlete the token was issued for.
+//! - **API key** ([`CredentialKind::ApiKey`]): the athlete pastes the personal
+//!   key from their settings. The platform stores the athlete id in
+//!   `user_oauth_tokens.provider_user_id` and the key in the encrypted
+//!   access-token column, and the serving path feeds them in as `client_id` /
+//!   `access_token`. The athlete id addresses the athlete-scoped URL path
+//!   (`/api/v1/athlete/{id}/...`), while the Basic credential pair is always
+//!   `API_KEY:<api key>`: Intervals.icu rejects an athlete id in the username
+//!   position with 401 on every endpoint.
 
 use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, NaiveDate, Utc};
-use reqwest::Response;
+use reqwest::{Response, StatusCode};
 use serde::Deserialize;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
@@ -59,11 +63,12 @@ use tracing::{info, warn};
 use serde_json::json;
 
 use super::core::{
-    no_recorded_samples, ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig,
-    ProviderFactory, TokenRefreshCallback,
+    no_recorded_samples, ActivityQueryParams, CredentialKind, FitnessProvider, OAuth2Credentials,
+    ProviderConfig, ProviderFactory, TokenRefreshCallback,
 };
 use crate::activity_paging::pages_for;
 use crate::constants::api_provider_limits;
+use crate::constants::oauth::INTERVALS_ICU;
 use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient, SharedHttpError, SharedRequestBuilder};
 use crate::intervals_icu_calendar::{
@@ -77,9 +82,22 @@ use crate::models::{
     SportType, Stats, TimeSeriesData,
 };
 use crate::pagination::{CursorPage, PaginationParams};
+use crate::utils::auth_error_for_status;
 
 /// Default base URL for Intervals.icu's REST API (overridable by tests).
 pub const DEFAULT_API_BASE_URL: &str = "https://intervals.icu";
+
+/// Where an athlete authorizes the Dravr OAuth app.
+pub const OAUTH_AUTHORIZE_URL: &str = "https://intervals.icu/oauth/authorize";
+
+/// Where an authorization code is exchanged for a token.
+pub const OAUTH_TOKEN_URL: &str = "https://intervals.icu/api/oauth/token";
+
+/// Where a bearer token deauthorizes itself (`DELETE`).
+pub const OAUTH_REVOKE_URL: &str = "https://intervals.icu/api/v1/disconnect-app";
+
+/// The scopes the Dravr app asks for.
+pub use crate::constants::oauth::INTERVALS_ICU_DEFAULT_SCOPES as DEFAULT_SCOPES;
 
 /// HTTP Basic auth username for Intervals.icu's API-key scheme.
 ///
@@ -181,21 +199,60 @@ async fn send_traced(
     }
 }
 
-/// Provider configuration helper for Intervals.icu credentials.
+/// The athlete-id path segment Intervals.icu resolves to the athlete an OAuth
+/// bearer token was issued for.
+const TOKEN_ATHLETE_SEGMENT: &str = "0";
+
+/// How one call authenticates: the athlete's OAuth grant, or their pasted
+/// personal API key.
+enum CallAuth {
+    /// `Authorization: Bearer <token>`; the token names its athlete.
+    Bearer(String),
+    /// HTTP Basic `API_KEY:<api key>`; the athlete id addresses the path.
+    ApiKey { athlete_id: String, api_key: String },
+}
+
+impl CallAuth {
+    /// The athlete-id segment of an athlete-scoped URL. A bearer token is
+    /// addressed as [`TOKEN_ATHLETE_SEGMENT`], never by an id read elsewhere,
+    /// so a call can only reach the athlete who granted it.
+    fn athlete_segment(&self) -> &str {
+        match self {
+            Self::Bearer(_) => TOKEN_ATHLETE_SEGMENT,
+            Self::ApiKey { athlete_id, .. } => athlete_id,
+        }
+    }
+
+    fn authorize(&self, req: SharedRequestBuilder) -> SharedRequestBuilder {
+        match self {
+            Self::Bearer(token) => req.bearer_auth(token),
+            Self::ApiKey { api_key, .. } => req.basic_auth(BASIC_AUTH_USERNAME, Some(api_key)),
+        }
+    }
+}
+
+/// The error a call Intervals.icu answered with a non-success `status` is.
 ///
-/// Intervals.icu doesn't use `OAuth2` in the classical sense (athletes
-/// generate a personal API key in their account settings), but
-/// `OAuth2Credentials::access_token` carries the API key so we can
-/// reuse the existing storage path.
+/// A 401 means the credential no longer works (the athlete withdrew the grant
+/// or regenerated the key), which is the reconnect path every provider shares;
+/// anything else is the upstream failing.
+fn status_error(op: &str, status: StatusCode) -> AppError {
+    auth_error_for_status(status, INTERVALS_ICU).unwrap_or_else(|| {
+        AppError::external_service(INTERVALS_ICU, format!("{op} returned {status}"))
+    })
+}
+
+/// Provider configuration for Intervals.icu: its OAuth endpoints, for athletes
+/// who link through the Dravr app, and the API base both link kinds call.
 #[must_use]
 pub fn default_config() -> ProviderConfig {
     ProviderConfig {
-        name: "intervals_icu".to_owned(),
-        auth_url: format!("{DEFAULT_API_BASE_URL}/account/api"),
-        token_url: format!("{DEFAULT_API_BASE_URL}/api/v1/oauth/token"),
+        name: INTERVALS_ICU.to_owned(),
+        auth_url: OAUTH_AUTHORIZE_URL.to_owned(),
+        token_url: OAUTH_TOKEN_URL.to_owned(),
         api_base_url: DEFAULT_API_BASE_URL.to_owned(),
-        revoke_url: None,
-        default_scopes: Vec::new(),
+        revoke_url: Some(OAUTH_REVOKE_URL.to_owned()),
+        default_scopes: DEFAULT_SCOPES.iter().map(|s| (*s).to_owned()).collect(),
     }
 }
 
@@ -266,10 +323,10 @@ struct IntervalsIcuAthlete {
 /// Provider implementation for Intervals.icu.
 pub struct IntervalsIcuProvider {
     config: ProviderConfig,
-    /// Stored credentials. `access_token` holds the API key; `client_id`
-    /// holds the athlete id, which addresses the athlete-scoped URL path. The
-    /// HTTP Basic username is the constant [`BASIC_AUTH_USERNAME`], never the
-    /// athlete id.
+    /// Stored credentials. `access_token` holds the bearer token or the API
+    /// key, as `kind` says. For an API key, `client_id` holds the athlete id,
+    /// which addresses the athlete-scoped URL path; the HTTP Basic username is
+    /// the constant [`BASIC_AUTH_USERNAME`], never the athlete id.
     credentials: Arc<RwLock<Option<OAuth2Credentials>>>,
     http: SharedHttpClient,
 }
@@ -291,28 +348,33 @@ impl IntervalsIcuProvider {
         }
     }
 
-    async fn require_credentials(&self) -> AppResult<(String, String)> {
+    async fn require_credentials(&self) -> AppResult<CallAuth> {
         let guard = self.credentials.read().await;
         let creds = guard.as_ref().ok_or_else(|| {
             AppError::auth_invalid("intervals.icu credentials not set — link your account first")
         })?;
-        let athlete_id = creds.client_id.clone();
-        let api_key = creds
+        let secret = creds
             .access_token
             .clone()
-            .ok_or_else(|| AppError::auth_invalid("intervals.icu API key missing"))?;
-        if athlete_id.is_empty() {
-            return Err(AppError::auth_invalid(
+            .ok_or_else(|| AppError::auth_invalid("intervals.icu access token missing"))?;
+        match creds.kind {
+            CredentialKind::OAuthBearer => Ok(CallAuth::Bearer(secret)),
+            CredentialKind::ApiKey if creds.client_id.is_empty() => Err(AppError::auth_invalid(
                 "intervals.icu athlete id missing (set OAuth2Credentials.client_id to the i123456 athlete id)",
-            ));
+            )),
+            CredentialKind::ApiKey => Ok(CallAuth::ApiKey {
+                athlete_id: creds.client_id.clone(),
+                api_key: secret,
+            }),
         }
-        Ok((athlete_id, api_key))
     }
 
-    fn athlete_url(&self, athlete_id: &str, suffix: &str) -> String {
+    fn athlete_url(&self, auth: &CallAuth, suffix: &str) -> String {
         format!(
             "{}/api/v1/athlete/{}{}",
-            self.config.api_base_url, athlete_id, suffix
+            self.config.api_base_url,
+            auth.athlete_segment(),
+            suffix
         )
     }
 
@@ -348,7 +410,7 @@ impl IntervalsIcuProvider {
         newest: DateTime<Utc>,
         limit: usize,
     ) -> AppResult<Vec<Activity>> {
-        let (athlete_id, api_key) = self.require_credentials().await?;
+        let auth = self.require_credentials().await?;
         let query: Vec<(String, String)> = vec![
             ("limit".to_owned(), limit.min(MAX_PAGE_LIMIT).to_string()),
             (
@@ -362,11 +424,9 @@ impl IntervalsIcuProvider {
                 newest.format(QUERY_DATETIME_FORMAT).to_string(),
             ),
         ];
-        let url = self.athlete_url(&athlete_id, "/activities");
-        let req = self
-            .http
-            .get(&url)
-            .basic_auth(BASIC_AUTH_USERNAME, Some(&api_key))
+        let url = self.athlete_url(&auth, "/activities");
+        let req = auth
+            .authorize(self.http.get(&url))
             .header("Accept", "application/json")
             .query(&query);
         let response = send_traced(req, "list_activities", &url)
@@ -375,10 +435,7 @@ impl IntervalsIcuProvider {
                 AppError::external_service("intervals_icu", format!("list_activities: {e}"))
             })?;
         if !response.status().is_success() {
-            return Err(AppError::external_service(
-                "intervals_icu",
-                format!("list_activities returned {}", response.status()),
-            ));
+            return Err(status_error("list_activities", response.status()));
         }
         let raw: Vec<IntervalsIcuActivity> = response.json().await.map_err(|e| {
             AppError::external_service("intervals_icu", format!("list_activities decode: {e}"))
@@ -469,12 +526,10 @@ impl IntervalsIcuProvider {
     /// stream set of zero samples ([`no_recorded_samples`]): the provider's
     /// word that nothing was recorded, never a read that failed.
     pub async fn get_streams(&self, activity_id: &str) -> AppResult<Option<TimeSeriesData>> {
-        let (_, api_key) = self.require_credentials().await?;
+        let auth = self.require_credentials().await?;
         let url = self.activity_url(activity_id, "/streams.json");
-        let req = self
-            .http
-            .get(&url)
-            .basic_auth(BASIC_AUTH_USERNAME, Some(&api_key))
+        let req = auth
+            .authorize(self.http.get(&url))
             .header("Accept", "application/json");
         let response = send_traced(req, "get_streams", &url).await.map_err(|e| {
             AppError::external_service("intervals_icu", format!("get_streams: {e}"))
@@ -483,10 +538,7 @@ impl IntervalsIcuProvider {
             return Ok(Some(no_recorded_samples()));
         }
         if !response.status().is_success() {
-            return Err(AppError::external_service(
-                "intervals_icu",
-                format!("get_streams returned {}", response.status()),
-            ));
+            return Err(status_error("get_streams", response.status()));
         }
         let raw: Vec<IntervalsIcuStream> = response.json().await.map_err(|e| {
             AppError::external_service("intervals_icu", format!("get_streams decode: {e}"))
@@ -505,12 +557,10 @@ impl IntervalsIcuProvider {
         &self,
         activity_id: &str,
     ) -> AppResult<Vec<ActivityComment>> {
-        let (_, api_key) = self.require_credentials().await?;
+        let auth = self.require_credentials().await?;
         let url = self.activity_url(activity_id, "/messages");
-        let req = self
-            .http
-            .get(&url)
-            .basic_auth(BASIC_AUTH_USERNAME, Some(&api_key))
+        let req = auth
+            .authorize(self.http.get(&url))
             .header("Accept", "application/json")
             .query(&[("limit", MAX_ACTIVITY_MESSAGES.to_string())]);
         let response = send_traced(req, "get_activity_comments", &url)
@@ -519,10 +569,7 @@ impl IntervalsIcuProvider {
                 AppError::external_service("intervals_icu", format!("get_activity_comments: {e}"))
             })?;
         if !response.status().is_success() {
-            return Err(AppError::external_service(
-                "intervals_icu",
-                format!("get_activity_comments returned {}", response.status()),
-            ));
+            return Err(status_error("get_activity_comments", response.status()));
         }
         let raw: Vec<IntervalsIcuMessage> = response.json().await.map_err(|e| {
             AppError::external_service(
@@ -548,21 +595,16 @@ impl IntervalsIcuProvider {
 
     /// Fetch one activity's raw payload.
     async fn fetch_activity(&self, id: &str) -> AppResult<IntervalsIcuActivity> {
-        let (_, api_key) = self.require_credentials().await?;
+        let auth = self.require_credentials().await?;
         let url = self.activity_url(id, "");
-        let req = self
-            .http
-            .get(&url)
-            .basic_auth(BASIC_AUTH_USERNAME, Some(&api_key))
+        let req = auth
+            .authorize(self.http.get(&url))
             .header("Accept", "application/json");
         let response = send_traced(req, "get_activity", &url).await.map_err(|e| {
             AppError::external_service("intervals_icu", format!("get_activity: {e}"))
         })?;
         if !response.status().is_success() {
-            return Err(AppError::external_service(
-                "intervals_icu",
-                format!("get_activity returned {}", response.status()),
-            ));
+            return Err(status_error("get_activity", response.status()));
         }
         response.json().await.map_err(|e| {
             AppError::external_service("intervals_icu", format!("get_activity decode: {e}"))
@@ -580,12 +622,10 @@ impl IntervalsIcuProvider {
         oldest: NaiveDate,
         newest: NaiveDate,
     ) -> AppResult<Vec<IntervalsIcuEvent>> {
-        let (athlete_id, api_key) = self.require_credentials().await?;
-        let url = self.athlete_url(&athlete_id, "/events");
-        let req = self
-            .http
-            .get(&url)
-            .basic_auth(BASIC_AUTH_USERNAME, Some(&api_key))
+        let auth = self.require_credentials().await?;
+        let url = self.athlete_url(&auth, "/events");
+        let req = auth
+            .authorize(self.http.get(&url))
             .header("Accept", "application/json")
             .query(&[
                 ("oldest", oldest.format("%Y-%m-%d").to_string()),
@@ -595,10 +635,7 @@ impl IntervalsIcuProvider {
             .await
             .map_err(|e| AppError::external_service("intervals_icu", format!("get_events: {e}")))?;
         if !response.status().is_success() {
-            return Err(AppError::external_service(
-                "intervals_icu",
-                format!("get_events returned {}", response.status()),
-            ));
+            return Err(status_error("get_events", response.status()));
         }
         response.json().await.map_err(|e| {
             AppError::external_service("intervals_icu", format!("get_events decode: {e}"))
@@ -863,7 +900,7 @@ impl FitnessProvider for IntervalsIcuProvider {
     }
 
     async fn set_credentials(&self, credentials: OAuth2Credentials) -> AppResult<()> {
-        if credentials.client_id.is_empty() {
+        if credentials.kind == CredentialKind::ApiKey && credentials.client_id.is_empty() {
             return Err(AppError::invalid_input(
                 "intervals_icu requires the athlete id (e.g. i123456) in OAuth2Credentials.client_id",
             ));
@@ -874,7 +911,7 @@ impl FitnessProvider for IntervalsIcuProvider {
             .is_some_and(|s| !s.is_empty());
         if !api_key_set {
             return Err(AppError::invalid_input(
-                "intervals_icu requires an API key in OAuth2Credentials.access_token",
+                "intervals_icu requires a token or API key in OAuth2Credentials.access_token",
             ));
         }
         let mut guard = self.credentials.write().await;
@@ -887,30 +924,25 @@ impl FitnessProvider for IntervalsIcuProvider {
     }
 
     async fn refresh_token_if_needed(&self) -> AppResult<()> {
-        // API keys don't expire; nothing to refresh.
+        // Neither tokens nor API keys expire; nothing to refresh.
         Ok(())
     }
 
     fn set_token_refresh_callback(&self, _callback: TokenRefreshCallback) {
-        // No-op — API keys don't refresh.
+        // No-op — nothing here refreshes.
     }
 
     async fn get_athlete(&self) -> AppResult<Athlete> {
-        let (athlete_id, api_key) = self.require_credentials().await?;
-        let url = self.athlete_url(&athlete_id, "");
-        let req = self
-            .http
-            .get(&url)
-            .basic_auth(BASIC_AUTH_USERNAME, Some(&api_key))
+        let auth = self.require_credentials().await?;
+        let url = self.athlete_url(&auth, "");
+        let req = auth
+            .authorize(self.http.get(&url))
             .header("Accept", "application/json");
         let response = send_traced(req, "get_athlete", &url).await.map_err(|e| {
             AppError::external_service("intervals_icu", format!("get_athlete: {e}"))
         })?;
         if !response.status().is_success() {
-            return Err(AppError::external_service(
-                "intervals_icu",
-                format!("get_athlete returned {}", response.status()),
-            ));
+            return Err(status_error("get_athlete", response.status()));
         }
         let raw: IntervalsIcuAthlete = response.json().await.map_err(|e| {
             AppError::external_service("intervals_icu", format!("get_athlete decode: {e}"))
@@ -1036,12 +1068,10 @@ impl FitnessProvider for IntervalsIcuProvider {
     }
 
     async fn push_planned_session(&self, session: &PlannedSession) -> AppResult<String> {
-        let (athlete_id, api_key) = self.require_credentials().await?;
-        let url = self.athlete_url(&athlete_id, "/events");
-        let req = self
-            .http
-            .post(&url)
-            .basic_auth(BASIC_AUTH_USERNAME, Some(&api_key))
+        let auth = self.require_credentials().await?;
+        let url = self.athlete_url(&auth, "/events");
+        let req = auth
+            .authorize(self.http.post(&url))
             .header("Accept", "application/json")
             .json(&event_body(session));
         let response = send_traced(req, "push_planned_session", &url)
@@ -1050,10 +1080,7 @@ impl FitnessProvider for IntervalsIcuProvider {
                 AppError::external_service("intervals_icu", format!("push_planned_session: {e}"))
             })?;
         if !response.status().is_success() {
-            return Err(AppError::external_service(
-                "intervals_icu",
-                format!("push_planned_session returned {}", response.status()),
-            ));
+            return Err(status_error("push_planned_session", response.status()));
         }
         let created: CreatedEvent = response.json().await.map_err(|e| {
             AppError::external_service("intervals_icu", format!("push_planned_session decode: {e}"))
@@ -1067,12 +1094,10 @@ impl FitnessProvider for IntervalsIcuProvider {
         session: &PlannedSession,
     ) -> AppResult<()> {
         let event_id = event_id_segment(provider_event_id)?;
-        let (athlete_id, api_key) = self.require_credentials().await?;
-        let url = self.athlete_url(&athlete_id, &format!("/events/{event_id}"));
-        let req = self
-            .http
-            .put(&url)
-            .basic_auth(BASIC_AUTH_USERNAME, Some(&api_key))
+        let auth = self.require_credentials().await?;
+        let url = self.athlete_url(&auth, &format!("/events/{event_id}"));
+        let req = auth
+            .authorize(self.http.put(&url))
             .header("Accept", "application/json")
             .json(&event_body(session));
         let response = send_traced(req, "update_planned_session", &url)
@@ -1080,12 +1105,10 @@ impl FitnessProvider for IntervalsIcuProvider {
             .map_err(|e| {
                 AppError::external_service("intervals_icu", format!("update_planned_session: {e}"))
             })?;
-        response.status().is_success().ok_or_else(|| {
-            AppError::external_service(
-                "intervals_icu",
-                format!("update_planned_session returned {}", response.status()),
-            )
-        })
+        response
+            .status()
+            .is_success()
+            .ok_or_else(|| status_error("update_planned_session", response.status()))
     }
 
     async fn delete_planned_sessions(&self, provider_event_ids: &[String]) -> AppResult<u64> {
@@ -1094,19 +1117,16 @@ impl FitnessProvider for IntervalsIcuProvider {
         }
         // By id, never by `external_id`: id deletion is authentication-agnostic,
         // whereas the `external_id` form only reaches events "created by the
-        // calling OAuth application", and this provider authenticates with the
-        // athlete's API key. Never the date-range delete either — it would take
-        // events Dravr did not write.
+        // calling OAuth application", which an API-key link is not. Never the
+        // date-range delete either — it would take events Dravr did not write.
         let doomed = provider_event_ids
             .iter()
             .map(|id| event_id_segment(id).map(|n| json!({ "id": n })))
             .collect::<AppResult<Vec<_>>>()?;
-        let (athlete_id, api_key) = self.require_credentials().await?;
-        let url = self.athlete_url(&athlete_id, "/events/bulk-delete");
-        let req = self
-            .http
-            .put(&url)
-            .basic_auth(BASIC_AUTH_USERNAME, Some(&api_key))
+        let auth = self.require_credentials().await?;
+        let url = self.athlete_url(&auth, "/events/bulk-delete");
+        let req = auth
+            .authorize(self.http.put(&url))
             .header("Accept", "application/json")
             .json(&doomed);
         let response = send_traced(req, "delete_planned_sessions", &url)
@@ -1115,10 +1135,7 @@ impl FitnessProvider for IntervalsIcuProvider {
                 AppError::external_service("intervals_icu", format!("delete_planned_sessions: {e}"))
             })?;
         if !response.status().is_success() {
-            return Err(AppError::external_service(
-                "intervals_icu",
-                format!("delete_planned_sessions returned {}", response.status()),
-            ));
+            return Err(status_error("delete_planned_sessions", response.status()));
         }
         let deleted: DeleteEventsResponse = response.json().await.map_err(|e| {
             AppError::external_service(

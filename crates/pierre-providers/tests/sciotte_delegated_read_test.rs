@@ -35,7 +35,9 @@ use chrono::{NaiveDate, TimeZone, Utc};
 use dravr_sciotte::client::{ENV_AUDIENCE, ENV_REMOTE_URL};
 use dravr_sciotte::models::{AthleteId, AuthSession};
 use dravr_sciotte::wire::{ATHLETE_NOT_ACCESSIBLE, ATHLETE_REQUIRED};
-use pierre_providers::core::{FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory};
+use pierre_providers::core::{
+    CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
+};
 use pierre_providers::errors::{AppError, ErrorCode};
 use pierre_providers::registry::global_registry;
 use pierre_providers::sciotte_error::sciotte_refusal;
@@ -275,6 +277,7 @@ fn credentials(session_id: &str) -> OAuth2Credentials {
         refresh_token: None,
         expires_at: None,
         scopes: vec![],
+        kind: CredentialKind::OAuthBearer,
     }
 }
 

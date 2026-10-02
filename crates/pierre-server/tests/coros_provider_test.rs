@@ -16,7 +16,7 @@ use chrono::Utc;
 use pierre_config::environment::HttpClientConfig;
 use pierre_mcp_server::constants::{init_server_config, oauth_providers};
 use pierre_mcp_server::utils::http_client::initialize_http_clients;
-use pierre_providers::core::{FitnessProvider, OAuth2Credentials, ProviderConfig};
+use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::coros_provider::CorosProvider;
 use pierre_providers::registry::{get_supported_providers, global_registry};
 use std::sync::Once;
@@ -99,6 +99,7 @@ async fn test_coros_provider_authentication_lifecycle() {
         refresh_token: Some("test_refresh_token".to_owned()),
         expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
         scopes: vec!["read:workouts".to_owned(), "read:sleep".to_owned()],
+        kind: CredentialKind::OAuthBearer,
     };
 
     provider
@@ -123,6 +124,7 @@ async fn test_coros_provider_expired_token() {
         refresh_token: Some("test_refresh_token".to_owned()),
         expires_at: Some(Utc::now() - chrono::Duration::hours(1)), // Already expired
         scopes: vec!["read:workouts".to_owned()],
+        kind: CredentialKind::OAuthBearer,
     };
 
     provider
@@ -147,6 +149,7 @@ async fn test_coros_provider_no_expiry() {
         refresh_token: Some("test_refresh_token".to_owned()),
         expires_at: None, // No expiry
         scopes: vec!["read:workouts".to_owned()],
+        kind: CredentialKind::OAuthBearer,
     };
 
     provider
@@ -517,6 +520,7 @@ async fn test_coros_provider_stats_returns_empty() {
         refresh_token: Some("test_refresh_token".to_owned()),
         expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
         scopes: vec!["read:workouts".to_owned()],
+        kind: CredentialKind::OAuthBearer,
     };
 
     provider.set_credentials(credentials).await.unwrap();

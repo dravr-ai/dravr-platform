@@ -23,6 +23,8 @@ output "secret_ids" {
     strava_client_secret             = google_secret_manager_secret.strava_client_secret.secret_id
     whoop_client_id                  = google_secret_manager_secret.whoop_client_id.secret_id
     whoop_client_secret              = google_secret_manager_secret.whoop_client_secret.secret_id
+    intervals_icu_client_id          = google_secret_manager_secret.intervals_icu_client_id.secret_id
+    intervals_icu_client_secret      = google_secret_manager_secret.intervals_icu_client_secret.secret_id
     garmin_client_secret             = google_secret_manager_secret.garmin_client_secret.secret_id
     openweather_api_key              = google_secret_manager_secret.openweather_api_key.secret_id
     gemini_api_key                   = google_secret_manager_secret.gemini_api_key.secret_id
@@ -62,6 +64,8 @@ output "secret_names" {
     strava_client_secret             = google_secret_manager_secret.strava_client_secret.name
     whoop_client_id                  = google_secret_manager_secret.whoop_client_id.name
     whoop_client_secret              = google_secret_manager_secret.whoop_client_secret.name
+    intervals_icu_client_id          = google_secret_manager_secret.intervals_icu_client_id.name
+    intervals_icu_client_secret      = google_secret_manager_secret.intervals_icu_client_secret.name
     garmin_client_secret             = google_secret_manager_secret.garmin_client_secret.name
     openweather_api_key              = google_secret_manager_secret.openweather_api_key.name
     gemini_api_key                   = google_secret_manager_secret.gemini_api_key.name

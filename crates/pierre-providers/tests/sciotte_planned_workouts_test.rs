@@ -37,8 +37,8 @@ use dravr_sciotte::client::{ENV_AUDIENCE, ENV_REMOTE_URL};
 use dravr_sciotte::models::AuthSession;
 use dravr_sciotte::wire::ATHLETE_REQUIRED;
 use pierre_providers::core::{
-    planned_workouts_unsupported, FitnessProvider, OAuth2Credentials, ProviderConfig,
-    ProviderFactory,
+    planned_workouts_unsupported, CredentialKind, FitnessProvider, OAuth2Credentials,
+    ProviderConfig, ProviderFactory,
 };
 use pierre_providers::errors::ErrorCode;
 use pierre_providers::models::{SportType, WorkoutStep};
@@ -237,6 +237,7 @@ async fn connected(
             refresh_token: None,
             expires_at: None,
             scopes: vec![],
+            kind: CredentialKind::OAuthBearer,
         })
         .await
         .expect("a serialized session is accepted"); // Safe: the JSON above is a valid AuthSession

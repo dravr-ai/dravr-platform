@@ -17,7 +17,10 @@ use base64::Engine;
 use std::time::Duration as StdDuration;
 
 use chrono::{Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
-use pierre_providers::core::{ActivityQueryParams, FitnessProvider, OAuth2Credentials};
+use pierre_providers::core::{
+    ActivityQueryParams, CredentialKind, FitnessProvider, OAuth2Credentials,
+};
+use pierre_providers::errors::ErrorCode;
 use pierre_providers::intervals_icu_provider::{default_config, IntervalsIcuProvider};
 use pierre_providers::models::periodization::{
     EvidenceTier, PhaseFit, PhaseKind, Progression, ReadinessLevel, WorkoutParams, WorkoutPurpose,
@@ -78,6 +81,7 @@ fn empty_credentials() -> OAuth2Credentials {
         refresh_token: None,
         expires_at: None,
         scopes: Vec::new(),
+        kind: CredentialKind::ApiKey,
     }
 }
 
@@ -89,6 +93,7 @@ fn good_credentials() -> OAuth2Credentials {
         refresh_token: None,
         expires_at: None,
         scopes: Vec::new(),
+        kind: CredentialKind::ApiKey,
     }
 }
 
@@ -103,9 +108,19 @@ async fn default_config_has_endurance_endpoints() {
     let cfg = default_config();
     assert_eq!(cfg.name, "intervals_icu");
     assert!(cfg.api_base_url.contains("intervals.icu"));
-    assert!(cfg.auth_url.contains("intervals.icu"));
-    assert!(cfg.revoke_url.is_none());
-    assert!(cfg.default_scopes.is_empty());
+    // The OAuth endpoints Intervals.icu documents: the authorize page, the
+    // token exchange under `/api/oauth` (not `/api/v1`), and the bearer
+    // self-deauthorize.
+    assert_eq!(cfg.auth_url, "https://intervals.icu/oauth/authorize");
+    assert_eq!(cfg.token_url, "https://intervals.icu/api/oauth/token");
+    assert_eq!(
+        cfg.revoke_url.as_deref(),
+        Some("https://intervals.icu/api/v1/disconnect-app")
+    );
+    assert!(cfg
+        .default_scopes
+        .iter()
+        .any(|scope| scope == "CALENDAR:WRITE"));
 }
 
 #[tokio::test]
@@ -190,18 +205,18 @@ async fn empty_credentials_struct_rejects_at_set() {
     assert!(msg.contains("athlete id") || msg.contains("API key"));
 }
 #[tokio::test]
-async fn registry_registers_intervals_icu_as_non_oauth() {
-    // The provider is registered (factory + descriptor) and reports as an
-    // API-key (non-OAuth) provider so the connect UI offers the key modal
-    // rather than an OAuth redirect.
+async fn registry_registers_intervals_icu_as_an_oauth_provider() {
+    // The provider is registered (factory + descriptor) and links through the
+    // shared OAuth flow; the pasted API key stays a second way in, which the
+    // credential's kind selects per call rather than the registry.
     let registry = ProviderRegistry::new();
     assert!(
         registry.is_supported("intervals_icu"),
         "intervals_icu must be registered"
     );
     assert!(
-        !registry.requires_oauth("intervals_icu"),
-        "intervals_icu is API-key, not OAuth"
+        registry.requires_oauth("intervals_icu"),
+        "intervals_icu links through the OAuth app"
     );
     let provider = registry
         .create_provider("intervals_icu")
@@ -245,6 +260,14 @@ async fn push_planned_session_requires_credentials() {
 /// request head verbatim, answers with `body`, and returns the captured head so
 /// a test can assert on the exact bytes the provider put on the wire.
 async fn stub_once(body: &'static str) -> (String, JoinHandle<String>) {
+    stub_once_with_status("200 OK", body).await
+}
+
+/// [`stub_once`], answering with `status` (e.g. `401 Unauthorized`).
+async fn stub_once_with_status(
+    status: &'static str,
+    body: &'static str,
+) -> (String, JoinHandle<String>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind stub");
     let addr = listener.local_addr().expect("stub addr");
     let handle = tokio::spawn(async move {
@@ -262,7 +285,7 @@ async fn stub_once(body: &'static str) -> (String, JoinHandle<String>) {
             }
         }
         let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
             body.len()
         );
         socket
@@ -325,6 +348,81 @@ async fn basic_auth_username_is_the_literal_api_key_not_the_athlete_id() {
     assert!(
         head.starts_with("GET /api/v1/athlete/i123456 "),
         "the athlete id addresses the URL path; got head: {head}"
+    );
+}
+
+fn bearer_credentials() -> OAuth2Credentials {
+    OAuth2Credentials {
+        // The OAuth app's client id, which names no athlete.
+        client_id: "dravr-app".to_owned(),
+        client_secret: "app-secret".to_owned(),
+        access_token: Some("oauth-token".to_owned()),
+        refresh_token: None,
+        expires_at: None,
+        scopes: vec!["ACTIVITY:READ".to_owned()],
+        kind: CredentialKind::OAuthBearer,
+    }
+}
+
+#[tokio::test]
+async fn an_oauth_token_goes_out_as_bearer_and_addresses_its_own_athlete() {
+    // An OAuth grant is a bearer token, and Intervals.icu resolves athlete id
+    // `0` to the athlete it was issued for. The client id is the Dravr app's,
+    // so it must never reach the path, and no Basic pair is sent at all.
+    let (base_url, stub) = stub_once(r#"{"id":"i123456","name":"Test Athlete"}"#).await;
+
+    let mut config = default_config();
+    config.api_base_url = base_url;
+    let provider = IntervalsIcuProvider::with_config(config);
+    provider
+        .set_credentials(bearer_credentials())
+        .await
+        .expect("set creds");
+
+    let athlete = provider.get_athlete().await.expect("get_athlete succeeds");
+    assert_eq!(athlete.id, "i123456");
+
+    let head = stub.await.expect("stub task joins");
+    assert!(
+        head.starts_with("GET /api/v1/athlete/0 "),
+        "a bearer token addresses athlete 0; got head: {head}"
+    );
+    assert!(
+        head.lines()
+            .any(|line| line.eq_ignore_ascii_case("authorization: Bearer oauth-token")),
+        "the token goes out as a bearer credential; got head: {head}"
+    );
+    assert!(
+        !head.contains("dravr-app"),
+        "the app client id never reaches the wire"
+    );
+}
+
+#[tokio::test]
+async fn a_refused_token_asks_the_athlete_to_reconnect() {
+    // A 401 is the athlete withdrawing the grant or regenerating the key. It
+    // must surface as the reconnect error (403 to our client), never as an
+    // upstream failure the model would paraphrase, nor as a 401 that would
+    // sign the athlete out of Dravr.
+    let (base_url, stub) = stub_once_with_status("401 Unauthorized", "{}").await;
+
+    let mut config = default_config();
+    config.api_base_url = base_url;
+    let provider = IntervalsIcuProvider::with_config(config);
+    provider
+        .set_credentials(bearer_credentials())
+        .await
+        .expect("set creds");
+
+    let err = provider
+        .get_athlete()
+        .await
+        .expect_err("a 401 must fail the call");
+    stub.await.expect("stub task joins");
+    assert_eq!(err.code, ErrorCode::ProviderAuthRequired, "got: {err}");
+    assert_eq!(
+        err.provider_auth_required_provider().as_deref(),
+        Some("intervals_icu")
     );
 }
 

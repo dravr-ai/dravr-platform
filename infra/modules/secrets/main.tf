@@ -207,6 +207,49 @@ resource "google_secret_manager_secret_version" "whoop_client_secret_placeholder
   }
 }
 
+# Intervals.icu OAuth app (carnet#47), issued at https://intervals.icu/oauth/apply.
+# Real values land out-of-band (`gcloud secrets versions add`); until then
+# athletes link by pasting their API key, the only path the clients offer.
+resource "google_secret_manager_secret" "intervals_icu_client_id" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-intervals-icu-client-id"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "intervals_icu_client_id_placeholder" {
+  secret      = google_secret_manager_secret.intervals_icu_client_id.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
+
+resource "google_secret_manager_secret" "intervals_icu_client_secret" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-intervals-icu-client-secret"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "intervals_icu_client_secret_placeholder" {
+  secret      = google_secret_manager_secret.intervals_icu_client_secret.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
+
 resource "google_secret_manager_secret" "gemini_api_key" {
   project   = var.project_id
   secret_id = "${var.service_name}-gemini-api-key"

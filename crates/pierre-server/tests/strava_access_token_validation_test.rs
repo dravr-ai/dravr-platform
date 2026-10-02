@@ -25,7 +25,7 @@ use pierre_config::environment::HttpClientConfig;
 use pierre_core::errors::ErrorCode;
 use pierre_mcp_server::constants::init_server_config;
 use pierre_mcp_server::utils::http_client::initialize_http_clients;
-use pierre_providers::core::{FitnessProvider, OAuth2Credentials, ProviderConfig};
+use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::strava_provider::StravaProvider;
 use serde_json::json;
 use tokio::net::TcpListener;
@@ -90,6 +90,7 @@ async fn provider_with_token(api_base_url: String, access_token: &str) -> Strava
             refresh_token: Some("test_refresh_token".to_owned()),
             expires_at: Some(Utc::now() + chrono::Duration::days(30)),
             scopes: vec!["read".to_owned()],
+            kind: CredentialKind::OAuthBearer,
         })
         .await
         .expect("set_credentials");

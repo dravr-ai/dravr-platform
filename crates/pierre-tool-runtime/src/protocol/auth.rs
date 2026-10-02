@@ -20,7 +20,7 @@ use pierre_core::models::{connection_needs_reauth, TenantId, UserOAuthToken};
 use pierre_providers::backend_resolver;
 use pierre_providers::utils::{refresh_oauth_token, RefreshRequest};
 use pierre_providers::whoop_provider::owner_id_for_access_token;
-use pierre_providers::{CoreFitnessProvider, OAuth2Credentials};
+use pierre_providers::{CoreFitnessProvider, CredentialKind, OAuth2Credentials};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::env;
@@ -36,6 +36,9 @@ pub struct TokenData {
     /// OAuth refresh token
     pub refresh_token: String,
     /// When the access token expires
+    ///
+    /// LIMITATION(registre#729): `TokenData::expires_at` is not optional, so a stored token
+    /// with no expiry (an Intervals.icu OAuth token) reads as expiring now.
     pub expires_at: DateTime<Utc>,
     /// OAuth scopes as comma-separated string
     pub scopes: String,
@@ -52,6 +55,9 @@ pub struct TokenData {
     /// is written back only while that row stands: a reconnect that stored a
     /// new token meanwhile wrote a fresh `id`.
     pub row_id: String,
+    /// What `access_token` is: an OAuth grant, or a personal API key the
+    /// athlete pasted (an intervals.icu link), read from the row's `token_type`.
+    pub kind: CredentialKind,
 }
 
 /// OAuth error types
@@ -335,6 +341,7 @@ impl AuthService {
             provider_user_id: oauth_token.provider_user_id,
             oauth_app_client_id: oauth_token.oauth_app_client_id,
             row_id: oauth_token.id,
+            kind: CredentialKind::from_token_type(&oauth_token.token_type),
         }
     }
 
@@ -840,13 +847,16 @@ impl AuthService {
         tenant_id: Option<&str>,
     ) -> Result<Box<dyn CoreFitnessProvider>, Box<UniversalResponse>> {
         // Get tenant-aware OAuth credentials or fall back to environment.
-        // Non-OAuth providers (sciotte, synthetic) skip credential lookup entirely.
-        let requires_oauth = self
-            .resources
-            .provider_registry()
-            .requires_oauth(provider_name);
+        // Non-OAuth providers (sciotte, synthetic) skip credential lookup
+        // entirely, and so does a pasted API key on a provider that also
+        // links by OAuth (intervals.icu): no client issued it.
+        let needs_client = token_data.kind == CredentialKind::OAuthBearer
+            && self
+                .resources
+                .provider_registry()
+                .requires_oauth(provider_name);
 
-        let (client_id, client_secret) = if requires_oauth {
+        let (client_id, client_secret) = if needs_client {
             // The provider refreshes on its own when a call is refused, so it
             // gets the client that issued the token, as the expiry refresh does.
             self.issuing_client_credentials(
@@ -865,9 +875,9 @@ impl AuthService {
                 })
             })?
         } else {
-            // API-key providers (e.g. Intervals.icu) carry their provider-side
-            // user id here so it reaches the provider as `client_id` (the HTTP
-            // Basic username). Synthetic providers have no id → empty string.
+            // An API key (intervals.icu) carries its provider-side user id
+            // here so it reaches the provider as `client_id`, the athlete the
+            // API path addresses. Synthetic providers have no id → empty string.
             (
                 token_data.provider_user_id.clone().unwrap_or_default(),
                 String::new(),
@@ -900,6 +910,7 @@ impl AuthService {
                     refresh_token: Some(token_data.refresh_token),
                     expires_at: Some(token_data.expires_at),
                     scopes,
+                    kind: token_data.kind,
                 };
 
                 // Set credentials asynchronously
@@ -1033,6 +1044,7 @@ impl AuthService {
             provider_user_id: None,
             oauth_app_client_id: stored.oauth_app_client_id.clone(),
             row_id: stored.id.clone(),
+            kind: CredentialKind::OAuthBearer,
         }))
     }
 

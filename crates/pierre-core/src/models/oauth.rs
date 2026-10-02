@@ -177,6 +177,10 @@ pub struct DecryptedToken {
     pub scope: String,
 }
 
+/// The `token_type` a stored row carries when its `access_token` is a personal
+/// API key the athlete pasted rather than an OAuth grant (intervals.icu).
+pub const API_KEY_TOKEN_TYPE: &str = "api_key";
+
 /// User OAuth token for tenant-provider combination
 ///
 /// Stores user's personal OAuth tokens for accessing fitness providers

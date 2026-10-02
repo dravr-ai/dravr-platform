@@ -68,6 +68,13 @@
 use super::core::{FitnessProvider, ProviderConfig};
 use std::fmt;
 
+#[cfg(feature = "provider-intervals-icu")]
+use crate::intervals_icu_provider::{
+    DEFAULT_API_BASE_URL as INTERVALS_ICU_API_BASE_URL, DEFAULT_SCOPES as INTERVALS_ICU_SCOPES,
+    OAUTH_AUTHORIZE_URL as INTERVALS_ICU_AUTHORIZE_URL,
+    OAUTH_REVOKE_URL as INTERVALS_ICU_REVOKE_URL, OAUTH_TOKEN_URL as INTERVALS_ICU_TOKEN_URL,
+};
+
 /// OAuth endpoint configuration for providers requiring authentication
 #[derive(Debug, Clone)]
 pub struct OAuthEndpoints {
@@ -719,10 +726,10 @@ impl ProviderDescriptor for SciotteCorosDescriptor {
 
 /// Intervals.icu endurance-analytics provider descriptor.
 ///
-/// Intervals.icu authenticates with an athlete-generated API key over HTTP
-/// Basic auth (literal user `API_KEY`, the key as password) rather than OAuth, so `oauth_endpoints`
-/// and `oauth_params` are `None` and the capability set omits `OAUTH`. Users
-/// link it by pasting their athlete id + API key, not via a redirect flow.
+/// Athletes link through the Dravr OAuth app (the redirect flow every OAuth
+/// provider shares), or by pasting their athlete id + personal API key, which
+/// stays for coaches and power users. Its tokens never expire and it has no
+/// refresh grant, so a refused token is a reconnect.
 #[cfg(feature = "provider-intervals-icu")]
 pub struct IntervalsIcuDescriptor;
 
@@ -741,7 +748,8 @@ impl ProviderDescriptor for IntervalsIcuDescriptor {
         // sleep (duration), recovery (HRV, resting HR, the athlete's note) and
         // body (weight) rows. The cheap-detail flag is named because detail is
         // one more HTTP GET, not a browser page load.
-        ProviderCapabilities::ACTIVITIES
+        ProviderCapabilities::OAUTH
+            .union(ProviderCapabilities::ACTIVITIES)
             .union(ProviderCapabilities::CHEAP_ACTIVITY_DETAIL)
             .union(ProviderCapabilities::SLEEP_TRACKING)
             .union(ProviderCapabilities::RECOVERY_METRICS)
@@ -749,18 +757,29 @@ impl ProviderDescriptor for IntervalsIcuDescriptor {
     }
 
     fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
-        None // API-key (HTTP Basic), not OAuth.
+        Some(OAuthEndpoints {
+            auth_url: INTERVALS_ICU_AUTHORIZE_URL,
+            token_url: INTERVALS_ICU_TOKEN_URL,
+            revoke_url: Some(INTERVALS_ICU_REVOKE_URL),
+        })
     }
 
     fn oauth_params(&self) -> Option<OAuthParams> {
-        None // API-key (HTTP Basic), not OAuth.
+        Some(OAuthParams {
+            // `ACTIVITY:READ,WELLNESS:READ`, as Intervals.icu documents it.
+            scope_separator: ",",
+            // Intervals.icu documents a plain code exchange with the client
+            // secret, and no PKCE.
+            use_pkce: false,
+            additional_auth_params: &[],
+        })
     }
 
     fn api_base_url(&self) -> &'static str {
-        "https://intervals.icu"
+        INTERVALS_ICU_API_BASE_URL
     }
 
     fn default_scopes(&self) -> &'static [&'static str] {
-        &[] // No OAuth scopes — the API key grants full athlete access.
+        INTERVALS_ICU_SCOPES
     }
 }

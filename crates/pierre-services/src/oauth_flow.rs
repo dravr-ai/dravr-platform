@@ -211,7 +211,7 @@ impl OAuthService {
         Ok(OAuthCallbackResponse {
             user_id: user_id.to_string(),
             provider: provider.to_owned(),
-            expires_at: expires_at.to_rfc3339(),
+            expires_at: expires_at.map(|at| at.to_rfc3339()),
             scopes: token.scope.unwrap_or_else(|| "read".to_owned()),
             mobile_redirect_url,
         })
@@ -230,7 +230,7 @@ impl OAuthService {
         token: &OAuth2Token,
         oauth_app_client_id: Option<&str>,
         precondition: StorePrecondition,
-    ) -> AppResult<chrono::DateTime<chrono::Utc>> {
+    ) -> AppResult<Option<chrono::DateTime<chrono::Utc>>> {
         let expires_at = self
             .store_oauth_token(
                 user_id,
@@ -241,7 +241,7 @@ impl OAuthService {
                 precondition,
             )
             .await?;
-        self.store_oauth_notification(user_id, provider, &expires_at)
+        self.store_oauth_notification(user_id, provider, expires_at)
             .await?;
 
         // Health data backfill is triggered by the callback handler after this returns.
@@ -412,6 +412,11 @@ impl OAuthService {
     }
 
     /// Store OAuth token in database, over the row `precondition` names
+    ///
+    /// A token the provider issued without `expires_in` is stored without an
+    /// expiry: it is valid until the athlete withdraws it (Intervals.icu issues
+    /// no other kind). An invented expiry would read it as dead an hour later,
+    /// with no refresh grant to renew it.
     async fn store_oauth_token(
         &self,
         user_id: uuid::Uuid,
@@ -420,10 +425,8 @@ impl OAuthService {
         token: &OAuth2Token,
         oauth_app_client_id: Option<&str>,
         precondition: StorePrecondition,
-    ) -> AppResult<chrono::DateTime<chrono::Utc>> {
-        let expires_at = token
-            .expires_at
-            .unwrap_or_else(|| chrono::Utc::now() + chrono::Duration::hours(1));
+    ) -> AppResult<Option<chrono::DateTime<chrono::Utc>>> {
+        let expires_at = token.expires_at;
 
         let user_oauth_token = UserOAuthToken {
             id: uuid::Uuid::new_v4().to_string(),
@@ -433,7 +436,7 @@ impl OAuthService {
             access_token: token.access_token.clone(),
             refresh_token: token.refresh_token.clone(),
             token_type: token.token_type.clone(),
-            expires_at: Some(expires_at),
+            expires_at,
             scope: token.scope.clone(),
             // Provider-side owner id (Strava athlete id) captured at token
             // exchange. Persisting it lets provider push events (e.g.
@@ -481,7 +484,7 @@ impl OAuthService {
         &self,
         user_id: uuid::Uuid,
         provider: &str,
-        expires_at: &chrono::DateTime<chrono::Utc>,
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> AppResult<()> {
         let notification_id = self
             .data
@@ -492,7 +495,7 @@ impl OAuthService {
                 provider,
                 true,
                 "OAuth authorization completed successfully",
-                Some(&expires_at.to_rfc3339()),
+                expires_at.map(|at| at.to_rfc3339()).as_deref(),
             )
             .await
             .map_err(|e| AppError::database(format!("Failed to store OAuth notification: {e}")))?;

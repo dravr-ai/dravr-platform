@@ -48,7 +48,7 @@ use pierre_core::untrusted::display_line;
 use pierre_groups::delegation::{DelegationStore, UnbackedLink};
 use pierre_providers::sciotte_error::sciotte_refusal;
 use pierre_providers::sciotte_provider::{is_delegated_session_expired, SciotteTarget};
-use pierre_providers::{CoreFitnessProvider, OAuth2Credentials};
+use pierre_providers::{CoreFitnessProvider, CredentialKind, OAuth2Credentials};
 use pierre_services::delegated_connections::{
     coach_session_state, end_off_roster, person_name, unbound_link_reason, CoachSession,
 };
@@ -325,6 +325,7 @@ impl AuthService {
                 refresh_token: None,
                 expires_at: token.expires_at,
                 scopes: vec![],
+                kind: CredentialKind::OAuthBearer,
             })
             .await
             .map_err(|e| Box::new(refusal(format!("Failed to set provider credentials: {e}"))))?;

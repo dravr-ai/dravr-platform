@@ -20,7 +20,7 @@ use chrono::Utc;
 use pierre_config::environment::HttpClientConfig;
 use pierre_mcp_server::constants::init_server_config;
 use pierre_mcp_server::utils::http_client::initialize_http_clients;
-use pierre_providers::core::{FitnessProvider, OAuth2Credentials, ProviderConfig};
+use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::strava_provider::StravaProvider;
 use serde_json::{json, Value};
 use std::sync::Once;
@@ -88,6 +88,7 @@ async fn get_stats_returns_year_to_date_distinct_from_all_time() {
             refresh_token: Some("test_refresh_token".to_owned()),
             expires_at: Some(Utc::now() + chrono::Duration::days(30)),
             scopes: vec!["read".to_owned()],
+            kind: CredentialKind::OAuthBearer,
         })
         .await
         .expect("set_credentials");

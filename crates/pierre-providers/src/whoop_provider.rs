@@ -15,7 +15,8 @@
 
 use super::circuit_breaker::CircuitBreaker;
 use super::core::{
-    ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, TokenRefreshCallback,
+    ActivityQueryParams, CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig,
+    TokenRefreshCallback,
 };
 use super::errors::provider::ProviderError;
 use crate::activity_paging::pages_for;
@@ -637,6 +638,7 @@ pub async fn owner_id_for_access_token(
             refresh_token: None,
             expires_at: None,
             scopes: Vec::new(),
+            kind: CredentialKind::OAuthBearer,
         })
         .await?;
     Ok(provider.get_athlete().await?.id)

@@ -37,9 +37,21 @@ pub const COROS: &str = "coros";
 
 /// Intervals.icu endurance analytics provider identifier.
 ///
-/// API-key (HTTP Basic `athlete_id:api_key`) provider rather than OAuth,
-/// gated behind `provider-intervals-icu` feature.
+/// Links by OAuth or by the athlete's personal API key (HTTP Basic
+/// `API_KEY:<key>`), gated behind `provider-intervals-icu` feature.
 pub const INTERVALS_ICU: &str = "intervals_icu";
+
+/// Intervals.icu default OAuth scopes.
+///
+/// Completed activities and wellness to read, the calendar to write planned
+/// sessions into, and the athlete's settings (zones, thresholds) to read.
+/// Intervals.icu joins them with commas.
+pub const INTERVALS_ICU_DEFAULT_SCOPES: &[&str] = &[
+    "ACTIVITY:READ",
+    "WELLNESS:READ",
+    "CALENDAR:WRITE",
+    "SETTINGS:READ",
+];
 
 /// Sciotte web scraping provider identifier.
 ///

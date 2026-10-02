@@ -32,7 +32,9 @@ use std::sync::{Arc, Mutex};
 use chrono::{DateTime, TimeZone, Utc};
 use dravr_sciotte::client::{ENV_AUDIENCE, ENV_REMOTE_URL};
 use dravr_sciotte::models::AuthSession;
-use pierre_providers::core::{FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory};
+use pierre_providers::core::{
+    CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
+};
 use pierre_providers::models::{ActivityComment, Feel};
 use pierre_providers::sciotte_provider::{
     SciotteProviderFactory, SciotteTrainingPeaksProviderFactory,
@@ -247,6 +249,7 @@ async fn connected(
             refresh_token: None,
             expires_at: None,
             scopes: vec![],
+            kind: CredentialKind::OAuthBearer,
         })
         .await
         .expect("a serialized session is accepted"); // Safe: the JSON above is a valid AuthSession

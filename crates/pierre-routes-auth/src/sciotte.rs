@@ -19,7 +19,7 @@ use pierre_cache::{Cache, CacheKey, CacheResource};
 use pierre_core::constants::oauth_providers::{SCIOTTE_TRAININGPEAKS, TOKEN_TYPE_SESSION};
 use pierre_core::models::{Activity, ConnectionType, TenantId, UserOAuthToken};
 use pierre_providers::backend_resolver;
-use pierre_providers::core::{ActivityQueryParams, OAuth2Credentials};
+use pierre_providers::core::{ActivityQueryParams, CredentialKind, OAuth2Credentials};
 use pierre_providers::registry::{global_registry, ProviderRegistry};
 use pierre_providers::sciotte_provider::SciotteTarget;
 use pierre_services::delegated_connections::forget_coach_roster;
@@ -461,6 +461,7 @@ async fn fetch_prefetch_window(
         refresh_token: None,
         expires_at: None,
         scopes: vec![],
+        kind: CredentialKind::OAuthBearer,
     };
     provider
         .set_credentials(credentials)

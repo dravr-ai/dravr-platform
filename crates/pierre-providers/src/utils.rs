@@ -14,7 +14,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 
-use super::core::OAuth2Credentials;
+use super::core::{CredentialKind, OAuth2Credentials};
 use super::errors::provider::ProviderError;
 
 /// Configuration for retry behavior
@@ -456,6 +456,7 @@ pub async fn refresh_oauth_token(
         refresh_token: token_response.refresh_token,
         expires_at,
         scopes: vec![], // Preserve original scopes in caller
+        kind: CredentialKind::OAuthBearer,
     })
 }
 

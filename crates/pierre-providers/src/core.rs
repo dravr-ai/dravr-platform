@@ -124,6 +124,7 @@ use crate::backend_resolver::user_facing_name;
 use crate::errors::{AppError, AppResult};
 use crate::models::{
     Activity, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout, Stats, TimeSeriesData,
+    API_KEY_TOKEN_TYPE,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use async_trait::async_trait;
@@ -165,6 +166,37 @@ pub struct OAuth2Credentials {
     pub expires_at: Option<DateTime<Utc>>,
     /// Granted OAuth scopes
     pub scopes: Vec<String>,
+    /// What `access_token` is, and so how a call presents it
+    #[serde(default)]
+    pub kind: CredentialKind,
+}
+
+/// What a stored credential's `access_token` is.
+///
+/// A provider that links both ways (intervals.icu takes an OAuth grant or the
+/// athlete's personal API key) presents each differently, so the kind travels
+/// with the token rather than being inferred from the provider.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CredentialKind {
+    /// An OAuth access token, sent as `Authorization: Bearer`
+    #[default]
+    OAuthBearer,
+    /// A personal API key the athlete pasted, stored with
+    /// [`API_KEY_TOKEN_TYPE`] as its token type
+    ApiKey,
+}
+
+impl CredentialKind {
+    /// The kind a stored row's `token_type` names.
+    #[must_use]
+    pub fn from_token_type(token_type: &str) -> Self {
+        if token_type == API_KEY_TOKEN_TYPE {
+            Self::ApiKey
+        } else {
+            Self::OAuthBearer
+        }
+    }
 }
 
 /// Provider configuration containing all necessary endpoints and settings (Shared Request Type)

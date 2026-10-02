@@ -404,11 +404,11 @@ impl ProviderRegistry {
     #[cfg(not(feature = "provider-sciotte"))]
     fn register_sciotte_coros(_registry: &mut Self) {}
 
-    /// Register the Intervals.icu provider (API-key / HTTP Basic auth, not OAuth).
+    /// Register the Intervals.icu provider with environment-based configuration.
     ///
-    /// Athletes link by pasting their athlete id + API key, so the config
-    /// carries no OAuth authorize/token URLs — only the API base URL the
-    /// provider calls.
+    /// Athletes link through the OAuth app or by pasting their athlete id + API
+    /// key; both call the same API base. The OAuth endpoints honour the
+    /// `PIERRE_INTERVALS_ICU_*` overrides every OAuth provider reads.
     #[cfg(feature = "provider-intervals-icu")]
     fn register_intervals_icu(registry: &mut Self) {
         registry.register_factory(
@@ -419,9 +419,25 @@ impl ProviderRegistry {
             oauth_providers::INTERVALS_ICU,
             Box::new(IntervalsIcuDescriptor),
         );
+        let defaults = intervals_icu_default_config();
+        let (auth_url, token_url, api_base_url, revoke_url, scopes) = load_provider_env_config(
+            oauth_providers::INTERVALS_ICU,
+            &defaults.auth_url,
+            &defaults.token_url,
+            &defaults.api_base_url,
+            defaults.revoke_url.as_deref(),
+            &defaults.default_scopes,
+        );
         registry.set_default_config(
             oauth_providers::INTERVALS_ICU,
-            intervals_icu_default_config(),
+            ProviderConfig {
+                name: defaults.name,
+                auth_url,
+                token_url,
+                api_base_url,
+                revoke_url,
+                default_scopes: scopes,
+            },
         );
     }
 

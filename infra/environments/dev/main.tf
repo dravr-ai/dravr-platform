@@ -636,12 +636,16 @@ module "backend" {
     # placeholder string, the OAuth manager logs the "no credentials" warn,
     # and the platform falls back to BYO (web/mobile setup modals). Once a
     # real version lands, Whoop becomes 1-step identical to Strava.
-    WHOOP_CLIENT_ID         = module.secrets.secret_ids["whoop_client_id"]
-    WHOOP_CLIENT_SECRET     = module.secrets.secret_ids["whoop_client_secret"]
-    USDA_API_KEY            = module.secrets.secret_ids["usda_api_key"]
-    GEMINI_API_KEY          = module.secrets.secret_ids["gemini_api_key"]
-    COPILOT_GITHUB_TOKEN    = module.secrets.secret_ids["copilot_github_token"]
-    CLAUDE_CODE_OAUTH_TOKEN = module.secrets.secret_ids["claude_code_oauth_token"]
+    WHOOP_CLIENT_ID     = module.secrets.secret_ids["whoop_client_id"]
+    WHOOP_CLIENT_SECRET = module.secrets.secret_ids["whoop_client_secret"]
+    # Intervals.icu OAuth app (carnet#47). Placeholder until the app is
+    # approved; the API-key link needs neither.
+    INTERVALS_ICU_CLIENT_ID     = module.secrets.secret_ids["intervals_icu_client_id"]
+    INTERVALS_ICU_CLIENT_SECRET = module.secrets.secret_ids["intervals_icu_client_secret"]
+    USDA_API_KEY                = module.secrets.secret_ids["usda_api_key"]
+    GEMINI_API_KEY              = module.secrets.secret_ids["gemini_api_key"]
+    COPILOT_GITHUB_TOKEN        = module.secrets.secret_ids["copilot_github_token"]
+    CLAUDE_CODE_OAUTH_TOKEN     = module.secrets.secret_ids["claude_code_oauth_token"]
     # The second Claude account, pooled as the tier right behind the first
     # (claude-code#2). Further accounts are _3, _4, … — the platform reads
     # them in order and stops at the first unset one (carnet#480).

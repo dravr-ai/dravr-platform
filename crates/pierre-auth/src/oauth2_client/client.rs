@@ -334,9 +334,9 @@ impl OAuth2Client {
         });
 
         // Capture the provider-side owner id when the response carries one:
-        // Strava returns a nested `athlete.id` (number). Other providers omit
-        // it, leaving this `None`.
-        let provider_user_id = response.athlete.map(|athlete| athlete.id.to_string());
+        // Strava returns a nested `athlete.id` as a number, Intervals.icu as a
+        // string. Other providers omit it, leaving this `None`.
+        let provider_user_id = response.athlete.map(|athlete| athlete.id.into_string());
 
         OAuth2Token {
             access_token: response.access_token,
@@ -362,17 +362,38 @@ struct TokenResponse {
     refresh_token: Option<String>,
     /// Space-separated list of granted scopes
     scope: Option<String>,
-    /// Strava returns the authenticated athlete inline in the token response;
-    /// only its numeric id is needed to map webhook `owner_id` back to a user.
+    /// Strava and Intervals.icu return the authenticated athlete inline in the
+    /// token response; only its id is needed to map it back to a user.
     athlete: Option<AthleteId>,
 }
 
 /// Minimal projection of a provider's inline athlete object in the token
-/// response. Only the numeric id is captured (Strava `athlete.id`).
+/// response. Only the id is captured.
 #[derive(Debug, Deserialize)]
 struct AthleteId {
     /// Provider-side athlete identifier.
-    id: i64,
+    id: ProviderAthleteId,
+}
+
+/// An inline athlete id, which Strava sends as a number and Intervals.icu as a
+/// string. A number read as the only shape would fail the whole token response
+/// on the other.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum ProviderAthleteId {
+    /// Strava's numeric athlete id.
+    Number(i64),
+    /// Intervals.icu's athlete id.
+    Text(String),
+}
+
+impl ProviderAthleteId {
+    fn into_string(self) -> String {
+        match self {
+            Self::Number(id) => id.to_string(),
+            Self::Text(id) => id,
+        }
+    }
 }
 
 /// The error for a token endpoint that refused an authorization code exchange.

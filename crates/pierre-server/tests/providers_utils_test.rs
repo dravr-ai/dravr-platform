@@ -9,7 +9,7 @@
 
 use chrono::Utc;
 use pierre_core::errors::provider::ProviderError;
-use pierre_providers::core::OAuth2Credentials;
+use pierre_providers::core::{CredentialKind, OAuth2Credentials};
 use pierre_providers::utils::{conversions, is_authenticated, needs_token_refresh, RetryConfig};
 use reqwest::StatusCode;
 
@@ -48,6 +48,7 @@ fn test_needs_token_refresh() {
         refresh_token: Some("refresh".to_owned()),
         expires_at: Some(Utc::now() + chrono::Duration::minutes(1)),
         scopes: vec![],
+        kind: CredentialKind::OAuthBearer,
     });
     assert!(needs_token_refresh(&expires_soon, 5));
 
@@ -59,6 +60,7 @@ fn test_needs_token_refresh() {
         refresh_token: Some("refresh".to_owned()),
         expires_at: Some(Utc::now() + chrono::Duration::minutes(10)),
         scopes: vec![],
+        kind: CredentialKind::OAuthBearer,
     });
     assert!(!needs_token_refresh(&expires_later, 5));
 }
@@ -76,6 +78,7 @@ fn test_is_authenticated() {
         refresh_token: Some("refresh".to_owned()),
         expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
         scopes: vec![],
+        kind: CredentialKind::OAuthBearer,
     });
     assert!(!is_authenticated(&no_token));
 
@@ -87,6 +90,7 @@ fn test_is_authenticated() {
         refresh_token: Some("refresh".to_owned()),
         expires_at: Some(Utc::now() - chrono::Duration::hours(1)),
         scopes: vec![],
+        kind: CredentialKind::OAuthBearer,
     });
     assert!(!is_authenticated(&expired));
 
@@ -98,6 +102,7 @@ fn test_is_authenticated() {
         refresh_token: Some("refresh".to_owned()),
         expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
         scopes: vec![],
+        kind: CredentialKind::OAuthBearer,
     });
     assert!(is_authenticated(&valid));
 
@@ -109,6 +114,7 @@ fn test_is_authenticated() {
         refresh_token: Some("refresh".to_owned()),
         expires_at: None,
         scopes: vec![],
+        kind: CredentialKind::OAuthBearer,
     });
     assert!(is_authenticated(&no_expiry));
 }

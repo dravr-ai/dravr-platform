@@ -166,6 +166,14 @@ export GARMIN_REDIRECT_URI=http://localhost:8081/api/oauth/callback/garmin
 # export WHOOP_REDIRECT_URI=http://localhost:8081/api/oauth/callback/whoop
 
 # ----------------------------------------------------------------------------
+# Intervals.icu Provider Configuration
+# ----------------------------------------------------------------------------
+# OAuth app from https://intervals.icu/oauth/apply. Without it athletes link
+# by pasting their athlete id + personal API key, which needs no config.
+# export INTERVALS_ICU_CLIENT_ID=your-intervals-icu-client-id
+# export INTERVALS_ICU_CLIENT_SECRET=your-intervals-icu-client-secret
+
+# ----------------------------------------------------------------------------
 # Terra Provider Configuration
 # ----------------------------------------------------------------------------
 # Terra uses dev_id/api_key instead of client_id/client_secret
