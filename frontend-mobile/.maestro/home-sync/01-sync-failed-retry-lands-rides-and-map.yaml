@@ -44,7 +44,15 @@ appId: ai.dravr.app
     id: "home-activities-synced-at"
     text: "(Last synced: |Dernière synchronisation : )${output.homeSync.lastGoodClock}"
 # A ride is a button whose name and figures iOS reads as one label, so its
-# name is matched as the start of that label.
+# name is matched as the start of that label. The rides sit under the plan and
+# the training status, below the fold on a short screen, so the list is
+# scrolled to before it is read.
+- scrollUntilVisible:
+    element:
+      text: "${output.homeSync.older}.*"
+    direction: DOWN
+    timeout: 15000
+    centerElement: true
 - assertVisible:
     text: "${output.homeSync.older}.*"
 - assertNotVisible:

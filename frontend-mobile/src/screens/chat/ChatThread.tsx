@@ -46,6 +46,11 @@ export interface ChatThreadProps {
   sendText: (text: string) => Promise<void>;
   /** Drawn above the transcript, scrolling with it. */
   header?: React.ReactElement;
+  /**
+   * The route question the empty thread suggests, worded by the host for
+   * today's session. A host that leaves it out gets no suggestion.
+   */
+  routeDraft?: string;
   /** How the transcript follows its content; the list's own scroll-to-end when absent. */
   onScrollToBottom?: () => void;
 }
@@ -69,6 +74,7 @@ export function ChatThread({
   inputRef,
   sendText,
   header,
+  routeDraft,
   onScrollToBottom,
 }: ChatThreadProps) {
   const { t } = useTranslation();
@@ -101,6 +107,14 @@ export function ChatThread({
   useEffect(() => {
     if (quotaNotice) applyNotice(quotaNotice);
   }, [quotaNotice, applyNotice]);
+
+  // The suggested question lands in the composer, focused, and the send is
+  // left to the athlete — the shape a Home draft takes.
+  const handleSuggestRoute = useCallback(() => {
+    if (routeDraft === undefined) return;
+    onChangeInputText(routeDraft);
+    inputRef.current?.focus();
+  }, [routeDraft, onChangeInputText, inputRef]);
 
   const handleOpenUrl = useCallback(async (url: string) => {
     try {
@@ -245,6 +259,7 @@ export function ChatThread({
         onActionClick={handleActionClick}
         onShowVerdict={handleShowVerdict}
         header={header}
+        onSuggestRoute={routeDraft === undefined ? undefined : handleSuggestRoute}
       />
 
       <ChatProgressStrip statusText={messagesHook.progressText} />
@@ -256,6 +271,8 @@ export function ChatThread({
         partialTranscript={voiceInput.partialTranscript}
         isListening={voiceInput.isListening}
         isSending={messagesHook.isSending}
+        isStopping={messagesHook.isStopping}
+        onStopTurn={() => void messagesHook.stopTurn()}
         disabled={usageStatus.sendDisabled}
         voiceAvailable={voiceInput.isAvailable}
         inputRef={inputRef}

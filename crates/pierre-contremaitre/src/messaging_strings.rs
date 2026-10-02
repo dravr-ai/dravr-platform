@@ -110,6 +110,11 @@ pub const KEY_EMPTY_REPLY: &str = "messaging.empty_reply";
 /// Closes the status placeholder that would otherwise stay open forever.
 /// No format placeholders.
 pub const KEY_TURN_INTERRUPTED: &str = "messaging.turn_interrupted";
+/// Key: the athlete stopped the turn before it produced a reply.
+///
+/// Written as the assistant row that closes the stopped turn, so the
+/// transcript says why the question has no answer. No format placeholders.
+pub const KEY_TURN_STOPPED: &str = "messaging.turn_stopped";
 /// Key: reply withheld at the response boundary — the canary scan proved it
 /// exposed system-prompt content, or the narration scrub emptied it.
 pub const KEY_REPLY_WITHHELD: &str = "messaging.reply_withheld";

@@ -13,6 +13,7 @@ import {
   LATEST_ROUTE_RESPONSE,
   NO_GPS_ROUTE_RESPONSE,
   PLAN_RESPONSE,
+  STATUS_RESPONSE,
   PROVIDERS_CONNECTED,
   PROVIDERS_NONE,
   PROVIDERS_ONLY_FLAGGED,
@@ -48,6 +49,7 @@ import TabsLayout from '../../app/(app)/(tabs)/_layout';
 import { HOME_ROUTE } from '../../src/navigation/routes';
 
 const PLAN_URL = 'GET /api/me/training-plan?locale=en';
+const STATUS_URL = 'GET /api/me/training-status';
 const RECENT_URL = 'GET /api/me/activities/recent';
 // Home's route reads are one burst: each carries the `burst` flag the server
 // reads to hand its provider turn to the newest activity first.
@@ -86,6 +88,7 @@ const SCHEDULE_MS = HOME_STALE_REFETCH_DELAYS_MS.reduce((sum, delay) => sum + de
 function homeServer(overrides: StubRoutes = {}): StubRoutes {
   return {
     [PLAN_URL]: { data: PLAN_RESPONSE },
+    [STATUS_URL]: { data: STATUS_RESPONSE },
     [RECENT_URL]: { data: recentResponse() },
     [LATEST_ROUTE_URL]: { data: LATEST_ROUTE_RESPONSE },
     [TRAIL_ROUTE_URL]: { data: TRAIL_ROUTE_RESPONSE },
@@ -140,13 +143,13 @@ describe('the Home tab over the wire', () => {
   // `limit` the server would clamp, drops the locale, asks for a route the
   // row's own polyline already draws, asks again for one the row says held
   // no GPS, or stops fetching the basemap style it relabels.
-  it('reads the plan, the list, the provider status and only the routes it has to ask for', async () => {
+  it('reads the plan, the status, the list, the provider status and only the routes it has to ask for', async () => {
     stub = installHttpStub(homeServer());
     const screen = renderHome();
 
     expect(await screen.findByTestId('route-track', {}, { timeout: FIRST_MAP_TIMEOUT_MS })).toBeTruthy();
     await screen.findByTestId('home-activity-sketch-intervals_icu-i77');
-    await waitFor(() => expect(stub.requestsFor('GET')).toHaveLength(7));
+    await waitFor(() => expect(stub.requestsFor('GET')).toHaveLength(8));
 
     const urls = stub.requestsFor('GET').map((request) => request.url).sort();
     expect(urls).toEqual(
@@ -159,6 +162,7 @@ describe('the Home tab over the wire', () => {
         '/api/me/activities/strava/8998/route?burst=true',
         '/api/me/activities/strava/9001/route?burst=true',
         '/api/me/training-plan?locale=en',
+        '/api/me/training-status',
         '/api/providers',
       ].sort(),
     );

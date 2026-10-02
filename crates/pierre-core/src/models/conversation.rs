@@ -351,6 +351,18 @@ pub const FILTERED_REPLY_FINISH_REASON: &str = "reply_filtered";
 /// banner is set off with.
 pub const STOP_CAVEAT_SEPARATOR: &str = "\n\n---\n";
 
+/// `finish_reason` stamped on the assistant row that closes a turn the athlete
+/// stopped.
+///
+/// The row holds the localized `messaging.turn_stopped` notice in place of a
+/// reply, and it is the stop signal itself: the stop request writes it from
+/// whichever instance it reaches, naming the question it closes in a
+/// [`PersistedReplyBlock::TurnStop`] entry, and the running turn — on that
+/// instance or another — ends once it reads the notice naming its own
+/// question. The row is platform text, so it never re-enters a prompt. The
+/// same string rides the wire as the stopped turn's `finish_reason`.
+pub const STOPPED_TURN_FINISH_REASON: &str = "stopped";
+
 /// `finish_reason` stamped on both rows of a persisted slash-command turn: the
 /// athlete's `/…` line and the platform's answer to it.
 ///
@@ -386,12 +398,21 @@ pub struct PersistedAction {
     pub value: String,
 }
 
+/// The `type` discriminator of the entry a `user` row carries naming who
+/// wrote it — see [`PersistedReplyBlock::TurnAuthor`].
+pub const TURN_AUTHOR_BLOCK_TYPE: &str = "turn_author";
+
+/// The `type` discriminator of the entry a stopped notice carries naming the
+/// question it closed — see [`PersistedReplyBlock::TurnStop`].
+pub const TURN_STOP_BLOCK_TYPE: &str = "turn_stop";
+
 /// A non-visual entry of `chat_messages.content_blocks`.
 ///
 /// The column holds one JSON array. Visual specs (`{"type":"chart",…}`,
-/// `{"type":"table",…}`) are resolved by photograveur on every read; this entry
-/// is the one shape in that array photograveur must never see, so the read
-/// path partitions on [`ACTIONS_BLOCK_TYPE`] before resolving the rest.
+/// `{"type":"table",…}`) are resolved by photograveur on every read; these
+/// entries are the shapes in that array photograveur must never see, so the
+/// read path partitions on [`ACTIONS_BLOCK_TYPE`] and drops what
+/// [`is_turn_marker_block`] recognises before resolving the rest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PersistedReplyBlock {
@@ -404,6 +425,33 @@ pub enum PersistedReplyBlock {
         /// The controls, in order.
         actions: Vec<PersistedAction>,
     },
+    /// Who wrote a `user` row.
+    ///
+    /// `chat_messages` has no author column: a row records which conversation
+    /// it belongs to, and a conversation can have several participants. The
+    /// turn that stores an athlete's question stamps it with this entry, which
+    /// is what lets a stop request be matched to the caller's own question and
+    /// to nobody else's.
+    TurnAuthor {
+        /// The athlete whose message the row is.
+        user_id: String,
+    },
+    /// Which question a stopped notice closed.
+    ///
+    /// Carried by the assistant row stamped [`STOPPED_TURN_FINISH_REASON`]. A
+    /// running turn ends on the notice naming its own question and on no
+    /// other, whatever rows landed in the conversation since.
+    TurnStop {
+        /// Id of the `user` row whose turn was stopped.
+        question_id: String,
+    },
+}
+
+/// Whether a stored `content_blocks` entry of this `type` is a turn marker —
+/// bookkeeping about the row, never something a client renders.
+#[must_use]
+pub fn is_turn_marker_block(block_type: &str) -> bool {
+    matches!(block_type, TURN_AUTHOR_BLOCK_TYPE | TURN_STOP_BLOCK_TYPE)
 }
 
 /// Database representation of a chat message

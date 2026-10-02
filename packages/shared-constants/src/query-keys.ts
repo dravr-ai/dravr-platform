@@ -70,6 +70,8 @@ export const QUERY_KEYS = {
      * plan's flavour in it — a language switch is a different card.
      */
     trainingPlan: (locale: string) => ['home', 'training-plan', locale] as const,
+    /** Form today, its trend and the load against baseline. Numbers and band names only, so no locale. */
+    trainingStatus: () => ['home', 'training-status'] as const,
   },
 
   // ==================== CHAT ====================

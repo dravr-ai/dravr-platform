@@ -2,8 +2,8 @@
 // ABOUTME: Pins the rest-day versus uncovered-date distinction and calendar arithmetic across month, year and DST edges
 
 import { describe, it, expect } from 'vitest';
-import { addCivilDays, mondayOf, phaseWeekOn, planDayOn } from '../src/plan-calendar';
-import type { PlanPhase, WorkoutPlan } from '../src/workout-plan';
+import { addCivilDays, mondayOf, phaseWeekOn, planDayDistanceMeters, planDayOn } from '../src/plan-calendar';
+import type { PlanDay, PlanPhase, WorkoutPlan } from '../src/workout-plan';
 
 const plan: WorkoutPlan = {
   goal_race: { name: 'Big Red', date: '2026-10-18', discipline: 'gravel', priority: 'A' },
@@ -115,5 +115,45 @@ describe('phaseWeekOn', () => {
   it('keeps counting through an open-ended phase', () => {
     const open: PlanPhase = { ...build, end: undefined };
     expect(phaseWeekOn(open, '2026-11-02')).toBe(9);
+  });
+});
+
+describe('planDayDistanceMeters', () => {
+  const session: PlanDay = {
+    date: '2026-09-24',
+    sport: 'run',
+    workout: 'Intervals',
+    intensity: 'Z4',
+    rest: false,
+  };
+
+  it('sums the steps, each once per repeat', () => {
+    const day: PlanDay = {
+      ...session,
+      steps: [
+        { label: 'Warm-up', duration_seconds: 900, distance_meters: 3000, target_zone: 'Z1' },
+        { label: 'Interval', duration_seconds: 240, distance_meters: 1000, target_zone: 'Z4', repeat: 8 },
+        { label: 'Float', duration_seconds: 120, distance_meters: 250, target_zone: 'Z1', repeat: 8 },
+        { label: 'Cool-down', duration_seconds: 600, distance_meters: 2000, target_zone: 'Z1' },
+      ],
+    };
+    expect(planDayDistanceMeters(day)).toBe(15000);
+  });
+
+  it('says nothing when a step is set by time alone, rather than a part of the session', () => {
+    const day: PlanDay = {
+      ...session,
+      steps: [
+        { label: 'Warm-up', duration_seconds: 900, target_zone: 'Z1' },
+        { label: 'Interval', duration_seconds: 240, distance_meters: 1000, target_zone: 'Z4', repeat: 8 },
+      ],
+    };
+    expect(planDayDistanceMeters(day)).toBeNull();
+  });
+
+  it('says nothing for a session without steps, or a rest day', () => {
+    expect(planDayDistanceMeters(session)).toBeNull();
+    expect(planDayDistanceMeters({ ...session, steps: [] })).toBeNull();
+    expect(planDayDistanceMeters({ ...session, rest: true })).toBeNull();
   });
 });

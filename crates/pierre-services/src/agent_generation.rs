@@ -25,7 +25,7 @@ use std::sync::Arc;
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    MessageRecord, TenantId, UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON,
+    MessageRecord, TenantId, STOPPED_TURN_FINISH_REASON, UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON,
     WITHHELD_REPLY_FINISH_REASON,
 };
 use pierre_database::repositories::{AgentsRepository, ChatRepository};
@@ -106,13 +106,18 @@ struct ProposedFields {
 ///
 /// Tool rows are not turns; a slash-command turn is the platform talking; a
 /// withheld reply never reached the athlete; an unverified claim must never
-/// re-enter a prompt. Each is recognised by its stamp, never by its prose.
+/// re-enter a prompt; a stopped notice is the platform closing a question the
+/// agent never answered. Each is recognised by its stamp, never by its prose.
 fn is_coaching_turn(row: &MessageRecord) -> bool {
     matches!(row.role.as_str(), "user" | "assistant")
         && !row.is_command_turn()
         && !matches!(
             row.finish_reason.as_deref(),
-            Some(WITHHELD_REPLY_FINISH_REASON | UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON)
+            Some(
+                WITHHELD_REPLY_FINISH_REASON
+                    | UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON
+                    | STOPPED_TURN_FINISH_REASON
+            )
         )
 }
 

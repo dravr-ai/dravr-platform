@@ -57,6 +57,8 @@ function Composer() {
       partialTranscript=""
       isListening={false}
       isSending={false}
+      isStopping={false}
+      onStopTurn={jest.fn()}
       voiceAvailable={false}
       inputRef={inputRef}
       onChangeText={setInputText}

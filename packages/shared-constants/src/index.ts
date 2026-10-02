@@ -255,6 +255,19 @@ export type {
   StyleMapLayer,
 } from './route-map';
 
+// The Home training status: form band names, the form line, load ratio and recovery days
+export {
+  FORM_BAND_DETAIL_KEY,
+  FORM_BAND_LABEL_KEY,
+  TRAINING_STATUS_KEY,
+  formLine,
+  loadRatioLine,
+  recoveryLine,
+  trendDayLine,
+  trendLabelLine,
+  trendSpanDays,
+} from './training-status';
+
 // What every unread and notification badge prints for a count
 export { badgeLabel } from './badge';
 

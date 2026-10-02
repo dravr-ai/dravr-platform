@@ -106,6 +106,25 @@ async function signIn(page: Page, plan: unknown, needsReauth = false) {
   await page.route('**/api/me/training-plan**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ plan, today: TODAY }) }),
   );
+  await page.route('**/api/me/training-status', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        today: TODAY,
+        form: { band: 'heavy_block', pct_of_fitness: -22 },
+        trend: [
+          { date: '2026-09-20', band: 'productive', pct_of_fitness: -12 },
+          { date: '2026-09-21', band: 'balanced', pct_of_fitness: -4 },
+          { date: '2026-09-22', band: 'fresh', pct_of_fitness: 6 },
+          { date: '2026-09-23', band: 'productive', pct_of_fitness: -15 },
+          { date: TODAY, band: 'heavy_block', pct_of_fitness: -22 },
+        ],
+        load_ratio: { ratio: 1.37, acute_days: 7, chronic_days: 28 },
+        recovery_days: 0,
+      }),
+    }),
+  );
   await page.route('**/api/me/activities/recent**', (route) =>
     route.fulfill({
       status: 200,

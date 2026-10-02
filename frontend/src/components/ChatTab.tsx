@@ -50,6 +50,7 @@ import {
 import { useMarkConversationRead } from '../hooks/useMarkConversationRead';
 import { useCoachInfo } from '../hooks/useCoachInfo';
 import { useGroup } from '../hooks/useGroups';
+import { useTodayRouteDraft } from '../hooks/useHome';
 import { useSuccessToast, useInfoToast, useErrorToast } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { replySceneBlocks } from '@pierre/api-client';
@@ -143,6 +144,12 @@ export default function ChatTab({
   const [newMessage, setNewMessage] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
+  // A stop was sent for the in-flight turn and its stream has not ended yet.
+  const [isStopping, setIsStopping] = useState(false);
+  // The conversation the in-flight turn was posted to. The athlete can open
+  // another thread while a turn streams, and a stop has to reach the turn that
+  // is running, not the thread on screen.
+  const streamingConversationRef = useRef<string | null>(null);
   // What the in-flight turn is doing right now — the stage it entered or the
   // tool it is calling — read off the turn's own `progress` frames. Same
   // response body the reply arrives on, so there is nothing to correlate.
@@ -555,6 +562,7 @@ export default function ChatTab({
     if (!displayContent || !selectedConversation || isStreaming) return;
 
     setIsStreaming(true);
+    streamingConversationRef.current = selectedConversation;
     setStreamingContent('');
     setErrorMessage(null);
     dispatchLostTurn({ type: 'sent' });
@@ -743,12 +751,38 @@ export default function ChatTab({
 
     releaseIdleHold();
     setIsStreaming(false);
+    setIsStopping(false);
+    streamingConversationRef.current = null;
     setStreamingContent('');
     // The delivered assistant reply is now the source of truth; the progress
     // line has nothing left to say.
     setProgressStatusText(null);
     usageStatus.invalidate();
   }, [selectedConversation, isStreaming, queryClient, usageStatus, onSelectConversation, t, roomGroupId]);
+
+  /**
+   * Stop the turn that is streaming.
+   *
+   * The server ends it and closes the question with a short notice; the open
+   * stream then finishes through `onDone` like any other turn, so nothing is
+   * torn down here. When the reply had already landed, or the stop could not
+   * be sent, the button is handed back and the turn carries on.
+   */
+  const handleStopTurn = useCallback(async () => {
+    const streamingConversation = streamingConversationRef.current;
+    if (!streamingConversation || isStopping) return;
+    setIsStopping(true);
+    try {
+      const stopped = await chatApi.stopTurn(streamingConversation);
+      if (!stopped) setIsStopping(false);
+    } catch (error) {
+      setIsStopping(false);
+      showErrorToast(
+        t('chat.stopTurnAria'),
+        describeApiError(error, { t, fallbackKey: 'chat.turnTryAgain' }),
+      );
+    }
+  }, [isStopping, showErrorToast, t]);
 
   /** The composer's own send: hand the typed text to {@link sendTurn} and clear the box. */
   const handleSendMessage = useCallback(() => {
@@ -797,6 +831,12 @@ export default function ChatTab({
   const handleOpenCommands = useCallback(() => {
     runComposerAction({ kind: 'draft', text: '/' });
   }, [runComposerAction]);
+
+  /** Start a fresh thread whose composer holds the route question for today's session. */
+  const routeDraft = useTodayRouteDraft();
+  const handleSuggestRoute = useCallback(() => {
+    runComposerAction({ kind: 'draft', text: routeDraft });
+  }, [runComposerAction, routeDraft]);
 
   // The shell's own composer action — the `/groups/join/:code` deep link, which
   // lands on chat and sends `/group join CODE` as its first turn.
@@ -1057,6 +1097,8 @@ export default function ChatTab({
         onChange={setNewMessage}
         onSend={handleSendMessage}
         isStreaming={isStreaming}
+        onStop={() => void handleStopTurn()}
+        isStopping={isStopping}
         disabled={usageStatus.sendDisabled}
         conversationId={selectedConversation}
         focusOnMount={layout !== 'embedded'}
@@ -1098,6 +1140,7 @@ export default function ChatTab({
       <ChatEmptyState
         compose={composeMenu(false)}
         onOpenCommands={handleOpenCommands}
+        onSuggestRoute={handleSuggestRoute}
         disabled={createConversation.isPending}
         onNavigate={onNavigate}
         providerStatus={providerStatus}

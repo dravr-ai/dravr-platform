@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: What the thread pane shows with no thread open — the mark, one invitation, and three ink links: the "+", commands, an agent, your data
+// ABOUTME: What the thread pane shows with no thread open — the mark, one invitation, and its ink links: the "+", commands, a route for today, an agent, your data
 // ABOUTME: The discoverable path to the command palette, so "/" is never the only way to find it
 
 import type { ReactNode } from 'react';
 import { clsx } from 'clsx';
-import { Compass, Link2, Slash } from 'lucide-react';
+import { Compass, Link2, MapPin, Slash } from 'lucide-react';
 import { SLASH_HINT_KEY } from '@pierre/shared-constants';
 import { CONNECTIONS_ROUTE } from '../../constants/surfaceLayout';
 import { DravrLogo } from '../DravrLogo';
@@ -20,6 +20,12 @@ interface ChatEmptyStateProps {
   compose: ReactNode;
   /** Start a conversation whose composer already holds `/`, palette open. */
   onOpenCommands: () => void;
+  /**
+   * Start a conversation whose composer already holds the suggested question
+   * — a route for today's session — left for the athlete to finish and send.
+   * The host words it, since the host knows what today's session is.
+   */
+  onSuggestRoute?: () => void;
   /** Disables the quick actions while a conversation is being created. */
   disabled?: boolean;
   /** Jump to another tab — the agent catalogue, the data providers. */
@@ -70,6 +76,7 @@ function QuickAction({
 export default function ChatEmptyState({
   compose,
   onOpenCommands,
+  onSuggestRoute,
   disabled = false,
   onNavigate,
   providerStatus,
@@ -93,6 +100,15 @@ export default function ChatEmptyState({
             disabled={disabled}
             testId="chat-empty-commands"
           />
+          {onSuggestRoute && (
+            <QuickAction
+              icon={<MapPin aria-hidden="true" />}
+              label={t('chat.quickRoute')}
+              onClick={onSuggestRoute}
+              disabled={disabled}
+              testId="chat-empty-route"
+            />
+          )}
           {onNavigate && (
             <>
               <QuickAction

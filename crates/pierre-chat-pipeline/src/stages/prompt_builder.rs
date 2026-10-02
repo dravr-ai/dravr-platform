@@ -27,7 +27,8 @@ use super::viz_blocks;
 use crate::ChatPipelineContext;
 use pierre_core::models::ConnectionType;
 use pierre_core::models::{
-    UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON, WITHHELD_REPLY_FINISH_REASON,
+    STOPPED_TURN_FINISH_REASON, UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON,
+    WITHHELD_REPLY_FINISH_REASON,
 };
 use pierre_core::narration::scrub_replayed_narration;
 use pierre_llm::ChatMessage;
@@ -304,6 +305,13 @@ fn push_history_row(
     // identical one 18 days later. Dropped by stamp, so no phrasing mutation
     // can slip past the way three of them slipped past the prose scrub.
     if msg.finish_reason.as_deref() == Some(UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON) {
+        return;
+    }
+
+    // A stopped notice is the platform closing a question the agent never
+    // answered. Replayed, it would read as the agent's own turn — "Reply
+    // stopped." in its voice — so it is dropped by stamp like the rows above.
+    if msg.finish_reason.as_deref() == Some(STOPPED_TURN_FINISH_REASON) {
         return;
     }
 

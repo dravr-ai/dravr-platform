@@ -20,9 +20,17 @@ jest.mock('../src/services/api', () => ({
 
 const onSendMessage = jest.fn();
 const onVoicePress = jest.fn();
+const onStopTurn = jest.fn();
+
+interface ComposerProps {
+  initial?: string;
+  voiceAvailable?: boolean;
+  isSending?: boolean;
+  isStopping?: boolean;
+}
 
 /** The composer with real value state, so the send flip follows the draft. */
-function Composer({ initial = '', voiceAvailable = false }: { initial?: string; voiceAvailable?: boolean }) {
+function Composer({ initial = '', voiceAvailable = false, isSending = false, isStopping = false }: ComposerProps) {
   const [inputText, setInputText] = useState(initial);
   const inputRef = React.useRef(null);
   return (
@@ -30,17 +38,19 @@ function Composer({ initial = '', voiceAvailable = false }: { initial?: string; 
       inputText={inputText}
       partialTranscript=""
       isListening={false}
-      isSending={false}
+      isSending={isSending}
+      isStopping={isStopping}
       voiceAvailable={voiceAvailable}
       inputRef={inputRef}
       onChangeText={setInputText}
       onVoicePress={onVoicePress}
       onSendMessage={onSendMessage}
+      onStopTurn={onStopTurn}
     />
   );
 }
 
-function renderComposer(props: { initial?: string; voiceAvailable?: boolean } = {}) {
+function renderComposer(props: ComposerProps = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
@@ -53,6 +63,38 @@ describe('ChatInputBar', () => {
   beforeEach(() => {
     onSendMessage.mockReset();
     onVoicePress.mockReset();
+    onStopTurn.mockReset();
+  });
+
+  // carnet#705: while a turn runs the send slot is a stop button. It used to
+  // hold a spinner on a disabled send, with no way to end the reply.
+  it('replaces send with a stop button while a turn runs, and stops on press', () => {
+    renderComposer({ initial: 'still typing', isSending: true });
+
+    expect(screen.queryByTestId('send-button')).toBeNull();
+    expect(screen.queryByTestId('send-button-disabled')).toBeNull();
+    const stop = screen.getByTestId('stop-turn-button');
+    expect(stop.props.accessibilityLabel).toBe('Stop this reply');
+    expect(stop.props.accessibilityState).toEqual({ disabled: false });
+
+    fireEvent.press(stop);
+    expect(onStopTurn).toHaveBeenCalledTimes(1);
+    expect(onSendMessage).not.toHaveBeenCalled();
+  });
+
+  it('holds the stop button disabled once the stop was sent', () => {
+    renderComposer({ isSending: true, isStopping: true });
+
+    const stop = screen.getByTestId('stop-turn-button');
+    expect(stop.props.accessibilityState).toEqual({ disabled: true });
+    fireEvent.press(stop);
+    expect(onStopTurn).not.toHaveBeenCalled();
+  });
+
+  it('shows no stop button while no turn runs', () => {
+    renderComposer({ initial: 'hello' });
+    expect(screen.getByTestId('send-button')).toBeTruthy();
+    expect(screen.queryByTestId('stop-turn-button')).toBeNull();
   });
 
   // Boreal v2.2 P3.3: the leading slot is empty. Turns red if a button comes

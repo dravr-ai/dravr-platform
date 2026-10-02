@@ -21,7 +21,13 @@ import type {
   RecentActivitiesResponse,
   TrainingPlanResponse,
 } from '@pierre/shared-types';
-import { useActivityRoute, useProviderConnection, useRecentActivities, useTrainingPlan } from '../useHome';
+import {
+  useActivityRoute,
+  useProviderConnection,
+  useRecentActivities,
+  useTodayRouteDraft,
+  useTrainingPlan,
+} from '../useHome';
 
 const api = vi.hoisted(() => ({
   getRecentActivities:
@@ -729,6 +735,56 @@ describe('useTrainingPlan', () => {
 
     expect(api.getTrainingPlan).toHaveBeenCalledExactlyOnceWith('en');
     expect(result.current.data).toEqual({ plan: null, today: '2026-09-24' });
+  });
+});
+
+describe('useTodayRouteDraft', () => {
+  it("names today's session and its distance once the plan is read", async () => {
+    api.getTrainingPlan.mockResolvedValue({
+      today: '2026-09-24',
+      plan: {
+        goal_race: { name: 'Big Red', date: '2026-10-18', discipline: 'run', priority: 'A' },
+        phases: [],
+        weeks: [
+          {
+            week_start: '2026-09-21',
+            focus: 'threshold',
+            current: true,
+            days: [
+              {
+                date: '2026-09-24',
+                sport: 'run',
+                workout: 'Intervals',
+                intensity: 'Z4',
+                rest: false,
+                steps: [
+                  { label: 'Warm-up', duration_seconds: 900, distance_meters: 3000, target_zone: 'Z1' },
+                  { label: 'Interval', duration_seconds: 240, distance_meters: 1000, target_zone: 'Z4', repeat: 10 },
+                  { label: 'Cool-down', duration_seconds: 600, distance_meters: 2000, target_zone: 'Z1' },
+                ],
+              },
+            ],
+          },
+        ],
+        weeks_deferred: 0,
+      },
+    });
+    const { result } = renderHook(() => useTodayRouteDraft(), { wrapper });
+    // Before the plan answers, the plain question.
+    expect(result.current).toBe("Suggest a route close to where I am for today's session.");
+    await flush();
+
+    expect(result.current).toBe(
+      'Suggest a 15 km route close to where I am for my session on Thursday, September 24: Intervals',
+    );
+  });
+
+  it('asks the plain question when there is no plan', async () => {
+    api.getTrainingPlan.mockResolvedValue({ plan: null, today: '2026-09-24' });
+    const { result } = renderHook(() => useTodayRouteDraft(), { wrapper });
+    await flush();
+
+    expect(result.current).toBe("Suggest a route close to where I am for today's session.");
   });
 });
 

@@ -218,6 +218,60 @@ export interface ActivityDetailResponse {
   conversation_id: string | null;
 }
 
+/**
+ * The bands form falls in, as a share of the athlete's own fitness — the
+ * engine's one form vocabulary (`FormBand` in dravr-cageux). The edges live
+ * there and nowhere else: a client names the band it is handed and never
+ * derives one from a number.
+ */
+export const FORM_BANDS = [
+  'insufficient_history',
+  'deep_fatigue',
+  'heavy_block',
+  'productive',
+  'balanced',
+  'fresh',
+  'detraining',
+] as const;
+
+export type FormBand = (typeof FORM_BANDS)[number];
+
+/** Form on one day: its band, and form as a whole percentage of fitness. */
+export interface FormReading {
+  band: FormBand;
+  /** Null when there is no chronic base to scale form against; the band then says so. */
+  pct_of_fitness: number | null;
+}
+
+/** One day of the form trend. */
+export interface FormTrendPoint extends FormReading {
+  /** The athlete's civil date, `YYYY-MM-DD`. */
+  date: string;
+}
+
+/** The recent load as a multiple of the athlete's own baseline — a magnitude, never a verdict. */
+export interface TrainingLoadRatio {
+  ratio: number;
+  /** Days in the recent window. */
+  acute_days: number;
+  /** Days in the baseline window. */
+  chronic_days: number;
+}
+
+/** `GET /api/me/training-status`. */
+export interface TrainingStatusResponse {
+  /** The athlete's today, `YYYY-MM-DD` in their own timezone. */
+  today: string;
+  /** Form today; null when the stored history cannot stand behind that day. */
+  form: FormReading | null;
+  /** Form on each day the stored history stands behind, oldest first, ending today; empty when `form` is null. */
+  trend: FormTrendPoint[];
+  /** Null until the baseline window holds enough history. */
+  load_ratio: TrainingLoadRatio | null;
+  /** Lighter days today's form calls for; null when form cannot be judged. */
+  recovery_days: number | null;
+}
+
 /** `GET /api/me/training-plan?locale=xx`. */
 export interface TrainingPlanResponse {
   /**
@@ -603,4 +657,77 @@ export function parseTrainingPlanResponse(body: unknown): TrainingPlanResponse |
     return { plan: null, today: body.today };
   }
   return isWorkoutPlan(body.plan) ? { plan: body.plan, today: body.today } : null;
+}
+
+function parseFormReading(value: unknown): FormReading | null {
+  if (!isRecord(value)) return null;
+  const band = FORM_BANDS.find((known) => known === value.band);
+  const pct = value.pct_of_fitness;
+  if (band === undefined || !(pct === null || (typeof pct === 'number' && Number.isFinite(pct)))) {
+    return null;
+  }
+  return { band, pct_of_fitness: pct };
+}
+
+function isWholeCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+}
+
+function parseLoadRatio(value: unknown): TrainingLoadRatio | null {
+  if (
+    !isRecord(value) ||
+    typeof value.ratio !== 'number' ||
+    !Number.isFinite(value.ratio) ||
+    value.ratio < 0 ||
+    !isWholeCount(value.acute_days) ||
+    !isWholeCount(value.chronic_days)
+  ) {
+    return null;
+  }
+  return { ratio: value.ratio, acute_days: value.acute_days, chronic_days: value.chronic_days };
+}
+
+/**
+ * Read a `GET /api/me/training-status` body.
+ *
+ * Every key must be present. `form`, `load_ratio` and `recovery_days` are
+ * null or well-formed: an omitted one is rejected rather than read as "not
+ * enough history", which is an answer the server gives on purpose and the
+ * page words as such. A band outside {@link FORM_BANDS} is rejected too — the
+ * page has no words for it and must not pick the nearest.
+ */
+export function parseTrainingStatusResponse(body: unknown): TrainingStatusResponse | null {
+  if (
+    !isRecord(body) ||
+    typeof body.today !== 'string' ||
+    !CIVIL_DATE.test(body.today) ||
+    !Array.isArray(body.trend)
+  ) {
+    return null;
+  }
+  const form = body.form === null ? null : parseFormReading(body.form);
+  const loadRatio = body.load_ratio === null ? null : parseLoadRatio(body.load_ratio);
+  const recoveryDays = body.recovery_days;
+  if (
+    (body.form !== null && form === null) ||
+    (body.load_ratio !== null && loadRatio === null) ||
+    !(recoveryDays === null || isWholeCount(recoveryDays))
+  ) {
+    return null;
+  }
+  const trend: FormTrendPoint[] = [];
+  for (const entry of body.trend) {
+    const reading = parseFormReading(entry);
+    if (reading === null || !isRecord(entry) || typeof entry.date !== 'string' || !CIVIL_DATE.test(entry.date)) {
+      return null;
+    }
+    trend.push({ ...reading, date: entry.date });
+  }
+  return {
+    today: body.today,
+    form,
+    trend,
+    load_ratio: loadRatio,
+    recovery_days: recoveryDays,
+  };
 }

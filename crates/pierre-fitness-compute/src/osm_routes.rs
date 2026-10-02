@@ -43,6 +43,45 @@ const MAX_CACHE_ENTRIES: usize = 512;
 /// Default search radius in meters for Overpass queries
 const DEFAULT_SEARCH_RADIUS_METERS: u32 = 10_000;
 
+/// Metres in a kilometre — the unit OSM's `distance` tag is written in when
+/// it names none.
+const METERS_PER_KILOMETER: f64 = 1000.0;
+
+/// Metres in a statute mile, for a `distance` tag written in miles.
+const METERS_PER_MILE: f64 = 1609.344;
+
+/// The units a `distance` tag may be written in, with their length in
+/// metres. Ordered so a suffix is tried before any shorter suffix it ends in.
+const DISTANCE_TAG_UNITS: &[(&str, f64)] = &[
+    ("km", METERS_PER_KILOMETER),
+    ("mi", METERS_PER_MILE),
+    ("m", 1.0),
+];
+
+/// OSM stores a coordinate to seven decimal places; multiplying by this
+/// turns one into the whole number two ways meeting at a node share.
+const OSM_COORDINATE_SCALE: f64 = 1e7;
+
+/// Walk steps one name's chain search may take before it settles for the
+/// longest chain found. A name rarely has more than a few dozen fetched
+/// segments, which an exhaustive search covers in hundreds of steps; the cap
+/// is for a densely braided network, where the search grows exponentially
+/// and a tool call cannot wait for it.
+const MAX_CHAIN_SEARCH_STEPS: usize = 20_000;
+
+/// How far from a target distance a route's usable distance may land, as a
+/// share of the target, and still count as matching it. A tenth: a session
+/// is planned to the kilometre and adjusted on the day by starting a few
+/// hundred metres up the path, and a length summed along mapped geometry is
+/// itself only good to a few percent.
+const TARGET_TOLERANCE: f64 = 0.10;
+
+/// Passes over a route that cover a target distance in one direction.
+const SINGLE_PASS: u32 = 1;
+
+/// Passes over a route that make one out-and-back.
+const OUT_AND_BACK_PASSES: u32 = 2;
+
 /// Process-wide Overpass result cache.
 ///
 /// OSM route data is public and identical for every tenant, so one cache
@@ -90,8 +129,11 @@ pub struct DiscoveredRoute {
     pub name: String,
     /// Type of route (cycling, hiking, ski, etc.)
     pub route_type: RouteType,
-    /// Approximate distance in meters (if available)
+    /// Length in metres, when it could be established. See
+    /// [`DiscoveredRoute::distance_source`] for what the figure measures.
     pub distance_meters: Option<f64>,
+    /// Where `distance_meters` comes from; absent exactly when it is.
+    pub distance_source: Option<DistanceSource>,
     /// Difficulty level (if available)
     pub difficulty: Option<String>,
     /// Data source (`OpenSkiMap`, Overpass, `OpenRouteService`)
@@ -104,6 +146,51 @@ pub struct DiscoveredRoute {
     /// quotes this to the athlete ("about 8 km from your door"), so it is
     /// measured rather than inferred from the coordinates by the model.
     pub distance_from_center_meters: f64,
+    /// How the route serves the target distance the caller asked for. Absent
+    /// when no target was given, or when the route's length is unknown.
+    pub target_use: Option<TargetUse>,
+}
+
+/// What a route's `distance_meters` measures.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DistanceSource {
+    /// Measured along the longest chain of fetched ways that carry the name
+    /// and join end to end. Same-named ways that do not connect to that
+    /// chain are left out, so the figure is a stretch that exists on the
+    /// ground and a lower bound on the trail: it can continue past the
+    /// search, or through segments one query did not return.
+    MappedGeometry,
+    /// The length the mapper declared in the element's `distance` tag. The
+    /// only length a route relation has — the query returns no geometry for
+    /// one — and the fallback for a way without geometry. It is the whole
+    /// route, however little of it lies inside the search.
+    OsmTag,
+}
+
+/// How a route covers a target distance.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TargetFit {
+    /// One direction covers the target: the route is as long as it, or
+    /// short of it by no more than a tenth.
+    SinglePass,
+    /// Shorter than that, but out and back covers the target to within the
+    /// same tenth.
+    OutAndBack,
+    /// Shorter still: it has to be run or ridden more than twice.
+    Repeats,
+}
+
+/// A route measured against the target distance a caller asked for.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TargetUse {
+    /// The shape of the session on this route.
+    pub fit: TargetFit,
+    /// How many times the route is covered: 1 for a single pass, 2 for an
+    /// out-and-back, more for repeats — the fewest passes that reach the
+    /// target to within a tenth.
+    pub passes: u32,
 }
 
 /// Type of route
@@ -170,6 +257,11 @@ impl RouteDiscoveryService {
     /// (swim, gym work): there is nothing in OSM to ground them in, and an
     /// empty list is the honest answer rather than an unrelated fallback.
     ///
+    /// With a `target_distance_meters`, the routes whose usable distance lands
+    /// closest to it lead the list — see [`select_routes`]; without one the
+    /// order is curated itineraries, then trails, then connectors, nearest
+    /// first within each.
+    ///
     /// # Errors
     ///
     /// Returns an error when every Overpass mirror fails to answer.
@@ -179,6 +271,7 @@ impl RouteDiscoveryService {
         latitude: f64,
         longitude: f64,
         radius_meters: Option<u32>,
+        target_distance_meters: Option<f64>,
     ) -> AppResult<Vec<DiscoveredRoute>> {
         let radius = radius_meters.unwrap_or(DEFAULT_SEARCH_RADIUS_METERS);
         let Some(query) = build_overpass_query(sport, latitude, longitude, radius) else {
@@ -189,15 +282,18 @@ impl RouteDiscoveryService {
             "{}_{latitude:.3}_{longitude:.3}_{radius}",
             query_family(sport)
         );
+        // The cache holds every candidate the query produced, not the
+        // twenty a caller sees: which twenty depends on the target distance,
+        // and one Overpass round trip has to serve every target asked of it.
         if let Some(cached) = get_cached(&cache_key) {
-            return Ok(cached);
+            return Ok(select_routes(cached, target_distance_meters));
         }
 
-        let routes = self
-            .fetch_ranked(&query, sport, latitude, longitude)
+        let candidates = self
+            .fetch_candidates(&query, sport, latitude, longitude)
             .await?;
-        set_cached(cache_key, routes.clone());
-        Ok(routes)
+        set_cached(cache_key, candidates.clone());
+        Ok(select_routes(candidates, target_distance_meters))
     }
 
     // ========================================================================
@@ -205,13 +301,13 @@ impl RouteDiscoveryService {
     // ========================================================================
 
     /// Try each configured Overpass mirror in order until one answers with a
-    /// payload that parses, then rank it into the caller-facing route list.
+    /// payload that parses, then rank it into the full candidate list.
     ///
     /// A mirror that answers 200 with an HTML error page counts as a failure
     /// and falls through to the next one — free Overpass instances do exactly
     /// that under load. If every mirror fails, the accumulated reasons come
     /// back as one error so the agent can say "retry" instead of fabricating.
-    async fn fetch_ranked(
+    async fn fetch_candidates(
         &self,
         query: &str,
         sport: &SportType,
@@ -236,7 +332,7 @@ impl RouteDiscoveryService {
                     continue;
                 }
             };
-            match routes_from_overpass_json(&body, sport, center_lat, center_lon) {
+            match candidates_from_overpass_json(&body, sport, center_lat, center_lon) {
                 Ok(routes) => {
                     debug!(mirror, count = routes.len(), "Overpass mirror answered");
                     return Ok(routes);
@@ -303,6 +399,17 @@ impl RouteDiscoveryService {
 // took 24.7s where the three-clause regex form took 3.3s. Group tags into a
 // regex, and add extra tag predicates to an existing clause rather than
 // opening a new one — those are nearly free.
+//
+// Every query ends in `out tags geom`: `geom` adds each way's node
+// coordinates and every element's bounding box to the same response. A
+// relation gets its bounding box and nothing else — at `tags` verbosity
+// Overpass leaves its members out, so a relation has no geometry here and is
+// never measured. The ways' coordinates are what a length is summed from,
+// and it costs no clause and no second request — only a larger body: measured
+// around Prevost on 2026-10-01, 300 named ways came back as 560 kB carrying
+// 9,823 points, where the same elements with a center point alone are about
+// 70 kB. `geom` replaces `center` in the output, so the element's position
+// is the middle of its bounding box — the same point `center` reports.
 // ============================================================================
 
 /// Build the Overpass query for a sport, or `None` when the sport has no
@@ -376,7 +483,7 @@ fn build_running_query(latitude: f64, longitude: f64, radius: u32) -> String {
   way["highway"~"^(path|track|bridleway)$"]["name"]{a};
   way["highway"~"^(footway|cycleway)$"]["name"]["footway"!~"^(sidewalk|crossing)$"]{a};
 );
-out tags center {OVERPASS_ELEMENT_BUDGET};"#
+out tags geom {OVERPASS_ELEMENT_BUDGET};"#
     )
 }
 
@@ -396,7 +503,7 @@ fn build_cycling_query(latitude: f64, longitude: f64, radius: u32) -> String {
   way["highway"~"^(cycleway|track|path)$"]["name"]["bicycle"!~"^(no|dismount)$"]{a};
   way["bicycle"="designated"]["name"]{a};
 );
-out tags center {OVERPASS_ELEMENT_BUDGET};"#
+out tags geom {OVERPASS_ELEMENT_BUDGET};"#
     )
 }
 
@@ -414,7 +521,7 @@ fn build_hiking_query(latitude: f64, longitude: f64, radius: u32) -> String {
   way["highway"~"^(path|track|bridleway)$"]["name"]{a};
   way["highway"="footway"]["name"]["footway"!~"^(sidewalk|crossing)$"]{a};
 );
-out tags center {OVERPASS_ELEMENT_BUDGET};"#
+out tags geom {OVERPASS_ELEMENT_BUDGET};"#
     )
 }
 
@@ -428,7 +535,7 @@ fn build_ski_query(latitude: f64, longitude: f64, radius: u32) -> String {
   relation["route"~"^(ski|piste)$"]["name"]{a};
   way["piste:type"~"^(downhill|nordic|skitour)$"]["name"]{a};
 );
-out tags center {OVERPASS_ELEMENT_BUDGET};"#
+out tags geom {OVERPASS_ELEMENT_BUDGET};"#
     )
 }
 
@@ -509,9 +616,11 @@ fn source_for(sport: &SportType) -> RouteSource {
 
 /// Parse an Overpass JSON payload into the ranked, caller-facing route list.
 ///
-/// Named elements only, deduplicated by name, ordered by rank class then
-/// distance from the search center, capped at 20. This is the whole of the
-/// selection logic — [`RouteDiscoveryService`] adds only the HTTP round trip
+/// Named elements only, deduplicated by name, each with the length its
+/// geometry measures, capped at 20. Without a target distance the order is
+/// rank class then distance from the search center; with one, see
+/// [`select_routes`]. This is the whole of the selection logic —
+/// [`RouteDiscoveryService`] adds only the HTTP round trip and the cache
 /// around it, so a captured payload exercises exactly what production runs.
 ///
 /// # Errors
@@ -519,6 +628,19 @@ fn source_for(sport: &SportType) -> RouteSource {
 /// Returns an error when the body is not a parseable Overpass JSON response —
 /// a free mirror answering 200 with an HTML error page lands here.
 pub fn routes_from_overpass_json(
+    body: &str,
+    sport: &SportType,
+    center_lat: f64,
+    center_lon: f64,
+    target_distance_meters: Option<f64>,
+) -> AppResult<Vec<DiscoveredRoute>> {
+    let candidates = candidates_from_overpass_json(body, sport, center_lat, center_lon)?;
+    Ok(select_routes(candidates, target_distance_meters))
+}
+
+/// Every named route in an Overpass payload, deduplicated and in the default
+/// order, before the caller-facing cap.
+fn candidates_from_overpass_json(
     body: &str,
     sport: &SportType,
     center_lat: f64,
@@ -534,6 +656,158 @@ pub fn routes_from_overpass_json(
     ))
 }
 
+/// Length in metres along a line of points, summed great-circle leg by leg.
+///
+/// A gap in the line (Overpass writes `null` for a node it clipped away)
+/// ends one run of legs and starts the next, so no leg is drawn across it.
+fn polyline_length_meters(points: &[Option<OverpassPoint>]) -> f64 {
+    points
+        .windows(2)
+        .filter_map(|pair| match (&pair[0], &pair[1]) {
+            (Some(from), Some(to)) => {
+                Some(haversine_meters_between(from.lat, from.lon, to.lat, to.lon))
+            }
+            _ => None,
+        })
+        .sum()
+}
+
+/// Where a way's line starts and ends, as a comparable key.
+///
+/// Two ways that meet share a node, and a node has one pair of coordinates,
+/// so equal keys mean the ways connect end to end.
+type EndPoint = (i64, i64);
+
+/// One fetched way as a link in a chain: its two ends and its length.
+#[derive(Debug, Clone, Copy)]
+struct WaySegment {
+    start: EndPoint,
+    end: EndPoint,
+    meters: f64,
+}
+
+/// A point as an [`EndPoint`], at the precision OSM stores coordinates in.
+fn end_point(point: &OverpassPoint) -> EndPoint {
+    // A coordinate times 1e7 is at most 1.8e9 in magnitude: it fits.
+    #[allow(clippy::cast_possible_truncation)]
+    let key = |degrees: f64| (degrees * OSM_COORDINATE_SCALE).round() as i64;
+    (key(point.lat), key(point.lon))
+}
+
+/// A way's geometry as a chain link, or `None` when the response carried no
+/// line for it or the line has no length.
+fn way_segment(geometry: Option<&[Option<OverpassPoint>]>) -> Option<WaySegment> {
+    let points = geometry?;
+    let start = points.iter().flatten().next()?;
+    let end = points.iter().flatten().next_back()?;
+    let meters = polyline_length_meters(points);
+    (meters > 0.0).then(|| WaySegment {
+        start: end_point(start),
+        end: end_point(end),
+        meters,
+    })
+}
+
+/// Length of the longest chain among ways that share a name.
+///
+/// A chain is a run of ways joined end to end that passes through no end
+/// point twice. Ways that merely share a name — a second trail of the same
+/// name across town, the opposite carriageway of a divided path — are not
+/// joined to it, so they are never added in; of two ways between the same
+/// pair of ends only one is taken. Every chain is a stretch that exists on
+/// the ground, which is what makes the result a lower bound on the trail.
+///
+/// The search is exhaustive up to [`MAX_CHAIN_SEARCH_STEPS`]; past that it
+/// returns the longest chain it has found, which is still a real one.
+fn longest_chain_meters(segments: &[WaySegment]) -> Option<f64> {
+    let mut search = ChainSearch {
+        segments,
+        steps_left: MAX_CHAIN_SEARCH_STEPS,
+        best: 0.0,
+    };
+    // Start from ends that only one way touches first: on an unbranched trail
+    // those are its two extremities, and the first walk is already the answer.
+    let mut touches: HashMap<EndPoint, usize> = HashMap::new();
+    for segment in segments {
+        *touches.entry(segment.start).or_insert(0) += 1;
+        *touches.entry(segment.end).or_insert(0) += 1;
+    }
+    let mut starts: Vec<EndPoint> = touches.keys().copied().collect();
+    starts.sort_by_key(|point| (touches.get(point).copied().unwrap_or(0), *point));
+    for start in starts {
+        let mut visited = vec![start];
+        search.extend(start, 0.0, &mut visited);
+    }
+    (search.best > 0.0).then_some(search.best)
+}
+
+/// The state of one [`longest_chain_meters`] search.
+struct ChainSearch<'a> {
+    segments: &'a [WaySegment],
+    steps_left: usize,
+    best: f64,
+}
+
+impl ChainSearch<'_> {
+    /// Walk on from `at`, having covered `meters` through `visited`.
+    fn extend(&mut self, at: EndPoint, meters: f64, visited: &mut Vec<EndPoint>) {
+        self.best = self.best.max(meters);
+        for index in 0..self.segments.len() {
+            let segment = self.segments[index];
+            let next = if segment.start == at {
+                segment.end
+            } else if segment.end == at {
+                segment.start
+            } else {
+                continue;
+            };
+            if next == at {
+                // A way that closes on itself is a chain of its own.
+                self.best = self.best.max(meters + segment.meters);
+                continue;
+            }
+            if visited.contains(&next) {
+                continue;
+            }
+            if self.steps_left == 0 {
+                return;
+            }
+            self.steps_left -= 1;
+            visited.push(next);
+            self.extend(next, meters + segment.meters, visited);
+            visited.pop();
+        }
+    }
+}
+
+/// Read OSM's `distance` tag into metres.
+///
+/// The tag is kilometres unless it names a unit (`"12"`, `"12.5 km"`,
+/// `"7 mi"`, `"800 m"`), with a comma accepted as the decimal mark. A value
+/// that is not a positive number in one of those units is no length at all.
+fn parse_distance_tag_meters(raw: &str) -> Option<f64> {
+    let normalized = raw.trim().to_lowercase().replace(',', ".");
+    // Longest suffix first: "km" also ends in "m".
+    let (figure, unit_meters) = DISTANCE_TAG_UNITS
+        .iter()
+        .find_map(|(suffix, meters)| Some((normalized.strip_suffix(suffix)?, *meters)))
+        .unwrap_or((normalized.as_str(), METERS_PER_KILOMETER));
+    let value = figure.trim().parse::<f64>().ok()?;
+    (value.is_finite() && value > 0.0).then_some(value * unit_meters)
+}
+
+/// One named element on its way through ranking.
+struct RankedElement {
+    class: u8,
+    is_relation: bool,
+    /// A way's line as a chain link; `None` for a relation, and for a way
+    /// the response carried no geometry for.
+    segment: Option<WaySegment>,
+    /// What its `distance` tag declares.
+    tagged_meters: Option<f64>,
+    route: DiscoveredRoute,
+}
+
 fn rank_elements(
     elements: Vec<OverpassElement>,
     sport: &SportType,
@@ -541,9 +815,15 @@ fn rank_elements(
     center_lon: f64,
 ) -> Vec<DiscoveredRoute> {
     let source = source_for(sport);
-    let mut scored: Vec<(u8, f64, DiscoveredRoute)> = elements
+    let mut scored: Vec<RankedElement> = elements
         .into_iter()
         .filter_map(|el| {
+            let is_relation = el.element_type == "relation";
+            let segment = if is_relation {
+                None
+            } else {
+                way_segment(el.geometry.as_deref())
+            };
             let tags = el.tags?;
             // `ref` carries the trail number when a route has no name — a
             // usable label. An element with neither is not something the
@@ -553,17 +833,22 @@ fn rank_elements(
             let (lat, lon) = el
                 .center
                 .map(|c| (c.lat, c.lon))
+                .or_else(|| el.bounds.map(|b| b.center()))
                 .or_else(|| Some((el.lat?, el.lon?)))?;
             let distance = haversine_meters_between(center_lat, center_lon, lat, lon);
-            let class = rank_class(&el.element_type, &tags);
 
-            Some((
-                class,
-                distance,
-                DiscoveredRoute {
+            Some(RankedElement {
+                class: rank_class(&el.element_type, &tags),
+                is_relation,
+                segment,
+                tagged_meters: tags
+                    .get("distance")
+                    .and_then(|raw| parse_distance_tag_meters(raw)),
+                route: DiscoveredRoute {
                     name,
                     route_type: classify(sport, &tags),
-                    distance_meters: tags.get("distance").and_then(|d| d.parse::<f64>().ok()),
+                    distance_meters: None,
+                    distance_source: None,
                     difficulty: tags
                         .get("piste:difficulty")
                         .or_else(|| tags.get("sac_scale"))
@@ -573,29 +858,175 @@ fn rank_elements(
                     latitude: lat,
                     longitude: lon,
                     distance_from_center_meters: distance,
+                    target_use: None,
                 },
-            ))
+            })
         })
         .collect();
 
-    scored.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
+    scored.sort_by(|a, b| {
+        a.class.cmp(&b.class).then(
+            a.route
+                .distance_from_center_meters
+                .total_cmp(&b.route.distance_from_center_meters),
+        )
+    });
 
     // OSM splits a long trail into many ways that all share one name, so
-    // deduplicate after sorting — the surviving copy is the nearest segment.
-    let mut seen: Vec<String> = Vec::with_capacity(MAX_ROUTES_PER_QUERY);
-    let mut routes = Vec::with_capacity(MAX_ROUTES_PER_QUERY);
-    for (_, _, route) in scored {
-        let key = route.name.to_lowercase();
+    // gather the links by name before the duplicates are dropped.
+    let mut segments_by_name: HashMap<String, Vec<WaySegment>> = HashMap::new();
+    for element in &scored {
+        if let Some(segment) = element.segment {
+            segments_by_name
+                .entry(element.route.name.to_lowercase())
+                .or_default()
+                .push(segment);
+        }
+    }
+
+    // Deduplicate after sorting — the surviving copy is the best-ranked,
+    // nearest element carrying the name.
+    let mut seen: Vec<String> = Vec::with_capacity(scored.len());
+    let mut routes = Vec::with_capacity(scored.len());
+    for element in scored {
+        let key = element.route.name.to_lowercase();
         if seen.contains(&key) {
             continue;
         }
+        // A relation's length is what its mapper declared, or unknown: the
+        // response carries no geometry for it, and the same-named ways that
+        // happened to fall inside the search are a fragment of it, not it.
+        // A way is measured along its longest chain, and falls back to its
+        // own tag only when there is no geometry to measure.
+        let measured = if element.is_relation {
+            None
+        } else {
+            segments_by_name
+                .get(&key)
+                .and_then(|segments| longest_chain_meters(segments))
+        };
+        let mut route = element.route;
+        if let Some(meters) = measured {
+            route.distance_meters = Some(meters);
+            route.distance_source = Some(DistanceSource::MappedGeometry);
+        } else if let Some(meters) = element.tagged_meters {
+            route.distance_meters = Some(meters);
+            route.distance_source = Some(DistanceSource::OsmTag);
+        }
         seen.push(key);
         routes.push(route);
-        if routes.len() == MAX_ROUTES_PER_QUERY {
-            break;
-        }
     }
     routes
+}
+
+/// How a route of `length_meters` is used for a session of `target_meters`,
+/// or `None` when either is not a positive finite length.
+///
+/// The passes are the fewest whose total reaches the target to within
+/// [`TARGET_TOLERANCE`]: a route a little short of the target still holds
+/// the session in one pass, and one a little short of half of it in an
+/// out-and-back.
+fn target_use(length_meters: f64, target_meters: f64) -> Option<TargetUse> {
+    let usable = length_meters.is_finite()
+        && target_meters.is_finite()
+        && length_meters > 0.0
+        && target_meters > 0.0;
+    if !usable {
+        return None;
+    }
+    // The fewest passes whose total reaches the target, give or take the
+    // tolerance: a length is positive here, so the division is safe.
+    let ratio = (target_meters * (1.0 - TARGET_TOLERANCE) / length_meters).ceil();
+    // One too large for the counter saturates; one below 1 is a single pass.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let passes = if ratio >= f64::from(u32::MAX) {
+        u32::MAX
+    } else {
+        ratio as u32
+    }
+    .max(SINGLE_PASS);
+    let fit = if passes == SINGLE_PASS {
+        TargetFit::SinglePass
+    } else if passes == OUT_AND_BACK_PASSES {
+        TargetFit::OutAndBack
+    } else {
+        TargetFit::Repeats
+    };
+    Some(TargetUse { fit, passes })
+}
+
+/// Where a route stands against a target distance — the whole ranking rule.
+///
+/// The usable distance is the route's length times its passes, and the
+/// mismatch is how far that lands from the target, as a share of the target.
+/// Lowest key first:
+///
+/// 1. **Near matches** — one pass or one out-and-back whose usable distance
+///    is within [`TARGET_TOLERANCE`] of the target. A single pass leads an
+///    out-and-back; among equals the smaller mismatch leads. A route slightly
+///    short of the target is a near match like one slightly long.
+/// 2. **Other single passes and out-and-backs**, by mismatch alone — so a
+///    route a little over the target leads one many times its length, and
+///    neither leads a near match.
+/// 3. **Repeats**, fewest passes first, then by mismatch.
+/// 4. **Unknown length** — nothing can be said about it.
+///
+/// Ties keep the default order (rank class, then distance from the centre).
+fn target_rank(route: &DiscoveredRoute, target_meters: f64) -> (u8, u32, f64) {
+    const NEAR_MATCH: u8 = 0;
+    const OTHER_DIRECT: u8 = 1;
+    const REPEATS: u8 = 2;
+    const UNKNOWN: u8 = 3;
+
+    let (Some(length), Some(usage)) = (route.distance_meters, route.target_use) else {
+        return (UNKNOWN, 0, 0.0);
+    };
+    // `target_use` is `Some` only for a positive finite target, so the
+    // division is safe.
+    let mismatch = length
+        .mul_add(f64::from(usage.passes), -target_meters)
+        .abs()
+        / target_meters;
+    if usage.passes > OUT_AND_BACK_PASSES {
+        (REPEATS, usage.passes, mismatch)
+    } else if mismatch <= TARGET_TOLERANCE {
+        (NEAR_MATCH, usage.passes, mismatch)
+    } else {
+        (OTHER_DIRECT, 0, mismatch)
+    }
+}
+
+/// Cut a candidate list down to the routes a caller sees.
+///
+/// `candidates` arrive in the default order — rank class, then distance from
+/// the search center. Without a target that order stands and the first 20 are
+/// returned.
+///
+/// With a target, each route of known length is marked with how it covers
+/// the distance ([`TargetUse`]) and the list is re-ordered by
+/// [`target_rank`] before the cut, so a near match is never lost to it.
+#[must_use]
+pub fn select_routes(
+    mut candidates: Vec<DiscoveredRoute>,
+    target_distance_meters: Option<f64>,
+) -> Vec<DiscoveredRoute> {
+    if let Some(target) = target_distance_meters {
+        for route in &mut candidates {
+            route.target_use = route
+                .distance_meters
+                .and_then(|length| target_use(length, target));
+        }
+        // `sort_by` is stable, so equal keys keep the default order.
+        candidates.sort_by(|a, b| {
+            let (left, right) = (target_rank(a, target), target_rank(b, target));
+            left.0
+                .cmp(&right.0)
+                .then(left.1.cmp(&right.1))
+                .then(left.2.total_cmp(&right.2))
+        });
+    }
+    candidates.truncate(MAX_ROUTES_PER_QUERY);
+    candidates
 }
 
 // ============================================================================
@@ -664,6 +1095,36 @@ struct OverpassElement {
     center: Option<OverpassCenter>,
     #[serde(default)]
     tags: Option<HashMap<String, String>>,
+    /// The element's bounding box, present when the query asked for `geom`.
+    #[serde(default)]
+    bounds: Option<OverpassBounds>,
+    /// A way's line of nodes, present when the query asked for `geom`.
+    #[serde(default)]
+    geometry: Option<Vec<Option<OverpassPoint>>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OverpassBounds {
+    minlat: f64,
+    minlon: f64,
+    maxlat: f64,
+    maxlon: f64,
+}
+
+impl OverpassBounds {
+    /// The middle of the box — the point Overpass reports as `center`.
+    fn center(&self) -> (f64, f64) {
+        (
+            f64::midpoint(self.minlat, self.maxlat),
+            f64::midpoint(self.minlon, self.maxlon),
+        )
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct OverpassPoint {
+    lat: f64,
+    lon: f64,
 }
 
 #[derive(Debug, Deserialize)]

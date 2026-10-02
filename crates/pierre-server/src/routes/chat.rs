@@ -25,6 +25,7 @@ mod group_transcript;
 mod participants;
 mod read_marker;
 mod send_message;
+mod stop_turn;
 mod turn_response;
 
 use std::sync::Arc;
@@ -43,6 +44,7 @@ pub use dto::{
     SendMessageRequest, UpdateConversationRequest, UpsertFeedbackRequest, MAX_LIST_LIMIT,
 };
 pub use read_marker::MarkReadRequest;
+pub use stop_turn::StopTurnResponse;
 pub use turn_response::{
     AssistantResponse, NoticeResponse, ReplyBlockResponse, TurnResponse, TurnTelemetryResponse,
     VerdictChipResponse,
@@ -106,6 +108,11 @@ impl ChatRoutes {
             .route(
                 "/api/chat/conversations/{conversation_id}/messages",
                 post(send_message::send_message),
+            )
+            // The athlete stops the turn answering their latest message
+            .route(
+                "/api/chat/conversations/{conversation_id}/stop",
+                post(stop_turn::stop_turn),
             )
             // Claim verdicts attached to messages in this conversation
             .route(

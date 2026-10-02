@@ -13,7 +13,9 @@ use serde_json::{json, Value};
 use tracing::{info, warn};
 
 use pierre_fitness_compute::location::{ForwardGeocodeResult, LocationService};
-use pierre_fitness_compute::osm_routes::{DiscoveredRoute, RouteDiscoveryService};
+use pierre_fitness_compute::osm_routes::{
+    DiscoveredRoute, DistanceSource, RouteDiscoveryService, TargetFit,
+};
 
 use crate::conversions::{answers_with, ok_typed, tool_definition, tool_result_to_response};
 use crate::runtime::ToolRuntime;
@@ -36,9 +38,15 @@ pub struct DiscoverRoutesResult {
     pub center: RouteSearchCenter,
     /// How far out the search reached, in metres.
     pub radius_meters: u32,
+    /// The session distance the routes were ranked against, in metres. Absent
+    /// when the caller named none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_distance_meters: Option<f64>,
     /// How many routes came back.
     pub count: usize,
-    /// The routes, nearest first.
+    /// The routes: nearest first within each class, or, when a target
+    /// distance was given, the ones whose usable distance lands closest to
+    /// it first.
     pub routes: Vec<DiscoveredRouteEntry>,
 }
 
@@ -65,9 +73,28 @@ pub struct DiscoveredRouteEntry {
     pub name: String,
     /// What kind of route it is, lowercased: cycling, hiking, ski.
     pub route_type: String,
-    /// Approximate length in metres; absent when OSM carries no geometry
-    /// length for it.
+    /// Length in metres, rounded; absent when it is unknown — a route
+    /// relation with no declared length, or a way with neither geometry nor
+    /// one.
     pub distance_meters: Option<f64>,
+    /// What `distance_meters` measures. `mapped_geometry`: the longest run
+    /// of fetched ways carrying this name that join end to end — a stretch
+    /// that exists on the ground and a lower bound on the trail, which can
+    /// continue past it. `osm_tag`: the length the mapper declared for the
+    /// whole route, however little of it lies inside the search radius.
+    pub distance_source: Option<String>,
+    /// How the route covers the target distance: `single_pass` (as long as
+    /// the target, or short of it by no more than a tenth), `out_and_back`
+    /// (out and back reaches it to within that tenth), `repeats` (shorter
+    /// still). Present only when a target was given and the route's length
+    /// is known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_fit: Option<String>,
+    /// How many times the route is covered — 1, 2 for an out-and-back, more
+    /// for repeats: the fewest passes that reach the target to within a
+    /// tenth. Present with `target_fit`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub passes_for_target: Option<u32>,
     /// Difficulty as the source grades it; absent when ungraded.
     pub difficulty: Option<String>,
     /// Which dataset it came from, lowercased.
@@ -92,6 +119,15 @@ const MIN_RADIUS_METERS: u32 = 500;
 
 /// Default radius when the caller omits the parameter.
 const DEFAULT_RADIUS_METERS: u32 = 10_000;
+
+/// Shortest session a target distance may name: below this a "route" is a
+/// lap of a block, and every mapped way already covers it.
+const MIN_TARGET_DISTANCE_METERS: f64 = 500.0;
+
+/// Longest session a target distance may name — past the longest single-day
+/// rides (a 400 km brevet), a figure is a typo or a unit mix-up rather than a
+/// session.
+const MAX_TARGET_DISTANCE_METERS: f64 = 500_000.0;
 
 fn discover_annotations() -> ToolAnnotations {
     ToolAnnotations {
@@ -186,6 +222,23 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
             },
         );
 
+        properties.insert(
+            "target_distance_meters".to_owned(),
+            PropertySchema {
+                property_type: "number".to_owned(),
+                description: Some(
+                    "Distance of the session the route is for, in meters (15000 for a \
+                     15 km run), between 500 and 500000. When set, routes whose length \
+                     lands within a tenth of it — in one pass or one out-and-back — lead \
+                     the list, and each route says whether it covers the distance in a \
+                     single pass, an out-and-back, or repeats. Omit it to get the nearest \
+                     routes regardless of length."
+                        .to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+
         let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties.into_iter().collect()),
@@ -210,7 +263,19 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
              to 20 named routes, nearest first, each with coordinates and a measured \
              `distance_from_center_meters` — quote that distance rather than estimating one \
              from the coordinates. Signed itineraries and trails are listed ahead of paved \
-             connectors. An empty list means OSM has no named route in that radius: widen \
+             connectors. `distance_meters` says what it measures in `distance_source`: \
+             `mapped_geometry` is the longest connected run of fetched ways carrying the \
+             name — a lower bound, since the trail can continue past it; `osm_tag` is the \
+             length declared for the whole route, of which only part may lie inside the \
+             radius. A signed route with no declared length has none. When the session \
+             has a distance, pass it as `target_distance_meters`: routes within a tenth \
+             of it, in one pass or one out-and-back, are listed first, and each carries \
+             `target_fit` (`single_pass`, `out_and_back` or `repeats`) and \
+             `passes_for_target` — tell \
+             the athlete plainly when a route needs an out-and-back or repeats. Elevation, \
+             surface and how flat or uninterrupted a route is are NOT returned: never \
+             describe a route as flat, hilly or suited to intervals on the strength of \
+             this tool. An empty list means OSM has no named route in that radius: widen \
              `radius_meters` or say so plainly, never substitute a name you did not read \
              here. For ski queries this reads OSM piste:type data (same source as \
              OpenSkiMap).",
@@ -248,6 +313,10 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
                 })?,
             };
 
+            // A target outside the domain is refused, not clamped: a clamped
+            // target would rank routes against a distance nobody asked for.
+            let target_distance_meters = parse_target_distance(&args)?;
+
             // Clamp radius into the allowed window without surfacing the clamp to
             // the caller — the LLM should not have to know the magic numbers, and
             // clamp-silently keeps the tool robust against sloppy inputs.
@@ -275,6 +344,7 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
                     resolved.latitude,
                     resolved.longitude,
                     Some(radius),
+                    target_distance_meters,
                 )
                 .await?;
 
@@ -287,6 +357,7 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
                     display_name: resolved.display_name,
                 },
                 radius_meters: radius,
+                target_distance_meters,
                 count,
                 routes: routes.iter().map(discovered_route_to_json).collect(),
             };
@@ -389,12 +460,51 @@ fn discovered_route_to_json(route: &DiscoveredRoute) -> DiscoveredRouteEntry {
     DiscoveredRouteEntry {
         name: route.name.clone(),
         route_type: format!("{:?}", route.route_type).to_lowercase(),
-        distance_meters: route.distance_meters,
+        distance_meters: route.distance_meters.map(f64::round),
+        distance_source: route.distance_source.map(|source| {
+            match source {
+                DistanceSource::MappedGeometry => "mapped_geometry",
+                DistanceSource::OsmTag => "osm_tag",
+            }
+            .to_owned()
+        }),
+        target_fit: route.target_use.map(|usage| {
+            match usage.fit {
+                TargetFit::SinglePass => "single_pass",
+                TargetFit::OutAndBack => "out_and_back",
+                TargetFit::Repeats => "repeats",
+            }
+            .to_owned()
+        }),
+        passes_for_target: route.target_use.map(|usage| usage.passes),
         difficulty: route.difficulty.clone(),
         source: format!("{:?}", route.source).to_lowercase(),
         latitude: route.latitude,
         longitude: route.longitude,
         distance_from_center_meters: route.distance_from_center_meters.round(),
+    }
+}
+
+/// Read the optional `target_distance_meters` argument.
+///
+/// Absent or `null` means no target. Anything else has to be a number of
+/// metres inside the domain; a string, a negative or an absurd figure is
+/// refused with the parameter named, so the caller can correct it.
+fn parse_target_distance(args: &Value) -> AppResult<Option<f64>> {
+    let Some(raw) = args.get("target_distance_meters").filter(|v| !v.is_null()) else {
+        return Ok(None);
+    };
+    match raw.as_f64() {
+        Some(meters)
+            if (MIN_TARGET_DISTANCE_METERS..=MAX_TARGET_DISTANCE_METERS).contains(&meters) =>
+        {
+            Ok(Some(meters))
+        }
+        _ => Err(AppError::invalid_input(format!(
+            "target_distance_meters must be a number of meters between \
+             {MIN_TARGET_DISTANCE_METERS} and {MAX_TARGET_DISTANCE_METERS} (15000 for a 15 km \
+             session), got {raw}"
+        ))),
     }
 }
 

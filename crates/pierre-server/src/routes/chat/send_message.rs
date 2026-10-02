@@ -36,6 +36,7 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use pierre_chat_pipeline::stages::persistence::persist_assistant_response;
+use pierre_chat_pipeline::turn_stop::TurnStop;
 use pierre_chat_pipeline::{self as pipeline, ServedTurn};
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
@@ -224,12 +225,12 @@ pub async fn send_message(
 
     let start_time = Instant::now();
     let ctx = resources.chat_pipeline_context();
-    let served = pipeline::execute(
-        &ctx,
-        egress.turn_request(&request, pipeline::PipelineHooks::none()),
-        &profile,
-    )
-    .await?;
+    let hooks = pipeline::PipelineHooks {
+        // The athlete can stop this turn: `POST …/stop` (see `stop_turn`).
+        stop: Some(TurnStop::armed()),
+        ..pipeline::PipelineHooks::none()
+    };
+    let served = pipeline::execute(&ctx, egress.turn_request(&request, hooks), &profile).await?;
     let response = egress.into_response_body(served, &request, start_time);
 
     Ok((StatusCode::OK, Json(response)).into_response())
@@ -426,6 +427,10 @@ struct SseInputs {
 ///   blocking branch returns
 /// - `event: failed` — the sanitized reason the turn did not finish
 ///
+/// A turn the athlete stops (`POST …/stop`) ends on `done` too: the turn
+/// service hands back an envelope whose assistant message is the stopped
+/// notice, and it is serialized like any other.
+///
 /// The frame names live on [`pipeline::TurnEvent::frame`], not here, so the
 /// producer's vocabulary and the wire cannot drift.
 ///
@@ -458,6 +463,8 @@ fn send_message_sse(inputs: SseInputs) -> Response {
     turns.spawn(async move {
         let hooks = pipeline::PipelineHooks {
             stream_sink: Some(events_tx),
+            // The athlete can stop this turn: `POST …/stop` (see `stop_turn`).
+            stop: Some(TurnStop::armed()),
             ..pipeline::PipelineHooks::none()
         };
         let ctx = egress.resources.chat_pipeline_context();

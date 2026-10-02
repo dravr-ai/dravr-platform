@@ -14,6 +14,7 @@ import {
   civilLongDate,
   civilWeekdayNarrow,
   planDayDraft,
+  planDayRouteDraft,
   sportLabel,
 } from '../src/screens/home/homeFormat';
 
@@ -99,5 +100,46 @@ describe('chat drafts', () => {
       name: 'Vélo',
       date: 'dimanche 20 septembre',
     });
+  });
+});
+
+describe('the route draft for a planned session', () => {
+  const intervals = {
+    date: '2026-09-24',
+    sport: 'run',
+    workout: '8 × 1 km',
+    intensity: 'Z4',
+    rest: false,
+    steps: [
+      { label: 'Warm-up', duration_seconds: 900, distance_meters: 3000, target_zone: 'Z1' },
+      { label: 'Interval', duration_seconds: 240, distance_meters: 1000, target_zone: 'Z4', repeat: 8 },
+      { label: 'Float', duration_seconds: 120, distance_meters: 250, target_zone: 'Z1', repeat: 8 },
+      { label: 'Cool-down', duration_seconds: 600, distance_meters: 2000, target_zone: 'Z1' },
+    ],
+  };
+
+  it('carries the session distance when every step has one', () => {
+    expect(planDayRouteDraft(t, intervals, 'en')).toBe(
+      'Suggest a 15 km route close to where I am for my session on Thursday, September 24: 8 × 1 km',
+    );
+  });
+
+  it('writes a fractional distance in the notation of the language', () => {
+    const day = {
+      ...intervals,
+      steps: [{ label: 'Run', duration_seconds: 3600, distance_meters: 12_540, target_zone: 'Z2' }],
+    };
+    expect(planDayRouteDraft(tFr, day, 'fr')).toBe(
+      "Propose-moi un parcours de 12,5 km près d'où je suis pour ma séance du jeudi 24 septembre : 8 × 1 km",
+    );
+  });
+
+  it('names no distance for a session set by time, and has no draft where there is no route', () => {
+    const timed = { ...intervals, steps: [{ label: 'Tempo', duration_seconds: 1500, target_zone: 'Z3' }] };
+    expect(planDayRouteDraft(t, timed, 'en')).toBe(
+      'Suggest a route close to where I am for my session on Thursday, September 24: 8 × 1 km',
+    );
+    expect(planDayRouteDraft(t, { ...intervals, sport: 'swim' }, 'en')).toBeNull();
+    expect(planDayRouteDraft(t, { ...intervals, rest: true }, 'en')).toBeNull();
   });
 });

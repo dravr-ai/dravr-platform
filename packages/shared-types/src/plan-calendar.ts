@@ -89,6 +89,28 @@ export function planDayOn(plan: WorkoutPlan, date: string): PlanDayLookup {
 }
 
 /**
+ * The distance a planned session covers, in metres, or null when the plan
+ * does not say: a session with no steps, or one where any step is set by
+ * time alone — a sum over the rest would be a part of the session passed off
+ * as the whole. A step's distance counts once per `repeat`.
+ */
+export function planDayDistanceMeters(day: PlanDay): number | null {
+  if (day.rest || day.steps === undefined || day.steps.length === 0) {
+    return null;
+  }
+  let total = 0;
+  for (const step of day.steps) {
+    const distance = step.distance_meters;
+    if (typeof distance !== 'number' || !Number.isFinite(distance) || distance <= 0) {
+      return null;
+    }
+    const repeat = typeof step.repeat === 'number' && step.repeat > 1 ? Math.floor(step.repeat) : 1;
+    total += distance * repeat;
+  }
+  return total;
+}
+
+/**
  * Which week of `phase` the date falls in, counting from 1 — the "week 3" of
  * "Build · week 3" — or null when the date is outside the phase.
  *

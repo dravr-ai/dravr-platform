@@ -166,6 +166,53 @@ describe('ActivityView', () => {
     expect(screen.queryByTestId('activity-laps')).toBeNull();
   });
 
+  // A marathon is forty-two splits. Laid out in full between the map and the
+  // chat they pushed the question field far below the fold; they scroll
+  // inside a frame of their own instead, in a panel with the figures that
+  // reads after the chat.
+  it('keeps a marathon of splits in a frame that scrolls inside itself, in the panel after the chat', async () => {
+    const splits = Array.from({ length: 42 }, (_, index) => ({
+      index: index + 1,
+      distance_meters: 1_000,
+      elapsed_time_seconds: 300,
+      moving_time_seconds: 298,
+      elevation_difference_meters: 2,
+      average_speed_mps: 1000 / 298,
+      average_heart_rate: 150,
+    }));
+    api.getActivityDetail.mockResolvedValue(detail({ splits }));
+    renderView();
+
+    const panel = await screen.findByTestId('activity-details');
+    expect(within(panel).getByTestId('activity-figures')).toBeInTheDocument();
+    const section = within(panel).getByTestId('activity-splits');
+    // The frame is a named region the keyboard can reach and scroll.
+    const frame = within(section).getByRole('region', { name: 'Splits' });
+    expect(frame).toHaveAttribute('tabindex', '0');
+    expect(frame).toHaveClass('overflow-auto', 'max-h-64', 'lg:max-h-none', 'lg:flex-1');
+    expect(within(frame).getAllByRole('row')).toHaveLength(43);
+    // Its header stays put while the rows move under it.
+    for (const header of within(frame).getAllByRole('columnheader')) {
+      expect(header).toHaveClass('sticky', 'top-0');
+    }
+
+    // The panel leaves the page's scroll on a wide screen, pinned to the
+    // view; the chat is not inside it, and reads before it — the
+    // question field comes ahead of forty-two rows at every width.
+    expect(panel).toHaveClass('lg:absolute', 'lg:inset-y-0', 'lg:right-0', 'lg:w-[420px]', 'lg:overflow-y-auto');
+    // It is pinned to the body under the header — never to a header height
+    // written a second time — and a table keeps a few rows on a short window.
+    const body = screen.getByTestId('activity-body');
+    expect(body).toHaveClass('relative');
+    expect(body).toContainElement(panel);
+    expect(body).not.toContainElement(screen.getByTestId('activity-back'));
+    expect(section).toHaveClass('lg:min-h-52', 'lg:flex-1');
+    expect(screen.getByTestId('activity-scroll')).toHaveClass('lg:pr-[420px]');
+    const chatSection = screen.getByTestId('activity-chat');
+    expect(panel).not.toContainElement(chatSection);
+    expect(panel.compareDocumentPosition(chatSection) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+  });
+
   it('sends a suggested question, word for word, into the embedded chat', async () => {
     api.getActivityDetail.mockResolvedValue(detail());
     renderView();

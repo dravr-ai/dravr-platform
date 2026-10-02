@@ -21,7 +21,10 @@
 //!   absent everywhere else, because a surface that draws a spec inline has
 //!   nothing to publish.
 
+use std::sync::Arc;
+
 use super::envelope::SceneImage;
+use super::turn_stop::TurnStop;
 use pierre_agui::AgUiSink;
 use pierre_core::models::TenantId;
 pub use pierre_services::chat_stream::{
@@ -115,6 +118,10 @@ pub struct PipelineHooks<'a> {
     /// [`crate::BlockSupport::scene_raster`] is set; the pipeline emits
     /// [`crate::ReplyBlock::SceneImage`] from what it returns.
     pub scene_publisher: Option<&'a dyn ScenePublisher>,
+    /// Optional stop handle. Wired by the surfaces that give the athlete a
+    /// stop control; with it the turn watches its own question for a stopped
+    /// notice and ends on it. Absent, the turn never reads for one.
+    pub stop: Option<Arc<TurnStop>>,
 }
 
 impl PipelineHooks<'_> {
@@ -126,6 +133,7 @@ impl PipelineHooks<'_> {
             agui: None,
             stream_sink: None,
             scene_publisher: None,
+            stop: None,
         }
     }
 }

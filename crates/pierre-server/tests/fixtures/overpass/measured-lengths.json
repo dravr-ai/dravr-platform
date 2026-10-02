@@ -1,0 +1,313 @@
+{
+  "version": 0.6,
+  "elements": [
+    {
+      "type": "way",
+      "id": 1,
+      "bounds": {
+        "minlat": 46.001,
+        "minlon": -72.0,
+        "maxlat": 46.006,
+        "maxlon": -72.0
+      },
+      "geometry": [
+        {
+          "lat": 46.001,
+          "lon": -72.0
+        },
+        {
+          "lat": 46.006,
+          "lon": -72.0
+        }
+      ],
+      "tags": {
+        "highway": "path",
+        "name": "Boucle Courte"
+      }
+    },
+    {
+      "type": "way",
+      "id": 2,
+      "bounds": {
+        "minlat": 46.02,
+        "minlon": -72.0,
+        "maxlat": 46.03,
+        "maxlon": -72.0
+      },
+      "geometry": [
+        {
+          "lat": 46.02,
+          "lon": -72.0
+        },
+        {
+          "lat": 46.025,
+          "lon": -72.0
+        },
+        {
+          "lat": 46.03,
+          "lon": -72.0
+        }
+      ],
+      "tags": {
+        "highway": "path",
+        "name": "Sentier A"
+      }
+    },
+    {
+      "type": "way",
+      "id": 3,
+      "bounds": {
+        "minlat": 46.03,
+        "minlon": -72.0,
+        "maxlat": 46.04,
+        "maxlon": -72.0
+      },
+      "geometry": [
+        {
+          "lat": 46.03,
+          "lon": -72.0
+        },
+        {
+          "lat": 46.04,
+          "lon": -72.0
+        }
+      ],
+      "tags": {
+        "highway": "path",
+        "name": "Sentier A"
+      }
+    },
+    {
+      "type": "way",
+      "id": 4,
+      "center": {
+        "lat": 46.05,
+        "lon": -72.0
+      },
+      "tags": {
+        "highway": "path",
+        "name": "Sans Géométrie",
+        "distance": "12"
+      }
+    },
+    {
+      "type": "way",
+      "id": 5,
+      "bounds": {
+        "minlat": 46.06,
+        "minlon": -72.0,
+        "maxlat": 46.15,
+        "maxlon": -72.0
+      },
+      "geometry": [
+        {
+          "lat": 46.06,
+          "lon": -72.0
+        },
+        {
+          "lat": 46.09,
+          "lon": -72.0
+        },
+        {
+          "lat": 46.12,
+          "lon": -72.0
+        },
+        {
+          "lat": 46.15,
+          "lon": -72.0
+        }
+      ],
+      "tags": {
+        "highway": "path",
+        "name": "Piste Longue"
+      }
+    },
+    {
+      "type": "way",
+      "id": 6,
+      "center": {
+        "lat": 46.2,
+        "lon": -72.0
+      },
+      "tags": {
+        "highway": "path",
+        "name": "Sans Longueur"
+      }
+    },
+    {
+      "type": "way",
+      "id": 8,
+      "bounds": {
+        "minlat": 46.3,
+        "minlon": -72.0,
+        "maxlat": 46.31,
+        "maxlon": -72.0
+      },
+      "geometry": [
+        {
+          "lat": 46.3,
+          "lon": -72.0
+        },
+        {
+          "lat": 46.31,
+          "lon": -72.0
+        }
+      ],
+      "tags": {
+        "highway": "path",
+        "name": "Chemin du Lac"
+      }
+    },
+    {
+      "type": "way",
+      "id": 9,
+      "bounds": {
+        "minlat": 46.35,
+        "minlon": -72.0,
+        "maxlat": 46.38,
+        "maxlon": -72.0
+      },
+      "geometry": [
+        {
+          "lat": 46.35,
+          "lon": -72.0
+        },
+        {
+          "lat": 46.38,
+          "lon": -72.0
+        }
+      ],
+      "tags": {
+        "highway": "path",
+        "name": "Chemin du Lac"
+      }
+    },
+    {
+      "type": "way",
+      "id": 10,
+      "bounds": {
+        "minlat": 46.4,
+        "minlon": -72.0,
+        "maxlat": 46.41,
+        "maxlon": -72.0
+      },
+      "geometry": [
+        {
+          "lat": 46.4,
+          "lon": -72.0
+        },
+        {
+          "lat": 46.41,
+          "lon": -72.0
+        }
+      ],
+      "tags": {
+        "highway": "path",
+        "name": "Avenue Parallèle"
+      }
+    },
+    {
+      "type": "way",
+      "id": 11,
+      "bounds": {
+        "minlat": 46.4,
+        "minlon": -72.0005,
+        "maxlat": 46.41,
+        "maxlon": -72.0005
+      },
+      "geometry": [
+        {
+          "lat": 46.4,
+          "lon": -72.0005
+        },
+        {
+          "lat": 46.41,
+          "lon": -72.0005
+        }
+      ],
+      "tags": {
+        "highway": "path",
+        "name": "Avenue Parallèle"
+      }
+    },
+    {
+      "type": "way",
+      "id": 12,
+      "bounds": {
+        "minlat": 46.5,
+        "minlon": -72.0,
+        "maxlat": 46.51,
+        "maxlon": -72.0
+      },
+      "geometry": [
+        {
+          "lat": 46.5,
+          "lon": -72.0
+        },
+        {
+          "lat": 46.51,
+          "lon": -72.0
+        }
+      ],
+      "tags": {
+        "highway": "path",
+        "name": "Voie Verte"
+      }
+    },
+    {
+      "type": "way",
+      "id": 13,
+      "bounds": {
+        "minlat": 46.51,
+        "minlon": -72.0,
+        "maxlat": 46.52,
+        "maxlon": -72.0
+      },
+      "geometry": [
+        {
+          "lat": 46.51,
+          "lon": -72.0
+        },
+        {
+          "lat": 46.52,
+          "lon": -72.0
+        }
+      ],
+      "tags": {
+        "highway": "path",
+        "name": "Voie Verte"
+      }
+    },
+    {
+      "type": "relation",
+      "id": 7,
+      "bounds": {
+        "minlat": 46.1,
+        "minlon": -72.0,
+        "maxlat": 46.24,
+        "maxlon": -72.0
+      },
+      "tags": {
+        "type": "route",
+        "route": "hiking",
+        "name": "Grand Tour"
+      }
+    },
+    {
+      "type": "relation",
+      "id": 14,
+      "bounds": {
+        "minlat": 46.0,
+        "minlon": -72.0,
+        "maxlat": 47.0,
+        "maxlon": -72.0
+      },
+      "tags": {
+        "type": "route",
+        "route": "hiking",
+        "name": "Voie Verte",
+        "distance": "234 km"
+      }
+    }
+  ]
+}

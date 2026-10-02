@@ -10,7 +10,12 @@ import { act, fireEvent, render, waitFor, within } from '@testing-library/react-
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Path } from 'react-native-svg';
 import { ROUTE_INK } from '@pierre/shared-constants';
-import type { ActivityRouteResponse, RecentActivitiesResponse, TrainingPlanResponse } from '@pierre/shared-types';
+import type {
+  ActivityRouteResponse,
+  RecentActivitiesResponse,
+  TrainingPlanResponse,
+  TrainingStatusResponse,
+} from '@pierre/shared-types';
 
 import {
   ACTIVITIES,
@@ -22,6 +27,8 @@ import {
   PROVIDERS_NONE,
   PROVIDERS_ONLY_FLAGGED,
   PROVIDERS_RECONNECT,
+  STATUS_RESPONSE,
+  THIN_STATUS_RESPONSE,
   TRAIL_ROUTE_RESPONSE,
   recentResponse,
 } from '../integration/app/helpers/homeFixtures';
@@ -53,10 +60,12 @@ const mockGetTrainingPlan = jest.fn<Promise<TrainingPlanResponse>, [string?]>();
 const mockGetRecentActivities = jest.fn<Promise<RecentActivitiesResponse>, [number?, { retry?: boolean }?]>();
 const mockGetActivityRoute = jest.fn<Promise<ActivityRouteResponse>, [string, string, { retry?: boolean }?]>();
 const mockGetProvidersStatus = jest.fn();
+const mockGetTrainingStatus = jest.fn<Promise<TrainingStatusResponse>, []>();
 
 jest.mock('../src/services/api', () => ({
   athleteApi: {
     getTrainingPlan: (locale?: string) => mockGetTrainingPlan(locale),
+    getTrainingStatus: () => mockGetTrainingStatus(),
     getRecentActivities: (limit?: number, options?: { retry?: boolean }) =>
       options === undefined ? mockGetRecentActivities(limit) : mockGetRecentActivities(limit, options),
     // The query's abort signal is the transport's concern; the retry flag is
@@ -101,6 +110,7 @@ beforeEach(() => {
   mockGetRecentActivities.mockResolvedValue(recentResponse());
   mockGetActivityRoute.mockImplementation(async (provider, id) => routeFor(provider, id));
   mockGetProvidersStatus.mockResolvedValue(PROVIDERS_CONNECTED);
+  mockGetTrainingStatus.mockResolvedValue(STATUS_RESPONSE);
 });
 
 describe('the Home header', () => {
@@ -143,6 +153,26 @@ describe('today and tomorrow', () => {
     );
   });
 
+  it('offers a route for today\'s session, drafted in a new chat that names it', async () => {
+    const screen = renderHome();
+
+    const link = await screen.findByTestId('home-today-route');
+    expect(within(link).getByText('Find a route for this session')).toBeTruthy();
+    fireEvent.press(link);
+
+    expect(mockPush).toHaveBeenCalledWith(
+      draftHref('Suggest a route close to where I am for my session on Thursday, September 24: Tempo run'),
+    );
+  });
+
+  it('offers no route on a day the plan holds no session for', async () => {
+    mockGetTrainingPlan.mockResolvedValue({ plan: PLAN_RESPONSE.plan, today: '2026-09-27' });
+    const screen = renderHome();
+
+    expect(await screen.findByTestId('home-today-uncovered')).toBeTruthy();
+    expect(screen.queryByTestId('home-today-route')).toBeNull();
+  });
+
   it('says the plan does not cover a day it never reached, and never calls it rest', async () => {
     mockGetTrainingPlan.mockResolvedValue({ plan: PLAN_RESPONSE.plan, today: '2026-09-27' });
     const screen = renderHome();
@@ -183,6 +213,112 @@ describe('today and tomorrow', () => {
 
     expect(await screen.findByTestId('home-plan-error')).toBeTruthy();
     expect(screen.queryByTestId('home-week-strip')).toBeNull();
+  });
+});
+
+describe('the training status', () => {
+  it('names the band the server sent, form as a share of fitness, the load ratio and the recovery days', async () => {
+    const screen = renderHome();
+
+    expect(await screen.findByTestId('home-status-band')).toHaveTextContent('Heavy block');
+    expect(screen.getByTestId('home-status-form')).toHaveTextContent('Form -22% of your fitness');
+    expect(screen.getByTestId('home-status')).toHaveTextContent(/Training status/);
+    expect(screen.getByTestId('home-status')).toHaveTextContent(/The deep end of the productive zone\./);
+    expect(screen.getByTestId('home-status-load')).toHaveTextContent('Last 7 days: 1.4× your 28-day average');
+    expect(screen.getByTestId('home-status-recovery')).toHaveTextContent(
+      'Your form calls for no extra lighter day.',
+    );
+  });
+
+  it('draws the trend in the measured width through the shared projection, and says it in words', async () => {
+    const screen = renderHome();
+
+    const chart = await screen.findByTestId('home-status-trend');
+    expect(chart.props.accessibilityLabel).toBe(
+      'Form as a share of your fitness from Sep 22 to Sep 24: from -12% to -22%',
+    );
+    // Nothing is drawn until the column reports its width.
+    expect(screen.queryByTestId('home-status-trend-line')).toBeNull();
+    fireEvent(chart, 'layout', { nativeEvent: { layout: { width: 320, height: 64 } } });
+    // Three days across 320 inside a 7 inset; +6 at the top, -22 at the bottom.
+    expect(screen.getByTestId('home-status-trend-line').props.d).toBe('M7.00 39.14L160.00 7.00L313.00 57.00');
+    // Three points are two days end to end, whatever window the server aims for.
+    expect(screen.getByTestId('home-status-trend-label')).toHaveTextContent('Your form over the last 2 days');
+  });
+
+  it('labels the trend with the days the served series covers, not the window it aims for', async () => {
+    // A thin history: nine days served out of the window the server aims for.
+    mockGetTrainingStatus.mockResolvedValue({
+      ...STATUS_RESPONSE,
+      trend: Array.from({ length: 9 }, (_, index) => ({
+        date: `2026-09-${String(16 + index).padStart(2, '0')}`,
+        band: 'productive' as const,
+        pct_of_fitness: -10 - index,
+      })),
+    });
+    const screen = renderHome();
+
+    expect(await screen.findByTestId('home-status-trend-label')).toHaveTextContent(
+      'Your form over the last 8 days',
+    );
+    expect(screen.getByTestId('home-status')).not.toHaveTextContent(/42 days/);
+  });
+
+  it('answers a thin history with a sentence — no band, no figure, no chart', async () => {
+    mockGetTrainingStatus.mockResolvedValue(THIN_STATUS_RESPONSE);
+    const screen = renderHome();
+
+    expect(await screen.findByTestId('home-status-empty')).toHaveTextContent(
+      /Not enough training history yet to read your form\./,
+    );
+    expect(screen.queryByTestId('home-status-reading')).toBeNull();
+    expect(screen.queryByTestId('home-status-trend')).toBeNull();
+    expect(screen.getByTestId('home-status')).not.toHaveTextContent(/0%/);
+  });
+
+  it('names a band without a figure or a prescription when form cannot be scaled', async () => {
+    mockGetTrainingStatus.mockResolvedValue({
+      ...STATUS_RESPONSE,
+      form: { band: 'insufficient_history', pct_of_fitness: null },
+      trend: [{ date: STATUS_RESPONSE.today, band: 'insufficient_history', pct_of_fitness: null }],
+      load_ratio: null,
+      recovery_days: null,
+    });
+    const screen = renderHome();
+
+    expect(await screen.findByTestId('home-status-band')).toHaveTextContent('Not enough history');
+    expect(screen.queryByTestId('home-status-form')).toBeNull();
+    expect(screen.getByTestId('home-status-trend-short')).toHaveTextContent(
+      'Your trend shows up here as the days add up.',
+    );
+    expect(screen.queryByTestId('home-status-load')).toBeNull();
+    expect(screen.queryByTestId('home-status-recovery')).toBeNull();
+  });
+
+  it('says a failed read failed, never that the history is thin, and reads again on retry', async () => {
+    mockGetTrainingStatus.mockRejectedValueOnce(new Error('offline'));
+    const screen = renderHome();
+
+    expect(await screen.findByTestId('home-status-failed')).toHaveTextContent(
+      /Your training status couldn't be loaded\./,
+    );
+    expect(screen.queryByTestId('home-status-empty')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('home-status-retry'));
+    expect(await screen.findByTestId('home-status-band')).toHaveTextContent('Heavy block');
+    expect(mockGetTrainingStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it('is read again when the tab comes back into focus', async () => {
+    const screen = renderHome();
+    await screen.findByTestId('home-status-band');
+    expect(mockGetTrainingStatus).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      mockFocusCallback?.();
+    });
+
+    await waitFor(() => expect(mockGetTrainingStatus).toHaveBeenCalledTimes(2));
   });
 });
 

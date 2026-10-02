@@ -40,6 +40,45 @@ describe('HomeToday', () => {
     expect(onOpenChatDraft).toHaveBeenCalledExactlyOnceWith(`Walk me through my session on ${named}: Tempo run`);
   });
 
+  it('offers a route for today\'s session and drafts the question naming it', async () => {
+    const onOpenChatDraft = vi.fn();
+    render(<HomeToday plan={homePlan()} calendar={calendarFor(TODAY)} onOpenChatDraft={onOpenChatDraft} />);
+
+    const link = screen.getByTestId('home-today-route');
+    expect(link).toHaveTextContent('Find a route for this session');
+    await userEvent.click(link);
+
+    const named = formatCivilDate(TODAY, 'en', DRAFT_DATE);
+    expect(onOpenChatDraft).toHaveBeenCalledExactlyOnceWith(
+      `Suggest a route close to where I am for my session on ${named}: Tempo run`,
+    );
+  });
+
+  it('offers no route on a rest day, an uncovered day, or a session with no route to find', () => {
+    const { unmount } = render(
+      <HomeToday plan={homePlan()} calendar={calendarFor('2026-09-23')} onOpenChatDraft={vi.fn()} />,
+    );
+    expect(screen.getByTestId('home-today-rest')).toBeInTheDocument();
+    expect(screen.queryByTestId('home-today-route')).toBeNull();
+    unmount();
+
+    const uncovered = render(
+      <HomeToday plan={homePlan()} calendar={calendarFor('2026-09-26')} onOpenChatDraft={vi.fn()} />,
+    );
+    expect(screen.queryByTestId('home-today-route')).toBeNull();
+    uncovered.unmount();
+
+    const plan = homePlan();
+    for (const week of plan.weeks) {
+      for (const day of week.days) {
+        if (day.date === TODAY) day.sport = 'swim';
+      }
+    }
+    render(<HomeToday plan={plan} calendar={calendarFor(TODAY)} onOpenChatDraft={vi.fn()} />);
+    expect(screen.getByTestId('home-today-session')).toBeInTheDocument();
+    expect(screen.queryByTestId('home-today-route')).toBeNull();
+  });
+
   it('puts tomorrow under it — a rest day reads as rest and drafts the rest-day question', async () => {
     const onOpenChatDraft = vi.fn();
     render(<HomeToday plan={homePlan()} calendar={calendarFor(TODAY)} onOpenChatDraft={onOpenChatDraft} />);

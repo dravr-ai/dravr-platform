@@ -24,7 +24,8 @@ use std::time::{Duration, Instant};
 use pierre_core::models::SportType;
 use pierre_fitness_compute::location::LocationService;
 use pierre_fitness_compute::{
-    build_overpass_query, routes_from_overpass_json, RouteDiscoveryService, RouteSource, RouteType,
+    build_overpass_query, routes_from_overpass_json, DiscoveredRoute, DistanceSource,
+    RouteDiscoveryService, RouteSource, RouteType, TargetFit, TargetUse,
 };
 
 /// Prévost, Québec — reference point for route-discovery integration tests.
@@ -56,6 +57,7 @@ async fn test_discover_running_routes_around_prevost() {
             PREVOST_QC_LAT,
             PREVOST_QC_LON,
             Some(10_000),
+            None,
         )
         .await
         .expect("Overpass query should succeed");
@@ -104,7 +106,13 @@ async fn test_discover_routes_for_sport_dispatches_by_type() {
 
     // SportType::Run should dispatch to the running route query
     let run_routes = service
-        .discover_routes_for_sport(&SportType::Run, PREVOST_QC_LAT, PREVOST_QC_LON, Some(5_000))
+        .discover_routes_for_sport(
+            &SportType::Run,
+            PREVOST_QC_LAT,
+            PREVOST_QC_LON,
+            Some(5_000),
+            None,
+        )
         .await
         .expect("run dispatch should succeed");
     for route in &run_routes {
@@ -123,6 +131,7 @@ async fn test_discover_routes_for_sport_dispatches_by_type() {
             PREVOST_QC_LAT,
             PREVOST_QC_LON,
             Some(20_000),
+            None,
         )
         .await
         .expect("xc ski dispatch should succeed");
@@ -146,7 +155,7 @@ async fn test_unsupported_sport_returns_empty() {
     // it runs unconditionally (no live Overpass hit).
     let service = RouteDiscoveryService::with_defaults();
     let routes = service
-        .discover_routes_for_sport(&SportType::Swim, PREVOST_QC_LAT, PREVOST_QC_LON, None)
+        .discover_routes_for_sport(&SportType::Swim, PREVOST_QC_LAT, PREVOST_QC_LON, None, None)
         .await
         .expect("swim dispatch should succeed without hitting Overpass");
     assert!(
@@ -267,6 +276,7 @@ fn test_ranking_drops_unnamed_ways_and_surfaces_real_trails() {
         &SportType::Run,
         SHAWINIGAN_LAT,
         SHAWINIGAN_LON,
+        None,
     )
     .expect("fixture is a valid Overpass payload");
 
@@ -300,6 +310,7 @@ fn test_ranking_orders_trails_ahead_of_paved_connectors() {
         &SportType::Run,
         SHAWINIGAN_LAT,
         SHAWINIGAN_LON,
+        None,
     )
     .expect("fixture is a valid Overpass payload");
 
@@ -349,6 +360,7 @@ fn test_ranking_deduplicates_split_trail_segments() {
         &SportType::Run,
         SHAWINIGAN_LAT,
         SHAWINIGAN_LON,
+        None,
     )
     .expect("fixture is a valid Overpass payload");
 
@@ -373,6 +385,7 @@ fn test_ranking_measures_distance_from_the_search_center() {
         &SportType::Run,
         SHAWINIGAN_LAT,
         SHAWINIGAN_LON,
+        None,
     )
     .expect("fixture is a valid Overpass payload");
 
@@ -428,7 +441,7 @@ fn test_queries_fetch_more_elements_than_they_return() {
         let query = build_overpass_query(&sport, SHAWINIGAN_LAT, SHAWINIGAN_LON, 10_000)
             .unwrap_or_else(|| panic!("{sport:?} should be a supported sport"));
         let budget: usize = query
-            .rsplit_once("out tags center ")
+            .rsplit_once("out tags geom ")
             .and_then(|(_, tail)| {
                 tail.trim_end_matches(";\n")
                     .trim_end_matches(';')
@@ -529,6 +542,7 @@ fn test_malformed_overpass_body_is_an_error_not_an_empty_list() {
         &SportType::Run,
         SHAWINIGAN_LAT,
         SHAWINIGAN_LON,
+        None,
     )
     .expect_err("an HTML body is not a valid Overpass response");
     assert!(
@@ -551,4 +565,314 @@ fn test_ski_query_reads_piste_data() {
         query.contains(r#"["piste:type"~"^(downhill|nordic|skitour)$"]"#),
         "ski discovery must read OSM piste data: {query}"
     );
+}
+
+// ============================================================================
+// Lengths and target distance — offline.
+//
+// `measured-lengths.json` is hand-built in the shape `out tags geom` answers
+// in: a way carries `bounds` and `geometry`, a relation `bounds` and nothing
+// else. Every line in it runs due north along one meridian, so its length is
+// its span in degrees of latitude times the metres in one degree:
+// 6,371,000 m × π / 180 = 111,194.93 m.
+//
+// `prevost-cycling.json` is a real capture: the ten route relations the
+// cycling query returned around Prévost on 2026-10-01, and the fetched ways
+// named "Le P'tit Train du Nord" and "Loup-Garou", untouched.
+// ============================================================================
+
+const MEASURED_FIXTURE: &str = include_str!("fixtures/overpass/measured-lengths.json");
+const MEASURED_LAT: f64 = 46.0;
+const MEASURED_LON: f64 = -72.0;
+const METERS_PER_DEGREE_OF_LATITUDE: f64 = 111_194.93;
+
+const PREVOST_CYCLING_FIXTURE: &str = include_str!("fixtures/overpass/prevost-cycling.json");
+
+fn measured_routes(target: Option<f64>) -> Vec<DiscoveredRoute> {
+    routes_from_overpass_json(
+        MEASURED_FIXTURE,
+        &SportType::Run,
+        MEASURED_LAT,
+        MEASURED_LON,
+        target,
+    )
+    .expect("fixture is a valid Overpass payload")
+}
+
+fn named<'a>(routes: &'a [DiscoveredRoute], name: &str) -> &'a DiscoveredRoute {
+    routes
+        .iter()
+        .find(|r| r.name == name)
+        .unwrap_or_else(|| panic!("{name} missing from {routes:#?}"))
+}
+
+fn assert_meters(actual: Option<f64>, expected: f64, what: &str) {
+    let actual = actual.unwrap_or_else(|| panic!("{what} has no length"));
+    assert!(
+        (actual - expected).abs() < 1.0,
+        "{what}: expected {expected:.1} m, measured {actual:.1} m"
+    );
+}
+
+#[test]
+fn test_a_way_is_measured_along_its_geometry() {
+    let routes = measured_routes(None);
+
+    // One way, 0.005° of latitude.
+    let short = named(&routes, "Boucle Courte");
+    assert_meters(
+        short.distance_meters,
+        0.005 * METERS_PER_DEGREE_OF_LATITUDE,
+        "Boucle Courte",
+    );
+    assert_eq!(short.distance_source, Some(DistanceSource::MappedGeometry));
+
+    // Two ways sharing a name and an end point, 0.01° each: one trail, and
+    // its length is the chain, not the nearest segment alone.
+    assert_meters(
+        named(&routes, "Sentier A").distance_meters,
+        0.02 * METERS_PER_DEGREE_OF_LATITUDE,
+        "Sentier A",
+    );
+
+    // No geometry, but a `distance` tag: OSM writes it in kilometres.
+    let tagged = named(&routes, "Sans Géométrie");
+    assert_eq!(tagged.distance_meters, Some(12_000.0));
+    assert_eq!(tagged.distance_source, Some(DistanceSource::OsmTag));
+
+    // Neither: the length is unknown, never zero.
+    let unknown = named(&routes, "Sans Longueur");
+    assert_eq!(unknown.distance_meters, None);
+    assert_eq!(unknown.distance_source, None);
+}
+
+#[test]
+fn test_same_named_ways_that_do_not_connect_are_not_summed() {
+    let routes = measured_routes(None);
+
+    // Two "Chemin du Lac", 0.01° and 0.03°, four kilometres apart: the
+    // longest of them, not 0.04° of a trail that does not exist.
+    assert_meters(
+        named(&routes, "Chemin du Lac").distance_meters,
+        0.03 * METERS_PER_DEGREE_OF_LATITUDE,
+        "Chemin du Lac",
+    );
+
+    // Two carriageways of one avenue, side by side and never meeting: 0.01°
+    // once, not twice.
+    assert_meters(
+        named(&routes, "Avenue Parallèle").distance_meters,
+        0.01 * METERS_PER_DEGREE_OF_LATITUDE,
+        "Avenue Parallèle",
+    );
+}
+
+#[test]
+fn test_a_relation_is_its_declared_length_or_unknown_never_its_ways() {
+    let routes = measured_routes(None);
+
+    // "Voie Verte" is a relation tagged 234 km whose two fetched ways measure
+    // 2.2 km: the route is 234 km, and the fragment inside the search is not
+    // its length.
+    let tagged = named(&routes, "Voie Verte");
+    assert_eq!(tagged.distance_meters, Some(234_000.0));
+    assert_eq!(tagged.distance_source, Some(DistanceSource::OsmTag));
+
+    // A relation with no `distance` tag has no length to report.
+    let untagged = named(&routes, "Grand Tour");
+    assert_eq!(untagged.distance_meters, None);
+    assert_eq!(untagged.distance_source, None);
+}
+
+#[test]
+fn test_a_real_capture_measures_relations_and_chains_truthfully() {
+    let routes = routes_from_overpass_json(
+        PREVOST_CYCLING_FIXTURE,
+        &SportType::Ride,
+        PREVOST_QC_LAT,
+        PREVOST_QC_LON,
+        None,
+    )
+    .expect("capture is a valid Overpass payload");
+
+    // The relation, as Overpass returns it: bounds and tags, with the rail
+    // trail's 234 km declared.
+    let rail_trail = named(&routes, "Le P’tit Train du Nord");
+    assert_eq!(rail_trail.distance_meters, Some(234_000.0));
+    assert_eq!(rail_trail.distance_source, Some(DistanceSource::OsmTag));
+
+    // The eight fetched ways of the same trail (mapped with a straight
+    // apostrophe, so a separate name) are four separate stretches adding up
+    // to 1,272 m; the longest connected one is 1,138 m.
+    let ways = named(&routes, "Le P'tit Train du Nord");
+    assert_meters(ways.distance_meters, 1_138.2, "Le P'tit Train du Nord ways");
+    assert_eq!(ways.distance_source, Some(DistanceSource::MappedGeometry));
+
+    // "Loup-Garou" is a relation without a `distance` tag whose two ways
+    // measure 703 m: the relation's length is unknown, not 703 m.
+    let loup_garou = named(&routes, "Loup-Garou");
+    assert_eq!(loup_garou.distance_meters, None);
+    assert_eq!(loup_garou.distance_source, None);
+}
+
+#[test]
+fn test_an_element_without_a_center_is_placed_at_the_middle_of_its_bounds() {
+    let routes = measured_routes(None);
+    let long = named(&routes, "Piste Longue");
+    // The way runs 46.06 → 46.15: its box is centred on 46.105.
+    assert!((long.latitude - 46.105).abs() < 1e-6, "{}", long.latitude);
+    assert!((long.longitude - MEASURED_LON).abs() < 1e-6);
+    assert_meters(
+        Some(long.distance_from_center_meters),
+        0.105 * METERS_PER_DEGREE_OF_LATITUDE,
+        "Piste Longue from the search center",
+    );
+}
+
+#[test]
+fn test_without_a_target_the_order_is_class_then_distance_and_nothing_is_marked() {
+    let routes = measured_routes(None);
+    let names: Vec<&str> = routes.iter().map(|r| r.name.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "Grand Tour",
+            "Voie Verte",
+            "Boucle Courte",
+            "Sentier A",
+            "Sans Géométrie",
+            "Piste Longue",
+            "Sans Longueur",
+            "Chemin du Lac",
+            "Avenue Parallèle",
+        ]
+    );
+    assert!(routes.iter().all(|r| r.target_use.is_none()));
+}
+
+#[test]
+fn test_a_target_distance_ranks_by_closeness_of_the_usable_distance() {
+    let routes = measured_routes(Some(10_000.0));
+    let ranked: Vec<(&str, Option<TargetUse>)> = routes
+        .iter()
+        .map(|r| (r.name.as_str(), r.target_use))
+        .collect();
+
+    let single = Some(TargetUse {
+        fit: TargetFit::SinglePass,
+        passes: 1,
+    });
+    let repeats = |passes| {
+        Some(TargetUse {
+            fit: TargetFit::Repeats,
+            passes,
+        })
+    };
+    assert_eq!(
+        ranked,
+        [
+            // 10,007.5 m — the one near match.
+            ("Piste Longue", single),
+            // 12,000 m: a fifth over.
+            ("Sans Géométrie", single),
+            // 234 km: it holds the session, and is the furthest from it.
+            ("Voie Verte", single),
+            // 3,335.8 m three times is 10,007 m.
+            ("Chemin du Lac", repeats(3)),
+            // 2,223.9 m five times.
+            ("Sentier A", repeats(5)),
+            // 1,111.9 m nine times.
+            ("Avenue Parallèle", repeats(9)),
+            // 556.0 m seventeen times.
+            ("Boucle Courte", repeats(17)),
+            // Unknown lengths say nothing about the target, so they trail.
+            ("Grand Tour", None),
+            ("Sans Longueur", None),
+        ]
+    );
+}
+
+#[test]
+fn test_an_out_and_back_that_lands_on_the_target_leads_a_route_twice_its_length() {
+    let routes = measured_routes(Some(4_500.0));
+    // 2,223.9 m out and back is 4,447.8 m — within a tenth of 4.5 km.
+    let sentier = named(&routes, "Sentier A");
+    assert_eq!(
+        sentier.target_use,
+        Some(TargetUse {
+            fit: TargetFit::OutAndBack,
+            passes: 2,
+        })
+    );
+    assert_eq!(routes[0].name, "Sentier A");
+    // Piste Longue holds 4.5 km in one pass but is 10 km long: not a match.
+    let position = |name: &str| routes.iter().position(|r| r.name == name);
+    assert!(position("Sentier A") < position("Piste Longue"));
+    assert!(position("Piste Longue") < position("Voie Verte"));
+}
+
+/// A way running due north from `south`, `meters` long, as Overpass writes it.
+fn northward_way(id: usize, name: &str, south: f64, meters: f64) -> String {
+    let north = south + meters / METERS_PER_DEGREE_OF_LATITUDE;
+    format!(
+        r#"{{"type":"way","id":{id},"bounds":{{"minlat":{south},"minlon":-72.0,"maxlat":{north},"maxlon":-72.0}},"geometry":[{{"lat":{south},"lon":-72.0}},{{"lat":{north},"lon":-72.0}}],"tags":{{"highway":"path","name":"{name}"}}}}"#
+    )
+}
+
+#[test]
+fn test_a_near_match_outranks_a_far_longer_route_and_survives_the_cut() {
+    // Twenty-five trails of 22 km and more and a 234 km rail trail, all
+    // nearer the centre than one 9.5 km loop: without a target the loop is
+    // the twenty-seventh of twenty returned.
+    let mut elements: Vec<String> = (0..25_u8)
+        .map(|i| {
+            let index = usize::from(i);
+            northward_way(
+                100 + index,
+                &format!("Long {index}"),
+                f64::from(i).mul_add(0.001, 46.0),
+                f64::from(i).mul_add(500.0, 22_000.0),
+            )
+        })
+        .collect();
+    elements.push(northward_way(200, "Boucle 9.5", 46.5, 9_500.0));
+    elements.push(
+        r#"{"type":"relation","id":300,"bounds":{"minlat":45.9,"minlon":-72.0,"maxlat":46.1,"maxlon":-72.0},"tags":{"type":"route","route":"hiking","name":"Rail Trail","distance":"234 km"}}"#
+            .to_owned(),
+    );
+    let body = format!(r#"{{"version":0.6,"elements":[{}]}}"#, elements.join(","));
+    let rank = |target| {
+        routes_from_overpass_json(&body, &SportType::Run, MEASURED_LAT, MEASURED_LON, target)
+            .expect("built payload is valid")
+    };
+
+    let unranked = rank(None);
+    assert_eq!(unranked.len(), 20);
+    assert_eq!(unranked[0].name, "Rail Trail");
+    assert!(unranked.iter().all(|r| r.name != "Boucle 9.5"));
+
+    let ranked = rank(Some(10_000.0));
+    assert_eq!(ranked.len(), 20);
+    // Half a kilometre short of 10 km is a match, in one pass.
+    assert_eq!(ranked[0].name, "Boucle 9.5");
+    assert_meters(ranked[0].distance_meters, 9_500.0, "Boucle 9.5");
+    assert_eq!(
+        ranked[0].target_use,
+        Some(TargetUse {
+            fit: TargetFit::SinglePass,
+            passes: 1,
+        })
+    );
+    // Then the trails nearest the target in length; the 234 km one is the
+    // furthest from it of all and is the one the cut drops.
+    assert_eq!(ranked[1].name, "Long 0");
+    assert!(ranked.iter().all(|r| r.name != "Rail Trail"));
+}
+
+#[test]
+fn test_queries_ask_for_geometry_without_adding_a_clause() {
+    let query = build_overpass_query(&SportType::Run, MEASURED_LAT, MEASURED_LON, 10_000)
+        .expect("run is a supported sport");
+    assert!(query.contains("out tags geom "), "{query}");
+    assert_eq!(query.matches("(around:").count(), 3, "{query}");
 }

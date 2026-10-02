@@ -36,6 +36,9 @@ pub mod activity_detail;
 /// One cached activity's drawable route for the Home page, read at most once per activity
 pub mod activity_route;
 
+/// The athlete's training status for Home: form and its band, the form trend, load against baseline
+pub mod training_status;
+
 /// Discord Gateway WebSocket client — bridges real-time messages to the webhook pipeline
 #[cfg(feature = "client-messaging")]
 pub mod discord_gateway;

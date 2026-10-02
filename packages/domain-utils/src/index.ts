@@ -1,5 +1,5 @@
 // ABOUTME: Main entry point for @pierre/domain-utils package
-// ABOUTME: Re-exports all domain utilities for formatting, OAuth, categories, and route sketches
+// ABOUTME: Re-exports all domain utilities for formatting, OAuth, categories, route sketches and the form trend
 
 // Formatting utilities
 export {
@@ -28,6 +28,14 @@ export {
   decodePolyline,
   projectRouteToSvgPath,
 } from './route-sketch';
+
+// Form trend geometry (a per-day series projected into an SVG line)
+export {
+  type FormTrendGeometry,
+  type TrendPoint,
+  nearestTrendIndex,
+  projectFormTrend,
+} from './form-trend';
 
 // Category utilities
 export {

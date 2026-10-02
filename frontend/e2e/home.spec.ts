@@ -152,7 +152,24 @@ interface HomeAnswers {
    * refreshes past its pause; the plain answers when absent.
    */
   retriedRecent?: Array<Record<string, unknown>>;
+  /** The training status; a mid-block athlete's when absent. */
+  status?: Record<string, unknown>;
 }
+
+/** A mid-block athlete: five days of trend crossing the zero line, a load ratio, no lighter day called for. */
+const STATUS = {
+  today: TODAY,
+  form: { band: 'heavy_block', pct_of_fitness: -22 },
+  trend: [
+    { date: '2026-09-20', band: 'productive', pct_of_fitness: -12 },
+    { date: '2026-09-21', band: 'balanced', pct_of_fitness: -4 },
+    { date: '2026-09-22', band: 'fresh', pct_of_fitness: 6 },
+    { date: '2026-09-23', band: 'productive', pct_of_fitness: -15 },
+    { date: TODAY, band: 'heavy_block', pct_of_fitness: -22 },
+  ],
+  load_ratio: { ratio: 1.37, acute_days: 7, chronic_days: 28 },
+  recovery_days: 0,
+};
 
 /**
  * The Home reads and a provider status, registered after the shared mocks so
@@ -177,6 +194,13 @@ async function mockHome(page: Page, answers: HomeAnswers = {}) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ plan: answers.plan === undefined ? PLAN : answers.plan, today: TODAY }),
+    });
+  });
+  await page.route('**/api/me/training-status', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(answers.status ?? STATUS),
     });
   });
   await page.route('**/api/me/activities/recent**', async (route) => {
@@ -257,6 +281,20 @@ const TEMPO_DETAIL = {
   ],
   laps: [],
   conversation_id: null,
+};
+
+/** A marathon's worth of the Tempo Tuesday view: forty-two one-kilometre splits. */
+const MARATHON_DETAIL = {
+  ...TEMPO_DETAIL,
+  splits: Array.from({ length: 42 }, (_, index) => ({
+    index: index + 1,
+    distance_meters: 1000,
+    elapsed_time_seconds: 355 + (index % 7),
+    moving_time_seconds: 352 + (index % 7),
+    elevation_difference_meters: (index % 5) - 2,
+    average_speed_mps: 1000 / (352 + (index % 7)),
+    average_heart_rate: 150 + (index % 12),
+  })),
 };
 
 const RECOVERY_REPLY = 'Keep tomorrow easy: 40 minutes in Z1, then strides.';
@@ -379,6 +417,55 @@ test.describe('Athlete Home', () => {
     );
   });
 
+  test('the training status names the band, form as a share of fitness, its trend, the load and the recovery', async ({ page }) => {
+    await signInAthlete(page);
+    await mockHome(page);
+    await login(page);
+
+    const status = page.getByTestId('home-status');
+    await expect(status.getByRole('heading', { level: 3, name: 'Training status' })).toBeVisible();
+    await expect(page.getByTestId('home-status-band')).toHaveText('Heavy block');
+    await expect(page.getByTestId('home-status-form')).toHaveText('Form -22% of your fitness');
+    await expect(page.getByTestId('home-status-load')).toHaveText('Last 7 days: 1.4× your 28-day average');
+    await expect(page.getByTestId('home-status-recovery')).toHaveText('Your form calls for no extra lighter day.');
+
+    const chart = status.getByRole('img', {
+      name: 'Form as a share of your fitness from Sep 20 to Sep 24: from -12% to -22%',
+    });
+    await expect(chart).toBeVisible();
+    // Five days served out of the window the server aims for: the label says the four days the line covers.
+    await expect(status).toContainText('Your form over the last 4 days');
+    await expect(status).not.toContainText('42 days');
+    // The chart is as wide as the reading column and a real line: its path spans the box.
+    const box = await chart.boundingBox();
+    const column = await status.boundingBox();
+    expect(Math.round(box?.width ?? 0)).toBe(Math.round(column?.width ?? -1));
+    const line = await chart.locator('path').boundingBox();
+    expect(line?.width ?? 0).toBeGreaterThan((box?.width ?? 0) * 0.9);
+
+    // Pointing at a day reads it out; leaving the chart puts the hint back.
+    const readout = page.getByTestId('home-status-trend-readout');
+    await expect(readout).toContainText('Above the line');
+    await page.mouse.move((box?.x ?? 0) + (box?.width ?? 0) / 2, (box?.y ?? 0) + (box?.height ?? 0) / 2);
+    await expect(readout).toHaveText('Tue, Sep 22 · +6% · Fresh');
+    await page.mouse.move(0, 0);
+    await expect(readout).toContainText('Above the line');
+  });
+
+  test('too little history says so, with no band, figure or chart', async ({ page }) => {
+    await signInAthlete(page);
+    await mockHome(page, {
+      status: { today: TODAY, form: null, trend: [], load_ratio: null, recovery_days: null },
+    });
+    await login(page);
+
+    await expect(page.getByTestId('home-status-empty')).toContainText(
+      'Not enough training history yet to read your form.',
+    );
+    await expect(page.getByTestId('home-status-reading')).toHaveCount(0);
+    await expect(page.getByTestId('home-status-trend')).toHaveCount(0);
+  });
+
   test('the rail logo leads back to Home from anywhere', async ({ page }) => {
     await signInAthlete(page);
     await mockHome(page);
@@ -409,6 +496,163 @@ test.describe('Athlete Home', () => {
     await expect(page.getByPlaceholder('Message Dravr...').first()).toHaveValue(
       'Build me a training plan for my goal race.',
     );
+  });
+
+  test("a marathon's splits scroll inside their own frame, beside the map on a wide screen and capped on a narrow one, and the question field is on screen on arrival", async ({ page }) => {
+    await signInAthlete(page);
+    await mockHome(page);
+    await mockActivityView(page, { 'act-4': MARATHON_DETAIL });
+    await login(page);
+
+    await page.getByTestId('home-activity-row').first().getByRole('button').click();
+    const view = page.getByTestId('activity-view');
+    const frame = view.getByTestId('activity-splits-scroll');
+    await expect(frame.getByRole('row')).toHaveCount(43);
+    const ask = view.getByTestId('activity-ask');
+    await expect(ask).toBeVisible();
+
+    /** Where the pieces sit, and how much of the splits their frame shows. */
+    const measure = () =>
+      page.evaluate(() => {
+        const rect = (testId: string) => {
+          const box = document.querySelector(`[data-testid="${testId}"]`)?.getBoundingClientRect();
+          if (!box) throw new Error(`no ${testId} on the page`);
+          return { top: box.top, bottom: box.bottom, left: box.left, right: box.right };
+        };
+        const scroller = document.querySelector('[data-testid="activity-scroll"]');
+        const splits = document.querySelector('[data-testid="activity-splits-scroll"]');
+        if (!scroller || !splits) throw new Error('the activity view is not on the page');
+        return {
+          ask: rect('activity-ask'),
+          panel: rect('activity-details'),
+          when: rect('activity-when'),
+          chat: rect('activity-chat'),
+          frameHeight: splits.clientHeight,
+          frameContent: splits.scrollHeight,
+          pageScrollTop: scroller.scrollTop,
+          sideways: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          viewport: { width: window.innerWidth, height: window.innerHeight },
+        };
+      });
+
+    // Wide: the panel is beside the map, not above the chat, and the field
+    // is inside the viewport with the page still at its top.
+    const wide = await measure();
+    expect(wide.viewport.width).toBeGreaterThanOrEqual(1024);
+    expect(wide.pageScrollTop).toBe(0);
+    expect(wide.panel.left).toBeGreaterThanOrEqual(wide.when.right);
+    expect(wide.panel.top).toBeLessThan(wide.chat.top);
+    expect(wide.panel.bottom).toBeLessThanOrEqual(wide.viewport.height + 1);
+    expect(wide.frameContent).toBeGreaterThan(wide.frameHeight);
+    expect(wide.ask.top).toBeGreaterThanOrEqual(0);
+    expect(wide.ask.bottom).toBeLessThanOrEqual(wide.viewport.height);
+    expect(wide.sideways).toBeLessThanOrEqual(1);
+
+    // The frame scrolls its own rows: the last split comes into view while
+    // the page stays where it was and the header row stays on top.
+    await frame.getByRole('row').last().scrollIntoViewIfNeeded();
+    await expect(frame.getByRole('row').last()).toBeInViewport();
+    await expect(frame.getByRole('columnheader').first()).toBeInViewport();
+    expect((await measure()).pageScrollTop).toBe(0);
+
+    // Narrow: one column again, the chat straight after the map and the
+    // figures and capped splits under it, so the field is on screen on
+    // arrival at tablet and at phone width alike.
+    for (const size of [{ width: 800, height: 900 }, { width: 390, height: 844 }]) {
+      await page.setViewportSize(size);
+      await frame.evaluate((el) => {
+        el.scrollTop = 0;
+      });
+      const narrow = await measure();
+      expect(narrow.pageScrollTop).toBe(0);
+      expect(narrow.chat.top).toBeGreaterThan(narrow.when.bottom);
+      expect(narrow.panel.top).toBeGreaterThanOrEqual(narrow.chat.bottom);
+      expect(narrow.ask.top).toBeGreaterThanOrEqual(0);
+      expect(narrow.ask.bottom).toBeLessThanOrEqual(narrow.viewport.height);
+      await expect(ask).toBeInViewport({ ratio: 1 });
+      expect(narrow.frameHeight).toBeLessThanOrEqual(256);
+      expect(narrow.frameContent).toBeGreaterThan(narrow.frameHeight);
+      expect(narrow.sideways).toBeLessThanOrEqual(1);
+    }
+    // Nothing covers the field at phone width — the bottom bar included.
+    await ask.getByRole('textbox').click({ trial: true });
+  });
+
+  test("on a short wide window the side panel starts under the header, scrolls as a whole, and keeps the figures and a few rows of each table", async ({ page }) => {
+    const laps = Array.from({ length: 12 }, (_, index) => ({
+      index: index + 1,
+      distance_meters: 3500,
+      elapsed_time_seconds: 1240 + index,
+      moving_time_seconds: 1235 + index,
+      elevation_gain_meters: 12,
+      average_speed_mps: 2.83,
+      average_heart_rate: 155,
+      max_heart_rate: 168,
+      average_power: null,
+    }));
+    await signInAthlete(page);
+    await mockHome(page);
+    await mockActivityView(page, { 'act-4': { ...MARATHON_DETAIL, laps } });
+    await login(page);
+    await page.getByTestId('home-activity-row').first().getByRole('button').click();
+    const view = page.getByTestId('activity-view');
+    await expect(view.getByTestId('activity-laps-scroll').getByRole('row')).toHaveCount(13);
+
+    for (const size of [{ width: 1280, height: 500 }, { width: 1024, height: 600 }]) {
+      await page.setViewportSize(size);
+      await view.getByTestId('activity-details').evaluate((el) => {
+        el.scrollTop = 0;
+      });
+      // The resize lands a frame later than the call returns: measure once
+      // the panel has taken the new height.
+      await expect
+        .poll(() => view.getByTestId('activity-details').evaluate((el) => el.getBoundingClientRect().bottom))
+        .toBeLessThanOrEqual(size.height + 1);
+      const short = await page.evaluate(() => {
+        const node = (testId: string) => {
+          const el = document.querySelector(`[data-testid="${testId}"]`);
+          if (!el) throw new Error(`no ${testId} on the page`);
+          return el;
+        };
+        const rect = (testId: string) => {
+          const box = node(testId).getBoundingClientRect();
+          return { top: box.top, bottom: box.bottom, left: box.left, right: box.right };
+        };
+        const panel = node('activity-details');
+        return {
+          headerBottom: node('activity-back').parentElement?.getBoundingClientRect().bottom ?? -1,
+          panel: rect('activity-details'),
+          panelHeight: panel.clientHeight,
+          panelContent: panel.scrollHeight,
+          figures: rect('activity-figures'),
+          splits: rect('activity-splits'),
+          laps: rect('activity-laps'),
+          splitsFrame: node('activity-splits-scroll').clientHeight,
+          lapsFrame: node('activity-laps-scroll').clientHeight,
+          overflowDown: document.documentElement.scrollHeight - window.innerHeight,
+          sideways: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          viewportHeight: window.innerHeight,
+        };
+      });
+      // Pinned from the header's own bottom edge to the window's.
+      expect(Math.abs(short.panel.top - short.headerBottom)).toBeLessThanOrEqual(1);
+      expect(short.panel.bottom).toBeLessThanOrEqual(short.viewportHeight + 1);
+      // The figures are whole and on screen; nothing sits on anything else.
+      expect(short.figures.top).toBeGreaterThanOrEqual(short.panel.top);
+      expect(short.figures.bottom).toBeLessThanOrEqual(short.viewportHeight);
+      expect(short.splits.top).toBeGreaterThanOrEqual(short.figures.bottom);
+      expect(short.laps.top).toBeGreaterThanOrEqual(short.splits.bottom);
+      // Each table keeps about five rows, so the panel scrolls rather than
+      // squeezing them to nothing or spilling out of the window.
+      expect(short.splitsFrame).toBeGreaterThanOrEqual(150);
+      expect(short.lapsFrame).toBeGreaterThanOrEqual(150);
+      expect(short.panelContent).toBeGreaterThan(short.panelHeight);
+      expect(short.overflowDown).toBeLessThanOrEqual(0);
+      expect(short.sideways).toBeLessThanOrEqual(1);
+      await view.getByTestId('activity-laps-scroll').getByRole('row').last().scrollIntoViewIfNeeded();
+      await expect(view.getByTestId('activity-laps-scroll').getByRole('row').last()).toBeInViewport();
+      expect(await view.getByTestId('activity-scroll').evaluate((el) => el.scrollTop)).toBe(0);
+    }
   });
 
   test("tapping an activity opens its view: the map, its figures and splits, then a chat whose question goes out and is answered there", async ({ page }) => {
@@ -512,6 +756,20 @@ test.describe('Athlete Home', () => {
     await detail.getByRole('button', { name: /^Walk me through my session on .+: Tempo run$/ }).click();
     await expect(page.getByPlaceholder('Message Dravr...').first()).toHaveValue(
       /^Walk me through my session on .+: Tempo run$/,
+    );
+  });
+
+  test("today's session offers a route, and the question drafts in chat naming the session", async ({ page }) => {
+    await signInAthlete(page);
+    await mockHome(page);
+    await mockConversationCreate(page);
+    await login(page);
+
+    const link = page.getByTestId('home-today-route');
+    await expect(link).toHaveText('Find a route for this session');
+    await link.click();
+    await expect(page.getByPlaceholder('Message Dravr...').first()).toHaveValue(
+      /^Suggest a route close to where I am for my session on .+: Tempo run$/,
     );
   });
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: React Query reads behind the athlete Home page — recent activities, one activity's route, the plan for today
+// ABOUTME: React Query reads behind the athlete Home page — recent activities, one activity's route, the plan for today, the training status
 // ABOUTME: A stale activity answer is followed up on a schedule that ends, and only while somebody is using the tab; never polled
 
 import { useCallback, useEffect, useState } from 'react';
@@ -15,7 +15,9 @@ import type {
   ActivityRouteResponse,
   RecentActivitiesResponse,
   TrainingPlanResponse,
+  TrainingStatusResponse,
 } from '@pierre/shared-types';
+import { planDayOn } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import {
   classifyApiError,
@@ -25,6 +27,7 @@ import {
   type RecentActivitiesSync,
 } from '@pierre/ui-logic';
 import { athleteApi, providersApi } from '../services/api';
+import { planDayRouteDraft } from '../components/home/homeFormat';
 
 /** What the Home page reads from the recent-activities query. */
 export interface RecentActivitiesState {
@@ -306,6 +309,46 @@ export function useTrainingPlan() {
     queryKey: QUERY_KEYS.home.trainingPlan(language),
     queryFn: () => athleteApi.getTrainingPlan(language),
   });
+}
+
+/**
+ * The athlete's training status on their own today: form and its band, the
+ * form trend, the load ratio and the recovery days.
+ *
+ * The server computes it from its stored activities, so it moves when they
+ * do: a refreshed activity list invalidates nothing here on its own, and the
+ * page reads it again on mount and on focus like the plan.
+ */
+export function useTrainingStatus() {
+  return useQuery<TrainingStatusResponse>({
+    queryKey: QUERY_KEYS.home.trainingStatus(),
+    queryFn: () => athleteApi.getTrainingStatus(),
+  });
+}
+
+/**
+ * The question the empty chat suggests: a route for today's session.
+ *
+ * When the plan holds a session today in a sport with routes, the draft names
+ * it — the day, the workout, its distance when the plan gives one — exactly
+ * as Home's link does. With no plan, no session today, or the plan not yet
+ * read, it is the plain question and the agent looks the session up itself.
+ */
+export function useTodayRouteDraft(): string {
+  const { t, language } = useTranslation();
+  const plan = useTrainingPlan();
+  const response = plan.data;
+  if (response?.plan) {
+    try {
+      const named = planDayRouteDraft(t, language, response.today, planDayOn(response.plan, response.today));
+      if (named !== null) return named;
+    } catch (error) {
+      // A `today` that is not a calendar day cannot be named; the plain
+      // question still can be asked.
+      if (!(error instanceof RangeError)) throw error;
+    }
+  }
+  return t('chat.quickRouteDraft');
 }
 
 /** What the Home page reads from the provider-status query. */

@@ -6,7 +6,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { i18n } from '@pierre/i18n';
-import { activityFigures } from '../homeFormat';
+import type { PlanDay, PlanDayLookup, PlanWeek } from '@pierre/shared-types';
+import { activityFigures, planDayRouteDraft } from '../homeFormat';
 import { activity } from './homeFixtures';
 
 const tIn = (language: string) => i18n.getFixedT(language);
@@ -40,5 +41,49 @@ describe('activityFigures', () => {
       activityFigures(tIn(language), activity({ id: 'a', duration_seconds: seconds, distance_meters: null, elevation_gain_meters: null }), language);
     expect(figures(2_745)).toEqual([underAnHour]);
     expect(figures(5_410)).toEqual([overAnHour]);
+  });
+});
+
+describe('planDayRouteDraft', () => {
+  const week: PlanWeek = { week_start: '2026-09-21', focus: 'threshold', current: true, days: [] };
+  const intervals: PlanDay = {
+    date: '2026-09-24',
+    sport: 'run',
+    workout: '8 × 1 km',
+    intensity: 'Z4',
+    rest: false,
+    steps: [
+      { label: 'Warm-up', duration_seconds: 900, distance_meters: 3000, target_zone: 'Z1' },
+      { label: 'Interval', duration_seconds: 240, distance_meters: 1000, target_zone: 'Z4', repeat: 8 },
+      { label: 'Float', duration_seconds: 120, distance_meters: 250, target_zone: 'Z1', repeat: 8 },
+      { label: 'Cool-down', duration_seconds: 600, distance_meters: 2000, target_zone: 'Z1' },
+    ],
+  };
+  const session = (day: PlanDay): PlanDayLookup => ({ kind: 'session', day, week });
+
+  it('carries the session distance when every step has one', () => {
+    expect(planDayRouteDraft(t, 'en', '2026-09-24', session(intervals))).toBe(
+      'Suggest a 15 km route close to where I am for my session on Thursday, September 24: 8 × 1 km',
+    );
+  });
+
+  it('writes a fractional distance in the notation of the language', () => {
+    const day = { ...intervals, steps: [{ label: 'Run', duration_seconds: 3600, distance_meters: 12_540, target_zone: 'Z2' }] };
+    expect(planDayRouteDraft(tIn('fr'), 'fr', '2026-09-24', session(day))).toBe(
+      "Propose-moi un parcours de 12,5 km près d'où je suis pour ma séance du jeudi 24 septembre : 8 × 1 km",
+    );
+  });
+
+  it('names no distance for a session set by time', () => {
+    const day = { ...intervals, steps: [{ label: 'Tempo', duration_seconds: 1500, target_zone: 'Z3' }] };
+    expect(planDayRouteDraft(t, 'en', '2026-09-24', session(day))).toBe(
+      'Suggest a route close to where I am for my session on Thursday, September 24: 8 × 1 km',
+    );
+  });
+
+  it('has no draft for a rest day, an uncovered day, or a sport with no route', () => {
+    expect(planDayRouteDraft(t, 'en', '2026-09-24', { kind: 'uncovered' })).toBeNull();
+    expect(planDayRouteDraft(t, 'en', '2026-09-24', { kind: 'rest', day: { ...intervals, rest: true }, week })).toBeNull();
+    expect(planDayRouteDraft(t, 'en', '2026-09-24', session({ ...intervals, sport: 'swim' }))).toBeNull();
   });
 });

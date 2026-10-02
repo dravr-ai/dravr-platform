@@ -18,6 +18,7 @@ const api = vi.hoisted(() => ({
   getRecentActivities: vi.fn(),
   getActivityRoute: vi.fn(),
   getProvidersStatus: vi.fn(),
+  getTrainingStatus: vi.fn(),
 }));
 
 vi.mock('../../../services/api', () => ({
@@ -25,6 +26,7 @@ vi.mock('../../../services/api', () => ({
     getTrainingPlan: api.getTrainingPlan,
     getRecentActivities: api.getRecentActivities,
     getActivityRoute: api.getActivityRoute,
+    getTrainingStatus: api.getTrainingStatus,
   },
   providersApi: { getProvidersStatus: api.getProvidersStatus },
 }));
@@ -61,6 +63,16 @@ beforeEach(() => {
   api.getProvidersStatus.mockResolvedValue({ providers: [{ provider: 'strava', connected: true }] });
   api.getRecentActivities.mockResolvedValue(recentResponse());
   api.getActivityRoute.mockResolvedValue({ route: routeView(), reason: null });
+  api.getTrainingStatus.mockResolvedValue({
+    today: TODAY,
+    form: { band: 'productive', pct_of_fitness: -14 },
+    trend: [
+      { date: '2026-09-22', band: 'balanced', pct_of_fitness: -6 },
+      { date: TODAY, band: 'productive', pct_of_fitness: -14 },
+    ],
+      load_ratio: { ratio: 1.1, acute_days: 7, chronic_days: 28 },
+    recovery_days: 0,
+  });
 });
 
 describe('Home', () => {
@@ -71,6 +83,7 @@ describe('Home', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Home' })).toBeInTheDocument();
     expect(await screen.findByTestId('home-today-session')).toHaveTextContent('Tempo run');
     expect(screen.getByTestId('home-week')).toBeInTheDocument();
+    expect(await screen.findByTestId('home-status-band')).toHaveTextContent('Productive');
     expect(await screen.findByTestId('home-activity-latest')).toBeInTheDocument();
     expect(screen.getAllByTestId('home-activity-row')).toHaveLength(4);
     expect(api.getTrainingPlan).toHaveBeenCalledWith('en');

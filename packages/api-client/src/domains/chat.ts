@@ -71,6 +71,15 @@ export interface ChatVerdictsResponse {
   total: number;
 }
 
+/** What the server answers a stop with. */
+export interface StopTurnResponse {
+  /**
+   * `true` when the running turn was closed with the stopped notice. `false`
+   * when there was nothing left to stop — the reply had already landed.
+   */
+  stopped: boolean;
+}
+
 /**
  * The reply's resolved scenes, when the surface draws them inline.
  *
@@ -394,6 +403,24 @@ export function createChatApi(axios: AxiosInstance, adapter: PlatformAdapter) {
       }
 
       options?.onDone?.(turn);
+    },
+
+    /**
+     * Stop the turn answering the caller's latest message.
+     *
+     * Dropping the stream never stops a turn — the server finishes it and
+     * stores the reply regardless — so this is the only way to end one. The
+     * server closes the question with a short "stopped" notice and the open
+     * `sendTurn` stream ends on `onDone` carrying that notice as the
+     * assistant's message, so the caller renders a stopped turn through the
+     * path it already renders every turn with.
+     *
+     * @returns whether a running turn was stopped; `false` when the reply had
+     *   already landed and the stream is about to deliver it.
+     */
+    async stopTurn(conversationId: string): Promise<boolean> {
+      const response = await axios.post<StopTurnResponse>(ENDPOINTS.CHAT.STOP(conversationId));
+      return response.data.stopped;
     },
 
     /**

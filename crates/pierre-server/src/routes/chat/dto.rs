@@ -8,7 +8,8 @@ use photograveur::{resolve_all, Locale};
 use pierre_chat_pipeline::stages::viz_blocks::strip_markers;
 use pierre_core::models::messaging::rich_text::{parse_markdown, render_plain};
 use pierre_core::models::{
-    ConversationParticipant, ParticipantRole, PersistedReplyBlock, ACTIONS_BLOCK_TYPE,
+    is_turn_marker_block, ConversationParticipant, ParticipantRole, PersistedReplyBlock,
+    ACTIONS_BLOCK_TYPE,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -30,7 +31,8 @@ pub struct StoredBlocks {
 /// photograveur on every read (so a geometry improvement reaches charts already
 /// sitting in history without a migration), and the controls a slash-command
 /// reply carried, which are partitioned out first — photograveur must never be
-/// handed a `{"type":"actions"}` entry as if it were a chart.
+/// handed a `{"type":"actions"}` entry as if it were a chart. A third kind,
+/// the turn markers, is dropped outright.
 ///
 /// A visual that fails to resolve is dropped and logged rather than failing
 /// the message: one malformed chart must never cost the athlete the reply
@@ -41,9 +43,13 @@ pub fn resolve_stored_blocks(stored: Option<&str>, locale: &str) -> StoredBlocks
     let Some(entries) = stored.and_then(parse_stored_specs) else {
         return StoredBlocks::default();
     };
+    let block_type = |entry: &Value| entry.get("type").and_then(Value::as_str).map(str::to_owned);
+    // Turn markers — who wrote a question, which question a stopped notice
+    // closed — are bookkeeping about the row and reach no client.
     let (actions, specs): (Vec<Value>, Vec<Value>) = entries
         .into_iter()
-        .partition(|entry| entry.get("type").and_then(Value::as_str) == Some(ACTIONS_BLOCK_TYPE));
+        .filter(|entry| !block_type(entry).is_some_and(|kind| is_turn_marker_block(&kind)))
+        .partition(|entry| block_type(entry).as_deref() == Some(ACTIONS_BLOCK_TYPE));
     StoredBlocks {
         scene_blocks: resolve_visual_specs(&specs, locale),
         actions: actions.into_iter().find_map(decode_actions_entry),
@@ -89,6 +95,9 @@ fn decode_actions_entry(entry: Value) -> Option<MessageActionsResponse> {
                 })
                 .collect(),
         }),
+        // Filtered out before the partition; an entry typed `actions` cannot
+        // decode as one.
+        Ok(PersistedReplyBlock::TurnAuthor { .. } | PersistedReplyBlock::TurnStop { .. }) => None,
         Err(e) => {
             warn!(error = %e, "scene-blocks: stored actions entry is malformed; omitting it");
             None

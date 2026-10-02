@@ -71,4 +71,26 @@ describe('ChatEmptyState', () => {
       'No provider connected',
     );
   });
+  it('suggests a route for today\'s session and asks the host to draft it', async () => {
+    const user = userEvent.setup();
+    const onSuggestRoute = vi.fn();
+    render(
+      <ChatEmptyState
+        compose={<button type="button">Compose</button>}
+        onOpenCommands={vi.fn()}
+        onSuggestRoute={onSuggestRoute}
+      />,
+    );
+
+    const route = screen.getByTestId('chat-empty-route');
+    expect(route).toHaveTextContent("Route for today's session");
+    await user.click(route);
+
+    expect(onSuggestRoute).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the suggestion out for a host that cannot draft it', () => {
+    renderEmptyState();
+    expect(screen.queryByTestId('chat-empty-route')).not.toBeInTheDocument();
+  });
 });

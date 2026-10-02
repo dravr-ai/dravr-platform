@@ -30,6 +30,8 @@ import { describeApiError, describeTurnFailure } from '@pierre/ui-logic';
 export interface MessagesState {
   messages: Message[];
   isSending: boolean;
+  /** A stop was sent for the running turn and its stream has not ended yet. */
+  isStopping: boolean;
   error: string | null;
   messageFeedback: Record<string, 'up' | 'down' | null>;
   /** Saved thumbs-down reasons, keyed by message id. */
@@ -105,6 +107,11 @@ export interface MessagesActions {
     conversationId: string,
     messageText: string
   ) => Promise<string | null>;
+  /**
+   * Stop the turn that is running. The server ends it and closes the question
+   * with a short notice, which the open stream then delivers as the reply.
+   */
+  stopTurn: () => Promise<void>;
   retryMessage: (messageId: string, conversationId: string) => Promise<void>;
   handleThumbsUp: (messageId: string, conversationId: string) => Promise<void>;
   handleThumbsDown: (messageId: string, conversationId: string) => Promise<void>;
@@ -144,6 +151,10 @@ export function useMessages(): MessagesState & MessagesActions {
   const { t } = useTranslation();
   const [messages, setMessages] = useState<Message[]>([]);
   const [isSending, setIsSending] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
+  // The conversation the running turn was posted to, so a stop reaches that
+  // turn even when the screen has since been pointed at another thread.
+  const sendingConversationRef = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [messageFeedback, setMessageFeedback] = useState<Record<string, 'up' | 'down' | null>>({});
   const [messageFeedbackComment, setMessageFeedbackComment] = useState<Record<string, string>>({});
@@ -382,6 +393,7 @@ export function useMessages(): MessagesState & MessagesActions {
     if (!messageText.trim() || isSending) return null;
 
     setIsSending(true);
+    sendingConversationRef.current = conversationId;
     setError(null);
     openConversationRef.current = conversationId;
     lostTurnRef.current = reduceLostTurn(lostTurnRef.current, { type: 'sent' });
@@ -505,6 +517,8 @@ export function useMessages(): MessagesState & MessagesActions {
 
     deferredScrollToBottom(200);
     setIsSending(false);
+    setIsStopping(false);
+    sendingConversationRef.current = null;
     setProgressText(null);
     recoverOnReturn(heldIds);
     // The turn joined the room, and other members may have spoken since it
@@ -513,6 +527,21 @@ export function useMessages(): MessagesState & MessagesActions {
     if (landed && !rotatedTo && roomGroup) void loadMessages(conversationId, roomGroup);
     return rotatedTo;
   }, [isSending, messages, deferredScrollToBottom, invalidateConversationList, failedTurnRow, recoverOnReturn, refreshVerdicts, roomGroupOf, loadMessages]);
+
+  const stopTurn = useCallback(async () => {
+    const conversationId = sendingConversationRef.current;
+    if (!conversationId || isStopping) return;
+    setIsStopping(true);
+    try {
+      // `false` means the reply had already landed and the stream is about to
+      // deliver it: there is nothing to wait for, so the button is handed back.
+      const stopped = await chatApi.stopTurn(conversationId);
+      if (!stopped) setIsStopping(false);
+    } catch (err) {
+      setIsStopping(false);
+      setError(describeApiError(err, { t, fallbackKey: 'chat.turnTryAgain' }));
+    }
+  }, [isStopping, t]);
 
   const retryMessage = useCallback(async (messageId: string, conversationId: string) => {
     // The caller's own rows only: in a group thread another member's line can
@@ -527,6 +556,7 @@ export function useMessages(): MessagesState & MessagesActions {
 
     setMessages(prev => prev.filter(m => m.id !== messageId));
     setIsSending(true);
+    sendingConversationRef.current = conversationId;
     setError(null);
     openConversationRef.current = conversationId;
     lostTurnRef.current = reduceLostTurn(lostTurnRef.current, { type: 'sent' });
@@ -607,6 +637,8 @@ export function useMessages(): MessagesState & MessagesActions {
 
     deferredScrollToBottom(200);
     setIsSending(false);
+    setIsStopping(false);
+    sendingConversationRef.current = null;
     setProgressText(null);
     recoverOnReturn(heldIds);
   }, [messages, deferredScrollToBottom, invalidateConversationList, failedTurnRow, recoverOnReturn, refreshVerdicts]);
@@ -689,6 +721,7 @@ export function useMessages(): MessagesState & MessagesActions {
   return {
     messages,
     isSending,
+    isStopping,
     error,
     messageFeedback,
     messageFeedbackComment,
@@ -701,6 +734,7 @@ export function useMessages(): MessagesState & MessagesActions {
     loadMessages,
     refreshVerdicts,
     sendTurn,
+    stopTurn,
     retryMessage,
     handleThumbsUp,
     handleThumbsDown,

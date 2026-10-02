@@ -49,6 +49,7 @@ export const ENDPOINTS = {
       `/api/chat/conversations/${conversationId}/messages/${messageId}/feedback`,
     /** Advance (POST) or clear (DELETE) the caller's read marker on a conversation */
     READ: (id: string) => `/api/chat/conversations/${id}/read`,
+    STOP: (id: string) => `/api/chat/conversations/${id}/stop`,
   },
 
   // ==================== SLASH COMMANDS ====================
@@ -291,6 +292,8 @@ export const ENDPOINTS = {
       `/api/me/activities/${encodeURIComponent(provider)}/${encodeURIComponent(activityId)}/conversation`,
     /** The active plan projected for a card, and the athlete's today (`?locale=`) */
     TRAINING_PLAN: '/api/me/training-plan',
+    /** Form today and its band, the form trend, load against baseline, recovery days */
+    TRAINING_STATUS: '/api/me/training-status',
   },
   // ==================== PERSONAS ====================
   PERSONAS: {

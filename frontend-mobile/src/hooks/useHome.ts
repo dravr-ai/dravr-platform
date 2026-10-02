@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: React Query hooks behind the Home tab — recent activities, one activity's route, the plan for today, the provider status
+// ABOUTME: React Query hooks behind the Home tab — recent activities, one activity's route, the plan for today, the training status, the provider status
 // ABOUTME: A stale activity answer is followed up on the HOME_STALE_REFETCH_DELAYS_MS schedule, which ends, and only while the app is in use
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -11,7 +11,7 @@ import {
   HOME_STALE_REFETCH_DELAYS_MS,
   QUERY_KEYS,
 } from '@pierre/shared-constants';
-import type { ActivityRouteResponse } from '@pierre/shared-types';
+import { planDayOn, type ActivityRouteResponse } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import {
   classifyApiError,
@@ -20,6 +20,7 @@ import {
   useRequestsInFlight,
 } from '@pierre/ui-logic';
 import { athleteApi, oauthApi } from '../services/api';
+import { planDayRouteDraft } from '../screens/home/homeFormat';
 
 /**
  * Where the follow-up reads for a stale answer stand.
@@ -389,6 +390,54 @@ export function useTrainingPlan() {
     isRefetching: query.isRefetching,
     refetch: query.refetch,
   };
+}
+
+/**
+ * The athlete's training status on their own today: form and its band, the
+ * form trend, the load ratio and the recovery days. `response` stays `null`
+ * until an answer arrives — `response.form === null` is the server saying the
+ * stored history is too thin to read form from, which the screen says in
+ * words, and must never be read off a load that has not finished or has
+ * failed.
+ */
+export function useTrainingStatus() {
+  const query = useQuery({
+    queryKey: QUERY_KEYS.home.trainingStatus(),
+    queryFn: () => athleteApi.getTrainingStatus(),
+  });
+
+  return {
+    response: query.data ?? null,
+    isError: query.isError,
+    refetch: query.refetch,
+  };
+}
+
+/**
+ * The question the empty chat suggests: a route for today's session.
+ *
+ * When the plan holds a session today in a sport with routes, the draft names
+ * it — the day, the workout, its distance when the plan gives one — exactly
+ * as Home's link does. With no plan, no session today, or the plan not yet
+ * read, it is the plain question and the agent looks the session up itself.
+ */
+export function useTodayRouteDraft(): string {
+  const { t, language } = useTranslation();
+  const { response } = useTrainingPlan();
+  if (response?.plan) {
+    const lookup = planDayOn(response.plan, response.today);
+    if (lookup.kind === 'session') {
+      try {
+        const named = planDayRouteDraft(t, lookup.day, language);
+        if (named !== null) return named;
+      } catch (error) {
+        // A day that is not a calendar day cannot be named; the plain
+        // question still can be asked.
+        if (!(error instanceof RangeError)) throw error;
+      }
+    }
+  }
+  return t('chat.quickRouteDraft');
 }
 
 /**

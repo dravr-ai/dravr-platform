@@ -224,12 +224,13 @@ pub use user_mcp_token::{
 // Chat conversation and message record types
 mod conversation;
 pub use conversation::{
-    is_in_app_channel, split_visuals, AddMessageParams, AgentRuntimeContext,
+    is_in_app_channel, is_turn_marker_block, split_visuals, AddMessageParams, AgentRuntimeContext,
     ConversationLastMessage, ConversationPage, ConversationParticipant, ConversationRecord,
     ConversationSummary, ConversationTurnId, MessageFeedbackRecord, MessageRecord, ParticipantRole,
     PersistedAction, PersistedReplyBlock, TurnOrigin, UpsertMessageFeedbackParams,
     ACTIONS_BLOCK_TYPE, CHANNEL_TYPE_MOBILE, CHANNEL_TYPE_WEB, COMMAND_FINISH_REASON,
-    FILTERED_REPLY_FINISH_REASON, STOP_CAVEAT_SEPARATOR, TRUNCATED_REPLY_FINISH_REASON,
+    FILTERED_REPLY_FINISH_REASON, STOPPED_TURN_FINISH_REASON, STOP_CAVEAT_SEPARATOR,
+    TRUNCATED_REPLY_FINISH_REASON, TURN_AUTHOR_BLOCK_TYPE, TURN_STOP_BLOCK_TYPE,
     UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON, WITHHELD_REPLY_FINISH_REASON,
 };
 

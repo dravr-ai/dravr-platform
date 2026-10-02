@@ -170,52 +170,20 @@ pub async fn compute_and_persist_history(
     from: NaiveDate,
     to: NaiveDate,
 ) -> AppResult<TrainingHistoryComputed> {
-    if to < from {
-        return Err(AppError::invalid_input("from > to"));
-    }
-    if (to - from).num_days() > MAX_BACKFILL_DAYS {
-        return Err(AppError::invalid_input(format!(
-            "backfill window exceeds the maximum of {MAX_BACKFILL_DAYS} days"
-        )));
-    }
+    validate_window(from, to)?;
 
-    let backend = resolve_compute_backend(resources, tenant_id, user_id).await?;
+    let backend = resolve_compute_backend(resources, tenant_id, user_id)
+        .await?
+        .ok_or_else(AppError::no_provider_connected)?;
+    let window = load_stored_window(resources, tenant_id, user_id, backend, from, to).await?;
+    let backend = &window.backend;
+    let warmup = window.warmup;
 
-    // The rollup buckets on the athlete's civil day. Persisting UTC-day buckets
-    // shifted the whole CTL/ATL/TSB series against their own calendar for
-    // anyone training in the evening (registre#200).
-    let timezone = user_timezone(resources, user_id).await?;
-    let zone = resolve_zone(timezone.as_deref());
-
-    let warmup = warmup_days(
-        resources
-            .cageux_config()
-            .algorithms
-            .params
-            .training_load_ctl_days,
-    );
-    let activities = read_cached_window(
-        resources,
-        tenant_id,
-        user_id,
-        &backend.slug,
-        from - Duration::days(warmup),
-        to,
-    )
-    .await?;
-
-    let oldest_stored = activities
-        .iter()
-        .map(|a: &Activity| local_date(a.start_date(), zone))
-        .min();
-    let Some(oldest_stored) = oldest_stored else {
-        return empty_cache_outcome(resources, tenant_id, user_id, &backend, from, to, warmup)
-            .await;
+    let Some(oldest_stored) = window.oldest_stored else {
+        return empty_cache_outcome(resources, tenant_id, user_id, backend, from, to, warmup).await;
     };
 
-    // The first day the stored history can stand behind: anything earlier would
-    // be computed against a partly-empty warm-up and read as a real, low CTL.
-    let trustworthy_from = from.max(oldest_stored + Duration::days(warmup));
+    let trustworthy_from = first_vouched_day(from, oldest_stored, warmup);
     let complete = trustworthy_from <= from;
     let capture_requested = !complete
         && request_capture(
@@ -263,16 +231,8 @@ pub async fn compute_and_persist_history(
         });
     }
 
-    let inputs = athlete_inputs(resources, tenant_id, user_id).await?;
-    let states = compute_training_history(
-        &activities,
-        inputs,
-        trustworthy_from,
-        to,
-        &resources.cageux_config().algorithms,
-        timezone.as_deref(),
-    )
-    .map_err(|e| AppError::internal(format!("training-load series: {e}")))?;
+    let states =
+        compute_states(resources, tenant_id, user_id, &window, trustworthy_from, to).await?;
     let rows_upserted = states.len();
     if rows_upserted > 0 {
         resources
@@ -289,7 +249,7 @@ pub async fn compute_and_persist_history(
         computed_from = %trustworthy_from,
         to = %to,
         oldest_stored = %oldest_stored,
-        activities = activities.len(),
+        activities = window.activities.len(),
         rows_upserted,
         rows_cleared,
         complete,
@@ -310,6 +270,171 @@ pub async fn compute_and_persist_history(
         capture_requested,
         rows_cleared,
     })
+}
+
+/// Daily rows computed from the durable cache for a read that stores nothing.
+#[derive(Debug, Clone)]
+pub struct TrainingHistoryRead {
+    /// One row per day of `[coverage's first vouched day, to]`, oldest first.
+    /// Empty when the stored history warms no day of the ask.
+    pub states: Vec<DailyTrainingState>,
+    /// How much of the ask the stored history supported.
+    pub coverage: HistoryCoverage,
+}
+
+/// Compute daily training-history rows for `[from, to]` from the durable
+/// activity cache, and nothing else.
+///
+/// The read a page makes: the same stored activities, thresholds, civil days
+/// and warm-up rule as [`compute_and_persist_history`], so the page and the
+/// agent read one series — but it writes no row, clears none, and asks the
+/// capture rail for nothing. A page is opened many times a day by an athlete
+/// who asked for no history; a capture per visit would page a scrape backend
+/// again every time a thin history was looked at.
+///
+/// An athlete with no connected provider has no stored activities, and is
+/// answered [`HistoryCoverage::NoStoredActivities`] rather than refused.
+///
+/// # Errors
+///
+/// Returns [`AppError`] when the window is invalid or a repository read fails.
+pub async fn read_history_from_cache(
+    resources: &Arc<dyn ToolRuntime>,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    from: NaiveDate,
+    to: NaiveDate,
+) -> AppResult<TrainingHistoryRead> {
+    validate_window(from, to)?;
+    let nothing_stored = TrainingHistoryRead {
+        states: Vec::new(),
+        coverage: HistoryCoverage::NoStoredActivities,
+    };
+    let Some(backend) = resolve_compute_backend(resources, tenant_id, user_id).await? else {
+        return Ok(nothing_stored);
+    };
+    let window = load_stored_window(resources, tenant_id, user_id, backend, from, to).await?;
+    let Some(oldest_stored) = window.oldest_stored else {
+        return Ok(nothing_stored);
+    };
+    let trustworthy_from = first_vouched_day(from, oldest_stored, window.warmup);
+    if trustworthy_from > to {
+        return Ok(TrainingHistoryRead {
+            states: Vec::new(),
+            coverage: HistoryCoverage::Partial { trustworthy_from },
+        });
+    }
+    let states =
+        compute_states(resources, tenant_id, user_id, &window, trustworthy_from, to).await?;
+    Ok(TrainingHistoryRead {
+        states,
+        coverage: if trustworthy_from <= from {
+            HistoryCoverage::Complete
+        } else {
+            HistoryCoverage::Partial { trustworthy_from }
+        },
+    })
+}
+
+/// Refuse a window that is inverted or longer than the compute is bounded to.
+fn validate_window(from: NaiveDate, to: NaiveDate) -> AppResult<()> {
+    if to < from {
+        return Err(AppError::invalid_input("from > to"));
+    }
+    if (to - from).num_days() > MAX_BACKFILL_DAYS {
+        return Err(AppError::invalid_input(format!(
+            "backfill window exceeds the maximum of {MAX_BACKFILL_DAYS} days"
+        )));
+    }
+    Ok(())
+}
+
+/// The athlete's stored activities behind a window, with what computing from
+/// them needs.
+struct StoredWindow {
+    /// The backend whose cached rows were read.
+    backend: ComputeBackend,
+    /// The athlete's configured timezone, if any.
+    timezone: Option<String>,
+    /// Days of history a day needs behind it, at the configured chronic window.
+    warmup: i64,
+    /// Stored activities covering the window and its warm-up.
+    activities: Vec<Activity>,
+    /// The athlete's civil date of the oldest of them; `None` when the read
+    /// held nothing.
+    oldest_stored: Option<NaiveDate>,
+}
+
+/// Read the stored activities behind `[from, to]` and its warm-up.
+async fn load_stored_window(
+    resources: &Arc<dyn ToolRuntime>,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    backend: ComputeBackend,
+    from: NaiveDate,
+    to: NaiveDate,
+) -> AppResult<StoredWindow> {
+    // The rollup buckets on the athlete's civil day. Persisting UTC-day buckets
+    // shifted the whole CTL/ATL/TSB series against their own calendar for
+    // anyone training in the evening (registre#200).
+    let timezone = user_timezone(resources, user_id).await?;
+    let zone = resolve_zone(timezone.as_deref());
+
+    let warmup = warmup_days(
+        resources
+            .cageux_config()
+            .algorithms
+            .params
+            .training_load_ctl_days,
+    );
+    let activities = read_cached_window(
+        resources,
+        tenant_id,
+        user_id,
+        &backend.slug,
+        from - Duration::days(warmup),
+        to,
+    )
+    .await?;
+    let oldest_stored = activities
+        .iter()
+        .map(|a: &Activity| local_date(a.start_date(), zone))
+        .min();
+    Ok(StoredWindow {
+        backend,
+        timezone,
+        warmup,
+        activities,
+        oldest_stored,
+    })
+}
+
+/// The first day the stored history can stand behind: anything earlier would
+/// be computed against a partly-empty warm-up and read as a real, low CTL.
+fn first_vouched_day(from: NaiveDate, oldest_stored: NaiveDate, warmup: i64) -> NaiveDate {
+    from.max(oldest_stored + Duration::days(warmup))
+}
+
+/// The daily rows of `[from, to]` from a stored window, each session scored
+/// against the athlete's saved thresholds.
+async fn compute_states(
+    resources: &Arc<dyn ToolRuntime>,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    window: &StoredWindow,
+    from: NaiveDate,
+    to: NaiveDate,
+) -> AppResult<Vec<DailyTrainingState>> {
+    let inputs = athlete_inputs(resources, tenant_id, user_id).await?;
+    compute_training_history(
+        &window.activities,
+        inputs,
+        from,
+        to,
+        &resources.cageux_config().algorithms,
+        window.timezone.as_deref(),
+    )
+    .map_err(|e| AppError::internal(format!("training-load series: {e}")))
 }
 
 /// The outcome when the durable cache holds nothing for the read window.
@@ -398,7 +523,8 @@ struct ComputeBackend {
     requires_reauth: bool,
 }
 
-/// Resolve the backend slug whose cached rows this compute reads.
+/// Resolve the backend slug whose cached rows this compute reads, or `None`
+/// when the athlete has no provider connected.
 ///
 /// Canonicalised through [`backend_resolver::resolve_backend`] because that is
 /// what the write side keys on: a Garmin athlete's rows are written under
@@ -408,7 +534,7 @@ async fn resolve_compute_backend(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
-) -> AppResult<ComputeBackend> {
+) -> AppResult<Option<ComputeBackend>> {
     let (requested, requires_reauth) = if let Some(p) = default_provider() {
         (p, false)
     } else if let Some(conn) = resources
@@ -420,9 +546,9 @@ async fn resolve_compute_backend(
         let requires_reauth = conn.status.requires_reauth();
         (conn.provider, requires_reauth)
     } else {
-        return Err(AppError::no_provider_connected());
+        return Ok(None);
     };
-    Ok(ComputeBackend {
+    Ok(Some(ComputeBackend {
         slug: backend_resolver::resolve_backend(
             &resources.repos().auth_repos(),
             user_id,
@@ -431,7 +557,7 @@ async fn resolve_compute_backend(
         )
         .await,
         requires_reauth,
-    })
+    }))
 }
 
 /// Read the athlete's stored activities covering `[start, to]`, newest first.

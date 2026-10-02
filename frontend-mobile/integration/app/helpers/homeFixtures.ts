@@ -1,4 +1,4 @@
-// ABOUTME: Server-shaped Home payloads for the mobile specs — a plan around one Thursday, five activities, their routes, one's view
+// ABOUTME: Server-shaped Home payloads for the mobile specs — a plan around one Thursday, a training status, five activities, their routes, one's view
 // ABOUTME: Mirrors the /api/me/... contract: every key present, None as null, the polyline already trimmed by the server
 
 import type { RouteView } from '@pierre/scene-types';
@@ -9,6 +9,7 @@ import type {
   PlanDay,
   RecentActivitiesResponse,
   TrainingPlanResponse,
+  TrainingStatusResponse,
   WorkoutPlan,
 } from '@pierre/shared-types';
 
@@ -86,6 +87,31 @@ export const PLAN: WorkoutPlan = {
 
 export const PLAN_RESPONSE: TrainingPlanResponse = { plan: PLAN, today: TODAY };
 export const NO_PLAN_RESPONSE: TrainingPlanResponse = { plan: null, today: TODAY };
+
+/**
+ * The training status of an athlete mid-block: three days of trend that cross
+ * the zero line, a load ratio, and no lighter day called for.
+ */
+export const STATUS_RESPONSE: TrainingStatusResponse = {
+  today: TODAY,
+  form: { band: 'heavy_block', pct_of_fitness: -22 },
+  trend: [
+    { date: '2026-09-22', band: 'productive', pct_of_fitness: -12 },
+    { date: '2026-09-23', band: 'fresh', pct_of_fitness: 6 },
+    { date: TODAY, band: 'heavy_block', pct_of_fitness: -22 },
+  ],
+  load_ratio: { ratio: 1.37, acute_days: 7, chronic_days: 28 },
+  recovery_days: 0,
+};
+
+/** What the server answers when the stored history cannot stand behind today. */
+export const THIN_STATUS_RESPONSE: TrainingStatusResponse = {
+  today: TODAY,
+  form: null,
+  trend: [],
+  load_ratio: null,
+  recovery_days: null,
+};
 
 /** Google's reference polyline: (38.5, -120.2) → (40.7, -120.95) → (43.252, -126.453). */
 export const SUMMARY_POLYLINE = '_p~iF~ps|U_ulLnnqC_mqNvxq`@';

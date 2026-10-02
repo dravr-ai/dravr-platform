@@ -1037,6 +1037,42 @@ async fn test_discover_routes_refuses_a_sport_it_cannot_name() -> Result<()> {
     Ok(())
 }
 
+/// A target distance outside the declared domain is refused before Overpass is
+/// queried, in a message that names the parameter and its range.
+#[tokio::test]
+async fn test_discover_routes_refuses_a_target_distance_out_of_range() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+    for target in [json!(15), json!(900_000), json!(-5000), json!("15 km")] {
+        let request = UniversalRequest {
+            tool_name: "discover_routes".to_owned(),
+            parameters: json!({
+                "latitude": 45.87,
+                "longitude": -74.08,
+                "sport_type": "run",
+                "target_distance_meters": target
+            }),
+            user_id: Uuid::new_v4().to_string(),
+            protocol: "test".to_owned(),
+            tenant_id: None,
+        };
+
+        let refused = executor
+            .execute_tool(request)
+            .await
+            .expect_err("a target outside 500..=500000 m is refused, not clamped");
+        let rendered = refused.to_string();
+        assert!(
+            rendered.contains(
+                "target_distance_meters must be a number of meters between 500 and 500000"
+            ),
+            "{target}: {rendered}"
+        );
+    }
+
+    Ok(())
+}
+
 /// Race-time prediction is VDOT, which models running; a ride or a swim is
 /// refused before any provider is read instead of answered with running times
 /// labelled as that sport. A running label other than `Run` is accepted.

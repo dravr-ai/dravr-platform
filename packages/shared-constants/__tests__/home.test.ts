@@ -8,6 +8,7 @@ import {
   QUERY_KEYS,
   USER_SURFACES,
   surfaceById,
+  sportHasRoutes,
   surfacesFor,
   webNavLabels,
 } from '../src';
@@ -77,5 +78,22 @@ describe('home stale refetch schedule', () => {
 
   it('ends before the client would go idle', () => {
     expect(total).toBeLessThan(IDLE_STOP_AFTER_MS);
+  });
+});
+
+describe('sportHasRoutes', () => {
+  it('says yes for the sports the route search covers, however the wire spells them', () => {
+    expect(sportHasRoutes('run')).toBe(true);
+    expect(sportHasRoutes('ride')).toBe(true);
+    expect(sportHasRoutes('Trail Run')).toBe(true);
+    expect(sportHasRoutes('nordic_ski')).toBe(true);
+  });
+
+  it('says no for a session with no route, and for a sport it does not know', () => {
+    expect(sportHasRoutes('swim')).toBe(false);
+    expect(sportHasRoutes('strength_training')).toBe(false);
+    expect(sportHasRoutes('virtual_ride')).toBe(false);
+    expect(sportHasRoutes('rest')).toBe(false);
+    expect(sportHasRoutes('underwater hockey')).toBe(false);
   });
 });

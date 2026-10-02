@@ -74,6 +74,6 @@ pub mod weather;
 pub mod weather_cache_adapter;
 
 pub use osm_routes::{
-    build_overpass_query, routes_from_overpass_json, DiscoveredRoute, RouteDiscoveryService,
-    RouteSource, RouteType,
+    build_overpass_query, routes_from_overpass_json, select_routes, DiscoveredRoute,
+    DistanceSource, RouteDiscoveryService, RouteSource, RouteType, TargetFit, TargetUse,
 };

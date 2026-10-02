@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: One activity's own view, opened from Home — its map on top, its figures, splits and laps, then a chat about it
+// ABOUTME: One activity's own view, opened from Home — its map, then a chat about it, then its figures, splits and laps, each table scrolling inside itself
 // ABOUTME: The chat is the chat surface itself, embedded; its suggested questions name the activity so the agent reads the right one
 
 import { useCallback, useState, type FormEvent } from 'react';
@@ -50,11 +50,11 @@ function ViewHeader({ title, onBack }: { title: string; onBack: () => void }) {
   );
 }
 
-/** The activity's figures, label over value, as many to a row as the width holds. */
+/** The activity's figures, label over value, as many to a row as the width holds; two in the side panel. */
 function Figures({ detail }: { detail: ActivityDetailResponse }) {
   const { t, language } = useTranslation();
   return (
-    <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3 md:grid-cols-4" data-testid="activity-figures">
+    <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-2" data-testid="activity-figures">
       {activityFigures(t, detail, language).map((figure) => (
         <div key={figure.id} data-testid={`activity-figure-${figure.id}`}>
           <dt className="text-xs text-on-surface-variant">{t(figure.labelKey)}</dt>
@@ -65,17 +65,38 @@ function Figures({ detail }: { detail: ActivityDetailResponse }) {
   );
 }
 
-/** A splits or laps table; a column no row fills is not drawn. */
+/**
+ * A splits or laps table; a column no row fills is not drawn.
+ *
+ * The rows scroll inside the table's own frame, under a header that stays
+ * put: a marathon is forty-two of them, and laid out in full they pushed the
+ * question field a screen and a half down the page. Below `lg` the frame is
+ * capped at about six rows; from `lg` up it takes the height the side panel
+ * has left, and never less than about five rows. The frame is a named, focusable region so the keyboard can
+ * scroll it.
+ */
 function Segments({ title, table, testId }: { title: string; table: SegmentTable; testId: string }) {
   const { t } = useTranslation();
-  const cell = 'px-2 py-1.5 text-right font-mono';
-  const head = 'px-2 py-1.5 text-right text-xs font-medium text-on-surface-variant';
+  const cell = 'px-2 py-1.5 text-right font-mono lg:whitespace-nowrap';
+  const head = 'sticky top-0 bg-surface px-2 py-1.5 text-right text-xs font-medium text-on-surface-variant';
   return (
-    <Section title={title} headingLevel={3} data-testid={testId}>
-      <div className="overflow-x-auto">
+    <Section
+      title={title}
+      headingLevel={3}
+      data-testid={testId}
+      className="lg:flex lg:min-h-52 lg:flex-1 lg:flex-col"
+      bodyClassName="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col"
+    >
+      <div
+        role="region"
+        aria-label={title}
+        tabIndex={0}
+        data-testid={`${testId}-scroll`}
+        className="max-h-64 overflow-auto focus-ring lg:max-h-none lg:min-h-0 lg:flex-1"
+      >
         <table className="w-full text-sm text-on-surface">
           <thead>
-            <tr className="border-b ghost-border-faint">
+            <tr>
               <th scope="col" className={head}>#</th>
               <th scope="col" className={head}>{t('home.activity.figure.distance')}</th>
               <th scope="col" className={head}>{t('home.activity.column.time')}</th>
@@ -86,7 +107,7 @@ function Segments({ title, table, testId }: { title: string; table: SegmentTable
           </thead>
           <tbody>
             {table.rows.map((row) => (
-              <tr key={row.index} className="border-b ghost-border-faint last:border-0">
+              <tr key={row.index} className="border-t ghost-border-faint">
                 <td className={cell}>{row.index}</td>
                 <td className={cell}>{row.distance}</td>
                 <td className={cell}>{row.time}</td>
@@ -237,23 +258,41 @@ export default function ActivityView({ activity, onBack, onNavigate }: ActivityV
   const sport = sportLabel(t, data.activity.sport_type);
   const splits = splitsTable(data, language);
   const laps = lapsTable(data, language);
+  // The chat comes straight after the map, in the document and on screen, so
+  // the question field is there on arrival at every width; the figures,
+  // splits and laps read after it. Below `lg` they follow it down the one
+  // column. From `lg` up they leave the page's scroll for a panel pinned to
+  // the view's right edge, beside the map — still after the chat for the
+  // keyboard and a screen reader, as a right-hand column is. The panel is
+  // positioned against the body under the header rather than the scroller,
+  // which is why the scroller and the column carry no `relative`: an ancestor
+  // outside the scroller does not move with it, and the panel starts where
+  // the header ends whatever the header's height. On a short window each
+  // table keeps a few rows' height and the panel scrolls as a whole.
   return (
     <div className="flex h-full flex-col" data-testid="activity-view">
       <ViewHeader title={data.activity.name.trim() || sport} onBack={onBack} />
-      <div className="min-h-0 flex-1 overflow-y-auto" data-testid="activity-scroll">
-        <div className="mx-auto w-full max-w-[720px] space-y-8 px-4 py-6 md:px-6">
-          <div>
-            <p className="text-sm text-on-surface-variant" data-testid="activity-when">
-              <span className="font-mono">{formatInstant(data.activity.start_date, language, ROW_DATE)}</span>
-              {' · '}
-              {sport}
-            </p>
-            <ActivityMap activity={data.activity} />
+      <div className="relative min-h-0 flex-1" data-testid="activity-body">
+        <div className="h-full overflow-y-auto lg:pr-[420px]" data-testid="activity-scroll">
+          <div className="mx-auto w-full max-w-[720px] space-y-8 px-4 py-6 md:px-6">
+            <div>
+              <p className="text-sm text-on-surface-variant" data-testid="activity-when">
+                <span className="font-mono">{formatInstant(data.activity.start_date, language, ROW_DATE)}</span>
+                {' · '}
+                {sport}
+              </p>
+              <ActivityMap activity={data.activity} />
+            </div>
+            <ActivityChat activity={activity} detail={data} onNavigate={onNavigate} />
+            <div
+              data-testid="activity-details"
+              className="space-y-8 border-0 ghost-border lg:absolute lg:inset-y-0 lg:right-0 lg:!mt-0 lg:flex lg:w-[420px] lg:flex-col lg:gap-8 lg:space-y-0 lg:overflow-y-auto lg:border-l lg:px-6 lg:py-6"
+            >
+              <Figures detail={data} />
+              {splits && <Segments title={t('home.activity.splits')} table={splits} testId="activity-splits" />}
+              {laps && <Segments title={t('home.activity.laps')} table={laps} testId="activity-laps" />}
+            </div>
           </div>
-          <Figures detail={data} />
-          {splits && <Segments title={t('home.activity.splits')} table={splits} testId="activity-splits" />}
-          {laps && <Segments title={t('home.activity.laps')} table={laps} testId="activity-laps" />}
-          <ActivityChat activity={activity} detail={data} onNavigate={onNavigate} />
         </div>
       </div>
     </div>

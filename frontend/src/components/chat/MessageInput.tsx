@@ -6,7 +6,7 @@
 
 import { useRef, useEffect, useLayoutEffect, useState, useCallback, useId } from 'react';
 import { clsx } from 'clsx';
-import { Slash } from 'lucide-react';
+import { Slash, Square } from 'lucide-react';
 import CommandPalette from '../CommandPalette';
 import MentionPalette from './MentionPalette';
 import { IconButton } from '../ui';
@@ -25,6 +25,13 @@ interface MessageInputProps {
   onChange: (value: string) => void;
   onSend: () => void;
   isStreaming: boolean;
+  /**
+   * Ends the running turn. While a turn streams, the send button is this
+   * stop button instead — the athlete's one way to end a reply on purpose.
+   */
+  onStop: () => void;
+  /** A stop was sent and the turn has not ended yet; the button waits. */
+  isStopping?: boolean;
   /** Whether input should be disabled (e.g., quota exceeded) */
   disabled?: boolean;
   /**
@@ -45,6 +52,8 @@ export default function MessageInput({
   onChange,
   onSend,
   isStreaming,
+  onStop,
+  isStopping = false,
   disabled = false,
   conversationId,
   focusOnMount = true,
@@ -188,21 +197,41 @@ export default function MessageInput({
             rows={1}
             disabled={isStreaming || disabled}
           />
-          <button
-            onClick={onSend}
-            disabled={!value.trim() || isStreaming || disabled}
-            aria-label={t('chat.sendMessageAria')}
-            className={clsx(
-              'absolute bottom-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-full transition-colors touch-target [@media(pointer:coarse)]:bottom-2.5',
-              value.trim() && !isStreaming && !disabled
-                ? 'bg-primary text-on-primary hover:bg-primary-hover'
-                : 'text-on-surface-variant cursor-not-allowed'
-            )}
-          >
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-            </svg>
-          </button>
+          {isStreaming ? (
+            <button
+              type="button"
+              onClick={onStop}
+              disabled={isStopping}
+              aria-label={t('chat.stopTurnAria')}
+              title={t('chat.stopTurnAria')}
+              data-testid="stop-turn-button"
+              className={clsx(
+                'absolute bottom-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-full transition-colors touch-target [@media(pointer:coarse)]:bottom-2.5',
+                isStopping
+                  ? 'text-on-surface-variant cursor-not-allowed'
+                  : 'bg-primary text-on-primary hover:bg-primary-hover'
+              )}
+            >
+              <Square className="h-3 w-3 fill-current" aria-hidden="true" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onSend}
+              disabled={!value.trim() || disabled}
+              aria-label={t('chat.sendMessageAria')}
+              className={clsx(
+                'absolute bottom-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-full transition-colors touch-target [@media(pointer:coarse)]:bottom-2.5',
+                value.trim() && !disabled
+                  ? 'bg-primary text-on-primary hover:bg-primary-hover'
+                  : 'text-on-surface-variant cursor-not-allowed'
+              )}
+            >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
     </div>

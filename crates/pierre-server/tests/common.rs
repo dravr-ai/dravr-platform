@@ -482,6 +482,15 @@ pub async fn create_test_server_resources_with_chat_provider(
     create_test_server_resources_inner_full(None, Vec::new(), None, Some(provider)).await
 }
 
+/// [`create_test_server_resources_with_chat_provider`] plus extra runtime
+/// tools, for a turn on the chat route that has to run a tool round.
+pub async fn create_test_server_resources_with_chat_provider_and_tools(
+    provider: Arc<dyn LlmProvider + 'static>,
+    extra_tools: Vec<Arc<dyn RuntimeTool>>,
+) -> Result<Arc<ServerContext>> {
+    create_test_server_resources_inner_full(None, extra_tools, None, Some(provider)).await
+}
+
 async fn create_test_server_resources_inner(
     llm_provider: Option<Arc<dyn LlmProvider + 'static>>,
     extra_tools: Vec<Arc<dyn RuntimeTool>>,

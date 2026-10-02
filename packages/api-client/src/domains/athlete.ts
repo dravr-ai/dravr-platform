@@ -10,6 +10,7 @@ import {
   parseActivityRouteResponse,
   parseRecentActivitiesResponse,
   parseTrainingPlanResponse,
+  parseTrainingStatusResponse,
   type ActivityDetailResponse,
   type ActivityRouteAnswer,
   type ActivityRouteResponse,
@@ -17,6 +18,7 @@ import {
   type HomeActivity,
   type RecentActivitiesResponse,
   type TrainingPlanResponse,
+  type TrainingStatusResponse,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
@@ -28,6 +30,7 @@ export type {
   HomeActivity,
   RecentActivitiesResponse,
   TrainingPlanResponse,
+  TrainingStatusResponse,
 };
 
 /**
@@ -181,6 +184,21 @@ export function createAthleteApi(axios: AxiosInstance) {
         params: locale ? { locale } : undefined,
       });
       return requireShape(parseTrainingPlanResponse(response.data), ENDPOINTS.ATHLETE.TRAINING_PLAN);
+    },
+
+    /**
+     * The athlete's training status on their own today: form as a share of
+     * their fitness and the band it falls in, the same reading for each day
+     * of the trend, the recent load against their baseline, and the lighter
+     * days that form calls for.
+     *
+     * Computed from the server's stored activities: reading it reaches no
+     * provider. `form: null` is the server saying the stored history is too
+     * thin to stand behind today, not a failed read.
+     */
+    async getTrainingStatus(): Promise<TrainingStatusResponse> {
+      const response = await axios.get<unknown>(ENDPOINTS.ATHLETE.TRAINING_STATUS);
+      return requireShape(parseTrainingStatusResponse(response.data), ENDPOINTS.ATHLETE.TRAINING_STATUS);
     },
   };
 }

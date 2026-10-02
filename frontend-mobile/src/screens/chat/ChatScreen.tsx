@@ -32,7 +32,7 @@ import { CHAT_LIST_ROUTE, NEW_CONVERSATION_ID, threadHref } from '../../navigati
 import { ChatThread } from './ChatThread';
 import { ConversationInfoSheet } from './ConversationInfoSheet';
 import { ReconnectBanner } from '../../components/ReconnectBanner';
-import { useProviderConnected } from '../../hooks/useHome';
+import { useProviderConnected, useTodayRouteDraft } from '../../hooks/useHome';
 import { useConversations } from './useConversations';
 import { useMarkConversationRead } from './useMarkConversationRead';
 import { useMessages } from './useMessages';
@@ -50,6 +50,7 @@ export function ChatScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ conversationId?: string; draft?: string; send?: string }>();
   const inputRef = useRef<TextInput>(null);
+  const routeDraft = useTodayRouteDraft();
 
   // UI State
   const [inputText, setInputText] = useState('');
@@ -396,6 +397,7 @@ export function ChatScreen() {
           onChangeInputText={setInputText}
           inputRef={inputRef}
           sendText={sendText}
+          routeDraft={routeDraft}
         />
 
         <PromptDialog

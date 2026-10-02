@@ -4,8 +4,8 @@
 // ABOUTME: The words and figures the Home tab prints — civil and instant dates, durations, distances, chat drafts, activity names
 // ABOUTME: Pure functions of the app language, so the screen and its tests format a date, a sport and a draft one way
 
-import type { HomeActivity, PlanDay } from '@pierre/shared-types';
-import { activitySportLabelKey } from '@pierre/shared-constants';
+import { planDayDistanceMeters, type HomeActivity, type PlanDay } from '@pierre/shared-types';
+import { activitySportLabelKey, sportHasRoutes } from '@pierre/shared-constants';
 import { formatDuration } from '@pierre/domain-utils';
 import { formatDecimal } from '@pierre/chat-utils';
 
@@ -14,6 +14,7 @@ export type Translate = (key: string, options?: Record<string, unknown>) => stri
 
 const CIVIL_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const METRES_PER_KILOMETRE = 1000;
+const TENTHS = 10;
 
 /**
  * Midnight UTC of a `YYYY-MM-DD` date. A civil date carries no zone, so it is
@@ -38,6 +39,13 @@ export function civilLongDate(date: string, language: string): string {
     month: 'long',
     timeZone: 'UTC',
   }).format(civilInstant(date));
+}
+
+/** "20 Sep" — a day of the form trend, at the ends of its axis and in its spoken summary. */
+export function civilShortDate(date: string, language: string): string {
+  return new Intl.DateTimeFormat(language, { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(
+    civilInstant(date),
+  );
 }
 
 /** The one-letter weekday a week-strip cell is headed by: "M", "T", … in the app language. */
@@ -148,4 +156,31 @@ export function planDayDraft(t: Translate, day: PlanDay, language: string): stri
   return day.rest
     ? t('home.plan.restDayDraft', { date })
     : t('home.plan.dayDraft', { date, workout: day.workout });
+}
+
+/**
+ * The draft asking for a route for a planned session, or null when the day
+ * has none to look for: a rest day, or a session in a sport with no route (a
+ * swim, strength work, the trainer). It names the day and the workout — and
+ * the session's distance when the plan gives one, so the agent can rank
+ * routes against it — and leaves the agent to ask where the athlete is.
+ */
+export function planDayRouteDraft(t: Translate, day: PlanDay, language: string): string | null {
+  if (day.rest || typeof day.sport !== 'string' || !sportHasRoutes(day.sport)) {
+    return null;
+  }
+  const date = civilLongDate(day.date, language);
+  const metres = planDayDistanceMeters(day);
+  return metres === null
+    ? t('home.plan.routeDraft', { date, workout: day.workout })
+    : t('home.plan.routeDistanceDraft', { distance: draftKilometres(metres, language), date, workout: day.workout });
+}
+
+/**
+ * A session's distance as a draft says it: "15 km", "12.5 km" — to the tenth
+ * of a kilometre, without the decimal a whole figure does not need.
+ */
+function draftKilometres(metres: number, language: string): string {
+  const tenths = Math.round(metres / (METRES_PER_KILOMETRE / TENTHS));
+  return `${formatDecimal(tenths / TENTHS, tenths % TENTHS === 0 ? 0 : 1, language)} km`;
 }

@@ -54,6 +54,7 @@ use crate::stages::command_persistence::{
 use crate::stages::persistence::fan_out_to_group_transcript;
 use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
+use crate::turn_stop::StopScope;
 use crate::usage_counters::{
     increment_usage_counters_scoped, quota_tokens_from_envelope, UsageIncrementScope,
 };
@@ -328,6 +329,10 @@ pub async fn execute(
     )
     .await;
 
+    // Kept beside the turn's own copy: a stopped turn is described from here,
+    // after its future — and the input it owned — has been dropped.
+    let admitted_quota = quota.clone();
+    let turn_user_id = user_id_str.clone();
     let turn_input = TurnInput {
         conversation_id: request.conversation_id.clone(),
         user_id: user_id_str,
@@ -349,7 +354,34 @@ pub async fn execute(
         ctx_for_turn.chat_provider = Some(provider);
     }
 
-    let envelope = crate::run(&ctx_for_turn, turn_input, &profile, &request.hooks).await?;
+    let run = crate::run(&ctx_for_turn, turn_input, &profile, &request.hooks);
+    let envelope = match &request.hooks.stop {
+        None => run.await?,
+        Some(stop) => {
+            let scope = StopScope {
+                ctx,
+                profile: &profile,
+                conversation_id: &request.conversation_id,
+                user_id: &turn_user_id,
+                tenant_id: request.conversation_tenant_id,
+                turn_id: request.turn_id,
+                quota: &admitted_quota,
+            };
+            tokio::select! {
+                // Biased: a turn that finished in the same poll as its stop
+                // is the truthful answer. Pinned to the heap — `select!` holds
+                // every branch inline, and the turn is far too large for that.
+                biased;
+                served = Box::pin(run) => served?,
+                // The athlete stopped the turn. Its future is dropped with
+                // whatever it was drafting; the envelope carries the notice,
+                // and the accounting below runs as for any served turn — a
+                // stopped turn spent a message and whatever its finished
+                // model calls cost.
+                stopped = stop.stopped(&scope) => stopped?,
+            }
+        }
+    };
 
     let quota_tokens = quota_tokens_from_envelope(&envelope, &request.content);
     increment_usage_counters_scoped(

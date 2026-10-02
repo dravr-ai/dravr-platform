@@ -38,6 +38,7 @@ use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_database::repositories::CoachingGroupRepository;
 
 use crate::turn::{TurnInput, UserMessageResult};
+use crate::turn_stop::author_marker;
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{NewGroupTranscriptEntry, TranscriptSpeaker};
@@ -138,7 +139,10 @@ pub async fn persist_user_message(
         .await?
         .ok_or_else(|| AppError::not_found("Conversation not found"))?;
 
-    // Persist user message before LLM dispatch
+    // Persist user message before LLM dispatch. The row names its author:
+    // `chat_messages` has no such column, and a stop request has to tell the
+    // caller's own question from another participant's.
+    let author = author_marker(user_id);
     let user_msg_params = AddMessageParams {
         tenant_id,
         conversation_id,
@@ -149,7 +153,7 @@ pub async fn persist_user_message(
         finish_reason: None,
         prompt_tokens: None,
         model: None,
-        content_blocks: None,
+        content_blocks: author.as_deref(),
     };
     let message = database.add_message(&user_msg_params).await?;
     advance_read_marker(database, conversation_id, user_id, tenant_id, &message.id).await;

@@ -1,0 +1,900 @@
+{
+ "version": 0.6,
+ "generator": "Overpass API 0.7.62.11 87bfad18",
+ "elements": [
+  {
+   "type": "way",
+   "id": 135054890,
+   "bounds": {
+    "minlat": 45.8115811,
+    "minlon": -74.0260725,
+    "maxlat": 45.8118013,
+    "maxlon": -74.0256494
+   },
+   "geometry": [
+    {
+     "lat": 45.8118013,
+     "lon": -74.0256494
+    },
+    {
+     "lat": 45.8115811,
+     "lon": -74.0260725
+    }
+   ],
+   "tags": {
+    "abandoned:railway": "rail",
+    "bicycle": "designated",
+    "foot": "designated",
+    "highway": "cycleway",
+    "layer": "-1",
+    "lcn": "yes",
+    "lit": "no",
+    "name": "Le P'tit Train du Nord",
+    "piste:difficulty": "easy",
+    "piste:grooming": "classic;skating",
+    "piste:type": "nordic",
+    "railway": "abandoned",
+    "segregated": "no",
+    "surface": "compacted",
+    "tracktype": "grade2",
+    "tunnel": "yes"
+   }
+  },
+  {
+   "type": "way",
+   "id": 135054893,
+   "bounds": {
+    "minlat": 45.8112006,
+    "minlon": -74.0266149,
+    "maxlat": 45.8115811,
+    "maxlon": -74.0260725
+   },
+   "geometry": [
+    {
+     "lat": 45.8115811,
+     "lon": -74.0260725
+    },
+    {
+     "lat": 45.8115419,
+     "lon": -74.02614
+    },
+    {
+     "lat": 45.8115015,
+     "lon": -74.0262125
+    },
+    {
+     "lat": 45.8114884,
+     "lon": -74.0262334
+    },
+    {
+     "lat": 45.8114547,
+     "lon": -74.0262874
+    },
+    {
+     "lat": 45.8114127,
+     "lon": -74.0263438
+    },
+    {
+     "lat": 45.8113632,
+     "lon": -74.0264081
+    },
+    {
+     "lat": 45.8112882,
+     "lon": -74.0265039
+    },
+    {
+     "lat": 45.8112006,
+     "lon": -74.0266149
+    }
+   ],
+   "tags": {
+    "abandoned:railway": "rail",
+    "bicycle": "designated",
+    "foot": "designated",
+    "highway": "cycleway",
+    "lcn": "yes",
+    "name": "Le P'tit Train du Nord",
+    "piste:difficulty": "easy",
+    "piste:grooming": "classic;skating",
+    "piste:type": "nordic",
+    "railway": "abandoned",
+    "segregated": "no",
+    "surface": "compacted",
+    "tracktype": "grade2",
+    "width": "3",
+    "winter_service": "no"
+   }
+  },
+  {
+   "type": "way",
+   "id": 202220588,
+   "bounds": {
+    "minlat": 45.8307176,
+    "minlon": -74.0569701,
+    "maxlat": 45.8320268,
+    "maxlon": -74.0564519
+   },
+   "geometry": [
+    {
+     "lat": 45.8307176,
+     "lon": -74.0564519
+    },
+    {
+     "lat": 45.8320268,
+     "lon": -74.0569701
+    }
+   ],
+   "tags": {
+    "abandoned:railway": "rail",
+    "bicycle": "designated",
+    "foot": "designated",
+    "highway": "cycleway",
+    "layer": "-1",
+    "lcn": "yes",
+    "name": "Le P'tit Train du Nord",
+    "piste:difficulty": "easy",
+    "piste:grooming": "classic;skating",
+    "piste:type": "nordic",
+    "railway": "abandoned",
+    "segregated": "no",
+    "surface": "compacted",
+    "tracktype": "grade2",
+    "tunnel": "yes",
+    "width": "3"
+   }
+  },
+  {
+   "type": "way",
+   "id": 202220650,
+   "bounds": {
+    "minlat": 45.8320268,
+    "minlon": -74.0595097,
+    "maxlat": 45.8407017,
+    "maxlon": -74.0569701
+   },
+   "geometry": [
+    {
+     "lat": 45.8320268,
+     "lon": -74.0569701
+    },
+    {
+     "lat": 45.8322176,
+     "lon": -74.0570514
+    },
+    {
+     "lat": 45.8324188,
+     "lon": -74.0571323
+    },
+    {
+     "lat": 45.8329744,
+     "lon": -74.0573492
+    },
+    {
+     "lat": 45.8337556,
+     "lon": -74.0576482
+    },
+    {
+     "lat": 45.834336,
+     "lon": -74.0578776
+    },
+    {
+     "lat": 45.8348376,
+     "lon": -74.0580694
+    },
+    {
+     "lat": 45.8350737,
+     "lon": -74.0581613
+    },
+    {
+     "lat": 45.8353078,
+     "lon": -74.0582534
+    },
+    {
+     "lat": 45.835737,
+     "lon": -74.0584151
+    },
+    {
+     "lat": 45.8359661,
+     "lon": -74.0585066
+    },
+    {
+     "lat": 45.8361626,
+     "lon": -74.058585
+    },
+    {
+     "lat": 45.8362937,
+     "lon": -74.0586395
+    },
+    {
+     "lat": 45.8364053,
+     "lon": -74.058683
+    },
+    {
+     "lat": 45.8365228,
+     "lon": -74.0587273
+    },
+    {
+     "lat": 45.8366642,
+     "lon": -74.0587783
+    },
+    {
+     "lat": 45.8367885,
+     "lon": -74.0588192
+    },
+    {
+     "lat": 45.8368778,
+     "lon": -74.058847
+    },
+    {
+     "lat": 45.836979,
+     "lon": -74.0588772
+    },
+    {
+     "lat": 45.8370954,
+     "lon": -74.058911
+    },
+    {
+     "lat": 45.8372706,
+     "lon": -74.0589556
+    },
+    {
+     "lat": 45.8374356,
+     "lon": -74.0589965
+    },
+    {
+     "lat": 45.8375546,
+     "lon": -74.0590194
+    },
+    {
+     "lat": 45.8376854,
+     "lon": -74.0590423
+    },
+    {
+     "lat": 45.8379741,
+     "lon": -74.0590871
+    },
+    {
+     "lat": 45.8384596,
+     "lon": -74.0591616
+    },
+    {
+     "lat": 45.83885,
+     "lon": -74.0592195
+    },
+    {
+     "lat": 45.8391223,
+     "lon": -74.0592636
+    },
+    {
+     "lat": 45.8395168,
+     "lon": -74.0593265
+    },
+    {
+     "lat": 45.8399471,
+     "lon": -74.059398
+    },
+    {
+     "lat": 45.8403261,
+     "lon": -74.0594538
+    },
+    {
+     "lat": 45.840524,
+     "lon": -74.0594841
+    },
+    {
+     "lat": 45.8406463,
+     "lon": -74.0595017
+    },
+    {
+     "lat": 45.8406722,
+     "lon": -74.0595054
+    },
+    {
+     "lat": 45.8407017,
+     "lon": -74.0595097
+    }
+   ],
+   "tags": {
+    "abandoned:railway": "rail",
+    "bicycle": "designated",
+    "foot": "designated",
+    "highway": "cycleway",
+    "lcn": "yes",
+    "name": "Le P'tit Train du Nord",
+    "piste:difficulty": "easy",
+    "piste:grooming": "classic;skating",
+    "piste:type": "nordic",
+    "railway": "abandoned",
+    "segregated": "no",
+    "surface": "compacted",
+    "tracktype": "grade2",
+    "width": "3",
+    "winter_service": "no"
+   }
+  },
+  {
+   "type": "way",
+   "id": 297354806,
+   "bounds": {
+    "minlat": 45.8071836,
+    "minlon": -74.012813,
+    "maxlat": 45.8072119,
+    "maxlon": -74.0127412
+   },
+   "geometry": [
+    {
+     "lat": 45.8072119,
+     "lon": -74.012813
+    },
+    {
+     "lat": 45.8071836,
+     "lon": -74.0127412
+    }
+   ],
+   "tags": {
+    "abandoned:railway": "rail",
+    "bicycle": "designated",
+    "crossing": "uncontrolled",
+    "crossing:markings": "dots",
+    "cycleway": "crossing",
+    "foot": "designated",
+    "highway": "cycleway",
+    "lcn": "yes",
+    "name": "Le P'tit Train du Nord",
+    "railway": "abandoned",
+    "segregated": "no",
+    "surface": "asphalt",
+    "width": "2"
+   }
+  },
+  {
+   "type": "way",
+   "id": 445487255,
+   "bounds": {
+    "minlat": 45.8072119,
+    "minlon": -74.012894,
+    "maxlat": 45.8072409,
+    "maxlon": -74.012813
+   },
+   "geometry": [
+    {
+     "lat": 45.8072119,
+     "lon": -74.012813
+    },
+    {
+     "lat": 45.8072409,
+     "lon": -74.012894
+    }
+   ],
+   "tags": {
+    "abandoned:railway": "rail",
+    "bicycle": "designated",
+    "crossing": "uncontrolled",
+    "crossing:markings": "dots",
+    "cycleway": "crossing",
+    "foot": "designated",
+    "highway": "cycleway",
+    "lcn": "yes",
+    "name": "Le P'tit Train du Nord",
+    "piste:difficulty": "easy",
+    "piste:grooming": "classic;skating",
+    "piste:type": "nordic",
+    "railway": "abandoned",
+    "segregated": "no",
+    "surface": "asphalt"
+   }
+  },
+  {
+   "type": "way",
+   "id": 597516825,
+   "bounds": {
+    "minlat": 45.8504005,
+    "minlon": -74.0651531,
+    "maxlat": 45.8505228,
+    "maxlon": -74.0650954
+   },
+   "geometry": [
+    {
+     "lat": 45.8504005,
+     "lon": -74.0650954
+    },
+    {
+     "lat": 45.8504374,
+     "lon": -74.0651127
+    },
+    {
+     "lat": 45.8504822,
+     "lon": -74.065134
+    },
+    {
+     "lat": 45.8505228,
+     "lon": -74.0651531
+    }
+   ],
+   "tags": {
+    "abandoned:railway": "rail",
+    "bicycle": "designated",
+    "crossing": "uncontrolled",
+    "crossing:markings": "dots",
+    "cycleway": "crossing",
+    "foot": "designated",
+    "highway": "cycleway",
+    "lcn": "yes",
+    "name": "Le P'tit Train du Nord",
+    "piste:difficulty": "easy",
+    "piste:grooming": "classic;skating",
+    "railway": "abandoned",
+    "segregated": "no",
+    "surface": "asphalt"
+   }
+  },
+  {
+   "type": "way",
+   "id": 597516826,
+   "bounds": {
+    "minlat": 45.8505228,
+    "minlon": -74.0651758,
+    "maxlat": 45.8505682,
+    "maxlon": -74.0651531
+   },
+   "geometry": [
+    {
+     "lat": 45.8505228,
+     "lon": -74.0651531
+    },
+    {
+     "lat": 45.8505682,
+     "lon": -74.0651758
+    }
+   ],
+   "tags": {
+    "abandoned:railway": "rail",
+    "bicycle": "designated",
+    "foot": "designated",
+    "highway": "cycleway",
+    "lcn": "yes",
+    "name": "Le P'tit Train du Nord",
+    "piste:difficulty": "easy",
+    "piste:grooming": "classic;skating",
+    "railway": "abandoned",
+    "segregated": "no",
+    "surface": "asphalt",
+    "tracktype": "grade2"
+   }
+  },
+  {
+   "type": "way",
+   "id": 798934245,
+   "bounds": {
+    "minlat": 45.9268709,
+    "minlon": -74.1750982,
+    "maxlat": 45.9279791,
+    "maxlon": -74.1746699
+   },
+   "geometry": [
+    {
+     "lat": 45.9279791,
+     "lon": -74.1746699
+    },
+    {
+     "lat": 45.9279716,
+     "lon": -74.1749093
+    },
+    {
+     "lat": 45.927784,
+     "lon": -74.1750982
+    },
+    {
+     "lat": 45.9277027,
+     "lon": -74.1750982
+    },
+    {
+     "lat": 45.9276151,
+     "lon": -74.1749453
+    },
+    {
+     "lat": 45.9273525,
+     "lon": -74.1748374
+    },
+    {
+     "lat": 45.9272438,
+     "lon": -74.1749005
+    },
+    {
+     "lat": 45.9271273,
+     "lon": -74.1748374
+    },
+    {
+     "lat": 45.9269397,
+     "lon": -74.1748015
+    },
+    {
+     "lat": 45.9268709,
+     "lon": -74.1747565
+    }
+   ],
+   "tags": {
+    "bicycle": "designated",
+    "foot": "yes",
+    "highway": "path",
+    "horse": "yes",
+    "name": "Loup-Garou",
+    "surface": "dirt"
+   }
+  },
+  {
+   "type": "way",
+   "id": 798934246,
+   "bounds": {
+    "minlat": 45.9253998,
+    "minlon": -74.178261,
+    "maxlat": 45.9272716,
+    "maxlon": -74.1747565
+   },
+   "geometry": [
+    {
+     "lat": 45.9268709,
+     "lon": -74.1747565
+    },
+    {
+     "lat": 45.9267208,
+     "lon": -74.1748284
+    },
+    {
+     "lat": 45.926577,
+     "lon": -74.1749723
+    },
+    {
+     "lat": 45.926552,
+     "lon": -74.1750442
+    },
+    {
+     "lat": 45.926602,
+     "lon": -74.1750622
+    },
+    {
+     "lat": 45.9267314,
+     "lon": -74.1749821
+    },
+    {
+     "lat": 45.9268151,
+     "lon": -74.175004
+    },
+    {
+     "lat": 45.9268835,
+     "lon": -74.175086
+    },
+    {
+     "lat": 45.9268911,
+     "lon": -74.1751626
+    },
+    {
+     "lat": 45.9268721,
+     "lon": -74.1752009
+    },
+    {
+     "lat": 45.9268683,
+     "lon": -74.1752774
+    },
+    {
+     "lat": 45.9269444,
+     "lon": -74.1753704
+    },
+    {
+     "lat": 45.9270966,
+     "lon": -74.1755126
+    },
+    {
+     "lat": 45.9271993,
+     "lon": -74.1756822
+    },
+    {
+     "lat": 45.9271993,
+     "lon": -74.1757478
+    },
+    {
+     "lat": 45.9271879,
+     "lon": -74.1759228
+    },
+    {
+     "lat": 45.9272387,
+     "lon": -74.1759667
+    },
+    {
+     "lat": 45.9272716,
+     "lon": -74.1760103
+    },
+    {
+     "lat": 45.9272381,
+     "lon": -74.1760924
+    },
+    {
+     "lat": 45.9271917,
+     "lon": -74.176076
+    },
+    {
+     "lat": 45.9271118,
+     "lon": -74.1761088
+    },
+    {
+     "lat": 45.9270585,
+     "lon": -74.176065
+    },
+    {
+     "lat": 45.9269064,
+     "lon": -74.1761361
+    },
+    {
+     "lat": 45.926758,
+     "lon": -74.1761635
+    },
+    {
+     "lat": 45.9266363,
+     "lon": -74.176158
+    },
+    {
+     "lat": 45.9265792,
+     "lon": -74.1761307
+    },
+    {
+     "lat": 45.9264574,
+     "lon": -74.1761635
+    },
+    {
+     "lat": 45.9263661,
+     "lon": -74.1761252
+    },
+    {
+     "lat": 45.9262672,
+     "lon": -74.1761361
+    },
+    {
+     "lat": 45.9261265,
+     "lon": -74.1760924
+    },
+    {
+     "lat": 45.9259781,
+     "lon": -74.1759994
+    },
+    {
+     "lat": 45.9258449,
+     "lon": -74.1760596
+    },
+    {
+     "lat": 45.9257879,
+     "lon": -74.1762291
+    },
+    {
+     "lat": 45.9259096,
+     "lon": -74.1767104
+    },
+    {
+     "lat": 45.9259172,
+     "lon": -74.1767924
+    },
+    {
+     "lat": 45.9258526,
+     "lon": -74.1769729
+    },
+    {
+     "lat": 45.925708,
+     "lon": -74.1771917
+    },
+    {
+     "lat": 45.9256243,
+     "lon": -74.1773448
+    },
+    {
+     "lat": 45.9255786,
+     "lon": -74.1774324
+    },
+    {
+     "lat": 45.9255596,
+     "lon": -74.1775691
+    },
+    {
+     "lat": 45.9254074,
+     "lon": -74.1777168
+    },
+    {
+     "lat": 45.9254112,
+     "lon": -74.1778644
+    },
+    {
+     "lat": 45.9253998,
+     "lon": -74.177941
+    },
+    {
+     "lat": 45.9254417,
+     "lon": -74.1780449
+    },
+    {
+     "lat": 45.9255096,
+     "lon": -74.1781698
+    },
+    {
+     "lat": 45.9255461,
+     "lon": -74.178261
+    }
+   ],
+   "tags": {
+    "bicycle": "designated",
+    "foot": "yes",
+    "highway": "path",
+    "horse": "yes",
+    "name": "Loup-Garou",
+    "surface": "dirt"
+   }
+  },
+  {
+   "type": "relation",
+   "id": 416124,
+   "bounds": {
+    "minlat": 45.0103355,
+    "minlon": -79.4438796,
+    "maxlat": 48.6635548,
+    "maxlon": -73.2490936
+   },
+   "tags": {
+    "bicycle": "yes",
+    "cycle_network": "CA:QC:RV",
+    "name": "Route Verte 2",
+    "network": "ncn",
+    "rcn": "yes",
+    "ref": "RV2",
+    "route": "bicycle",
+    "type": "route",
+    "wikidata": "Q3444015"
+   }
+  },
+  {
+   "type": "relation",
+   "id": 2890229,
+   "bounds": {
+    "minlat": 45.4299231,
+    "minlon": -76.1095288,
+    "maxlat": 46.6127614,
+    "maxlon": -73.4860332
+   },
+   "tags": {
+    "name": "Sentier Trans-Canada Gatineau - Montréal",
+    "name:en": "Trans Canada Trail (Montréal to Gatineau)",
+    "name:fr": "Sentier Trans-Canada Gatineau - Montréal",
+    "network": "ncn",
+    "ref": "STC",
+    "route": "bicycle",
+    "type": "route"
+   }
+  },
+  {
+   "type": "relation",
+   "id": 7998092,
+   "bounds": {
+    "minlat": 45.8309797,
+    "minlon": -74.0550371,
+    "maxlat": 45.8532823,
+    "maxlon": -74.029675
+   },
+   "tags": {
+    "name": "MTB Coulée de Prévost",
+    "route": "mtb",
+    "type": "route"
+   }
+  },
+  {
+   "type": "relation",
+   "id": 8008075,
+   "bounds": {
+    "minlat": 45.8771045,
+    "minlon": -74.1400078,
+    "maxlat": 45.885291,
+    "maxlon": -74.1301157
+   },
+   "tags": {
+    "name": "MTB Velo MSS",
+    "route": "mtb",
+    "type": "route"
+   }
+  },
+  {
+   "type": "relation",
+   "id": 8011288,
+   "bounds": {
+    "minlat": 45.9182173,
+    "minlon": -74.022947,
+    "maxlat": 45.929891,
+    "maxlon": -74.002827
+   },
+   "tags": {
+    "name": "MTB Roger-Cabana",
+    "route": "mtb",
+    "type": "route"
+   }
+  },
+  {
+   "type": "relation",
+   "id": 8289697,
+   "bounds": {
+    "minlat": 45.8432907,
+    "minlon": -74.1145838,
+    "maxlat": 45.8574422,
+    "maxlon": -74.0856603
+   },
+   "tags": {
+    "access": "private",
+    "name": "MTB Forêt Héritage",
+    "note": "Domaine à accès privé réservé aux membres locaux.",
+    "route": "mtb",
+    "type": "route"
+   }
+  },
+  {
+   "type": "relation",
+   "id": 8461592,
+   "bounds": {
+    "minlat": 45.8956807,
+    "minlon": -74.2530436,
+    "maxlat": 45.9097637,
+    "maxlon": -74.1357188
+   },
+   "tags": {
+    "cycle_network": "CA:QC:MRC",
+    "description": "Trajet de la MRC des Pays-d'en-Haut http://lespaysdenhaut.com/wp-content/uploads/2016/08/Trajet-velocite.pdf",
+    "name": "Velocité",
+    "network": "lcn",
+    "route": "bicycle",
+    "type": "route"
+   }
+  },
+  {
+   "type": "relation",
+   "id": 11138891,
+   "bounds": {
+    "minlat": 45.925953,
+    "minlon": -74.1746699,
+    "maxlat": 45.9416948,
+    "maxlon": -74.1359769
+   },
+   "tags": {
+    "name": "MTB Réseau Mica",
+    "route": "mtb",
+    "type": "route"
+   }
+  },
+  {
+   "type": "relation",
+   "id": 11138892,
+   "bounds": {
+    "minlat": 45.9253998,
+    "minlon": -74.178261,
+    "maxlat": 45.9279791,
+    "maxlon": -74.1746699
+   },
+   "tags": {
+    "name": "Loup-Garou",
+    "route": "mtb",
+    "type": "route"
+   }
+  },
+  {
+   "type": "relation",
+   "id": 14253819,
+   "bounds": {
+    "minlat": 45.7765166,
+    "minlon": -75.4916483,
+    "maxlat": 46.5571845,
+    "maxlon": -73.9965931
+   },
+   "tags": {
+    "distance": "234 km",
+    "from": "Mont-Laurier",
+    "name": "Le P’tit Train du Nord",
+    "route": "bicycle",
+    "to": "Saint-Jérôme",
+    "type": "route",
+    "wikidata": "Q3377292",
+    "wikipedia": "fr:Parc linéaire Le P'tit Train du Nord"
+   }
+  }
+ ]
+}

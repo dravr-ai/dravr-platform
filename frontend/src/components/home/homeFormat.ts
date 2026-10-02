@@ -6,14 +6,16 @@
 
 import type { TFunction } from '@pierre/i18n';
 import type { HomeActivity, PlanDay, PlanDayLookup, PlanPhase } from '@pierre/shared-types';
-import { addCivilDays, mondayOf, phaseWeekOn } from '@pierre/shared-types';
-import { activitySportLabelKey } from '@pierre/shared-constants';
+import { addCivilDays, mondayOf, phaseWeekOn, planDayDistanceMeters } from '@pierre/shared-types';
+import { activitySportLabelKey, sportHasRoutes } from '@pierre/shared-constants';
 import { formatDuration } from '@pierre/domain-utils';
 import { formatDecimal } from '@pierre/chat-utils';
 import { formatKilometres } from '@pierre/ui-logic';
 
 const CIVIL_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const DAYS_PER_WEEK = 7;
+const METRES_PER_KILOMETRE = 1000;
+const TENTHS = 10;
 
 /** The weekday, day and month a chat draft names a day by — "Tuesday 23 September", "mardi 23 septembre". */
 export const DRAFT_DATE: Intl.DateTimeFormatOptions = { weekday: 'long', day: 'numeric', month: 'long' };
@@ -160,6 +162,38 @@ export function planDayDraft(t: TFunction, language: string, date: string, looku
     return t('home.plan.restDayDraft', { date: named });
   }
   return null;
+}
+
+/**
+ * The chat draft asking for a route for a planned session, or null when the
+ * day has none to look for: a rest day, a day the plan does not cover, or a
+ * session in a sport with no route (a swim, strength work, the trainer). The
+ * draft names the day and the workout — and the session's distance when the
+ * plan gives one, so the agent can rank routes against it — and leaves the
+ * agent to ask where the athlete is before it searches.
+ */
+export function planDayRouteDraft(t: TFunction, language: string, date: string, lookup: PlanDayLookup): string | null {
+  if (lookup.kind !== 'session' || typeof lookup.day.sport !== 'string' || !sportHasRoutes(lookup.day.sport)) {
+    return null;
+  }
+  const named = formatCivilDate(date, language, DRAFT_DATE);
+  const meters = planDayDistanceMeters(lookup.day);
+  return meters === null
+    ? t('home.plan.routeDraft', { date: named, workout: lookup.day.workout })
+    : t('home.plan.routeDistanceDraft', {
+        distance: draftKilometres(meters, language),
+        date: named,
+        workout: lookup.day.workout,
+      });
+}
+
+/**
+ * A session's distance as a draft says it: "15 km", "12.5 km" — to the tenth
+ * of a kilometre, without the decimal a whole figure does not need.
+ */
+function draftKilometres(meters: number, language: string): string {
+  const tenths = Math.round(meters / (METRES_PER_KILOMETRE / TENTHS));
+  return `${formatDecimal(tenths / TENTHS, tenths % TENTHS === 0 ? 0 : 1, language)} km`;
 }
 
 /** A session's sport, minutes and intensity, in that order, each only when the day carries it. */

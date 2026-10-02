@@ -635,6 +635,18 @@ Radii (Boreal scale): `sm` 2px, `md` 4px, `lg` 8px, `xl` 12px, `full` 9999px
 
 Content max-width: 1280px main, 720px reading (the thread and its composer). Athlete shell: icon rail 72px + list column 320px (`lg`) / 340px (`xl`); operator shell: sidebar 260px, rail 72px when collapsed. Row heights: chat list 60, settings menu 48, notifications 48, tables 44; headers 52.
 
+A long table never pushes the page's next action below the fold: it scrolls
+inside a frame of its own, under a header row that stays put, and the action
+comes before it. The activity view is the pattern — the chat (suggested
+questions, then the question field) follows the map directly, in the document
+and on screen, and the figures, splits and laps come after it. From `lg` up
+they sit in a 420px panel pinned right of the map behind a hairline, the
+splits taking the height the panel has left and never less than 208px, the
+panel itself scrolling when a short window cannot hold that; below `lg` the view is one
+column, they follow the chat, and each table is capped at 256px. The field
+is on screen on arrival from 390px up. Either way the frame is a named,
+focusable region, and no CSS `order` is used: focus order is document order.
+
 The operator sidebar sits on `surface` behind a hairline, like the athlete
 rail: the lockup at 28px, 12px sentence-case section labels in `outline`,
 the active row on the `primary-container` tint with no side bar, a count

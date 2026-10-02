@@ -48,6 +48,7 @@ pub mod surface_profile;
 mod tool_budget;
 pub mod turn;
 pub mod turn_service;
+pub mod turn_stop;
 pub mod usage_counters;
 
 pub use mcp_bridge::McpBridgeProvider;
@@ -772,6 +773,7 @@ async fn run_turn(
     // platform composed it — see `resolve_turn_prompt`.
     let msg_result = resolve_turn_prompt(database, ctx.repos.groups.as_ref(), &input).await?;
     let user_message = msg_result.message;
+    turn_stop::question_stored(hooks, &user_message);
     let conv = msg_result.conversation;
 
     // Stage 3: Resolve active model per channel policy.
@@ -947,6 +949,9 @@ async fn run_turn(
         model: Some(&active_model),
         content_blocks: content_blocks.as_deref(),
     };
+    if let Some(stopped) = turn_stop::stopped_before_reply(ctx, hooks, profile, &input).await? {
+        return Ok(stopped);
+    }
     let (assistant_message, updated_conversation) = persist_assistant_response(
         database,
         ctx.repos.groups.as_ref(),

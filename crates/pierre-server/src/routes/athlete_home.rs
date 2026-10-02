@@ -61,6 +61,14 @@
 //!   structured plan card: the athlete's one active season, whichever agent
 //!   laid it, projected on the athlete's own "today".
 //!
+//! - `GET /api/me/training-status` — the athlete's form on their own today
+//!   as a share of their fitness, the band it falls in, the same reading for
+//!   each day of the chronic window, the recent load against their baseline
+//!   and the lighter days that form calls for. Computed from the stored
+//!   activities alone (see [`crate::services::training_status`]): the read
+//!   reaches no provider and starts no capture, and a day the stored history
+//!   cannot warm is absent, so a thin history answers `form: null`.
+//!
 //! Every JSON key is always present; an absent value is `null`.
 
 pub mod activity_view;
@@ -104,6 +112,7 @@ use uuid::Uuid;
 use crate::mcp::resources::ServerContext;
 use crate::services::activity_detail::read_activity_detail;
 use crate::services::activity_route::{activity_route, CachedActivityRef, RouteAsk, RouteMiss};
+use crate::services::training_status::{training_status, TrainingStatus};
 use crate::tools::runtime_adapter::into_runtime;
 use activity_view::{ActivityLap, ActivitySplit};
 
@@ -450,6 +459,7 @@ pub fn athlete_home_routes() -> Router<Arc<ServerContext>> {
             put(put_activity_conversation),
         )
         .route("/api/me/training-plan", get(get_training_plan))
+        .route("/api/me/training-status", get(get_training_status))
 }
 
 async fn get_recent_activities(
@@ -1009,6 +1019,24 @@ async fn get_training_plan(
     )
     .await?;
     Ok(Json(TrainingPlanResponse { plan, today }))
+}
+
+async fn get_training_status(
+    State(resources): State<Arc<ServerContext>>,
+    auth: AuthenticatedUser,
+) -> AppResult<Json<TrainingStatus>> {
+    let user_id = auth.user_id;
+    let tenant_id = active_tenant(&auth)?;
+    let user = resources.repos().users.get_global(user_id).await?;
+    // The athlete's civil day: form on a day is read at the end of the day
+    // before, so the server's date would show a different reading for every
+    // zone away from UTC.
+    let today = clock_date(
+        Utc::now(),
+        resolve_zone(user.as_ref().and_then(|u| u.timezone.as_deref())),
+    );
+    let status = training_status(&into_runtime(&resources), tenant_id, user_id, today).await?;
+    Ok(Json(status))
 }
 
 fn active_tenant(auth: &AuthenticatedUser) -> AppResult<TenantId> {

@@ -36,28 +36,76 @@ const CATALOGUE: CommandEntry[] = [
   },
 ];
 
-function Composer({ disabled = false }: { disabled?: boolean }) {
+const onStop = vi.fn();
+
+interface ComposerProps {
+  disabled?: boolean;
+  isStreaming?: boolean;
+  isStopping?: boolean;
+}
+
+function Composer({ disabled = false, isStreaming = false, isStopping = false }: ComposerProps) {
   const [value, setValue] = useState('');
   return (
     <MessageInput
       value={value}
       onChange={setValue}
       onSend={vi.fn()}
-      isStreaming={false}
+      isStreaming={isStreaming}
+      onStop={onStop}
+      isStopping={isStopping}
       disabled={disabled}
       conversationId="conv-1"
     />
   );
 }
 
-function renderComposer(disabled = false) {
+function renderComposer(disabled = false, turn: Pick<ComposerProps, 'isStreaming' | 'isStopping'> = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <Composer disabled={disabled} />
+      <Composer disabled={disabled} {...turn} />
     </QueryClientProvider>,
   );
 }
+
+// carnet#705: while a turn runs the send button is a stop button. It was only
+// ever disabled, so an athlete had no way to end a reply they no longer wanted.
+describe('MessageInput stop button', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listCommands.mockResolvedValue(CATALOGUE);
+  });
+
+  it('shows send and no stop while no turn is running', () => {
+    renderComposer();
+    expect(screen.getByRole('button', { name: 'Send message' })).toBeInTheDocument();
+    expect(screen.queryByTestId('stop-turn-button')).toBeNull();
+  });
+
+  it('replaces send with an enabled stop button while a turn streams, and stops on press', async () => {
+    const user = userEvent.setup();
+    renderComposer(false, { isStreaming: true });
+
+    expect(screen.queryByRole('button', { name: 'Send message' })).toBeNull();
+    const stop = screen.getByRole('button', { name: 'Stop this reply' });
+    expect(stop).toHaveAttribute('data-testid', 'stop-turn-button');
+    expect(stop).toBeEnabled();
+
+    await user.click(stop);
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
+  it('holds the stop button disabled once the stop was sent', async () => {
+    const user = userEvent.setup();
+    renderComposer(false, { isStreaming: true, isStopping: true });
+
+    const stop = screen.getByTestId('stop-turn-button');
+    expect(stop).toBeDisabled();
+    await user.click(stop);
+    expect(onStop).not.toHaveBeenCalled();
+  });
+});
 
 describe('MessageInput slash affordance', () => {
   beforeEach(() => {

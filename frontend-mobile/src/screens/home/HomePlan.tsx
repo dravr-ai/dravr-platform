@@ -28,6 +28,7 @@ import {
   civilWeekdayLong,
   civilWeekdayNarrow,
   planDayDraft,
+  planDayRouteDraft,
   sportLabel,
   type Translate,
 } from './homeFormat';
@@ -153,6 +154,7 @@ type OpenDraft = (draft: string) => void;
  */
 function TodayPlan({ calendar, openDraft }: { calendar: HomeCalendar; openDraft: OpenDraft }) {
   const { t, language } = useTranslation();
+  const colors = useThemeColors();
   const { todayLookup, tomorrowLookup, phaseWeek } = calendar;
   const phaseLabel =
     phaseWeek === null
@@ -161,6 +163,9 @@ function TodayPlan({ calendar, openDraft }: { calendar: HomeCalendar; openDraft:
           phase: t(`plan.card.phase.${phaseWeek.phase.kind}`, { defaultValue: phaseWeek.phase.kind }),
           week: phaseWeek.week,
         });
+
+  const routeDraft =
+    todayLookup.kind === 'session' ? planDayRouteDraft(t, todayLookup.day, language) : null;
 
   const today =
     todayLookup.kind === 'uncovered' ? (
@@ -190,6 +195,17 @@ function TodayPlan({ calendar, openDraft }: { calendar: HomeCalendar; openDraft:
   return (
     <View className="px-4" testID="home-today">
       {today}
+      {routeDraft !== null ? (
+        <Pressable
+          onPress={() => openDraft(routeDraft)}
+          accessibilityRole="button"
+          className="min-h-11 flex-row items-center self-start"
+          testID="home-today-route"
+        >
+          <Feather name="map-pin" size={16} color={colors.tokens.primary} style={{ marginRight: spacing.xs }} />
+          <Text className="text-sm font-medium text-primary">{t('home.plan.routeCta')}</Text>
+        </Pressable>
+      ) : null}
       {phaseLabel !== null ? (
         <Text className="mt-2 text-sm text-text-secondary" testID="home-today-phase">
           {phaseLabel}

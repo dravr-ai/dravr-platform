@@ -11,6 +11,7 @@ import {
   LATEST_ROUTE_RESPONSE,
   NO_GPS_ROUTE_RESPONSE,
   PLAN_RESPONSE,
+  STATUS_RESPONSE,
   PROVIDERS_CONNECTED,
   TEMPO_DETAIL_RESPONSE,
   TRAIL_ROUTE_RESPONSE,
@@ -52,6 +53,7 @@ const THREAD = 'conv-activity-9000';
 function server(overrides: StubRoutes = {}): StubRoutes {
   return {
     'GET /api/me/training-plan?locale=en': { data: PLAN_RESPONSE },
+    'GET /api/me/training-status': { data: STATUS_RESPONSE },
     'GET /api/me/activities/recent': { data: recentResponse() },
     'GET /api/me/activities/strava/9001/route': { data: LATEST_ROUTE_RESPONSE },
     'GET /api/me/activities/intervals_icu/i77/route': { data: TRAIL_ROUTE_RESPONSE },

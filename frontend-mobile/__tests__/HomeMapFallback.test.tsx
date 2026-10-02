@@ -20,6 +20,7 @@ jest.mock('../src/services/api', () => {
   return {
     athleteApi: {
       getTrainingPlan: jest.fn(async () => fixtures.PLAN_RESPONSE),
+      getTrainingStatus: jest.fn(async () => fixtures.STATUS_RESPONSE),
       getRecentActivities: jest.fn(async () => fixtures.recentResponse()),
       getActivityRoute: jest.fn(async () => fixtures.LATEST_ROUTE_RESPONSE),
     },

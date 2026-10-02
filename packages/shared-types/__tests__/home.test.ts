@@ -7,6 +7,7 @@ import {
   parseActivityRouteResponse,
   parseRecentActivitiesResponse,
   parseTrainingPlanResponse,
+  parseTrainingStatusResponse,
 } from '../src/home';
 import { parseWorkoutPlan } from '../src/workout-plan';
 
@@ -337,5 +338,73 @@ describe('parseTrainingPlanResponse', () => {
     expect(parseWorkoutPlan(JSON.stringify({ weeks: [] }))).toBeNull();
     expect(parseWorkoutPlan('not json')).toBeNull();
     expect(parseWorkoutPlan(undefined)).toBeNull();
+  });
+});
+
+/** A status as the route serializes it for an athlete with a deep history. */
+const trainingStatus = {
+  today: '2026-09-20',
+  form: { band: 'heavy_block', pct_of_fitness: -22 },
+  trend: [
+    { date: '2026-09-18', band: 'productive', pct_of_fitness: -12 },
+    { date: '2026-09-19', band: 'insufficient_history', pct_of_fitness: null },
+    { date: '2026-09-20', band: 'heavy_block', pct_of_fitness: -22 },
+  ],
+  load_ratio: { ratio: 1.37, acute_days: 7, chronic_days: 28 },
+  recovery_days: 0,
+};
+
+/** What the route answers when the stored history cannot stand behind today. */
+const thinHistory = {
+  today: '2026-09-20',
+  form: null,
+  trend: [],
+  load_ratio: null,
+  recovery_days: null,
+};
+
+describe('parseTrainingStatusResponse', () => {
+  it('reads a full status as sent', () => {
+    expect(parseTrainingStatusResponse(trainingStatus)).toEqual(trainingStatus);
+  });
+
+  it('reads the thin-history answer as no reading, not as an error', () => {
+    expect(parseTrainingStatusResponse(thinHistory)).toEqual(thinHistory);
+  });
+
+  it('refuses a status with a key left out rather than reading it as thin history', () => {
+    for (const key of ['today', 'form', 'trend', 'load_ratio', 'recovery_days']) {
+      expect({ key, parsed: parseTrainingStatusResponse(without(trainingStatus, key)) }).toEqual({
+        key,
+        parsed: null,
+      });
+    }
+  });
+
+  it('refuses a band it has no words for, today or anywhere in the trend', () => {
+    expect(
+      parseTrainingStatusResponse({ ...trainingStatus, form: { band: 'overreaching', pct_of_fitness: -22 } }),
+    ).toBeNull();
+    expect(
+      parseTrainingStatusResponse({
+        ...trainingStatus,
+        trend: [{ date: '2026-09-20', band: 'peaking', pct_of_fitness: 3 }],
+      }),
+    ).toBeNull();
+  });
+
+  it('refuses malformed figures', () => {
+    expect(parseTrainingStatusResponse({ ...trainingStatus, today: '20 Sep' })).toBeNull();
+    expect(parseTrainingStatusResponse({ ...trainingStatus, recovery_days: -1 })).toBeNull();
+    expect(parseTrainingStatusResponse({ ...trainingStatus, recovery_days: 1.5 })).toBeNull();
+    expect(
+      parseTrainingStatusResponse({ ...trainingStatus, load_ratio: { ratio: '1.4', acute_days: 7, chronic_days: 28 } }),
+    ).toBeNull();
+    expect(
+      parseTrainingStatusResponse({ ...trainingStatus, form: { band: 'fresh', pct_of_fitness: 'high' } }),
+    ).toBeNull();
+    expect(
+      parseTrainingStatusResponse({ ...trainingStatus, trend: [{ band: 'fresh', pct_of_fitness: 6 }] }),
+    ).toBeNull();
   });
 });

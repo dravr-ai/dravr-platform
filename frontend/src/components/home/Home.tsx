@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The athlete's Home — where sign-in lands and the logo leads: today's plan, the week, the latest activities
+// ABOUTME: The athlete's Home — where sign-in lands and the logo leads: today's plan, the week, the training status, the latest activities
 // ABOUTME: One reading column under the page header; a tap on a day drafts its question in a chat, one on an activity opens its view
 
 import { useTranslation } from '@pierre/i18n';
@@ -11,6 +11,7 @@ import { EmptyState } from '../ui/EmptyState';
 import { useTrainingPlan } from '../../hooks/useHome';
 import { HomeToday } from './HomeToday';
 import { HomeWeek } from './HomeWeek';
+import { HomeStatus } from './HomeStatus';
 import { RecentActivities } from './RecentActivities';
 import { planWindow } from './homeFormat';
 
@@ -95,6 +96,7 @@ export default function Home({ onNavigate, onOpenChatDraft }: HomeProps) {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-[720px] space-y-10 px-4 py-6 md:px-6">
           <HomePlan onOpenChatDraft={onOpenChatDraft} />
+          <HomeStatus />
           <RecentActivities onNavigate={onNavigate} />
         </div>
       </div>

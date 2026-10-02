@@ -333,11 +333,45 @@ const ACTIVITY_SPORT_ALIASES: Record<string, string> = activitySports.aliases;
  * matches; the same call keeps working once the wire carries the codes.
  */
 export function activitySportLabelKey(sport: string): string | null {
+  return ACTIVITY_SPORT_LABEL_KEY[canonicalActivitySport(sport)] ?? null;
+}
+
+/** A sport as the wire spells it, folded onto the vocabulary's canonical name. */
+function canonicalActivitySport(sport: string): string {
   const folded = sport
     .trim()
     .toLowerCase()
     .replace(/[\s-]+/g, '_')
     .replace(/_v\d+$/, '');
-  const canonical = ACTIVITY_SPORT_ALIASES[folded] ?? folded;
-  return ACTIVITY_SPORT_LABEL_KEY[canonical] ?? null;
+  return ACTIVITY_SPORT_ALIASES[folded] ?? folded;
+}
+
+/**
+ * The sports the agent's route search covers — the `sport_type` values the
+ * `discover_routes` tool accepts. Anything else (a swim, a strength session,
+ * a ride on the trainer) has no route to look for.
+ */
+const ROUTE_SPORTS: ReadonlySet<string> = new Set([
+  'run',
+  'trail_running',
+  'ride',
+  'mountain_bike',
+  'gravel_ride',
+  'ebike_ride',
+  'hike',
+  'walk',
+  'cross_country_skiing',
+  'alpine_skiing',
+  'backcountry_skiing',
+  'snowshoe',
+]);
+
+/**
+ * Whether a session of this sport happens on a route the agent can look up,
+ * so a surface offers "find a route" only where there is one to find. A sport
+ * the vocabulary does not know is answered no: the offer is withheld rather
+ * than made for a session it may not fit.
+ */
+export function sportHasRoutes(sport: string): boolean {
+  return ROUTE_SPORTS.has(canonicalActivitySport(sport));
 }

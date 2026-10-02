@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The Home tab — today's session from the plan, the week around it, and the latest activities with their routes
+// ABOUTME: The Home tab — today's session from the plan, the week around it, the training status, and the latest activities with their routes
 // ABOUTME: Where the app lands after sign-in; a day on it opens a chat with a drafted question, an activity its own view
 
 import React, { useCallback, useRef, useState } from 'react';
@@ -13,9 +13,15 @@ import type { ActivityRouteResponse, HomeActivity } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { BrandLockup } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
-import { useProviderConnected, useRecentActivities, useTrainingPlan } from '../../hooks/useHome';
+import {
+  useProviderConnected,
+  useRecentActivities,
+  useTrainingPlan,
+  useTrainingStatus,
+} from '../../hooks/useHome';
 import { CONNECTIONS_ROUTE, activityHref, threadHref } from '../../navigation/routes';
 import { HomePlan } from './HomePlan';
+import { HomeStatus } from './HomeStatus';
 import { RecentActivities } from './RecentActivities';
 
 export function HomeScreen() {
@@ -25,6 +31,7 @@ export function HomeScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const plan = useTrainingPlan();
   const recent = useRecentActivities();
+  const status = useTrainingStatus();
   const [refreshing, setRefreshing] = useState(false);
 
   // The activity list carries no provider flag, so the provider status says
@@ -41,13 +48,14 @@ export function HomeScreen() {
   // not change — while a route answered without one is asked again on its
   // own (`routeAnswerStaleTime`), and a pull to refresh re-asks it at once.
   //
-  // The three refetches keep their identity, and so does the focus callback:
+  // The four refetches keep their identity, and so does the focus callback:
   // one whose identity changed would be run again by the router while the
   // tab is focused, and would read everything a second time.
   const focusedOnce = useRef(false);
   const { refetch: refetchPlan } = plan;
   const { refetch: refetchRecent } = recent;
   const { refetch: refetchProvider } = provider;
+  const { refetch: refetchStatus } = status;
   useFocusEffect(
     useCallback(() => {
       if (!focusedOnce.current) {
@@ -57,7 +65,8 @@ export function HomeScreen() {
       void refetchPlan();
       void refetchRecent();
       void refetchProvider();
-    }, [refetchPlan, refetchRecent, refetchProvider]),
+      void refetchStatus();
+    }, [refetchPlan, refetchRecent, refetchProvider, refetchStatus]),
   );
 
   const queryClient = useQueryClient();
@@ -67,10 +76,14 @@ export function HomeScreen() {
       queryKey: QUERY_KEYS.home.activityRoutes,
       predicate: (query) => (query.state.data as ActivityRouteResponse | undefined)?.route === null,
     });
-    void Promise.allSettled([refetchPlan(), refetchRecent(), refetchProvider(), undrawnRoutes]).finally(() =>
-      setRefreshing(false),
-    );
-  }, [queryClient, refetchPlan, refetchRecent, refetchProvider]);
+    void Promise.allSettled([
+      refetchPlan(),
+      refetchRecent(),
+      refetchProvider(),
+      refetchStatus(),
+      undrawnRoutes,
+    ]).finally(() => setRefreshing(false));
+  }, [queryClient, refetchPlan, refetchRecent, refetchProvider, refetchStatus]);
 
   // A plan day asks the agent about it, in a fresh thread, with the question
   // in the composer and the send left to the athlete; an activity opens its
@@ -117,6 +130,7 @@ export function HomeScreen() {
           onRetry={() => void refetchPlan()}
           openDraft={openDraft}
         />
+        <HomeStatus response={status.response} isError={status.isError} onRetry={() => void refetchStatus()} />
         <RecentActivities
           activities={recent.activities}
           hasData={recent.hasData}

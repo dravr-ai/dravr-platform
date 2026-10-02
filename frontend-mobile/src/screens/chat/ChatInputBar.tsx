@@ -24,6 +24,8 @@ interface ChatInputBarProps {
   partialTranscript: string;
   isListening: boolean;
   isSending: boolean;
+  /** A stop was sent and the turn has not ended yet; the stop button waits. */
+  isStopping: boolean;
   /** When true, input and send are disabled (e.g. usage quota blocked) */
   disabled?: boolean;
   voiceAvailable: boolean;
@@ -31,6 +33,8 @@ interface ChatInputBarProps {
   onChangeText: (text: string) => void;
   onVoicePress: () => void;
   onSendMessage: () => void;
+  /** Ends the running turn; while one runs, the send button is this instead. */
+  onStopTurn: () => void;
 }
 
 /**
@@ -57,12 +61,14 @@ export function ChatInputBar({
   partialTranscript,
   isListening,
   isSending,
+  isStopping,
   disabled = false,
   voiceAvailable,
   inputRef,
   onChangeText,
   onVoicePress,
   onSendMessage,
+  onStopTurn,
 }: ChatInputBarProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
@@ -121,7 +127,23 @@ export function ChatInputBar({
     }
   };
 
-  const sendInk = canSend ? colors.tokens.onPrimary : colors.text.tertiary;
+  // One slot, two jobs: send while the athlete is composing, stop while a
+  // turn runs. A stop already sent waits, unfilled, for the stream to end.
+  const slot = isSending
+    ? {
+        filled: !isStopping,
+        disabled: isStopping,
+        onPress: onStopTurn,
+        label: t('chat.stopTurnAria'),
+        testID: 'stop-turn-button',
+      }
+    : {
+        filled: canSend,
+        disabled: !canSend,
+        onPress: onSendMessage,
+        label: t('app.composerSendAria'),
+        testID: canSend ? 'send-button' : 'send-button-disabled',
+      };
 
   return (
     <View
@@ -177,22 +199,27 @@ export function ChatInputBar({
         {/*
           The primary fill and `onPrimary` glyph only when there is something
           to send; otherwise the glyph rests in tertiary ink on nothing. The
-          testID flip is what the Maestro flows wait on.
+          testID flip is what the Maestro flows wait on. While a turn runs the
+          slot holds the stop button instead, and a spinner once it was pressed.
         */}
         <TouchableOpacity
           className="w-8 h-8 rounded-full items-center justify-center ml-2"
-          style={canSend ? { backgroundColor: colors.tokens.primary } : undefined}
-          onPress={onSendMessage}
-          disabled={!canSend}
+          style={slot.filled ? { backgroundColor: colors.tokens.primary } : undefined}
+          onPress={slot.onPress}
+          disabled={slot.disabled}
           accessibilityRole="button"
-          accessibilityLabel={t('app.composerSendAria')}
-          accessibilityState={{ disabled: !canSend }}
-          testID={canSend ? 'send-button' : 'send-button-disabled'}
+          accessibilityLabel={slot.label}
+          accessibilityState={{ disabled: slot.disabled }}
+          testID={slot.testID}
         >
-          {isSending ? (
-            <ActivityIndicator size="small" color={sendInk} />
+          {isStopping ? (
+            <ActivityIndicator size="small" color={colors.text.tertiary} />
           ) : (
-            <Ionicons name="arrow-up" size={18} color={sendInk} />
+            <Ionicons
+              name={isSending ? 'stop' : 'arrow-up'}
+              size={isSending ? 16 : 18}
+              color={slot.filled ? colors.tokens.onPrimary : colors.text.tertiary}
+            />
           )}
         </TouchableOpacity>
       </View>

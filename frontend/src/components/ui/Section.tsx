@@ -16,6 +16,8 @@ export interface SectionProps {
   actions?: ReactNode;
   children: ReactNode;
   className?: string;
+  /** Classes for the block under the title: how a group whose content scrolls inside itself takes the height it is given. */
+  bodyClassName?: string;
   /** `h2` by default; `3` nests a group inside another section's content. */
   headingLevel?: 2 | 3;
   'data-testid'?: string;
@@ -35,6 +37,7 @@ export function Section({
   actions,
   children,
   className,
+  bodyClassName,
   headingLevel = 2,
   ...rest
 }: SectionProps) {
@@ -48,7 +51,7 @@ export function Section({
         </div>
         {actions && <div className="flex shrink-0 items-center gap-1.5">{actions}</div>}
       </div>
-      <div className="mt-3">{children}</div>
+      <div className={clsx('mt-3', bodyClassName)}>{children}</div>
     </section>
   );
 }

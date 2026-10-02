@@ -74,7 +74,7 @@ export async function applyTestStubs(page: Page) {
   // The athlete Home page, where a regular user lands after sign-in — so
   // every spec that signs one in reaches it, including the spec-local login
   // helpers that skip `setupDashboardMocks`. The defaults are an athlete with
-  // no plan and an empty activity cache: the page's honest empty states, never
+  // no plan, no training status and an empty activity cache: the page's honest empty states, never
   // invented rows. `home.spec.ts` registers its own answers after these, which
   // win.
   await page.route('**/api/me/training-plan**', async (route) => {
@@ -82,6 +82,19 @@ export async function applyTestStubs(page: Page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ plan: null, today: new Date().toISOString().slice(0, 10) }),
+    });
+  });
+  await page.route('**/api/me/training-status', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        today: new Date().toISOString().slice(0, 10),
+        form: null,
+        trend: [],
+        load_ratio: null,
+        recovery_days: null,
+      }),
     });
   });
   await page.route('**/api/me/activities/recent**', async (route) => {

@@ -437,6 +437,13 @@ interface MessageListProps {
    * the header stands while the thread loads and before its first message.
    */
   header?: React.ReactElement;
+  /**
+   * Put the suggested question — a route for today's session — in the
+   * composer, for the athlete to finish and send. The host words it, since
+   * the host knows what today's session is. Without it, the empty thread
+   * stays the one line.
+   */
+  onSuggestRoute?: () => void;
 }
 
 export function MessageList({
@@ -458,6 +465,7 @@ export function MessageList({
   onActionClick,
   onShowVerdict,
   header,
+  onSuggestRoute,
 }: MessageListProps) {
   const { t, language } = useTranslation();
   const colors = useThemeColors();
@@ -904,7 +912,8 @@ export function MessageList({
    * An empty thread.
    *
    * One line and the two ways in: `/` for the command palette, `@handle` to
-   * bring an agent in for a turn. No agent grid, no picker — an agent is chosen
+   * bring an agent in for a turn — then one suggested question, a route for
+   * today's session, as an ink link that drafts it. No agent grid, no picker — an agent is chosen
    * with `/agent add @handle`, exactly as it is on web and in messaging.
    */
   const renderEmptyChat = () => (
@@ -927,6 +936,22 @@ export function MessageList({
       <Text className="text-sm text-text-tertiary text-center mt-2" testID="chat-slash-hint">
         {t(SLASH_HINT_KEY)}
       </Text>
+      {onSuggestRoute ? (
+        <Pressable
+          onPress={onSuggestRoute}
+          accessibilityRole="button"
+          className="mt-4 min-h-11 flex-row items-center"
+          testID="chat-empty-route"
+        >
+          <Ionicons
+            name="location-outline"
+            size={16}
+            color={colors.tokens.primary}
+            style={{ marginRight: spacing.xs }}
+          />
+          <Text className="text-sm font-medium text-primary">{t('chat.quickRoute')}</Text>
+        </Pressable>
+      ) : null}
     </ScrollView>
   );
 

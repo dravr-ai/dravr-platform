@@ -4,11 +4,20 @@
 // ABOUTME: The Home page's Today section — the plan's session for the athlete's today, enlarged, and tomorrow's under it
 // ABOUTME: A rest day says rest and a day the plan never reached says so; tapping a day drafts the question in chat
 
+import { MapPin } from 'lucide-react';
 import { useTranslation } from '@pierre/i18n';
 import type { PlanDayLookup, WorkoutPlan } from '@pierre/shared-types';
 import { planDayOn } from '@pierre/shared-types';
 import { Section } from '../ui/Section';
-import { DRAFT_DATE, formatCivilDate, phaseWeekLabel, planDayDraft, sessionFacts, type PlanWindow } from './homeFormat';
+import {
+  DRAFT_DATE,
+  formatCivilDate,
+  phaseWeekLabel,
+  planDayDraft,
+  planDayRouteDraft,
+  sessionFacts,
+  type PlanWindow,
+} from './homeFormat';
 
 interface HomeTodayProps {
   plan: WorkoutPlan;
@@ -59,6 +68,26 @@ function TodayCard({
   );
 }
 
+/**
+ * The way from today's session to a route for it: an ink link under the card
+ * that drafts the question in chat, where the agent searches real routes near
+ * the place the athlete names.
+ */
+function RouteLink({ draft, onOpenChatDraft }: { draft: string; onOpenChatDraft: (text: string) => void }) {
+  const { t } = useTranslation();
+  return (
+    <button
+      type="button"
+      data-testid="home-today-route"
+      onClick={() => onOpenChatDraft(draft)}
+      className="mt-2 inline-flex items-center gap-1.5 rounded text-sm font-medium text-primary transition-colors hover:text-primary-hover focus-ring touch-target"
+    >
+      <MapPin aria-hidden="true" className="h-4 w-4" />
+      <span>{t('home.plan.routeCta')}</span>
+    </button>
+  );
+}
+
 /** "Tomorrow" and what the plan holds for it, on one line. */
 function TomorrowLine({
   lookup,
@@ -101,6 +130,7 @@ export function HomeToday({ plan, calendar, onOpenChatDraft }: HomeTodayProps) {
   const { t, language } = useTranslation();
   const today = planDayOn(plan, calendar.today);
   const tomorrow = planDayOn(plan, calendar.tomorrow);
+  const routeDraft = planDayRouteDraft(t, language, calendar.today, today);
   return (
     <Section
       title={t('chat.dayToday')}
@@ -118,6 +148,7 @@ export function HomeToday({ plan, calendar, onOpenChatDraft }: HomeTodayProps) {
         draft={planDayDraft(t, language, calendar.today, today)}
         onOpenChatDraft={onOpenChatDraft}
       />
+      {routeDraft !== null && <RouteLink draft={routeDraft} onOpenChatDraft={onOpenChatDraft} />}
       <TomorrowLine
         lookup={tomorrow}
         draft={planDayDraft(t, language, calendar.tomorrow, tomorrow)}

@@ -56,6 +56,7 @@ function Composer({ conversationId }: { conversationId?: string | null }) {
       onChange={setValue}
       onSend={onSend}
       isStreaming={false}
+      onStop={vi.fn()}
       conversationId={conversationId}
     />
   );

@@ -3728,11 +3728,15 @@ fn a_route_with_almost_no_osm_tags_still_validates() {
             display_name: None,
         },
         radius_meters: 5_000,
+        target_distance_meters: None,
         count: 1,
         routes: vec![DiscoveredRouteEntry {
             name: "Canal de Lachine".to_owned(),
             route_type: "cycling".to_owned(),
             distance_meters: None,
+            distance_source: None,
+            target_fit: None,
+            passes_for_target: None,
             difficulty: None,
             source: "overpass".to_owned(),
             latitude: 45.47,
@@ -3746,6 +3750,46 @@ fn a_route_with_almost_no_osm_tags_still_validates() {
         validator.is_valid(&value),
         "an untagged OSM way must validate:\n{value:#}"
     );
+    // No target was named, so nothing about one is said.
+    assert!(value.get("target_distance_meters").is_none(), "{value:#}");
+    assert!(value["routes"][0].get("target_fit").is_none(), "{value:#}");
+}
+
+#[test]
+fn a_route_ranked_against_a_target_says_how_it_covers_it() {
+    let validator =
+        jsonschema::validator_for(&output_schema_for::<DiscoverRoutesResult>()).expect("compiles");
+    let value = serde_json::to_value(DiscoverRoutesResult {
+        sport_type: "run".to_owned(),
+        center: RouteSearchCenter {
+            latitude: 45.5,
+            longitude: -73.57,
+            display_name: None,
+        },
+        radius_meters: 5_000,
+        target_distance_meters: Some(15_000.0),
+        count: 1,
+        routes: vec![DiscoveredRouteEntry {
+            name: "Canal de Lachine".to_owned(),
+            route_type: "multiuse".to_owned(),
+            distance_meters: Some(8_200.0),
+            distance_source: Some("mapped_geometry".to_owned()),
+            target_fit: Some("out_and_back".to_owned()),
+            passes_for_target: Some(2),
+            difficulty: None,
+            source: "overpass".to_owned(),
+            latitude: 45.47,
+            longitude: -73.58,
+            distance_from_center_meters: 3_400.0,
+        }],
+    })
+    .expect("serializes");
+
+    assert!(validator.is_valid(&value), "{value:#}");
+    assert_eq!(value["target_distance_meters"], 15_000.0);
+    assert_eq!(value["routes"][0]["target_fit"], "out_and_back");
+    assert_eq!(value["routes"][0]["passes_for_target"], 2);
+    assert_eq!(value["routes"][0]["distance_source"], "mapped_geometry");
 }
 
 #[test]
