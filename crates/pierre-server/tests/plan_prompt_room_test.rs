@@ -33,7 +33,8 @@ use futures_util::stream;
 use helpers::agent_fixtures::{install_catalogue_agent, publish_catalogue_agent};
 use pierre_chat_pipeline::stages::agent_mention::resolve_agent_mention;
 use pierre_chat_pipeline::{
-    PipelineHooks, QuotaState, SurfaceId, SurfaceProfile, SurfaceRequest, TurnInput, TurnOrigin,
+    PipelineHooks, QuotaState, SurfaceId, SurfaceProfile, SurfaceRequest, ToolSessionTurn,
+    TurnInput, TurnOrigin,
 };
 use pierre_core::errors::AppError;
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
@@ -46,6 +47,7 @@ use pierre_llm::{
 use pierre_mcp_server::mcp::resources::tool_surface::HostedToolBridge;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::training_plans::{GoalRace, RacePriority};
+use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -461,14 +463,15 @@ async fn the_headless_tool_surface_authors_a_save_as_the_turns_agent() {
         resources.common.repos.clone(),
         tool_runtime,
     );
-    let surface = bridge.turn_surface(
-        &user.to_string(),
-        tenant,
-        "conv-under-test",
-        ConversationTurnId(Uuid::new_v4()),
-        Some("taper-builder-agent"),
-        16,
-    );
+    let surface = bridge.turn_surface(ToolSessionTurn {
+        user_id: &user.to_string(),
+        tenant_id: tenant,
+        conversation_id: "conv-under-test",
+        turn_id: ConversationTurnId(Uuid::new_v4()),
+        turn_agent_id: Some("taper-builder-agent"),
+        budget: 16,
+        seat: TurnSeat::Subject,
+    });
     let outcome = surface
         .call("save_training_plan", &taper_week_payload())
         .await;

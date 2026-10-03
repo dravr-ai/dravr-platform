@@ -6,6 +6,7 @@
 
 use super::auth::AuthService;
 use crate::ai_view;
+use crate::coach_seat::{coach_seat_response, is_withheld_on_coach_seat, TurnSeat};
 use crate::context::{
     AuthMethod, CONVERSATION_ID, CONVERSATION_TENANT, GRANTED_SCOPES, GUARDIAN_TURN_TOKEN,
     TURN_AGENT_ID,
@@ -202,6 +203,12 @@ pub struct UniversalExecutor {
     /// tool body, so a nested dispatch runs under exactly what authorized its
     /// parent — carried down, never widened.
     scopes: Vec<OAuthScope>,
+    /// The turn's seat. On [`TurnSeat::Coach`] the sender coaches this turn's
+    /// group, so a tool that would read or write the caller's own data is
+    /// refused ([`crate::coach_seat`]). Never inherited by a nested dispatch: a
+    /// group tool reaching a named athlete runs its own reads on that athlete's
+    /// behalf, which is the path the seat exists to leave open.
+    seat: TurnSeat,
 }
 
 impl UniversalExecutor {
@@ -232,7 +239,17 @@ impl UniversalExecutor {
                 .try_with(Clone::clone)
                 .ok()
                 .unwrap_or_default(),
+            seat: TurnSeat::Subject,
         }
+    }
+
+    /// Bind the turn's seat. On [`TurnSeat::Coach`], tools that would read or
+    /// write the caller's own data are refused with a reply the model adapts
+    /// to.
+    #[must_use]
+    pub const fn with_seat(mut self, seat: TurnSeat) -> Self {
+        self.seat = seat;
+        self
     }
 
     /// Bind the per-utterance Guardian turn token (chat: `TurnInput.turn_id`;
@@ -561,6 +578,14 @@ impl UniversalExecutor {
         // later refusals would tell them — a tenant's tool-disable config,
         // say — and because the credential's reach is the outermost question.
         scope_refusal(&tool_name, tool.capabilities(), &self.scopes)?;
+
+        // The coach's seat (carnet#742): the caller is the group's coach, and
+        // their own data is not what the group turn is about.
+        if self.seat == TurnSeat::Coach
+            && is_withheld_on_coach_seat(self.resources.tool_registry(), &tool_name)
+        {
+            return Ok(coach_seat_response(&tool_name));
+        }
 
         if let Some(refusal) = self
             .authorization_refusal(

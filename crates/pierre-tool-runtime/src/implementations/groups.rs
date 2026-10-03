@@ -426,7 +426,10 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
                     "error": format!(
                         "'{member_query}' is you, the requester. This tool reads a \
                          consenting PEER's activities; your own activities come from \
-                         `get_activities`."
+                         `get_activities`. Where `get_activities` is not available, \
+                         the requester is this group's coach and their own training is \
+                         not read here: tell them to ask in their own conversation \
+                         with Dravr."
                     )
                 })));
             }

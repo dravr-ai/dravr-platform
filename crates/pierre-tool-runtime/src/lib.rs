@@ -69,6 +69,8 @@ pub mod athlete_display_name;
 pub mod capabilities;
 /// Nightly capture refresh — the actor behind the capture-staleness reader.
 pub mod capture_sweep;
+/// Which tools a group's coach may call in their own group (carnet#742).
+pub mod coach_seat;
 pub mod commitment_refresh;
 pub mod context;
 /// Conversions wiring host tool types onto the tronc MCP tool trait surface.

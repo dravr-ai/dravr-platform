@@ -55,8 +55,10 @@ impl CoachSeat {
             "\n\n## Who you are talking to\n\n\
              The person writing is this group's coach, not an athlete in it. Their own \
              training, goals and profile are not the group's data: never present their \
-             numbers as an athlete's, never coach them on their own training here, and never \
-             fetch their own activities to answer about the group. {roster}"
+             numbers as an athlete's, and never coach them on their own training here. If \
+             they ask about their own training, tell them to ask in their own conversation \
+             with Dravr, or in a group where they train as an athlete. To read an athlete's \
+             data, call get_group_member_activities with that athlete's name. {roster}"
         )
     }
 }

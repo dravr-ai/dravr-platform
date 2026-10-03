@@ -47,8 +47,15 @@ mod group_coach_seat_tests {
     /// every subject (connected, none, or unknown) and never for the coach.
     const OWN_PROVIDERS_MARKER: &str = "Connected Fitness Data Providers";
 
-    /// Deterministic LLM that captures each request's serialized messages.
-    /// The assertion point is the assembled prompt, not model output.
+    /// The declared-tool marker for the caller's own activities: withheld on
+    /// the coach's seat (carnet#742), declared for every subject.
+    const OWN_ACTIVITIES_DECLARED: &str = "TOOL_DECL[get_activities]";
+    /// The declared-tool marker for a named athlete's activities.
+    const ATHLETE_ACTIVITIES_DECLARED: &str = "TOOL_DECL[get_group_member_activities]";
+
+    /// Deterministic LLM that captures each request's serialized messages and
+    /// the names of the tools declared to it, as `TOOL_DECL[name]` markers.
+    /// The assertion point is the assembled request, not model output.
     struct CapturingLlm {
         model: String,
         seen_requests: Arc<Mutex<Vec<String>>>,
@@ -63,7 +70,12 @@ mod group_coach_seat_tests {
         }
 
         fn record(&self, request: &ChatRequest) {
-            let serialized = serde_json::to_string(&request.messages).unwrap_or_default();
+            let mut serialized = serde_json::to_string(&request.messages).unwrap_or_default();
+            for tool in request.tools.iter().flatten() {
+                serialized.push_str("\nTOOL_DECL[");
+                serialized.push_str(&tool.name);
+                serialized.push(']');
+            }
             self.seen_requests.lock().unwrap().push(serialized);
         }
     }
@@ -321,6 +333,14 @@ mod group_coach_seat_tests {
             "with no athlete joined, the agent must be told the invite is pending"
         );
         assert!(
+            !prompts.contains(OWN_ACTIVITIES_DECLARED),
+            "the coach's own activities tool must not be declared on the seat"
+        );
+        assert!(
+            prompts.contains(ATHLETE_ACTIVITIES_DECLARED),
+            "the tool that reads a named athlete must stay declared"
+        );
+        assert!(
             !prompts.contains(OWN_PROVIDERS_MARKER),
             "the coach's own connected providers must not reach the group turn"
         );
@@ -342,6 +362,10 @@ mod group_coach_seat_tests {
         assert!(
             !prompts.contains(COACH_SEAT_MARKER),
             "an athlete member must never be put in the coach's seat"
+        );
+        assert!(
+            prompts.contains(OWN_ACTIVITIES_DECLARED),
+            "an athlete keeps the tool that reads their own activities"
         );
         assert!(
             prompts.contains(OWN_PROVIDERS_MARKER),
@@ -393,6 +417,10 @@ mod group_coach_seat_tests {
         assert!(
             !prompts.contains(OWN_PROVIDERS_MARKER),
             "a coach who trains still keeps their own data out of their group"
+        );
+        assert!(
+            !prompts.contains(OWN_ACTIVITIES_DECLARED),
+            "a coach who also trains does not get their own activities tool in the group"
         );
     }
 }

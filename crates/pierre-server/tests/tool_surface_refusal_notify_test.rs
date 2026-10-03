@@ -37,8 +37,10 @@ use std::sync::Arc;
 use common::{create_test_server_resources, create_test_user};
 use embacle_tool_host::ToolSurface;
 use helpers::notify_capture::{capture_notify, named, only};
+use pierre_chat_pipeline::ToolSessionTurn;
 use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_mcp_server::mcp::resources::tool_surface::HostedToolBridge;
+use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::json;
 use uuid::Uuid;
@@ -68,14 +70,15 @@ async fn a_spent_tool_budget_fires_its_own_catalogued_event() {
         resources.common.repos.clone(),
         tool_runtime,
     );
-    let surface = bridge.turn_surface(
-        &user_id.to_string(),
-        tenant,
-        "conv-under-test",
-        ConversationTurnId(Uuid::new_v4()),
-        None,
-        BUDGET_OF_ONE,
-    );
+    let surface = bridge.turn_surface(ToolSessionTurn {
+        user_id: &user_id.to_string(),
+        tenant_id: tenant,
+        conversation_id: "conv-under-test",
+        turn_id: ConversationTurnId(Uuid::new_v4()),
+        turn_agent_id: None,
+        budget: BUDGET_OF_ONE,
+        seat: TurnSeat::Subject,
+    });
 
     // Installed after the fixtures, before the code under test: the capture is
     // this thread's whole subscriber, and the pool's spans belong to the global

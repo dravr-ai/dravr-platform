@@ -26,6 +26,7 @@ use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_llm::prompts::unsubstituted_placeholders;
 use pierre_llm::ChatMessage;
 use pierre_services::prompt_leak;
+use pierre_tool_runtime::coach_seat::is_withheld_on_coach_seat;
 use tracing::error;
 
 use super::super::surface_profile::{ProseFormat, SurfaceProfile};
@@ -728,11 +729,15 @@ pub(crate) async fn assemble_prompt_and_messages(
     // questions from a prompt that named none. On the native path the full
     // schemas already ship every turn (registre#406 covers that cost), so the
     // index is a cheap, byte-stable restatement there rather than the only copy.
+    // The coach's seat leaves out the coach's own data tools here exactly as
+    // the declarations do (carnet#742), so the index never names a tool the
+    // turn cannot call.
     let tool_names: Vec<String> = ctx
         .tool_registry
         .chat_callable_schemas()
         .into_iter()
         .map(|s| s.name)
+        .filter(|name| coach_seat.is_none() || !is_withheld_on_coach_seat(&ctx.tool_registry, name))
         .collect();
     let base_prompt = format!(
         "{base_prompt}\n\n{TOOL_BOUNDARY}{}",

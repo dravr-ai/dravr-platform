@@ -30,6 +30,7 @@ use embacle_tool_host::ToolSurface;
 use pierre_core::models::{GuidedFlow, OnboardingState, TenantId};
 use pierre_mcp_server::mcp::resources::tool_surface::TurnToolSurface;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::protocol::UniversalToolExecutor;
 use serde_json::json;
 use uuid::Uuid;
@@ -64,6 +65,7 @@ fn surface_with_budget(
         user_id.to_string(),
         tenant,
         budget,
+        TurnSeat::Subject,
     )
 }
 

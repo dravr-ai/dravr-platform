@@ -51,7 +51,7 @@ pub mod turn_service;
 pub mod turn_stop;
 pub mod usage_counters;
 
-pub use mcp_bridge::McpBridgeProvider;
+pub use mcp_bridge::{McpBridgeProvider, ToolSessionTurn};
 
 pub use envelope::{
     build_envelope, ActionKind, AssistantTurn, NoticeKind, QuotaLevel, QuotaState,

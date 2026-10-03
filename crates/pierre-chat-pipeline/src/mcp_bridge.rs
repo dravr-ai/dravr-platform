@@ -20,6 +20,46 @@
 
 use embacle_tool_host::ToolSession;
 use pierre_core::models::{ConversationTurnId, TenantId};
+use pierre_tool_runtime::coach_seat::TurnSeat;
+
+/// The turn a tool session is opened for.
+///
+/// `budget` is the turn's tool-call ceiling, already resolved by
+/// `tool_budget::resolve_max_iterations`. It is passed rather than re-derived
+/// so the agent's loop and the platform's own loop are bounded by one number
+/// from one resolution.
+///
+/// `turn_id` is the Guardian turn key for this utterance, the same value the
+/// in-process `ReAct` loop binds. The agent's loop runs in another process and
+/// reaches the executor from a task outside any tool body, so the task-local
+/// inherit cannot supply it; passing it here is what makes taint and the
+/// per-turn blast-radius budgets accumulate across the loopback calls of one
+/// message instead of resetting on every call.
+///
+/// `turn_agent_id` is the agent the turn answers as, passed for the same
+/// reason: the loopback executor cannot inherit it, and a tool that records
+/// authorship must name the agent the athlete was talking to.
+///
+/// `seat` is [`TurnSeat::Coach`] when the sender coaches the turn's group: the session
+/// then withholds and refuses every tool that would read or write the coach's
+/// own data (`pierre_tool_runtime::coach_seat`, carnet#742).
+#[derive(Debug, Clone, Copy)]
+pub struct ToolSessionTurn<'a> {
+    /// The caller every tool runs as.
+    pub user_id: &'a str,
+    /// The tenant the caller's tools run under.
+    pub tenant_id: TenantId,
+    /// The conversation the turn belongs to.
+    pub conversation_id: &'a str,
+    /// The Guardian turn key for this utterance.
+    pub turn_id: ConversationTurnId,
+    /// The agent the turn answers as.
+    pub turn_agent_id: Option<&'a str>,
+    /// The turn's tool-call ceiling.
+    pub budget: usize,
+    /// Whose data the turn's tools run against.
+    pub seat: TurnSeat,
+}
 
 /// Opens the turn-scoped tool session an ACP-managed provider calls into.
 ///
@@ -33,29 +73,5 @@ pub trait McpBridgeProvider: Send + Sync {
     ///
     /// The caller holds the returned guard for exactly as long as the turn may
     /// legitimately call tools.
-    ///
-    /// `budget` is the turn's tool-call ceiling, already resolved by
-    /// `tool_budget::resolve_max_iterations`. It is passed rather than
-    /// re-derived so the agent's loop and the platform's own loop are bounded
-    /// by one number from one resolution.
-    ///
-    /// `turn_id` is the Guardian turn key for this utterance, the same value
-    /// the in-process `ReAct` loop binds. The agent's loop runs in another
-    /// process and reaches the executor from a task outside any tool body, so
-    /// the task-local inherit cannot supply it; passing it here is what makes
-    /// taint and the per-turn blast-radius budgets accumulate across the
-    /// loopback calls of one message instead of resetting on every call.
-    ///
-    /// `turn_agent_id` is the agent the turn answers as, passed for the same
-    /// reason: the loopback executor cannot inherit it, and a tool that
-    /// records authorship must name the agent the athlete was talking to.
-    async fn open_tool_session(
-        &self,
-        user_id: &str,
-        tenant_id: TenantId,
-        conversation_id: &str,
-        turn_id: ConversationTurnId,
-        turn_agent_id: Option<&str>,
-        budget: usize,
-    ) -> Option<ToolSession>;
+    async fn open_tool_session(&self, turn: ToolSessionTurn<'_>) -> Option<ToolSession>;
 }

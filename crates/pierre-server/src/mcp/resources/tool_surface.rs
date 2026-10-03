@@ -39,9 +39,10 @@ use embacle::types::RunnerError;
 use embacle::McpToolDefinition;
 use embacle_tool_host::{ToolHost, ToolHostConfig, ToolOutcome, ToolSession, ToolSurface};
 use pierre_chat_pipeline::stages::prompt_assembly::IDENTITY_ANCHOR;
-use pierre_chat_pipeline::McpBridgeProvider;
-use pierre_core::models::{ConversationTurnId, TenantId};
+use pierre_chat_pipeline::{McpBridgeProvider, ToolSessionTurn};
+use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_tool_runtime::coach_seat::{is_withheld_on_coach_seat, TurnSeat};
 use pierre_tool_runtime::implementations::guided_flow::GUIDED_FLOW_WITHHELD_TOOLS;
 use pierre_tool_runtime::implementations::guided_flow::{
     active_guided_flow, turn_withholds_writes,
@@ -113,6 +114,10 @@ pub struct TurnToolSurface {
     /// counters because the surface cannot see the session that wraps it — not
     /// because they measure different things, and they must agree.
     calls: AtomicUsize,
+    /// Whose data the turn's tools run against. On [`TurnSeat::Coach`] the
+    /// coach's own data tools are left out of the listing (carnet#742), and
+    /// the executor this surface calls through refuses them as well.
+    seat: TurnSeat,
 }
 
 impl TurnToolSurface {
@@ -125,6 +130,7 @@ impl TurnToolSurface {
         user_id: String,
         tenant_id: TenantId,
         budget: usize,
+        seat: TurnSeat,
     ) -> Self {
         Self {
             tool_registry,
@@ -134,6 +140,7 @@ impl TurnToolSurface {
             tenant_id,
             budget,
             calls: AtomicUsize::new(0),
+            seat,
         }
     }
 
@@ -165,6 +172,10 @@ impl ToolSurface for TurnToolSurface {
             .chat_callable_schemas()
             .into_iter()
             .filter(|s| !(withhold && GUIDED_FLOW_WITHHELD_TOOLS.contains(&s.name.as_str())))
+            .filter(|s| {
+                !(self.seat == TurnSeat::Coach
+                    && is_withheld_on_coach_seat(&self.tool_registry, &s.name))
+            })
             .map(|s| McpToolDefinition {
                 name: s.name,
                 description: s.description,
@@ -383,15 +394,7 @@ impl HostedToolBridge {
     /// MCP. The binding is what per-turn taint and the blast-radius budgets
     /// are keyed on, so it is reachable on its own.
     #[must_use]
-    pub fn turn_surface(
-        &self,
-        user_id: &str,
-        tenant_id: TenantId,
-        conversation_id: &str,
-        turn_id: ConversationTurnId,
-        turn_agent_id: Option<&str>,
-        budget: usize,
-    ) -> TurnToolSurface {
+    pub fn turn_surface(&self, turn: ToolSessionTurn<'_>) -> TurnToolSurface {
         // The turn's own executor, carrying its conversation and Guardian turn
         // token. This is why the signed conversation claim the old bridge put
         // in its JWT is no longer needed: the value never leaves the process.
@@ -411,47 +414,35 @@ impl HostedToolBridge {
         let executor = Arc::new(
             UniversalToolExecutor::new(self.tool_runtime.clone())
                 .with_scopes(OAuthScope::self_grant())
-                .with_conversation_id(conversation_id.to_owned())
-                .with_turn_token(turn_id.0.to_string())
+                .with_conversation_id(turn.conversation_id.to_owned())
+                .with_turn_token(turn.turn_id.0.to_string())
                 // The agent the turn answers as, bound for the reason the
                 // turn token is: no tool-body task-local to inherit it from.
-                .with_turn_agent(turn_agent_id.map(ToOwned::to_owned)),
+                .with_turn_agent(turn.turn_agent_id.map(ToOwned::to_owned))
+                // The coach's seat refuses the coach's own data (carnet#742).
+                .with_seat(turn.seat),
         );
         TurnToolSurface::new(
             self.tool_registry.clone(),
             self.repos.clone(),
             executor,
-            user_id.to_owned(),
-            tenant_id,
-            budget,
+            turn.user_id.to_owned(),
+            turn.tenant_id,
+            turn.budget,
+            turn.seat,
         )
     }
 }
 
 #[async_trait]
 impl McpBridgeProvider for HostedToolBridge {
-    async fn open_tool_session(
-        &self,
-        user_id: &str,
-        tenant_id: TenantId,
-        conversation_id: &str,
-        turn_id: ConversationTurnId,
-        turn_agent_id: Option<&str>,
-        budget: usize,
-    ) -> Option<ToolSession> {
+    async fn open_tool_session(&self, turn: ToolSessionTurn<'_>) -> Option<ToolSession> {
         if !self.enabled {
             return None;
         }
         let host = self.host().await?;
 
-        let surface = Arc::new(self.turn_surface(
-            user_id,
-            tenant_id,
-            conversation_id,
-            turn_id,
-            turn_agent_id,
-            budget,
-        ));
+        let surface = Arc::new(self.turn_surface(turn));
         Some(host.open_session(surface))
     }
 }

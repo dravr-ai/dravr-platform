@@ -19,6 +19,7 @@ use pierre_core::permissions::scopes::OAuthScope;
 use pierre_llm::{ChatMessage, FunctionResponse};
 use pierre_mcp_server::mcp::resources::tool_surface::TurnToolSurface;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::implementations::data_helpers::provider_reconnect_note;
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::tool_execution::add_function_responses_to_messages;
@@ -343,6 +344,7 @@ fn loopback_surface(
         user_id.to_string(),
         tenant,
         64,
+        TurnSeat::Subject,
     )
 }
 

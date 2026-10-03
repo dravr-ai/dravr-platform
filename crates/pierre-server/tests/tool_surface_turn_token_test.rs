@@ -32,8 +32,10 @@ use std::sync::Arc;
 
 use common::{create_test_server_resources, create_test_user};
 use embacle_tool_host::{ToolOutcome, ToolSurface};
+use pierre_chat_pipeline::ToolSessionTurn;
 use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_mcp_server::mcp::resources::tool_surface::HostedToolBridge;
+use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -107,14 +109,15 @@ async fn loopback_calls_in_one_turn_share_a_guardian_turn_key() {
     );
 
     let turn = ConversationTurnId(Uuid::new_v4());
-    let surface = bridge.turn_surface(
-        &user_id.to_string(),
-        tenant,
-        "conv-under-test",
-        turn,
-        None,
-        AMPLE_BUDGET,
-    );
+    let surface = bridge.turn_surface(ToolSessionTurn {
+        user_id: &user_id.to_string(),
+        tenant_id: tenant,
+        conversation_id: "conv-under-test",
+        turn_id: turn,
+        turn_agent_id: None,
+        budget: AMPLE_BUDGET,
+        seat: TurnSeat::Subject,
+    });
 
     // Call 1: the untrusted read. It must not itself be a Guardian block —
     // taint constrains what comes after, not the source.
@@ -162,14 +165,15 @@ async fn loopback_calls_in_one_turn_share_a_guardian_turn_key() {
 
     // And the accumulation is scoped to the utterance, not to the process: a
     // second turn starts clean, so the same call is no longer a taint block.
-    let next_turn = bridge.turn_surface(
-        &user_id.to_string(),
-        tenant,
-        "conv-under-test",
-        ConversationTurnId(Uuid::new_v4()),
-        None,
-        AMPLE_BUDGET,
-    );
+    let next_turn = bridge.turn_surface(ToolSessionTurn {
+        user_id: &user_id.to_string(),
+        tenant_id: tenant,
+        conversation_id: "conv-under-test",
+        turn_id: ConversationTurnId(Uuid::new_v4()),
+        turn_agent_id: None,
+        budget: AMPLE_BUDGET,
+        seat: TurnSeat::Subject,
+    });
     let fresh = next_turn
         .call(DESTRUCTIVE, &json!({ "provider": "strava" }))
         .await;

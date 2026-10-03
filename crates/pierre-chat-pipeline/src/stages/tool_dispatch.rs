@@ -16,6 +16,7 @@ use pierre_database::database::MessageRecord;
 use pierre_llm::ChatMessage;
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_services::provider_error_filter::detect_leaked_provider_error;
+use pierre_tool_runtime::coach_seat::{is_withheld_on_coach_seat, TurnSeat};
 use pierre_tool_runtime::implementations::guided_flow::is_withheld_during_guided_flow;
 use pierre_tool_runtime::llm_call_record::LlmCallRecorder;
 use pierre_tool_runtime::protocol::UniversalExecutor;
@@ -23,6 +24,7 @@ use pierre_tool_runtime::tool_execution::{self as chat_tool_loop, build_mcp_tool
 use pierre_tool_runtime::tool_loop_io::{ToolLoopParams, ToolLoopResult, ToolMessageRecorder};
 use tracing::{info, warn};
 
+use crate::mcp_bridge::ToolSessionTurn;
 use crate::recorders::{ChatRepoToolMessageRecorder, UsageRepoCallRecorder};
 use crate::surface_profile::{ProviderStreaming, SurfaceProfile};
 use crate::turn::TurnInput;
@@ -139,6 +141,11 @@ pub(crate) async fn dispatch_llm_with_tools(
         coach_seat,
     } = inputs;
     let sender_is_subject = coach_seat.is_none();
+    let seat = if sender_is_subject {
+        TurnSeat::Subject
+    } else {
+        TurnSeat::Coach
+    };
     // Stage 9: MCP executor for tool calls. Bind the originating conversation id
     // so a tool that spawns detached work (e.g. a historical activity backfill)
     // can route a completion notice back to the channel that triggered it.
@@ -155,7 +162,9 @@ pub(crate) async fn dispatch_llm_with_tools(
             // accumulate across THIS message's ReAct loop and reset next message
             // (not across the whole conversation). conversation_id stays above,
             // for routing detached work back to the thread.
-            .with_turn_token(input.turn_id.0.to_string()),
+            .with_turn_token(input.turn_id.0.to_string())
+            // The coach's seat refuses the coach's own data (carnet#742).
+            .with_seat(seat),
     );
 
     // Stage 10: Deterministic activity prefetch driven by agent DataRequirements.
@@ -301,17 +310,18 @@ pub(crate) async fn dispatch_llm_with_tools(
         match ctx.mcp_bridge.as_ref() {
             Some(bridge) => {
                 bridge
-                    .open_tool_session(
-                        &input.user_id,
-                        input.tool_tenant_id,
-                        &input.conversation_id,
+                    .open_tool_session(ToolSessionTurn {
+                        user_id: &input.user_id,
+                        tenant_id: input.tool_tenant_id,
+                        conversation_id: &input.conversation_id,
                         // Same Guardian turn key the in-process executor binds
                         // above, so the agent's loopback calls land in this
                         // utterance's bucket instead of one bucket each.
-                        input.turn_id,
+                        turn_id: input.turn_id,
                         turn_agent_id,
-                        max_iterations,
-                    )
+                        budget: max_iterations,
+                        seat,
+                    })
                     .await
             }
             None => None,
@@ -352,6 +362,19 @@ pub(crate) async fn dispatch_llm_with_tools(
             withheld = before.saturating_sub(tools.function_declarations.len()),
             flow = ?flow,
             "guided flow active: withholding write tools from the turn"
+        );
+    }
+    // The coach's seat: every tool that would read or write the coach's own
+    // data is left out, in lockstep with the prose index and the loopback
+    // surface (carnet#742). The executor refuses them as well.
+    if coach_seat.is_some() {
+        let before = tools.function_declarations.len();
+        tools
+            .function_declarations
+            .retain(|decl| !is_withheld_on_coach_seat(&ctx.tool_registry, &decl.name));
+        info!(
+            withheld = before.saturating_sub(tools.function_declarations.len()),
+            "coach's seat: withholding the coach's own data tools from the turn"
         );
     }
     let tool_params = ToolLoopParams {
