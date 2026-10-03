@@ -23,6 +23,7 @@
 mod common;
 mod helpers;
 
+use pierre_core::transport::Transport;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -213,6 +214,7 @@ fn request(fx: &Fixture, origin: TurnOrigin, content: &str) -> TurnRequest<'stat
         turn_id: ConversationTurnId::new(),
         ambient_context: None,
         channel_type: "web",
+        transport: Transport::WebApp,
         is_direct_message: true,
         ambient_group_fallback: false,
         command_persistence: CommandPersistence::Always,

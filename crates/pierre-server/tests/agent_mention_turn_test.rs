@@ -19,6 +19,7 @@
 mod common;
 mod helpers;
 
+use pierre_core::transport::Transport;
 use std::env;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -329,6 +330,7 @@ async fn web_turn(
             turn_id: ConversationTurnId::new(),
             ambient_context: None,
             channel_type: "web",
+            transport: Transport::WebApp,
             is_direct_message: true,
             ambient_group_fallback: false,
             command_persistence: CommandPersistence::Always,

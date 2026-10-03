@@ -35,11 +35,13 @@ use tracing::{field, info, instrument, trace, warn, Span};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
+use pierre_auth::auth::AuthMethod;
 use pierre_chat_pipeline::stages::persistence::persist_assistant_response;
 use pierre_chat_pipeline::turn_stop::TurnStop;
 use pierre_chat_pipeline::{self as pipeline, ServedTurn};
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
+use pierre_core::transport::{Transport, CLIENT_PLATFORM_HEADER};
 use pierre_database::database::ConversationRecord;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::triggers as notification_triggers;
@@ -52,15 +54,6 @@ use super::turn_response::{
 };
 use pierre_middleware::AuthenticatedUser;
 
-/// HTTP header carrying the client surface identifier.
-///
-/// Set by first-party Dravr frontends to distinguish web from mobile. It
-/// selects the turn's [`pipeline::SurfaceId`], and through it the pipeline
-/// span's `channel` dimension, the `PlatformCommandContext.channel_type`
-/// field and the persisted conversation origin. Absent reads as the browser,
-/// which is the shape an ad-hoc `curl` turn has.
-const CLIENT_PLATFORM_HEADER: &str = "x-client-platform";
-
 /// Model label recorded for a turn a slash-command handler answered. Named
 /// rather than blank so a telemetry row with no token counts is explicable.
 const COMMAND_MODEL: &str = "command";
@@ -71,10 +64,13 @@ const COMMAND_PROVIDER: &str = "platform";
 
 /// Which first-party client sent the turn.
 ///
-/// The header is how the two in-app clients tell themselves apart on the
-/// wire; every request `@pierre/api-client` builds carries it. An ad-hoc
-/// caller that sets nothing is read as the browser, which is the shape a
-/// hand-written `curl` turn has.
+/// The [`CLIENT_PLATFORM_HEADER`] is how the two in-app clients tell
+/// themselves apart on the wire; every request `@pierre/api-client` builds
+/// carries it. It selects the turn's [`pipeline::SurfaceId`], and through it
+/// the pipeline span's `channel` dimension, the
+/// `PlatformCommandContext.channel_type` field and the persisted conversation
+/// origin. An ad-hoc caller that sets nothing is read as the browser, which is
+/// the shape a hand-written `curl` turn has.
 fn client_surface(headers: &HeaderMap) -> pipeline::SurfaceId {
     let header = headers
         .get(CLIENT_PLATFORM_HEADER)
@@ -83,6 +79,22 @@ fn client_surface(headers: &HeaderMap) -> pipeline::SurfaceId {
     match header.as_deref() {
         Some("mobile") => pipeline::SurfaceId::Mobile,
         _ => pipeline::SurfaceId::Web,
+    }
+}
+
+/// The transport a chat turn is served over (carnet#724).
+///
+/// The credential decides: an API key is a caller outside Dravr's apps, a
+/// session is the athlete in one of them. The platform header only labels
+/// which app — it is set by the client, so it never decides the class.
+fn turn_transport(auth_method: &AuthMethod, surface: pipeline::SurfaceId) -> Transport {
+    match auth_method {
+        AuthMethod::ApiKey { .. } => Transport::ApiKey,
+        AuthMethod::ChannelLink { .. } => Transport::Messaging,
+        AuthMethod::JwtToken { .. } => match surface {
+            pipeline::SurfaceId::Mobile => Transport::MobileApp,
+            _ => Transport::WebApp,
+        },
     }
 }
 
@@ -214,6 +226,7 @@ pub async fn send_message(
         tenant_id,
         turn_id,
         channel_type: channel_type_for(surface).to_owned(),
+        transport: turn_transport(&auth.auth_method, surface),
     };
 
     if wants_sse {
@@ -250,6 +263,8 @@ struct TurnEgress {
     tenant_id: TenantId,
     turn_id: ConversationTurnId,
     channel_type: String,
+    /// The transport the turn is served over, from the request's credential.
+    transport: Transport,
 }
 
 impl TurnEgress {
@@ -274,6 +289,7 @@ impl TurnEgress {
             // In-app conversations are single-user; no room transcript exists.
             ambient_context: None,
             channel_type: &self.channel_type,
+            transport: self.transport,
             // A thread bound to a coaching group is a group thread, whichever
             // surface it is read on: `/agent add` binds the group's agent there
             // and `/group …` acts on that group. Unbound, the athlete is alone
@@ -669,4 +685,48 @@ fn notify_agent_response(
         conversation_id,
         agent_name,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn jwt() -> AuthMethod {
+        AuthMethod::JwtToken {
+            tier: "starter".to_owned(),
+        }
+    }
+
+    #[test]
+    fn the_credential_decides_the_class_and_the_header_only_labels_it() {
+        let api_key = AuthMethod::ApiKey {
+            key_id: "key".to_owned(),
+            tier: "starter".to_owned(),
+        };
+        assert_eq!(
+            turn_transport(&api_key, pipeline::SurfaceId::Mobile),
+            Transport::ApiKey,
+            "a client header never turns a key into an app"
+        );
+        assert_eq!(
+            turn_transport(&jwt(), pipeline::SurfaceId::Mobile),
+            Transport::MobileApp
+        );
+        assert_eq!(
+            turn_transport(&jwt(), pipeline::SurfaceId::Web),
+            Transport::WebApp
+        );
+        let link = AuthMethod::ChannelLink {
+            channel: "telegram".to_owned(),
+            channel_user_id: "42".to_owned(),
+            tier: "starter".to_owned(),
+        };
+        assert_eq!(
+            turn_transport(&link, pipeline::SurfaceId::Web),
+            Transport::Messaging
+        );
+        assert!(!turn_transport(&jwt(), pipeline::SurfaceId::Web)
+            .narrowed_by(turn_transport(&api_key, pipeline::SurfaceId::Web))
+            .is_first_party());
+    }
 }

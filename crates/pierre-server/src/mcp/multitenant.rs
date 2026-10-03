@@ -32,6 +32,7 @@ use crate::constants::service_names::PIERRE_MCP_SERVER;
 use crate::routes::contremaitre_webhook::routes as contremaitre_webhook_routes;
 use crate::routes::oauth_grants::OAuthGrantsRoutes;
 #[cfg(feature = "client-settings")]
+use crate::routes::request_transport::declare_request_transport;
 use crate::routes::{athlete_home, user_profile::routes as user_profile_routes};
 use crate::routes::{onboarding::OnboardingRoutes, viz::VizRoutes};
 #[cfg(feature = "client-messaging")]
@@ -689,10 +690,19 @@ impl ProviderToolRouter {
         // Applied globally but only activates for cookie-authenticated
         // state-changing requests (POST/PUT/DELETE/PATCH). Bearer token
         // and API key requests pass through without CSRF validation.
-        app.layer(from_fn_with_state(
+        let app = app.layer(from_fn_with_state(
             Arc::clone(resources),
             csrf_protection_layer,
-        ))
+        ));
+
+        // ═══════════════════════════════════════════════════════════════
+        // TRANSPORT DECLARATION LAYER
+        // ═══════════════════════════════════════════════════════════════
+        // Every route reads under the transport its request's credential
+        // names: an API key is a caller outside Dravr's apps, so a provider
+        // whose terms keep its data first-party is withheld from it
+        // (carnet#724).
+        app.layer(middleware::from_fn(declare_request_transport))
     }
 
     /// Create health check routes for Axum.

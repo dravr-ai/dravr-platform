@@ -28,6 +28,7 @@ use pierre_core::models::{SportProfile, TenantId};
 use pierre_database::database::agents::compute_request_hash;
 use pierre_llm::{ChatMessage, ChatRequest};
 use pierre_middleware::AuthenticatedUser;
+use pierre_providers::ai_scope;
 use pierre_runtime_context::{AgentsCtx, MiddlewareCtx};
 use pierre_services::agent_generation::resolve_chat_provider;
 use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
@@ -184,17 +185,30 @@ pub(super) async fn handle_list<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
 /// the look-back window — callers treat that as cold start. The profile is
 /// cached per (tenant, user) with a [`SPORT_PROFILE_TTL_SECS`] TTL so the
 /// expensive provider scan doesn't run on every page load.
+///
+/// The scan reads through each provider's terms, so over an external transport
+/// (an API key) it counts none of a provider whose data stays inside Dravr's
+/// own surfaces. The cache is keyed by that class, so neither profile is ever
+/// served to the other (carnet#724).
 async fn load_sport_profile<C: ToolRuntime>(
     ctx: &Arc<C>,
     user_id: Uuid,
     tenant_id: TenantId,
     config: &AgentRecommendationConfig,
 ) -> Option<SportProfile> {
+    let served_externally = ai_scope::exposure().is_some_and(|gate| gate.external);
     let cache_key = CacheKey::new(
         tenant_id,
         user_id,
         "coach_recs".to_owned(),
-        CacheResource::Custom("sport_profile".to_owned()),
+        CacheResource::Custom(
+            if served_externally {
+                "sport_profile:external"
+            } else {
+                "sport_profile"
+            }
+            .to_owned(),
+        ),
     );
 
     if let Ok(Some(profile)) = ToolRuntime::cache(ctx.as_ref())

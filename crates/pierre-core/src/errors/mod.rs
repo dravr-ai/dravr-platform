@@ -117,6 +117,10 @@ pub enum ErrorCode {
     ResourceLocked,
     /// Resource is temporarily unavailable
     ResourceUnavailable,
+    /// The data exists, but the terms of the service it came from keep it off
+    /// the transport this call was served over (carnet#724). Never an auth
+    /// failure: the connection is healthy and nothing should reconnect.
+    UnavailableOverTransport,
 
     // External Services
     /// External service returned an error
@@ -168,7 +172,8 @@ impl ErrorCode {
             | Self::AccountPending
             | Self::AccountSuspended
             | Self::ProviderAuthRequired
-            | Self::NoProviderConnected => FORBIDDEN,
+            | Self::NoProviderConnected
+            | Self::UnavailableOverTransport => FORBIDDEN,
 
             // 404 Not Found
             Self::ResourceNotFound => NOT_FOUND,
@@ -223,6 +228,7 @@ impl ErrorCode {
             Self::ResourceAlreadyExists => "A resource with this identifier already exists",
             Self::ResourceLocked => "The resource is currently locked and cannot be modified",
             Self::ResourceUnavailable => "The resource is temporarily unavailable",
+            Self::UnavailableOverTransport => "This data is not available over this interface",
             Self::ExternalServiceError => "An external service encountered an error",
             Self::ExternalServiceUnavailable => "An external service is currently unavailable",
             Self::ExternalAuthFailed => "Authentication with external service failed",
@@ -276,6 +282,7 @@ impl<'de> Deserialize<'de> for ErrorCode {
             "ResourceAlreadyExists" => Ok(Self::ResourceAlreadyExists),
             "ResourceLocked" => Ok(Self::ResourceLocked),
             "ResourceUnavailable" => Ok(Self::ResourceUnavailable),
+            "UnavailableOverTransport" => Ok(Self::UnavailableOverTransport),
             "ExternalServiceError" => Ok(Self::ExternalServiceError),
             "ExternalServiceUnavailable" => Ok(Self::ExternalServiceUnavailable),
             "ExternalAuthFailed" => Ok(Self::ExternalAuthFailed),
@@ -619,6 +626,13 @@ impl AppError {
     #[must_use]
     pub fn resource_unavailable(message: impl Into<String>) -> Self {
         Self::new(ErrorCode::ResourceUnavailable, message)
+    }
+
+    /// Data the terms of its service keep off the transport this call was
+    /// served over.
+    #[must_use]
+    pub fn unavailable_over_transport(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::UnavailableOverTransport, message)
     }
 
     /// Account pending admin approval

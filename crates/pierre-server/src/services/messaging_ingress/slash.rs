@@ -13,6 +13,7 @@ use dravr_canot::rich_text::{parse_markdown, render_rich_text};
 use dravr_canot::turn::ConversationTurnId as CanotTurnId;
 use pierre_core::models::messaging::{CardAction, ChannelType, MessageContent, OutgoingMessage};
 use pierre_core::models::TenantId;
+use pierre_core::transport::Transport;
 use tracing::info;
 
 use pierre_auth::auth::AuthResult;
@@ -349,6 +350,7 @@ pub(super) async fn try_handle_slash_command(
             conversation_tenant_id: conversation_tenant,
             channel_type: channel,
             locale: &locale,
+            transport: Transport::Messaging,
             is_direct_message,
             // A DM with the bot is the athlete's one thread, so a `/group`
             // command typed there means the group they are in.

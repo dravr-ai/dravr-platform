@@ -47,6 +47,7 @@ use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::AppResult;
 use pierre_mcp_schema::PropertySchema;
+use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver;
 use pierre_tools_core::ToolResult;
 
@@ -138,6 +139,14 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
                 &provider_name,
             )
             .await;
+            // A profile carries no item provenance: a provider whose terms keep
+            // its data off this transport is refused before the cache can
+            // replay one a first-party call stored (carnet#724).
+            ai_scope::first_party_only_read(
+                context.resources.provider_registry().as_ref(),
+                &provider_name,
+                None,
+            )?;
 
             let output_format = parse_output_format(&args);
 
@@ -277,6 +286,13 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
                 &provider_name,
             )
             .await;
+            // Stats carry no item provenance: refused before the cache, as in
+            // get_athlete (carnet#724).
+            ai_scope::first_party_only_read(
+                context.resources.provider_registry().as_ref(),
+                &provider_name,
+                None,
+            )?;
 
             let output_format = parse_output_format(&args);
 

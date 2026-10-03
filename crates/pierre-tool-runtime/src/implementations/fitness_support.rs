@@ -32,7 +32,7 @@ use dravr_cageux::physiological_constants::api_limits::{
 };
 use dravr_meteo::WeatherProvider;
 use pierre_cache::{Cache, CacheKey, CacheResource};
-use pierre_core::ai_policy::AiPolicyLookup;
+use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::civil_time::parse_zone;
 use pierre_core::json_value::to_value_as_written;
 use pierre_core::models::{resolve_sport_type, sport_matches_family, Activity, SportType};
@@ -415,7 +415,7 @@ pub(crate) struct CachedActivitiesParams<'a> {
     pub cache: &'a Arc<Cache>,
     /// Each provider's AI policy: the cached slice may have been stored
     /// outside a read for a model (a login prefetch), so it is filtered on read.
-    pub policies: &'a dyn AiPolicyLookup,
+    pub policies: &'a dyn ProviderTerms,
     pub cache_key: &'a CacheKey,
     pub user_uuid: uuid::Uuid,
     pub tenant_id: Option<String>,

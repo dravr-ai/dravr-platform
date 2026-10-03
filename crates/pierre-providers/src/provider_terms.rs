@@ -1,20 +1,28 @@
-// ABOUTME: The AI rules each provider's terms set on its data — the declared SourcePolicy per provider
-// ABOUTME: WHOOP keeps its proprietary scores out of prompts; Nolio's Annex restricts connector data by source
+// ABOUTME: What each provider's terms allow for its data — the declared AI SourcePolicy and TransportPolicy per provider
+// ABOUTME: WHOOP keeps its scores out of prompts; Nolio restricts connector data by source and stays first-party (§6.9)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Declared AI policies, one per provider whose terms restrict AI use.
+//! Declared provider terms.
 //!
-//! A descriptor returns its policy from
-//! [`ProviderDescriptor::ai_policy`](crate::spi::ProviderDescriptor::ai_policy);
+//! An AI policy for each provider whose terms restrict AI use, and a transport
+//! policy for each whose terms keep its data inside Dravr's own surfaces.
+//!
+//! A descriptor returns them from
+//! [`ProviderDescriptor::ai_policy`](crate::spi::ProviderDescriptor::ai_policy)
+//! and
+//! [`ProviderDescriptor::transport_policy`](crate::spi::ProviderDescriptor::transport_policy);
 //! a provider absent here has no restriction. Adding a provider's terms is a
 //! policy here and one descriptor line — no tool changes.
 //!
 //! Strava's June 2026 terms bar AI use, but direct Strava data stays allowed
 //! by product decision (2026-10-02) until that question is settled on its own.
+//! Every shipped provider is served over every transport until its terms are
+//! read under that lens.
 
 use pierre_core::ai_policy::{AiUse, SourcePolicy};
+use pierre_core::transport::TransportPolicy;
 
 /// WHOOP's own scores never reach a prompt; its measurements do.
 ///
@@ -74,23 +82,43 @@ pub const NOLIO: SourcePolicy = SourcePolicy {
     other_sources: AiUse::Allow,
 };
 
+/// Nolio API terms v1.0, §6.9: Nolio data stays inside Dravr's own surfaces.
+///
+/// No making it available to third parties — through Dravr's own API,
+/// outbound notifications, an MCP server, a feed or an export — "including in
+/// derived or aggregated form", without Nolio's prior written agreement.
+/// Display in Dravr's own web, mobile and messaging surfaces is allowed.
+///
+/// Read: the same terms read as [`NOLIO`], Part 3 E7.
+// LIMITATION(registre#657): `NOLIO_TRANSPORT` is returned by no descriptor — no Nolio provider
+// exists, so only tests exercise this policy.
+pub const NOLIO_TRANSPORT: TransportPolicy = TransportPolicy::FirstPartyOnly;
+
 #[cfg(test)]
 mod tests {
     use super::*;
     #[cfg(all(feature = "provider-whoop", feature = "provider-strava"))]
     use crate::registry::ProviderRegistry;
-    use pierre_core::ai_policy::{filter_json, AiPolicyLookup};
+    use pierre_core::ai_policy::{filter_json, Exposure, ProviderTerms};
     use serde_json::{json, Value};
 
     /// The registry's resolution, with Nolio registered beside WHOOP and Strava.
     struct Registered;
 
-    impl AiPolicyLookup for Registered {
+    impl ProviderTerms for Registered {
         fn ai_policy(&self, provider: &str) -> Option<&'static SourcePolicy> {
             match provider {
                 "nolio" => Some(&NOLIO),
                 "whoop" => Some(&WHOOP),
                 "garmin" | "strava" => Some(&SourcePolicy::ALLOW_ALL),
+                _ => None,
+            }
+        }
+
+        fn transport_policy(&self, provider: &str) -> Option<TransportPolicy> {
+            match provider {
+                "nolio" => Some(NOLIO_TRANSPORT),
+                "whoop" | "garmin" | "strava" => Some(TransportPolicy::AnyTransport),
                 _ => None,
             }
         }
@@ -119,7 +147,7 @@ mod tests {
             activity("h", "huawei", &none),
             activity("o", "oura", &none),
         ]});
-        let withheld = filter_json(&Registered, &mut payload);
+        let withheld = filter_json(&Registered, &mut payload, Exposure::MODEL);
         let activities = payload["activities"].as_array().expect("an array");
 
         assert_eq!(activities.len(), 4, "zepp and huawei never reach the model");
@@ -144,7 +172,7 @@ mod tests {
             "provider": "whoop", "recovery_score": 34.0, "sleep_score": 80.0,
             "daily_strain": 12.1, "hrv_ms": 62.0, "resting_heart_rate": 48
         }]);
-        let withheld = filter_json(&Registered, &mut payload);
+        let withheld = filter_json(&Registered, &mut payload, Exposure::MODEL);
         assert_eq!(
             payload,
             json!([{ "provider": "whoop", "hrv_ms": 62.0, "resting_heart_rate": 48 }])
@@ -162,6 +190,16 @@ mod tests {
             Some(SourcePolicy::ALLOW_ALL)
         );
         assert_eq!(registry.ai_policy("not-a-provider"), None);
+        assert_eq!(
+            registry.transport_policy("whoop"),
+            Some(TransportPolicy::AnyTransport),
+            "every shipped provider is served over every transport"
+        );
+        assert_eq!(
+            registry.transport_policy("strava"),
+            Some(TransportPolicy::AnyTransport)
+        );
+        assert_eq!(registry.transport_policy("not-a-provider"), None);
     }
 
     #[test]
@@ -171,7 +209,7 @@ mod tests {
             {"provider": "garmin", "name": "Hills"}
         ]);
         let mut payload = original.clone();
-        assert!(filter_json(&Registered, &mut payload).is_empty());
+        assert!(filter_json(&Registered, &mut payload, Exposure::MODEL).is_empty());
         assert_eq!(payload, original);
     }
 }

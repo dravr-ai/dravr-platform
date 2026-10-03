@@ -15,7 +15,7 @@ use crate::spi::{ProviderBundle, ProviderCapabilities, ProviderDescriptor};
     feature = "provider-coros"
 ))]
 use pierre_auth::config::oauth::load_provider_env_config;
-use pierre_core::ai_policy::{AiPolicyLookup, SourcePolicy};
+use pierre_core::ai_policy::{ProviderTerms, SourcePolicy};
 #[cfg(any(
     feature = "provider-strava",
     feature = "provider-garmin",
@@ -28,6 +28,7 @@ use pierre_core::ai_policy::{AiPolicyLookup, SourcePolicy};
 use pierre_core::constants::oauth as oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
+use pierre_core::transport::TransportPolicy;
 use std::{
     collections::HashMap,
     convert::AsRef,
@@ -564,9 +565,13 @@ impl ProviderRegistry {
     }
 }
 
-impl AiPolicyLookup for ProviderRegistry {
+impl ProviderTerms for ProviderRegistry {
     fn ai_policy(&self, provider: &str) -> Option<&'static SourcePolicy> {
         self.descriptors.get(provider).map(|d| d.ai_policy())
+    }
+
+    fn transport_policy(&self, provider: &str) -> Option<TransportPolicy> {
+        self.descriptors.get(provider).map(|d| d.transport_policy())
     }
 }
 

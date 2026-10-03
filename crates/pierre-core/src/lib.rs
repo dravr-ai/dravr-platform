@@ -27,8 +27,11 @@ pub mod constants;
 /// Cursor-based pagination for efficient data traversal
 pub mod pagination;
 
-/// Per-(provider, source) rules for what provider data may enter a model prompt
+/// Per-(provider, source) rules for what provider data may enter a model prompt or leave over an external transport
 pub mod ai_policy;
+
+/// The surface a call arrived through, and where a provider's terms let its data be served
+pub mod transport;
 
 /// Core data models (Activity, User, SportType, OAuth, etc.)
 pub mod models;

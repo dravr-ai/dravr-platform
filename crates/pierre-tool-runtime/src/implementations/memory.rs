@@ -31,6 +31,7 @@ use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
+use crate::derived_content::refuse_derived_content_off_interface;
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -609,6 +610,10 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             let tenant_id = TenantId::from_uuid(context.require_tenant()?);
+            // Facts and notes are extracted from conversations and carry no
+            // provenance (carnet#724).
+            refuse_derived_content_off_interface(context.resources.as_ref(), context.user_id)
+                .await?;
             let agent_id = optional_string_field(&args, "agent_id");
             let kind = optional_string_field(&args, "kind").map(|s| FactKind::parse_lenient(&s));
             let limit = args

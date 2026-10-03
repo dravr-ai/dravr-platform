@@ -51,6 +51,7 @@ mod turn_service_quota_tests {
     };
     use pierre_core::models::ConnectionType;
     use pierre_core::models::{ConversationTurnId, Tenant, TenantId, User, UserStatus};
+    use pierre_core::transport::Transport;
     use pierre_database::backends::factory::DatabaseBackend;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
@@ -409,6 +410,7 @@ mod turn_service_quota_tests {
                 turn_id: ConversationTurnId::new(),
                 ambient_context: None,
                 channel_type: "web",
+                transport: Transport::WebApp,
                 is_direct_message: true,
                 ambient_group_fallback: false,
                 command_persistence: CommandPersistence::Always,

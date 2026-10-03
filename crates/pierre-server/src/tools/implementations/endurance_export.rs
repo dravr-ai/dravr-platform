@@ -27,6 +27,7 @@ use pierre_tool_runtime::context::ToolExecutionContext;
 use pierre_tool_runtime::conversions::{
     answers_with, ok_typed, task_capable, tool_definition, tool_result_to_response,
 };
+use pierre_tool_runtime::derived_content::refuse_derived_content_off_interface;
 use pierre_tool_runtime::protocol::provider_helpers::fetch_activities_from_provider;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::security::RuntimeTool;
@@ -260,6 +261,9 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
             drop(args);
             let tenant_id = require_tenant(&context)?;
             let user_id = context.user_id;
+            // The dossier composes facts and history kept with no provenance
+            // (carnet#724).
+            refuse_derived_content_off_interface(context.resources.as_ref(), user_id).await?;
             let dossier = context
                 .resources
                 .repos()

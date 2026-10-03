@@ -31,6 +31,7 @@ use chrono::SecondsFormat;
 use pierre_core::models::a2a::A2APushNotificationConfig;
 pub use pierre_core::models::a2a::{A2ATask, TaskStatus};
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
 use pierre_middleware::McpAuthMiddleware;
 use pierre_runtime_context::A2ACtx;
@@ -945,9 +946,11 @@ impl A2AServer {
 
         // Route through the unified executor so A2A tool calls pass the Guardian
         // chokepoint and resolve admin/tenant context exactly like the MCP and
-        // chat paths, under the client's own grant — unbound, it refuses.
+        // chat paths, under the client's own grant — unbound, it refuses. An
+        // agent speaking A2A is outside Dravr's own surfaces (carnet#724).
         let executor = UniversalToolExecutor::new(tool_runtime.clone()) // Safe: Arc clone
-            .with_scopes(principal.scopes.clone());
+            .with_scopes(principal.scopes.clone())
+            .with_transport(Transport::A2a);
         let request = UniversalRequest {
             tool_name: tool_name.to_owned(),
             parameters: tool_params,

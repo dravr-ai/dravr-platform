@@ -19,6 +19,7 @@ use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::{ConversationTurnId, UserTier};
 use pierre_core::models::{OAuthNotification, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use pierre_database::backends::NotificationRepository;
 use pierre_mcp_schema::{McpError, McpResponse};
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
@@ -633,10 +634,19 @@ impl ToolHandlers {
             // The caller's grant is already bound as a task-local by
             // `run_dispatch`, so `UniversalToolExecutor::new` inherits it — one
             // carrier, set once at the authenticated dispatch boundary.
-            let executor = ctx.tenant_context.session_id.clone().map_or_else(
-                || UniversalToolExecutor::new(ctx.resources.clone()),
-                |turn| UniversalToolExecutor::new(ctx.resources.clone()).with_turn_token(turn),
-            );
+            //
+            // Whatever credential reached `/mcp`, its caller is an MCP client
+            // outside Dravr's own surfaces: the route decides, never the token
+            // (carnet#724).
+            let executor = ctx
+                .tenant_context
+                .session_id
+                .clone()
+                .map_or_else(
+                    || UniversalToolExecutor::new(ctx.resources.clone()),
+                    |turn| UniversalToolExecutor::new(ctx.resources.clone()).with_turn_token(turn),
+                )
+                .with_transport(Transport::McpHttp);
             let request = UniversalRequest {
                 tool_name: tool_name.to_owned(),
                 parameters: args.clone(),

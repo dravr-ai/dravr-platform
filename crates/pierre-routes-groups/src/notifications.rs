@@ -45,6 +45,8 @@ use pierre_notifications::{
 };
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
 use pierre_services::notification_text::NotificationTextRenderer;
+use pierre_tool_runtime::derived_content::refuse_derived_content_off_interface;
+use pierre_tool_runtime::runtime::ToolRuntime;
 
 /// Rewrite one feed row's title, body and action labels in the reader's locale.
 ///
@@ -128,7 +130,7 @@ impl NotificationRoutes {
     /// - `POST /api/notifications/scheduled` - Create scheduled notification
     /// - `PUT /api/notifications/scheduled/{id}` - Update scheduled notification
     /// - `DELETE /api/notifications/scheduled/{id}` - Delete scheduled notification
-    pub fn routes<C: GroupsCtx + MiddlewareCtx>(resources: Arc<C>) -> Router {
+    pub fn routes<C: GroupsCtx + MiddlewareCtx + ToolRuntime>(resources: Arc<C>) -> Router {
         Router::new()
             // Device token management
             .route(
@@ -211,13 +213,17 @@ impl NotificationRoutes {
     }
 
     /// Handle POST /api/notifications/device - Register a device token
-    async fn handle_register_device<C: GroupsCtx + MiddlewareCtx>(
+    async fn handle_register_device<C: GroupsCtx + MiddlewareCtx + ToolRuntime>(
         State(resources): State<Arc<C>>,
         auth: AuthenticatedUser,
         Json(request): Json<RegisterDeviceTokenRequest>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
+        // A registered device receives every later push, whose text is
+        // derived from the athlete's data: an external caller cannot route
+        // them to itself (carnet#724).
+        refuse_derived_content_off_interface(resources.as_ref(), auth.user_id).await?;
 
         // Validate expo push token format
         if !request.expo_push_token.starts_with("ExponentPushToken[")
@@ -389,13 +395,16 @@ impl NotificationRoutes {
     }
 
     /// Handle GET /api/notifications - List notifications (feed)
-    async fn handle_list_notifications<C: GroupsCtx + MiddlewareCtx>(
+    async fn handle_list_notifications<C: GroupsCtx + MiddlewareCtx + ToolRuntime>(
         State(resources): State<Arc<C>>,
         auth: AuthenticatedUser,
         Query(query): Query<ListNotificationsQuery>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
+        // A notification's text is derived from the athlete's data
+        // (carnet#724).
+        refuse_derived_content_off_interface(resources.as_ref(), auth.user_id).await?;
 
         let limit = query.limit.unwrap_or(20).clamp(1, 100);
         let offset = query.offset.unwrap_or(0);
@@ -440,8 +449,10 @@ impl NotificationRoutes {
         // Render last, over the collapsed feed, so a group's own sentence is
         // the one the athlete reads rather than the representative row's.
         let locale = Self::reader_locale(&resources, auth.user_id).await;
-        let renderer =
-            NotificationTextRenderer::new(resources.messaging_strings_registry(), &locale);
+        let renderer = NotificationTextRenderer::new(
+            GroupsCtx::messaging_strings_registry(resources.as_ref()),
+            &locale,
+        );
         for item in &mut collapsed_items {
             localize_item(item, renderer);
         }

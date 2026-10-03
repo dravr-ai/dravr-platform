@@ -137,6 +137,9 @@ pub mod surfaces;
 /// contremaitre string change reaches them without a client deploy.
 pub mod i18n;
 
+/// The transport each HTTP request is served over, declared from its
+/// credential before any route runs (carnet#724).
+pub mod request_transport;
 /// The subscription check and per-owner debounce a Strava push event passes.
 #[cfg(feature = "health-sync")]
 pub mod strava_webhook_gate;

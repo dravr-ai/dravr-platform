@@ -29,6 +29,7 @@ use pierre_services::conversation_forge::{
     counterpart_title, create_conversation_slot, dated_title, resolve_conversation_model, SlotQuota,
 };
 use pierre_services::locale::{resolve_user_locale, user_locale};
+use pierre_tool_runtime::derived_content::refuse_derived_content_off_interface;
 
 use super::common::{get_tenant_id, verify_group_membership};
 use super::dto::{preview_text, resolve_stored_blocks};
@@ -206,6 +207,8 @@ pub async fn list_conversations(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     let tenant_id = get_tenant_id(&auth, &resources).await?;
+    // Each row previews its last message: derived content (carnet#724).
+    refuse_derived_content_off_interface(resources.as_ref(), auth.user_id).await?;
     let (limit, offset) = query.bounded();
 
     let page = resources
@@ -383,6 +386,8 @@ pub async fn get_messages(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     let tenant_id = get_tenant_id(&auth, &resources).await?;
+    // A transcript is content derived from the athlete's data (carnet#724).
+    refuse_derived_content_off_interface(resources.as_ref(), auth.user_id).await?;
 
     // Verify the caller participates in this conversation
     resources

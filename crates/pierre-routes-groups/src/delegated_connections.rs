@@ -36,6 +36,7 @@ use pierre_core::models::groups::CoachingGroup;
 use pierre_core::models::{DelegatedConnection, DelegationStatus, TenantId, User};
 use pierre_database::RepositoryRegistry;
 use pierre_middleware::AuthenticatedUser;
+use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::user_facing_name;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
@@ -356,6 +357,13 @@ impl DelegatedConnectionRoutes {
         let auth = auth.into_inner();
         let (group, tenant) = Self::open_group(&resources, &auth, &group_id).await?;
         Self::require_coach(&group, auth.user_id)?;
+        // The roster is the coach's TrainingPeaks data, with no provenance of
+        // its own per athlete: refused whole over an external transport when
+        // TrainingPeaks' terms keep its data first-party (carnet#724).
+        let terms = ToolRuntime::provider_registry(resources.as_ref());
+        for backend in [TRAININGPEAKS, SCIOTTE_TRAININGPEAKS] {
+            ai_scope::first_party_only_read(terms.as_ref(), backend, None)?;
+        }
         let repos = MiddlewareCtx::repos(resources.as_ref());
 
         let entries = roster_for_group(

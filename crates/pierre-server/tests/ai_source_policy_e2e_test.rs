@@ -24,7 +24,7 @@ use pierre_mcp_server::context::ServerContext;
 use pierre_providers::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig,
 };
-use pierre_providers::provider_ai_terms::NOLIO;
+use pierre_providers::provider_terms::NOLIO;
 use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::spi::{
     OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderBundle, ProviderCapabilities,

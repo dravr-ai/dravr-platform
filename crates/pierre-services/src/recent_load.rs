@@ -21,7 +21,7 @@
 //! baseline.
 
 use chrono::{Duration, Utc};
-use pierre_core::ai_policy::AiPolicyLookup;
+use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, LoadSnapshot, SportFamily, TenantId};
 use pierre_database::repositories::ActivityCacheRepository;
@@ -51,7 +51,7 @@ const ACTIVITY_FETCH_LIMIT: i64 = 500;
 /// Returns the repository error when the activity cache cannot be read.
 pub async fn recent_load_snapshot(
     activities: &dyn ActivityCacheRepository,
-    policies: &dyn AiPolicyLookup,
+    policies: &dyn ProviderTerms,
     user_id: Uuid,
     tenant_id: &TenantId,
 ) -> AppResult<Option<LoadSnapshot>> {

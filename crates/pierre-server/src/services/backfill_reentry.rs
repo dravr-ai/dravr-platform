@@ -30,6 +30,7 @@ use pierre_chat_pipeline::{
 use pierre_contremaitre::messaging_strings::{KEY_CAPABILITY_REFUSAL, KEY_SCOPE_REFUSAL};
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::{ConversationTurnId as CoreTurnId, TenantId};
+use pierre_core::transport::Transport;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -208,6 +209,9 @@ impl ChatReentry for PipelineChatReentry {
             // Proactive pushes land in the user's own DM conversation.
             ambient_context: None,
             channel_type: &channel_slug,
+            // The platform answers on its own initiative, into the athlete's
+            // own channel.
+            transport: Transport::PlatformJob,
             is_direct_message: true,
             // The messaging DM's answers; the re-asked prompt is never a
             // command (command rows are skipped when it is chosen), so these
