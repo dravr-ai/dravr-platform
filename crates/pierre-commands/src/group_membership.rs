@@ -21,6 +21,7 @@ use pierre_groups::creation_policy::{
 };
 use pierre_groups::strategies::tier::tier_strategy_for;
 use pierre_runtime_context::ConfigLookupScope;
+use pierre_services::default_agent::group_default;
 use tracing::info;
 
 use crate::{CommandHandler, PlatformCommandContext};
@@ -56,7 +57,8 @@ pub struct GroupCreateHandler;
 
 impl GroupCreateHandler {
     /// The agent the new group answers with: the thread's own agent, else the
-    /// caller's selected agent. Verified visible to the caller, so a stale
+    /// caller's selected agent, unless it is coach-facing — then the tenant's
+    /// first athlete-facing agent. Verified visible to the caller, so a stale
     /// pointer at a deleted agent reads as "no coach" rather than creating a
     /// group nobody can talk to.
     async fn resolve_group_agent(
@@ -64,7 +66,7 @@ impl GroupCreateHandler {
         thread: Option<&ConversationRecord>,
     ) -> Result<Option<Agent>, AppError> {
         let repos = ctx.ctx.repos();
-        let agent_id = match thread.and_then(|t| t.agent_id.clone()) {
+        let preferred = match thread.and_then(|t| t.agent_id.clone()) {
             Some(id) => Some(id),
             None => {
                 repos
@@ -73,7 +75,23 @@ impl GroupCreateHandler {
                     .await?
             }
         };
-        let Some(agent_id) = agent_id else {
+        let preferred = match preferred {
+            Some(id) => {
+                let Some(agent) = repos
+                    .agents
+                    .get_by_id(&id, ctx.user_id, ctx.tenant_id)
+                    .await?
+                else {
+                    return Ok(None);
+                };
+                Some(agent)
+            }
+            None => None,
+        };
+        // The group's athletes talk to it: never a coach-facing agent, such as
+        // the roster agent a coach who does not train runs their practice with.
+        let system = repos.agents.list_system_agents(ctx.tenant_id).await?;
+        let Some(agent_id) = group_default(&system, preferred.as_ref()) else {
             return Ok(None);
         };
         repos

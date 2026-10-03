@@ -27,6 +27,7 @@ use pierre_core::pagination::StoreSortOrder;
 use std::slice;
 
 use pierre_database::database::{Agent, AgentCategory, AgentWithListing, StoreListing};
+use pierre_database::repositories::CoachTools;
 use pierre_database::views::AgentRepos;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
@@ -98,6 +99,9 @@ impl From<AgentWithListing> for StoreAgent {
 pub struct BrowseStoreParams<'a> {
     /// Restrict to one category. `None` browses every category.
     pub category: Option<AgentCategory>,
+    /// Whether the viewer may see coach-facing agents; see
+    /// [`crate::agents::user_sees_coach_tools`].
+    pub coach_tools: CoachTools,
     /// Ordering applied before the grade re-rank.
     pub sort_by: StoreSortOrder,
     /// Page size; clamped to `1..=MAX_STORE_PAGE_SIZE`.
@@ -136,7 +140,13 @@ pub async fn browse_store(
     let limit = params.limit.clamp(1, MAX_STORE_PAGE_SIZE);
     let page = repos
         .store_listings
-        .get_published_agents_cursor(params.category, params.sort_by, limit, params.cursor)
+        .get_published_agents_cursor(
+            params.category,
+            params.coach_tools,
+            params.sort_by,
+            limit,
+            params.cursor,
+        )
         .await?;
 
     let items = translate_listings(repos, page.items, locale).await?;
@@ -178,6 +188,7 @@ pub async fn browse_store_page(
     repos: &AgentRepos,
     viewer_tenant: TenantId,
     category: Option<AgentCategory>,
+    coach_tools: CoachTools,
     offset: u32,
     limit: u32,
     locale: &str,
@@ -186,7 +197,13 @@ pub async fn browse_store_page(
     let page_len = limit as usize;
     let mut rows = repos
         .store_listings
-        .get_published_agents(category, Some("newest"), Some(limit + 1), Some(offset))
+        .get_published_agents(
+            category,
+            coach_tools,
+            Some("newest"),
+            Some(limit + 1),
+            Some(offset),
+        )
         .await?;
     let has_more = rows.len() > page_len;
     rows.truncate(page_len);
@@ -219,6 +236,7 @@ pub async fn browse_store_page(
 pub async fn search_store(
     repos: &AgentRepos,
     query: &str,
+    coach_tools: CoachTools,
     limit: Option<u32>,
     locale: &str,
 ) -> AppResult<Vec<StoreAgent>> {
@@ -231,7 +249,7 @@ pub async fn search_store(
         .clamp(1, MAX_STORE_PAGE_SIZE);
     let agents = repos
         .store_listings
-        .search_published_agents(trimmed, Some(limit), locale)
+        .search_published_agents(trimmed, coach_tools, Some(limit), locale)
         .await?;
     let agents = translate_listings(repos, agents, locale).await?;
     Ok(agents.into_iter().map(StoreAgent::from).collect())
@@ -245,16 +263,31 @@ pub async fn search_store(
 /// # Errors
 ///
 /// Returns [`pierre_core::errors::AppError::invalid_input`] when `agent_id` is
-/// not a UUID, and the underlying repository error when the install fails
+/// not a UUID, `not_found` when a viewer who may not see coach-facing agents
+/// names one, and the underlying repository error when the install fails
 /// (including when the agent is not published).
 pub async fn install_store_agent(
     repos: &AgentRepos,
     agent_id: &str,
     user_id: Uuid,
     tenant_id: TenantId,
+    coach_tools: CoachTools,
 ) -> AppResult<StoreAgent> {
     Uuid::parse_str(agent_id)
         .map_err(|_| AppError::invalid_input(format!("Invalid coach ID: {agent_id}")))?;
+
+    // The browse and search never show an athlete a coach-facing agent; an id
+    // carried in from elsewhere reads the same as one that is not published.
+    if coach_tools == CoachTools::Exclude {
+        let coach_facing = repos
+            .store_listings
+            .get_published_agent(agent_id)
+            .await?
+            .is_some_and(|published| published.agent.is_coach_facing());
+        if coach_facing {
+            return Err(AppError::not_found(format!("Published coach {agent_id}")));
+        }
+    }
 
     let installed = repos
         .store_listings

@@ -18,6 +18,7 @@ use pierre_core::models::agents::{AgentCategory, AgentHandle};
 use pierre_services::agent_store::{
     browse_store_page, install_store_agent, search_store, StoreAgent,
 };
+use pierre_services::agents::coach_tools_for;
 use tracing::{debug, info};
 
 use crate::{CommandHandler, PlatformCommandContext};
@@ -90,12 +91,20 @@ pub struct DiscoverHandler;
 impl DiscoverHandler {
     async fn list(ctx: &PlatformCommandContext) -> Result<Listing, AppError> {
         let repos = ctx.ctx.repos().agent_repos();
+        let coach_tools = coach_tools_for(ctx.ctx.repos().users.as_ref(), ctx.user_id).await;
         let (offset, words) = split_page(&ctx.args);
         Ok(match Scope::parse(words) {
             Scope::All => {
-                let page =
-                    browse_store_page(&repos, ctx.tenant_id, None, offset, PAGE_SIZE, &ctx.locale)
-                        .await?;
+                let page = browse_store_page(
+                    &repos,
+                    ctx.tenant_id,
+                    None,
+                    coach_tools,
+                    offset,
+                    PAGE_SIZE,
+                    &ctx.locale,
+                )
+                .await?;
                 Listing {
                     agents: page.agents,
                     next_page: page
@@ -109,6 +118,7 @@ impl DiscoverHandler {
                     &repos,
                     ctx.tenant_id,
                     Some(category),
+                    coach_tools,
                     offset,
                     PAGE_SIZE,
                     &ctx.locale,
@@ -123,7 +133,8 @@ impl DiscoverHandler {
                 }
             }
             Scope::Search(query) => Listing {
-                agents: search_store(&repos, &query, Some(PAGE_SIZE), &ctx.locale).await?,
+                agents: search_store(&repos, &query, coach_tools, Some(PAGE_SIZE), &ctx.locale)
+                    .await?,
                 next_page: None,
                 asked: Some(query),
             },
@@ -249,11 +260,13 @@ impl CommandHandler for DiscoverInstallHandler {
         else {
             return Ok(unknown_handle(ctx, typed));
         };
+        let coach_tools = coach_tools_for(ctx.ctx.repos().users.as_ref(), ctx.user_id).await;
         let installed = install_store_agent(
             &repos.agent_repos(),
             &published.agent.id.to_string(),
             ctx.user_id,
             ctx.tenant_id,
+            coach_tools,
         )
         .await?;
 

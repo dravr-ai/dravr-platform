@@ -17,10 +17,15 @@ use serde_json::json;
 
 use common::{create_test_server_resources, create_test_user, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
-use pierre_core::models::agents::CreateAgentRequest;
+use pierre_core::models::agents::{
+    Agent, AgentCategory, AgentVisibility, CreateAgentRequest, CreateSystemAgentRequest,
+};
 use pierre_core::models::{CoachingPersona, TenantId};
+use pierre_database::repositories::OnboardingResetScope;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::onboarding::OnboardingRoutes;
+use pierre_services::conversation_forge::selected_or_system_agent;
+use pierre_services::default_agent::ROSTER_AGENT_HANDLE;
 use uuid::Uuid;
 
 async fn setup() -> (axum::Router, String) {
@@ -192,8 +197,106 @@ async fn user_with_selected_agent() -> (Arc<ServerContext>, axum::Router, String
     (resources, router, token, user_id, tenant)
 }
 
-/// The agent signup picked was for an athlete's own training; a coach who does
-/// not train has none, so answering that way clears it.
+/// A tenant system agent, created in order so the list (newest first) puts
+/// later ones ahead.
+async fn system_agent(
+    resources: &ServerContext,
+    owner: Uuid,
+    tenant: TenantId,
+    title: &str,
+    tags: Vec<String>,
+) -> String {
+    resources
+        .agent
+        .database
+        .repositories()
+        .agents
+        .create_system_agent(
+            owner,
+            tenant,
+            &CreateSystemAgentRequest {
+                title: title.to_owned(),
+                description: None,
+                system_prompt: "Test.".to_owned(),
+                category: AgentCategory::Custom,
+                tags,
+                sample_prompts: vec![],
+                visibility: AgentVisibility::Tenant,
+            },
+        )
+        .await
+        .unwrap()
+        .id
+        .to_string()
+}
+
+/// A coach who does not train runs their practice with the roster agent, and
+/// an answer that changes later takes them back to an athlete's agent: the
+/// selection is left empty and their thread resolves it from the answer.
+#[tokio::test]
+async fn the_coach_only_answer_resolves_the_roster_agent_until_they_train() {
+    let (resources, router, token, user_id, tenant) = user_with_selected_agent().await;
+    let repos = resources.agent.database.repositories();
+    let athlete = system_agent(&resources, user_id, tenant, "Endurance", vec![]).await;
+    // Seeded after the athlete agent, so it is first in the list.
+    let roster_id = system_agent(
+        &resources,
+        user_id,
+        tenant,
+        "Roster Agent",
+        vec![Agent::COACH_TOOL_TAG.to_owned()],
+    )
+    .await;
+    let handle = repos
+        .store_listings
+        .assign_catalogue_handle(&roster_id, tenant)
+        .await
+        .unwrap();
+    assert_eq!(handle, ROSTER_AGENT_HANDLE, "fixture precondition");
+    let registry = &resources.common.repos;
+
+    let resp = AxumTestRequest::put("/api/me/onboarding/steps/about_you")
+        .header("Authorization", &token)
+        .json(&json!({ "status": "not_applicable" }))
+        .send(router.clone())
+        .await;
+    assert_eq!(resp.status_code(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        repos
+            .tenants
+            .get_selected_agent(tenant, user_id)
+            .await
+            .unwrap(),
+        None,
+        "the coach-only answer leaves nothing selected"
+    );
+    assert_eq!(
+        selected_or_system_agent(registry, tenant, user_id).await,
+        Some(roster_id.clone()),
+        "their own thread resolves the roster agent"
+    );
+
+    // An operator reset, then the person says they train.
+    repos
+        .user_onboarding
+        .reset_onboarding(&user_id.to_string(), OnboardingResetScope::OnboardingOnly)
+        .await
+        .unwrap();
+    let resp = AxumTestRequest::put("/api/me/onboarding/steps/about_you")
+        .header("Authorization", &token)
+        .json(&json!({ "status": "complete" }))
+        .send(router)
+        .await;
+    assert_eq!(resp.status_code(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        selected_or_system_agent(registry, tenant, user_id).await,
+        Some(athlete),
+        "once they train, their thread is an athlete's again"
+    );
+}
+
+/// The athlete's agent signup picked is released by the coach-only answer,
+/// whether or not the tenant has the roster agent to resolve to.
 #[tokio::test]
 async fn the_coach_only_answer_clears_the_selected_agent() {
     let (resources, router, token, user_id, tenant) = user_with_selected_agent().await;

@@ -422,12 +422,19 @@ fn waives_athlete_steps(step_id: &str, status: &str) -> bool {
     (step_id == STEP_PARQ || step_id == STEP_ABOUT_YOU) && status == STATUS_NOT_APPLICABLE
 }
 
-/// Clear the agent a coach who does not train holds for themselves.
+/// Release the athlete's agent signup picked for a coach who does not train.
 ///
 /// Called by every surface right after it writes a step, so the answer and
-/// the selection never disagree: an agent is picked for an athlete's own
-/// training, and this person said they have none. Any other step write is a
-/// no-op. The agent their groups answer with is the group's own, untouched.
+/// the selection never disagree: the starter is an athlete's, and this person
+/// said they coach others and have no training of their own. Any other step
+/// write is a no-op. The agent their groups answer with is the group's own,
+/// untouched.
+///
+/// The selection is cleared rather than pointed at the roster agent: their
+/// own thread resolves it from the answer at every turn
+/// ([`crate::default_agent::own_thread_default`]), so an answer that changes
+/// later — a reset, then "I train" — moves them back to an athlete's agent
+/// with nothing left behind to undo.
 ///
 /// The answer is the person's, like the step rows, while the selection is per
 /// membership: every membership is cleared, not only the tenant the answer

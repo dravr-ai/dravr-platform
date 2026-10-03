@@ -410,3 +410,63 @@ async fn test_create_group_without_an_agent_asks_for_one() {
     let (status, _) = post_group(&router, &owner_auth, json!({"name": "No agent"})).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
+
+/// A group's athletes talk to its agent, so an agent written for a coach is
+/// refused on create and on update — and the group keeps the agent it had.
+#[tokio::test]
+async fn test_a_group_never_answers_with_a_coach_facing_agent() {
+    let (res, router, owner_auth, owner_id, tid, persona) = setup().await;
+    let request: CreateAgentRequest = serde_json::from_value(json!({
+        "title": "Roster Agent",
+        "system_prompt": "Run the coach's practice.",
+        "category": "custom",
+        "tags": ["coach-tool", "roster"]
+    }))
+    .unwrap();
+    let coach_tool = res
+        .common
+        .repos
+        .agents
+        .create(owner_id, tid, &request)
+        .await
+        .unwrap()
+        .id
+        .to_string();
+
+    let (status, body) = post_group(
+        &router,
+        &owner_auth,
+        json!({"name": "Coach desk", "agent_id": coach_tool}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+    let (status, group) = post_group(
+        &router,
+        &owner_auth,
+        json!({"name": "Marie", "agent_id": persona}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let group_id = group["id"].as_str().unwrap().to_owned();
+
+    let resp = AxumTestRequest::put(&format!("/api/groups/{group_id}"))
+        .header("authorization", &owner_auth)
+        .json(&json!({ "agent_id": coach_tool }))
+        .send(router.clone())
+        .await;
+    assert_eq!(resp.status_code(), StatusCode::BAD_REQUEST);
+
+    let kept = res
+        .common
+        .repos
+        .groups
+        .get_group(&group_id, tid)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        kept.agent_id, persona,
+        "the group keeps its athlete-facing agent"
+    );
+}

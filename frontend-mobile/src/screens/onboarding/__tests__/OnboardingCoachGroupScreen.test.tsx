@@ -40,12 +40,13 @@ function render(ui: React.ReactElement) {
   return rtlRender(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
 }
 
-const agent = (id: string, title: string, isHidden = false) => ({
+const agent = (id: string, title: string, isHidden = false, tags: string[] = []) => ({
   id,
   title,
   description: null,
   category: 'training',
   is_hidden: isHidden,
+  tags,
 });
 
 const group = (coachUserId: string | null) => ({
@@ -74,8 +75,13 @@ describe('OnboardingCoachGroupScreen', () => {
     createInvite.mockReset().mockResolvedValue({ code: 'ABCD2345' });
     setOnboardingStep.mockReset().mockResolvedValue(undefined);
     listAgents.mockReset().mockResolvedValue({
-      agents: [agent('a-1', 'Endurance Agent'), agent('a-2', 'Triathlon Agent'), agent('a-3', 'Hidden', true)],
-      total: 3,
+      agents: [
+        agent('a-1', 'Endurance Agent'),
+        agent('a-2', 'Triathlon Agent'),
+        agent('a-3', 'Hidden', true),
+        agent('a-4', 'Roster Agent', false, ['coach-tool']),
+      ],
+      total: 4,
       metadata: {},
     });
     (useOnboardingFlag as jest.Mock).mockReturnValue({ done: false, mark: mockMark });
@@ -101,12 +107,14 @@ describe('OnboardingCoachGroupScreen', () => {
     expect(screen.queryByTestId('onboarding-group-access-pending')).toBeNull();
   });
 
-  it('offers the visible catalogue and creates nothing until an agent is picked', async () => {
+  it('offers the visible athlete-facing catalogue and creates nothing until an agent is picked', async () => {
     render(<OnboardingCoachGroupScreen />);
     nameTheGroup();
 
     expect(await screen.findByTestId('onboarding-group-agent-a-1')).toBeTruthy();
     expect(screen.queryByTestId('onboarding-group-agent-a-3')).toBeNull();
+    // A coach-facing agent never answers a group's athletes.
+    expect(screen.queryByTestId('onboarding-group-agent-a-4')).toBeNull();
     fireEvent.press(screen.getByTestId('onboarding-group-create'));
     expect(createGroup).not.toHaveBeenCalled();
   });

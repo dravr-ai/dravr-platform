@@ -35,9 +35,7 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::civil_time::resolve_zone;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{ConversationRecord, CoverageMap, GuidedFlow, OnboardingState, TenantId};
-use pierre_database::repositories::{
-    AgentsRepository, ChatRepository, NewConversation, Reactivation, SlotClaim, TenantRepository,
-};
+use pierre_database::repositories::{ChatRepository, NewConversation, Reactivation, SlotClaim};
 use pierre_database::RepositoryRegistry;
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup, ConfigLookupScope};
 use serde_json::Value;
@@ -45,6 +43,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::agent_selection::{record_agent_selection, AgentSelectionSource};
+use crate::default_agent::own_thread_default;
 use crate::intake::{athlete_steps_waived, is_outstanding};
 
 /// Which agent the fresh conversation binds to.
@@ -417,61 +416,64 @@ pub async fn forge_conversation(
 /// What a room row binds: the selection alone, never a system agent, so the
 /// member's row shadows nothing (see [`ForgeAgent::SelectedInRoom`]). A
 /// lookup failure reads as "no selection".
+///
+/// A room is where athletes talk, so a coach-facing selection — the roster
+/// agent a coach who does not train holds — reads as no selection here.
 pub async fn selected_agent_id(
     repos: &RepositoryRegistry,
     tenant_id: TenantId,
     user_id: &str,
 ) -> Option<String> {
     let parsed = Uuid::parse_str(user_id).ok()?;
-    repos
+    let selected = repos
         .tenants
         .get_selected_agent(tenant_id, parsed)
         .await
-        .ok()?
+        .ok()??;
+    let coach_facing = repos
+        .agents
+        .get_by_id(&selected, parsed, tenant_id)
+        .await
+        .ok()
+        .flatten()
+        .is_some_and(|agent| agent.is_coach_facing());
+    (!coach_facing).then_some(selected)
 }
 
-/// The athlete's tenant-level selected agent, else the tenant's first system
-/// agent, else `None`.
+/// The person's tenant-level selected agent, else the default for their own
+/// thread ([`own_thread_default`]), else `None`.
 ///
-/// One answer for every place a 1:1 thread is bound to an agent without the
-/// athlete naming one: the DM forge, the room bootstrap and the per-turn
-/// rebind. A lookup failure reads as "no agent" — the thread is still usable
-/// on the house prompt, the attribution panels simply skip it — and a tenant
-/// with no system agent at all is the only way the answer stays empty.
-///
-/// LIMITATION(registre#745): `selected_or_system_agent` falls back to the first system agent for a
-/// coach who does not train too, so their own 1:1 thread is answered by an athlete-facing agent.
+/// One answer for every place a person's own 1:1 thread is bound to an agent
+/// without them naming one: the DM forge and the per-turn rebind. A lookup
+/// failure reads as "no agent" — the thread is still usable on the house
+/// prompt, the attribution panels simply skip it. The onboarding steps are
+/// read only when nothing is selected; an unreadable record reads as an
+/// athlete, the default every account had before the coach-only answer.
 pub async fn selected_or_system_agent(
-    tenants: &dyn TenantRepository,
-    agents: &dyn AgentsRepository,
+    repos: &RepositoryRegistry,
     tenant_id: TenantId,
     user_id: Uuid,
 ) -> Option<String> {
-    if let Ok(Some(selected)) = tenants.get_selected_agent(tenant_id, user_id).await {
+    if let Ok(Some(selected)) = repos.tenants.get_selected_agent(tenant_id, user_id).await {
         return Some(selected);
     }
-    agents
-        .list_system_agents(tenant_id)
+    let system = repos.agents.list_system_agents(tenant_id).await.ok()?;
+    let coach_only = repos
+        .user_onboarding
+        .get_onboarding_steps(&user_id.to_string())
         .await
-        .ok()?
-        .first()
-        .map(|agent| agent.id.to_string())
+        .is_ok_and(|steps| athlete_steps_waived(&steps));
+    own_thread_default(&system, coach_only)
 }
 
-/// [`selected_or_system_agent`] over the registry, for a textual user id.
+/// [`selected_or_system_agent`] for a textual user id.
 pub async fn selected_or_system_agent_for(
     repos: &RepositoryRegistry,
     tenant_id: TenantId,
     user_id: &str,
 ) -> Option<String> {
     let parsed = Uuid::parse_str(user_id).ok()?;
-    selected_or_system_agent(
-        repos.tenants.as_ref(),
-        repos.agents.as_ref(),
-        tenant_id,
-        parsed,
-    )
-    .await
+    selected_or_system_agent(repos, tenant_id, parsed).await
 }
 
 /// The title a conversation is stored under: the room's name, else the bound

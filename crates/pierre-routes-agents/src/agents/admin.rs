@@ -14,6 +14,7 @@ use axum::{
 };
 use pierre_core::errors::AppError;
 use pierre_core::models::agents::{Agent, AgentWithListing, UpdateAgentRequest};
+use pierre_database::repositories::CoachTools;
 use pierre_middleware::{require_admin, AuthenticatedUser};
 use pierre_runtime_context::{AgentsCtx, MiddlewareCtx};
 use pierre_services::agent_package::review_package;
@@ -343,8 +344,15 @@ pub(super) async fn handle_admin_published<C: AgentsCtx + MiddlewareCtx + ToolRu
 
     let store_manager = super::get_store_manager(&ctx);
     let sort_by = params.sort_by.as_deref();
+    // The admin moderates the whole Store, coach-facing agents included.
     let agents = store_manager
-        .get_published_agents(None, sort_by, params.limit, params.offset)
+        .get_published_agents(
+            None,
+            CoachTools::Include,
+            sort_by,
+            params.limit,
+            params.offset,
+        )
         .await?;
 
     let agents_with_email = enrich_store_agents(&ctx, agents).await?;

@@ -613,9 +613,9 @@ async fn finish(args: FinishArgs<'_>) {
     maybe_start_pillar_walk(&resources.common.repos, tenant_id, user_id, conversation_id).await;
 }
 
-/// Clear the agent of a coach who does not train, as the wizard's step write
-/// does. Best-effort like the step rows it follows: the intake has finished
-/// either way.
+/// Release the athlete's agent of a coach who does not train, as the wizard's
+/// step write does. Best-effort like the step rows it follows: the intake has
+/// finished either way.
 async fn release_agent(resources: &ServerContext, user_id: &str, parq_status: &str) {
     let user_uuid = match Uuid::parse_str(user_id) {
         Ok(id) => id,

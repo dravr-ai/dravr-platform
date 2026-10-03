@@ -32,6 +32,7 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::TenantId;
 use pierre_core::untrusted::{display_line, ROSTER_NAME_MAX_CHARS};
+use pierre_groups::group_agent::require_athlete_facing;
 use pierre_groups::strategies::tier::tier_enables_digest;
 use pierre_services::group_staff::resolve_group_staff;
 use uuid::Uuid;
@@ -724,6 +725,7 @@ impl CommandHandler for GroupCoachHandler {
                 "No agent matching \"{name}\" found. Use /agent to see the agents available to you."
             )));
         };
+        require_athlete_facing(&found.agent)?;
 
         // Point the group at the chosen agent persona.
         let request = UpdateGroupRequest {

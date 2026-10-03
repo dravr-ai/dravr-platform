@@ -39,5 +39,8 @@ pub mod delegation;
 /// Who may create a group: the tenant-role shortcut and the creation policy
 pub mod creation_policy;
 
+/// Which agents may answer a group's athletes
+pub mod group_agent;
+
 // Re-export key types for consumers
 pub use service::GroupService;

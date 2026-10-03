@@ -43,6 +43,7 @@ use pierre_auth::config::DIALED_HOST_HEADERS;
 use pierre_core::auth_header::is_api_key_format;
 use pierre_core::models::{EffectiveTool, TenantId, ToolEnablementSource};
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_database::repositories::CoachTools;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
 use pierre_middleware::rate_limiting::report_request_operation;
 use pierre_tool_runtime::context::AuthMethod;
@@ -846,7 +847,15 @@ impl PierreMethodHandler {
         match self
             .resources
             .store_listings_repository()
-            .get_published_agents(None, None, Some(resource_catalog::list_limit()), Some(0))
+            // A public catalogue with no viewer to ask: coach-facing agents
+            // are left out, as for any athlete.
+            .get_published_agents(
+                None,
+                CoachTools::Exclude,
+                None,
+                Some(resource_catalog::list_limit()),
+                Some(0),
+            )
             .await
         {
             Ok(published) => {

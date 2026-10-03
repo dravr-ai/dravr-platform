@@ -18,6 +18,20 @@ use pierre_core::pagination::{CursorPage, StoreSortOrder};
 use sqlx::{ColumnIndex, Decode, Row, Type};
 use uuid::Uuid;
 
+/// Whether a catalogue read may return coach-facing agents (tagged
+/// [`Agent::COACH_TOOL_TAG`]).
+///
+/// The Store is global, so the audience is decided per viewer: a coach sees
+/// the agents written for coaches, an athlete never does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CoachTools {
+    /// The viewer is a coach: coach-facing agents are listed with the rest.
+    Include,
+    /// The viewer is an athlete, or unknown: coach-facing agents are left out.
+    #[default]
+    Exclude,
+}
+
 /// Store listings for the agent marketplace (cross-tenant browsing, install/uninstall)
 #[async_trait]
 pub trait StoreListingsRepository: Send + Sync {
@@ -73,6 +87,7 @@ pub trait StoreListingsRepository: Send + Sync {
     async fn get_published_agents(
         &self,
         category: Option<AgentCategory>,
+        coach_tools: CoachTools,
         sort_by: Option<&str>,
         limit: Option<u32>,
         offset: Option<u32>,
@@ -81,6 +96,7 @@ pub trait StoreListingsRepository: Send + Sync {
     async fn get_published_agents_cursor(
         &self,
         category: Option<AgentCategory>,
+        coach_tools: CoachTools,
         sort_by: StoreSortOrder,
         limit: u32,
         cursor: Option<&str>,
@@ -96,6 +112,7 @@ pub trait StoreListingsRepository: Send + Sync {
     async fn search_published_agents(
         &self,
         query: &str,
+        coach_tools: CoachTools,
         limit: Option<u32>,
         locale: &str,
     ) -> AppResult<Vec<AgentWithListing>>;
@@ -388,12 +405,17 @@ pub(crate) const ASSIGN_HANDLE_SQL: &str = "UPDATE agents SET slug = $1 WHERE id
 /// athlete reads come from `agent_translations.tags`, while the canonical
 /// slug the agent was published under stays on `agents`. `(agent_id, locale)`
 /// is the overlay's primary key, so the join adds at most one row per agent.
+///
+/// `$audience` is empty, or [`coach_tool_exclusion!`] to leave coach-facing
+/// agents out.
 macro_rules! search_published_sql {
-    ($like:literal) => {
+    ($like:literal, $audience:expr) => {
         concat!(
             agent_with_listing_select!(),
             "LEFT JOIN agent_translations ct ON ct.agent_id = c.id AND ct.locale = $2 \
-             WHERE sl.publish_status = 'published' AND (c.title ",
+             WHERE sl.publish_status = 'published' ",
+            $audience,
+            " AND (c.title ",
             $like,
             " $1 OR c.description ",
             $like,
@@ -410,6 +432,16 @@ macro_rules! search_published_sql {
     };
 }
 pub(crate) use search_published_sql;
+
+/// The filter that leaves coach-facing agents out of a catalogue read.
+/// `tags` is a JSON array stored as text on both backends, so the quoted tag
+/// matches only a whole tag; an agent with no tags is kept.
+macro_rules! coach_tool_exclusion {
+    () => {
+        "AND COALESCE(c.tags, '') NOT LIKE '%\"coach-tool\"%'"
+    };
+}
+pub(crate) use coach_tool_exclusion;
 
 /// Newest first, then id, for the cursor pages.
 pub(crate) const NEWEST_ORDER: &str = "sl.published_at DESC, c.id DESC";
@@ -428,12 +460,16 @@ pub(crate) const TITLE_ORDER: &str = "c.title ASC, c.id ASC";
 /// The rows after a title-sort cursor: `$1` its title, `$2` its id.
 pub(crate) const TITLE_AFTER: &str = "AND (c.title > $1 OR (c.title = $1 AND c.id > $2))";
 
-/// The `AND c.category = '…'` filter of a browse, or nothing. The value is
-/// the enum's own spelling, never caller text.
-pub(crate) fn category_filter(category: Option<AgentCategory>) -> String {
-    category.map_or_else(String::new, |cat| {
+/// The filter of a browse: the category, when one is asked for, and the
+/// audience. Every value is the code's own spelling, never caller text.
+pub(crate) fn listing_filter(category: Option<AgentCategory>, coach_tools: CoachTools) -> String {
+    let category = category.map_or_else(String::new, |cat| {
         format!("AND c.category = '{}'", cat.as_str())
-    })
+    });
+    match coach_tools {
+        CoachTools::Include => category,
+        CoachTools::Exclude => format!("{category} {}", coach_tool_exclusion!()),
+    }
 }
 
 /// The offset page of published agents a browse asks for, `$1` the limit

@@ -27,6 +27,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
+use super::agents_audience::{activate_visible_agent, visible_to_caller};
 use super::agents_output::{
     activate_agent_payload, active_agent_payload, create_agent_payload, get_agent_payload,
     list_agents_payload, list_hidden_agents_payload, search_agents_payload, update_agent_payload,
@@ -180,6 +181,7 @@ impl McpTool<dyn ToolRuntime> for ListAgentsTool {
                 .list(user_id, tenant_id, &filter)
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to list coaches: {e}")))?;
+            let agents = visible_to_caller(&ctx, agents, |item| &item.agent).await;
             let total = manager
                 .count(user_id, tenant_id)
                 .await
@@ -801,6 +803,7 @@ impl McpTool<dyn ToolRuntime> for SearchAgentsTool {
                 .search(user_id, tenant_id, query, category, limit, offset)
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to search coaches: {e}")))?;
+            let agents = visible_to_caller(&ctx, agents, |agent| agent).await;
 
             let payload = search_agents_payload(query, &agents, offset, limit);
             ok_typed("search_agents", apply_format(payload, format))
@@ -851,7 +854,6 @@ impl McpTool<dyn ToolRuntime> for ActivateAgentTool {
     ) -> ToolResponse {
         let ctx = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            let user_id = ctx.user_id;
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             let agent_id = args
@@ -859,9 +861,7 @@ impl McpTool<dyn ToolRuntime> for ActivateAgentTool {
                 .and_then(Value::as_str)
                 .ok_or_else(|| AppError::invalid_input("Missing required parameter: agent_id"))?;
 
-            let manager = ctx.resources.agents_manager();
-            let agent = manager
-                .activate_agent(agent_id, user_id, tenant_id)
+            let agent = activate_visible_agent(&ctx, agent_id, tenant_id)
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to activate coach: {e}")))?;
 

@@ -16,7 +16,7 @@ use common::{
 };
 use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::{capture_notify, named, only};
-use pierre_core::models::TenantId;
+use pierre_core::models::{CoachingPersona, TenantId};
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::database::agents::{
     AgentCategory, AgentVisibility, CreateSystemAgentRequest, PublishStatus,
@@ -63,6 +63,19 @@ async fn create_published_agent(
     title: &str,
     category: AgentCategory,
 ) -> Agent {
+    let tags = vec!["test".to_owned(), category.as_str().to_owned()];
+    create_published_agent_tagged(resources, user_id, tenant_id, title, category, tags).await
+}
+
+/// [`create_published_agent`] with the agent's tags given.
+async fn create_published_agent_tagged(
+    resources: &ServerContext,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    title: &str,
+    category: AgentCategory,
+    tags: Vec<String>,
+) -> Agent {
     let agents_manager = &resources.common.repos.agents;
     let store_listings_manager = &resources.common.repos.store_listings;
 
@@ -72,7 +85,7 @@ async fn create_published_agent(
         description: Some(format!("Description for {title}")),
         system_prompt: format!("You are a {title} coach."),
         category,
-        tags: vec!["test".to_owned(), category.as_str().to_owned()],
+        tags,
         visibility: AgentVisibility::Tenant,
         sample_prompts: vec!["Sample prompt 1".to_owned()],
     };
@@ -1345,3 +1358,104 @@ async fn test_installations_isolated_per_user() {
 // ============================================================================
 // Store Health Check Test
 // ============================================================================
+
+// ============================================================================
+// Coach-facing agents
+// ============================================================================
+
+/// An athlete never finds an agent written for a coach — browsing or
+/// searching — while a coach finds it beside the rest.
+#[tokio::test]
+async fn test_store_shows_coach_facing_agents_to_coaches_only() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant_id = resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap()[0]
+        .id;
+
+    let athlete_agent = create_published_agent(
+        &resources,
+        user_id,
+        tenant_id,
+        "Marathon Agent",
+        AgentCategory::Training,
+    )
+    .await;
+    let roster_agent = create_published_agent_tagged(
+        &resources,
+        user_id,
+        tenant_id,
+        "Roster Agent",
+        AgentCategory::Custom,
+        vec![Agent::COACH_TOOL_TAG.to_owned(), "roster".to_owned()],
+    )
+    .await;
+
+    let auth_token = format!("Bearer {}", generate_test_token(&resources, &user).await);
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
+    let browse_ids = |router: axum::Router, auth: String| async move {
+        let result: BrowseAgentsResponse = AxumTestRequest::get("/api/store/agents")
+            .header("authorization", &auth)
+            .send(router)
+            .await
+            .json();
+        result.agents.into_iter().map(|a| a.id).collect::<Vec<_>>()
+    };
+    let search_ids = |router: axum::Router, auth: String| async move {
+        let result: SearchAgentsResponse = AxumTestRequest::get("/api/store/search?q=agent")
+            .header("authorization", &auth)
+            .send(router)
+            .await
+            .json();
+        result.agents.into_iter().map(|a| a.id).collect::<Vec<_>>()
+    };
+
+    assert_eq!(
+        browse_ids(router.clone(), auth_token.clone()).await,
+        vec![athlete_agent.id],
+        "an athlete browses the athlete-facing catalogue only"
+    );
+    assert_eq!(
+        search_ids(router.clone(), auth_token.clone()).await,
+        vec![athlete_agent.id],
+        "an athlete's search never surfaces a coach-facing agent"
+    );
+    let install = |router: axum::Router, auth: String| async move {
+        AxumTestRequest::post(&format!("/api/store/agents/{}/install", roster_agent.id))
+            .header("authorization", &auth)
+            .send(router)
+            .await
+            .status_code()
+    };
+    assert_eq!(
+        install(router.clone(), auth_token.clone()).await,
+        StatusCode::NOT_FOUND,
+        "an athlete cannot install a coach-facing agent by its id either"
+    );
+
+    resources
+        .common
+        .repos
+        .users
+        .set_coaching_persona(user_id, CoachingPersona::Coach)
+        .await
+        .unwrap();
+    let mut coach_browse = browse_ids(router.clone(), auth_token.clone()).await;
+    coach_browse.sort();
+    let mut expected = vec![athlete_agent.id, roster_agent.id];
+    expected.sort();
+    assert_eq!(coach_browse, expected, "a coach browses both");
+    let mut coach_search = search_ids(router.clone(), auth_token.clone()).await;
+    coach_search.sort();
+    assert_eq!(coach_search, expected, "a coach finds both");
+    assert_eq!(
+        install(router, auth_token).await,
+        StatusCode::CREATED,
+        "a coach installs it"
+    );
+}

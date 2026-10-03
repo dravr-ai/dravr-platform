@@ -20,7 +20,9 @@ use pierre_contremaitre::messaging_strings::{
     KEY_AGENT_LIST_ITEM_NO_HANDLE, KEY_AGENT_NO_DESCRIPTION, KEY_AGENT_REMOVED,
     KEY_AGENT_REMOVE_GROUP_THREAD, KEY_AGENT_REMOVE_NOTHING, KEY_AGENT_USER_UPDATED,
 };
+use pierre_groups::group_agent::require_athlete_facing;
 use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
+use pierre_services::agents::{retain_visible_agents, user_sees_coach_tools};
 use tracing::warn;
 
 use crate::group::{issue_group_invite, resolve_target_group, GroupInviteHandler};
@@ -50,6 +52,8 @@ impl CommandHandler for AgentListHandler {
             .agents
             .list(ctx.user_id, ctx.tenant_id, &installed_filter())
             .await?;
+        let users = ctx.ctx.repos().users.as_ref();
+        retain_visible_agents(users, ctx.user_id, &mut agents, |item| &item.agent).await;
 
         // Overlay per-locale translations on title/description. Canonical
         // English stays on the agents row; missing translations fall back to
@@ -216,21 +220,33 @@ async fn resolve_listed_agent(
     typed: &str,
 ) -> Result<Option<Agent>, AppError> {
     let agents = &ctx.ctx.repos().agents;
-    if let Ok(id) = parse_uuid(typed) {
-        return Ok(agents
+    let found = if let Ok(id) = parse_uuid(typed) {
+        agents
             .list(ctx.user_id, ctx.tenant_id, &installed_filter())
             .await?
             .into_iter()
             .map(|item| item.agent)
-            .find(|agent| agent.id == id));
-    }
-    match AgentHandle::parse(typed) {
-        Ok(handle) => {
-            agents
-                .find_installed_by_handle(&handle, ctx.user_id, ctx.tenant_id)
-                .await
+            .find(|agent| agent.id == id)
+    } else {
+        match AgentHandle::parse(typed) {
+            Ok(handle) => {
+                agents
+                    .find_installed_by_handle(&handle, ctx.user_id, ctx.tenant_id)
+                    .await?
+            }
+            Err(_) => None,
         }
-        Err(_) => Ok(None),
+    };
+    // `/agent` never lists a coach-facing agent to an athlete, so it is not
+    // on their list to add either.
+    match found {
+        Some(agent)
+            if agent.is_coach_facing()
+                && !user_sees_coach_tools(ctx.ctx.repos().users.as_ref(), ctx.user_id).await =>
+        {
+            Ok(None)
+        }
+        found => Ok(found),
     }
 }
 
@@ -290,6 +306,7 @@ pub(crate) async fn bind_agent(
         return Ok(AgentBinding::Refused);
     }
 
+    require_athlete_facing(agent)?;
     update_group_agent(ctx, &group.id.to_string(), group.tenant_id, agent_id).await?;
     bind_conversation_agent(ctx, agent_id).await?;
     Ok(AgentBinding::Group(group.name))
@@ -490,6 +507,7 @@ impl CommandHandler for AgentAssignHandler {
             )));
         }
 
+        require_athlete_facing(&agent)?;
         update_group_agent(ctx, group_id, ctx.tenant_id, agent_id).await?;
 
         Ok(CommandResponse::text(reg.render(

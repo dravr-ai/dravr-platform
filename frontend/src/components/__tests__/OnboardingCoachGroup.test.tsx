@@ -80,8 +80,9 @@ describe('OnboardingCoachGroup', () => {
         agent('a-1', 'Endurance Agent'),
         agent('a-2', 'Triathlon Agent'),
         agent('a-3', 'Hidden Agent', { is_hidden: true }),
+        agent('a-4', 'Roster Agent', { tags: ['coach-tool'] }),
       ],
-      total: 3,
+      total: 4,
       metadata: {},
     });
   });
@@ -107,13 +108,15 @@ describe('OnboardingCoachGroup', () => {
     expect(screen.queryByTestId('onboarding-group-access-pending')).not.toBeInTheDocument();
   });
 
-  it('offers the visible catalogue unranked and creates nothing until an agent is picked', async () => {
+  it('offers the visible athlete-facing catalogue unranked and creates nothing until an agent is picked', async () => {
     renderStep();
     await nameTheGroup();
 
     expect(await screen.findByTestId('onboarding-group-agent-a-1')).toBeInTheDocument();
     expect(screen.getByTestId('onboarding-group-agent-a-2')).toBeInTheDocument();
     expect(screen.queryByTestId('onboarding-group-agent-a-3')).not.toBeInTheDocument();
+    // A coach-facing agent never answers a group's athletes.
+    expect(screen.queryByTestId('onboarding-group-agent-a-4')).not.toBeInTheDocument();
     expect(screen.getAllByRole('radio').every((r) => r.getAttribute('aria-checked') === 'false')).toBe(
       true,
     );

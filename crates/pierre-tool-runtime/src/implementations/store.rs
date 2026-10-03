@@ -41,11 +41,13 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::agents::AgentCategory;
 use pierre_core::models::TenantId;
 use pierre_core::pagination::StoreSortOrder;
+use pierre_database::repositories::CoachTools;
 use pierre_mcp_schema::PropertySchema;
 use pierre_services::agent_store::{
     browse_store, install_store_agent, search_store, BrowseStoreParams, StoreAgent,
     DEFAULT_STORE_PAGE_SIZE, MAX_STORE_PAGE_SIZE,
 };
+use pierre_services::agents::coach_tools_for;
 use pierre_services::locale::resolve_user_locale;
 use pierre_tools_core::ToolResult;
 
@@ -62,6 +64,15 @@ use crate::security::RuntimeTool;
 /// or the platform default when the row does not say.
 async fn athlete_locale(context: &ToolExecutionContext) -> String {
     resolve_user_locale(
+        context.resources.data().repos().users.as_ref(),
+        context.user_id,
+    )
+    .await
+}
+
+/// Whether the caller may find coach-facing agents in the catalogue.
+async fn viewer_coach_tools(context: &ToolExecutionContext) -> CoachTools {
+    coach_tools_for(
         context.resources.data().repos().users.as_ref(),
         context.user_id,
     )
@@ -254,6 +265,7 @@ impl McpTool<dyn ToolRuntime> for BrowseAgentStoreTool {
                     .get("sort_by")
                     .and_then(Value::as_str)
                     .map_or(StoreSortOrder::Newest, StoreSortOrder::parse),
+                coach_tools: viewer_coach_tools(&context).await,
                 limit: limit_arg(&args),
                 cursor,
             };
@@ -338,7 +350,9 @@ impl McpTool<dyn ToolRuntime> for SearchAgentStoreTool {
 
             let repos = context.resources.data().repos().agent_repos();
             let locale = athlete_locale(&context).await;
-            let agents = search_store(&repos, query, Some(limit_arg(&args)), &locale).await?;
+            let coach_tools = viewer_coach_tools(&context).await;
+            let agents =
+                search_store(&repos, query, coach_tools, Some(limit_arg(&args)), &locale).await?;
             let rendered: Vec<StoreAgentEntry> = agents.iter().map(project).collect();
             let payload = SearchAgentStoreResult {
                 query: query.to_owned(),
@@ -411,7 +425,9 @@ impl McpTool<dyn ToolRuntime> for InstallAgentFromStoreTool {
             let user_id = context.user_id;
             let tenant_id = TenantId::from_uuid(context.require_tenant()?);
             let repos = context.resources.data().repos().agent_repos();
-            let installed = install_store_agent(&repos, agent_id, user_id, tenant_id).await?;
+            let coach_tools = viewer_coach_tools(&context).await;
+            let installed =
+                install_store_agent(&repos, agent_id, user_id, tenant_id, coach_tools).await?;
 
             // `agent.installed` is emitted by `install_store_agent`, the one
             // install path this tool shares with the REST route and

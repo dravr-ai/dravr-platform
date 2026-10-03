@@ -12,7 +12,7 @@ import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import QRCode from 'react-native-qrcode-svg';
 import type { CoachingGroup } from '@pierre/shared-types';
-import { BOREAL_LIGHT, QUERY_KEYS, coachCategoryLabelKey } from '@pierre/shared-constants';
+import { BOREAL_LIGHT, QUERY_KEYS, coachCategoryLabelKey, isCoachFacing } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { Button, Input, Row } from '../../components/ui';
 import { OnboardingProgressBar } from '../../components/ui/OnboardingProgressBar';
@@ -255,7 +255,8 @@ export function OnboardingCoachGroupScreen() {
 
 /**
  * The catalogue as a single-choice list. Unranked on purpose: the coach's own
- * activities are no evidence of what their athletes need.
+ * activities are no evidence of what their athletes need. Coach-facing agents
+ * are left out: the athletes talk to this one.
  */
 function AgentPicker({
   selected,
@@ -270,7 +271,7 @@ function AgentPicker({
     queryKey: QUERY_KEYS.coaches.list(),
     queryFn: () => coachesApi.list(),
   });
-  const agents = (data?.agents ?? []).filter((a) => !a.is_hidden);
+  const agents = (data?.agents ?? []).filter((a) => !a.is_hidden && !isCoachFacing(a));
 
   if (isLoading) {
     return (

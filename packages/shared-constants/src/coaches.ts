@@ -43,3 +43,17 @@ export const COACH_CATEGORY_LABEL_KEY: Record<AgentCategory, string> = {
 export function coachCategoryLabelKey(category: string): string {
   return COACH_CATEGORY_LABEL_KEY[category as AgentCategory] ?? COACH_CATEGORY_LABEL_KEY.custom;
 }
+
+/**
+ * The catalogue tag marking an agent written for a human coach rather than
+ * for athletes. Mirrors `Agent::COACH_TOOL_TAG` on the server.
+ */
+export const COACH_TOOL_TAG = 'coach-tool';
+
+/**
+ * Whether an agent is written for a human coach. A surface choosing the agent
+ * athletes talk to — a group's — never offers one.
+ */
+export function isCoachFacing(agent: { tags?: readonly string[] }): boolean {
+  return (agent.tags ?? []).includes(COACH_TOOL_TAG);
+}

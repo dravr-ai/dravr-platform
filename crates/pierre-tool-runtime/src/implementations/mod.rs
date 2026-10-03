@@ -79,6 +79,11 @@ pub mod agents_output;
 #[cfg(feature = "tools-agents")]
 mod agents_tool_shape;
 
+/// The coach-tool audience rule the agent tools apply to their caller
+/// (`tools-agents` feature), split out because `agents` is at its size ceiling.
+#[cfg(feature = "tools-agents")]
+mod agents_audience;
+
 /// User configuration tools: `get_configuration_catalog`, `get_user_configuration`,
 /// etc. (`tools-config` feature).
 #[cfg(feature = "tools-config")]

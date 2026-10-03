@@ -381,6 +381,7 @@ macro_rules! impl_store_listings_repository {
             async fn get_published_agents(
                 &self,
                 category: Option<AgentCategory>,
+                coach_tools: CoachTools,
                 sort_by: Option<&str>,
                 limit: Option<u32>,
                 offset: Option<u32>,
@@ -391,7 +392,7 @@ macro_rules! impl_store_listings_repository {
                     _ => "sl.published_at DESC",
                 };
                 let rows = sqlx::query(&published_agents_sql(
-                    &category_filter(category),
+                    &listing_filter(category, coach_tools),
                     order_clause,
                 ))
                 .bind(page_limit(limit, 50))
@@ -407,6 +408,7 @@ macro_rules! impl_store_listings_repository {
             async fn get_published_agents_cursor(
                 &self,
                 category: Option<AgentCategory>,
+                coach_tools: CoachTools,
                 sort_by: StoreSortOrder,
                 limit: u32,
                 cursor: Option<&str>,
@@ -426,7 +428,7 @@ macro_rules! impl_store_listings_repository {
                 let all_items = self
                     .store_published_page(
                         sort_by,
-                        &category_filter(category),
+                        &listing_filter(category, coach_tools),
                         decoded_cursor.as_ref(),
                         fetch_limit,
                     )
@@ -465,10 +467,15 @@ macro_rules! impl_store_listings_repository {
             async fn search_published_agents(
                 &self,
                 query: &str,
+                coach_tools: CoachTools,
                 limit: Option<u32>,
                 locale: &str,
             ) -> AppResult<Vec<AgentWithListing>> {
-                let rows = sqlx::query(search_published_sql!($like))
+                let sql = match coach_tools {
+                    CoachTools::Include => search_published_sql!($like, ""),
+                    CoachTools::Exclude => search_published_sql!($like, coach_tool_exclusion!()),
+                };
+                let rows = sqlx::query(sql)
                     .bind(contains_pattern(query))
                     .bind(locale)
                     .bind(page_limit(limit, 20))

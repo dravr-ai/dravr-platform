@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import QRCode from 'qrcode';
 import type { Agent, CoachingGroup } from '@pierre/shared-types';
-import { coachCategoryLabelKey } from '@pierre/shared-constants';
+import { coachCategoryLabelKey, isCoachFacing } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { chatApi, coachesApi, groupsApi } from '../services/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
@@ -173,7 +173,8 @@ export default function OnboardingCoachGroup({
 /**
  * The catalogue as a single-choice list. Unranked on purpose: the coach's own
  * activities are no evidence of what their athletes need, so nothing here is
- * offered as a recommendation.
+ * offered as a recommendation. Coach-facing agents are left out: the athletes
+ * talk to this one.
  */
 function AgentPicker({
   selected,
@@ -189,7 +190,7 @@ function AgentPicker({
     queryKey: QUERY_KEYS.coaches.list(),
     queryFn: () => coachesApi.list(),
   });
-  const agents: Agent[] = (data?.agents ?? []).filter((a) => !a.is_hidden);
+  const agents: Agent[] = (data?.agents ?? []).filter((a) => !a.is_hidden && !isCoachFacing(a));
 
   if (isLoading) {
     return (

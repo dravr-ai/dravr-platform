@@ -12,6 +12,8 @@ export {
   DEFAULT_MAX_TOOL_ITERATIONS,
   COACH_CATEGORY_LABEL_KEY,
   coachCategoryLabelKey,
+  COACH_TOOL_TAG,
+  isCoachFacing,
 } from './coaches';
 
 // Design system (Boreal Editorial colors, typography, spacing, effects)

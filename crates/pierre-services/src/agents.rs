@@ -11,8 +11,8 @@ use std::hash::BuildHasher;
 use serde::Deserialize;
 
 use pierre_config::agent_recommendations::AgentRecommendationConfig;
-use pierre_core::models::agents::AgentPrerequisites;
-use pierre_core::models::SportProfile;
+use pierre_core::models::agents::{Agent, AgentPrerequisites};
+use pierre_core::models::{CoachingPersona, SportProfile};
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
@@ -23,6 +23,8 @@ use pierre_core::models::TenantId;
 pub use pierre_contremaitre::messaging_strings::DEFAULT_LOCALE;
 use pierre_database::database::repositories::AgentsRepository;
 use pierre_database::database::repositories::TenantRepository;
+use pierre_database::database::repositories::UserRepository;
+use pierre_database::repositories::CoachTools;
 use uuid::Uuid;
 
 /// A missing prerequisite for an agent, protocol-agnostic
@@ -504,4 +506,70 @@ pub fn capitalize_provider(provider: &str) -> String {
             })
         }
     }
+}
+
+/// Whether this user may see coach-facing agents (tagged
+/// [`Agent::COACH_TOOL_TAG`]).
+///
+/// Only users operating in the [`CoachingPersona::Coach`] mode — professional
+/// coaches running their athletes — get them. Athletes never see, find, or get
+/// recommended a coach-facing agent, on any surface that lists the catalogue.
+///
+/// Fails closed: any user-lookup error resolves to `false`, so a transient
+/// failure hides coach tools rather than leaking them to an athlete.
+pub async fn user_sees_coach_tools(users: &dyn UserRepository, user_id: Uuid) -> bool {
+    users
+        .get_global(user_id)
+        .await
+        .ok()
+        .flatten()
+        .is_some_and(|user| user.coaching_persona == CoachingPersona::Coach)
+}
+
+/// [`user_sees_coach_tools`] as the audience a catalogue read takes.
+pub async fn coach_tools_for(users: &dyn UserRepository, user_id: Uuid) -> CoachTools {
+    if user_sees_coach_tools(users, user_id).await {
+        CoachTools::Include
+    } else {
+        CoachTools::Exclude
+    }
+}
+
+/// Leave out of `items` the coach-facing agents this user may not see
+/// ([`user_sees_coach_tools`]); `agent_of` reads each item's agent.
+///
+/// The one audience rule for every list of a user's agents: an athlete never
+/// sees an agent written for a coach.
+pub async fn retain_visible_agents<T, F>(
+    users: &dyn UserRepository,
+    user_id: Uuid,
+    items: &mut Vec<T>,
+    agent_of: F,
+) where
+    T: Send,
+    F: Fn(&T) -> &Agent + Send,
+{
+    if !user_sees_coach_tools(users, user_id).await {
+        items.retain(|item| !agent_of(item).is_coach_facing());
+    }
+}
+
+/// Whether `agent_id` names a coach-facing agent this user may not be given.
+/// To them it reads as an agent that does not exist, as on every list.
+///
+/// # Errors
+///
+/// Returns the repository error if looking the agent up fails.
+pub async fn is_hidden_coach_tool(
+    agents: &dyn AgentsRepository,
+    users: &dyn UserRepository,
+    agent_id: &str,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> AppResult<bool> {
+    let coach_facing = agents
+        .get_by_id(agent_id, user_id, tenant_id)
+        .await?
+        .is_some_and(|agent| agent.is_coach_facing());
+    Ok(coach_facing && !user_sees_coach_tools(users, user_id).await)
 }

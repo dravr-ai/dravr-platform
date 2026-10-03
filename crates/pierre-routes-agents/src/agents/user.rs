@@ -24,7 +24,7 @@ use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::agents::{
     AgentCategory, AgentListItem, AgentPrerequisites, ListAgentsFilter, UpdateAgentRequest,
 };
-use pierre_core::models::{CoachingPersona, SportProfile, TenantId};
+use pierre_core::models::{SportProfile, TenantId};
 use pierre_database::database::agents::compute_request_hash;
 use pierre_llm::{ChatMessage, ChatRequest};
 use pierre_middleware::AuthenticatedUser;
@@ -45,23 +45,13 @@ use super::types::{
     SearchAgentsQuery, SportProfileSummary, SubmitForReviewResponse, UpdateAgentBody,
 };
 
-/// Whether the user may see coach-facing builder personas (agents tagged
-/// [`Agent::COACH_TOOL_TAG`](pierre_core::models::agents::Agent::COACH_TOOL_TAG)).
-///
-/// Only users operating in the [`CoachingPersona::Coach`] mode — professional
-/// coaches building plans for their athletes — get them. Athletes never see or
-/// get recommended a coach-facing builder.
-///
-/// Fails closed: any user-lookup error resolves to `false`, so a transient
-/// failure hides coach tools rather than leaking them to an athlete.
-async fn user_sees_coach_tools<C: MiddlewareCtx>(ctx: &Arc<C>, user_id: Uuid) -> bool {
-    MiddlewareCtx::repos(ctx.as_ref())
-        .users
-        .get_global(user_id)
-        .await
-        .ok()
-        .flatten()
-        .is_some_and(|user| user.coaching_persona == CoachingPersona::Coach)
+/// [`agents_service::user_sees_coach_tools`] for this route's context.
+async fn sees_coach_tools<C: MiddlewareCtx>(ctx: &Arc<C>, user_id: Uuid) -> bool {
+    agents_service::user_sees_coach_tools(
+        MiddlewareCtx::repos(ctx.as_ref()).users.as_ref(),
+        user_id,
+    )
+    .await
 }
 
 /// Handle GET /api/agents - List agents for a user
@@ -84,19 +74,14 @@ pub(super) async fn handle_list<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
         include_hidden: query.include_hidden.unwrap_or(false),
     };
 
-    let agents = manager.list(auth.user_id, tenant_id, &filter).await?;
+    let mut agents: Vec<AgentListItem> = manager.list(auth.user_id, tenant_id, &filter).await?;
 
     // Agent-facing builder personas are surfaced only to users in Agent mode;
     // athletes never see them in their library. Drop them before any scoring so
     // they can neither be recommended nor browsed.
-    let agents: Vec<AgentListItem> = if user_sees_coach_tools(&ctx, auth.user_id).await {
-        agents
-    } else {
-        agents
-            .into_iter()
-            .filter(|item| !item.agent.is_coach_facing())
-            .collect()
-    };
+    let users = MiddlewareCtx::repos(ctx.as_ref()).users.as_ref();
+    agents_service::retain_visible_agents(users, auth.user_id, &mut agents, |item| &item.agent)
+        .await;
     // `total` is the user's global agent count (drives pagination) and stays
     // independent of the per-page `agents` view, which other query filters
     // (favorites_only / category) and the agent-facing filter narrow.
@@ -357,7 +342,7 @@ pub async fn build_agent_proposal<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
 
     // Agent-facing builder personas are proposed only to users in Agent mode;
     // an athlete never gets an agent-facing builder recommended.
-    let sees_coach_tools = user_sees_coach_tools(ctx, user_id).await;
+    let sees_coach_tools = sees_coach_tools(ctx, user_id).await;
 
     let mut eligible: Vec<(AgentListItem, f32)> = items
         .into_iter()

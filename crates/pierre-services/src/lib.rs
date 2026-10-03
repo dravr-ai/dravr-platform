@@ -117,6 +117,10 @@ pub mod conversation_compaction;
 /// and `/reset` both run.
 pub mod conversation_forge;
 
+/// Which system agent answers when nobody picked one: a person's own thread,
+/// or a group.
+pub mod default_agent;
+
 /// Admin browser over pierre-evals golden fixtures
 #[cfg(feature = "tools-verification")]
 pub mod eval_harness;

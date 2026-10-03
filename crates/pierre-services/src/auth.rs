@@ -29,6 +29,8 @@ use pierre_core::models::{
 };
 use pierre_runtime_context::DataContext;
 
+use crate::default_agent::first_athlete_facing;
+
 /// Sign-in through an external identity (Firebase, Google) and the account rules both follow
 mod federated;
 
@@ -383,8 +385,10 @@ impl AuthService {
     /// Best-effort: registration has already succeeded, and failing it over a
     /// default would trade a working account for a cosmetic one.
     ///
-    /// LIMITATION(registre#745): `select_starter_agent` runs before the account says whether it
-    /// trains; a coach who does not train holds this agent until that answer clears it.
+    /// The account has not said yet whether it trains, so the starter is an
+    /// athlete-facing agent; a coach who does not train has it released when
+    /// they answer (see [`crate::intake::release_coach_only_agent`]), and
+    /// their thread resolves the roster agent from then on.
     async fn select_starter_agent(&self, tenant_id: TenantId, user_id: uuid::Uuid) {
         let agents = match self.data.repos().agents.list_system_agents(tenant_id).await {
             Ok(c) => c,
@@ -394,7 +398,7 @@ impl AuthService {
             }
         };
 
-        let Some(first) = agents.first() else {
+        let Some(first) = first_athlete_facing(&agents) else {
             // A deployment with no system agents seeded yet. The proposal will
             // still offer whatever exists by the time the user gets there.
             return;

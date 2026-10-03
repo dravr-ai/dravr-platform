@@ -34,10 +34,11 @@
 //! - DMs (`is_direct_message == true`) skip the helper entirely — the
 //!   caller doesn't invoke this path.
 //!
-//! Agent selection for the bootstrap row is the forge's
-//! [`selected_or_system_agent`]: the user's selected agent, else the first
-//! system agent in the tenant. If neither exists, returns `Ok(None)` — the
-//! chat operates without group context until an agent exists.
+//! Agent selection for the bootstrap row is [`group_default`]: the first
+//! sender's selected agent unless it is coach-facing, else the tenant's first
+//! athlete-facing system agent — the group's athletes talk to it. If neither
+//! exists, returns `Ok(None)` — the chat operates without group context until
+//! an agent exists.
 
 use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::groups::{CoachingGroup, UpdateGroupRequest};
@@ -49,7 +50,7 @@ use pierre_groups::strategies::tier::tier_strategy_for;
 use pierre_groups::GroupService;
 use tracing::warn;
 
-use crate::conversation_forge::selected_or_system_agent;
+use crate::default_agent::group_default;
 
 /// The chat a message arrived in, and the sender to bind to it.
 ///
@@ -139,16 +140,27 @@ pub async fn resolve_or_create_channel_group(
         return Ok(None);
     }
 
-    // 2. No binding — first sender bootstraps. Pick an agent, the way every
-    //    agentless thread does.
-    let Some(agent_id) = selected_or_system_agent(
-        auth.tenants.as_ref(),
-        agent.agents.as_ref(),
-        binding.tenant_id,
-        user_uuid,
-    )
-    .await
-    else {
+    // 2. No binding — first sender bootstraps. Pick the agent the group's
+    //    athletes will talk to; a lookup failure reads as no selection.
+    let selected = match auth
+        .tenants
+        .get_selected_agent(binding.tenant_id, user_uuid)
+        .await
+    {
+        Ok(Some(id)) => agent
+            .agents
+            .get_by_id(&id, user_uuid, binding.tenant_id)
+            .await
+            .ok()
+            .flatten(),
+        _ => None,
+    };
+    let system = agent
+        .agents
+        .list_system_agents(binding.tenant_id)
+        .await
+        .unwrap_or_default();
+    let Some(agent_id) = group_default(&system, selected.as_ref()) else {
         // No agent available — skip group binding. The conversation runs
         // with the default Pierre prompt; the LLM still answers using
         // only the requesting user's data (no peer leakage risk).

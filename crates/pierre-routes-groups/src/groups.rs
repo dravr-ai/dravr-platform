@@ -38,6 +38,7 @@ use pierre_groups::creation_policy::{
     check_create_group_permission, is_tenant_group_admin, may_coach_group,
     policy_permits_group_creation, DEFAULT_GROUP_CREATION_POLICY, GROUP_CREATION_POLICY_KEY,
 };
+use pierre_groups::group_agent::require_athlete_facing;
 use pierre_groups::strategies::tier::{tier_enables_digest, tier_strategy_for};
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
@@ -509,6 +510,7 @@ impl GroupRoutes {
             .get_by_id(&agent_id, auth.user_id, tenant_id)
             .await?
             .ok_or_else(|| AppError::not_found(format!("Agent {agent_id}")))?;
+        require_athlete_facing(&agent)?;
 
         // ADR-018: asking to coach never grants coaching. A caller without
         // the right gets the group, coachless, and the client says so.
@@ -620,6 +622,19 @@ impl GroupRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         authorize_group_update(&resources, &group_id, auth.user_id, tenant_id, &body).await?;
+        // Only an agent the updater can read is checked here: one they cannot
+        // (another owner's install) is the group service's to accept, as it
+        // always has been.
+        if let Some(agent_id) = body.agent_id.as_deref() {
+            let agent = resources
+                .repos()
+                .agents
+                .get_by_id(agent_id, auth.user_id, tenant_id)
+                .await?;
+            if let Some(agent) = agent {
+                require_athlete_facing(&agent)?;
+            }
+        }
 
         let updated = resources
             .group_service()

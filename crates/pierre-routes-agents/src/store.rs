@@ -31,6 +31,7 @@ use pierre_services::agent_store::{
     browse_store, install_store_agent, search_store, translate_published_agent, BrowseStoreParams,
     StoreAgent, DEFAULT_STORE_PAGE_SIZE,
 };
+use pierre_services::agents::coach_tools_for;
 use pierre_services::locale::resolve_user_locale;
 use serde::{Deserialize, Serialize};
 use tracing::{field, info, Span};
@@ -179,8 +180,14 @@ async fn handle_browse<C: AgentsCtx + MiddlewareCtx>(
     let auth = auth.into_inner();
     let viewer_tenant = get_user_tenant(&auth)?;
 
+    let coach_tools = coach_tools_for(
+        MiddlewareCtx::repos(ctx.as_ref()).users.as_ref(),
+        auth.user_id,
+    )
+    .await;
     let params = BrowseStoreParams {
         category: query.category.as_ref().map(|c| AgentCategory::parse(c)),
+        coach_tools,
         sort_by: query
             .sort_by
             .as_deref()
@@ -271,8 +278,19 @@ async fn handle_search<C: AgentsCtx + MiddlewareCtx>(
         auth.user_id,
     )
     .await;
-    let store_agents =
-        search_store(&ctx.repos().agent_repos(), &query.q, query.limit, &locale).await?;
+    let coach_tools = coach_tools_for(
+        MiddlewareCtx::repos(ctx.as_ref()).users.as_ref(),
+        auth.user_id,
+    )
+    .await;
+    let store_agents = search_store(
+        &ctx.repos().agent_repos(),
+        &query.q,
+        coach_tools,
+        query.limit,
+        &locale,
+    )
+    .await?;
 
     info!(
         "User {} searched store for '{}': {} results",
@@ -307,12 +325,18 @@ async fn handle_install<C: AgentsCtx + MiddlewareCtx>(
     let auth = auth.into_inner();
     let tenant_id = get_user_tenant(&auth)?;
 
+    let coach_tools = coach_tools_for(
+        MiddlewareCtx::repos(ctx.as_ref()).users.as_ref(),
+        auth.user_id,
+    )
+    .await;
     // Install the agent (creates user's copy)
     let store_agent = install_store_agent(
         &ctx.repos().agent_repos(),
         &agent_id,
         auth.user_id,
         tenant_id,
+        coach_tools,
     )
     .await?;
 
