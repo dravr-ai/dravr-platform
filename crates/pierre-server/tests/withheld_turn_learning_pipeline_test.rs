@@ -30,6 +30,7 @@
 mod common;
 mod helpers;
 
+use pierre_core::transport::Transport;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -129,6 +130,7 @@ impl Fixture {
                 turn_id: ConversationTurnId::new(),
                 ambient_context: None,
                 channel_type: "web",
+                transport: Transport::WebApp,
                 is_direct_message: true,
                 ambient_group_fallback: false,
                 command_persistence: CommandPersistence::Always,

@@ -85,6 +85,7 @@ use pierre_core::models::connection_needs_reauth;
 use pierre_fitness_compute::weather_cache_adapter::WeatherCacheRepoAdapter;
 use pierre_formatters::OutputFormat;
 use pierre_mcp_schema::PropertySchema;
+use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::deduplication::FragmentReport;
@@ -510,15 +511,25 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // covered windows from the durable cache, so this costs no extra scrape.
             let is_historical = after.is_some_and(is_historical_backfill_window);
 
+            // An external call neither reads nor writes the response cache
+            // (carnet#724). A cached list is merged across providers and keeps
+            // no record of which fields came from which recording, so replaying
+            // a first-party call's list could carry a first-party-only
+            // provider's values on a permitted row; and a list stored by an
+            // external call would under-serve the athlete's own surfaces.
+            let served_externally = ai_scope::exposure().is_some_and(|gate| gate.external);
+
             // Cache hit short-circuits the auth+fetch round-trip. Skip when
             // auto-promoting (the cache key omits mode, so a cached summary cannot
             // satisfy a detail-promoted response) or for a historical window (it
             // must route through the gate, not a stale cached response).
-            if response_cache_eligible(
-                auto_promote_to_detail,
-                is_historical,
-                sort_by != "date_desc",
-            ) {
+            if !served_externally
+                && response_cache_eligible(
+                    auto_promote_to_detail,
+                    is_historical,
+                    sort_by != "date_desc",
+                )
+            {
                 if let Some(cached_response) = try_get_cached_activities(CachedActivitiesParams {
                     cache,
                     policies: context.resources.provider_registry().as_ref(),
@@ -1063,6 +1074,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // missing provider's, and a later hit would replay the answer without
             // the caveat that makes it honest.
             if stood_in.is_none()
+                && !served_externally
                 && response_cache_eligible(
                     auto_promote_to_detail,
                     is_historical,

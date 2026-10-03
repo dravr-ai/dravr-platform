@@ -26,6 +26,7 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::TenantId;
+use pierre_core::transport::Transport;
 use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -1527,6 +1528,7 @@ async fn plan_share_in_a_room_lands_in_the_group_transcript_and_plan_does_not() 
         conversation_id: &room,
         conversation_tenant_id: bot,
         channel_type: "telegram",
+        transport: Transport::Messaging,
         locale: "en",
         is_direct_message: false,
         ambient_group_fallback: true,

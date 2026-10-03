@@ -94,6 +94,7 @@ use pierre_database::repositories::{
 };
 use pierre_fitness_compute::route_track::{trimmed_overview_polyline, RouteTrack, RouteTrackError};
 use pierre_middleware::extractors::AuthenticatedUser;
+use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::{backend_pair_for, user_facing_name};
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_services::locale::user_locale;
@@ -101,6 +102,7 @@ use pierre_services::personas::resolve_persona_locale;
 use pierre_services::plan_card::{try_load_plan_card, PlanCard};
 use pierre_tool_runtime::activity_fetch::sync_verdict::{record_sync_failure, sync_backoff_until};
 use pierre_tool_runtime::activity_fetch::{activity_cache_retention_days, refresh_head};
+use pierre_tool_runtime::derived_content::refuse_derived_content_off_interface;
 use pierre_tool_runtime::reauth_retry::{claim_scrape_session_retry, retries_flagged_session};
 use pierre_tool_runtime::revalidation::{revalidation_timeout, RevalidationRegistry};
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -531,12 +533,23 @@ async fn recent_workouts(
             .get_cached_activity_rows(user_id, tenant_id, since, now, read)
             .await?;
         let exhausted = usize::try_from(read).is_ok_and(|asked| rows.len() < asked);
-        let workouts = home_activities(rows, limit);
+        let workouts = home_activities(served_rows(resources, rows), limit);
         if workouts.len() >= limit || exhausted {
             return Ok(workouts);
         }
         read = read.saturating_mul(2);
     }
+}
+
+/// The cached rows this request may serve. Over an external transport (an API
+/// key), a provider whose terms keep its data inside Dravr's own surfaces is
+/// dropped before any merge, so a withheld copy of a workout can never fill
+/// the fields of a served one (carnet#724). The athlete's own app sees every
+/// row.
+fn served_rows(resources: &ServerContext, rows: Vec<CachedActivityRow>) -> Vec<CachedActivityRow> {
+    ai_scope::retain_served_here(resources.fitness.provider_registry.as_ref(), rows, |row| {
+        (row.provider.as_str(), row.activity.source())
+    })
 }
 
 /// How many cached copies of each workout the recent read makes room for:
@@ -867,7 +880,7 @@ async fn activity_view(
             DETAIL_MERGE_ROW_LIMIT,
         )
         .await?;
-    let distinct = distinct_rows(rows);
+    let distinct = distinct_rows(served_rows(resources, rows));
     let facing = user_facing_name(asked.provider);
     let all = workouts(&distinct);
     let workout = all
@@ -946,10 +959,16 @@ async fn put_activity_conversation(
 /// under — the ownership check. A provider and its mirror backend are one
 /// provider to the athlete, so a row under either answers for it.
 ///
+/// Over an external transport, an activity whose terms keep it inside Dravr's
+/// own surfaces is refused here, before its view, its route or a conversation
+/// link is served (carnet#724).
+///
 /// # Errors
 ///
 /// Returns [`AppError::not_found`] when no row of the caller's, in this
-/// tenant, holds the activity.
+/// tenant, holds the activity, and
+/// [`AppError::unavailable_over_transport`] when it is not served over this
+/// transport.
 async fn owned_cached_activity(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
@@ -963,6 +982,11 @@ async fn owned_cached_activity(
             .get_cached_activity(user_id, &tenant_id, &backend, activity_id)
             .await?
         {
+            ai_scope::first_party_only_read(
+                resources.fitness.provider_registry.as_ref(),
+                &backend,
+                activity.source(),
+            )?;
             return Ok((backend, activity));
         }
     }
@@ -998,6 +1022,8 @@ async fn get_training_plan(
 ) -> AppResult<Json<TrainingPlanResponse>> {
     let user_id = auth.user_id;
     let tenant_id = active_tenant(&auth)?;
+    // The plan is written from the athlete's training (carnet#724).
+    refuse_derived_content_off_interface(resources.as_ref(), user_id).await?;
     let repos = resources.repos();
     let user = repos.users.get_global(user_id).await?;
     // The athlete's civil day, the one `/plan` projects the plan on: a 23:30

@@ -17,6 +17,10 @@
 //! [`date_range_properties`] and parsed by [`parse_date_range`] /
 //! [`apply_format`].
 
+// LIMITATION(registre#771): the sleep, recovery and health records these tools serve pass no
+// provider-terms filter (AI policy or transport gate): they carry `source_name`, never `provider`,
+// and are merged across sources before any filter could drop one.
+
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 

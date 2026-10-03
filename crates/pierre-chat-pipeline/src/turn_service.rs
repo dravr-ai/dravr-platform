@@ -38,10 +38,12 @@ use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::TranscriptSpeaker;
 use pierre_core::models::{ConversationTurnId, TenantId, TurnOrigin};
+use pierre_core::transport::Transport;
 use pierre_llm::ChatProvider;
 use pierre_providers::ai_scope;
 use pierre_services::conversation_forge::reactivate_for_turn;
 use pierre_services::tenant_chat_provider::resolve_tenant_chat_provider;
+use pierre_tool_runtime::derived_content::refuse_derived_content_off_interface;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -113,6 +115,13 @@ pub struct TurnRequest<'a> {
     /// Channel-native sender id, for commands that unlink a channel; `None`
     /// on the in-app surface, which has no channel link.
     pub sender_id: Option<&'a str>,
+    /// The transport the surface serves this turn over (carnet#724).
+    ///
+    /// Every read the turn makes — its prompt builders, its tools, a command
+    /// it answers — runs under it, so a provider whose terms keep its data
+    /// inside Dravr's own surfaces is withheld from a turn served over an API
+    /// key. Required, with no default: a surface cannot forget to declare.
+    pub transport: Transport,
     /// Progress, streaming and chart-publishing wiring for this turn.
     pub hooks: PipelineHooks<'a>,
 }
@@ -214,6 +223,8 @@ pub struct SlashRequest<'a> {
     /// archived thread's quota slot back; the athlete's may — the same rule
     /// [`execute`] applies to a coaching turn.
     pub origin: TurnOrigin,
+    /// See [`TurnRequest::transport`].
+    pub transport: Transport,
 }
 
 /// Run one chat turn.
@@ -237,6 +248,23 @@ pub async fn execute(
     request: TurnRequest<'_>,
     profile: &SurfaceProfile,
 ) -> AppResult<ServedTurn> {
+    // Everything the turn reads serves the transport its surface declared.
+    Box::pin(ai_scope::serve_over(
+        request.transport,
+        execute_turn(ctx, request, profile),
+    ))
+    .await
+}
+
+async fn execute_turn(
+    ctx: &ChatPipelineContext,
+    request: TurnRequest<'_>,
+    profile: &SurfaceProfile,
+) -> AppResult<ServedTurn> {
+    // A turn replays the conversation's history, compaction, notes and facts
+    // into its prompt — content derived from the athlete's data with no
+    // provenance — and answers its caller with what the model makes of it.
+    refuse_derived_content_off_interface(ctx.tool_runtime.as_ref(), request.user_id).await?;
     let user_id_str = request.user_id.to_string();
 
     // The conversation row supplies the agent the per-agent cap is keyed on.
@@ -281,6 +309,7 @@ pub async fn execute(
             sender_id: request.sender_id,
             text: &request.content,
             origin: request.origin,
+            transport: request.transport,
         },
     )
     .await?
@@ -451,24 +480,28 @@ pub async fn dispatch_slash(
     let user_id = request.user_id.to_string();
     let agent_before = bound_agent(ctx, request, &user_id).await;
     // A command's replies and walk prompts are model input like a turn's, so
-    // its reads are reads for a model (carnet#723).
-    let outcome = ai_scope::for_model(try_dispatch(DispatchRequest {
-        ctx: &ctx.command_ctx,
-        command_registry,
-        command_handler_registry: handler_registry,
-        user_id: request.user_id,
-        tenant_id: request.tenant_id,
-        channel_type: request.channel_type,
-        locale: request.locale,
-        is_direct_message: request.is_direct_message,
-        ambient_group_fallback: request.ambient_group_fallback,
-        conversation_id: Some(request.conversation_id),
-        conversation_tenant_id: request.conversation_tenant_id,
-        sender_id: request.sender_id,
-        text: request.text,
-        tool_runtime: &ctx.tool_runtime,
-        origin: request.origin,
-    }))
+    // its reads are reads for a model (carnet#723), served over the transport
+    // its surface declared (carnet#724).
+    let outcome = Box::pin(ai_scope::serve_over(
+        request.transport,
+        ai_scope::for_model(try_dispatch(DispatchRequest {
+            ctx: &ctx.command_ctx,
+            command_registry,
+            command_handler_registry: handler_registry,
+            user_id: request.user_id,
+            tenant_id: request.tenant_id,
+            channel_type: request.channel_type,
+            locale: request.locale,
+            is_direct_message: request.is_direct_message,
+            ambient_group_fallback: request.ambient_group_fallback,
+            conversation_id: Some(request.conversation_id),
+            conversation_tenant_id: request.conversation_tenant_id,
+            sender_id: request.sender_id,
+            text: request.text,
+            tool_runtime: &ctx.tool_runtime,
+            origin: request.origin,
+        })),
+    ))
     .await?;
 
     let Some(mut command) = command_turn(outcome, request.channel_type) else {

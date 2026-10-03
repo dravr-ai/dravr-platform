@@ -69,6 +69,7 @@ use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
+use crate::derived_content::refuse_derived_content_off_interface;
 use crate::implementations::training_plans_output::{
     GetTrainingPlanResult, SaveTrainingPlanResult, SavedWeek,
 };
@@ -528,6 +529,10 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                 Err(refused) => return Ok(refused),
             };
             let tenant = scope.tenant;
+            // A plan is written from the athlete's training and carries no
+            // provenance: the plan owner's connections decide (carnet#724).
+            refuse_derived_content_off_interface(context.resources.as_ref(), scope.user_id)
+                .await?;
             let tenant_id = tenant.to_string();
             let user_id = scope.user_id.to_string();
             let today = athlete_today(repos, scope.user_id).await;

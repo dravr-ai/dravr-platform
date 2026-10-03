@@ -25,7 +25,9 @@ use crate::mcp::resources::ServerContext;
 use crate::services::user_approval_notifier::ApprovalNotifier;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::UserStatus;
+use pierre_core::transport::Transport;
 use pierre_middleware::mask_email;
+use pierre_providers::ai_scope;
 use pierre_services::analytics::cache_user_email;
 use pierre_services::locale::resolve_channel_locale;
 use pierre_services::tenant_admin as tenant_admin_service;
@@ -269,7 +271,13 @@ pub async fn execute_postback_command(
         tool_runtime,
     };
 
-    let response = handler.execute(&ctx).await?;
+    // A button is a command typed on the athlete's own channel: its reads are
+    // model input served there, as a typed command's are (`dispatch_slash`).
+    let response = ai_scope::serve_over(
+        Transport::Messaging,
+        ai_scope::for_model(handler.execute(&ctx)),
+    )
+    .await?;
 
     info!(
         command = %parsed.name,

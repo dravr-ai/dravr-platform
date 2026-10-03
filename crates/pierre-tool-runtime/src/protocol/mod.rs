@@ -22,6 +22,8 @@ mod refresh_failure;
 pub mod sleep_helpers;
 /// Write-back of a pair a provider refreshed on its own, over the row it was read from
 mod token_writeback;
+/// Reads a tool's `ToolResponse` back: raised error codes, sentinels and the universal reply
+mod tool_response;
 /// Core universal protocol types (`UniversalRequest`, `UniversalResponse`, executor alias)
 pub mod types;
 

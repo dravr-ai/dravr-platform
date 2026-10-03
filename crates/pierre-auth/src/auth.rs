@@ -34,7 +34,7 @@ use pierre_core::constants::{
     service_names::{MCP, PIERRE_MCP_SERVER},
     time_constants::SECONDS_PER_HOUR,
 };
-use pierre_core::errors::{AppError, AppResult};
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{AuthRequest, AuthResponse, User, UserSession};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::uuid_utils::parse_uuid;
@@ -306,6 +306,27 @@ pub enum AuthMethod {
 }
 
 impl AuthMethod {
+    /// Refuse to mint a session from an API key.
+    ///
+    /// An API key is a caller outside Dravr's apps; a session token is the
+    /// athlete in one of them. Exchanged for a session, a key would read as the
+    /// athlete's own app on every chat and REST route, past the transport gate
+    /// that keeps some providers' data off external callers (carnet#724).
+    ///
+    /// # Errors
+    ///
+    /// [`ErrorCode::PermissionDenied`](pierre_core::errors::ErrorCode::PermissionDenied)
+    /// when the request was authenticated with an API key.
+    pub fn refuse_api_key_upgrade(&self) -> AppResult<()> {
+        match self {
+            Self::ApiKey { .. } => Err(AppError::new(
+                ErrorCode::PermissionDenied,
+                "An API key cannot be exchanged for a session; sign in to obtain one",
+            )),
+            Self::JwtToken { .. } | Self::ChannelLink { .. } => Ok(()),
+        }
+    }
+
     /// Get a human-readable display name for the authentication method
     #[must_use]
     pub const fn display_name(&self) -> &str {

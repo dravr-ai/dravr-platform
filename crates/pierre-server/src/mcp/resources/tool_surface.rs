@@ -411,6 +411,10 @@ impl HostedToolBridge {
         // enters. Bound here for the same reason as the turn token above: this
         // runs in the pipeline task, where there is no tool-body task-local to
         // inherit from.
+        //
+        // The turn's transport, by contrast, IS inherited: the turn service
+        // scopes it around the whole turn (carnet#724), so `new` reads it here,
+        // and the executor carries it onto the loopback task its calls run on.
         let executor = Arc::new(
             UniversalToolExecutor::new(self.tool_runtime.clone())
                 .with_scopes(OAuthScope::self_grant())

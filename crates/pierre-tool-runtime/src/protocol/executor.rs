@@ -5,13 +5,16 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::auth::AuthService;
+use super::tool_response::{
+    is_unavailable_over_transport, protocol_error_from_raised, provider_auth_required_slug,
+    raised_error_code, tool_response_to_universal_response,
+};
 use crate::ai_view;
 use crate::coach_seat::{coach_seat_response, is_withheld_on_coach_seat, TurnSeat};
 use crate::context::{
     AuthMethod, CONVERSATION_ID, CONVERSATION_TENANT, GRANTED_SCOPES, GUARDIAN_TURN_TOKEN,
     TURN_AGENT_ID,
 };
-use crate::conversions::RAISED_ERROR_CODE_KEY;
 use crate::guardian::{self, DenyReason, GateOutcome, HeadlessBlock, TurnKey};
 use crate::protocol::provider_helpers::no_provider_refusal;
 use crate::protocol::types::{UniversalRequest, UniversalResponse};
@@ -28,13 +31,13 @@ use dravr_cageux::physiological_constants::business_thresholds::{
 use dravr_cageux::physiological_constants::efficiency_defaults::{
     DEFAULT_EFFICIENCY_SCORE, DEFAULT_EFFICIENCY_WITH_DISTANCE,
 };
-use dravr_tronc::mcp::schema::{Content, ToolResponse};
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext};
 use pierre_config::constants::time_constants::SECONDS_PER_HOUR_F64;
 use pierre_config::environment::default_provider;
 use pierre_core::constants::oauth::providers::is_credential_free;
 use pierre_core::models::{Activity, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_database::repositories::PendingGuardianAction;
 use pierre_providers::ai_scope;
@@ -209,6 +212,17 @@ pub struct UniversalExecutor {
     /// group tool reaching a named athlete runs its own reads on that athlete's
     /// behalf, which is the path the seat exists to leave open.
     seat: TurnSeat,
+    /// The transport the calls this executor dispatches are served over
+    /// (carnet#724): bound by an entry point with [`Self::with_transport`], or
+    /// inherited from the declaring scope when built inside a turn or a tool
+    /// body, so a nested dispatch serves exactly what its parent serves.
+    ///
+    /// `None` is external: an entry point that forgets to declare withholds a
+    /// first-party-only provider's data instead of leaking it. Held here
+    /// rather than read from the task-local at dispatch, because the output
+    /// backstop runs after the tool body's scope has closed and a Copilot
+    /// loopback call runs on another task altogether.
+    transport: Option<Transport>,
 }
 
 impl UniversalExecutor {
@@ -240,7 +254,22 @@ impl UniversalExecutor {
                 .ok()
                 .unwrap_or_default(),
             seat: TurnSeat::Subject,
+            // A nested dispatch serves the transport its caller serves.
+            transport: ai_scope::declared_transport(),
         }
+    }
+
+    /// Bind the transport the calling entry point serves.
+    ///
+    /// A declaration only narrows: an executor built inside a call already
+    /// served over an external transport stays external whatever it declares.
+    #[must_use]
+    pub fn with_transport(mut self, transport: Transport) -> Self {
+        self.transport = Some(
+            self.transport
+                .map_or(transport, |inherited| inherited.narrowed_by(transport)),
+        );
+        self
     }
 
     /// Bind the turn's seat. On [`TurnSeat::Coach`], tools that would read or
@@ -664,7 +693,10 @@ impl UniversalExecutor {
         // Guardian turn token (so nested tool dispatch inherits this turn's key —
         // #6) around the tool body. The AI-policy tally rides the same way: what
         // the tool's reads held back reaches the result's withheld note below.
-        let (response, read_side_withheld) = ai_scope::ai_read(CONVERSATION_ID.scope(
+        // The transport is resolved once, here, and handed to the backstop
+        // explicitly: the body's scope has closed by the time it runs.
+        let transport = ai_scope::effective_transport(self.transport);
+        let body = ai_scope::ai_read(CONVERSATION_ID.scope(
             self.conversation_id.clone(),
             CONVERSATION_TENANT.scope(
                 self.conversation_tenant_id,
@@ -682,8 +714,11 @@ impl UniversalExecutor {
                     ),
                 ),
             ),
-        ))
-        .await;
+        ));
+        let (response, read_side_withheld) = match transport {
+            Some(served) => ai_scope::serve_over(served, body).await,
+            None => body.await,
+        };
 
         // Guardian POST. Taint was folded atomically with the dispatch decision
         // in `decide_and_reserve` above (before the body ran), so it is already
@@ -714,20 +749,37 @@ impl UniversalExecutor {
             // auth / tenant failures as protocol errors — the pre-E3 contract.
             // A body that returned `Ok(ToolResult::error(..))` carries no tag and
             // falls through to the in-band `success: false` response below.
+            //
+            // So does a read the provider's terms keep off this transport: the
+            // connection is healthy, and the caller adapts to "not available
+            // over this interface" the way it adapts to a tenant-disabled tool.
             if let Some(code) = raised_error_code(&response) {
-                return Err(protocol_error_from_raised(&tool_name, &code, &response));
+                if !is_unavailable_over_transport(&code) {
+                    return Err(protocol_error_from_raised(&tool_name, &code, &response));
+                }
             }
         }
 
         let mut universal = tool_response_to_universal_response(&tool_name, &response);
+        let mut held_back = read_side_withheld;
+        if response.is_error
+            && raised_error_code(&response).is_some_and(|code| is_unavailable_over_transport(&code))
+        {
+            // The refused read is itself the item this interface does not
+            // serve: the caller gets the same neutral note as a dropped one.
+            held_back.off_interface += 1;
+        }
 
-        // Every transport's result passes here on its way to a model, so each
-        // provider's AI policy is enforced here once (carnet#723): the backstop
-        // for structured items a read path left, plus the withheld note.
-        ai_view::withhold_from_model(
+        // Every transport's result passes here on its way to the caller, so
+        // each provider's terms are enforced here once: the AI policies for a
+        // model (carnet#723) and the transport gate for an external caller
+        // (carnet#724) — the backstop for structured items a read path left,
+        // plus the notes saying what was held back.
+        ai_view::withhold_from_caller(
             self.resources.provider_registry().as_ref(),
             &mut universal,
-            read_side_withheld,
+            held_back,
+            ai_scope::result_exposure(transport),
         );
 
         // A window the athlete's healthy connections served without the elected
@@ -1083,116 +1135,4 @@ async fn build_tool_context(
     }
 
     Ok((ctx, is_admin))
-}
-
-/// Detect the provider-auth sentinel a tool body encodes in `structured_content`
-/// when it hit `ProviderAuthRequired`, returning the provider slug to re-raise.
-fn provider_auth_required_slug(response: &ToolResponse) -> Option<String> {
-    let structured = response.structured_content.as_ref()?;
-    if structured.get("error_code").and_then(|v| v.as_str()) == Some("provider_auth_required") {
-        structured
-            .get("provider")
-            .and_then(|v| v.as_str())
-            .map(ToOwned::to_owned)
-    } else {
-        None
-    }
-}
-
-/// Read the `ErrorCode` tag a raised [`pierre_core::errors::AppError`] recorded
-/// in `structured_content` (see [`RAISED_ERROR_CODE_KEY`]). Returns `None` for an
-/// in-band `Ok(ToolResult::error(..))` failure, which carries no tag.
-fn raised_error_code(response: &ToolResponse) -> Option<String> {
-    response
-        .structured_content
-        .as_ref()?
-        .get(RAISED_ERROR_CODE_KEY)
-        .and_then(|v| v.as_str())
-        .map(ToOwned::to_owned)
-}
-
-/// Rebuild the [`ProtocolError`] a raised [`pierre_core::errors::AppError`] would
-/// have produced before the E3 cutover, from the `ErrorCode` tag and message the
-/// tool recorded in its [`ToolResponse`].
-///
-/// Mirrors the pre-E3 `AppError` → `ProtocolError` mapping: validation input maps
-/// to `InvalidParameters`; auth / provider gating maps to `InvalidRequest`; an
-/// authorization refusal maps to `PermissionDenied`, which carries the tool
-/// name itself; every other code (not-found, internal, …) maps to
-/// `InternalError`. The `tool_name` prefix and original message are preserved
-/// so message-asserting callers keep matching.
-fn protocol_error_from_raised(
-    tool_name: &str,
-    error_code: &str,
-    response: &ToolResponse,
-) -> ProtocolError {
-    let message = response
-        .structured_content
-        .as_ref()
-        .and_then(|sc| sc.get("error"))
-        .and_then(|v| v.as_str())
-        .map(ToOwned::to_owned)
-        .or_else(|| {
-            response
-                .content
-                .iter()
-                .find_map(Content::as_text)
-                .map(ToOwned::to_owned)
-        })
-        .unwrap_or_else(|| "Tool execution failed".to_owned());
-    if error_code == "PermissionDenied" {
-        return ProtocolError::PermissionDenied {
-            tool_name: tool_name.to_owned(),
-            reason: message,
-        };
-    }
-    let rendered = format!("{tool_name}: {message}");
-    match error_code {
-        "InvalidInput" => ProtocolError::InvalidParameters(rendered),
-        "AuthRequired" | "AuthInvalid" | "AuthExpired" | "NoProviderConnected" => {
-            ProtocolError::InvalidRequest(rendered)
-        }
-        _ => ProtocolError::InternalError(rendered),
-    }
-}
-
-/// Convert a tool's [`ToolResponse`] into a [`UniversalResponse`].
-///
-/// Preserves the success bit, the structured JSON payload (`structuredContent`),
-/// and the error text so protocol clients see the same shape regardless of which
-/// direction the dispatch came from.
-fn tool_response_to_universal_response(
-    tool_name: &str,
-    response: &ToolResponse,
-) -> UniversalResponse {
-    if response.is_error {
-        let message = response
-            .structured_content
-            .as_ref()
-            .and_then(|sc| sc.get("error"))
-            .and_then(|v| v.as_str())
-            .map(ToOwned::to_owned)
-            .or_else(|| {
-                response
-                    .content
-                    .iter()
-                    .find_map(Content::as_text)
-                    .map(ToOwned::to_owned)
-            })
-            .unwrap_or_else(|| "Tool execution failed".to_owned());
-        UniversalResponse {
-            success: false,
-            result: response.structured_content.clone(),
-            error: Some(message),
-            metadata: None,
-        }
-    } else {
-        tracing::debug!(tool_name, "universal executor: tool executed successfully");
-        UniversalResponse {
-            success: true,
-            result: response.structured_content.clone(),
-            error: None,
-            metadata: None,
-        }
-    }
 }

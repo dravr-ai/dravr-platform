@@ -18,6 +18,7 @@ pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-cl
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
 pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
 pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }
+pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
 pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
 pierre-services = { version = "0.3.0", path = "../pierre-services" }
 pierre-tool-runtime = { version = "0.3.0", path = "../pierre-tool-runtime" }

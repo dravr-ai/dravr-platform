@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use chrono::NaiveDate;
-use pierre_core::ai_policy::AiPolicyLookup;
+use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::models::periodization::{Confidence, FlavourVerdict};
 use pierre_core::models::{LoadSnapshot, TenantId};
 use pierre_database::RepositoryRegistry;
@@ -223,7 +223,7 @@ pub(super) async fn emit_coverage_check(
 /// cannot be read. Never propagates an error: the plan is already saved.
 pub(super) async fn ramp_baseline(
     repos: &RepositoryRegistry,
-    policies: &dyn AiPolicyLookup,
+    policies: &dyn ProviderTerms,
     tenant: TenantId,
     user_id: &str,
 ) -> Option<LoadSnapshot> {

@@ -32,6 +32,7 @@ use pierre_core::errors::AppError;
 use pierre_core::models::groups::{RoomEntryBody, RoomTranscriptEntry};
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_middleware::AuthenticatedUser;
+use pierre_tool_runtime::derived_content::refuse_derived_content_off_interface;
 use uuid::Uuid;
 
 use super::common::{get_tenant_id, verify_group_membership};
@@ -162,6 +163,11 @@ pub async fn get_group_transcript(
         .groups
         .list_members(&group_id)
         .await?;
+    // The room's transcript carries every member's coaching, derived from
+    // each one's data: any member's connections can withhold it (carnet#724).
+    for member in &members {
+        refuse_derived_content_off_interface(resources.as_ref(), member.user_id).await?;
+    }
 
     let limit = query
         .limit

@@ -699,13 +699,15 @@ pub async fn fetch_history_rows(
         .await
 }
 
-/// The history rows a model may read for `[from, to]`.
+/// The history rows a model, or a caller over an external transport, may read
+/// for `[from, to]`.
 ///
-/// The persisted rollup sums every stored activity. Inside a read for a model
-/// whose window holds activities a provider's terms withhold from AI, the rows
-/// are computed on the fly from the permitted activities instead — the same
-/// warm-up rule as the rollup, so with nothing withheld the two agree and the
-/// stored rows are served as before (carnet#723).
+/// The persisted rollup sums every stored activity. Under a gate whose window
+/// holds activities a provider's terms withhold — from AI (carnet#723) or from
+/// this transport (carnet#724) — the rows are computed on the fly from the
+/// permitted activities instead, under the same gates: the same warm-up rule
+/// as the rollup, so the two agree when nothing is withheld, and then the
+/// stored rows are served.
 ///
 /// # Errors
 ///
@@ -718,7 +720,7 @@ pub async fn history_rows_for_model(
     to: NaiveDate,
 ) -> AppResult<Vec<DailyTrainingState>> {
     if ai_scope::policies_apply() {
-        let (computed, withheld) = ai_scope::ai_read(read_history_from_cache(
+        let (computed, withheld) = ai_scope::tallied(read_history_from_cache(
             resources, tenant_id, user_id, from, to,
         ))
         .await;

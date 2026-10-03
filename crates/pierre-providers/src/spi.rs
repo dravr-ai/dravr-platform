@@ -76,7 +76,7 @@
 
 use super::core::{FitnessProvider, ProviderConfig};
 #[cfg(feature = "provider-whoop")]
-use crate::provider_ai_terms;
+use crate::provider_terms;
 #[cfg(feature = "provider-whoop")]
 use crate::utils::WHOOP_REFRESH_EXTRA_FORM;
 use pierre_core::ai_policy::SourcePolicy;
@@ -84,6 +84,7 @@ use pierre_core::ai_policy::SourcePolicy;
 use pierre_core::constants::oauth::{
     GARMIN_API_BASE_URL, GARMIN_AUTH_URL, GARMIN_DEREGISTRATION_URL, GARMIN_TOKEN_URL,
 };
+use pierre_core::transport::TransportPolicy;
 use std::fmt;
 
 #[cfg(feature = "provider-intervals-icu")]
@@ -312,9 +313,16 @@ pub trait ProviderDescriptor: Send + Sync {
 
     /// What of this provider's data its terms let a model see, per upstream
     /// source. No restriction unless the provider's terms set one; the
-    /// declared policies live in [`crate::provider_ai_terms`].
+    /// declared policies live in [`crate::provider_terms`].
     fn ai_policy(&self) -> &'static SourcePolicy {
         &SourcePolicy::ALLOW_ALL
+    }
+
+    /// Where this provider's terms let its data be served: only to Dravr's
+    /// own surfaces, or over every transport (the default). The declared
+    /// policies live in [`crate::provider_terms`].
+    fn transport_policy(&self) -> TransportPolicy {
+        TransportPolicy::AnyTransport
     }
 
     /// Whether this provider requires OAuth authentication
@@ -603,7 +611,7 @@ impl ProviderDescriptor for WhoopDescriptor {
     }
 
     fn ai_policy(&self) -> &'static SourcePolicy {
-        &provider_ai_terms::WHOOP
+        &provider_terms::WHOOP
     }
 
     fn default_scopes(&self) -> &'static [&'static str] {

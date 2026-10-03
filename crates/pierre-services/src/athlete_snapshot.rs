@@ -25,7 +25,7 @@
 use chrono::{Duration, NaiveDate, Utc};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::config::intelligence::{TrainingZonesConfig, VO2MaxCalculator};
-use pierre_core::ai_policy::AiPolicyLookup;
+use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
 use pierre_core::models::ProvenancedValue;
 use pierre_core::models::{Activity, TenantId, UserPhysiologicalProfile};
@@ -82,7 +82,7 @@ fn stored_metric<T>(stored: &ProvenancedValue<T>, value: f64) -> StoredMetric {
 /// never erroring the turn.
 pub async fn build_athlete_metrics(
     repos: &RepositoryRegistry,
-    policies: &dyn AiPolicyLookup,
+    policies: &dyn ProviderTerms,
     algorithm_config: &AlgorithmConfig,
     training_zones: &TrainingZonesConfig,
     tenant_id: TenantId,

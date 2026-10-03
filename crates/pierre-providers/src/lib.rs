@@ -34,8 +34,8 @@ pub mod deduplication;
 pub mod http_client;
 /// The provider-side owner id behind an access token, for providers whose token response leaves it out
 pub mod owner_id;
-/// AI rules each provider's terms set on its data
-pub mod provider_ai_terms;
+/// What each provider's terms allow for its data: AI and transport policies
+pub mod provider_terms;
 /// Global provider registry and factory
 pub mod registry;
 /// Provider request budgets per OAuth app, admitted before every provider call

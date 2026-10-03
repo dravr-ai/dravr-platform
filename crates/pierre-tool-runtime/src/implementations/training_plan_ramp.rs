@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use pierre_core::ai_policy::AiPolicyLookup;
+use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::parse_plan_date;
@@ -34,7 +34,7 @@ pub(super) fn earliest_week(weeks: &[WeekPayload]) -> Option<&WeekPayload> {
 /// degrades to an unmeasurable verdict rather than an error.
 pub(super) async fn emit_ramp_check(
     repos: &RepositoryRegistry,
-    policies: &dyn AiPolicyLookup,
+    policies: &dyn ProviderTerms,
     tenant: TenantId,
     user_id: &str,
     plan_id: &str,

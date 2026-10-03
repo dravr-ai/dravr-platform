@@ -125,6 +125,8 @@ impl TenantRoutes {
         Json(request): Json<SwitchTenantRequest>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
+        // The switch mints a session for the new tenant: never from an API key.
+        auth.auth_method.refuse_api_key_upgrade()?;
 
         info!(
             user_id = %auth.user_id,

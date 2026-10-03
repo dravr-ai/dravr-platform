@@ -1113,7 +1113,9 @@ async fn test_session_restore_reports_the_admitting_credentials_numbers() {
     );
 
     // A spent cookie superseded by the key the header presents: the key
-    // admitted the request, so its window is the one reported.
+    // admitted the request, so its window is the one reported — on the
+    // refusal a key always gets here, since a key is never exchanged for a
+    // session (carnet#724).
     let exhausted = athlete(&resources, UserTier::Starter, UserRole::User).await;
     seed_jwt_calls(&resources, exhausted.user.id, 10_000).await;
     let owner = athlete(&resources, UserTier::Starter, UserRole::User).await;
@@ -1134,11 +1136,12 @@ async fn test_session_restore_reports_the_admitting_credentials_numbers() {
         ),
     )
     .await;
-    assert_eq!(by_key.status, StatusCode::OK, "{}", by_key.body);
-    assert_eq!(
-        by_key.body["user"]["id"].as_str(),
-        Some(owner.user.id.to_string().as_str()),
-        "the key's owner, not the cookie's"
+    assert_eq!(by_key.status, StatusCode::FORBIDDEN, "{}", by_key.body);
+    assert_eq!(by_key.body["code"], "PermissionDenied", "{}", by_key.body);
+    assert!(
+        by_key.body.get("user").is_none(),
+        "no session is minted for the key's owner: {}",
+        by_key.body
     );
     assert_eq!(by_key.header("x-ratelimit-limit"), Some("5"));
     // One seeded call and this request: 5 - 2

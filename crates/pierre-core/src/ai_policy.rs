@@ -1,4 +1,4 @@
-// ABOUTME: What of a provider's data may enter a model prompt — per-(provider, source) rules declared by provider terms
+// ABOUTME: What of a provider's data may enter a model prompt or leave over an external transport, per provider terms
 // ABOUTME: Resolves the rules for an item and applies them to its JSON form or to typed items via a serde round trip
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -21,12 +21,20 @@
 //!
 //! The athlete's own surfaces never pass through here: the web and mobile apps
 //! read the cache directly, so a withheld item stays visible to its owner.
+//!
+//! Some terms also keep data inside Dravr's own surfaces altogether (Nolio
+//! §6.9, carnet#724). A provider declares that as a
+//! [`TransportPolicy::FirstPartyOnly`]; on a call served over an external
+//! [`Transport`](crate::transport::Transport), its items are dropped whole —
+//! whether a model reads them or not — by the same relay-then-origin lookup.
 
 use std::collections::BTreeSet;
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{Map, Value};
+
+use crate::transport::TransportPolicy;
 
 /// What one rule lets a model see of an item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,17 +84,53 @@ impl SourcePolicy {
     }
 }
 
-/// Looks up a provider's AI policy by name. Implemented by the provider
-/// registry; a provider it does not know has no restriction.
-pub trait AiPolicyLookup: Send + Sync {
-    /// The policy of `provider`, or `None` when the provider is unknown.
+/// Looks up a provider's terms by name. Implemented by the provider registry;
+/// a provider it does not know has no restriction.
+pub trait ProviderTerms: Send + Sync {
+    /// The AI policy of `provider`, or `None` when the provider is unknown.
     fn ai_policy(&self, provider: &str) -> Option<&'static SourcePolicy>;
+
+    /// Where `provider`'s terms let its data be served, or `None` when the
+    /// provider is unknown.
+    fn transport_policy(&self, provider: &str) -> Option<TransportPolicy>;
+}
+
+/// Which gates a read crosses: the AI rules when a model reads it, the
+/// transport gate when it is served over an external transport.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Exposure {
+    /// A model reads the data: each provider's AI rules apply.
+    pub to_model: bool,
+    /// The call is served over an external transport: a
+    /// [`TransportPolicy::FirstPartyOnly`] provider's items are dropped.
+    pub external: bool,
+}
+
+impl Exposure {
+    /// Whether any gate applies.
+    #[must_use]
+    pub const fn any(self) -> bool {
+        self.to_model || self.external
+    }
+}
+
+/// Whether an item from `provider` whose upstream is `source` must stay off
+/// an external transport: the relay's terms keep its data first-party, or the
+/// source is itself a provider whose terms do.
+#[must_use]
+pub fn first_party_only(lookup: &dyn ProviderTerms, provider: &str, source: Option<&str>) -> bool {
+    let keeps_first_party =
+        |name: &str| lookup.transport_policy(name) == Some(TransportPolicy::FirstPartyOnly);
+    keeps_first_party(provider)
+        || source
+            .filter(|src| !src.eq_ignore_ascii_case(provider))
+            .is_some_and(|src| keeps_first_party(&src.to_ascii_lowercase()))
 }
 
 /// The rules governing an item from `provider` whose upstream is `source`,
 /// in application order. Empty when nothing restricts it.
 #[must_use]
-pub fn rules_for(lookup: &dyn AiPolicyLookup, provider: &str, source: Option<&str>) -> Vec<AiUse> {
+pub fn rules_for(lookup: &dyn ProviderTerms, provider: &str, source: Option<&str>) -> Vec<AiUse> {
     let mut rules = Vec::with_capacity(2);
     if let Some(policy) = lookup.ai_policy(provider) {
         rules.push(policy.rule_for(provider, source));
@@ -149,22 +193,31 @@ pub fn apply_to_value(rules: &[AiUse], item: &mut Value) -> Outcome {
     outcome
 }
 
-/// A count of what the rules held back from the model.
+/// A count of what the rules held back.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Withheld {
-    /// Items dropped whole.
+    /// Items the AI rules dropped whole.
     pub dropped: usize,
-    /// Items with some fields removed.
+    /// Items the AI rules reduced to some of their fields.
     pub reduced: usize,
-    /// The upstream services the withheld data came from.
+    /// The upstream services the data the AI rules withheld came from.
     pub sources: BTreeSet<String>,
+    /// Items dropped because the call is external and their provider's terms
+    /// keep them to Dravr's own surfaces.
+    pub off_interface: usize,
 }
 
 impl Withheld {
     /// Whether anything was held back.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.dropped == 0 && self.reduced == 0
+        !self.from_model() && self.off_interface == 0
+    }
+
+    /// Whether the AI rules held anything back.
+    #[must_use]
+    pub const fn from_model(&self) -> bool {
+        self.dropped > 0 || self.reduced > 0
     }
 
     /// Fold another count into this one.
@@ -172,6 +225,7 @@ impl Withheld {
         self.dropped += other.dropped;
         self.reduced += other.reduced;
         self.sources.extend(other.sources);
+        self.off_interface += other.off_interface;
     }
 
     fn record(&mut self, outcome: Outcome, provider: &str, source: Option<&str>) {
@@ -196,21 +250,36 @@ impl Withheld {
             "note": "Some of this athlete's data is withheld from AI by the terms of the service it came from. The athlete can still see it in the app; do not guess its contents.",
         })
     }
+
+    /// The neutral note a caller on an external transport reads in place of
+    /// what was dropped for it: that data exists and is not served here —
+    /// never what it is, nor which service it came from.
+    #[must_use]
+    pub fn interface_note(&self) -> Value {
+        serde_json::json!({
+            "items_unavailable": self.off_interface,
+            "reason": "not_available_over_this_interface",
+            "note": "Some of this athlete's data is not available over this interface. The athlete can see it in the Dravr app; do not guess its contents.",
+        })
+    }
 }
 
-/// Filter typed items for a model.
+/// Filter typed items for the gates `exposure` names.
 ///
-/// `origin` names each item's provider and upstream source. An item no rule
-/// restricts is passed through untouched, without a serde round trip. A
-/// restricted item is serialized, reduced and deserialized back; `required`
-/// lists the string fields the type cannot deserialize without, filled with
-/// a neutral placeholder when a rule removed them. An item that still cannot
-/// be rebuilt is dropped — a rule is never relaxed to keep an item typed.
+/// `origin` names each item's provider and upstream source. On an external
+/// call, an item whose terms keep it first-party is dropped whole. For a
+/// model, an item no AI rule restricts is passed through untouched, without a
+/// serde round trip; a restricted item is serialized, reduced and deserialized
+/// back. `required` lists the string fields the type cannot deserialize
+/// without, filled with a neutral placeholder when a rule removed them. An
+/// item that still cannot be rebuilt is dropped — a rule is never relaxed to
+/// keep an item typed.
 pub fn filter_items<T, F>(
-    lookup: &dyn AiPolicyLookup,
+    lookup: &dyn ProviderTerms,
     items: Vec<T>,
     origin: F,
     required: &[&str],
+    exposure: Exposure,
 ) -> (Vec<T>, Withheld)
 where
     T: Serialize + DeserializeOwned,
@@ -220,6 +289,14 @@ where
     let mut kept = Vec::with_capacity(items.len());
     for item in items {
         let (provider, source) = origin(&item);
+        if exposure.external && first_party_only(lookup, &provider, source.as_deref()) {
+            withheld.off_interface += 1;
+            continue;
+        }
+        if !exposure.to_model {
+            kept.push(item);
+            continue;
+        }
         let rules = rules_for(lookup, &provider, source.as_deref());
         if rules.is_empty() {
             kept.push(item);
@@ -262,16 +339,17 @@ fn fill_required(mut value: Value, required: &[&str]) -> Value {
     value
 }
 
-/// Filter every provider item found anywhere in a JSON tree, in place.
+/// Filter every provider item found anywhere in a JSON tree, in place, for
+/// the gates `exposure` names.
 ///
 /// An item is any object carrying a string `provider` key (and optionally a
 /// `source` key). Items are filtered where they sit: a dropped item is removed
 /// from its array, or replaced by `null` as an object field. This is the
 /// backstop at the tool output boundary, for structured data a read path did
 /// not already filter.
-pub fn filter_json(lookup: &dyn AiPolicyLookup, value: &mut Value) -> Withheld {
+pub fn filter_json(lookup: &dyn ProviderTerms, value: &mut Value, exposure: Exposure) -> Withheld {
     let mut withheld = Withheld::default();
-    filter_json_into(lookup, value, &mut withheld);
+    filter_json_into(lookup, value, exposure, &mut withheld);
     withheld
 }
 
@@ -284,11 +362,23 @@ fn item_origin(object: &Map<String, Value>) -> Option<(String, Option<String>)> 
     Some((provider, source))
 }
 
-/// Applies the rules to `value` if it is an item; true when it was dropped.
-fn filter_item(lookup: &dyn AiPolicyLookup, value: &mut Value, withheld: &mut Withheld) -> bool {
+/// Applies the gates to `value` if it is an item; true when it was dropped.
+fn filter_item(
+    lookup: &dyn ProviderTerms,
+    value: &mut Value,
+    exposure: Exposure,
+    withheld: &mut Withheld,
+) -> bool {
     let Some((provider, source)) = value.as_object().and_then(item_origin) else {
         return false;
     };
+    if exposure.external && first_party_only(lookup, &provider, source.as_deref()) {
+        withheld.off_interface += 1;
+        return true;
+    }
+    if !exposure.to_model {
+        return false;
+    }
     let rules = rules_for(lookup, &provider, source.as_deref());
     if rules.is_empty() {
         return false;
@@ -298,20 +388,25 @@ fn filter_item(lookup: &dyn AiPolicyLookup, value: &mut Value, withheld: &mut Wi
     outcome == Outcome::Dropped
 }
 
-fn filter_json_into(lookup: &dyn AiPolicyLookup, value: &mut Value, withheld: &mut Withheld) {
+fn filter_json_into(
+    lookup: &dyn ProviderTerms,
+    value: &mut Value,
+    exposure: Exposure,
+    withheld: &mut Withheld,
+) {
     match value {
         Value::Array(items) => {
-            items.retain_mut(|item| !filter_item(lookup, item, withheld));
+            items.retain_mut(|item| !filter_item(lookup, item, exposure, withheld));
             for item in items {
-                filter_json_into(lookup, item, withheld);
+                filter_json_into(lookup, item, exposure, withheld);
             }
         }
         Value::Object(object) => {
             for child in object.values_mut() {
-                if filter_item(lookup, child, withheld) {
+                if filter_item(lookup, child, exposure, withheld) {
                     *child = Value::Null;
                 } else {
-                    filter_json_into(lookup, child, withheld);
+                    filter_json_into(lookup, child, exposure, withheld);
                 }
             }
         }
@@ -324,6 +419,18 @@ mod tests {
     use super::*;
     use serde::Deserialize;
     use serde_json::json;
+
+    /// A read for a model on one of Dravr's own surfaces.
+    const MODEL: Exposure = Exposure {
+        to_model: true,
+        external: false,
+    };
+
+    /// A read for a model whose answer leaves over an external transport.
+    const EXTERNAL_MODEL: Exposure = Exposure {
+        to_model: true,
+        external: true,
+    };
 
     const NOLIO_KEEP: &[&str] = &["id", "provider", "source", "sport_type", "start_date"];
 
@@ -346,12 +453,20 @@ mod tests {
 
     struct Lookup;
 
-    impl AiPolicyLookup for Lookup {
+    impl ProviderTerms for Lookup {
         fn ai_policy(&self, provider: &str) -> Option<&'static SourcePolicy> {
             match provider {
                 "nolio" => Some(&NOLIO),
                 "whoop" => Some(&WHOOP),
                 "garmin" | "strava" => Some(&SourcePolicy::ALLOW_ALL),
+                _ => None,
+            }
+        }
+
+        fn transport_policy(&self, provider: &str) -> Option<TransportPolicy> {
+            match provider {
+                "nolio" => Some(TransportPolicy::FirstPartyOnly),
+                "whoop" | "garmin" | "strava" => Some(TransportPolicy::AnyTransport),
                 _ => None,
             }
         }
@@ -391,7 +506,7 @@ mod tests {
             ],
             "count": 4
         });
-        let withheld = filter_json(&Lookup, &mut payload);
+        let withheld = filter_json(&Lookup, &mut payload, MODEL);
 
         assert_eq!(
             payload["activities"],
@@ -419,7 +534,7 @@ mod tests {
     #[test]
     fn a_dropped_object_field_becomes_null() {
         let mut payload = json!({"latest": {"provider": "nolio", "source": "zepp", "id": "9"}});
-        let withheld = filter_json(&Lookup, &mut payload);
+        let withheld = filter_json(&Lookup, &mut payload, MODEL);
         assert_eq!(payload, json!({"latest": null}));
         assert_eq!(withheld.dropped, 1);
     }
@@ -458,6 +573,7 @@ mod tests {
             items,
             |i| (i.provider.clone(), i.source.clone()),
             &["name"],
+            MODEL,
         );
 
         assert_eq!(kept.len(), 3);
@@ -477,8 +593,103 @@ mod tests {
             vec![item("a", "strava", None)],
             |i| (i.provider.clone(), i.source.clone()),
             &["name"],
+            MODEL,
         );
         assert_eq!(kept.len(), 1);
         assert!(withheld.is_empty());
+    }
+
+    #[test]
+    fn a_first_party_only_relay_or_origin_stays_off_external_transports() {
+        assert!(first_party_only(&Lookup, "nolio", Some("garmin")));
+        assert!(first_party_only(&Lookup, "nolio", None));
+        assert!(
+            first_party_only(&Lookup, "intervals", Some("NOLIO")),
+            "an item whose source names a first-party-only provider"
+        );
+        assert!(!first_party_only(&Lookup, "strava", None));
+        assert!(!first_party_only(&Lookup, "garmin", Some("strava")));
+        assert!(!first_party_only(&Lookup, "unknown", Some("other")));
+    }
+
+    fn mixed_items() -> Vec<Item> {
+        vec![
+            item("a", "garmin", None),
+            item("b", "whoop", None),
+            item("c", "nolio", Some("garmin")),
+            item("d", "intervals", Some("nolio")),
+        ]
+    }
+
+    fn ids(items: &[Item]) -> Vec<&str> {
+        items.iter().map(|i| i.id.as_str()).collect()
+    }
+
+    #[test]
+    fn an_external_call_drops_first_party_only_items_and_counts_them_apart() {
+        let origin = |i: &Item| (i.provider.clone(), i.source.clone());
+        let (kept, withheld) =
+            filter_items(&Lookup, mixed_items(), origin, &["name"], EXTERNAL_MODEL);
+        assert_eq!(ids(&kept), vec!["a", "b"]);
+        assert_eq!(kept[1].recovery_score, None, "the AI rules still apply");
+        assert_eq!(withheld.off_interface, 2);
+        assert_eq!((withheld.dropped, withheld.reduced), (0, 1));
+        assert_eq!(
+            withheld
+                .sources
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec!["whoop"],
+            "the interface tally names no source"
+        );
+
+        let (kept, withheld) = filter_items(&Lookup, mixed_items(), origin, &["name"], MODEL);
+        assert_eq!(
+            ids(&kept),
+            vec!["a", "b", "c", "d"],
+            "first-party: all of it"
+        );
+        assert_eq!(withheld.off_interface, 0);
+
+        let api_read = Exposure {
+            to_model: false,
+            external: true,
+        };
+        let (kept, withheld) = filter_items(&Lookup, mixed_items(), origin, &["name"], api_read);
+        assert_eq!(ids(&kept), vec!["a", "b"]);
+        assert_eq!(
+            kept[1].recovery_score,
+            Some(40),
+            "no model reads it, so the AI rules do not apply"
+        );
+        assert_eq!(withheld.off_interface, 2);
+        assert!(!withheld.from_model());
+    }
+
+    #[test]
+    fn the_json_backstop_drops_first_party_only_items_on_an_external_call() {
+        let payload = json!({
+            "activities": [
+                {"id": "1", "provider": "garmin", "name": "Hills"},
+                {"id": "2", "provider": "nolio", "source": "garmin", "name": "Tempo"}
+            ],
+            "latest": {"id": "2", "provider": "nolio", "name": "Tempo"}
+        });
+        let mut external = payload.clone();
+        let withheld = filter_json(&Lookup, &mut external, EXTERNAL_MODEL);
+        assert_eq!(
+            external,
+            json!({
+                "activities": [{"id": "1", "provider": "garmin", "name": "Hills"}],
+                "latest": null
+            })
+        );
+        assert_eq!(withheld.off_interface, 2);
+        assert_eq!(withheld.interface_note()["items_unavailable"], 2);
+
+        let mut first_party = payload.clone();
+        assert!(filter_json(&Lookup, &mut first_party, MODEL).is_empty());
+        assert_eq!(first_party, payload);
     }
 }

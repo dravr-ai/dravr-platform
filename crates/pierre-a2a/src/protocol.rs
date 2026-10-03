@@ -31,6 +31,7 @@ use chrono::SecondsFormat;
 use pierre_core::models::a2a::A2APushNotificationConfig;
 pub use pierre_core::models::a2a::{A2ATask, TaskStatus};
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
 use pierre_middleware::McpAuthMiddleware;
 use pierre_runtime_context::A2ACtx;
@@ -46,7 +47,13 @@ use tokio::sync::broadcast;
 use tracing::{error, info};
 use uuid::Uuid;
 
+mod params;
 mod principal;
+
+use params::{
+    CancelParams, CreatePushConfigParams, PushConfigListParams, PushConfigRefParams,
+    SubscribeParams,
+};
 
 /// Default `ListTasks` page size (spec §9: default 50, range 1..=100).
 const LIST_TASKS_DEFAULT_PAGE_SIZE: u32 = 50;
@@ -945,9 +952,11 @@ impl A2AServer {
 
         // Route through the unified executor so A2A tool calls pass the Guardian
         // chokepoint and resolve admin/tenant context exactly like the MCP and
-        // chat paths, under the client's own grant — unbound, it refuses.
+        // chat paths, under the client's own grant — unbound, it refuses. An
+        // agent speaking A2A is outside Dravr's own surfaces (carnet#724).
         let executor = UniversalToolExecutor::new(tool_runtime.clone()) // Safe: Arc clone
-            .with_scopes(principal.scopes.clone());
+            .with_scopes(principal.scopes.clone())
+            .with_transport(Transport::A2a);
         let request = UniversalRequest {
             tool_name: tool_name.to_owned(),
             parameters: tool_params,
@@ -1626,50 +1635,4 @@ impl Default for A2AServer {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// `SubscribeToTask` params (`id` + optional `historyLength` for the snapshot).
-#[derive(serde::Deserialize)]
-struct SubscribeParams {
-    /// Task identifier
-    id: String,
-    /// History truncation for the initial snapshot
-    #[serde(rename = "historyLength", default)]
-    history_length: Option<u32>,
-}
-
-/// `CancelTask` params.
-#[derive(serde::Deserialize)]
-struct CancelParams {
-    /// Task identifier
-    id: String,
-}
-
-/// `CreateTaskPushNotificationConfig` params.
-#[derive(serde::Deserialize)]
-struct CreatePushConfigParams {
-    /// Task the config attaches to
-    #[serde(rename = "taskId")]
-    task_id: String,
-    /// The configuration to register
-    config: PushNotificationConfigInput,
-}
-
-/// `GetTaskPushNotificationConfig` / `DeleteTaskPushNotificationConfig` params.
-#[derive(serde::Deserialize)]
-struct PushConfigRefParams {
-    /// Task the config attaches to
-    #[serde(rename = "taskId")]
-    task_id: String,
-    /// The configuration identifier
-    #[serde(rename = "configId")]
-    config_id: String,
-}
-
-/// `ListTaskPushNotificationConfigs` params.
-#[derive(serde::Deserialize)]
-struct PushConfigListParams {
-    /// Task the configs attach to
-    #[serde(rename = "taskId")]
-    task_id: String,
 }
