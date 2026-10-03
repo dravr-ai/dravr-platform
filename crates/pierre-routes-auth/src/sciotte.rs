@@ -5,7 +5,6 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::fmt::Display;
-use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::State;
@@ -17,10 +16,9 @@ use dravr_sciotte::config::ScraperConfig;
 use dravr_sciotte::models::AuthSession;
 use pierre_cache::{Cache, CacheKey, CacheResource};
 use pierre_core::constants::oauth_providers::{SCIOTTE_TRAININGPEAKS, TOKEN_TYPE_SESSION};
-use pierre_core::models::{Activity, ConnectionType, TenantId, UserOAuthToken};
+use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
 use pierre_providers::backend_resolver;
-use pierre_providers::core::{ActivityQueryParams, CredentialKind, OAuth2Credentials};
-use pierre_providers::registry::{global_registry, ProviderRegistry};
+use pierre_providers::registry::global_registry;
 use pierre_providers::sciotte_provider::SciotteTarget;
 use pierre_services::delegated_connections::forget_coach_roster;
 use pierre_services::provider_notice::require_notice_accepted;
@@ -34,6 +32,7 @@ use pierre_providers::sciotte_error::{shed_retry_after_secs, to_app_error};
 
 #[cfg(feature = "health-sync")]
 use crate::oauth::spawn_health_backfill;
+use crate::sciotte_prefetch::spawn_activity_prefetch;
 use crate::sciotte_session_reuse::try_reuse_existing_session;
 use crate::trainingpeaks_account::{spawn_login_probe, supersede_delegated_link};
 use crate::AuthRoutesContext;
@@ -57,9 +56,10 @@ struct RemoteFlowState {
     /// id that is not the caller's own would persist another athlete's session
     /// under the caller's account.
     flow_id: String,
-    /// Backend provider name (`sciotte` / `sciotte_garmin`) carried from the
-    /// login request. A *system* failure on an OTP/2FA continuation needs it for
-    /// the operator alert + friendly copy, because the outcome only reports the
+    /// Backend provider name (`sciotte`, `sciotte_garmin`,
+    /// `sciotte_trainingpeaks`, `sciotte_coros`) carried from the login
+    /// request. A *system* failure on an OTP/2FA continuation needs it for the
+    /// operator alert + friendly copy, because the outcome only reports the
     /// provider on success — never on the intermediate steps or on an `Err`.
     provider: String,
 }
@@ -77,8 +77,9 @@ pub const REMOTE_FLOW_TTL_SECS: u64 = 600;
 /// Provider namespace of the cache key a parked flow is filed under.
 ///
 /// The *family*, never the backend variant: which backend the flow belongs to
-/// (`sciotte` / `sciotte_garmin`) is what the entry stores, so a continuation
-/// — which does not know it yet — could not use it to find the entry.
+/// (`sciotte`, `sciotte_garmin`, `sciotte_trainingpeaks`, `sciotte_coros`) is
+/// what the entry stores, so a continuation — which does not know it yet —
+/// could not use it to find the entry.
 const REMOTE_FLOW_KEY_PROVIDER: &str = "sciotte";
 
 /// User-facing copy when a continuation arrives with no live flow of the
@@ -95,6 +96,12 @@ const NO_PENDING_LOGIN_MESSAGE: &str =
 /// The hosted login pages word every failure in the athlete's own language,
 /// so they act on this and never print [`NO_PENDING_LOGIN_MESSAGE`].
 pub const LOGIN_FLOW_EXPIRED_REASON: &str = "login_flow_expired";
+
+/// `reason` of an `otp_required` answer to a refused or incomplete code.
+///
+/// The same sign-in takes another code; the login UIs word the message
+/// themselves, never in the provider's own prose.
+pub const CODE_REJECTED_REASON: &str = "code_rejected";
 
 /// Cache key naming one athlete's parked sciotte login flow.
 ///
@@ -249,12 +256,12 @@ pub struct SciotteLoginRequest {
     pub password: String,
     #[serde(default = "default_method")]
     pub method: String,
-    /// Target platform: "strava" (default), "garmin" or "trainingpeaks"
+    /// Target platform: "strava" (default), "garmin", "trainingpeaks" or "coros"
     #[serde(default = "default_target")]
     pub target: String,
-    /// The user ticked the TrainingPeaks exposure notice on this attempt. Read
-    /// only for a TrainingPeaks login, and only while the account has not
-    /// already accepted the current notice.
+    /// The user ticked the TrainingPeaks or COROS exposure notice on this
+    /// attempt. Read only for a TrainingPeaks or COROS login, and only while
+    /// the account has not already accepted the current notice.
     #[serde(default)]
     pub tos_consent: bool,
 }
@@ -279,11 +286,11 @@ pub struct SciotteOtpRequest {
 
 /// notify: scrape session established. One helper for both session-write
 /// sites so the emit cannot drift between them. The event carries the
-/// user-facing provider name ("strava"/"garmin") so the connect/disconnect
-/// pair is measured on the same axis as the OAuth surface (the disconnect
-/// chokepoint also emits user-facing names for mirror backends); `backend`
-/// distinguishes the scrape cohort. `user_id`/`tenant_id` ride inline because
-/// the `PostHog` sink drops events it cannot attribute.
+/// user-facing provider name ("strava"/"garmin"/"trainingpeaks"/"coros") so
+/// the connect/disconnect pair is measured on the same axis as the OAuth
+/// surface (the disconnect chokepoint also emits user-facing names for mirror
+/// backends); `backend` distinguishes the scrape cohort. `user_id`/`tenant_id`
+/// ride inline because the `PostHog` sink drops events it cannot attribute.
 fn notify_sciotte_connected(user_id: Uuid, tenant_id: Uuid, backend: &str) {
     info!(
         target: "notify",
@@ -355,132 +362,92 @@ async fn store_sciotte_session(
 
     notify_sciotte_connected(user_id, tenant_id, provider_name);
 
+    // Pre-fetch activities in background so the cache is warm when the user
+    // chats. A TrainingPeaks coach account has no calendar of its own, so its
+    // role is read first and decides whether there is anything to prefetch.
+    // Registered before anything else reads the session: a list read that
+    // arrives meanwhile (the onboarding proposal) waits for this one instead
+    // of scraping the fresh session beside it (carnet#736).
+    let prefetch = if provider_name == SCIOTTE_TRAININGPEAKS {
+        spawn_login_probe(resources, user_id, tenant_id, session, &session_json)
+    } else {
+        spawn_activity_prefetch(resources, user_id, tenant_id, provider_name, &session_json)
+    };
+
     // The session also feeds the health sync (Garmin's and COROS's nights,
     // resting heart rate, HRV, body metrics): read its window now rather than
-    // at the next scheduled cycle.
+    // at the next scheduled cycle — once the pre-fetch has finished with the
+    // session, so the two never hold two of the scraper's browsers at once.
     #[cfg(feature = "health-sync")]
     spawn_health_backfill(
         resources,
         &user_id.to_string(),
         backend_resolver::user_facing_name(provider_name),
+        prefetch,
     );
-
-    // Pre-fetch activities in background so the cache is warm when the user
-    // chats. A TrainingPeaks coach account has no calendar of its own, so its
-    // role is read first and decides whether there is anything to prefetch.
-    if provider_name == SCIOTTE_TRAININGPEAKS {
-        spawn_login_probe(resources, user_id, tenant_id, session, &session_json);
-    } else {
-        spawn_activity_prefetch(resources, user_id, tenant_id, provider_name, &session_json);
-    }
+    #[cfg(not(feature = "health-sync"))]
+    drop(prefetch);
 
     Ok(Json(serde_json::json!({"status": "connected", "provider": provider_name})).into_response())
 }
 
-/// Spawn a background task to pre-fetch and cache activities after a
-/// successful sciotte login, so the agent has warm data on the first chat.
-/// Backpressure now lives on the dedicated service (its own concurrency
-/// limiter), so the platform just fires the scrape — no in-pod permit
-/// (ADR-021 Phase 4 cutover).
-fn spawn_activity_prefetch(
-    resources: &AuthRoutesContext,
-    user_id: Uuid,
-    tenant_id: Uuid,
-    provider_name: &str,
-    session_json: &str,
-) {
-    tokio::spawn(prefetch_activities(
-        Arc::clone(&resources.provider_registry),
-        Arc::clone(&resources.cache),
-        user_id,
-        tenant_id,
-        provider_name.to_owned(),
-        session_json.to_owned(),
-    ));
+/// Which step of a sign-in produced the outcome being answered.
+#[derive(Clone, Copy)]
+enum LoginStep<'a> {
+    /// The credential login, which starts a flow.
+    Login {
+        /// Backend provider name the login targets
+        provider: &'a str,
+    },
+    /// A 2FA pick or a code, continuing the flow the platform holds.
+    Continuation {
+        /// Backend provider name the held flow was started for
+        provider: &'a str,
+        /// The held flow this continuation named to the service
+        flow_id: &'a str,
+    },
 }
 
-/// Pre-fetch and cache the newest activities of the account `session_json`
-/// signed in to, under `provider_name`. Every failure is logged: the cache is
-/// only warmed, and the next read fetches live.
-pub async fn prefetch_activities(
-    registry: Arc<ProviderRegistry>,
-    cache: Arc<Cache>,
-    user_id: Uuid,
-    tenant_id: Uuid,
-    provider_name: String,
-    session_json: String,
-) {
-    info!(
-        user_id = %user_id,
-        provider = %provider_name,
-        "Starting background activity pre-fetch (remote scrape)"
-    );
-    let Some(activities) =
-        fetch_prefetch_window(&registry, user_id, &provider_name, session_json).await
-    else {
-        return;
-    };
-    let count = activities.len();
-    let cache_key = CacheKey::new(
-        TenantId::from_uuid(tenant_id),
-        user_id,
-        provider_name.clone(),
-        CacheResource::ActivityList {
-            page: 1,
-            per_page: 30,
-            before: None,
-            after: None,
-            sport_type: None,
-        },
-    );
-    let ttl = Duration::from_mins(15);
-    if let Err(e) = cache.set(&cache_key, &activities, ttl).await {
-        warn!(error = %e, "Background pre-fetch: failed to cache activities");
-    } else {
-        info!(user_id = %user_id, provider = %provider_name, count, "Background activity pre-fetch complete — cache warm");
+impl LoginStep<'_> {
+    /// Backend provider name the step belongs to.
+    const fn provider(&self) -> &str {
+        match self {
+            Self::Login { provider } | Self::Continuation { provider, .. } => provider,
+        }
     }
 }
 
-/// The newest 30 activities of the account `session_json` signed in to, read
-/// through a fresh `provider_name` provider; `None`, logged, when the provider
-/// cannot be built, take the session, or answer.
-async fn fetch_prefetch_window(
-    registry: &ProviderRegistry,
+/// Keep the flow a code step names.
+///
+/// A refused code leaves the service's browser parked under the same id, on
+/// the age it already had; the held entry ages with it, so writing it again
+/// would outlive the browser it names. Any other code step (or a refusal
+/// naming a flow not held) is remembered.
+async fn hold_code_step(
+    resources: &AuthRoutesContext,
     user_id: Uuid,
-    provider_name: &str,
-    session_json: String,
-) -> Option<Vec<Activity>> {
-    let provider = registry
-        .create_provider(provider_name)
-        .inspect_err(|e| warn!(error = %e, "Background pre-fetch: failed to create provider"))
-        .ok()?;
-    let credentials = OAuth2Credentials {
-        client_id: String::new(),
-        client_secret: String::new(),
-        access_token: Some(session_json),
-        refresh_token: None,
-        expires_at: None,
-        scopes: vec![],
-        kind: CredentialKind::OAuthBearer,
-    };
-    provider
-        .set_credentials(credentials)
-        .await
-        .inspect_err(|e| warn!(error = %e, "Background pre-fetch: failed to set credentials"))
-        .ok()?;
-    let params = ActivityQueryParams {
-        limit: Some(30),
-        offset: None,
-        before: None,
-        after: None,
-    };
-    provider
-        .get_activities_with_params(&params)
-        .await
-        .inspect_err(|e| {
-            warn!(user_id = %user_id, error = %e, "Background pre-fetch: failed to fetch activities");
-        })
-        .ok()
+    tenant_id: Uuid,
+    step: LoginStep<'_>,
+    flow_id: String,
+    refused: bool,
+) {
+    let held = matches!(step, LoginStep::Continuation { flow_id: named, .. } if named == flow_id);
+    if refused && held {
+        info!(
+            user_id = %user_id,
+            provider = %step.provider(),
+            "Sciotte code refused by the provider; the flow stays pending"
+        );
+    } else {
+        remember_remote_flow(
+            &resources.cache,
+            tenant_id,
+            user_id,
+            flow_id,
+            step.provider(),
+        )
+        .await;
+    }
 }
 
 /// Map a [`LoginOutcome`] from the dedicated scraper service to an HTTP
@@ -496,9 +463,10 @@ async fn remote_login_to_response(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,
-    provider: &str,
+    step: LoginStep<'_>,
     link_context: Option<&LinkContext>,
 ) -> Result<Response, AppError> {
+    let provider = step.provider();
     match outcome {
         LoginOutcome::Authenticated {
             session_id,
@@ -506,9 +474,10 @@ async fn remote_login_to_response(
             ..
         } => {
             // The service reports the provider the session authenticates against
-            // ("garmin"/"strava"); map it to the backend name the platform
-            // persists under. The platform never has to remember the provider
-            // across the multi-step 2FA flow — only the flow_id string.
+            // ("strava"/"garmin"/"trainingpeaks"/"coros"); map it to the backend
+            // name the platform persists under. The platform never has to
+            // remember the provider across the multi-step 2FA flow — only the
+            // flow_id string.
             forget_remote_flow(&resources.cache, tenant_id, user_id).await;
             let provider_name = SciotteTarget::from_target_param(&provider).provider_name();
             info!(user_id = %user_id, provider = %provider_name, "Sciotte remote login successful");
@@ -521,9 +490,17 @@ async fn remote_login_to_response(
             }
             store_sciotte_session(resources, user_id, tenant_id, &session, provider_name).await
         }
-        LoginOutcome::OtpRequired { flow_id, .. } => {
-            remember_remote_flow(&resources.cache, tenant_id, user_id, flow_id, provider).await;
-            Ok(Json(serde_json::json!({"status": "otp_required"})).into_response())
+        LoginOutcome::OtpRequired {
+            flow_id, rejected, ..
+        } => {
+            let refused = rejected.is_some();
+            hold_code_step(resources, user_id, tenant_id, step, flow_id, refused).await;
+            let body = if refused {
+                serde_json::json!({"status": "otp_required", "reason": CODE_REJECTED_REASON})
+            } else {
+                serde_json::json!({"status": "otp_required"})
+            };
+            Ok(Json(body).into_response())
         }
         LoginOutcome::TwoFactorChoice {
             options, flow_id, ..
@@ -583,7 +560,7 @@ pub struct LinkContext {
     pub channel: String,
     /// Optional channel thread/DM id so the bot can reply in the original thread
     pub channel_thread: Option<String>,
-    /// Target platform ("strava" / "garmin") from the signed claims
+    /// Target platform (strava / garmin / trainingpeaks / coros) from the claims
     pub target: String,
 }
 
@@ -909,7 +886,7 @@ pub async fn handle_sciotte_login(
         &resources,
         user_id,
         tenant_id,
-        provider,
+        LoginStep::Login { provider },
         link_context.as_ref(),
     )
     .await
@@ -960,7 +937,10 @@ pub async fn handle_sciotte_select_2fa(
         &resources,
         user_id,
         tenant_id,
-        &provider,
+        LoginStep::Continuation {
+            provider: &provider,
+            flow_id: &flow_id,
+        },
         link_context.as_ref(),
     )
     .await
@@ -1017,7 +997,10 @@ pub async fn handle_sciotte_submit_otp(
         &resources,
         user_id,
         tenant_id,
-        &provider,
+        LoginStep::Continuation {
+            provider: &provider,
+            flow_id: &flow_id,
+        },
         link_context.as_ref(),
     )
     .await

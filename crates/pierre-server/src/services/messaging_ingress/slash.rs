@@ -8,6 +8,7 @@
 
 use std::sync::Arc;
 
+use dravr_canot::channel::MessagingChannel;
 use dravr_canot::rich_text::{parse_markdown, render_rich_text};
 use dravr_canot::turn::ConversationTurnId as CanotTurnId;
 use pierre_core::models::messaging::{CardAction, ChannelType, MessageContent, OutgoingMessage};
@@ -27,6 +28,7 @@ use pierre_services::conversation_forge::conversation_cap_reply;
 use super::addressing::reply_recipient;
 use super::card_or_rich_text;
 use super::connect::build_connect_card_direct;
+use super::outbound_send::{send_channel_response, OutboundPersistSpec};
 use super::surface::messaging_render_profile;
 use super::ResolvedSession;
 use pierre_contremaitre::messaging_strings::KEY_NO_PROVIDER_CONNECTED;
@@ -104,6 +106,69 @@ pub(super) struct SlashReply {
     /// to rate. `None` for the `/connect` card, the error funnel, and every
     /// command the transcript does not hold.
     pub(super) assistant_message_id: Option<String>,
+    /// The agent's welcome, when the command bound an agent into the thread
+    /// (carnet#735): sent after [`Self::message`], with its starters listed,
+    /// and ledgered against its own chat row.
+    pub(super) welcome: Option<WelcomeReply>,
+}
+
+/// An agent's welcome as a messaging channel delivers it.
+pub(super) struct WelcomeReply {
+    /// The outbound message, addressed like the reply it follows.
+    pub(super) message: OutgoingMessage,
+    /// The welcome's `chat_messages` row.
+    pub(super) chat_message_id: String,
+}
+
+/// An agent welcome's channel text as the content a channel carries: its
+/// inline markdown — the starters are a list — in the channel's dialect.
+pub(super) fn welcome_content(channel_text: &str) -> MessageContent {
+    MessageContent::RichText {
+        body: render_rich_text(&parse_markdown(channel_text)),
+    }
+}
+
+/// Post a room-visible (or DM) slash reply, then the agent welcome the
+/// command produced, in that order, each ledgered by `ledger_spec`.
+pub(super) async fn send_visible_reply(
+    resources: &ServerContext,
+    tenant_id: TenantId,
+    channel: &str,
+    adapter: &Arc<dyn MessagingChannel>,
+    mut reply: SlashReply,
+    ledger_spec: impl Fn(Option<String>) -> OutboundPersistSpec,
+) {
+    let spec = Some(ledger_spec(reply.assistant_message_id.take()));
+    let welcome = reply
+        .welcome
+        .map(|welcome| welcome.into_send(reply.message.turn_id, &ledger_spec));
+    send_channel_response(resources, tenant_id, channel, adapter, reply.message, spec).await;
+    if let Some((message, spec)) = welcome {
+        send_channel_response(resources, tenant_id, channel, adapter, message, Some(spec)).await;
+    }
+}
+
+impl WelcomeReply {
+    /// The welcome as the thread's send: in the command's turn `turn_id`,
+    /// ledgered against its own chat row.
+    ///
+    /// Always a room (or DM) send, never a private one: even when the
+    /// command's answer went privately to the caller, the welcome is the
+    /// thread's agent opening the thread — its row is in the thread's
+    /// transcript and its introduction is recorded there — so the thread
+    /// hears it.
+    pub(super) fn into_send(
+        self,
+        turn_id: CanotTurnId,
+        ledger_spec: impl Fn(Option<String>) -> OutboundPersistSpec,
+    ) -> (OutgoingMessage, OutboundPersistSpec) {
+        let Self {
+            mut message,
+            chat_message_id,
+        } = self;
+        message.turn_id = turn_id;
+        (message, ledger_spec(Some(chat_message_id)))
+    }
 }
 
 /// Bundled inputs for [`try_handle_slash_command`]. Combines the channel
@@ -234,6 +299,7 @@ pub(super) async fn try_handle_slash_command(
                 message: card,
                 command_name: None,
                 assistant_message_id: None,
+                welcome: None,
             });
         }
         let web_url = format!(
@@ -261,6 +327,7 @@ pub(super) async fn try_handle_slash_command(
             },
             command_name: None,
             assistant_message_id: None,
+            welcome: None,
         });
     }
 
@@ -326,6 +393,7 @@ pub(super) async fn try_handle_slash_command(
                 },
                 command_name: None,
                 assistant_message_id: None,
+                welcome: None,
             });
         }
     };
@@ -343,6 +411,17 @@ pub(super) async fn try_handle_slash_command(
         .persisted
         .as_ref()
         .map(|p| p.assistant_message.id.clone());
+    let welcome = command.welcome.as_ref().map(|posted| WelcomeReply {
+        message: OutgoingMessage {
+            channel_type,
+            recipient_id: reply_target.clone(),
+            content: welcome_content(&posted.channel_text),
+            turn_id: CanotTurnId::new(),
+            reply_to: None,
+            thread_id: thread_id.clone(),
+        },
+        chat_message_id: posted.message.id.clone(),
+    });
     Some(SlashReply {
         message: OutgoingMessage {
             channel_type,
@@ -354,6 +433,7 @@ pub(super) async fn try_handle_slash_command(
         },
         command_name,
         assistant_message_id,
+        welcome,
     })
 }
 

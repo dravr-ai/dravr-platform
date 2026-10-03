@@ -140,6 +140,21 @@ export const SCIOTTE_LOGIN_PRESETS: Record<SciotteTarget, SciotteLoginPreset> = 
 };
 
 /**
+ * `reason` of a sciotte `otp_required` answer to a code the provider refused
+ * or did not take as complete: the same sign-in takes another code. Mirrors
+ * the server's `CODE_REJECTED_REASON`.
+ */
+export const SCIOTTE_CODE_REJECTED = 'code_rejected' as const;
+
+/**
+ * `details.reason` of the refusal a sciotte sign-in step gets once its flow
+ * has lapsed: the sign-in has to start again. Mirrors the server's
+ * `LOGIN_FLOW_EXPIRED_REASON`; read it with `refusalReason` from
+ * `@pierre/ui-logic`.
+ */
+export const SCIOTTE_LOGIN_FLOW_EXPIRED = 'login_flow_expired' as const;
+
+/**
  * The credential-login target for a provider card, or `null` for a provider
  * that connects some other way (OAuth, an API key).
  */

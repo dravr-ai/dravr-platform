@@ -123,6 +123,15 @@ export interface TurnEnvelope {
    * reads back an id different from the one it posted to opens that thread.
    */
   rotated_to_conversation_id?: string;
+  /**
+   * The opening an agent posted because this turn bound it into the thread
+   * (`/agent add`, or `/group create` adopting the thread).
+   *
+   * Absent on every other turn. The row is already in the transcript, after
+   * the command's answer, with its starter questions in `actions`; a client
+   * appends it after `assistant` instead of re-reading the thread.
+   */
+  welcome_message?: Message;
   telemetry: TurnTelemetry;
 }
 

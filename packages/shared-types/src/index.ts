@@ -65,6 +65,7 @@ export type {
   ResetPasswordResponse,
   ThemePreference,
   UpdateThemeRequest,
+  SciotteLoginResponse,
 } from './auth.js';
 
 // API types (chat, prompts, common patterns)

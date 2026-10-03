@@ -435,6 +435,13 @@ async fn dispatch_slash_command_if_any(inputs: SlashDispatchInputs<'_>) -> bool 
         // Discord DM; echo delete only where the platform allows). A private
         // reply is never chat-persisted, so its ledger row carries no
         // assistant id — the send is recorded, there is nothing to rate.
+        // The agent welcome a command posts is not part of that answer: it is
+        // the room's agent opening the room's thread, written to the room's
+        // transcript and ledgered as introduced there, so it goes to the room.
+        let welcome = reply
+            .welcome
+            .take()
+            .map(|welcome| welcome.into_send(reply.message.turn_id, ledger_spec));
         send_private_channel_response(
             resources,
             tenant_id,
@@ -473,6 +480,10 @@ async fn dispatch_slash_command_if_any(inputs: SlashDispatchInputs<'_>) -> bool 
                 .await;
             }
         }
+        if let Some((message, spec)) = welcome {
+            send_channel_response(resources, tenant_id, channel, adapter, message, Some(spec))
+                .await;
+        }
     } else {
         // Either a 1:1 DM (the conversation IS the private chat) or a
         // room-visible command whose reply the whole room should see — a
@@ -487,8 +498,7 @@ async fn dispatch_slash_command_if_any(inputs: SlashDispatchInputs<'_>) -> bool 
         ) {
             reply.message.reply_to = Some(anchor);
         }
-        let spec = Some(ledger_spec(reply.assistant_message_id.take()));
-        send_channel_response(resources, tenant_id, channel, adapter, reply.message, spec).await;
+        slash::send_visible_reply(resources, tenant_id, channel, adapter, reply, ledger_spec).await;
     }
     true
 }
@@ -713,25 +723,23 @@ async fn persist_single_message(
     //
     // Returns None for anything that is not a bare in-range number against an
     // outstanding proposal, so ordinary messages fall through untouched.
-    if let Some(mut choice_reply) =
-        agent_choice::try_handle_agent_choice(agent_choice::AgentChoiceParams {
-            resources,
-            tenant_id,
-            channel,
-            channel_type,
-            sender_id: &message.sender_id,
-            user_id: auth_result.user_id,
-            locale: &locale,
-            text: content_body_text(&message.content)
-                .unwrap_or_default()
-                .as_str(),
-            intake_awaiting,
-        })
-        .await
+    if agent_choice::answer_agent_choice(agent_choice::AgentChoiceParams {
+        resources,
+        tenant_id,
+        channel,
+        channel_type,
+        adapter,
+        message,
+        user_tenant_id,
+        session: &session,
+        session_tenant_id,
+        user_id: auth_result.user_id,
+        locale: &locale,
+        thread_id: thread_id.clone(),
+        intake_awaiting,
+    })
+    .await
     {
-        choice_reply.thread_id = thread_id;
-        apply_conversation_recipient(&mut choice_reply, message.conversation_id.as_deref());
-        send_channel_response(resources, tenant_id, channel, adapter, choice_reply, None).await;
         return Ok(PersistOutcome::HandledNotStored);
     }
 

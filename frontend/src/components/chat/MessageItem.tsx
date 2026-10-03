@@ -18,10 +18,10 @@ import {
 } from '@pierre/shared-types';
 import type { Message, MessageMetadata, MessageFeedback } from './types';
 import {
-  COMMAND_FINISH_REASON,
   copyableText,
   countActivities,
   formatDecimal,
+  isModelReply,
   parseSceneBlocks,
   splitVizMarkers,
   transcriptBlocks,
@@ -190,7 +190,9 @@ const MessageItem = memo(function MessageItem({
   const room = message.room;
   const fromPeer = room !== undefined && !room.own;
   const isUser = message.role === 'user' && !fromPeer;
-  const isCommand = message.finish_reason === COMMAND_FINISH_REASON;
+  // A command's answer or an agent's welcome: the platform wrote it, so it
+  // has no model to label, rate or regenerate, and no answer to share.
+  const platformRow = !isModelReply(message.finish_reason);
   const agent = assistantLabel ?? t('shell.brandName');
   const peerName = room?.author_name ?? room?.author_user_id ?? '';
   const author = fromPeer ? `${agent} · ${t('chat.roomReplyTo', { name: peerName })}` : agent;
@@ -358,7 +360,7 @@ const MessageItem = memo(function MessageItem({
                   key={`${action.value}-${idx}`}
                   type="button"
                   onClick={() => onActionClick?.(action)}
-                  className="inline-flex items-center rounded-lg bg-primary/15 px-3 py-1.5 text-sm text-primary transition-colors hover:bg-primary/25"
+                  className="touch-target inline-flex items-center rounded-lg bg-primary/15 px-3 py-1.5 text-sm text-primary transition-colors hover:bg-primary/25"
                 >
                   {action.label}
                 </button>
@@ -428,8 +430,8 @@ const MessageItem = memo(function MessageItem({
   }
 
   // The row's actions live under the bubble and show on hover, focus or a
-  // coarse pointer. An error row offers only the retry; a command reply, only
-  // the copy — there is no model to rate or re-run.
+  // coarse pointer. An error row offers only the retry; a command reply or an
+  // agent's welcome, only the copy — there is no model to rate or re-run.
   const actions = isError ? (
     onRetry && (
       <button
@@ -451,7 +453,7 @@ const MessageItem = memo(function MessageItem({
           <Copy className="h-3.5 w-3.5" />
         </button>
       )}
-      {onShare && !isCommand && (
+      {onShare && !platformRow && (
         <button
           onClick={() => onShare(readableCopy)}
           className={ACTION_BUTTON}
@@ -460,7 +462,7 @@ const MessageItem = memo(function MessageItem({
           <Share2 className="h-3.5 w-3.5" />
         </button>
       )}
-      {onThumbsUp && !isCommand && (
+      {onThumbsUp && !platformRow && (
         <button
           onClick={onThumbsUp}
           className={`p-0.5 transition-colors ${feedback === 'up' ? 'text-primary' : 'text-outline hover:text-on-surface'}`}
@@ -469,7 +471,7 @@ const MessageItem = memo(function MessageItem({
           <ThumbsUp className={`h-3.5 w-3.5 ${feedback === 'up' ? 'fill-current' : ''}`} />
         </button>
       )}
-      {onThumbsDown && !isCommand && (
+      {onThumbsDown && !platformRow && (
         <button
           onClick={onThumbsDown}
           className={`p-0.5 transition-colors ${feedback === 'down' ? 'text-error' : 'text-outline hover:text-on-surface'}`}
@@ -478,12 +480,12 @@ const MessageItem = memo(function MessageItem({
           <ThumbsDown className={`h-3.5 w-3.5 ${feedback === 'down' ? 'fill-current' : ''}`} />
         </button>
       )}
-      {onRetry && !isCommand && (
+      {onRetry && !platformRow && (
         <button onClick={onRetry} className={ACTION_BUTTON} title={t('chat.regenerateResponse')}>
           <RefreshCw className="h-3.5 w-3.5" />
         </button>
       )}
-      {metadata && !isCommand && (
+      {metadata && !platformRow && (
         <span className="ml-2 text-xs text-outline">
           {metadata.model}{metadata.executionTimeMs ? ` · ${formatDecimal(metadata.executionTimeMs / 1000, 1, i18n.language)}s` : ''}
         </span>

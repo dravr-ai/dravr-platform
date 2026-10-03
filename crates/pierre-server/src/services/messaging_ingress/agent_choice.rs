@@ -1,5 +1,5 @@
 // ABOUTME: Resolves a bare numeric reply to the agent the proposal offered at that position
-// ABOUTME: Implements "Reply with a number to start" — the instruction the proposal has always given
+// ABOUTME: Implements "Reply with a number to start", binds the agent into the thread and posts its welcome
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -15,14 +15,25 @@
 //! rebuilding it: the proposal is LLM-re-ranked, so a rebuild can come back in a
 //! different order and bind an agent the user did not pick.
 
+use std::sync::Arc;
+
+use dravr_canot::channel::MessagingChannel;
+use pierre_chat_pipeline::agent_welcome::{post_agent_welcome, PostedWelcome, WelcomeTarget};
 use pierre_contremaitre::messaging_strings::KEY_AGENT_USER_UPDATED;
-use pierre_core::models::messaging::{ChannelType, OutgoingMessage};
+use pierre_core::models::agents::Agent;
+use pierre_core::models::messaging::{ChannelType, IncomingMessage, OutgoingMessage};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::MessagingRepository;
 use pierre_services::messaging_broadcast::proactive_text;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use super::content_body_text;
+use super::otp::apply_conversation_recipient;
+use super::outbound_send::{send_channel_response, OutboundPersistSpec};
+use super::session::rebind_conversation_agent;
+use super::slash::welcome_content;
+use super::ResolvedSession;
 use crate::mcp::resources::ServerContext;
 
 /// Parse a reply that is *only* a number.
@@ -43,25 +54,31 @@ pub fn parse_choice(text: &str) -> Option<usize> {
     trimmed.parse::<usize>().ok().filter(|n| *n > 0)
 }
 
-/// Handle a numeric reply to the agent proposal, if that is what this is.
+/// Everything [`answer_agent_choice`] needs to resolve a numeric reply and
+/// answer it.
 ///
-/// Returns `None` when the message is not a bare number, when no proposal is
-/// outstanding, or when the number is out of range — in every case the turn
-/// continues to the model untouched, which is exactly the previous behaviour.
-/// Everything [`try_handle_agent_choice`] needs to resolve a numeric reply.
-///
-/// A struct rather than eight positional parameters: the four `&str`-ish fields
+/// A struct rather than a dozen positional parameters: the `&str`-ish fields
 /// are trivially swappable at a call site, and binding the wrong agent to the
 /// wrong sender is the failure this whole path exists to avoid.
 pub(super) struct AgentChoiceParams<'a> {
     pub resources: &'a ServerContext,
+    /// The webhook's tenant — where the channel link, and so the proposal, live.
     pub tenant_id: TenantId,
+    /// The athlete's own tenant — where the proposal's agents were listed, and
+    /// where their selection lives, the same tenant `/agent add` writes it in.
+    pub user_tenant_id: TenantId,
     pub channel: &'a str,
     pub channel_type: ChannelType,
-    pub sender_id: &'a str,
+    pub adapter: &'a Arc<dyn MessagingChannel>,
+    /// The inbound reply.
+    pub message: &'a IncomingMessage,
+    /// The athlete's session: the thread the pick binds the agent into.
+    pub session: &'a ResolvedSession,
+    /// Tenant that owns the session's conversation row.
+    pub session_tenant_id: TenantId,
     pub user_id: Uuid,
     pub locale: &'a str,
-    pub text: &'a str,
+    pub thread_id: Option<String>,
     /// True while the intake is waiting on an answer of its own.
     ///
     /// `parse_choice` claims ANY bare digit, so a "3" typed at a PAR-Q question
@@ -71,28 +88,72 @@ pub(super) struct AgentChoiceParams<'a> {
     pub intake_awaiting: bool,
 }
 
-pub(super) async fn try_handle_agent_choice(
-    params: AgentChoiceParams<'_>,
-) -> Option<OutgoingMessage> {
-    let AgentChoiceParams {
-        resources,
-        tenant_id,
-        channel,
-        channel_type,
-        sender_id,
-        user_id,
-        locale,
-        text,
-        intake_awaiting,
-    } = params;
-    if intake_awaiting {
+/// Answer a numeric reply to the agent proposal, if that is what this is.
+///
+/// Returns `false` when the message is not a bare number, when no proposal is
+/// outstanding (none was sent, or the athlete already picked from it), or
+/// when the number is out of range — in every case the turn
+/// continues to the model untouched, which is exactly the previous behaviour.
+///
+/// A pick is the messaging equivalent of the app's « Démarrer »: the agent is
+/// selected, bound into the session's thread at once rather than on the next
+/// turn, and opens it with its welcome (carnet#735), delivered after the
+/// confirmation.
+pub(super) async fn answer_agent_choice(params: AgentChoiceParams<'_>) -> bool {
+    let Some((agent_id, agent)) = select_chosen_agent(&params).await else {
+        return false;
+    };
+    let body = params.resources.mcp.messaging_strings_registry.render(
+        KEY_AGENT_USER_UPDATED,
+        params.locale,
+        &[&agent.title],
+    );
+    let confirmation = proactive_text(params.channel_type, params.message.sender_id.clone(), body);
+    deliver(&params, confirmation, None).await;
+
+    let session = params.session;
+    rebind_conversation_agent(
+        params.resources,
+        params.session_tenant_id,
+        &session.user_id,
+        &session.conversation,
+    )
+    .await;
+    if let Some(welcome) = welcome_chosen_agent(&params, &agent_id).await {
+        let message = OutgoingMessage {
+            content: welcome_content(&welcome.channel_text),
+            ..proactive_text(
+                params.channel_type,
+                params.message.sender_id.clone(),
+                String::new(),
+            )
+        };
+        let ledger = OutboundPersistSpec {
+            db: Arc::clone(&params.resources.common.repos.messaging),
+            session_tenant_id: params.session_tenant_id,
+            session_id: session.session_id.clone(),
+            chat_message_id: Some(welcome.message.id),
+        };
+        deliver(&params, message, Some(ledger)).await;
+    }
+    true
+}
+
+/// Resolve the pick to an offered agent the athlete can see and select it.
+/// `None` for anything that is not such a pick, or when the selection could
+/// not be written.
+async fn select_chosen_agent(params: &AgentChoiceParams<'_>) -> Option<(String, Agent)> {
+    if params.intake_awaiting {
         return None;
     }
-    let choice = parse_choice(text)?;
+    let text = content_body_text(&params.message.content)?;
+    let choice = parse_choice(&text)?;
+    let resources = params.resources;
+    let sender_id = params.message.sender_id.as_str();
 
     let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
     let offered = db
-        .proposed_agent_ids(tenant_id, channel, sender_id)
+        .proposed_agent_ids(params.tenant_id, params.channel, sender_id)
         .await
         .unwrap_or_default();
     if offered.is_empty() {
@@ -107,21 +168,12 @@ pub(super) async fn try_handle_agent_choice(
         .common
         .repos
         .agents
-        .get_by_id(agent_id, user_id, tenant_id)
+        .get_by_id(agent_id, params.user_id, params.user_tenant_id)
         .await
         .ok()
         .flatten()?;
 
-    // The one selection pointer — same write `/agent add` performs, so a
-    // user ends up with an agent exactly one way regardless of how they said so.
-    if let Err(e) = resources
-        .common
-        .repos
-        .tenants
-        .set_selected_agent(tenant_id, user_id, Some(agent_id))
-        .await
-    {
-        warn!(error = %e, agent_id = %agent_id, "failed to bind coach from numeric reply");
+    if !apply_pick(params, agent_id).await {
         return None;
     }
 
@@ -130,12 +182,102 @@ pub(super) async fn try_handle_agent_choice(
         choice,
         "coach bound from a numeric reply to the proposal"
     );
+    Some((agent_id.clone(), agent))
+}
 
-    let body = resources.mcp.messaging_strings_registry.render(
-        KEY_AGENT_USER_UPDATED,
-        locale,
-        &[&agent.title],
-    );
+/// Select `agent_id` for the athlete and spend the proposal it came from.
+/// `false` when the selection could not be written.
+async fn apply_pick(params: &AgentChoiceParams<'_>, agent_id: &str) -> bool {
+    let repos = &params.resources.common.repos;
+    // The one selection pointer — same write `/agent add` performs, so a
+    // user ends up with an agent exactly one way regardless of how they said so.
+    if let Err(e) = repos
+        .tenants
+        .set_selected_agent(params.user_tenant_id, params.user_id, Some(agent_id))
+        .await
+    {
+        warn!(error = %e, agent_id = %agent_id, "failed to bind coach from numeric reply");
+        return false;
+    }
 
-    Some(proactive_text(channel_type, sender_id.to_owned(), body))
+    // The offer is spent: the athlete answered it. A bare number from here on
+    // is conversation — the agent's own "how many gels did you take?" gets
+    // its "2". Best-effort: the pick stands even when the clear fails, and
+    // the next digit would at worst re-pick from the same offer.
+    if let Err(e) = repos
+        .messaging
+        .clear_proposed_agent_ids(
+            params.tenant_id,
+            params.channel,
+            params.message.sender_id.as_str(),
+        )
+        .await
+    {
+        warn!(error = %e, agent_id = %agent_id, "the answered agent proposal could not be cleared");
+    }
+    true
+}
+
+/// Post the chosen agent's welcome into the session's thread, once the
+/// rebind has pointed the thread at it. Best-effort: the selection stands
+/// whatever happens here.
+async fn welcome_chosen_agent(
+    params: &AgentChoiceParams<'_>,
+    agent_id: &str,
+) -> Option<PostedWelcome> {
+    let repos = &params.resources.common.repos;
+    let session = params.session;
+    let conversation = repos
+        .chat
+        .get_conversation(
+            &session.conversation,
+            &session.user_id,
+            params.session_tenant_id,
+        )
+        .await
+        .ok()
+        .flatten()?;
+    if conversation.agent_id.as_deref() != Some(agent_id) {
+        return None;
+    }
+    let target = WelcomeTarget {
+        conversation: &conversation,
+        user_id: &session.user_id,
+        conversation_tenant_id: params.session_tenant_id,
+        agent_id,
+        agent_tenant_id: params.user_tenant_id,
+        locale: params.locale,
+    };
+    match post_agent_welcome(
+        repos,
+        &params.resources.mcp.messaging_strings_registry,
+        target,
+    )
+    .await
+    {
+        Ok(welcome) => welcome,
+        Err(e) => {
+            warn!(error = %e, agent_id, "agent welcome not posted after the numeric pick");
+            None
+        }
+    }
+}
+
+/// Send one answer to the pick, addressed and threaded like the reply it is.
+async fn deliver(
+    params: &AgentChoiceParams<'_>,
+    mut message: OutgoingMessage,
+    ledger: Option<OutboundPersistSpec>,
+) {
+    message.thread_id.clone_from(&params.thread_id);
+    apply_conversation_recipient(&mut message, params.message.conversation_id.as_deref());
+    send_channel_response(
+        params.resources,
+        params.tenant_id,
+        params.channel,
+        params.adapter,
+        message,
+        ledger,
+    )
+    .await;
 }

@@ -153,10 +153,13 @@ expect "status names the remembered session" "$(sent_stdin)" "X-Session-Id: sess
 run '{"id":"2"}' 0 athlete sess-other
 expect "an argument wins over the remembered session" "$(sent_stdin)" "X-Session-Id: sess-other"
 
-echo "A failed flow and an abandoned one are forgotten"
+echo "A refused code keeps the flow; a failed flow and an abandoned one are forgotten"
 run '{"status":"number_match","number":"42","flow_id":"flow-2"}' 0 login athlete@example.test
 expect "login provider defaults to garmin" "$(jq -r .provider "$stub_dir/stdin")" "garmin"
 expect_contains "number_match is continued by polling" "$out" "2fa poll"
+run '{"status":"otp_required","reason":"Incorrect code","flow_id":"flow-2","provider":"coros","rejected":"code_rejected"}' 0 otp 111111
+expect "a refused code named the flow" "$(sent_body)" '{"code":"111111","flow_id":"flow-2"}'
+expect "a refused code keeps the flow for the next code" "$(cat "$run_dir/sciotte-local.flow")" "flow-2"
 run '{"status":"failed","reason":"wrong code"}' 0 otp 000000
 expect "the failed step named the flow" "$(sent_body)" '{"code":"000000","flow_id":"flow-2"}'
 if [ -e "$run_dir/sciotte-local.flow" ]; then fail "a failed flow is forgotten"; else pass "a failed flow is forgotten"; fi

@@ -102,7 +102,10 @@ export function useConversations(): ConversationsState & ConversationsActions {
         throw new Error(t('app.invalidConversationResponse'));
       }
       setConversations(prev => [conversation, ...prev]);
-      justCreatedConversationRef.current = conversation.id;
+      // An empty thread needs no first read. One created with an agent is not
+      // empty: the agent's welcome is already in it, so it loads like any
+      // other thread.
+      justCreatedConversationRef.current = params.agent_id ? null : conversation.id;
       setCurrentConversation(conversation);
       invalidateConversationList();
       return conversation;

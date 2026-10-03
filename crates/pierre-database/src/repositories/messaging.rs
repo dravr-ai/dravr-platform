@@ -534,6 +534,20 @@ pub trait MessagingRepository: Send + Sync {
         channel_user_id: &str,
     ) -> AppResult<Vec<String>>;
 
+    /// Mark the proposal answered: forget what it offered, so a later bare
+    /// number is ordinary conversation rather than another pick.
+    ///
+    /// The proposal stays stamped as sent ([`Self::agent_proposal_sent`]), so
+    /// it is never offered again; only the offer it held is spent. Without
+    /// this, a "2" typed days later in answer to the agent's own question
+    /// ("how many gels?") rebound the thread to the proposal's second agent.
+    async fn clear_proposed_agent_ids(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<()>;
+
     /// Logout a channel sender: delete their channel link, sessions, and OTP states.
     /// Identified by channel identity (`sender_id`), not `user_id`.
     async fn logout_channel_sender(
@@ -899,6 +913,13 @@ pub(crate) const AGENT_PROPOSAL_SENT_SQL: &str = r"
 /// The agent ids the last proposal offered, as the JSON array it stored.
 pub(crate) const PROPOSED_AGENT_IDS_SQL: &str = r"
             SELECT proposed_agent_ids FROM messaging_channel_links
+             WHERE tenant_id = $1 AND channel_type = $2 AND channel_user_id = $3
+            ";
+
+/// Spend the proposal's offer once the athlete has picked from it.
+pub(crate) const CLEAR_PROPOSED_AGENT_IDS_SQL: &str = r"
+            UPDATE messaging_channel_links
+               SET proposed_agent_ids = NULL
              WHERE tenant_id = $1 AND channel_type = $2 AND channel_user_id = $3
             ";
 

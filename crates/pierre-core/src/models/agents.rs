@@ -550,6 +550,10 @@ pub struct AgentFieldOverlay {
     pub instructions: Option<String>,
     /// Localized tag list; when `Some`, replaces `Agent::tags` whole.
     pub tags: Option<Vec<String>>,
+    /// Localized sample prompts; when `Some` and non-empty, replaces
+    /// `Agent::sample_prompts` whole. An empty list is a translation that
+    /// carried no Example Inputs, which keeps the canonical ones.
+    pub sample_prompts: Option<Vec<String>>,
 }
 
 impl AgentFieldOverlay {
@@ -571,6 +575,9 @@ impl AgentFieldOverlay {
         }
         if self.instructions.is_some() {
             agent.instructions.clone_from(&self.instructions);
+        }
+        if let Some(samples) = self.sample_prompts.as_ref().filter(|s| !s.is_empty()) {
+            agent.sample_prompts.clone_from(samples);
         }
     }
 }

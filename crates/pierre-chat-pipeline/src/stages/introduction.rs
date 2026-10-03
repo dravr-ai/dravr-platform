@@ -233,7 +233,8 @@ async fn localized_title(
     Some(agent.title)
 }
 
-fn collapse_whitespace(text: &str) -> String {
+/// `text` with every run of whitespace collapsed to one space, trimmed.
+pub(crate) fn collapse_whitespace(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 

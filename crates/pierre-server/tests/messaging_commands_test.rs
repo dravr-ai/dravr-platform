@@ -2243,6 +2243,7 @@ mod command_tests {
                 instructions: None,
                 source_sha: None,
                 tags: None,
+                sample_prompts: None,
             })
             .await
             .unwrap();

@@ -560,6 +560,62 @@ describe('ChatTab conversation rotation', () => {
   });
 });
 
+describe('ChatTab agent welcome', () => {
+  const STARTERS = ['Plan my tempo week', 'Check my tempo pace', 'How long should a tempo run be'];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getProvidersStatus.mockResolvedValue({ providers: [{ provider: 'strava', connected: true }] });
+    getConversationVerdicts.mockResolvedValue({ verdicts: [] });
+    listParticipants.mockResolvedValue([]);
+    getConversations.mockResolvedValue({
+      conversations: [{ id: CONVERSATION_ID, title: 'New thread', agent_id: null }],
+      total: 1,
+    });
+    listCoaches.mockResolvedValue({ agents: [] });
+    getConversationMessages.mockResolvedValue({ messages: [] });
+  });
+
+  // carnet#735: `/agent add` binds the agent and the turn carries the welcome
+  // it posted. The thread draws it at once — the command turn is never
+  // re-read — and a starter sends its question as the next turn.
+  it('appends the welcome a binding command carried and sends a tapped starter', async () => {
+    sendTurn.mockImplementationOnce(
+      async (
+        _conversationId: string,
+        _content: string,
+        options: { onBlock?: (block: ReplyBlock) => void; onDone?: (turn: TurnEnvelope) => void },
+      ) => {
+        options.onBlock?.({ type: 'prose', text: 'Agent selected: Tempo Agent.' });
+        const turn = turnEnvelope();
+        turn.welcome_message = {
+          id: 'welcome-1',
+          role: 'assistant',
+          content: "Hi! Dravr's Tempo Agent here.\n\nTempo runs for the marathon build.",
+          finish_reason: 'agent_welcome',
+          created_at: '2026-08-23T10:01:03Z',
+          actions: {
+            title: 'To get started, you can ask me:',
+            actions: STARTERS.map((q) => ({ label: q, action_type: 'postback', value: q })),
+          },
+        };
+        options.onDone?.(turn);
+      },
+    );
+
+    renderChatTab();
+    const user = await send('/agent add tempo');
+
+    expect(await screen.findByText(/Dravr's Tempo Agent here/)).toBeInTheDocument();
+    expect(screen.getByText('To get started, you can ask me:')).toBeInTheDocument();
+    sendTurn.mockResolvedValue(undefined);
+    await user.click(screen.getByRole('button', { name: STARTERS[0] }));
+
+    await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(2));
+    expect(sendTurn.mock.calls[1][1]).toBe(STARTERS[0]);
+  });
+});
+
 describe('ChatTab header info drawer', () => {
   beforeEach(() => {
     vi.clearAllMocks();

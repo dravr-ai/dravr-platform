@@ -17,9 +17,10 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use chrono::Utc;
+use pierre_chat_pipeline::agent_welcome::{post_agent_welcome, WelcomeTarget};
 use pierre_contremaitre::messaging_strings::KEY_NEW_CONVERSATION_TITLE_PREFIX;
 use pierre_core::errors::{AppError, ErrorCode};
-use pierre_core::models::TenantId;
+use pierre_core::models::{ConversationRecord, TenantId};
 use pierre_database::repositories::NewConversation;
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::AdminConfigLookup;
@@ -58,6 +59,35 @@ async fn record_agent_usage_best_effort(
     .await
     {
         tracing::warn!(agent_id, error = %e, "failed to record coach usage");
+    }
+}
+
+/// The agent a conversation was created with opens it (carnet#735): its
+/// welcome lands before the client first reads the thread. Best-effort — a
+/// welcome that cannot be written is logged and the conversation is still
+/// created; one for an agent the athlete cannot see writes nothing.
+async fn post_welcome_best_effort(
+    resources: &ServerContext,
+    conv: &ConversationRecord,
+    agent_id: &str,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) {
+    let repos = &resources.common.repos;
+    let locale = resolve_user_locale(repos.users.as_ref(), user_id).await;
+    let user_id = user_id.to_string();
+    let target = WelcomeTarget {
+        conversation: conv,
+        user_id: &user_id,
+        conversation_tenant_id: tenant_id,
+        agent_id,
+        agent_tenant_id: tenant_id,
+        locale: &locale,
+    };
+    if let Err(e) =
+        post_agent_welcome(repos, &resources.mcp.messaging_strings_registry, target).await
+    {
+        tracing::warn!(agent_id, conversation_id = %conv.id, error = %e, "agent welcome not posted on create");
     }
 }
 
@@ -146,6 +176,7 @@ pub async fn create_conversation(
     // record_usage even though the field is shown in the Coaches UI.
     if let Some(agent_id) = request.agent_id.as_deref() {
         record_agent_usage_best_effort(&resources, agent_id, auth.user_id, tenant_id).await;
+        post_welcome_best_effort(&resources, &conv, agent_id, auth.user_id, tenant_id).await;
     }
 
     let response = ConversationResponse {

@@ -22,7 +22,11 @@ use pierre_services::trainingpeaks_accounts::probe_trainingpeaks_role;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::sciotte::prefetch_activities;
+use pierre_providers::connect_prefetch::PrefetchWait;
+
+use crate::sciotte_prefetch::{
+    begin_prefetch, prefetch_activities, prefetch_in_flight, PrefetchTarget,
+};
 use crate::AuthRoutesContext;
 
 /// After a `TrainingPeaks` login stored `session`, read and record the
@@ -33,13 +37,23 @@ use crate::AuthRoutesContext;
 /// A probe that cannot read the profile leaves the role unknown and still
 /// prefetches: the read path records a coach account from the scraper's
 /// refusal.
+///
+/// The pre-fetch is registered before the probe starts, so a list read that
+/// arrives meanwhile waits for both instead of scraping the session beside
+/// them; the returned wait is on it, or on the pre-fetch already in flight
+/// when there is one.
 pub fn spawn_login_probe(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,
     session: &AuthSession,
     session_json: &str,
-) {
+) -> Option<PrefetchWait> {
+    let ticket = begin_prefetch(user_id, tenant_id, SCIOTTE_TRAININGPEAKS);
+    let wait = ticket.as_ref().map_or_else(
+        || prefetch_in_flight(user_id, tenant_id, SCIOTTE_TRAININGPEAKS),
+        |ticket| Some(ticket.wait()),
+    );
     let repos = Arc::clone(&resources.repos);
     let registry = Arc::clone(&resources.provider_registry);
     let cache = Arc::clone(&resources.cache);
@@ -62,16 +76,25 @@ pub fn spawn_login_probe(
                 "TrainingPeaks account probe failed; prefetching with the role unknown"
             ),
         }
+        // A pre-fetch already in flight for the connection is the one its
+        // readers wait on; this login's probe still reads its own account.
+        let Some(ticket) = ticket else {
+            return;
+        };
         prefetch_activities(
             registry,
             cache,
-            user_id,
-            tenant_id,
-            SCIOTTE_TRAININGPEAKS.to_owned(),
-            session_json,
+            PrefetchTarget {
+                user_id,
+                tenant_id,
+                provider_name: SCIOTTE_TRAININGPEAKS.to_owned(),
+                session_json,
+            },
+            ticket,
         )
         .await;
     });
+    wait
 }
 
 /// Probe the stored `session` of a `TrainingPeaks` connection whose role was

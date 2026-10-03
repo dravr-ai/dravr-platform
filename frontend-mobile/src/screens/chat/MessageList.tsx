@@ -25,6 +25,7 @@ import {
   dayLabelFor,
   filterDisplayMessages,
   formatMessageTime,
+  isModelReply,
   isSameMessageGroup,
   localDayKey,
   transcriptBlocks,
@@ -618,6 +619,8 @@ export function MessageList({
               {block.actions.map((action, idx) => (
                 <TouchableOpacity
                   key={`${action.value}-${idx}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={action.label}
                   className="px-3 py-2 rounded-lg bg-primary/15"
                   onPress={() => onActionClick?.(action)}
                 >
@@ -805,6 +808,7 @@ export function MessageList({
               presentMessageMenu(
                 {
                   canRetry: true,
+                  fromModel: isModelReply(item.finish_reason),
                   rating: messageFeedback[item.id] ?? null,
                   onCopy: () => handleCopyMessage(readableCopy),
                   onShare: () => handleShareMessage(readableCopy),

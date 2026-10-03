@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: A scripted stand-in for the dravr-sciotte scraper service, speaking its REST contract and error shapes over real HTTP
-// ABOUTME: The real-backend Home spec points the Pierre server at it (DRAVR_SCIOTTE_REMOTE_URL), scripts each answer, stops and restarts it
+// ABOUTME: The real-backend specs point the Pierre server at it (DRAVR_SCIOTTE_REMOTE_URL), script each answer, stop and restart it
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 
@@ -41,6 +41,27 @@ export type ListScript = 'rows' | 'empty' | 'incomplete' | 'fails' | 'busy' | 'd
  * scraper's detail page does.
  */
 export type DetailScript = 'route' | 'no_route' | 'empty_route' | 'fails' | 'hangs';
+
+/**
+ * What `POST /auth/login-with-credentials` answers:
+ *
+ * - `authenticated` — signed in at once, as a Strava login without 2FA is;
+ * - `code` — the provider asks for a one-time code: `otp_required` with a
+ *   fresh flow, which `POST /auth/submit-otp` continues. A code other than
+ *   {@link SciotteDouble.acceptedCode} is refused the way the scraper refuses
+ *   it (dravr-sciotte v0.22.0): `otp_required` naming the same flow, with
+ *   `rejected: "code_rejected"`, and the flow stays pending.
+ */
+export type LoginScript = 'authenticated' | 'code';
+
+/** One code the double was sent, and the flow it named. */
+export interface CodeSubmission {
+  flow_id: string;
+  code: string;
+}
+
+/** The scraper's reason for a code its code step did not take as complete. */
+const CODE_NOT_SUBMITTED = 'The code step did not take the code as complete, so it was not submitted';
 
 /** One scraped ride, as the scraper's list serves it. */
 export interface ScrapedRide {
@@ -113,6 +134,11 @@ function kilometreSplits(ride: ScrapedRide): ScrapedSplit[] {
 
 /** A running double: its script, what it was asked, and how to stop and restart it. */
 export interface SciotteDouble {
+  login: LoginScript;
+  /** The one code the code step accepts. */
+  acceptedCode: string;
+  /** Every code the double was sent, in order, with the flow it named. */
+  readonly codeSubmissions: () => CodeSubmission[];
   list: ListScript;
   detail: DetailScript;
   rides: ScrapedRide[];
@@ -174,7 +200,8 @@ async function until(condition: () => boolean, withinMs: number): Promise<boolea
  * Start the double on {@link SCIOTTE_DOUBLE_PORT}.
  *
  * It answers the calls the platform makes for a Strava-mirror athlete: the
- * credential login and the session export that store the connection, the
+ * credential login (and its code step, when {@link SciotteDouble.login} is
+ * `code`) and the session export that store the connection, the
  * session import that precedes every scrape, the activity list and one
  * activity's detail. Like the scraper, it holds sessions in memory: a read
  * naming a session it does not hold is a `401 session_not_found`, and a
@@ -184,6 +211,11 @@ export async function startSciotteDouble(rides: ScrapedRide[]): Promise<SciotteD
   const listReadLog: ListRead[] = [];
   const detailReadLog: DetailRead[] = [];
   const held = new Set<string>();
+  // Pending code-step flows, by id: the provider each login named.
+  const flows = new Map<string, string>();
+  const codeSubmissions: CodeSubmission[] = [];
+  let flowsMinted = 0;
+  let sessionProvider = 'strava';
   const hung: ServerResponse[] = [];
   let detailsAnswered = 0;
   let listsInFlight = 0;
@@ -279,11 +311,37 @@ export async function startSciotteDouble(rides: ScrapedRide[]): Promise<SciotteD
     const named = req.headers['x-session-id'];
     const holds = typeof named === 'string' && held.has(named);
     if (req.method === 'POST' && path === '/auth/login-with-credentials') {
-      held.add(session.session_id);
-      json(res, 200, { status: 'authenticated', session_id: session.session_id, provider: 'strava' });
+      const provider = (sent as { provider?: string } | undefined)?.provider ?? 'strava';
+      if (double.login === 'code') {
+        flowsMinted += 1;
+        const flowId = `e2e-flow-${flowsMinted}`;
+        flows.set(flowId, provider);
+        json(res, 200, { status: 'otp_required', reason: 'A code was sent', flow_id: flowId, provider });
+      } else {
+        held.add(session.session_id);
+        sessionProvider = provider;
+        json(res, 200, { status: 'authenticated', session_id: session.session_id, provider });
+      }
+    } else if (req.method === 'POST' && path === '/auth/submit-otp') {
+      const { flow_id: flowId = '', code = '' } = (sent ?? {}) as { flow_id?: string; code?: string };
+      const provider = flows.get(flowId);
+      if (provider === undefined) {
+        json(res, 404, { error: 'no_pending_login', message: 'No login is pending for this flow' });
+        return;
+      }
+      codeSubmissions.push({ flow_id: flowId, code });
+      if (code === double.acceptedCode) {
+        flows.delete(flowId);
+        held.add(session.session_id);
+        sessionProvider = provider;
+        json(res, 200, { status: 'authenticated', session_id: session.session_id, provider });
+      } else {
+        const reason = code.length < 6 ? CODE_NOT_SUBMITTED : 'Incorrect code';
+        json(res, 200, { status: 'otp_required', reason, flow_id: flowId, provider, rejected: 'code_rejected' });
+      }
     } else if (req.method === 'GET' && path === `/auth/sessions/${session.session_id}/export`) {
       if (held.has(session.session_id)) {
-        json(res, 200, { provider: 'strava', session });
+        json(res, 200, { provider: sessionProvider, session });
       } else {
         json(res, 404, { error: 'session_not_found', session_id: session.session_id });
       }
@@ -354,6 +412,9 @@ export async function startSciotteDouble(rides: ScrapedRide[]): Promise<SciotteD
   };
 
   const double: SciotteDouble = {
+    login: 'authenticated',
+    acceptedCode: '246810',
+    codeSubmissions: () => [...codeSubmissions],
     list: 'rows',
     detail: 'route',
     rides,
@@ -368,6 +429,7 @@ export async function startSciotteDouble(rides: ScrapedRide[]): Promise<SciotteD
     stop,
     restart: async () => {
       held.clear();
+      flows.clear();
       await listen();
     },
   };

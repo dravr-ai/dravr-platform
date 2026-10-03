@@ -379,6 +379,18 @@ pub const STOPPED_TURN_FINISH_REASON: &str = "stopped";
 /// every other outcome.
 pub const COMMAND_FINISH_REASON: &str = "command";
 
+/// `finish_reason` stamped on an agent's welcome row (carnet#735).
+///
+/// The welcome is the opening an agent posts when it is bound into a thread:
+/// its title, its one-line role and a few starter questions, written by the
+/// platform without an LLM call.
+///
+/// The row is the agent speaking — it replays into later prompts like any
+/// assistant row — but it is not a coaching turn the athlete asked for, so the
+/// first-turn prefetch, group adoption and agent generation count around it.
+/// Rows are recognised by this stamp, never by their wording.
+pub const AGENT_WELCOME_FINISH_REASON: &str = "agent_welcome";
+
 /// The `type` discriminator a persisted command reply's controls carry inside
 /// `chat_messages.content_blocks`, beside the visual specs (`chart`, `table`).
 pub const ACTIONS_BLOCK_TYPE: &str = "actions";
@@ -492,6 +504,13 @@ impl MessageRecord {
     #[must_use]
     pub fn is_command_turn(&self) -> bool {
         self.finish_reason.as_deref() == Some(COMMAND_FINISH_REASON)
+    }
+
+    /// `true` when this row is the opening an agent posted on being bound
+    /// into the thread. See [`AGENT_WELCOME_FINISH_REASON`].
+    #[must_use]
+    pub fn is_agent_welcome(&self) -> bool {
+        self.finish_reason.as_deref() == Some(AGENT_WELCOME_FINISH_REASON)
     }
 
     /// The row's content as it may re-enter a prompt.

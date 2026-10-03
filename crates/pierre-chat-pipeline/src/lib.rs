@@ -37,6 +37,7 @@
 
 #![warn(missing_docs)]
 
+pub mod agent_welcome;
 pub mod envelope;
 pub mod hooks;
 pub mod mcp_bridge;

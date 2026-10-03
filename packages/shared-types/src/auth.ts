@@ -239,6 +239,43 @@ export interface ProviderDelegation {
  */
 export type SciotteTarget = 'strava' | 'garmin' | 'trainingpeaks' | 'coros';
 
+/**
+ * Answer of a sciotte credential sign-in step
+ * (`/api/providers/sciotte/{login,select-2fa,submit-otp}`).
+ */
+export type SciotteLoginResponse =
+  | {
+      status: 'connected';
+      /** Backend provider the session was stored under (e.g. `sciotte_coros`) */
+      provider: string;
+      /** Set when a recent stored session answered without a new login */
+      short_circuit?: boolean;
+    }
+  | {
+      status: 'two_factor_choice';
+      /** The verification methods the provider offers, in its own order */
+      options: Array<{ id: string; label: string }>;
+    }
+  | {
+      status: 'otp_required';
+      /**
+       * `code_rejected` when this answers a code the provider refused or did
+       * not take as complete: the same sign-in takes another code. Absent
+       * when the provider asks for the first code.
+       */
+      reason?: 'code_rejected';
+    }
+  | {
+      status: 'number_match';
+      /** The number to tap on the athlete's phone */
+      number: string;
+    }
+  | {
+      status: 'failed';
+      /** The provider's own refusal, in English; clients word their own message */
+      error: string;
+    };
+
 /** Response from /api/providers endpoint */
 export interface ProvidersStatusResponse {
   providers: ExtendedProviderStatus[];

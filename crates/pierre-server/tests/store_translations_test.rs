@@ -81,6 +81,7 @@ async fn the_store_reads_an_agent_in_the_athletes_language() {
             // The locale file declares its own chips; an agent without them
             // keeps the English tags, which the second case below pins.
             tags: Some(vec!["marathon".to_owned(), "endurance".to_owned()]),
+            sample_prompts: None,
         })
         .await
         .expect("translation row");
@@ -171,6 +172,7 @@ async fn a_translation_without_tags_keeps_the_english_chips() {
             instructions: None,
             source_sha: None,
             tags: None,
+            sample_prompts: None,
         })
         .await
         .expect("translation row");
@@ -244,6 +246,7 @@ async fn a_french_tag_finds_the_agent_published_under_the_english_slug() {
                 "methode-norvegienne".to_owned(),
                 "double-seuil".to_owned(),
             ]),
+            sample_prompts: None,
         })
         .await
         .expect("translation row");

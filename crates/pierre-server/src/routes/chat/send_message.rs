@@ -47,7 +47,8 @@ use pierre_notifications::triggers as notification_triggers;
 use super::common::get_tenant_id;
 use super::dto::{MessageResponse, SendMessageRequest};
 use super::turn_response::{
-    message_response, platform_blocks, AssistantResponse, TurnResponse, TurnTelemetryResponse,
+    message_response, platform_blocks, welcome_response, AssistantResponse, TurnResponse,
+    TurnTelemetryResponse,
 };
 use pierre_middleware::AuthenticatedUser;
 
@@ -345,6 +346,7 @@ impl TurnEgress {
             actions,
             rotated_to,
             persisted,
+            welcome,
             ..
         } = command;
 
@@ -377,6 +379,7 @@ impl TurnEgress {
             },
             conversation_updated_at,
             rotated_to_conversation_id: rotated_to,
+            welcome_message: welcome.map(|posted| welcome_response(posted.message)),
             telemetry: TurnTelemetryResponse {
                 model: COMMAND_MODEL.to_owned(),
                 provider_name: COMMAND_PROVIDER.to_owned(),

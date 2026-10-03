@@ -29,10 +29,14 @@ import { StravaLogo, GarminLogo, TrainingPeaksLogo, CorosLogo, GoogleLogo, Apple
 import type { SciotteTarget } from '@pierre/shared-types';
 import { OAuthAppSetupModal } from './OAuthAppSetupModal';
 import { ProviderNotice } from './ProviderNotice';
-import { SCIOTTE_LOGIN_PRESETS } from '@pierre/shared-constants';
+import {
+  SCIOTTE_CODE_REJECTED,
+  SCIOTTE_LOGIN_FLOW_EXPIRED,
+  SCIOTTE_LOGIN_PRESETS,
+} from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { PROVIDER_BRAND } from '../constants/brands';
-import { describeApiError } from '@pierre/ui-logic';
+import { describeApiError, refusalReason } from '@pierre/ui-logic';
 
 type LoginPhase =
   | 'choose'
@@ -211,6 +215,8 @@ export function SciotteLoginModal({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [otpCode, setOtpCode] = useState('');
+  // The provider refused the last code: the same sign-in takes another one.
+  const [codeRejected, setCodeRejected] = useState(false);
   const [twoFactorOptions, setTwoFactorOptions] = useState<Array<{ id: string; label: string }>>([]);
   const [showPassword, setShowPassword] = useState(false);
   const [matchNumber, setMatchNumber] = useState<string | null>(null);
@@ -224,6 +230,12 @@ export function SciotteLoginModal({
   const brandColor = brand.brandColor;
   // Brand names, not copy: identical in every locale.
   const platformName = t(preset.labelKey);
+  // A code reached through the platform's own sign-in was sent by the
+  // platform; one behind Google or Apple may come from their prompt or from
+  // an authenticator app, so that code step names no sender.
+  const codeStepLabel = method === 'email'
+    ? t('shell.sciotteEnterCodeFrom', { provider: platformName })
+    : t('shell.sciotteEnterCode');
   // The notice is shown only while the account has not accepted it, and only
   // for a target that has one.
   const notice = consentRequired ? preset.notice : undefined;
@@ -239,6 +251,7 @@ export function SciotteLoginModal({
       setEmail('');
       setPassword('');
       setOtpCode('');
+      setCodeRejected(false);
       setIsLoading(false);
       setShowPassword(false);
     }
@@ -317,6 +330,7 @@ export function SciotteLoginModal({
         setPhase('otp');
         setStatus(t('app.enterVerificationCode'));
         setOtpCode('');
+        setCodeRejected(data.reason === SCIOTTE_CODE_REJECTED);
       } else if (data.status === 'number_match') {
         setMatchNumber(data.number || null);
         setPhase('number-match');
@@ -333,6 +347,16 @@ export function SciotteLoginModal({
       setIsLoading(false);
     }
   }, [email, password, method, target, notice, consentAccepted, platformName, onClose, onConnected, t]);
+
+  // What a refused continuation tells the user: a lapsed sign-in has to start
+  // again, which the server's own reason says without its English prose.
+  const continuationError = useCallback(
+    (err: unknown) =>
+      refusalReason(err) === SCIOTTE_LOGIN_FLOW_EXPIRED
+        ? t('hosted.common.signInExpired')
+        : describeApiError(err, { t, fallbackKey: 'app.verificationFailed' }),
+    [t]
+  );
 
   const handleSelect2FA = useCallback(async (optionId: string) => {
     setIsLoading(true);
@@ -352,21 +376,24 @@ export function SciotteLoginModal({
         setPhase('otp');
         setStatus(t('app.enterVerificationCode'));
         setOtpCode('');
+        setCodeRejected(data.reason === SCIOTTE_CODE_REJECTED);
       } else if (data.status === 'number_match') {
         setMatchNumber(data.number || null);
         setPhase('number-match');
         setStatus(t('app.confirmOnDevice'));
       } else {
-        setError(data.error || t('app.verificationFailed'));
+        // The provider's refusal is in its own words and in English; the
+        // modal words it in the user's language, as the hosted pages do.
+        setError(t('app.verificationFailed'));
         setPhase('error');
       }
     } catch (err) {
-      setError(describeApiError(err, { t, fallbackKey: 'app.verificationFailed' }));
+      setError(continuationError(err));
       setPhase('error');
     } finally {
       setIsLoading(false);
     }
-  }, [onClose, onConnected, t]);
+  }, [continuationError, onClose, onConnected, t]);
 
   const [pollingStarted, setPollingStarted] = useState(false);
   useEffect(() => {
@@ -383,6 +410,7 @@ export function SciotteLoginModal({
     if (!otpCode) return;
 
     setIsLoading(true);
+    setCodeRejected(false);
     setPhase('logging-in');
     setStatus(t('app.verifyingCode'));
 
@@ -396,18 +424,22 @@ export function SciotteLoginModal({
         setTimeout(onClose, 1500);
       } else if (data.status === 'otp_required') {
         setPhase('otp');
+        setStatus(t('app.enterVerificationCode'));
         setOtpCode('');
+        setCodeRejected(data.reason === SCIOTTE_CODE_REJECTED);
       } else {
-        setError(data.error || t('app.verificationFailed'));
+        // The provider's refusal is in its own words and in English; the
+        // modal words it in the user's language, as the hosted pages do.
+        setError(t('shell.sciotteVerificationFailed'));
         setPhase('error');
       }
     } catch (err) {
-      setError(describeApiError(err, { t, fallbackKey: 'app.verificationFailed' }));
+      setError(continuationError(err));
       setPhase('error');
     } finally {
       setIsLoading(false);
     }
-  }, [otpCode, onClose, onConnected, t]);
+  }, [otpCode, continuationError, onClose, onConnected, t]);
 
   // A provider that signs in with its own credentials draws the form's mark on
   // its own colour, not the email row's Strava orange.
@@ -704,7 +736,9 @@ export function SciotteLoginModal({
               <Shield size={24} color={colors.pierre.violet} />
             </View>
             <Text className="text-base font-medium text-text-primary">{t('app.verificationCode')}</Text>
-            <Text className="text-sm text-text-tertiary mt-1">{t('app.enterAuthenticatorCode')}</Text>
+            <Text className="text-sm text-text-tertiary mt-1 text-center">
+              {codeStepLabel}
+            </Text>
           </View>
 
           <TextInput
@@ -716,12 +750,26 @@ export function SciotteLoginModal({
             keyboardType="number-pad"
             maxLength={6}
             autoFocus
+            textContentType="oneTimeCode"
+            autoComplete="one-time-code"
+            accessibilityLabel={codeStepLabel}
             testID="sciotte-otp"
           />
+          {codeRejected && (
+            <Text
+              testID="sciotte-otp-error"
+              accessibilityRole="alert"
+              accessibilityLiveRegion="polite"
+              className="text-sm text-error text-center mb-3"
+            >
+              {t('shell.sciotteCodeRejected')}
+            </Text>
+          )}
 
           <TouchableOpacity
             onPress={handleOtpSubmit}
             disabled={!otpCode || isLoading}
+            testID="sciotte-otp-submit"
             activeOpacity={0.8}
           >
             <LinearGradient

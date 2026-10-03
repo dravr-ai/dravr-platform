@@ -177,6 +177,11 @@ macro_rules! impl_agents_repository {
                                 .ok()
                                 .flatten()
                                 .and_then(|raw| serde_json::from_str(&raw).ok()),
+                            sample_prompts: row
+                                .try_get::<Option<String>, _>("sample_prompts")
+                                .ok()
+                                .flatten()
+                                .and_then(|raw| serde_json::from_str(&raw).ok()),
                         },
                     );
                 }

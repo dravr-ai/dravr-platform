@@ -301,6 +301,12 @@ async fn upsert_single_translation(
         // A locale file that declares tags renames the chips for that locale;
         // one that declares none leaves the English tags visible.
         tags: (!tr.agent.frontmatter.tags.is_empty()).then(|| tr.agent.frontmatter.tags.clone()),
+        // A locale file's Example Inputs become that locale's starters and
+        // Discover samples; one that declares none leaves the English ones.
+        sample_prompts: Some(sample_prompt_list(
+            tr.agent.sections.example_inputs.as_deref(),
+        ))
+        .filter(|samples| !samples.is_empty()),
     };
     match repos.seeder.seed_upsert_agent_translation(&seed).await {
         Ok(()) => {
@@ -1037,22 +1043,31 @@ async fn upsert_agent(
     Ok(action)
 }
 
+/// The bullets of an `## Example Inputs` section, in authored order, each
+/// stripped of the quotes it was written in — `"…"` in English, `« … »` in
+/// French, `“…”` elsewhere — and of the whitespace around them, including the
+/// narrow no-break space French puts inside guillemets.
+fn sample_prompt_list(example_inputs: Option<&str>) -> Vec<String> {
+    let Some(inputs) = example_inputs else {
+        return Vec::new();
+    };
+    inputs
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix('-'))
+        .map(|rest| {
+            rest.trim_matches(|c: char| {
+                c.is_whitespace() || matches!(c, '"' | '«' | '»' | '“' | '”')
+            })
+            .to_owned()
+        })
+        .filter(|prompt| !prompt.is_empty())
+        .collect()
+}
+
 /// Convert example inputs bullet list to JSON array
 fn parse_sample_prompts(example_inputs: Option<&String>) -> String {
-    example_inputs.map_or_else(
-        || "[]".to_owned(),
-        |inputs| {
-            let prompts: Vec<&str> = inputs
-                .lines()
-                .filter_map(|line| {
-                    line.trim()
-                        .strip_prefix('-')
-                        .map(|rest| rest.trim().trim_matches('"'))
-                })
-                .collect();
-            serde_json::to_string(&prompts).unwrap_or_else(|_| "[]".to_owned())
-        },
-    )
+    let prompts = sample_prompt_list(example_inputs.map(String::as_str));
+    serde_json::to_string(&prompts).unwrap_or_else(|_| "[]".to_owned())
 }
 
 /// Build a `SeedAgent` from a parsed `AgentDefinition` and admin context
@@ -1147,4 +1162,36 @@ fn visuals_column(visuals: &[pierre_agent_parser::VisualKind]) -> Option<String>
             .collect::<Vec<_>>()
             .join(","),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sample_prompts_strip_french_guillemets_and_english_quotes() {
+        let fr = "- « Que manger avant une course à 6 h du matin ? »\n\
+                  - \u{ab}\u{202f}Combien de gels ?\u{202f}\u{bb}\n\
+                  - “Typographic quotes?”\n\
+                  -   \n\
+                  not a bullet";
+        assert_eq!(
+            sample_prompt_list(Some(fr)),
+            vec![
+                "Que manger avant une course à 6 h du matin ?".to_owned(),
+                "Combien de gels ?".to_owned(),
+                "Typographic quotes?".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn canonical_english_parse_is_unchanged() {
+        let en = "- \"What should I eat before a 6am run?\"\n- \"How do I carb load?\"".to_owned();
+        assert_eq!(
+            parse_sample_prompts(Some(&en)),
+            r#"["What should I eat before a 6am run?","How do I carb load?"]"#
+        );
+        assert_eq!(parse_sample_prompts(None), "[]");
+    }
 }

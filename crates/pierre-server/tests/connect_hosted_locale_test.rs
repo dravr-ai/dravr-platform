@@ -32,10 +32,11 @@ use helpers::axum_test::AxumTestRequest;
 use pierre_contremaitre::hosted_strings::{
     KEY_HOSTED_COMMON_ACCOUNT_TITLE, KEY_HOSTED_COMMON_BACK, KEY_HOSTED_COMMON_CREDENTIALS_NOTE,
     KEY_HOSTED_COMMON_EMAIL_LABEL, KEY_HOSTED_COMMON_LINKED_FROM, KEY_HOSTED_COMMON_LOG_IN,
-    KEY_HOSTED_COMMON_PASSWORD_LABEL, KEY_HOSTED_COMMON_SIGN_IN_EXPIRED,
-    KEY_HOSTED_COMMON_SIGN_IN_REJECTED, KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE,
-    KEY_HOSTED_COMMON_SUBTITLE, KEY_HOSTED_COMMON_SUBTITLE_NAMED, KEY_HOSTED_COMMON_YOUR_CHAT_APP,
-    KEY_HOSTED_ERROR_HEADING, KEY_HOSTED_ERROR_INVALID_LINK, KEY_HOSTED_ERROR_MISSING_TOKEN,
+    KEY_HOSTED_COMMON_OTP_LABEL_NAMED, KEY_HOSTED_COMMON_PASSWORD_LABEL,
+    KEY_HOSTED_COMMON_SIGN_IN_EXPIRED, KEY_HOSTED_COMMON_SIGN_IN_REJECTED,
+    KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE, KEY_HOSTED_COMMON_SUBTITLE,
+    KEY_HOSTED_COMMON_SUBTITLE_NAMED, KEY_HOSTED_COMMON_YOUR_CHAT_APP, KEY_HOSTED_ERROR_HEADING,
+    KEY_HOSTED_ERROR_INVALID_LINK, KEY_HOSTED_ERROR_MISSING_TOKEN,
     KEY_HOSTED_ERROR_OAUTH_START_FAILED, KEY_HOSTED_ERROR_PAGE_TITLE,
     KEY_HOSTED_INTERVALS_API_KEY_REQUIRED, KEY_HOSTED_INTERVALS_ATHLETE_ID_REQUIRED,
     KEY_HOSTED_INTERVALS_PAGE_TITLE, KEY_HOSTED_INTERVALS_STORAGE_NOTE,
@@ -45,7 +46,7 @@ use pierre_contremaitre::hosted_strings::{
     KEY_HOSTED_SUCCESS_DATA_AVAILABLE, KEY_HOSTED_SUCCESS_HEADING,
     KEY_HOSTED_SUCCESS_HEADING_GENERIC, KEY_HOSTED_SUCCESS_RETURN_TO_CHAT,
     KEY_INTERVALS_API_KEY_LABEL, KEY_INTERVALS_ATHLETE_ID, KEY_INTERVALS_CONNECT_ACTION,
-    KEY_INTERVALS_CREDENTIALS_HELP, TEMPLATE_KEYS,
+    KEY_INTERVALS_CREDENTIALS_HELP, KEY_SCIOTTE_CODE_REJECTED, TEMPLATE_KEYS,
 };
 use pierre_contremaitre::messaging_strings::DEFAULT_LOCALE;
 use pierre_contremaitre::MessagingStringsRegistry;
@@ -56,7 +57,7 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_middleware::provider_link_token::{
     mint_connect_link_token, mint_link_token, MintProviderLinkTokenArgs,
 };
-use pierre_routes_auth::{AuthRoutes, LOGIN_FLOW_EXPIRED_REASON};
+use pierre_routes_auth::{AuthRoutes, CODE_REJECTED_REASON, LOGIN_FLOW_EXPIRED_REASON};
 use pierre_services::locale::resolve_channel_locale;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -893,7 +894,12 @@ fn assert_failures_are_worded_by_the_page(body: &str, what: &str) {
         )),
         "{what}: the script knows the lapsed-sign-in reason"
     );
+    assert!(
+        script.contains(&format!(r#"codeRejectedReason: "{CODE_REJECTED_REASON}","#)),
+        "{what}: the script knows the refused-code reason"
+    );
     for wording in [
+        "S.codeRejected",
         "S.signInRejected",
         "S.signInUnavailable",
         "S.signInExpired",
@@ -902,6 +908,58 @@ fn assert_failures_are_worded_by_the_page(body: &str, what: &str) {
         assert!(
             script.contains(wording),
             "{what}: the script uses {wording}"
+        );
+    }
+}
+
+/// A code the provider refused keeps the athlete on the code step, so both
+/// pages carry the catalogue's sentence for it, and name the provider in the
+/// code step's label, in all five locales.
+#[tokio::test]
+async fn the_code_step_is_worded_in_the_athletes_locale_in_all_five() {
+    for locale in SUPPORTED_LOCALES {
+        let fixture = athlete(locale).await;
+        let catalogue = Catalogue::new(locale);
+        let code_rejected = catalogue.text(KEY_SCIOTTE_CODE_REJECTED, &[]);
+
+        let picker = fixture
+            .get(
+                &format!("/providers/connect?token={}", fixture.connect_token()),
+                None,
+            )
+            .await;
+        let strings = script_strings(&picker);
+        assert_eq!(strings["codeRejected"], code_rejected, "{locale} picker");
+        assert_eq!(
+            strings["otpLabel"],
+            catalogue.text(KEY_HOSTED_COMMON_OTP_LABEL_NAMED, &[]),
+            "{locale} picker"
+        );
+        assert!(
+            strings["otpLabel"]
+                .as_str()
+                .is_some_and(|text| text.contains("{0}")),
+            "{locale}: the picker's code label keeps the slot the script fills"
+        );
+
+        let login = fixture
+            .get(
+                &format!(
+                    "/providers/sciotte/login?token={}",
+                    fixture.login_token("garmin")
+                ),
+                None,
+            )
+            .await;
+        assert_eq!(
+            script_strings(&login)["codeRejected"],
+            code_rejected,
+            "{locale} hosted login"
+        );
+        assert!(
+            markup(&login)
+                .contains(&catalogue.html(KEY_HOSTED_COMMON_OTP_LABEL_NAMED, &["Garmin"])),
+            "{locale}: the hosted login's code label names the provider"
         );
     }
 }

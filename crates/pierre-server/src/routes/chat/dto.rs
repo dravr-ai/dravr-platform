@@ -56,6 +56,17 @@ pub fn resolve_stored_blocks(stored: Option<&str>, locale: &str) -> StoredBlocks
     }
 }
 
+/// The controls a stored `content_blocks` column carries, without resolving
+/// its visuals — for a row the server has just written and hands straight to
+/// the client, such as an agent's welcome and its starter questions.
+#[must_use]
+pub fn stored_actions(stored: Option<&str>) -> Option<MessageActionsResponse> {
+    parse_stored_specs(stored?)?
+        .into_iter()
+        .filter(|entry| entry.get("type").and_then(Value::as_str) == Some(ACTIONS_BLOCK_TYPE))
+        .find_map(decode_actions_entry)
+}
+
 /// Resolve stored visual specs into renderable scenes — the visual half of
 /// [`resolve_stored_blocks`], for the live turn whose specs never carry
 /// controls.

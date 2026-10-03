@@ -13,6 +13,23 @@ const WORKOUT_PLAN_KIND = 'workout_plan';
 export const COMMAND_FINISH_REASON = 'command';
 
 /**
+ * The `finish_reason` of the opening an agent posts, as itself, when it is
+ * bound into a thread (carnet#735): written by the platform, no model call.
+ */
+export const AGENT_WELCOME_FINISH_REASON = 'agent_welcome';
+
+/**
+ * Whether a model wrote this row.
+ *
+ * A command's answer and an agent's welcome are written by the platform: there
+ * is no model reply to rate, regenerate or label with a model, nor an answer
+ * to share. Every client offers such a row its copy action only.
+ */
+export function isModelReply(finishReason: string | undefined): boolean {
+  return finishReason !== COMMAND_FINISH_REASON && finishReason !== AGENT_WELCOME_FINISH_REASON;
+}
+
+/**
  * Keep every line of a command reply on its own line under a markdown renderer.
  *
  * Command handlers answer in inline markdown, so the text itself needs no

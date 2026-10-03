@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from 'vitest';
 import type { ClaimVerdict, Message, ReplyBlock } from '@pierre/shared-types';
-import { transcriptBlocks, withVerdictRows } from '../src/blocks';
+import { isModelReply, transcriptBlocks, withVerdictRows } from '../src/blocks';
 
 const CHART = {
   kind: 'chart',
@@ -205,5 +205,18 @@ describe('withVerdictRows', () => {
     ];
 
     expect(withVerdictRows(streamed, [])).toEqual(streamed);
+  });
+});
+
+describe('isModelReply', () => {
+  it("is false for the platform's rows: a command's answer and an agent's welcome", () => {
+    expect(isModelReply('command')).toBe(false);
+    expect(isModelReply('agent_welcome')).toBe(false);
+  });
+
+  it('is true for a model turn, whatever it stopped on, and for a row with no stamp', () => {
+    expect(isModelReply('stop')).toBe(true);
+    expect(isModelReply('length')).toBe(true);
+    expect(isModelReply(undefined)).toBe(true);
   });
 });

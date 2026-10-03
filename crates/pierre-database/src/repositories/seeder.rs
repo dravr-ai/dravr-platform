@@ -693,8 +693,8 @@ pub(crate) const INSERT_STORE_LISTING_SQL: &str = "INSERT INTO store_listings \
 /// Insert or refresh an agent's translation, keyed on `(agent_id, locale)`;
 /// a re-run after a file edit refreshes the content and its sha.
 pub(crate) const UPSERT_AGENT_TRANSLATION_SQL: &str = "INSERT INTO agent_translations \
-             (agent_id, locale, title, description, purpose, instructions, source_sha, tags, created_at, updated_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) \
+             (agent_id, locale, title, description, purpose, instructions, source_sha, tags, sample_prompts, created_at, updated_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) \
              ON CONFLICT (agent_id, locale) DO UPDATE SET \
                title = EXCLUDED.title, \
                description = EXCLUDED.description, \
@@ -702,4 +702,5 @@ pub(crate) const UPSERT_AGENT_TRANSLATION_SQL: &str = "INSERT INTO agent_transla
                instructions = EXCLUDED.instructions, \
                source_sha = EXCLUDED.source_sha, \
                tags = EXCLUDED.tags, \
+               sample_prompts = EXCLUDED.sample_prompts, \
                updated_at = CURRENT_TIMESTAMP";

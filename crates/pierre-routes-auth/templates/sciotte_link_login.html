@@ -86,8 +86,9 @@
             <h1>{{t:hosted.common.otpTitle}}</h1>
             <form id="otp-form" novalidate>
                 <div class="field">
-                    <label for="otp-code">{{t:hosted.common.otpLabel}}</label>
-                    <input type="text" id="otp-code" name="code" required autofocus inputmode="numeric" autocomplete="one-time-code">
+                    <label for="otp-code" id="otp-label">{{OTP_LABEL}}</label>
+                    <input type="text" id="otp-code" name="code" required autofocus inputmode="numeric" autocomplete="one-time-code" maxlength="6">
+                    <p id="otp-error" class="error-text" role="alert" hidden></p>
                 </div>
                 <button type="submit" class="btn btn-primary btn-block" id="submit-otp">{{t:hosted.common.verify}}</button>
             </form>
@@ -128,6 +129,8 @@
                 timeoutMs: 1200000,
                 // `details.reason` of the refusal a lapsed sign-in gets.
                 flowExpiredReason: "{{FLOW_EXPIRED_REASON}}",
+                // `reason` of an `otp_required` answer to a refused code.
+                codeRejectedReason: "{{CODE_REJECTED_REASON}}",
                 // The strings the script sets, in the athlete's locale.
                 strings: {{STRINGS_JSON}},
             };
@@ -217,8 +220,7 @@
                         showPhase('two-factor');
                         break;
                     case 'otp_required':
-                        document.getElementById('otp-code').value = '';
-                        showPhase('otp');
+                        showOtpStep(data);
                         break;
                     case 'number_match':
                         document.getElementById('number-match-digit').textContent = data.number || '--';
@@ -233,6 +235,33 @@
                         showFailure({});
                         break;
                 }
+            }
+
+            // The code step, empty and focused. A code the provider refused
+            // keeps the same sign-in on this step, with the page's own words
+            // for why; `autofocus` does not fire on a section shown later.
+            function showOtpStep(data) {
+                const input = document.getElementById('otp-code');
+                const error = document.getElementById('otp-error');
+                input.value = '';
+                if (data.reason === CONFIG.codeRejectedReason) {
+                    error.textContent = S.codeRejected;
+                    error.hidden = false;
+                    input.setAttribute('aria-invalid', 'true');
+                    input.setAttribute('aria-describedby', 'otp-error');
+                } else {
+                    hideOtpError();
+                }
+                showPhase('otp');
+                input.focus();
+            }
+            function hideOtpError() {
+                const input = document.getElementById('otp-code');
+                const error = document.getElementById('otp-error');
+                error.hidden = true;
+                error.textContent = '';
+                input.removeAttribute('aria-invalid');
+                input.removeAttribute('aria-describedby');
             }
 
             function renderTwoFactorOptions(options) {
@@ -297,6 +326,7 @@
                 const code = document.getElementById('otp-code').value.trim();
                 if (!code) return;
                 clearError();
+                hideOtpError();
                 showPhase('logging-in');
                 setLoggingInStatus(S.verifyingCode);
                 try {

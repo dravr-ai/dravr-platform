@@ -68,8 +68,8 @@ pub const KEY_HOSTED_COMMON_CHECK_NOTIFICATION: &str = "hosted.common.checkNotif
 pub const KEY_HOSTED_COMMON_WAITING_ARIA: &str = "hosted.common.waitingAria";
 /// Key: "Verification Code" No format placeholders.
 pub const KEY_HOSTED_COMMON_OTP_TITLE: &str = "hosted.common.otpTitle";
-/// Key: "Enter the code sent to your device" No format placeholders.
-pub const KEY_HOSTED_COMMON_OTP_LABEL: &str = "hosted.common.otpLabel";
+/// Key: "Enter the 6-digit code `{0}` sent you"
+pub const KEY_HOSTED_COMMON_OTP_LABEL_NAMED: &str = "hosted.common.otpLabelNamed";
 /// Key: "Verify" No format placeholders.
 pub const KEY_HOSTED_COMMON_VERIFY: &str = "hosted.common.verify";
 /// Key: "Connected!" No format placeholders.
@@ -195,9 +195,17 @@ pub const KEY_INTERVALS_CONNECT_ACTION: &str = "shell.intervalsConnectAction";
 /// Key: "Find your Athlete ID and API key in Intervals.icu: open Settings and scroll down to Developer Settings, near the bottom of the page." No format placeholders.
 pub const KEY_INTERVALS_CREDENTIALS_HELP: &str = "shell.intervalsCredentialsHelp";
 
+// ── Sciotte code-step strings the app dialog shares ──
+//
+// The web and mobile sign-in dialog reads this same key, so a code the
+// provider refused is worded once on every surface.
+
+/// Key: "That code wasn't accepted. Check it and enter it again." No format placeholders.
+pub const KEY_SCIOTTE_CODE_REJECTED: &str = "shell.sciotteCodeRejected";
+
 /// Every slot-less key above: the set a hosted template may name as
 /// `{{t:<key>}}` and a renderer substitutes.
-pub const TEMPLATE_KEYS: [&str; 64] = [
+pub const TEMPLATE_KEYS: [&str; 63] = [
     KEY_HOSTED_COMMON_SUBTITLE,
     KEY_HOSTED_COMMON_YOUR_CHAT_APP,
     KEY_HOSTED_COMMON_BACK,
@@ -217,7 +225,6 @@ pub const TEMPLATE_KEYS: [&str; 64] = [
     KEY_HOSTED_COMMON_CHECK_NOTIFICATION,
     KEY_HOSTED_COMMON_WAITING_ARIA,
     KEY_HOSTED_COMMON_OTP_TITLE,
-    KEY_HOSTED_COMMON_OTP_LABEL,
     KEY_HOSTED_COMMON_VERIFY,
     KEY_HOSTED_COMMON_CONNECTED,
     KEY_HOSTED_COMMON_LOGIN_FAILED,

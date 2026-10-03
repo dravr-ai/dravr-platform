@@ -472,6 +472,11 @@ export function useMessages(): MessagesState & MessagesActions {
                 scene_blocks: replySceneBlocks(turn),
               });
             }
+            // A command that bound an agent also wrote the agent's welcome,
+            // starters included, after its answer.
+            if (turn.welcome_message) {
+              newMessages.push(turn.welcome_message);
+            }
             return [...filtered, ...newMessages];
           });
           invalidateConversationList();
@@ -603,7 +608,7 @@ export function useMessages(): MessagesState & MessagesActions {
             // the athlete reads the raw viz marker until the conversation is
             // reloaded and the persisted row supplies them.
             scene_blocks: replySceneBlocks(turn),
-          }]);
+          }, ...(turn.welcome_message ? [turn.welcome_message] : [])]);
           invalidateConversationList();
           // The regenerated reply's verdict rows, as for a first send.
           void refreshVerdicts(conversationId);

@@ -24,7 +24,7 @@ use pierre_database::database::MessageRecord;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::dto::{resolve_scene_blocks, ChatMessageAction, MessageResponse};
+use super::dto::{resolve_scene_blocks, stored_actions, ChatMessageAction, MessageResponse};
 
 /// One completed chat turn.
 #[derive(Debug, Serialize, Deserialize)]
@@ -47,6 +47,15 @@ pub struct TurnResponse {
     /// already repointed server-side.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rotated_to_conversation_id: Option<String>,
+    /// The opening an agent posted because this turn bound it into the thread
+    /// (carnet#735): `/agent add`, or `/group create` adopting the thread.
+    ///
+    /// Absent on every other turn. The row is already in the transcript,
+    /// after the command's answer, and carries its starter questions in
+    /// `actions`; a client appends it after [`Self::assistant`] instead of
+    /// re-reading the thread.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub welcome_message: Option<MessageResponse>,
     /// Cost and provenance facts about the turn. Not for rendering.
     pub telemetry: TurnTelemetryResponse,
 }
@@ -214,6 +223,7 @@ impl TurnResponse {
             conversation_updated_at: conversation.updated_at,
             // Only a command rotates a thread, and this is the pipeline path.
             rotated_to_conversation_id: None,
+            welcome_message: None,
             telemetry: telemetry_response(telemetry, execution_time_ms),
         }
     }
@@ -233,6 +243,16 @@ pub(super) fn message_response(record: MessageRecord) -> MessageResponse {
         finish_reason: record.finish_reason,
         actions: None,
         created_at: record.created_at,
+    }
+}
+
+/// An agent's just-written welcome row, its starter questions decoded from
+/// the stored actions block so the client draws them without a re-read.
+pub(super) fn welcome_response(record: MessageRecord) -> MessageResponse {
+    let actions = stored_actions(record.content_blocks.as_deref());
+    MessageResponse {
+        actions,
+        ..message_response(record)
     }
 }
 

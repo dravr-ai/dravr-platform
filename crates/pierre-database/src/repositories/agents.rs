@@ -945,7 +945,7 @@ pub(crate) const RUNTIME_CONTEXT_SQL: &str = r"
 pub(crate) fn translation_overlays_sql(count: usize) -> String {
     let placeholders: Vec<String> = (0..count).map(|i| format!("${}", i + 2)).collect();
     format!(
-        "SELECT agent_id, title, description, purpose, instructions, tags \
+        "SELECT agent_id, title, description, purpose, instructions, tags, sample_prompts \
          FROM agent_translations WHERE locale = $1 AND agent_id IN ({})",
         placeholders.join(", ")
     )

@@ -1100,6 +1100,38 @@ mod agent_alias {
         bodies.last().unwrap().clone()
     }
 
+    /// Send a command that binds an agent this thread has not met: its reply,
+    /// then the agent's welcome (carnet#735), two ledgered messages. Returns
+    /// the reply.
+    async fn dm_reply_then_welcome(
+        e2e: &CommandE2e,
+        member: &Member,
+        session: &str,
+        sent: &mut i64,
+        text: &str,
+    ) -> String {
+        let ack = e2e.send_dm(member, text).await;
+        assert_eq!(
+            ack.messages_stored(),
+            0,
+            "`{text}` was not recognised as a command in a DM"
+        );
+        *sent += 2;
+        e2e.wait_outbound_for_session(session, *sent).await;
+        let bodies = e2e.outbound_bodies_for_session(session).await;
+        assert_eq!(
+            i64::try_from(bodies.len()).unwrap(),
+            *sent,
+            "the reply and the agent's welcome, after `{text}`"
+        );
+        let (welcome, earlier) = bodies.split_last().unwrap();
+        assert!(
+            welcome.contains("Recovery Coach"),
+            "the welcome names the agent: {welcome}"
+        );
+        earlier.last().unwrap().clone()
+    }
+
     /// The agent bound to the member's DM conversation.
     async fn dm_conversation_agent(e2e: &CommandE2e, member: &Member) -> Option<String> {
         let conversation = e2e
@@ -1187,7 +1219,9 @@ mod agent_alias {
         }
 
         // Bind and detach under each spelling, in turn, on the same thread.
-        let legacy_add = dm_reply(
+        // The first bind is the agent's first word in the thread, so its
+        // welcome follows; binding it again later welcomes nobody.
+        let legacy_add = dm_reply_then_welcome(
             &e2e,
             &member,
             &session,

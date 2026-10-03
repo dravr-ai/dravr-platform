@@ -934,6 +934,13 @@ macro_rules! impl_seeder_repository {
                             .map(|tags| json_field(tags, "tags"))
                             .transpose()?,
                     )
+                    .bind(
+                        translation
+                            .sample_prompts
+                            .as_ref()
+                            .map(|samples| json_field(samples, "sample_prompts"))
+                            .transpose()?,
+                    )
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

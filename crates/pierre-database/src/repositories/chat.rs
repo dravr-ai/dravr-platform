@@ -467,6 +467,20 @@ pub trait ChatRepository: Send + Sync {
         agent_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<()>;
+
+    /// Write an agent's opening row and record its introduction in
+    /// `thread_id`, in one transaction (carnet#735).
+    ///
+    /// `None`, with nothing written, when `agent_id` was already introduced in
+    /// the thread — the ledger row is what makes the opening once per agent
+    /// per thread, even when two binds race. The ledger tenant is the
+    /// message's.
+    async fn add_agent_welcome(
+        &self,
+        params: &AddMessageParams<'_>,
+        thread_id: &str,
+        agent_id: &str,
+    ) -> AppResult<Option<MessageRecord>>;
 }
 
 /// How many leading characters of the newest row travel with a list row.

@@ -1569,6 +1569,7 @@ async fn setup_roster() -> RosterFixture {
             instructions: None,
             source_sha: None,
             tags: None,
+            sample_prompts: None,
         })
         .await
         .unwrap();

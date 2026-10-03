@@ -22,6 +22,7 @@ use chrono::{DateTime, Duration, Utc};
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::{ActivityFetchFailure, ActivityFetchFailureRecord};
+use pierre_providers::connect_prefetch::{ConnectPrefetches, PrefetchKey};
 use pierre_providers::core::{ActivityQueryParams, FitnessProvider};
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -194,6 +195,11 @@ pub struct LiveRead<'a> {
 /// primary read, which authenticates on its own to keep its reconnect
 /// handling and lives behind the `tools-data` feature.
 ///
+/// A read that arrives while the connection's connect pre-fetch is in flight
+/// waits for it and takes its answer when that covers `params`
+/// ([`connect_prefetch_answer`]), so a connect's reads never press one fresh
+/// session with two scrapes at once.
+///
 /// # Errors
 ///
 /// Returns the provider's error when the read fails, after the
@@ -210,8 +216,20 @@ pub async fn judge_live_read(
         params,
         attempt_started_at,
     } = read;
-    let activities = match provider.get_activities_with_params(params).await {
-        Ok(activities) => activities,
+    let tenant = tenant_id.and_then(|tenant_id| TenantId::parse_str(tenant_id).ok());
+    let prefetched = match tenant {
+        Some(tenant) => connect_prefetch_answer(tenant, user_id, provider_slug, params).await,
+        None => None,
+    };
+    let read = match prefetched {
+        Some(answer) => Ok(answer),
+        None => provider
+            .get_activities_with_params(params)
+            .await
+            .map(|activities| (activities, provider.head_complete())),
+    };
+    let (activities, head_complete) = match read {
+        Ok(answer) => answer,
         Err(e) => {
             if let Some(tenant_id) = tenant_id {
                 AuthService::new(Arc::clone(runtime))
@@ -228,8 +246,7 @@ pub async fn judge_live_read(
         }
     };
 
-    let tenant = tenant_id.and_then(|tenant_id| TenantId::parse_str(tenant_id).ok());
-    let verdict = if !provider.head_complete() {
+    let verdict = if !head_complete {
         HeadVerdict::Incomplete
     } else if activities.is_empty() {
         match tenant {
@@ -258,6 +275,38 @@ pub async fn judge_live_read(
         activities,
         verdict,
     })
+}
+
+/// The answer the connect pre-fetch of this connection gives a read of
+/// `params`, waiting for it when one is in flight; `None` when none is, it
+/// read nothing, or it does not cover the window
+/// ([`PrefetchedWindow::serve`](pierre_providers::connect_prefetch::PrefetchedWindow::serve)).
+///
+/// A connect pre-fetches the fresh session's newest activities, and the
+/// screen the athlete lands on asks for them again within a second. Reading
+/// live beside the pre-fetch put a second browser on the scraper service for
+/// the same session, which shed it (carnet#736); the pre-fetch's own read is
+/// the same provider answer, moments old, so it is judged and written through
+/// exactly as a live read would be.
+async fn connect_prefetch_answer(
+    tenant: TenantId,
+    user_id: Uuid,
+    provider_slug: &str,
+    params: &ActivityQueryParams,
+) -> Option<(Vec<Activity>, bool)> {
+    let key = PrefetchKey::new(tenant, user_id, provider_slug);
+    let window = ConnectPrefetches::global()
+        .in_flight(&key)?
+        .finished()
+        .await?;
+    let served = window.serve(params)?;
+    info!(
+        user_id = %user_id,
+        provider = %provider_slug,
+        count = served.len(),
+        "List read answered by the connect pre-fetch in flight"
+    );
+    Some((served, window.head_complete()))
 }
 
 /// Record what a live read of `params` said about the provider's sync.

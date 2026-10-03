@@ -1059,6 +1059,75 @@ macro_rules! impl_chat_repository {
                     })?;
                 Ok(())
             }
+
+            async fn add_agent_welcome(
+                &self,
+                params: &AddMessageParams<'_>,
+                thread_id: &str,
+                agent_id: &str,
+            ) -> AppResult<Option<MessageRecord>> {
+                let failed = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to write the agent welcome: {e}"))
+                };
+                let id = Uuid::new_v4().to_string();
+                let now = Utc::now();
+                let tenant = params.tenant_id.to_string();
+                let mut tx = self.pool().begin_with($begin).await.map_err(failed)?;
+                let stamped = sqlx::query(RECORD_AGENT_INTRODUCTION_SQL)
+                    .bind(&tenant)
+                    .bind(thread_id)
+                    .bind(agent_id)
+                    .bind(now)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(failed)?;
+                if stamped.rows_affected() == 0 {
+                    tx.rollback().await.map_err(failed)?;
+                    return Ok(None);
+                }
+                let inserted = sqlx::query(ADD_MESSAGE_SQL)
+                    .bind(&id)
+                    .bind(params.conversation_id)
+                    .bind(params.role)
+                    .bind(params.content)
+                    .bind(params.token_count.map(i64::from))
+                    .bind(params.finish_reason)
+                    .bind(now)
+                    .bind(params.prompt_tokens.map(i64::from))
+                    .bind(params.model)
+                    .bind($ids::bind_text(params.user_id)?)
+                    .bind(&tenant)
+                    .bind(params.content_blocks)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(failed)?;
+                if inserted.rows_affected() == 0 {
+                    tx.rollback().await.map_err(failed)?;
+                    return Err(AppError::not_found(
+                        "Conversation not found or access denied",
+                    ));
+                }
+                sqlx::query(TOUCH_CONVERSATION_SQL)
+                    .bind(now)
+                    .bind(params.conversation_id)
+                    .bind(&tenant)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(failed)?;
+                tx.commit().await.map_err(failed)?;
+                Ok(Some(MessageRecord {
+                    id,
+                    conversation_id: params.conversation_id.to_owned(),
+                    role: params.role.to_owned(),
+                    content: params.content.to_owned(),
+                    token_count: params.token_count.map(i64::from),
+                    prompt_tokens: params.prompt_tokens.map(i64::from),
+                    model: params.model.map(ToOwned::to_owned),
+                    finish_reason: params.finish_reason.map(ToOwned::to_owned),
+                    content_blocks: params.content_blocks.map(ToOwned::to_owned),
+                    created_at: now.to_rfc3339(),
+                }))
+            }
         }
     };
 }

@@ -54,7 +54,7 @@ describe('the message menu', () => {
     });
 
     it('offers copy, share, both ratings, retry and cancel on the last agent turn', () => {
-      presentMessageMenu({ canRetry: true, rating: null, ...callbacks() }, i18n.t);
+      presentMessageMenu({ fromModel: true, canRetry: true, rating: null, ...callbacks() }, i18n.t);
 
       const sheet = presentedSheet();
       expect(sheet.labels).toEqual(['Copy', 'Share', 'Good response', 'Poor response', 'Retry', 'Cancel']);
@@ -62,16 +62,26 @@ describe('the message menu', () => {
     });
 
     it('offers no retry on any other message', () => {
-      presentMessageMenu({ canRetry: false, rating: null, ...callbacks() }, i18n.t);
+      presentMessageMenu({ fromModel: true, canRetry: false, rating: null, ...callbacks() }, i18n.t);
 
       const sheet = presentedSheet();
       expect(sheet.labels).toEqual(['Copy', 'Share', 'Good response', 'Poor response', 'Cancel']);
       expect(sheet.cancelButtonIndex).toBe(4);
     });
 
+    it('offers only copy on a row no model wrote — a command answer, an agent welcome', () => {
+      const cb = callbacks();
+      presentMessageMenu({ fromModel: false, canRetry: true, rating: null, ...cb }, i18n.t);
+
+      const sheet = presentedSheet();
+      expect(sheet.labels).toEqual(['Copy', 'Cancel']);
+      sheet.pick(0);
+      expect(cb.onCopy).toHaveBeenCalledTimes(1);
+    });
+
     it('each row runs its own callback, and cancel runs none', () => {
       const cb = callbacks();
-      presentMessageMenu({ canRetry: true, rating: null, ...cb }, i18n.t);
+      presentMessageMenu({ fromModel: true, canRetry: true, rating: null, ...cb }, i18n.t);
       const sheet = presentedSheet();
 
       sheet.pick(0);
@@ -98,7 +108,7 @@ describe('the message menu', () => {
     // caller is the one that toggles it off.
     it('marks the held rating and still reports it when tapped', () => {
       const cb = callbacks();
-      presentMessageMenu({ canRetry: false, rating: 'down', ...cb }, i18n.t);
+      presentMessageMenu({ fromModel: true, canRetry: false, rating: 'down', ...cb }, i18n.t);
 
       const sheet = presentedSheet();
       expect(sheet.labels).toEqual(['Copy', 'Share', 'Good response', '✓ Poor response', 'Cancel']);
@@ -107,18 +117,18 @@ describe('the message menu', () => {
     });
 
     it('marks a held thumbs-up the same way', () => {
-      presentMessageMenu({ canRetry: false, rating: 'up', ...callbacks() }, i18n.t);
+      presentMessageMenu({ fromModel: true, canRetry: false, rating: 'up', ...callbacks() }, i18n.t);
       expect(presentedSheet().labels[2]).toBe('✓ Good response');
     });
 
     it('gives selection feedback as the menu opens', () => {
-      presentMessageMenu({ canRetry: false, rating: null, ...callbacks() }, i18n.t);
+      presentMessageMenu({ fromModel: true, canRetry: false, rating: null, ...callbacks() }, i18n.t);
       expect(Haptics.selectionAsync).toHaveBeenCalledTimes(1);
     });
 
     it('still opens when the haptic engine rejects', () => {
       (Haptics.selectionAsync as jest.Mock).mockRejectedValueOnce(new Error('no engine'));
-      presentMessageMenu({ canRetry: false, rating: null, ...callbacks() }, i18n.t);
+      presentMessageMenu({ fromModel: true, canRetry: false, rating: null, ...callbacks() }, i18n.t);
       expect(presentedSheet().labels).toHaveLength(5);
     });
   });
@@ -130,7 +140,7 @@ describe('the message menu', () => {
 
     it('shows the same rows as dialog buttons under the message-actions title', () => {
       const cb = callbacks();
-      presentMessageMenu({ canRetry: true, rating: null, ...cb }, i18n.t);
+      presentMessageMenu({ fromModel: true, canRetry: true, rating: null, ...cb }, i18n.t);
 
       const dialog = presentedDialog();
       expect(dialog.title).toBe('Message actions');
@@ -154,7 +164,7 @@ describe('the message menu', () => {
     });
 
     it('drops the retry button off any other message', () => {
-      presentMessageMenu({ canRetry: false, rating: null, ...callbacks() }, i18n.t);
+      presentMessageMenu({ fromModel: true, canRetry: false, rating: null, ...callbacks() }, i18n.t);
       expect(presentedDialog().buttons.map((button) => button.text)).toEqual([
         'Copy',
         'Share',
@@ -165,7 +175,7 @@ describe('the message menu', () => {
     });
 
     it('gives selection feedback as the dialog opens', () => {
-      presentMessageMenu({ canRetry: false, rating: null, ...callbacks() }, i18n.t);
+      presentMessageMenu({ fromModel: true, canRetry: false, rating: null, ...callbacks() }, i18n.t);
       expect(Haptics.selectionAsync).toHaveBeenCalledTimes(1);
     });
   });

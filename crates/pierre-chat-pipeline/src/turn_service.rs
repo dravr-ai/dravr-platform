@@ -45,6 +45,7 @@ use pierre_services::tenant_chat_provider::resolve_tenant_chat_provider;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
+use crate::agent_welcome::{post_agent_welcome, PostedWelcome, WelcomeTarget};
 use crate::envelope::{ActionKind, QuotaState, TurnAction, TurnEnvelope};
 use crate::hooks::PipelineHooks;
 use crate::quota_policy::{check_pre_chat_quotas_scoped, settle_quota_notice, PreChatScope};
@@ -152,6 +153,11 @@ pub struct CommandTurn {
     /// shared room, or a write that failed after the answer was produced —
     /// the answer is still delivered, and the failure is logged.
     pub persisted: Option<PersistedCommandReply>,
+    /// The opening the agent posted because this command bound it into the
+    /// thread (carnet#735) — `/agent add`, or `/group create` adopting the
+    /// thread. Written after the command's own rows, so a surface delivers it
+    /// after the reply.
+    pub welcome: Option<PostedWelcome>,
 }
 
 /// How one call to [`execute`] ended.
@@ -438,6 +444,8 @@ pub async fn dispatch_slash(
         return Ok(None);
     };
 
+    let user_id = request.user_id.to_string();
+    let agent_before = bound_agent(ctx, request, &user_id).await;
     // A command's replies and walk prompts are model input like a turn's, so
     // its reads are reads for a model (carnet#723).
     let outcome = ai_scope::for_model(try_dispatch(DispatchRequest {
@@ -463,7 +471,81 @@ pub async fn dispatch_slash(
         return Ok(None);
     };
     persist_if_covered(ctx, request, &mut command).await;
+    if let Some(before) = agent_before {
+        command.welcome = welcome_if_bound(ctx, request, &user_id, before).await;
+    }
     Ok(Some(command))
+}
+
+/// The agent the thread is bound to, read before a command runs; `None` when
+/// the thread cannot be read, which leaves the command unable to welcome.
+async fn bound_agent(
+    ctx: &ChatPipelineContext,
+    request: &SlashRequest<'_>,
+    user_id: &str,
+) -> Option<Option<String>> {
+    match ctx
+        .repos
+        .chat
+        .get_conversation(
+            request.conversation_id,
+            user_id,
+            request.conversation_tenant_id,
+        )
+        .await
+    {
+        Ok(conversation) => Some(conversation.and_then(|c| c.agent_id)),
+        Err(e) => {
+            warn!(error = %e, conversation_id = %request.conversation_id, "thread unreadable before the command; it posts no agent welcome");
+            None
+        }
+    }
+}
+
+/// Post the agent's welcome when the command bound a different agent into
+/// the thread than the one it held before.
+///
+/// Decided from the thread's stored agent, not from the command's name: any
+/// command that binds an agent welcomes it, and one that unbinds (`/agent
+/// remove`) or moves the athlete elsewhere (`/reset`) leaves this thread's
+/// agent as it was and posts nothing. Best-effort: a welcome that cannot be
+/// written is logged, and the command's answer still goes out.
+async fn welcome_if_bound(
+    ctx: &ChatPipelineContext,
+    request: &SlashRequest<'_>,
+    user_id: &str,
+    before: Option<String>,
+) -> Option<PostedWelcome> {
+    let conversation = ctx
+        .repos
+        .chat
+        .get_conversation(
+            request.conversation_id,
+            user_id,
+            request.conversation_tenant_id,
+        )
+        .await
+        .ok()
+        .flatten()?;
+    let agent_id = conversation.agent_id.as_deref()?;
+    if before.as_deref() == Some(agent_id) {
+        return None;
+    }
+    let target = WelcomeTarget {
+        conversation: &conversation,
+        user_id,
+        conversation_tenant_id: request.conversation_tenant_id,
+        agent_id,
+        agent_tenant_id: request.tenant_id,
+        locale: request.locale,
+    };
+    match post_agent_welcome(&ctx.repos, &ctx.messaging_strings_registry, target).await {
+        Ok(welcome) => welcome,
+        Err(e) => {
+            warn!(error = %e, agent_id, conversation_id = %request.conversation_id, "agent welcome not posted after the bind");
+            None
+        }
+    }
 }
 
 /// Shape a dispatch outcome as a command turn; `None` when the text was not a
@@ -479,6 +561,7 @@ fn command_turn(outcome: DispatchOutcome, channel_type: &str) -> Option<CommandT
             actions: Vec::new(),
             rotated_to: None,
             persisted: None,
+            welcome: None,
         }),
         DispatchOutcome::Executed {
             command_name,
@@ -512,6 +595,7 @@ fn command_turn(outcome: DispatchOutcome, channel_type: &str) -> Option<CommandT
                 actions,
                 rotated_to,
                 persisted: None,
+                welcome: None,
             })
         }
     }

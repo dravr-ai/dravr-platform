@@ -116,6 +116,16 @@ const AGENTLESS_ACTIVITY_COUNT: u32 = 30;
 /// Lookback for a coachless turn, matching [`AGENTLESS_ACTIVITY_COUNT`].
 const AGENTLESS_TIME_FRAME: &str = "4w";
 
+/// How many rows of `history` count toward the first-turn and refresh gates.
+///
+/// An agent's welcome (carnet#735) is the agent's opening, not a turn the
+/// athlete took: the athlete's first real message after it is still the
+/// conversation's first turn, and must get the agent's startup grounding.
+#[must_use]
+pub fn turn_history_len(history: &[MessageRecord]) -> usize {
+    history.iter().filter(|row| !row.is_agent_welcome()).count()
+}
+
 /// Decide whether the turn should run the first-turn startup prefetch.
 ///
 /// Returns `Some((query, data_requirements))` when:
@@ -359,7 +369,7 @@ pub async fn inject_startup_context(
     guided_flow_active: bool,
 ) -> bool {
     let Some((startup_query, data_reqs)) =
-        get_startup_context_if_applicable(history.len(), agent_ctx, guided_flow_active)
+        get_startup_context_if_applicable(turn_history_len(history), agent_ctx, guided_flow_active)
     else {
         return false;
     };
@@ -610,7 +620,7 @@ pub async fn maybe_refresh_activity_context(
         tenant_id,
         guided_flow_active,
     } = inputs;
-    if !should_refresh_activity_context(history.len(), agent_ctx, guided_flow_active) {
+    if !should_refresh_activity_context(turn_history_len(history), agent_ctx, guided_flow_active) {
         return false;
     }
 

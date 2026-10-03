@@ -15,21 +15,22 @@
 use pierre_contremaitre::hosted_strings::{
     KEY_HOSTED_COMMON_ACCOUNT_TITLE, KEY_HOSTED_COMMON_CONNECTING_TO,
     KEY_HOSTED_COMMON_CREDENTIALS_NOTE, KEY_HOSTED_COMMON_EMAIL_LABEL,
-    KEY_HOSTED_COMMON_LINKED_FROM, KEY_HOSTED_COMMON_LOADING, KEY_HOSTED_COMMON_SIGN_IN_EXPIRED,
-    KEY_HOSTED_COMMON_SIGN_IN_REJECTED, KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE,
-    KEY_HOSTED_COMMON_USERNAME_LABEL, KEY_HOSTED_COMMON_VERIFYING_CODE,
-    KEY_HOSTED_ERROR_INVALID_LINK, KEY_HOSTED_PICKER_DATA_AVAILABLE,
-    KEY_HOSTED_PICKER_SIGN_IN_INCOMPLETE, KEY_HOSTED_PICKER_STRAVA_FALLBACK,
-    KEY_HOSTED_PICKER_TAG_API_KEY, KEY_HOSTED_PICKER_TAG_AUTHORIZE,
-    KEY_HOSTED_PICKER_TAG_CONNECTED, KEY_HOSTED_PICKER_TAG_EMAIL_PASSWORD,
-    KEY_HOSTED_PICKER_TAG_USERNAME_PASSWORD,
+    KEY_HOSTED_COMMON_LINKED_FROM, KEY_HOSTED_COMMON_LOADING, KEY_HOSTED_COMMON_OTP_LABEL_NAMED,
+    KEY_HOSTED_COMMON_SIGN_IN_EXPIRED, KEY_HOSTED_COMMON_SIGN_IN_REJECTED,
+    KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE, KEY_HOSTED_COMMON_USERNAME_LABEL,
+    KEY_HOSTED_COMMON_VERIFYING_CODE, KEY_HOSTED_ERROR_INVALID_LINK,
+    KEY_HOSTED_PICKER_DATA_AVAILABLE, KEY_HOSTED_PICKER_SIGN_IN_INCOMPLETE,
+    KEY_HOSTED_PICKER_STRAVA_FALLBACK, KEY_HOSTED_PICKER_TAG_API_KEY,
+    KEY_HOSTED_PICKER_TAG_AUTHORIZE, KEY_HOSTED_PICKER_TAG_CONNECTED,
+    KEY_HOSTED_PICKER_TAG_EMAIL_PASSWORD, KEY_HOSTED_PICKER_TAG_USERNAME_PASSWORD,
+    KEY_SCIOTTE_CODE_REJECTED,
 };
 use pierre_core::html::{escape_html_attribute, with_hosted_page_css};
 use serde_json::{json, Value};
 use urlencoding::encode;
 
 use crate::hosted_page::{script_json, PageStrings};
-use crate::sciotte::LOGIN_FLOW_EXPIRED_REASON;
+use crate::sciotte::{CODE_REJECTED_REASON, LOGIN_FLOW_EXPIRED_REASON};
 use crate::sciotte_hosted_templates;
 
 const CONNECT_TEMPLATE: &str = include_str!("../templates/connect_hosted.html");
@@ -72,6 +73,8 @@ pub fn render_connect_page(
         "connectingTo": strings.get(KEY_HOSTED_COMMON_CONNECTING_TO),
         "loading": strings.get(KEY_HOSTED_COMMON_LOADING),
         "verifyingCode": strings.get(KEY_HOSTED_COMMON_VERIFYING_CODE),
+        "otpLabel": strings.get(KEY_HOSTED_COMMON_OTP_LABEL_NAMED),
+        "codeRejected": strings.get(KEY_SCIOTTE_CODE_REJECTED),
         "signInRejected": strings.get(KEY_HOSTED_COMMON_SIGN_IN_REJECTED),
         "signInUnavailable": strings.get(KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE),
         "signInExpired": strings.get(KEY_HOSTED_COMMON_SIGN_IN_EXPIRED),
@@ -99,6 +102,7 @@ pub fn render_connect_page(
     .replace("{{LINK_TOKEN}}", &escape_html_attribute(link_token))
     .replace("{{CHANNEL}}", &escape_html_attribute(channel))
     .replace("{{FLOW_EXPIRED_REASON}}", LOGIN_FLOW_EXPIRED_REASON)
+    .replace("{{CODE_REJECTED_REASON}}", CODE_REJECTED_REASON)
     // The JSON goes in last so an escaped token/channel can never close the
     // script context before it.
     .replace("{{STRINGS_JSON}}", &script_json(&script_strings))

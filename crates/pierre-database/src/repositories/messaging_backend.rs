@@ -817,6 +817,24 @@ macro_rules! impl_messaging_repository {
                     .unwrap_or_default())
             }
 
+            async fn clear_proposed_agent_ids(
+                &self,
+                tenant_id: TenantId,
+                channel_type: &str,
+                channel_user_id: &str,
+            ) -> AppResult<()> {
+                sqlx::query(CLEAR_PROPOSED_AGENT_IDS_SQL)
+                    .bind(tenant_id)
+                    .bind(channel_type)
+                    .bind(channel_user_id)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to clear proposed agent ids: {e}"))
+                    })?;
+                Ok(())
+            }
+
             async fn logout_channel_sender(
                 &self,
                 tenant_id: TenantId,

@@ -134,8 +134,12 @@ impl GroupCreateHandler {
             let messages = chat
                 .get_messages(&thread.id, &user_id, ctx.conversation_tenant_id)
                 .await?;
+            // An agent's welcome is its opening, not a turn: a thread that
+            // holds only one is still empty enough to adopt.
             let has_coaching_turn = messages.iter().any(|message| {
-                matches!(message.role.as_str(), "user" | "assistant") && !message.is_command_turn()
+                matches!(message.role.as_str(), "user" | "assistant")
+                    && !message.is_command_turn()
+                    && !message.is_agent_welcome()
             });
             if !has_coaching_turn {
                 chat.set_conversation_group_id(

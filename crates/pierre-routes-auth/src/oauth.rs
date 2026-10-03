@@ -28,6 +28,8 @@ use pierre_core::errors::AppError;
 use pierre_core::models::{ConnectionType, DelegationStatus, TenantId};
 use pierre_mcp_transport::oauth_flow_manager::OAuthTemplateRenderer;
 use pierre_providers::backend_resolver;
+#[cfg(feature = "health-sync")]
+use pierre_providers::connect_prefetch::PrefetchWait;
 use pierre_providers::ProviderDescriptor;
 use pierre_services::delegated_connections::{member_delegation, MemberDelegation};
 use pierre_services::oauth_flow::{
@@ -144,7 +146,7 @@ pub async fn handle_oauth_callback(
     {
         Ok(response) => {
             #[cfg(feature = "health-sync")]
-            spawn_health_backfill(&resources, &response.user_id, &response.provider);
+            spawn_health_backfill(&resources, &response.user_id, &response.provider, None);
 
             // Completion reaches the client through the durable path:
             // `complete_callback` has already written the notification row, and
@@ -1038,8 +1040,18 @@ pub async fn handle_sync_provider(
 /// sync does not manage (Strava's activities, read on demand) has nothing to
 /// backfill. A backfill that fails tells the athlete once, through the
 /// sync-failure notices; one that lands re-arms them.
+///
+/// `after` is the activity pre-fetch a scrape connect started on the same
+/// session: the backfill's first read waits for it, because each read is a
+/// browser on the scraper service and a connect that fires both at once sheds
+/// its own reads (carnet#736). An API connect has none to wait on.
 #[cfg(feature = "health-sync")]
-pub fn spawn_health_backfill(resources: &AuthRoutesContext, user_id: &str, provider: &str) {
+pub fn spawn_health_backfill(
+    resources: &AuthRoutesContext,
+    user_id: &str,
+    provider: &str,
+    after: Option<PrefetchWait>,
+) {
     const BACKFILL_DAYS: u32 = 30;
 
     let Some(orchestrator) = resources.sync_orchestrator.clone() else {
@@ -1057,6 +1069,11 @@ pub fn spawn_health_backfill(resources: &AuthRoutesContext, user_id: &str, provi
     let auth_repos = resources.repos.auth_repos();
     let notices = resources.sync_failure_notices.clone();
     tokio::spawn(async move {
+        if let Some(prefetch) = after {
+            // What the pre-fetch read is the activity readers'; the backfill
+            // only needs the session to itself.
+            drop(prefetch.finished().await);
+        }
         info!(
             user_id = %user_id,
             provider = %provider,

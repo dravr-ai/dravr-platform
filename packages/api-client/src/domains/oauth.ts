@@ -10,6 +10,7 @@ import type {
   ProvidersStatusResponse,
   ApiMetadata,
   OAuthGrant,
+  SciotteLoginResponse,
   SciotteTarget,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
@@ -203,7 +204,7 @@ export function createOAuthApi(axios: AxiosInstance) {
 
     /**
      * Start Sciotte credential login flow (headless browser).
-     * Returns status: 'connected', 'two_factor_choice', 'otp_required', 'number_match', or error.
+     * Returns status: 'connected', 'two_factor_choice', 'otp_required', 'number_match', or failed.
      */
     async sciotteLogin(params: {
       email: string;
@@ -262,13 +263,6 @@ export function createOAuthApi(axios: AxiosInstance) {
       return response.data;
     },
   };
-}
-
-export interface SciotteLoginResponse {
-  status: 'connected' | 'two_factor_choice' | 'otp_required' | 'number_match' | 'error';
-  error?: string;
-  options?: Array<{ id: string; label: string }>;
-  number?: string;
 }
 
 export interface SciotteConfigResponse {

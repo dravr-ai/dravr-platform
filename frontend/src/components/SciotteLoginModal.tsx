@@ -10,16 +10,23 @@ import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { formatTimeout } from './sciotteLoginCopy';
 import { useTranslation } from '@pierre/i18n';
 import { ProviderIcon } from './ProviderConnectionCards';
-import { describeApiError } from '@pierre/ui-logic';
+import { describeApiError, refusalReason } from '@pierre/ui-logic';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useDialog } from '../hooks/useDialog';
 import { useTheme } from '../hooks/useTheme';
 import { Button, RevealButton } from './ui';
 import { ProviderNotice } from './ProviderNotice';
-import { SCIOTTE_LOGIN_PRESETS, providerGlyphInk } from '@pierre/shared-constants';
+import {
+  SCIOTTE_CODE_REJECTED,
+  SCIOTTE_LOGIN_FLOW_EXPIRED,
+  SCIOTTE_LOGIN_PRESETS,
+  providerGlyphInk,
+} from '@pierre/shared-constants';
 import type { SciotteTarget } from '@pierre/shared-types';
 
-type LoginPhase = 'choose' | 'credentials' | 'logging-in' | 'two-factor' | 'waiting-approval' | 'number-match' | 'otp' | 'success' | 'error';
+// `logging-in` is the credential login, with its elapsed-time copy;
+// `verifying` is a continuation of it (a code, a 2FA pick), which is not.
+type LoginPhase = 'choose' | 'credentials' | 'logging-in' | 'verifying' | 'two-factor' | 'waiting-approval' | 'number-match' | 'otp' | 'success' | 'error';
 
 interface TwoFactorOption {
   id: string;
@@ -73,6 +80,7 @@ export default function SciotteLoginModal({
   // all: nothing announced it as a dialog, Escape did nothing, and Tab left
   // the password field for the page underneath.
   const titleId = useId();
+  const otpErrorId = useId();
   const { containerRef } = useDialog({ open: isOpen, onClose });
   const [phase, setPhase] = useState<LoginPhase>('choose');
   const [method, setMethod] = useState<LoginMethod>('email');
@@ -81,6 +89,8 @@ export default function SciotteLoginModal({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [otpCode, setOtpCode] = useState('');
+  // The provider refused the last code: the same sign-in takes another one.
+  const [codeRejected, setCodeRejected] = useState(false);
   const [twoFactorOptions, setTwoFactorOptions] = useState<TwoFactorOption[]>([]);
   const [showPassword, setShowPassword] = useState(false);
   const [matchNumber, setMatchNumber] = useState<string | null>(null);
@@ -112,6 +122,7 @@ export default function SciotteLoginModal({
       setEmail('');
       setPassword('');
       setOtpCode('');
+      setCodeRejected(false);
       setIsLoading(false);
       oauthApi
         .sciotteConfig()
@@ -160,6 +171,7 @@ export default function SciotteLoginModal({
           setPhase('otp');
           setStatus(t('app.enterVerificationCode'));
           setOtpCode('');
+          setCodeRejected(data.reason === SCIOTTE_CODE_REJECTED);
         } else if (data.status === 'number_match') {
           // Defensive: only render the number-box UI when the server returned
           // an actual 2-3 digit number. Some upstream paths (Google /challenge/dp)
@@ -186,13 +198,23 @@ export default function SciotteLoginModal({
     [email, password, method, target, notice, consentAccepted, onClose, onConnected, online, t]
   );
 
+  // What a refused continuation tells the user: a lapsed sign-in has to start
+  // again, which the server's own reason says without its English prose.
+  const continuationError = useCallback(
+    (err: unknown) =>
+      refusalReason(err) === SCIOTTE_LOGIN_FLOW_EXPIRED
+        ? t('hosted.common.signInExpired')
+        : describeApiError(err, { online, t, fallbackKey: 'shell.sciotteVerificationFailed' }),
+    [online, t]
+  );
+
   // 2FA option selection
   const handleSelectTwoFactor = useCallback(
     async (optionId: string) => {
       setIsLoading(true);
       // Don't change phase for poll (number-match auto-poll) or app (waiting-approval)
       if (optionId === 'app') setPhase('waiting-approval');
-      else if (optionId !== 'poll') setPhase('logging-in');
+      else if (optionId !== 'poll') setPhase('verifying');
       setStatus(optionId === 'app' ? t('shell.sciotteCheckPhoneTapYes') : t('shell.sciotteLoadingStatus'));
 
       try {
@@ -207,6 +229,7 @@ export default function SciotteLoginModal({
           setPhase('otp');
           setStatus(t('app.enterVerificationCode'));
           setOtpCode('');
+          setCodeRejected(data.reason === SCIOTTE_CODE_REJECTED);
         } else if (data.status === 'number_match') {
           // Defensive: only render the number-box UI when the server returned
           // an actual 2-3 digit number. Some upstream paths (Google /challenge/dp)
@@ -220,22 +243,30 @@ export default function SciotteLoginModal({
             ? t('shell.sciotteTapMatchingNumber')
             : t('shell.sciotteApproveOnPhone'));
         } else {
-          setError(data.error || t('shell.sciotteVerificationFailed'));
+          // The provider's refusal is in its own words and in English; the
+          // modal words it in the user's language, as the hosted pages do.
+          setError(t('app.verificationFailed'));
           setPhase('error');
         }
       } catch (err) {
-        setError(describeApiError(err, { online, t, fallbackKey: 'shell.sciotteVerificationFailed' }));
+        setError(continuationError(err));
         setPhase('error');
       } finally {
         setIsLoading(false);
       }
     },
-    [onClose, onConnected, online, t]
+    [continuationError, onClose, onConnected, t]
   );
 
   // Auto-poll once when number-match phase is reached — the phone notification
   // arrives before the UI shows the number, so poll immediately
   const providerLabel = t(preset.labelKey);
+  // A code reached through the platform's own sign-in was sent by the
+  // platform; one behind Google or Apple may come from their prompt or from
+  // an authenticator app, so that code step names no sender.
+  const codeStepLabel = method === 'email'
+    ? t('shell.sciotteEnterCodeFrom', { provider: providerLabel })
+    : t('shell.sciotteEnterCode');
 
   const [pollingStarted, setPollingStarted] = useState(false);
   useEffect(() => {
@@ -280,7 +311,8 @@ export default function SciotteLoginModal({
       if (!otpCode) return;
 
       setIsLoading(true);
-      setPhase('logging-in');
+      setCodeRejected(false);
+      setPhase('verifying');
       setStatus(t('app.verifyingCode'));
 
       try {
@@ -293,19 +325,23 @@ export default function SciotteLoginModal({
           setTimeout(onClose, 1500);
         } else if (data.status === 'otp_required') {
           setPhase('otp');
+          setStatus(t('app.enterVerificationCode'));
           setOtpCode('');
+          setCodeRejected(data.reason === SCIOTTE_CODE_REJECTED);
         } else {
-          setError(data.error || t('shell.sciotteVerificationFailed'));
+          // The provider's refusal is in its own words and in English; the
+          // modal words it in the user's language, as the hosted pages do.
+          setError(t('shell.sciotteVerificationFailed'));
           setPhase('error');
         }
       } catch (err) {
-        setError(describeApiError(err, { online, t, fallbackKey: 'shell.sciotteVerificationFailed' }));
+        setError(continuationError(err));
         setPhase('error');
       } finally {
         setIsLoading(false);
       }
     },
-    [otpCode, onClose, onConnected, online, t]
+    [otpCode, continuationError, onClose, onConnected, t]
   );
 
 
@@ -517,6 +553,16 @@ export default function SciotteLoginModal({
             </div>
           )}
 
+          {/* Phase: Verifying a code or a 2FA pick — no login budget applies */}
+          {phase === 'verifying' && (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-center">
+                <div className="pierre-spinner w-16 h-16 mx-auto mb-4 border-[3px]" />
+                <p className="text-on-surface/80 text-sm font-medium">{status}</p>
+              </div>
+            </div>
+          )}
+
           {/* Phase: Two-factor choice */}
           {phase === 'two-factor' && (
             <div>
@@ -582,10 +628,31 @@ export default function SciotteLoginModal({
                   </svg>
                 </div>
                 <p className="text-on-surface font-medium">{t('shell.sciotteVerificationRequired')}</p>
-                <p className="text-on-surface/50 text-sm mt-1">{t('shell.sciotteEnterCode')}</p>
               </div>
               <form onSubmit={handleOtpSubmit} className="space-y-4">
-                <input type="text" placeholder={t('shell.sciotteVerificationCode')} value={otpCode} onChange={(e) => setOtpCode(e.target.value)} className="input-glass w-full text-center text-lg tracking-widest" required autoFocus autoComplete="one-time-code" inputMode="numeric" />
+                <label htmlFor="sciotte-otp" className="block text-on-surface/50 text-sm text-center">
+                  {codeStepLabel}
+                </label>
+                <input
+                  id="sciotte-otp"
+                  type="text"
+                  placeholder={t('shell.sciotteVerificationCode')}
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(e.target.value)}
+                  className="input-glass w-full text-center text-lg tracking-widest"
+                  required
+                  autoFocus
+                  autoComplete="one-time-code"
+                  inputMode="numeric"
+                  maxLength={6}
+                  aria-invalid={codeRejected || undefined}
+                  aria-describedby={codeRejected ? otpErrorId : undefined}
+                />
+                {codeRejected && (
+                  <p id={otpErrorId} role="alert" className="text-error text-sm text-center">
+                    {t('shell.sciotteCodeRejected')}
+                  </p>
+                )}
                 <Button type="submit" variant="primary" size="lg" className="w-full" disabled={isLoading || !otpCode}>
                   {t('shell.sciotteVerify')}
                 </Button>

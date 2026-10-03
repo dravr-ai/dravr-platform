@@ -131,4 +131,100 @@ describe('MessageItem reply-block switch', () => {
     render(<MessageItem message={assistantMessage('Nice negative split.')} />);
     expect(screen.getByText('Nice negative split.')).toBeInTheDocument();
   });
+  it("draws an agent's welcome under the agent's name, its starters as buttons that send them", async () => {
+    // carnet#735: the row an agent posts when it is bound into a thread is
+    // read back from history — no block list — with its starters in the
+    // persisted `actions`. It renders like any agent message.
+    const user = userEvent.setup();
+    const onActionClick = vi.fn();
+    const starters = [
+      'Que manger avant une course à 6 h du matin ?',
+      'Comment faire ma charge glucidique pour un marathon ?',
+      'Combien de gels pour un marathon ?',
+    ];
+    const welcome: Message = {
+      id: 'welcome-1',
+      role: 'assistant',
+      content: 'Bonjour ! Agent Ravitaillement de Dravr, à ton écoute.\n\nSpécialiste du ravitaillement.',
+      finish_reason: 'agent_welcome',
+      created_at: '2026-10-02T10:00:00Z',
+      actions: {
+        title: 'Pour commencer, tu peux me demander :',
+        actions: starters.map((q) => ({ label: q, action_type: 'postback', value: q })),
+      },
+    };
+
+    render(
+      <MessageItem message={welcome} assistantLabel="Agent Ravitaillement" onActionClick={onActionClick} />,
+    );
+
+    expect(screen.getByText('Agent Ravitaillement')).toBeInTheDocument();
+    expect(screen.getByText(/Agent Ravitaillement de Dravr/)).toBeInTheDocument();
+    expect(screen.getByText('Pour commencer, tu peux me demander :')).toBeInTheDocument();
+    for (const q of starters) {
+      expect(screen.getByRole('button', { name: q })).toBeInTheDocument();
+    }
+    await user.click(screen.getByRole('button', { name: starters[1] }));
+    expect(onActionClick).toHaveBeenCalledWith({
+      label: starters[1],
+      action_type: 'postback',
+      value: starters[1],
+    });
+  });
+
+  it("offers only copy on an agent's welcome — no model wrote it to rate, share, regenerate or label", () => {
+    // Review of carnet#735: the welcome row drew Share, both ratings,
+    // Regenerate and the conversation's model label. Regenerate walked back to
+    // the `/agent add` line, re-sent it and dropped the welcome from the cache;
+    // a rating filed feedback against a row no model produced.
+    const handlers = {
+      onCopy: vi.fn(),
+      onShare: vi.fn(),
+      onThumbsUp: vi.fn(),
+      onThumbsDown: vi.fn(),
+      onRetry: vi.fn(),
+    };
+    const metadata = { model: 'gemini-test-model', executionTimeMs: 0 };
+    const welcome: Message = {
+      id: 'welcome-2',
+      role: 'assistant',
+      content: "Hi! Dravr's Tempo Agent here.",
+      finish_reason: 'agent_welcome',
+      created_at: '2026-10-02T10:00:00Z',
+      actions: {
+        title: 'To get started, you can ask me:',
+        actions: [{ label: 'Plan my tempo week', action_type: 'postback', value: 'Plan my tempo week' }],
+      },
+    };
+
+    const { unmount } = render(
+      <MessageItem message={assistantMessage()} metadata={metadata} {...handlers} />,
+    );
+    // The control: a model's reply draws all five, and its model.
+    expect(screen.getAllByRole('button')).toHaveLength(5);
+    expect(screen.getByText('gemini-test-model')).toBeInTheDocument();
+    unmount();
+
+    render(<MessageItem message={welcome} metadata={metadata} {...handlers} />);
+    const group = screen.getByRole('group');
+    const controls = group.querySelectorAll('button');
+    expect(controls).toHaveLength(1);
+    controls[0].click();
+    expect(handlers.onCopy).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('gemini-test-model')).not.toBeInTheDocument();
+  });
+
+  it('gives each starter chip the coarse-pointer touch target', () => {
+    // DESIGN.md §8: 44×44 px under a coarse pointer, which the `touch-target`
+    // class supplies; the plain chip was ~32 px tall on a phone browser.
+    render(
+      <MessageItem
+        message={assistantMessage()}
+        blocks={[
+          { type: 'actions', actions: [{ label: 'Plan my tempo week', action_type: 'postback', value: 'x' }] },
+        ]}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Plan my tempo week' })).toHaveClass('touch-target');
+  });
 });

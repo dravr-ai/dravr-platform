@@ -334,6 +334,9 @@ pub struct SeedAgentTranslation {
     pub source_sha: Option<String>,
     /// Localized tag list the `<locale>.md` declares; `None` leaves `agents.tags` visible.
     pub tags: Option<Vec<String>>,
+    /// Localized `## Example Inputs` the `<locale>.md` declares; `None` leaves
+    /// `agents.sample_prompts` visible.
+    pub sample_prompts: Option<Vec<String>>,
 }
 
 /// Agent relation for seeding

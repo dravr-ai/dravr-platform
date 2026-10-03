@@ -6,6 +6,16 @@
 
 import { defineConfig, devices } from '@playwright/test';
 
+const CHROMIUM = {
+  ...devices['Desktop Chrome'],
+  launchOptions: {
+    args: process.env.CI ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] : [],
+  },
+};
+
+/** The specs that start the scraper double (`e2e-real/sciotte-double.ts`). */
+const SCRAPER_DOUBLE_SPECS = ['**/home-sync.real.spec.ts', '**/coros-code-step.real.spec.ts'];
+
 export default defineConfig({
   testDir: './e2e-real',
   fullyParallel: true,
@@ -40,20 +50,24 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: {
-        ...devices['Desktop Chrome'],
-        launchOptions: {
-          args: process.env.CI
-            ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-            : [],
-        },
-      },
+      testIgnore: SCRAPER_DOUBLE_SPECS,
+      use: CHROMIUM,
+    },
+    {
+      // The specs that start the scraper double share its one port and the
+      // one DRAVR_SCIOTTE_REMOTE_URL the server under test names, so they run
+      // one at a time, beside the rest of the suite.
+      name: 'scraper-double',
+      testMatch: SCRAPER_DOUBLE_SPECS,
+      workers: 1,
+      use: CHROMIUM,
     },
   ],
 
   // No webServer — these specs require a real Pierre server already running
   // on port 8081 with seeded admin/coaches/demo data. The runner fails loudly
-  // if the server isn't up, by design. home-sync.real.spec.ts needs its own
-  // server — one pointed at the scraper double it starts — so locally it runs
-  // through scripts/e2e-home-sync-local.sh, which boots one.
+  // if the server isn't up, by design. home-sync.real.spec.ts and
+  // coros-code-step.real.spec.ts need a server pointed at the scraper double
+  // they start: CI's integration lane starts one, and locally
+  // scripts/e2e-home-sync-local.sh boots one for home-sync.
 });

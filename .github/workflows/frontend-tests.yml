@@ -8,6 +8,8 @@ on:
       - 'packages/**'
       - 'bun.lock'
       - 'crates/pierre-server/src/routes/auth/**'
+      # The hosted sign-in pages' scripts run in src/__tests__/hostedLoginCodeStep.test.ts.
+      - 'crates/pierre-routes-auth/templates/**'
       - 'crates/pierre-server/src/routes/admin/**'
       - 'crates/pierre-server/src/routes/api_keys/**'
       - 'crates/pierre-server/src/routes/dashboard/**'
@@ -24,6 +26,8 @@ on:
       - 'packages/**'
       - 'bun.lock'
       - 'crates/pierre-server/src/routes/auth/**'
+      # The hosted sign-in pages' scripts run in src/__tests__/hostedLoginCodeStep.test.ts.
+      - 'crates/pierre-routes-auth/templates/**'
       - 'crates/pierre-server/src/routes/admin/**'
       - 'crates/pierre-server/src/routes/api_keys/**'
       - 'crates/pierre-server/src/routes/dashboard/**'

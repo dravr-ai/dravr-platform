@@ -398,10 +398,13 @@ async fn every_row_carries_its_kind_facts_preview_and_counts() {
     );
     assert_eq!(agent_row.agent_handle.as_deref(), Some("recovery-coach"));
     assert_eq!(agent_row.agent_title.as_deref(), Some("Recovery Coach"));
-    assert_eq!(agent_row.message_count, 2, "the tool row is not a turn");
+    assert_eq!(
+        agent_row.message_count, 3,
+        "the agent's welcome and the two turns count; the tool row is not a turn"
+    );
     assert_eq!(
         agent_row.unread_count, 2,
-        "rows written behind the marker are unread"
+        "the welcome was read on create; rows written behind the marker are unread"
     );
     assert_eq!(agent_row.channel_type.as_deref(), Some("web"));
     let preview = agent_row.last_message.as_ref().expect("the newest row");

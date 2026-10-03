@@ -13,6 +13,7 @@ import {
   type SciotteDouble,
   type ScrapedRide,
 } from './sciotte-double';
+import { freshAthlete, retireAthlete, skipOnboarding } from './fresh-athlete';
 
 // Opt-in real-server spec (`bun run test:e2e:real`). It needs a Pierre
 // server started with DRAVR_SCIOTTE_REMOTE_URL=http://127.0.0.1:8097 (the
@@ -28,23 +29,11 @@ import {
 // freshness judgement and its pause, the route read and the map.
 const PIERRE_URL = process.env.PIERRE_URL ?? 'http://127.0.0.1:8081';
 const FRONTEND_URL = process.env.FRONTEND_URL ?? 'http://localhost:5173';
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? 'admin@example.com';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? 'AdminPassword123';
 const DATABASE_PATH = process.env.E2E_REAL_DATABASE_PATH;
 /** How long the server lets a route request wait (`PIERRE_HOME_ROUTE_ANSWER_SECS`, 25 by default). */
 const ROUTE_ANSWER_SECS = Number(process.env.PIERRE_HOME_ROUTE_ANSWER_SECS ?? '25');
 /** How long one provider read may hold the athlete's turn (`PIERRE_HOME_ROUTE_PROVIDER_READ_SECS`, 330 by default). */
 const ROUTE_PROVIDER_READ_SECS = Number(process.env.PIERRE_HOME_ROUTE_PROVIDER_READ_SECS ?? '330');
-
-/** Every onboarding step the web flow would stop the athlete on before Home. */
-const ONBOARDING_STEPS = [
-  'profile_type',
-  'about_you',
-  'parq',
-  'coach_proposal',
-  'messaging_channel',
-  'messaging_configure',
-] as const;
 
 const TODAYS_RIDE = 'Sortie du jour e2e';
 /** The scraper's id for {@link TODAYS_RIDE}: the latest card's map is its route. */
@@ -86,38 +75,6 @@ function ride(id: string, name: string, hoursAgo: number, durationSeconds = 5400
     distance_meters: 42000,
     elevation_gain: 310,
   };
-}
-
-async function accessToken(ctx: APIRequestContext, email: string, password: string): Promise<string> {
-  const response = await ctx.post('/oauth/token', {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    form: { grant_type: 'password', username: email, password },
-  });
-  expect(response.ok(), `login of ${email} failed: ${response.status()} — re-run the setup script`).toBeTruthy();
-  const { access_token: token } = await response.json();
-  return token as string;
-}
-
-/** Register a fresh athlete, approve them as the seeded admin, and return a bearer for them. */
-async function freshAthlete(
-  ctx: APIRequestContext,
-  email: string,
-  password: string,
-): Promise<{ userId: string; token: string }> {
-  const registered = await ctx.post('/api/auth/register', {
-    data: { email, password, display_name: 'Home Sync E2E' },
-  });
-  expect(registered.status(), `register failed: ${registered.status()}`).toBe(201);
-  const { user_id: userId, user_status: status } = await registered.json();
-  if (status === 'pending') {
-    const admin = await accessToken(ctx, ADMIN_EMAIL, ADMIN_PASSWORD);
-    const approved = await ctx.post(`/api/admin/approve-user/${userId}`, {
-      headers: { Authorization: `Bearer ${admin}` },
-      data: { reason: 'e2e home sync' },
-    });
-    expect(approved.ok(), `approve-user failed: ${approved.status()}`).toBeTruthy();
-  }
-  return { userId, token: await accessToken(ctx, email, password) };
 }
 
 /**
@@ -272,7 +229,7 @@ test.describe('Home sync truth — real backend, scripted scraper', () => {
       ride('e2e-ride-h', 'Sortie bloquée e2e', 192),
     ]);
     ctx = await apiRequest.newContext({ baseURL: PIERRE_URL });
-    ({ userId, token: bearer } = await freshAthlete(ctx, email, password));
+    ({ userId, token: bearer } = await freshAthlete(ctx, email, password, 'Home Sync E2E'));
     const auth = { Authorization: `Bearer ${bearer}` };
 
     // The scraper is failing from the start: the connect succeeds (the login
@@ -288,23 +245,11 @@ test.describe('Home sync truth — real backend, scripted scraper', () => {
     ).toBeTruthy();
     expect((await connected.json()).status).toBe('connected');
 
-    for (const step of ONBOARDING_STEPS) {
-      const done = await ctx.put(`/api/me/onboarding/steps/${step}`, { headers: auth, data: { status: 'skipped' } });
-      expect(done.ok(), `onboarding step ${step}: ${done.status()}`).toBeTruthy();
-    }
+    await skipOnboarding(ctx, bearer);
   });
 
   test.afterAll(async () => {
-    const admin = await accessToken(ctx, ADMIN_EMAIL, ADMIN_PASSWORD).catch(() => undefined);
-    if (admin && userId) {
-      const suspended = await ctx.post(`/api/admin/suspend-user/${userId}`, {
-        headers: { Authorization: `Bearer ${admin}` },
-        data: { reason: 'e2e cleanup: home sync' },
-      });
-      if (!suspended.ok()) {
-        console.warn(`e2e cleanup: failed to suspend ${email} (${suspended.status()})`);
-      }
-    }
+    await retireAthlete(ctx, userId, email, 'home sync');
     await ctx?.dispose();
     await scraper?.stop();
   });

@@ -85,6 +85,8 @@ mod sciotte_hosted;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_hosted_templates;
 #[cfg(feature = "provider-sciotte")]
+mod sciotte_prefetch;
+#[cfg(feature = "provider-sciotte")]
 mod sciotte_session_reuse;
 mod short_link;
 /// The RFC 6749 §5.2 error bodies of the password and refresh-token grant.
@@ -112,7 +114,7 @@ pub use sciotte::{friendly_login_failure_message, report_login_system_failure};
 #[doc(hidden)]
 pub use sciotte::{
     forget_remote_flow, login_failure_response, remember_remote_flow, remember_remote_flow_for,
-    require_remote_flow, LOGIN_FLOW_EXPIRED_REASON, REMOTE_FLOW_TTL_SECS,
+    require_remote_flow, CODE_REJECTED_REASON, LOGIN_FLOW_EXPIRED_REASON, REMOTE_FLOW_TTL_SECS,
 };
 
 // Re-export the cross-cutting auth DTOs so existing

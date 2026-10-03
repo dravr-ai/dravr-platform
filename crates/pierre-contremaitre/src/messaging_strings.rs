@@ -202,6 +202,19 @@ pub const KEY_AGENT_PROPOSAL_WELCOME_GENERIC: &str = "messaging.agent_proposal.w
 /// Key: agent-proposal closing line inviting the user to reply with a number.
 pub const KEY_AGENT_PROPOSAL_FOOTER: &str = "messaging.agent_proposal.footer";
 
+// ── Agent welcome keys ────────────────────────────────────────────────────
+// Rendered when an agent is bound into a thread (carnet#735): the agent's
+// opening row, written by the platform without an LLM call.
+
+/// Key: the agent's opening greeting. `{0}` = the agent's localized title,
+/// `{1}` = its one-line role.
+pub const KEY_AGENT_WELCOME_GREETING: &str = "messaging.agent_welcome.greeting";
+/// Key: the opening greeting of an agent with no role to state.
+/// `{0}` = the agent's localized title.
+pub const KEY_AGENT_WELCOME_GREETING_NO_ROLE: &str = "messaging.agent_welcome.greeting_no_role";
+/// Key: the lead-in above the starter questions. No placeholders.
+pub const KEY_AGENT_WELCOME_STARTERS_TITLE: &str = "messaging.agent_welcome.starters_title";
+
 /// Key: account-approval welcome, sent on each linked messaging channel when a
 /// user's account is approved. No placeholders.
 pub const KEY_REGISTRATION_APPROVED: &str = "messaging.account.registration_approved";

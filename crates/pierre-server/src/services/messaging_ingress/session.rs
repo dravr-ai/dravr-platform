@@ -412,7 +412,7 @@ async fn resume_existing_session(
 /// existing binding in place rather than dropping the turn. It is logged at
 /// WARN because the visible symptom — the previous agent answering — reads to
 /// the athlete as the selection being ignored.
-async fn rebind_conversation_agent(
+pub(super) async fn rebind_conversation_agent(
     resources: &ServerContext,
     tenant_id: TenantId,
     user_id: &str,

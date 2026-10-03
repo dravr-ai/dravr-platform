@@ -685,6 +685,24 @@ export default function ChatTab({
           );
         }
 
+        // A command that bound an agent (`/agent add`) also wrote the agent's
+        // welcome after its answer. The envelope carries it whole, starters
+        // included, so it joins the cache the same way rather than waiting on
+        // a re-read of the thread.
+        const welcome = turn.welcome_message;
+        if (welcome) {
+          queryClient.setQueryData(
+            QUERY_KEYS.chat.messages(selectedConversation),
+            (old: { messages: Message[] } | undefined) => {
+              const existing = old?.messages ?? [];
+              if (existing.some(m => m.id === welcome.id)) {
+                return { messages: existing };
+              }
+              return { messages: [...existing, welcome] };
+            },
+          );
+        }
+
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
 
         // The turn joined the room too, and so may have other members'

@@ -33,6 +33,7 @@ use futures_util::stream;
 use uuid::Uuid;
 
 use common::{create_test_server_resources_with_llm, create_test_user_with_plan};
+use pierre_chat_pipeline::agent_welcome::{post_agent_welcome, WelcomeTarget};
 use pierre_chat_pipeline::stages::prompt_assembly::IDENTITY_ANCHOR;
 use pierre_chat_pipeline::{
     CommandPersistence, PipelineHooks, SurfaceId, SurfaceProfile, SurfaceRequest, TurnOrigin,
@@ -274,6 +275,7 @@ async fn catalogue_agent(fx: &Fixture) -> String {
             instructions: None,
             source_sha: None,
             tags: None,
+            sample_prompts: None,
         })
         .await
         .unwrap();
@@ -757,5 +759,49 @@ async fn a_room_hears_its_agent_introduce_itself_once() {
     assert!(
         !newcomer.contains(INTRODUCTION_MARKER),
         "a second member's own row is new, but the room already met the agent"
+    );
+}
+
+/// carnet#735: an agent that opened the thread with its welcome has already
+/// said who it is. The athlete's first message after it gets a reply with no
+/// introduction directive — the welcome is the introduction.
+#[tokio::test]
+async fn an_agent_that_welcomed_the_thread_is_not_introduced_again() {
+    let fx = setup("intro-welcomed@test.com").await;
+    let agent = catalogue_agent(&fx).await;
+    let conv_id = conversation(&fx, fx.user_id, Some(&agent), None).await;
+    let user = fx.user_id.to_string();
+    let conv = fx
+        .resources
+        .common
+        .repos
+        .chat
+        .get_conversation(&conv_id, &user, fx.tenant_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let welcome = post_agent_welcome(
+        &fx.resources.common.repos,
+        &fx.resources.mcp.messaging_strings_registry,
+        WelcomeTarget {
+            conversation: &conv,
+            user_id: &user,
+            conversation_tenant_id: fx.tenant_id,
+            agent_id: &agent,
+            agent_tenant_id: fx.tenant_id,
+            locale: "fr",
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        welcome.is_some_and(|w| w.message.content.contains("Agent Semi-Marathon")),
+        "the agent welcomed the thread by the title the store shows"
+    );
+
+    let first = turn_prompt(&fx, fx.athlete(), &conv_id, OPENER, COACHING_CALL_MARKER).await;
+    assert!(
+        !first.contains(INTRODUCTION_MARKER),
+        "the welcome already introduced the agent; its first reply must not again"
     );
 }

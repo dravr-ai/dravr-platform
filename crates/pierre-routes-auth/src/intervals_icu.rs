@@ -243,7 +243,7 @@ pub async fn link_intervals_icu_account(
     // The wellness feed syncs like any health source; read its last month now
     // rather than at the next scheduled pass.
     #[cfg(feature = "health-sync")]
-    spawn_health_backfill(resources, &user_id.to_string(), INTERVALS_ICU);
+    spawn_health_backfill(resources, &user_id.to_string(), INTERVALS_ICU, None);
 
     Ok(athlete)
 }

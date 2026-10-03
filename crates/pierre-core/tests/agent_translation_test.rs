@@ -54,6 +54,7 @@ fn overlay_replaces_only_some_fields() {
         purpose: None,
         instructions: None,
         tags: None,
+        sample_prompts: None,
     };
     ov.apply(&mut agent);
 
@@ -85,11 +86,38 @@ fn overlay_can_clear_optional_fields_when_translation_uses_empty_string() {
         purpose: None,
         instructions: None,
         tags: None,
+        sample_prompts: None,
     };
     ov.apply(&mut agent);
     assert_eq!(agent.description.as_deref(), Some(""));
     // Title untouched because overlay field was None.
     assert_eq!(agent.title, "Strength for Endurance");
+}
+
+#[test]
+fn overlay_replaces_sample_prompts_and_an_empty_list_keeps_the_english() {
+    let mut agent = sample_agent();
+    agent.sample_prompts = vec!["What should I eat?".to_owned()];
+
+    AgentFieldOverlay {
+        sample_prompts: Some(Vec::new()),
+        ..AgentFieldOverlay::default()
+    }
+    .apply(&mut agent);
+    assert_eq!(agent.sample_prompts, vec!["What should I eat?".to_owned()]);
+
+    AgentFieldOverlay {
+        sample_prompts: Some(vec![
+            "Que manger ?".to_owned(),
+            "Combien de gels ?".to_owned(),
+        ]),
+        ..AgentFieldOverlay::default()
+    }
+    .apply(&mut agent);
+    assert_eq!(
+        agent.sample_prompts,
+        vec!["Que manger ?".to_owned(), "Combien de gels ?".to_owned()]
+    );
 }
 
 #[test]
@@ -99,6 +127,7 @@ fn overlay_default_is_a_noop() {
     let original_desc = agent.description.clone();
     let original_purpose = agent.purpose.clone();
     let original_instructions = agent.instructions.clone();
+    let original_samples = agent.sample_prompts.clone();
 
     AgentFieldOverlay::default().apply(&mut agent);
 
@@ -106,6 +135,7 @@ fn overlay_default_is_a_noop() {
     assert_eq!(agent.description, original_desc);
     assert_eq!(agent.purpose, original_purpose);
     assert_eq!(agent.instructions, original_instructions);
+    assert_eq!(agent.sample_prompts, original_samples);
 }
 
 #[test]

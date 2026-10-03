@@ -24,6 +24,8 @@ pub mod ai_scope;
 pub mod backend_resolver;
 /// Circuit breaker pattern for provider resilience
 pub mod circuit_breaker;
+/// Single-flight for the activity pre-fetch a provider connect starts
+pub mod connect_prefetch;
 /// Core provider traits and interfaces
 pub mod core;
 /// Fragment-aware activity deduplication for overlapping GPS recordings

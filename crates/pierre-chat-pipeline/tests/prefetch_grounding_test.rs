@@ -23,10 +23,12 @@
 use chrono::{TimeZone, Utc};
 use pierre_chat_pipeline::stages::prefetch::{
     build_prefetch_params, get_startup_context_if_applicable, inject_activity_refresh,
-    should_refresh_activity_context, startup_query_preview, window_scope_note,
+    should_refresh_activity_context, startup_query_preview, turn_history_len, window_scope_note,
 };
 use pierre_core::models::agents::ActivityDataRequirements;
-use pierre_core::models::{AgentCategory, AgentRuntimeContext};
+use pierre_core::models::{
+    AgentCategory, AgentRuntimeContext, MessageRecord, AGENT_WELCOME_FINISH_REASON,
+};
 use pierre_llm::{ChatMessage, MessageRole};
 use pierre_tool_runtime::implementations::data_helpers::PrimaryStandIn;
 use serde_json::Value;
@@ -151,6 +153,57 @@ fn startup_gate_never_fires_while_a_guided_flow_owns_the_turn() {
         get_startup_context_if_applicable(1, Some(&with_activities), false).is_some(),
         "outside a guided flow the first turn still grounds"
     );
+}
+
+/// A history row with only the fields the gates read.
+fn row(role: &str, finish_reason: Option<&str>) -> MessageRecord {
+    MessageRecord {
+        id: format!("{role}-{}", finish_reason.unwrap_or("none")),
+        conversation_id: "conv".to_owned(),
+        role: role.to_owned(),
+        content: "text".to_owned(),
+        token_count: None,
+        prompt_tokens: None,
+        model: None,
+        finish_reason: finish_reason.map(ToOwned::to_owned),
+        content_blocks: None,
+        created_at: "2026-10-02T12:00:00Z".to_owned(),
+    }
+}
+
+/// carnet#735: an agent's welcome opens the thread before the athlete speaks.
+/// It is the agent's opening, not a turn, so the athlete's first real message
+/// after it is still the first turn and gets the agent's startup grounding —
+/// and does not yet trip the later-turn refresh.
+#[test]
+fn an_agent_welcome_does_not_count_as_a_turn() {
+    let with_activities = agent(Some(WITH_ACTIVITIES));
+    let history = [
+        row("assistant", Some(AGENT_WELCOME_FINISH_REASON)),
+        row("user", None),
+    ];
+    assert_eq!(turn_history_len(&history), 1);
+    assert!(
+        get_startup_context_if_applicable(
+            turn_history_len(&history),
+            Some(&with_activities),
+            false
+        )
+        .is_some(),
+        "the first message after a welcome is grounded like a first message"
+    );
+    assert!(
+        !should_refresh_activity_context(turn_history_len(&history), Some(&with_activities), false),
+        "the first message after a welcome is not a later turn"
+    );
+
+    let later = [
+        row("assistant", Some(AGENT_WELCOME_FINISH_REASON)),
+        row("user", None),
+        row("assistant", Some("stop")),
+        row("user", None),
+    ];
+    assert_eq!(turn_history_len(&later), 3);
 }
 
 /// A fr-first `startup_query` whose 50th byte lands inside the `è` of

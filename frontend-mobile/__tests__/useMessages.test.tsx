@@ -603,3 +603,54 @@ describe('useMessages conversation rotation', () => {
     expect(rotatedTo).toBeNull();
   });
 });
+
+describe('useMessages agent welcome', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  // carnet#735: `/agent add` binds the agent, and the turn carries the welcome
+  // it posted — starters included. The thread shows it right after the
+  // command's answer, without re-reading the conversation.
+  it('appends the welcome a binding command carried after its answer', async () => {
+    const welcome = {
+      id: 'w1',
+      role: 'assistant',
+      content: "Hi! Dravr's Tempo Agent here.",
+      finish_reason: 'agent_welcome',
+      created_at: '2026-10-02T10:00:02Z',
+      actions: {
+        title: 'To get started, you can ask me:',
+        actions: [{ label: 'Plan my tempo week', action_type: 'postback', value: 'Plan my tempo week' }],
+      },
+    };
+    mockSendTurn.mockImplementation(
+      async (
+        _conversationId: string,
+        _text: string,
+        options: { onDone?: (turn: Record<string, unknown>) => void },
+      ) => {
+        options.onDone?.({
+          turn_id: 't1',
+          user_message: { id: 'u1', role: 'user', content: '/agent add tempo', created_at: '2026-10-02T10:00:00Z' },
+          assistant: {
+            message: { id: 'a1', role: 'assistant', content: 'Agent selected: Tempo Agent.', created_at: '2026-10-02T10:00:01Z' },
+            blocks: [],
+            finish_reason: 'command',
+          },
+          conversation_updated_at: '2026-10-02T10:00:02Z',
+          welcome_message: welcome,
+          telemetry: { model: 'command', provider_name: 'platform', tool_calls_count: 0, tools_called: [], execution_time_ms: 0 },
+        });
+      },
+    );
+    const { result } = renderHook(() => useMessages());
+
+    await act(async () => {
+      await result.current.sendTurn('conv-1', '/agent add tempo');
+    });
+
+    expect(result.current.messages.map((m) => m.id)).toEqual(['u1', 'a1', 'w1']);
+    expect(result.current.messages[2].actions?.actions[0].value).toBe('Plan my tempo week');
+  });
+});

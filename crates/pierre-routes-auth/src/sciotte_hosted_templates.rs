@@ -10,8 +10,8 @@
 //! ([`pierre_core::html::with_hosted_page_css`]):
 //!
 //! - Login page: embeds a signed link-token and a `target` (strava / garmin /
-//!   trainingpeaks) and
-//!   runs the full Sciotte login state machine in vanilla JS.
+//!   trainingpeaks / coros) and runs the full Sciotte login state machine in
+//!   vanilla JS.
 //! - Success page: shown after a successful connection.
 //! - Error page: shown when the link-token is missing/invalid, or when the user
 //!   clicks an explicit error link.
@@ -19,13 +19,14 @@
 use pierre_contremaitre::hosted_strings::{
     KEY_HOSTED_COMMON_ACCOUNT_TITLE, KEY_HOSTED_COMMON_CONNECTING_TO,
     KEY_HOSTED_COMMON_CREDENTIALS_NOTE, KEY_HOSTED_COMMON_EMAIL_LABEL,
-    KEY_HOSTED_COMMON_LINKED_FROM, KEY_HOSTED_COMMON_LOADING, KEY_HOSTED_COMMON_SIGN_IN_EXPIRED,
-    KEY_HOSTED_COMMON_SIGN_IN_REJECTED, KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE,
-    KEY_HOSTED_COMMON_SUBTITLE_NAMED, KEY_HOSTED_COMMON_USERNAME_LABEL,
-    KEY_HOSTED_COMMON_VERIFYING_CODE, KEY_HOSTED_ERROR_INVALID_LINK,
-    KEY_HOSTED_LOGIN_DATA_AVAILABLE, KEY_HOSTED_SUCCESS_DATA_AVAILABLE,
-    KEY_HOSTED_SUCCESS_DATA_AVAILABLE_GENERIC, KEY_HOSTED_SUCCESS_HEADING,
-    KEY_HOSTED_SUCCESS_HEADING_GENERIC, KEY_HOSTED_SUCCESS_RETURN_TO_CHAT,
+    KEY_HOSTED_COMMON_LINKED_FROM, KEY_HOSTED_COMMON_LOADING, KEY_HOSTED_COMMON_OTP_LABEL_NAMED,
+    KEY_HOSTED_COMMON_SIGN_IN_EXPIRED, KEY_HOSTED_COMMON_SIGN_IN_REJECTED,
+    KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE, KEY_HOSTED_COMMON_SUBTITLE_NAMED,
+    KEY_HOSTED_COMMON_USERNAME_LABEL, KEY_HOSTED_COMMON_VERIFYING_CODE,
+    KEY_HOSTED_ERROR_INVALID_LINK, KEY_HOSTED_LOGIN_DATA_AVAILABLE,
+    KEY_HOSTED_SUCCESS_DATA_AVAILABLE, KEY_HOSTED_SUCCESS_DATA_AVAILABLE_GENERIC,
+    KEY_HOSTED_SUCCESS_HEADING, KEY_HOSTED_SUCCESS_HEADING_GENERIC,
+    KEY_HOSTED_SUCCESS_RETURN_TO_CHAT, KEY_SCIOTTE_CODE_REJECTED,
 };
 use pierre_core::html::{escape_html_attribute, with_hosted_page_css};
 use pierre_providers::backend_resolver;
@@ -36,7 +37,7 @@ use serde_json::json;
 use tracing::error;
 
 use crate::hosted_page::{script_json, PageStrings};
-use crate::sciotte::LOGIN_FLOW_EXPIRED_REASON;
+use crate::sciotte::{CODE_REJECTED_REASON, LOGIN_FLOW_EXPIRED_REASON};
 
 const LOGIN_TEMPLATE: &str = include_str!("../templates/sciotte_link_login.html");
 const SUCCESS_TEMPLATE: &str = include_str!("../templates/sciotte_link_success.html");
@@ -139,6 +140,7 @@ pub fn render_login_page(
         "connectingTo": connecting_to,
         "loading": strings.get(KEY_HOSTED_COMMON_LOADING),
         "verifyingCode": strings.get(KEY_HOSTED_COMMON_VERIFYING_CODE),
+        "codeRejected": strings.get(KEY_SCIOTTE_CODE_REJECTED),
         "signInRejected": strings.render(KEY_HOSTED_COMMON_SIGN_IN_REJECTED, &[target_label]),
         "signInUnavailable": strings.render(KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE, &[target_label]),
         "signInExpired": strings.get(KEY_HOSTED_COMMON_SIGN_IN_EXPIRED),
@@ -174,6 +176,10 @@ pub fn render_login_page(
         "{{CREDENTIALS_NOTE}}",
         &strings.html(KEY_HOSTED_COMMON_CREDENTIALS_NOTE, &[target_label]),
     )
+    .replace(
+        "{{OTP_LABEL}}",
+        &strings.html(KEY_HOSTED_COMMON_OTP_LABEL_NAMED, &[target_label]),
+    )
     .replace("{{CONNECTING_TO}}", &escape_html_attribute(&connecting_to))
     .replace(
         "{{DATA_AVAILABLE}}",
@@ -186,6 +192,7 @@ pub fn render_login_page(
     .replace("{{TARGET}}", &escape_html_attribute(target))
     .replace("{{CHANNEL}}", &escape_html_attribute(channel))
     .replace("{{FLOW_EXPIRED_REASON}}", LOGIN_FLOW_EXPIRED_REASON)
+    .replace("{{CODE_REJECTED_REASON}}", CODE_REJECTED_REASON)
     // The script's strings go in last, so an escaped token or channel can
     // never close the script context before them.
     .replace("{{STRINGS_JSON}}", &script_json(&script_strings))
