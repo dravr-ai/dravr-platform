@@ -107,18 +107,6 @@ pub struct Exposure {
 }
 
 impl Exposure {
-    /// A read for a model on one of Dravr's own surfaces.
-    pub const MODEL: Self = Self {
-        to_model: true,
-        external: false,
-    };
-
-    /// A read for a model whose answer leaves over an external transport.
-    pub const EXTERNAL_MODEL: Self = Self {
-        to_model: true,
-        external: true,
-    };
-
     /// Whether any gate applies.
     #[must_use]
     pub const fn any(self) -> bool {
@@ -432,6 +420,18 @@ mod tests {
     use serde::Deserialize;
     use serde_json::json;
 
+    /// A read for a model on one of Dravr's own surfaces.
+    const MODEL: Exposure = Exposure {
+        to_model: true,
+        external: false,
+    };
+
+    /// A read for a model whose answer leaves over an external transport.
+    const EXTERNAL_MODEL: Exposure = Exposure {
+        to_model: true,
+        external: true,
+    };
+
     const NOLIO_KEEP: &[&str] = &["id", "provider", "source", "sport_type", "start_date"];
 
     const NOLIO: SourcePolicy = SourcePolicy {
@@ -506,7 +506,7 @@ mod tests {
             ],
             "count": 4
         });
-        let withheld = filter_json(&Lookup, &mut payload, Exposure::MODEL);
+        let withheld = filter_json(&Lookup, &mut payload, MODEL);
 
         assert_eq!(
             payload["activities"],
@@ -534,7 +534,7 @@ mod tests {
     #[test]
     fn a_dropped_object_field_becomes_null() {
         let mut payload = json!({"latest": {"provider": "nolio", "source": "zepp", "id": "9"}});
-        let withheld = filter_json(&Lookup, &mut payload, Exposure::MODEL);
+        let withheld = filter_json(&Lookup, &mut payload, MODEL);
         assert_eq!(payload, json!({"latest": null}));
         assert_eq!(withheld.dropped, 1);
     }
@@ -573,7 +573,7 @@ mod tests {
             items,
             |i| (i.provider.clone(), i.source.clone()),
             &["name"],
-            Exposure::MODEL,
+            MODEL,
         );
 
         assert_eq!(kept.len(), 3);
@@ -593,11 +593,12 @@ mod tests {
             vec![item("a", "strava", None)],
             |i| (i.provider.clone(), i.source.clone()),
             &["name"],
-            Exposure::MODEL,
+            MODEL,
         );
         assert_eq!(kept.len(), 1);
         assert!(withheld.is_empty());
     }
+
     #[test]
     fn a_first_party_only_relay_or_origin_stays_off_external_transports() {
         assert!(first_party_only(&Lookup, "nolio", Some("garmin")));
@@ -627,13 +628,8 @@ mod tests {
     #[test]
     fn an_external_call_drops_first_party_only_items_and_counts_them_apart() {
         let origin = |i: &Item| (i.provider.clone(), i.source.clone());
-        let (kept, withheld) = filter_items(
-            &Lookup,
-            mixed_items(),
-            origin,
-            &["name"],
-            Exposure::EXTERNAL_MODEL,
-        );
+        let (kept, withheld) =
+            filter_items(&Lookup, mixed_items(), origin, &["name"], EXTERNAL_MODEL);
         assert_eq!(ids(&kept), vec!["a", "b"]);
         assert_eq!(kept[1].recovery_score, None, "the AI rules still apply");
         assert_eq!(withheld.off_interface, 2);
@@ -648,8 +644,7 @@ mod tests {
             "the interface tally names no source"
         );
 
-        let (kept, withheld) =
-            filter_items(&Lookup, mixed_items(), origin, &["name"], Exposure::MODEL);
+        let (kept, withheld) = filter_items(&Lookup, mixed_items(), origin, &["name"], MODEL);
         assert_eq!(
             ids(&kept),
             vec!["a", "b", "c", "d"],
@@ -682,7 +677,7 @@ mod tests {
             "latest": {"id": "2", "provider": "nolio", "name": "Tempo"}
         });
         let mut external = payload.clone();
-        let withheld = filter_json(&Lookup, &mut external, Exposure::EXTERNAL_MODEL);
+        let withheld = filter_json(&Lookup, &mut external, EXTERNAL_MODEL);
         assert_eq!(
             external,
             json!({
@@ -694,7 +689,7 @@ mod tests {
         assert_eq!(withheld.interface_note()["items_unavailable"], 2);
 
         let mut first_party = payload.clone();
-        assert!(filter_json(&Lookup, &mut first_party, Exposure::MODEL).is_empty());
+        assert!(filter_json(&Lookup, &mut first_party, MODEL).is_empty());
         assert_eq!(first_party, payload);
     }
 }

@@ -31,8 +31,8 @@ use tracing::{error, info, info_span, Level, Span};
 use crate::constants::service_names::PIERRE_MCP_SERVER;
 use crate::routes::contremaitre_webhook::routes as contremaitre_webhook_routes;
 use crate::routes::oauth_grants::OAuthGrantsRoutes;
-#[cfg(feature = "client-settings")]
 use crate::routes::request_transport::declare_request_transport;
+#[cfg(feature = "client-settings")]
 use crate::routes::{athlete_home, user_profile::routes as user_profile_routes};
 use crate::routes::{onboarding::OnboardingRoutes, viz::VizRoutes};
 #[cfg(feature = "client-messaging")]

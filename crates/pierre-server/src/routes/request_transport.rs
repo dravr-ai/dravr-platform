@@ -21,9 +21,10 @@
 //! - no credential → no declaration, as for any work outside a request.
 //!
 //! It authenticates nothing: a malformed or revoked key is refused by the
-//! extractor exactly as before. A request carrying an API key in
-//! `Authorization` beside a session cookie is classified by the key, which is
-//! the credential REST authentication reads — the safe direction either way.
+//! handler's extractor, which this layer never bypasses. A request carrying an
+//! API key in `Authorization` beside a session cookie is classified by the
+//! key, which is the credential REST authentication reads — the safe direction
+//! either way.
 //!
 //! `/mcp` and A2A narrow the declaration to their own external transport
 //! inside; work a handler spawns does not inherit it, so a cache writer in a
@@ -35,7 +36,7 @@ use axum::http::HeaderMap;
 use axum::middleware::Next;
 use axum::response::Response;
 use pierre_auth::security::cookies::{auth_cookie_name, get_cookie_value};
-use pierre_core::auth_header::is_api_key_format;
+use pierre_core::auth_header::{extract_bearer_token, is_api_key_format};
 use pierre_core::transport::{Transport, CLIENT_PLATFORM_HEADER};
 use pierre_providers::ai_scope;
 
@@ -72,9 +73,7 @@ fn request_transport(headers: &HeaderMap) -> Option<Transport> {
 /// scheme.
 fn presents_api_key(authorization: &str) -> bool {
     is_api_key_format(authorization)
-        || authorization
-            .strip_prefix("Bearer ")
-            .is_some_and(|token| is_api_key_format(token.trim_start()))
+        || extract_bearer_token(authorization).is_ok_and(is_api_key_format)
 }
 
 #[cfg(test)]

@@ -60,20 +60,6 @@ impl Transport {
         )
     }
 
-    /// A stable label for logs and telemetry.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::WebApp => "web_app",
-            Self::MobileApp => "mobile_app",
-            Self::Messaging => "messaging",
-            Self::PlatformJob => "platform_job",
-            Self::McpHttp => "mcp_http",
-            Self::A2a => "a2a",
-            Self::ApiKey => "api_key",
-        }
-    }
-
     /// The app an athlete's session is signed in to, as the client's
     /// [`CLIENT_PLATFORM_HEADER`] names it: the mobile app when it says so,
     /// the web app otherwise. Both are first-party; the header only labels
@@ -140,18 +126,16 @@ mod tests {
 
     #[test]
     fn each_transport_has_its_class() {
-        let external: Vec<&str> = ALL
-            .iter()
-            .filter(|t| !t.is_first_party())
-            .map(|t| t.as_str())
-            .collect();
-        assert_eq!(external, vec!["mcp_http", "a2a", "api_key"]);
+        let external: Vec<Transport> = ALL.into_iter().filter(|t| !t.is_first_party()).collect();
+        assert_eq!(
+            external,
+            vec![Transport::McpHttp, Transport::A2a, Transport::ApiKey]
+        );
         for transport in ALL {
             assert_eq!(
                 transport.is_first_party(),
                 expected_first_party(transport),
-                "{}",
-                transport.as_str()
+                "{transport:?}"
             );
         }
     }

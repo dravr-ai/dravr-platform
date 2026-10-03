@@ -18,8 +18,8 @@
 //!
 //! Strava's June 2026 terms bar AI use, but direct Strava data stays allowed
 //! by product decision (2026-10-02) until that question is settled on its own.
-//! Every shipped provider is served over every transport until its terms are
-//! read under that lens.
+//! No shipped provider's descriptor declares a transport policy, so each is
+//! served over every transport.
 
 use pierre_core::ai_policy::{AiUse, SourcePolicy};
 use pierre_core::transport::TransportPolicy;
@@ -102,6 +102,12 @@ mod tests {
     use pierre_core::ai_policy::{filter_json, Exposure, ProviderTerms};
     use serde_json::{json, Value};
 
+    /// A read for a model on one of Dravr's own surfaces.
+    const MODEL: Exposure = Exposure {
+        to_model: true,
+        external: false,
+    };
+
     /// The registry's resolution, with Nolio registered beside WHOOP and Strava.
     struct Registered;
 
@@ -147,7 +153,7 @@ mod tests {
             activity("h", "huawei", &none),
             activity("o", "oura", &none),
         ]});
-        let withheld = filter_json(&Registered, &mut payload, Exposure::MODEL);
+        let withheld = filter_json(&Registered, &mut payload, MODEL);
         let activities = payload["activities"].as_array().expect("an array");
 
         assert_eq!(activities.len(), 4, "zepp and huawei never reach the model");
@@ -172,7 +178,7 @@ mod tests {
             "provider": "whoop", "recovery_score": 34.0, "sleep_score": 80.0,
             "daily_strain": 12.1, "hrv_ms": 62.0, "resting_heart_rate": 48
         }]);
-        let withheld = filter_json(&Registered, &mut payload, Exposure::MODEL);
+        let withheld = filter_json(&Registered, &mut payload, MODEL);
         assert_eq!(
             payload,
             json!([{ "provider": "whoop", "hrv_ms": 62.0, "resting_heart_rate": 48 }])
@@ -209,7 +215,7 @@ mod tests {
             {"provider": "garmin", "name": "Hills"}
         ]);
         let mut payload = original.clone();
-        assert!(filter_json(&Registered, &mut payload, Exposure::MODEL).is_empty());
+        assert!(filter_json(&Registered, &mut payload, MODEL).is_empty());
         assert_eq!(payload, original);
     }
 }

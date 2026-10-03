@@ -72,12 +72,11 @@ const COMMAND_PROVIDER: &str = "platform";
 /// origin. An ad-hoc caller that sets nothing is read as the browser, which is
 /// the shape a hand-written `curl` turn has.
 fn client_surface(headers: &HeaderMap) -> pipeline::SurfaceId {
-    let header = headers
+    let platform = headers
         .get(CLIENT_PLATFORM_HEADER)
-        .and_then(|v| v.to_str().ok())
-        .map(str::to_ascii_lowercase);
-    match header.as_deref() {
-        Some("mobile") => pipeline::SurfaceId::Mobile,
+        .and_then(|v| v.to_str().ok());
+    match Transport::app_session(platform) {
+        Transport::MobileApp => pipeline::SurfaceId::Mobile,
         _ => pipeline::SurfaceId::Web,
     }
 }

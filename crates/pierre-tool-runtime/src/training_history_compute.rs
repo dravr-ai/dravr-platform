@@ -706,8 +706,8 @@ pub async fn fetch_history_rows(
 /// holds activities a provider's terms withhold — from AI (carnet#723) or from
 /// this transport (carnet#724) — the rows are computed on the fly from the
 /// permitted activities instead, under the same gates: the same warm-up rule
-/// as the rollup, so with nothing withheld the two agree and the stored rows
-/// are served as before.
+/// as the rollup, so the two agree when nothing is withheld, and then the
+/// stored rows are served.
 ///
 /// # Errors
 ///

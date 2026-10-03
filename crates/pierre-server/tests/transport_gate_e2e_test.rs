@@ -53,7 +53,8 @@ use crate::common::{create_test_server_resources, create_test_user_with_plan};
 
 const RELAY: &str = "nolio";
 
-/// The key of the note a caller over an external transport reads.
+/// The key of the note a caller over an external transport reads. Pinned as a
+/// literal on purpose: it is a wire value MCP, A2A and API-key clients parse.
 const UNAVAILABLE_HERE: &str = "_unavailable_over_this_interface";
 
 /// A coach-platform relay whose terms keep its data inside Dravr's own
@@ -327,8 +328,7 @@ async fn the_same_call_returns_the_relays_items_only_to_dravrs_own_surfaces() {
         let text = payload_text(&replay);
         assert!(
             !text.contains("Garmin Hills"),
-            "{} must not replay a first-party list: {text}",
-            transport.as_str()
+            "{transport:?} must not replay a first-party list: {text}"
         );
     }
 
@@ -655,8 +655,7 @@ async fn the_copilot_loop_serves_its_turns_transport_from_another_task() {
         assert_eq!(
             outcome.text.contains("Garmin Hills"),
             sees_relay,
-            "{}: {}",
-            transport.as_str(),
+            "{transport:?}: {}",
             outcome.text
         );
     }

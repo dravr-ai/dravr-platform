@@ -27,6 +27,7 @@
 # One entry per construction site, `<file>:<message>`, in byte order.
 # Refresh the scanned body:  ./scripts/ci/check-permission-denied-messages.sh --list
 # Regenerating is not reviewing — read every line the refresh adds.
+crates/pierre-auth/src/auth.rs:An API key cannot be exchanged for a session; sign in to obtain one
 crates/pierre-core/src/admin/models.rs:Permission required: {permission}
 crates/pierre-core/src/admin/models.rs:Token has no tenant scope — super-admin required for cross-tenant access
 crates/pierre-core/src/admin/models.rs:Token is scoped to tenant {bound}, cannot access tenant {requested_tenant}

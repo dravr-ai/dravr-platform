@@ -47,7 +47,13 @@ use tokio::sync::broadcast;
 use tracing::{error, info};
 use uuid::Uuid;
 
+mod params;
 mod principal;
+
+use params::{
+    CancelParams, CreatePushConfigParams, PushConfigListParams, PushConfigRefParams,
+    SubscribeParams,
+};
 
 /// Default `ListTasks` page size (spec §9: default 50, range 1..=100).
 const LIST_TASKS_DEFAULT_PAGE_SIZE: u32 = 50;
@@ -1629,50 +1635,4 @@ impl Default for A2AServer {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// `SubscribeToTask` params (`id` + optional `historyLength` for the snapshot).
-#[derive(serde::Deserialize)]
-struct SubscribeParams {
-    /// Task identifier
-    id: String,
-    /// History truncation for the initial snapshot
-    #[serde(rename = "historyLength", default)]
-    history_length: Option<u32>,
-}
-
-/// `CancelTask` params.
-#[derive(serde::Deserialize)]
-struct CancelParams {
-    /// Task identifier
-    id: String,
-}
-
-/// `CreateTaskPushNotificationConfig` params.
-#[derive(serde::Deserialize)]
-struct CreatePushConfigParams {
-    /// Task the config attaches to
-    #[serde(rename = "taskId")]
-    task_id: String,
-    /// The configuration to register
-    config: PushNotificationConfigInput,
-}
-
-/// `GetTaskPushNotificationConfig` / `DeleteTaskPushNotificationConfig` params.
-#[derive(serde::Deserialize)]
-struct PushConfigRefParams {
-    /// Task the config attaches to
-    #[serde(rename = "taskId")]
-    task_id: String,
-    /// The configuration identifier
-    #[serde(rename = "configId")]
-    config_id: String,
-}
-
-/// `ListTaskPushNotificationConfigs` params.
-#[derive(serde::Deserialize)]
-struct PushConfigListParams {
-    /// Task the configs attach to
-    #[serde(rename = "taskId")]
-    task_id: String,
 }

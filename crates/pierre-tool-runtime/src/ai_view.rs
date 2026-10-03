@@ -26,7 +26,7 @@ pub const WITHHELD_KEY: &str = "_withheld";
 
 /// Key of the note added to a tool result that had data dropped because the
 /// call came over a transport the data's terms keep it off.
-pub const UNAVAILABLE_HERE_KEY: &str = "_unavailable_over_this_interface";
+pub(crate) const UNAVAILABLE_HERE_KEY: &str = "_unavailable_over_this_interface";
 
 /// Filter every provider item left in a tool's structured result for the
 /// gates `exposure` names, and add a note for each kind of hold-back — here or
@@ -81,6 +81,18 @@ mod tests {
     };
     use pierre_providers::provider_terms::{NOLIO, NOLIO_TRANSPORT, WHOOP};
     use serde_json::json;
+
+    /// A read for a model on one of Dravr's own surfaces.
+    const MODEL: Exposure = Exposure {
+        to_model: true,
+        external: false,
+    };
+
+    /// A read for a model whose answer leaves over an external transport.
+    const EXTERNAL_MODEL: Exposure = Exposure {
+        to_model: true,
+        external: true,
+    };
 
     struct Lookup;
 
@@ -140,7 +152,7 @@ mod tests {
         .await;
 
         let mut response = response(json!({ "activity_list": "1 ride" }));
-        withhold_from_caller(&Lookup, &mut response, read_side, Some(Exposure::MODEL));
+        withhold_from_caller(&Lookup, &mut response, read_side, Some(MODEL));
         let result = response.result.as_ref().unwrap();
         let note = &result[WITHHELD_KEY];
         assert_eq!(note["items_dropped"], 1);
@@ -226,12 +238,7 @@ mod tests {
         let mut payload = response(json!([
             { "provider": "whoop", "recovery_score": 40.0, "hrv_ms": 60.0 }
         ]));
-        withhold_from_caller(
-            &Lookup,
-            &mut payload,
-            Withheld::default(),
-            Some(Exposure::MODEL),
-        );
+        withhold_from_caller(&Lookup, &mut payload, Withheld::default(), Some(MODEL));
         let result = payload.result.expect("a result");
         assert_eq!(
             result["result"],
@@ -249,7 +256,7 @@ mod tests {
             &Lookup,
             &mut payload,
             Withheld::default(),
-            Some(Exposure::EXTERNAL_MODEL),
+            Some(EXTERNAL_MODEL),
         );
         assert_eq!(payload.result, Some(original));
         assert!(payload.metadata.is_none());

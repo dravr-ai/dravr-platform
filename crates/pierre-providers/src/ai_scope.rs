@@ -15,7 +15,7 @@
 //!
 //! Each entry point also declares the [`Transport`] it serves ([`serve_over`],
 //! carnet#724). On an external call, a provider whose terms keep its data
-//! first-party ([`TransportPolicy::FirstPartyOnly`](pierre_core::transport::TransportPolicy))
+//! first-party ([`TransportPolicy::FirstPartyOnly`](pierre_core::transport::TransportPolicy::FirstPartyOnly))
 //! has its items dropped whole, whether a model reads them or not. Inside an AI
 //! read, a call that declared no transport is external: an entry point that
 //! forgets to declare withholds data instead of leaking it. Outside one, only a
@@ -36,8 +36,6 @@ use std::future::Future;
 use std::mem;
 use std::sync::Arc;
 
-use tokio::task::LocalKey;
-
 use async_trait::async_trait;
 use chrono::NaiveDate;
 use pierre_core::ai_policy::{filter_items, first_party_only, Exposure, ProviderTerms, Withheld};
@@ -49,6 +47,7 @@ use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_core::transport::Transport;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use tokio::task::LocalKey;
 
 use crate::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, TokenRefreshCallback,
@@ -238,7 +237,8 @@ pub fn filter_activities(lookup: &dyn ProviderTerms, activities: Vec<Activity>) 
     )
 }
 
-/// Planned workouts as a model may see them, inside an AI read.
+/// Planned workouts as a model, or a caller over an external transport, may
+/// see them; unchanged when no gate applies.
 #[must_use]
 pub fn filter_planned_workouts(
     lookup: &dyn ProviderTerms,
@@ -252,7 +252,8 @@ pub fn filter_planned_workouts(
     )
 }
 
-/// One activity as a model may see it: `None` when its policy drops it.
+/// One activity as the gates in force let its reader see it: `None` when a
+/// policy drops it.
 fn filter_one(lookup: &dyn ProviderTerms, activity: Activity) -> Option<Activity> {
     filter_activities(lookup, vec![activity]).pop()
 }

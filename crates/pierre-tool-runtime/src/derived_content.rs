@@ -16,7 +16,7 @@
 //! Without provenance on each item, the rule is decided by the athlete's
 //! connections: while the athlete holds a connection to a provider whose terms
 //! keep its data first-party, every derived reader refuses an external call.
-//! The athlete's own surfaces read everything, as before.
+//! The athlete's own surfaces read everything.
 
 use pierre_core::ai_policy::first_party_only;
 use pierre_core::errors::{AppError, AppResult};
