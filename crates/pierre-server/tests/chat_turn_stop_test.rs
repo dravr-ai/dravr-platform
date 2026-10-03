@@ -98,9 +98,7 @@ impl McpTool<dyn ToolRuntime> for StubTool {
     ) -> ToolResponse {
         let payload = json!({"watts": 212});
         ToolResponse {
-            content: vec![Content::Text {
-                text: payload.to_string(),
-            }],
+            content: vec![Content::text(payload.to_string())],
             is_error: false,
             structured_content: Some(payload),
         }

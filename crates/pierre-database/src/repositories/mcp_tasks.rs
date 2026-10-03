@@ -67,9 +67,19 @@ pub trait McpTaskRepository: Send + Sync {
         now_ms: i64,
     ) -> AppResult<Option<McpTaskRow>>;
 
+    /// Overwrite the state of `next`'s task, but only while the stored row
+    /// still holds the state of `expected` — a compare-and-set.
+    ///
+    /// Returns `false`, writing nothing, when another writer changed the row
+    /// since `expected` was read, or the row is gone or foreign. This is what
+    /// makes a read-modify-write atomic across replicas without a lock: two
+    /// writers that both read `working` cannot both land, so a late `completed`
+    /// never overwrites a `cancelled`.
+    async fn replace_task_if(&self, expected: &McpTaskRow, next: &McpTaskRow) -> AppResult<bool>;
+
     /// Delete tasks whose expiry has passed at `now_ms` (unix milliseconds),
-    /// returning how many rows were removed.
-    async fn delete_expired_tasks(&self, now_ms: i64) -> AppResult<u64>;
+    /// returning the ids of the rows removed.
+    async fn delete_expired_tasks(&self, now_ms: i64) -> AppResult<Vec<String>>;
 }
 
 /// The thirteen columns every read of `mcp_tasks` returns, in the order
@@ -111,6 +121,27 @@ pub(crate) const UPSERT_TASK_SQL: &str = concat!(
        AND mcp_tasks.user_id = excluded.user_id"
 );
 
+/// Advance one owner's task from the exact state it was read in.
+///
+/// Every column a transition can change is compared against the state read
+/// (`$10`..`$15`), so a write in between — even one that left the status alone
+/// and only moved the message or the timestamp — fails the guard. `IS NOT
+/// DISTINCT FROM` matches NULL against NULL on both backends.
+pub(crate) const REPLACE_TASK_IF_SQL: &str = "UPDATE mcp_tasks SET \
+        status = $4, \
+        status_message = $5, \
+        last_updated_at = $6, \
+        input_requests = $7, \
+        result = $8, \
+        error = $9 \
+     WHERE task_id = $1 AND tenant_id = $2 AND user_id = $3 \
+       AND status = $10 \
+       AND status_message IS NOT DISTINCT FROM $11 \
+       AND last_updated_at = $12 \
+       AND input_requests IS NOT DISTINCT FROM $13 \
+       AND result IS NOT DISTINCT FROM $14 \
+       AND error IS NOT DISTINCT FROM $15";
+
 /// One owner's task by id, hidden once its TTL has elapsed.
 pub(crate) const GET_TASK_SQL: &str = concat!(
     "SELECT ",
@@ -120,9 +151,11 @@ pub(crate) const GET_TASK_SQL: &str = concat!(
        AND (expires_at_ms IS NULL OR expires_at_ms >= $4)"
 );
 
-/// Storage hygiene: drop every handle whose TTL has elapsed.
+/// Storage hygiene: drop every handle whose TTL has elapsed, naming each one
+/// so a caller that still runs one of them can cancel it.
 pub(crate) const SWEEP_EXPIRED_TASKS_SQL: &str =
-    "DELETE FROM mcp_tasks WHERE expires_at_ms IS NOT NULL AND expires_at_ms < $1";
+    "DELETE FROM mcp_tasks WHERE expires_at_ms IS NOT NULL AND expires_at_ms < $1 \
+     RETURNING task_id";
 
 /// Extract an [`McpTaskRow`] from a row of either backend via `try_get` only —
 /// `Row::get` is `try_get().unwrap()` and panics the whole read path on a
@@ -219,15 +252,47 @@ macro_rules! impl_mcp_task_repository {
                 row.as_ref().map(task_from_row).transpose()
             }
 
-            async fn delete_expired_tasks(&self, now_ms: i64) -> AppResult<u64> {
-                let outcome = sqlx::query(SWEEP_EXPIRED_TASKS_SQL)
-                    .bind(now_ms)
+            async fn replace_task_if(
+                &self,
+                expected: &McpTaskRow,
+                next: &McpTaskRow,
+            ) -> AppResult<bool> {
+                let outcome = sqlx::query(REPLACE_TASK_IF_SQL)
+                    .bind(&next.task_id)
+                    .bind(&next.tenant_id)
+                    .bind(&next.user_id)
+                    .bind(&next.status)
+                    .bind(&next.status_message)
+                    .bind(&next.last_updated_at)
+                    .bind(&next.input_requests)
+                    .bind(&next.result)
+                    .bind(&next.error)
+                    .bind(&expected.status)
+                    .bind(&expected.status_message)
+                    .bind(&expected.last_updated_at)
+                    .bind(&expected.input_requests)
+                    .bind(&expected.result)
+                    .bind(&expected.error)
                     .execute(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to update MCP task: {e}")))?;
+                Ok(outcome.rows_affected() > 0)
+            }
+
+            async fn delete_expired_tasks(&self, now_ms: i64) -> AppResult<Vec<String>> {
+                let rows = sqlx::query(SWEEP_EXPIRED_TASKS_SQL)
+                    .bind(now_ms)
+                    .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to sweep expired MCP tasks: {e}"))
                     })?;
-                Ok(outcome.rows_affected())
+                rows.iter()
+                    .map(|row| {
+                        sqlx::Row::try_get::<String, _>(row, "task_id")
+                            .map_err(|e| AppError::database(format!("mcp_tasks task_id: {e}")))
+                    })
+                    .collect()
             }
         }
     };

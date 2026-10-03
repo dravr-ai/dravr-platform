@@ -7,17 +7,14 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_mcp_schema::{Content, ToolCall};
+use pierre_mcp_schema::ToolCall;
 use pierre_tool_runtime::protocols::converter::ProtocolConverter;
 use pierre_tool_runtime::protocols::ProtocolType;
 use pierre_tool_runtime::protocols::UniversalResponse;
 
 #[test]
 fn test_mcp_to_universal_conversion() {
-    let mcp_call = ToolCall {
-        name: "get_activities".into(),
-        arguments: Some(serde_json::json!({"limit": 5})),
-    };
+    let mcp_call = ToolCall::new("get_activities", serde_json::json!({"limit": 5}));
 
     let universal = ProtocolConverter::mcp_to_universal(mcp_call, "test_user", None);
 
@@ -43,13 +40,11 @@ fn test_universal_to_mcp_conversion_success() {
 
     assert!(!mcp_response.is_error);
     assert_eq!(mcp_response.content.len(), 1);
-    match &mcp_response.content[0] {
-        Content::Text { text } => {
-            assert!(text.contains("\"data\""));
-            assert!(text.contains("\"test\""));
-        }
-        Content::Image { .. } => panic!("Expected text content, got an image"),
-    }
+    let text = mcp_response.content[0]
+        .as_text()
+        .expect("Expected text content");
+    assert!(text.contains("\"data\""));
+    assert!(text.contains("\"test\""));
 }
 
 #[test]
@@ -65,12 +60,10 @@ fn test_universal_to_mcp_conversion_error() {
 
     assert!(mcp_response.is_error);
     assert_eq!(mcp_response.content.len(), 1);
-    match &mcp_response.content[0] {
-        Content::Text { text } => {
-            assert!(text.contains("Invalid parameters"));
-        }
-        Content::Image { .. } => panic!("Expected text content, got an image"),
-    }
+    let text = mcp_response.content[0]
+        .as_text()
+        .expect("Expected text content");
+    assert!(text.contains("Invalid parameters"));
 }
 
 /// A failure's payload reaches an MCP client as JSON after the message, never
@@ -185,13 +178,10 @@ fn activities_with_title(name: &str) -> UniversalResponse {
 }
 
 fn rendered_text(response: UniversalResponse) -> String {
-    match ProtocolConverter::universal_to_mcp(response)
-        .content
-        .remove(0)
-    {
-        Content::Text { text } => text,
-        Content::Image { .. } => panic!("expected text content, got an image"),
-    }
+    ProtocolConverter::universal_to_mcp(response).content[0]
+        .as_text()
+        .expect("expected text content")
+        .to_owned()
 }
 
 #[test]

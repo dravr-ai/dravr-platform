@@ -21,6 +21,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use dravr_tronc::mcp::tasks::{
     DetailedTask, Task, TaskError, TaskId, TaskOwner, TaskPayload, TaskStatus, TaskStore,
+    TaskUpdate,
 };
 use pierre_database::repositories::{McpTaskRepository, McpTaskRow};
 use serde_json::{Map, Value};
@@ -169,6 +170,12 @@ fn row_to_task(row: &McpTaskRow) -> Result<DetailedTask, TaskError> {
     Ok(DetailedTask::new(task, payload))
 }
 
+/// How many times [`PierreTaskStore::update`] re-reads a task whose row moved
+/// under it before giving up. A task sees a handful of writers at most (the
+/// settling follower, a `tasks/cancel`, a `tasks/update`), so losing this many
+/// races in a row means something is wrong, not busy.
+const UPDATE_ATTEMPTS: usize = 8;
+
 /// Durable, owner-scoped [`TaskStore`] over the `mcp_tasks` table.
 pub struct PierreTaskStore {
     /// Shared task repository. Arc because the store itself is shared behind
@@ -218,16 +225,52 @@ impl TaskStore for PierreTaskStore {
         row.as_ref().map(row_to_task).transpose()
     }
 
-    async fn put(&self, owner: &TaskOwner, task: DetailedTask) -> Result<(), TaskError> {
-        self.write(owner, &task).await
+    async fn update(
+        &self,
+        owner: &TaskOwner,
+        id: &TaskId,
+        apply: TaskUpdate<'_>,
+    ) -> Result<DetailedTask, TaskError> {
+        let Ok((tenant_id, user_id)) = owner_ids(owner) else {
+            return Err(TaskError::NotFound(id.clone()));
+        };
+        for _ in 0..UPDATE_ATTEMPTS {
+            let current = self
+                .repo
+                .get_task(
+                    tenant_id,
+                    user_id,
+                    id.as_str(),
+                    Utc::now().timestamp_millis(),
+                )
+                .await
+                .map_err(|e| TaskError::Store(e.to_string()))?
+                .ok_or_else(|| TaskError::NotFound(id.clone()))?;
+            let next = apply(&row_to_task(&current)?)?;
+            let next_row = task_to_row(tenant_id, user_id, &next)?;
+            // Compare-and-set: lands only while the row still holds the state
+            // `apply` decided from, so two transitions out of one state cannot
+            // both win. A lost race re-reads and decides again.
+            let replaced = self
+                .repo
+                .replace_task_if(&current, &next_row)
+                .await
+                .map_err(|e| TaskError::Store(e.to_string()))?;
+            if replaced {
+                return Ok(next);
+            }
+        }
+        Err(TaskError::Store(format!(
+            "MCP task '{id}' kept changing under {UPDATE_ATTEMPTS} update attempts"
+        )))
     }
 
-    async fn sweep_expired(&self) -> Result<usize, TaskError> {
+    async fn sweep_expired(&self) -> Result<Vec<TaskId>, TaskError> {
         let removed = self
             .repo
             .delete_expired_tasks(Utc::now().timestamp_millis())
             .await
             .map_err(|e| TaskError::Store(e.to_string()))?;
-        Ok(usize::try_from(removed).unwrap_or(usize::MAX))
+        Ok(removed.into_iter().map(TaskId::new).collect())
     }
 }

@@ -169,7 +169,8 @@ async fn test_durable_store_round_trip_owner_isolation_and_expiry() -> Result<()
     let store: Arc<dyn TaskStore> = Arc::new(PierreTaskStore::new(
         resources.common.repos.mcp_tasks.clone(),
     ));
-    let manager = TaskManager::new(store.clone());
+    // Arc because `TaskManager::create` hands each run a share of its manager.
+    let manager = Arc::new(TaskManager::new(store.clone()));
 
     let owner = TaskOwner {
         user_id: Some("11111111-1111-4111-8111-111111111111".to_owned()),
@@ -181,8 +182,9 @@ async fn test_durable_store_round_trip_owner_isolation_and_expiry() -> Result<()
     };
 
     // Round trip: create working, read back identical timestamps and pacing.
-    let task_id = TaskId::new("round-trip-task");
-    let created = manager.create(&owner, task_id.clone()).await?;
+    let run = manager.create(&owner).await?;
+    let task_id = run.id().clone();
+    let created = run.task().clone();
     let fetched = manager.get(&owner, &task_id).await?;
     assert_eq!(fetched.status(), TaskStatus::Working);
     assert_eq!(fetched.task.created_at, created.created_at);
@@ -199,7 +201,7 @@ async fn test_durable_store_round_trip_owner_isolation_and_expiry() -> Result<()
         "content".to_owned(),
         json!([{ "type": "text", "text": "42" }]),
     );
-    manager.complete(&owner, &task_id, result).await?;
+    run.complete(result).await?;
     let done = manager.get(&owner, &task_id).await?;
     assert_eq!(done.status(), TaskStatus::Completed);
     match &done.payload {
@@ -225,8 +227,55 @@ async fn test_durable_store_round_trip_owner_isolation_and_expiry() -> Result<()
         .is_none());
     let swept = store.sweep_expired().await?;
     assert!(
-        swept >= 1,
-        "the expired task must be swept; removed {swept}"
+        swept.contains(&TaskId::new("expiring-task")),
+        "the expired task must be swept; removed {swept:?}"
+    );
+    Ok(())
+}
+
+/// `TaskStore::update` must be one atomic read-modify-write: a transition
+/// decided from a state that has since moved is refused, never written over
+/// it, so a late `completed` cannot land on a `cancelled` task.
+#[tokio::test]
+async fn test_durable_store_update_refuses_a_stale_state() -> Result<()> {
+    common::init_server_config();
+    let resources = common::create_test_server_resources().await?;
+    let repo = resources.common.repos.mcp_tasks.clone();
+    let store: Arc<dyn TaskStore> = Arc::new(PierreTaskStore::new(repo.clone()));
+    // Arc because `TaskManager::create` hands each run a share of its manager.
+    let manager = Arc::new(TaskManager::new(store.clone()));
+    let owner = TaskOwner {
+        user_id: Some("55555555-5555-4555-8555-555555555555".to_owned()),
+        tenant_id: Some("66666666-6666-4666-8666-666666666666".to_owned()),
+    };
+
+    let run = manager.create(&owner).await?;
+    let task_id = run.id().clone();
+    let now = chrono::Utc::now().timestamp_millis();
+    let working = repo
+        .get_task(
+            owner.tenant_id.as_deref().expect("owner has a tenant"),
+            owner.user_id.as_deref().expect("owner has a user"),
+            task_id.as_str(),
+            now,
+        )
+        .await?
+        .expect("the task row exists");
+
+    // Another writer cancels the task after `working` was read.
+    manager.cancel(&owner, &task_id).await?;
+
+    // A compare-and-set from the stale `working` row writes nothing.
+    let mut completed = working.clone();
+    completed.status = "completed".to_owned();
+    completed.result = Some(r#"{"content":[]}"#.to_owned());
+    assert!(!repo.replace_task_if(&working, &completed).await?);
+
+    // And the run's own completion is refused from the stored `cancelled`.
+    assert!(run.complete(serde_json::Map::new()).await.is_err());
+    assert_eq!(
+        manager.get(&owner, &task_id).await?.status(),
+        TaskStatus::Cancelled
     );
     Ok(())
 }

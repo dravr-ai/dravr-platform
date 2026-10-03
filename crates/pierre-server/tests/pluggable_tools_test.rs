@@ -56,9 +56,9 @@ impl McpTool<dyn ToolRuntime> for StubTool {
         _args: Value,
     ) -> ToolResponse {
         ToolResponse {
-            content: vec![Content::Text {
-                text: serde_json::json!({"status": "ok"}).to_string(),
-            }],
+            content: vec![Content::text(
+                serde_json::json!({"status": "ok"}).to_string(),
+            )],
             is_error: false,
             structured_content: Some(serde_json::json!({"status": "ok"})),
         }

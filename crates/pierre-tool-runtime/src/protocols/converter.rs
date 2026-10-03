@@ -105,7 +105,7 @@ impl ProtocolConverter {
             let result_text = Self::format_response_content(response.result.as_ref());
 
             ToolResponse {
-                content: vec![Content::Text { text: result_text }],
+                content: vec![Content::text(result_text)],
                 is_error: false,
                 structured_content: response.result,
             }
@@ -138,11 +138,9 @@ impl ProtocolConverter {
     /// all of them, so an error result carries no structured part at all.
     #[must_use]
     pub fn error_result(message: String, data: Option<Value>) -> ToolResponse {
-        let mut content = vec![Content::Text { text: message }];
+        let mut content = vec![Content::text(message)];
         if let Some(data) = data.filter(|data| !data.is_null()) {
-            content.push(Content::Text {
-                text: data.to_string(),
-            });
+            content.push(Content::text(data.to_string()));
         }
         ToolResponse {
             content,

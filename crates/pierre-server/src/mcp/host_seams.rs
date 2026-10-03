@@ -36,7 +36,7 @@ use dravr_tronc::mcp::schema::{
     Tool, ToolResponse, ToolSchema, ToolsCapability,
 };
 use dravr_tronc::mcp::server::{InstructionsSource, McpServer};
-use dravr_tronc::mcp::tasks::{TaskId, TaskManager, TaskOptions, TaskOwner, TaskStatus};
+use dravr_tronc::mcp::tasks::{TaskManager, TaskOptions, TaskOwner, TaskRun, TaskStatus};
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext, ToolRegistry};
 use pierre_auth::auth::AuthResult;
 use pierre_auth::config::DIALED_HOST_HEADERS;
@@ -411,39 +411,43 @@ fn join_to_response(joined: Result<ToolResponse, JoinError>) -> ToolResponse {
     })
 }
 
-/// Await the worker, checking the task store between join attempts and
-/// raising the scoped cancel flag when the engine has marked the task
-/// cancelled — the relay half of cooperative cancellation.
+/// Await the worker, raising the scoped cancel flag when the run's
+/// cancellation token fires or the task store shows the task cancelled — the
+/// relay half of cooperative cancellation.
 async fn await_work_relaying_cancel(
     manager: &TaskManager,
-    owner: &TaskOwner,
-    task_id: &TaskId,
+    run: &TaskRun,
     mut work: JoinHandle<ToolResponse>,
     cancel_flag: &AtomicBool,
 ) -> ToolResponse {
+    let cancelled = run.cancellation();
     loop {
         tokio::select! {
             joined = &mut work => return join_to_response(joined),
+            // A tasks/cancel answered by this replica fires the run's token
+            // at once. Expiry does not: the mcp_task_sweeper deletes rows
+            // through the repository, not through the manager.
+            () = cancelled.cancelled(), if !cancel_flag.load(Ordering::Relaxed) => {
+                debug!(task_id = %run.id(), "Task cancelled — flagging the worker");
+                cancel_flag.store(true, Ordering::Relaxed);
+            }
+            // One answered by another replica reaches only the store
+            // (carnet#761, a tronc limitation), so it is still polled for.
             () = sleep(Duration::from_millis(MCP_TASK_POLL_INTERVAL_MS)) => {
-                relay_cancel_once(manager, owner, task_id, cancel_flag).await;
+                relay_cancel_once(manager, run, cancel_flag).await;
             }
         }
     }
 }
 
 /// One store check: raise the flag if the task turned `cancelled`.
-async fn relay_cancel_once(
-    manager: &TaskManager,
-    owner: &TaskOwner,
-    task_id: &TaskId,
-    cancel_flag: &AtomicBool,
-) {
+async fn relay_cancel_once(manager: &TaskManager, run: &TaskRun, cancel_flag: &AtomicBool) {
     if cancel_flag.load(Ordering::Relaxed) {
         return;
     }
-    if let Ok(task) = manager.get(owner, task_id).await {
+    if let Ok(task) = manager.get(run.owner(), run.id()).await {
         if task.status() == TaskStatus::Cancelled {
-            debug!(task_id = %task_id, "Task cancelled — flagging the worker");
+            debug!(task_id = %run.id(), "Task cancelled — flagging the worker");
             cancel_flag.store(true, Ordering::Relaxed);
         }
     }
@@ -454,7 +458,9 @@ async fn relay_cancel_once(
 ///
 /// The engine transitions the task row to `cancelled` synchronously when the
 /// client asks; the worker only learns of it through this follower, which
-/// polls the store between join attempts and flips the scoped cancel flag so
+/// watches the run's cancellation token (a cancel answered by this replica)
+/// and polls the store between join attempts (one answered by another
+/// replica), and flips the scoped cancel flag so
 /// a tool with a natural stopping point (the plan-push entry loop) stops
 /// instead of writing on. Cancellation stays cooperative and best-effort — a
 /// worker mid-provider-call finishes that call first.
@@ -465,14 +471,14 @@ async fn relay_cancel_once(
 /// cooperative-cancellation contract working, not an error.
 async fn settle_task(
     manager: Arc<TaskManager>,
-    owner: TaskOwner,
-    task_id: TaskId,
+    run: TaskRun,
     work: JoinHandle<ToolResponse>,
     cancel_flag: Arc<AtomicBool>,
 ) {
-    let response = await_work_relaying_cancel(&manager, &owner, &task_id, work, &cancel_flag).await;
+    let response = await_work_relaying_cancel(&manager, &run, work, &cancel_flag).await;
+    let task_id = run.id().clone();
     let settled = if let Ok(Value::Object(result)) = serde_json::to_value(&response) {
-        manager.complete(&owner, &task_id, result).await
+        run.complete(result).await
     } else {
         let mut error = Map::new();
         error.insert("code".to_owned(), Value::from(ERROR_INTERNAL_ERROR));
@@ -480,7 +486,7 @@ async fn settle_task(
             "message".to_owned(),
             Value::from("Tool result could not be serialized"),
         );
-        manager.fail(&owner, &task_id, error).await
+        run.fail(error).await
     };
     if let Err(e) = settled {
         debug!(task_id = %task_id, error = %e, "Task settle refused (cancelled or expired)");
@@ -512,10 +518,11 @@ impl PierreToolDispatcher {
         ));
         let task_manager = Arc::new(TaskManager::with_options(
             store,
-            TaskOptions {
-                ttl_ms: Some(MCP_TASK_TTL_MS),
-                poll_interval_ms: MCP_TASK_POLL_INTERVAL_MS,
-            },
+            // The mcp_task_sweeper service reclaims expired rows, so the
+            // manager runs no sweep of its own.
+            TaskOptions::host_swept()
+                .with_ttl_ms(Some(MCP_TASK_TTL_MS))
+                .with_poll_interval_ms(MCP_TASK_POLL_INTERVAL_MS),
         ));
         Self {
             resources,
@@ -758,13 +765,12 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
                     user_id: ctx.user_id.clone(),
                     tenant_id: ctx.tenant_id.clone(),
                 };
-                let task_id = TaskId::new(Uuid::new_v4().to_string());
-                match self.task_manager.create(&owner, task_id.clone()).await {
-                    Ok(task) => {
+                match self.task_manager.create(&owner).await {
+                    Ok(run) => {
+                        let task = run.task().clone();
                         tokio::spawn(settle_task(
                             self.task_manager.clone(),
-                            owner,
-                            task_id,
+                            run,
                             work,
                             cancel_flag,
                         ));

@@ -43,8 +43,11 @@ pub fn start_mcp_task_sweeper(
         let tasks = Arc::clone(&tasks);
         async move {
             let removed = tasks.delete_expired_tasks(now_ms()).await?;
-            if removed > 0 {
-                debug!(removed, "MCP task sweep reclaimed expired rows");
+            if !removed.is_empty() {
+                debug!(
+                    removed = removed.len(),
+                    "MCP task sweep reclaimed expired rows"
+                );
             }
             Ok(())
         }

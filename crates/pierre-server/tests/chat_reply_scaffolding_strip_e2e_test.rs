@@ -120,9 +120,7 @@ mod reply_scaffolding_strip {
                 "data": "canned tool result for scaffolding-strip test"
             });
             ToolResponse {
-                content: vec![Content::Text {
-                    text: payload.to_string(),
-                }],
+                content: vec![Content::text(payload.to_string())],
                 is_error: false,
                 structured_content: Some(payload),
             }

@@ -241,9 +241,7 @@ async fn test_cancellation_request_format() {
 async fn test_tool_response_format_compliance() {
     // Test successful tool response
     let success_response = ToolResponse {
-        content: vec![Content::Text {
-            text: "Operation completed successfully".to_owned(),
-        }],
+        content: vec![Content::text("Operation completed successfully".to_owned())],
         is_error: false,
         structured_content: Some(json!({
             "result": "success",
@@ -263,9 +261,7 @@ async fn test_tool_response_format_compliance() {
 
     // Test error tool response
     let error_response = ToolResponse {
-        content: vec![Content::Text {
-            text: "Tool execution failed".to_owned(),
-        }],
+        content: vec![Content::text("Tool execution failed".to_owned())],
         is_error: true,
         structured_content: Some(json!({
             "error": {
@@ -287,18 +283,13 @@ async fn test_tool_response_format_compliance() {
 #[tokio::test]
 async fn test_content_type_format_compliance() {
     // Test text content
-    let text_content = Content::Text {
-        text: "Sample text content".to_owned(),
-    };
+    let text_content = Content::text("Sample text content".to_owned());
     let serialized = serde_json::to_value(&text_content).expect("Should serialize");
     assert_eq!(serialized["type"], "text");
     assert_eq!(serialized["text"], "Sample text content");
 
     // Test image content
-    let image_content = Content::Image {
-        data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==".to_owned(),
-        mime_type: "image/png".to_owned(),
-    };
+    let image_content = Content::image("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==".to_owned(), "image/png".to_owned());
     let serialized = serde_json::to_value(&image_content).expect("Should serialize");
     assert_eq!(serialized["type"], "image");
     assert_eq!(serialized["mimeType"], "image/png");

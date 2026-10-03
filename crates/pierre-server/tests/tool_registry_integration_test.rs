@@ -715,9 +715,7 @@ async fn test_register_external_tool() {
             _args: Value,
         ) -> ToolResponse {
             ToolResponse {
-                content: vec![Content::Text {
-                    text: "{\"external\":true}".to_owned(),
-                }],
+                content: vec![Content::text("{\"external\":true}".to_owned())],
                 is_error: false,
                 structured_content: Some(serde_json::json!({"external": true})),
             }
@@ -771,9 +769,7 @@ async fn test_external_tool_with_builtin_tools() {
             _args: Value,
         ) -> ToolResponse {
             ToolResponse {
-                content: vec![Content::Text {
-                    text: "{\"custom\":true}".to_owned(),
-                }],
+                content: vec![Content::text("{\"custom\":true}".to_owned())],
                 is_error: false,
                 structured_content: Some(serde_json::json!({"custom": true})),
             }

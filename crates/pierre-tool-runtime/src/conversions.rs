@@ -358,9 +358,7 @@ pub const RAISED_ERROR_CODE_KEY: &str = "__error_code";
 pub fn tool_result_to_response(result: AppResult<ToolResult>) -> ToolResponse {
     match result {
         Ok(tool_result) => ToolResponse {
-            content: vec![Content::Text {
-                text: tool_result.content.to_string(),
-            }],
+            content: vec![Content::text(tool_result.content.to_string())],
             is_error: tool_result.is_error,
             structured_content: Some(tool_result.content),
         },
@@ -385,9 +383,7 @@ pub fn tool_result_to_response(result: AppResult<ToolResult>) -> ToolResponse {
                 structured.insert("provider".to_owned(), serde_json::Value::String(provider));
             }
             ToolResponse {
-                content: vec![Content::Text {
-                    text: error.to_string(),
-                }],
+                content: vec![Content::text(error.to_string())],
                 is_error: true,
                 structured_content: Some(serde_json::Value::Object(structured)),
             }

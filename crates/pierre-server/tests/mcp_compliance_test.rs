@@ -276,9 +276,7 @@ fn test_tools_list_response_format() {
 #[test]
 fn test_tool_response_format() {
     let tool_response = ToolResponse {
-        content: vec![Content::Text {
-            text: "Test response".to_owned(),
-        }],
+        content: vec![Content::text("Test response".to_owned())],
         is_error: false,
         structured_content: Some(json!({"result": "success"})),
     };
@@ -301,18 +299,13 @@ fn test_tool_response_format() {
 #[test]
 fn test_content_types() {
     // Test text content
-    let text_content = Content::Text {
-        text: "Hello world".to_owned(),
-    };
+    let text_content = Content::text("Hello world".to_owned());
     let json_value = serde_json::to_value(&text_content).expect("Should serialize");
     assert_eq!(json_value["type"], "text");
     assert_eq!(json_value["text"], "Hello world");
 
     // Test image content
-    let image_content = Content::Image {
-        data: "base64data".to_owned(),
-        mime_type: "image/png".to_owned(),
-    };
+    let image_content = Content::image("base64data".to_owned(), "image/png".to_owned());
     let json_value = serde_json::to_value(&image_content).expect("Should serialize");
     assert_eq!(json_value["type"], "image");
     assert_eq!(json_value["data"], "base64data");
