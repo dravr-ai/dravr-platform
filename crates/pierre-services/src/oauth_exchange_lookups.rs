@@ -1,5 +1,5 @@
 // ABOUTME: What the OAuth callback resolves before storing a token, split out of oauth_flow
-// ABOUTME: The user and tenant the token lands under, the registry's token endpoint, WHOOP's owner id
+// ABOUTME: The user and tenant the token lands under, the registry's token endpoint, the owner id (WHOOP, Garmin)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -16,14 +16,13 @@
 //! `PIERRE_<PROVIDER>_TOKEN_URL` override reaches the exchange the same way
 //! it reaches refresh and revocation. The owner id is what a provider's push
 //! events name the athlete by; Strava returns it inline in the token
-//! response, WHOOP only from its profile endpoint, so that one is read with
-//! the fresh access token before the token is stored.
+//! response, WHOOP and Garmin only from their API, so for those it is read
+//! with the fresh access token before the token is stored.
 
 use pierre_auth::oauth2_client::OAuth2Token;
-use pierre_core::constants::oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::User;
-use pierre_providers::whoop_provider::owner_id_for_access_token;
+use pierre_providers::owner_id::owner_id_for_access_token;
 use pierre_providers::OAuthEndpoints;
 use tracing::{error, info, warn};
 
@@ -94,8 +93,9 @@ impl OAuthService {
     /// deliver one.
     ///
     /// Strava returns the owner inline in the token response and arrives
-    /// here with the id set. WHOOP does not, and its webhooks name the
-    /// athlete by that id alone, so the profile is read with the fresh access
+    /// here with the id set. A provider whose descriptor declares the id is
+    /// read from its API (WHOOP, Garmin) does not, and its push events name
+    /// the athlete by that id alone, so it is read with the fresh access
     /// token ([`owner_id_for_access_token`]) before the token is stored.
     /// Best-effort: a failed read stores the token without the id — the
     /// connection works, only push-event routing waits — and the refresh path
@@ -106,11 +106,18 @@ impl OAuthService {
         user_id: uuid::Uuid,
         mut token: OAuth2Token,
     ) -> OAuth2Token {
-        if token.provider_user_id.is_some() || provider != oauth_providers::WHOOP {
+        if token.provider_user_id.is_some() {
             return token;
         }
-        match owner_id_for_access_token(self.data.provider_registry(), &token.access_token).await {
-            Ok(id) => {
+        match owner_id_for_access_token(
+            self.data.provider_registry(),
+            provider,
+            &token.access_token,
+        )
+        .await
+        {
+            Ok(None) => {}
+            Ok(Some(id)) => {
                 info!(
                     user_id = %user_id,
                     provider = %provider,

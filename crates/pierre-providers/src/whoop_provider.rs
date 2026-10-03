@@ -15,17 +15,16 @@
 
 use super::circuit_breaker::CircuitBreaker;
 use super::core::{
-    ActivityQueryParams, CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig,
-    TokenRefreshCallback,
+    ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, TokenRefreshCallback,
 };
 use super::errors::provider::ProviderError;
 use crate::activity_paging::pages_for;
 use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient};
+use crate::models::refresh_due;
 use crate::models::{Activity, ActivityBuilder, Athlete, SportType, Stats};
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
-use crate::registry::ProviderRegistry;
 use crate::utils;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -328,9 +327,7 @@ impl FitnessProvider for WhoopProvider {
         let (needs_refresh, credentials) = {
             let guard = self.credentials.read().await;
             let needs_refresh = if let Some(creds) = guard.as_ref() {
-                creds.expires_at.is_some_and(|expires_at| {
-                    Utc::now() + chrono::Duration::minutes(5) > expires_at
-                })
+                creds.expires_at.is_some_and(refresh_due)
             } else {
                 let err = ProviderError::ConfigurationError {
                     provider: oauth_providers::WHOOP.to_owned(),
@@ -599,47 +596,4 @@ impl ProviderFactory for WhoopProviderFactory {
     fn supported_providers(&self) -> &'static [&'static str] {
         &[oauth_providers::WHOOP]
     }
-}
-
-// ============================================================================
-// Owner id lookup
-// ============================================================================
-
-/// Read the WHOOP user id behind an access token.
-///
-/// WHOOP's token response carries no owner id, but its webhooks name the
-/// athlete by that id and nothing else, so a stored token without it can
-/// never be matched to a push event. The id is served at
-/// `user/profile/basic`; the OAuth flow reads it right after the exchange and
-/// the refresh path fills a stored token that still lacks it. Both go through
-/// the registry's WHOOP provider — the same request path, circuit breaker and
-/// `PIERRE_WHOOP_API_BASE_URL` seam as every other WHOOP call — rather than a
-/// second client.
-///
-/// The access token is the only credential set: a bearer read of the profile
-/// never refreshes, so no client id, secret, refresh token or expiry is
-/// needed, and the provider instance is dropped afterwards.
-///
-/// # Errors
-///
-/// Returns the registry's error when WHOOP is not registered and the
-/// provider's own error when the profile read fails (a rejected token, a
-/// transport failure).
-pub async fn owner_id_for_access_token(
-    registry: &ProviderRegistry,
-    access_token: &str,
-) -> AppResult<String> {
-    let provider = registry.create_provider(oauth_providers::WHOOP)?;
-    provider
-        .set_credentials(OAuth2Credentials {
-            client_id: String::new(),
-            client_secret: String::new(),
-            access_token: Some(access_token.to_owned()),
-            refresh_token: None,
-            expires_at: None,
-            scopes: Vec::new(),
-            kind: CredentialKind::OAuthBearer,
-        })
-        .await?;
-    Ok(provider.get_athlete().await?.id)
 }

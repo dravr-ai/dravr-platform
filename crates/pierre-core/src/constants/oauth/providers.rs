@@ -247,8 +247,31 @@ pub const TOKEN_TYPE_SESSION: &str = "session";
 /// Strava default scopes (comma-separated as per Strava API requirements)
 pub const STRAVA_DEFAULT_SCOPES: &str = "activity:read_all";
 
-/// Garmin default scopes
-pub const GARMIN_DEFAULT_SCOPES: &str = "wellness:read,activities:read";
+/// Garmin's `OAuth2` PKCE authorization endpoint.
+///
+/// Garmin Connect Developer Program "OAuth2.0 PKCE Specification": the user
+/// is sent here with `response_type=code`, `client_id`, `code_challenge` and
+/// `code_challenge_method=S256`. The provider descriptor, the registry, the
+/// tenant OAuth client and the server configuration all read Garmin's
+/// endpoints from these constants, since `pierre-auth` and `pierre-config`
+/// sit below the provider crate and cannot read its descriptor.
+pub const GARMIN_AUTH_URL: &str = "https://connect.garmin.com/oauth2Confirm";
+
+/// Garmin's `OAuth2` token endpoint, for both the code exchange and the
+/// refresh grant. Garmin takes the client credentials in the form body and
+/// rotates the refresh token on every refresh.
+pub const GARMIN_TOKEN_URL: &str = "https://diauth.garmin.com/di-oauth2-service/oauth/token";
+
+/// Garmin Health (wellness) API base URL; calls carry the access token as `Bearer`.
+pub const GARMIN_API_BASE_URL: &str = "https://apis.garmin.com/wellness-api/rest";
+
+/// Garmin user deregistration endpoint.
+///
+/// Garmin has no token-revocation endpoint: a disconnect withdraws consent
+/// with a `DELETE` on the user's registration, authenticated with the user's
+/// access token as `Bearer`.
+pub const GARMIN_DEREGISTRATION_URL: &str =
+    "https://apis.garmin.com/wellness-api/rest/user/registration";
 
 /// Terra default scopes (data types)
 pub const TERRA_DEFAULT_SCOPES: &str = "activity,sleep,body,daily,nutrition";

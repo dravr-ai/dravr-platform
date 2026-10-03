@@ -11,16 +11,18 @@ use super::core::{
 use super::errors::provider::ProviderError;
 use super::utils::{self, RetryConfig};
 use crate::activity_paging::pages_for;
-use crate::constants::oauth::GARMIN_DEFAULT_SCOPES;
+use crate::constants::oauth::{
+    GARMIN_API_BASE_URL, GARMIN_AUTH_URL, GARMIN_DEREGISTRATION_URL, GARMIN_TOKEN_URL,
+};
 use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient};
+use crate::models::refresh_due;
 use crate::models::{
     activity::{Lap, Split},
     Activity, ActivityBuilder, Athlete, SportType, Stats,
 };
 use crate::pagination::{CursorPage, PaginationParams};
-use crate::spi::RefreshClientAuth;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
@@ -29,13 +31,12 @@ use std::sync::OnceLock;
 use tokio::sync::RwLock;
 use tracing::{debug, info, instrument};
 
-/// Garmin API response for athlete data
+/// Garmin's `GET user/id` answer: the user id the access token belongs to,
+/// which is all the Health API says about the user.
 #[derive(Debug, Deserialize)]
-struct GarminAthleteResponse {
+struct GarminUserIdResponse {
+    #[serde(rename = "userId")]
     user_id: String,
-    display_name: Option<String>,
-    full_name: Option<String>,
-    profile_image_url: Option<String>,
 }
 
 /// Garmin Connect API activity-type DTO. Returned at multiple nesting depths
@@ -224,16 +225,12 @@ impl GarminProvider {
     pub fn new() -> Self {
         let config = ProviderConfig {
             name: oauth_providers::GARMIN.to_owned(),
-            auth_url: "https://connect.garmin.com/oauthConfirm".to_owned(),
-            token_url: "https://connectapi.garmin.com/oauth-service/oauth/access_token".to_owned(),
-            api_base_url: "https://apis.garmin.com/wellness-api/rest".to_owned(),
-            revoke_url: Some(
-                "https://apis.garmin.com/wellness-api/rest/user/registration".to_owned(),
-            ),
-            default_scopes: GARMIN_DEFAULT_SCOPES
-                .split(',')
-                .map(str::to_owned)
-                .collect(),
+            auth_url: GARMIN_AUTH_URL.to_owned(),
+            token_url: GARMIN_TOKEN_URL.to_owned(),
+            api_base_url: GARMIN_API_BASE_URL.to_owned(),
+            revoke_url: Some(GARMIN_DEREGISTRATION_URL.to_owned()),
+            // Garmin's scope is fixed server-side; its authorization takes none.
+            default_scopes: Vec::new(),
         };
 
         Self {
@@ -291,6 +288,8 @@ impl GarminProvider {
             };
             return Err(AppError::external_service("Garmin", err.to_string()));
         }
+
+        self.refresh_token_if_needed().await?;
 
         // Clone access token to avoid holding lock across await
         let access_token = {
@@ -597,9 +596,7 @@ impl FitnessProvider for GarminProvider {
         let (needs_refresh, credentials) = {
             let guard = self.credentials.read().await;
             let needs_refresh = if let Some(creds) = guard.as_ref() {
-                creds.expires_at.is_some_and(|expires_at| {
-                    Utc::now() + chrono::Duration::minutes(5) > expires_at
-                })
+                creds.expires_at.is_some_and(refresh_due)
             } else {
                 return Err(AppError::internal("No credentials available"));
             };
@@ -621,19 +618,19 @@ impl FitnessProvider for GarminProvider {
             .refresh_token
             .ok_or_else(|| AppError::internal("No refresh token available"))?;
 
-        info!("Refreshing Garmin access token");
-
+        // Garmin's refresh grant, as its descriptor declares it: the client
+        // credentials in the form body and no other field. Garmin rotates the
+        // refresh token on every refresh, so the new one is what the
+        // write-back callback stores.
         let mut new_credentials = utils::refresh_oauth_token(
             &self.client,
-            &utils::RefreshRequest {
-                token_url: &self.config.token_url,
-                client_id: &credentials.client_id,
-                client_secret: &credentials.client_secret,
-                refresh_token: &refresh_token,
-                provider_name: "Garmin",
-                extra_form: &[],
-                client_auth: RefreshClientAuth::RequestBody,
-            },
+            &utils::RefreshRequest::form_fields(
+                oauth_providers::GARMIN,
+                &self.config.token_url,
+                &credentials.client_id,
+                &credentials.client_secret,
+                &refresh_token,
+            ),
         )
         .await?;
 
@@ -650,25 +647,22 @@ impl FitnessProvider for GarminProvider {
         Ok(())
     }
 
+    /// The Garmin user behind the access token.
+    ///
+    /// The Health API serves the user's id at `GET user/id` and nothing else
+    /// about them (no name, no picture), so the athlete is the id alone. It is
+    /// what Garmin's push notifications name the user by, and what the OAuth
+    /// callback stores as the connection's owner id.
     #[instrument(skip(self), fields(provider = "garmin", api_call = "get_athlete"))]
     async fn get_athlete(&self) -> AppResult<Athlete> {
-        // Source: https://github.com/cyberjunky/python-garminconnect
-        // Endpoint: /userprofile-service/userprofile/profile
-        let garmin_athlete: GarminAthleteResponse = self
-            .api_request("userprofile-service/userprofile/profile")
-            .await?;
+        let user: GarminUserIdResponse = self.api_request("user/id").await?;
 
         Ok(Athlete {
-            id: garmin_athlete.user_id,
-            // Use as_deref() to borrow rather than clone the String
-            username: garmin_athlete
-                .display_name
-                .as_deref()
-                .unwrap_or_default()
-                .to_owned(),
-            firstname: garmin_athlete.full_name,
+            id: user.user_id,
+            username: String::new(),
+            firstname: None,
             lastname: None,
-            profile_picture: garmin_athlete.profile_image_url,
+            profile_picture: None,
             provider: oauth_providers::GARMIN.to_owned(),
         })
     }

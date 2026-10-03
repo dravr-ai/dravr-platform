@@ -12,7 +12,7 @@ use pierre_auth::tenant::oauth_manager::{issuing_client, IssuingLookup};
 use pierre_auth::tenant::TenantContext;
 use pierre_config::environment::get_oauth_config;
 use pierre_core::errors::AppError;
-use pierre_core::models::{TenantId, UserOAuthToken};
+use pierre_core::models::{refresh_due, TenantId, UserOAuthToken};
 use pierre_providers::ai_scope::AiGovernedProvider;
 use pierre_providers::backend_resolver;
 use pierre_providers::{CoreFitnessProvider, CredentialKind, OAuth2Credentials};
@@ -276,10 +276,9 @@ impl AuthService {
         }
     }
 
-    /// Check if token is expired or expiring within 5 minutes
+    /// Check if token is expired or due for refresh ([`refresh_due`])
     fn is_token_expired(expires_at: DateTime<Utc>) -> bool {
-        let now = chrono::Utc::now();
-        expires_at <= now + chrono::Duration::minutes(5)
+        refresh_due(expires_at)
     }
 
     /// Log the result of a token lookup operation

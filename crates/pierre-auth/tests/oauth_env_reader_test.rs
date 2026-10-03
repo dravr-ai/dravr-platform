@@ -63,10 +63,8 @@ fn server_config_and_runtime_lookups_read_provider_settings_alike() {
     // Default scopes are the provider's, whichever way they are read.
     assert_eq!(server.strava.scopes, vec!["activity:read_all"]);
     assert_eq!(server.strava.scopes, runtime.scopes);
-    assert_eq!(
-        server.garmin.scopes,
-        vec!["wellness:read", "activities:read"]
-    );
+    // Garmin's scope is fixed server-side: none is requested by default.
+    assert!(server.garmin.scopes.is_empty());
     assert_eq!(server.garmin.scopes, get_oauth_config("garmin").scopes);
     assert_eq!(
         server.whoop.scopes,
@@ -85,6 +83,12 @@ fn server_config_and_runtime_lookups_read_provider_settings_alike() {
     // A provider with no credentials is disabled both ways.
     assert!(!server.garmin.enabled);
     assert!(!get_oauth_config("garmin").enabled);
+
+    // The scope override still reaches a provider that has no default.
+    env::set_var("PIERRE_GARMIN_SCOPES", "CONNECT_READ");
+    assert_eq!(get_oauth_config("garmin").scopes, vec!["CONNECT_READ"]);
+    assert_eq!(OAuthConfig::from_env().garmin.scopes, vec!["CONNECT_READ"]);
+    env::remove_var("PIERRE_GARMIN_SCOPES");
 
     env::remove_var("PIERRE_STRAVA_CLIENT_ID");
     env::remove_var("PIERRE_STRAVA_CLIENT_SECRET");

@@ -30,6 +30,8 @@ pub mod core;
 pub mod deduplication;
 /// Shared HTTP client for provider API calls
 pub mod http_client;
+/// The provider-side owner id behind an access token, for providers whose token response leaves it out
+pub mod owner_id;
 /// AI rules each provider's terms set on its data
 pub mod provider_ai_terms;
 /// Global provider registry and factory

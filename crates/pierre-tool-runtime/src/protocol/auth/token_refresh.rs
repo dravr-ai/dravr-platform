@@ -37,12 +37,11 @@ use super::{AuthService, OAuthError, TokenData};
 use crate::protocol::reauth_notice::notify_needs_reauth;
 use crate::protocol::refresh_failure::classify_refresh_failure;
 use chrono::Utc;
-use pierre_core::constants::oauth_providers;
 use pierre_core::http_client::api_client;
 use pierre_core::models::{connection_needs_reauth, TenantId, UserOAuthToken};
+use pierre_providers::owner_id::owner_id_for_access_token;
 use pierre_providers::spi::OAuthRefresh;
 use pierre_providers::utils::{refresh_oauth_token, RefreshRequest};
-use pierre_providers::whoop_provider::owner_id_for_access_token;
 use pierre_providers::CredentialKind;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
@@ -339,24 +338,30 @@ impl AuthService {
     ///
     /// The bearer providers' refresh endpoints return no owner id and the row
     /// update leaves the stored one untouched, so a refreshed token reports the
-    /// id the row already holds. A WHOOP row that never captured one (its token
-    /// response carries none, and connections made before the OAuth flow read
-    /// the profile have `None`) is filled here: the profile is read with the
-    /// fresh access token and the id is written back to the row, so the next
-    /// webhook naming this athlete routes to them. Best-effort — a failed read
-    /// leaves the row as it was and the next refresh tries again.
+    /// id the row already holds. A row of a provider whose descriptor declares
+    /// the id is read from its API (WHOOP, Garmin) that never captured one
+    /// (the token response carries none, and connections made before the OAuth
+    /// flow read it have `None`) is filled here: the id is read with the fresh
+    /// access token and written back to the row, so the next push event naming
+    /// this athlete routes to them. Best-effort — a failed read leaves the row
+    /// as it was and the next refresh tries again.
     async fn owner_id_after_refresh(
         &self,
         stored: &UserOAuthToken,
         refreshed: &TokenData,
     ) -> Option<String> {
-        if stored.provider_user_id.is_some() || stored.provider != oauth_providers::WHOOP {
+        if stored.provider_user_id.is_some() {
             return stored.provider_user_id.clone();
         }
-        match owner_id_for_access_token(self.resources.provider_registry(), &refreshed.access_token)
-            .await
+        match owner_id_for_access_token(
+            self.resources.provider_registry(),
+            &stored.provider,
+            &refreshed.access_token,
+        )
+        .await
         {
-            Ok(owner_id) => {
+            Ok(None) => None,
+            Ok(Some(owner_id)) => {
                 self.persist_owner_id(stored, &owner_id).await;
                 Some(owner_id)
             }
@@ -689,7 +694,7 @@ impl AuthService {
         }
 
         // Return the refreshed token data. The refresh endpoints of the bearer
-        // providers (strava/whoop) return no owner id; the caller fills it
+        // providers (strava/whoop/garmin) return no owner id; the caller fills it
         // from the stored row (`owner_id_after_refresh`). A refresh does not
         // re-issue scopes, so the stored set carries across.
         Ok(Some(TokenData {

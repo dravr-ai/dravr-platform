@@ -509,6 +509,14 @@ pub mod api_provider_limits {
 pub mod time {
     /// Default token expiry in seconds (1 hour)
     pub const DEFAULT_TOKEN_EXPIRY_SECONDS: i64 = 3600;
+    /// How long before its expiry a provider access token is refreshed.
+    ///
+    /// The one pre-expiry window for every provider token, read through
+    /// [`crate::models::refresh_due`]. Garmin asks for a refresh at least
+    /// 600 s before expiry (Garmin Connect Developer Program OAuth2.0 PKCE
+    /// Specification); ten minutes meets that and is a small share of every
+    /// provider's token lifetime (Strava 6 h, Garmin 24 h).
+    pub const TOKEN_REFRESH_WINDOW_MINUTES: i64 = 10;
     /// Seconds in a minute
     pub const MINUTE_SECONDS: i64 = 60;
     /// Seconds in an hour

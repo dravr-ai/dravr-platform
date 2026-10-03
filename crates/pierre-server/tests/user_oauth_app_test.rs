@@ -1128,9 +1128,10 @@ async fn test_all_provider_default_scopes() -> Result<()> {
 
     // Expected scopes per provider (from src/tenant/oauth_manager.rs::default_scopes_for_provider)
     // Only checking key scopes, not exhaustive list
-    let expected_scopes: [(&str, Vec<&str>); 4] = [
+    // Garmin is absent: its scope is fixed server-side and none is requested
+    // (`garmin_requests_no_default_scope` below).
+    let expected_scopes: [(&str, Vec<&str>); 3] = [
         ("strava", vec!["activity:read_all"]),
-        ("garmin", vec!["wellness:read", "activities:read"]),
         ("whoop", vec!["offline", "read:profile", "read:sleep"]),
         ("terra", vec!["activity", "body", "daily", "sleep"]),
     ];
@@ -1168,6 +1169,46 @@ async fn test_all_provider_default_scopes() -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+/// Test: Garmin's user-app credentials request no scope. Garmin's scope is
+/// fixed server-side and its authorization takes no `scope` parameter
+/// (Garmin Connect Developer Program `OAuth2.0` PKCE Specification).
+#[tokio::test]
+#[serial]
+async fn garmin_requests_no_default_scope() -> Result<()> {
+    let database = setup_test_database().await?;
+    let tenant_id = TenantId::generate();
+    let user_id = create_test_user_with_tenant(&database, "user@example.com", tenant_id).await?;
+    let oauth_manager = TenantOAuthManager::new(Arc::new(OAuthConfig::default()));
+    database
+        .repositories()
+        .oauth_tokens
+        .store_user_oauth_app(
+            user_id,
+            "garmin",
+            "garmin_id",
+            "garmin_secret",
+            "http://app.com/garmin",
+        )
+        .await?;
+
+    let credentials = oauth_manager
+        .get_credentials_for_user(
+            Some(user_id),
+            tenant_id,
+            "garmin",
+            &*database.repositories().tenants,
+            &*database.repositories().oauth_tokens,
+        )
+        .await?;
+
+    assert!(
+        credentials.scopes.is_empty(),
+        "got: {:?}",
+        credentials.scopes
+    );
     Ok(())
 }
 

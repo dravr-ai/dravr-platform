@@ -32,6 +32,8 @@ use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::core::ProviderConfig;
 use pierre_providers::registry::ProviderRegistry;
+#[cfg(feature = "provider-garmin")]
+use pierre_providers::spi::GarminDescriptor;
 use pierre_providers::spi::{
     OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderCapabilities, ProviderDescriptor,
     RefreshClientAuth,
@@ -119,13 +121,14 @@ struct Athlete {
     repos: Arc<RepositoryRegistry>,
     user_id: Uuid,
     tenant: TenantId,
+    provider: &'static str,
 }
 
 impl Athlete {
     async fn stored(&self) -> UserOAuthToken {
         self.repos
             .oauth_tokens
-            .get_token(self.user_id, self.tenant, PROVIDER)
+            .get_token(self.user_id, self.tenant, self.provider)
             .await
             .unwrap()
             .expect("the athlete has a token")
@@ -156,7 +159,7 @@ impl Athlete {
             .await
             .unwrap()
             .into_iter()
-            .find(|connection| connection.provider == PROVIDER)
+            .find(|connection| connection.provider == self.provider)
             .expect("the athlete has a connection")
             .status
     }
@@ -278,16 +281,36 @@ async fn serve(vendor: Arc<RotatingVendor>) -> String {
 /// descriptor and a token endpoint pointed at the mock, and an athlete with an
 /// expired token of it over an active connection, under their own app.
 async fn connected_to(vendor: &Arc<RotatingVendor>) -> (Arc<ServerContext>, Athlete) {
+    connected_as(
+        vendor,
+        PROVIDER,
+        Box::new(RotatoDescriptor),
+        RotatoDescriptor.to_config(),
+        None,
+    )
+    .await
+}
+
+/// [`connected_to`] for any registered provider: `descriptor` and `config`
+/// are what the registry holds for `provider`, with the token endpoint pointed
+/// at the mock, and the stored token carries `owner_id` when given.
+async fn connected_as(
+    vendor: &Arc<RotatingVendor>,
+    provider: &'static str,
+    descriptor: Box<dyn ProviderDescriptor>,
+    config: ProviderConfig,
+    owner_id: Option<&str>,
+) -> (Arc<ServerContext>, Athlete) {
     let token_url = serve(Arc::clone(vendor)).await;
     let base = common::create_test_server_resources().await.unwrap();
 
     let mut registry = ProviderRegistry::new();
-    registry.register_descriptor(PROVIDER, Box::new(RotatoDescriptor));
+    registry.register_descriptor(provider, descriptor);
     registry.set_default_config(
-        PROVIDER,
+        provider,
         ProviderConfig {
             token_url,
-            ..RotatoDescriptor.to_config()
+            ..config
         },
     );
     let mut context = (*base).clone();
@@ -304,26 +327,27 @@ async fn connected_to(vendor: &Arc<RotatingVendor>) -> (Arc<ServerContext>, Athl
         .oauth_tokens
         .store_user_oauth_app(
             user_id,
-            PROVIDER,
+            provider,
             CLIENT_ID,
             CLIENT_SECRET,
             "http://localhost/callback",
         )
         .await
         .unwrap();
-    let token = UserOAuthToken::new(
+    let mut token = UserOAuthToken::new(
         user_id,
         tenant.to_string(),
-        PROVIDER.to_owned(),
+        provider.to_owned(),
         FIRST_ACCESS.to_owned(),
         Some(FIRST_REFRESH.to_owned()),
         Some(Utc::now() - Duration::hours(1)),
         Some("read".to_owned()),
     );
+    token.provider_user_id = owner_id.map(str::to_owned);
     repos.oauth_tokens.upsert_token(&token).await.unwrap();
     repos
         .provider_connections
-        .register_connection(user_id, tenant, PROVIDER, &ConnectionType::OAuth, None)
+        .register_connection(user_id, tenant, provider, &ConnectionType::OAuth, None)
         .await
         .unwrap();
 
@@ -333,6 +357,7 @@ async fn connected_to(vendor: &Arc<RotatingVendor>) -> (Arc<ServerContext>, Athl
             repos,
             user_id,
             tenant,
+            provider,
         },
     )
 }
@@ -341,7 +366,11 @@ async fn connected_to(vendor: &Arc<RotatingVendor>) -> (Arc<ServerContext>, Athl
 /// per call in production, so nothing on it can be what callers share.
 async fn lookup(resources: &Arc<ServerContext>, athlete: &Athlete) -> Option<TokenData> {
     AuthService::new(Arc::clone(resources) as Arc<dyn ToolRuntime>)
-        .get_valid_token(athlete.user_id, PROVIDER, Some(&athlete.tenant.to_string()))
+        .get_valid_token(
+            athlete.user_id,
+            athlete.provider,
+            Some(&athlete.tenant.to_string()),
+        )
         .await
         .expect("the lookup does not error")
 }
@@ -544,4 +573,122 @@ async fn a_refused_refresh_no_winner_explains_needs_a_reconnect() {
     );
     assert_eq!(vendor.calls.load(Ordering::SeqCst), 2);
     assert_eq!(athlete.connection().await, ConnectionStatus::NeedsReauth);
+}
+
+/// Garmin refreshes from its descriptor (carnet#737), with exactly the request
+/// Garmin's "OAuth2.0 PKCE Specification" gives: `client_id`, `client_secret`,
+/// `grant_type=refresh_token` and the refresh token in the form body, no
+/// Basic header and no other field. Garmin returns a new refresh token every
+/// time, so the rotated one is what is stored, and the next expiry spends it.
+#[cfg(feature = "provider-garmin")]
+#[tokio::test]
+async fn garmin_refreshes_with_the_spec_form_and_keeps_the_rotated_token() {
+    const GARMIN_USER: &str = "garmin-user-737";
+    let vendor = Arc::new(RotatingVendor::new(StdDuration::ZERO, false));
+    let (resources, athlete) = connected_as(
+        &vendor,
+        "garmin",
+        Box::new(GarminDescriptor),
+        GarminDescriptor.to_config(),
+        Some(GARMIN_USER),
+    )
+    .await;
+
+    let token = lookup(&resources, &athlete)
+        .await
+        .expect("the expired Garmin token is refreshed");
+
+    let requests = vendor.requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 1, "one refresh");
+    let (authorization, body) = &requests[0];
+    assert_eq!(authorization, "", "Garmin takes the client in the body");
+    assert_eq!(
+        body,
+        &format!(
+            "client_id={CLIENT_ID}&client_secret={CLIENT_SECRET}\
+             &grant_type=refresh_token&refresh_token={FIRST_REFRESH}"
+        ),
+        "the spec's refresh form, and nothing else"
+    );
+    assert_eq!(token.access_token, "access-gen-1");
+    assert_eq!(token.refresh_token, "refresh-gen-1");
+    assert_eq!(token.provider_user_id.as_deref(), Some(GARMIN_USER));
+    let stored = athlete.stored().await;
+    assert_eq!(stored.access_token, "access-gen-1");
+    assert_eq!(
+        stored.refresh_token.as_deref(),
+        Some("refresh-gen-1"),
+        "the rotated refresh token is stored"
+    );
+    assert_eq!(stored.provider_user_id.as_deref(), Some(GARMIN_USER));
+
+    // The next expiry spends the rotated token: the vendor no longer honours
+    // the first one, so a refresh that kept it would be refused here.
+    let landed = athlete
+        .repos
+        .oauth_tokens
+        .refresh_token(
+            &stored,
+            &stored.access_token,
+            stored.refresh_token.as_deref(),
+            Some(Utc::now() - Duration::hours(1)),
+        )
+        .await
+        .unwrap();
+    assert!(landed, "the row is expired again");
+    let again = lookup(&resources, &athlete)
+        .await
+        .expect("the rotated refresh token is honoured");
+    assert_eq!(again.access_token, "access-gen-2");
+    assert_eq!(again.refresh_token, "refresh-gen-2");
+    let (_, second_body) = vendor.requests.lock().unwrap()[1].clone();
+    assert!(
+        second_body.ends_with("&refresh_token=refresh-gen-1"),
+        "the second refresh presents the rotated token: {second_body}"
+    );
+    assert_eq!(athlete.connection().await, ConnectionStatus::Active);
+}
+
+/// The platform refreshes a stored token within ten minutes of its expiry,
+/// the one window every provider shares (Garmin asks for at least 600 s): a
+/// token expiring in nine minutes is refreshed, one expiring in eleven is
+/// served as it is.
+#[tokio::test]
+async fn a_token_is_refreshed_within_ten_minutes_of_its_expiry() {
+    let vendor = Arc::new(RotatingVendor::new(StdDuration::ZERO, false));
+    let (resources, athlete) = connected_to(&vendor).await;
+    let expire_in = |minutes: i64| {
+        let athlete = athlete.clone();
+        async move {
+            let row = athlete.stored().await;
+            let landed = athlete
+                .repos
+                .oauth_tokens
+                .refresh_token(
+                    &row,
+                    &row.access_token,
+                    row.refresh_token.as_deref(),
+                    Some(Utc::now() + Duration::minutes(minutes)),
+                )
+                .await
+                .unwrap();
+            assert!(landed);
+        }
+    };
+
+    expire_in(11).await;
+    let served = lookup(&resources, &athlete).await.expect("a token");
+    assert_eq!(
+        served.access_token, FIRST_ACCESS,
+        "eleven minutes out: no refresh"
+    );
+    assert_eq!(vendor.calls.load(Ordering::SeqCst), 0);
+
+    expire_in(9).await;
+    let refreshed = lookup(&resources, &athlete).await.expect("a token");
+    assert_eq!(
+        refreshed.access_token, "access-gen-1",
+        "nine minutes out: refreshed"
+    );
+    assert_eq!(vendor.calls.load(Ordering::SeqCst), 1);
 }

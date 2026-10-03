@@ -15,7 +15,7 @@ describe('detectOAuthProvider', () => {
   });
 
   it('detects Garmin OAuth URLs', () => {
-    expect(detectOAuthProvider('https://connect.garmin.com/oauthConfirm?token=abc')).toBe('garmin');
+    expect(detectOAuthProvider('https://connect.garmin.com/oauth2Confirm?response_type=code&client_id=abc')).toBe('garmin');
   });
 
   it('returns null for non-OAuth URLs', () => {
@@ -59,7 +59,7 @@ describe('getFriendlyUrlName', () => {
   });
 
   it('returns "Connect to Garmin →" for Garmin OAuth URLs', () => {
-    expect(getFriendlyUrlName('https://connect.garmin.com/oauthConfirm?token=abc'))
+    expect(getFriendlyUrlName('https://connect.garmin.com/oauth2Confirm?response_type=code&client_id=abc'))
       .toBe('Connect to Garmin →');
   });
 

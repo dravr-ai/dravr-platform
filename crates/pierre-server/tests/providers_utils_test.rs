@@ -10,7 +10,7 @@
 use chrono::Utc;
 use pierre_core::errors::provider::ProviderError;
 use pierre_providers::core::{CredentialKind, OAuth2Credentials};
-use pierre_providers::utils::{conversions, is_authenticated, needs_token_refresh, RetryConfig};
+use pierre_providers::utils::{conversions, is_authenticated, RetryConfig};
 use reqwest::StatusCode;
 
 #[test]
@@ -33,36 +33,6 @@ fn test_f64_to_u32_conversion() {
     assert_eq!(conversions::f64_to_u32(0.0), 0);
     assert_eq!(conversions::f64_to_u32(500.5), 500);
     assert_eq!(conversions::f64_to_u32(-10.0), 0); // Clamps negative to 0
-}
-
-#[test]
-fn test_needs_token_refresh() {
-    // No credentials
-    assert!(!needs_token_refresh(&None, 5));
-
-    // Token expires in 1 minute (threshold 5 minutes)
-    let expires_soon = Some(OAuth2Credentials {
-        client_id: "test".to_owned(),
-        client_secret: "secret".to_owned(),
-        access_token: Some("token".to_owned()),
-        refresh_token: Some("refresh".to_owned()),
-        expires_at: Some(Utc::now() + chrono::Duration::minutes(1)),
-        scopes: vec![],
-        kind: CredentialKind::OAuthBearer,
-    });
-    assert!(needs_token_refresh(&expires_soon, 5));
-
-    // Token expires in 10 minutes (threshold 5 minutes)
-    let expires_later = Some(OAuth2Credentials {
-        client_id: "test".to_owned(),
-        client_secret: "secret".to_owned(),
-        access_token: Some("token".to_owned()),
-        refresh_token: Some("refresh".to_owned()),
-        expires_at: Some(Utc::now() + chrono::Duration::minutes(10)),
-        scopes: vec![],
-        kind: CredentialKind::OAuthBearer,
-    });
-    assert!(!needs_token_refresh(&expires_later, 5));
 }
 
 #[test]

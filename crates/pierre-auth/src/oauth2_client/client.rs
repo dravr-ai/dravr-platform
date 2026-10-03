@@ -15,7 +15,8 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use url::Url;
+use url::form_urlencoded::Serializer;
+use url::{Url, UrlQuery};
 
 /// OAuth 2.0 client configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,13 +100,6 @@ impl OAuth2Token {
         self.expires_at
             .is_some_and(|expires_at| expires_at <= Utc::now())
     }
-
-    /// Check if the token will expire within 5 minutes
-    #[must_use]
-    pub fn will_expire_soon(&self) -> bool {
-        self.expires_at
-            .is_some_and(|expires_at| expires_at <= Utc::now() + Duration::minutes(5))
-    }
 }
 
 /// OAuth 2.0 client for fitness platform authentication
@@ -146,14 +140,27 @@ impl OAuth2Client {
         let mut url = Url::parse(&self.config.auth_url)
             .map_err(|e| AppError::invalid_input(format!("Invalid auth URL: {e}")))?;
 
-        url.query_pairs_mut()
+        let mut query_pairs = url.query_pairs_mut();
+        query_pairs
             .append_pair("client_id", &self.config.client_id)
             .append_pair("redirect_uri", &self.config.redirect_uri)
-            .append_pair("response_type", "code")
-            .append_pair("scope", &self.config.scopes.join(" "))
-            .append_pair("state", state);
+            .append_pair("response_type", "code");
+        self.append_scope(&mut query_pairs);
+        query_pairs.append_pair("state", state);
 
+        drop(query_pairs);
         Ok(url.to_string())
+    }
+
+    /// Append the `scope` parameter, or nothing when the configuration
+    /// requests no scope: a provider whose scope is fixed server-side
+    /// (Garmin) defines no `scope` parameter, and an empty `scope=` is not
+    /// the same as omitting it.
+    fn append_scope(&self, query_pairs: &mut Serializer<'_, UrlQuery<'_>>) {
+        let scope = self.config.scopes.join(" ");
+        if !scope.trim().is_empty() {
+            query_pairs.append_pair("scope", &scope);
+        }
     }
 
     /// Get authorization `URL` with `PKCE` support
@@ -173,9 +180,9 @@ impl OAuth2Client {
         query_pairs
             .append_pair("client_id", &self.config.client_id)
             .append_pair("redirect_uri", &self.config.redirect_uri)
-            .append_pair("response_type", "code")
-            .append_pair("scope", &self.config.scopes.join(" "))
-            .append_pair("state", state);
+            .append_pair("response_type", "code");
+        self.append_scope(&mut query_pairs);
+        query_pairs.append_pair("state", state);
 
         if self.config.use_pkce {
             query_pairs

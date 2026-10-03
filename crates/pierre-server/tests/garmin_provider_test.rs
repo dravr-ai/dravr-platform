@@ -12,14 +12,21 @@
 #![cfg(feature = "provider-garmin")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use axum::http::HeaderMap;
+use axum::routing::{get, post};
+use axum::{Json, Router};
 use chrono::Utc;
 use pierre_config::environment::HttpClientConfig;
-use pierre_mcp_server::constants::{init_server_config, oauth, oauth_providers};
+use pierre_mcp_server::constants::{init_server_config, oauth_providers};
 use pierre_mcp_server::utils::http_client::initialize_http_clients;
 use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::garmin_provider::GarminProvider;
 use pierre_providers::registry::{get_supported_providers, global_registry};
-use std::sync::Once;
+use serde_json::json;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, Once};
+use tokio::net::TcpListener;
+use url::form_urlencoded;
 
 /// Ensure HTTP clients and server config are initialized only once across all tests
 static INIT_HTTP_CLIENTS: Once = Once::new();
@@ -43,9 +50,15 @@ fn test_garmin_provider_creation() {
 
     assert_eq!(provider.name(), oauth_providers::GARMIN);
     assert_eq!(provider.config().name, oauth_providers::GARMIN);
+    // Garmin's OAuth2 PKCE endpoints (Garmin Connect Developer Program
+    // "OAuth2.0 PKCE Specification"), not the OAuth 1.0a ones.
     assert_eq!(
         provider.config().auth_url,
-        "https://connect.garmin.com/oauthConfirm"
+        "https://connect.garmin.com/oauth2Confirm"
+    );
+    assert_eq!(
+        provider.config().token_url,
+        "https://diauth.garmin.com/di-oauth2-service/oauth/token"
     );
     assert_eq!(
         provider.config().api_base_url,
@@ -165,10 +178,8 @@ fn test_garmin_provider_default() {
 fn test_garmin_provider_scopes() {
     ensure_http_clients_initialized();
     let provider = GarminProvider::new();
-    let scopes = &provider.config().default_scopes;
-
-    assert!(scopes.contains(&"wellness:read".to_owned()));
-    assert!(scopes.contains(&"activities:read".to_owned()));
+    // Garmin's scope is fixed server-side: the provider requests none.
+    assert!(provider.config().default_scopes.is_empty());
 }
 
 #[test]
@@ -340,15 +351,6 @@ async fn test_garmin_credentials_without_access_token() {
 }
 
 #[test]
-fn test_garmin_default_scopes_format() {
-    // Verify default scopes are comma-separated
-    let scopes = oauth::GARMIN_DEFAULT_SCOPES;
-    assert!(scopes.contains("wellness:read"));
-    assert!(scopes.contains("activities:read"));
-    assert!(scopes.contains(','));
-}
-
-#[test]
 fn test_garmin_provider_config_urls() {
     ensure_http_clients_initialized();
     let provider = GarminProvider::new();
@@ -358,4 +360,115 @@ fn test_garmin_provider_config_urls() {
     assert!(!config.api_base_url.ends_with('/'));
     assert!(!config.auth_url.ends_with('/'));
     assert!(!config.token_url.ends_with('/'));
+}
+
+/// A Garmin client whose stored access token is inside the refresh window
+/// refreshes it before its next API call, the way every OAuth provider client
+/// does: Garmin's refresh form (client in the body), the rotated pair handed
+/// to the write-back callback, and the call made with the new access token.
+/// The token and API endpoints are a local mock reached through the
+/// provider's configuration.
+#[tokio::test]
+async fn test_garmin_api_call_refreshes_a_token_inside_the_window() {
+    ensure_http_clients_initialized();
+    let token_forms: Arc<Mutex<Vec<HashMap<String, String>>>> = Arc::default();
+    let bearers: Arc<Mutex<Vec<String>>> = Arc::default();
+    let forms = Arc::clone(&token_forms);
+    let seen = Arc::clone(&bearers);
+    let app = Router::new()
+        .route(
+            "/token",
+            post(move |body: String| {
+                let forms = Arc::clone(&forms);
+                async move {
+                    forms.lock().unwrap().push(
+                        form_urlencoded::parse(body.as_bytes())
+                            .into_owned()
+                            .collect(),
+                    );
+                    Json(json!({
+                        "access_token": "garmin_rotated_access",
+                        "token_type": "bearer",
+                        "refresh_token": "garmin_rotated_refresh",
+                        "expires_in": 86_400
+                    }))
+                }
+            }),
+        )
+        .route(
+            "/user/id",
+            get(move |headers: HeaderMap| {
+                let seen = Arc::clone(&seen);
+                async move {
+                    seen.lock().unwrap().push(
+                        headers
+                            .get("authorization")
+                            .and_then(|value| value.to_str().ok())
+                            .unwrap_or_default()
+                            .to_owned(),
+                    );
+                    Json(json!({ "userId": "garmin-user-1" }))
+                }
+            }),
+        );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let provider = GarminProvider::with_config(ProviderConfig {
+        name: oauth_providers::GARMIN.to_owned(),
+        auth_url: "https://connect.garmin.com/oauth2Confirm".to_owned(),
+        token_url: format!("{base}/token"),
+        api_base_url: base,
+        revoke_url: None,
+        default_scopes: Vec::new(),
+    });
+    let written_back: Arc<Mutex<Vec<OAuth2Credentials>>> = Arc::default();
+    let sink = Arc::clone(&written_back);
+    provider.set_token_refresh_callback(Arc::new(move |credentials| {
+        let sink = Arc::clone(&sink);
+        Box::pin(async move {
+            sink.lock().unwrap().push(credentials);
+        })
+    }));
+    provider
+        .set_credentials(OAuth2Credentials {
+            client_id: "garmin_client".to_owned(),
+            client_secret: "garmin_secret".to_owned(),
+            access_token: Some("garmin_old_access".to_owned()),
+            refresh_token: Some("garmin_old_refresh".to_owned()),
+            expires_at: Some(Utc::now() + chrono::Duration::minutes(5)),
+            scopes: Vec::new(),
+            kind: CredentialKind::OAuthBearer,
+        })
+        .await
+        .unwrap();
+
+    let athlete = provider.get_athlete().await.unwrap();
+
+    assert_eq!(athlete.id, "garmin-user-1");
+    let forms = token_forms.lock().unwrap().clone();
+    assert_eq!(forms.len(), 1, "one refresh before the call");
+    let expected: HashMap<String, String> = [
+        ("client_id", "garmin_client"),
+        ("client_secret", "garmin_secret"),
+        ("grant_type", "refresh_token"),
+        ("refresh_token", "garmin_old_refresh"),
+    ]
+    .into_iter()
+    .map(|(key, value)| (key.to_owned(), value.to_owned()))
+    .collect();
+    assert_eq!(forms[0], expected);
+    assert_eq!(
+        *bearers.lock().unwrap(),
+        vec!["Bearer garmin_rotated_access".to_owned()]
+    );
+    let written_back = written_back.lock().unwrap();
+    assert_eq!(written_back.len(), 1, "the rotated pair is written back");
+    assert_eq!(
+        written_back[0].refresh_token.as_deref(),
+        Some("garmin_rotated_refresh")
+    );
 }

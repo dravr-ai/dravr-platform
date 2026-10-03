@@ -80,6 +80,10 @@ use crate::provider_ai_terms;
 #[cfg(feature = "provider-whoop")]
 use crate::utils::WHOOP_REFRESH_EXTRA_FORM;
 use pierre_core::ai_policy::SourcePolicy;
+#[cfg(feature = "provider-garmin")]
+use pierre_core::constants::oauth::{
+    GARMIN_API_BASE_URL, GARMIN_AUTH_URL, GARMIN_DEREGISTRATION_URL, GARMIN_TOKEN_URL,
+};
 use std::fmt;
 
 #[cfg(feature = "provider-intervals-icu")]
@@ -288,6 +292,16 @@ pub trait ProviderDescriptor: Send + Sync {
     /// provider answering `None` is a reconnect.
     fn oauth_refresh(&self) -> Option<OAuthRefresh>;
 
+    /// Whether the provider-side owner id, the id this provider's push events
+    /// name the athlete by, is missing from its token response and has to be
+    /// read from its API with the access token (the provider's `get_athlete`).
+    /// The OAuth callback and the platform refresh then read it
+    /// ([`crate::owner_id::owner_id_for_access_token`]) and store it with the
+    /// token. `false` by default: Strava returns the owner inline.
+    fn owner_id_from_api(&self) -> bool {
+        false
+    }
+
     /// Base URL for provider API calls
     fn api_base_url(&self) -> &'static str;
 
@@ -488,44 +502,48 @@ impl ProviderDescriptor for GarminDescriptor {
         ProviderCapabilities::full_health()
     }
 
+    /// Garmin's `OAuth2` PKCE flow, per the Garmin Connect Developer Program
+    /// "OAuth2.0 PKCE Specification". Garmin has no revocation endpoint; the
+    /// revoke URL is the user deregistration a disconnect must call.
     fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
         Some(OAuthEndpoints {
-            auth_url: "https://connect.garmin.com/oauthConfirm",
-            token_url: "https://connectapi.garmin.com/oauth-service/oauth/access_token",
-            revoke_url: Some("https://apis.garmin.com/wellness-api/rest/user/registration"),
+            auth_url: GARMIN_AUTH_URL,
+            token_url: GARMIN_TOKEN_URL,
+            revoke_url: Some(GARMIN_DEREGISTRATION_URL),
         })
     }
 
+    /// PKCE is required: the authorization carries `code_challenge` with
+    /// `code_challenge_method=S256`, and the code exchange the `code_verifier`.
     fn oauth_params(&self) -> Option<OAuthParams> {
         Some(OAuthParams {
             scope_separator: ",",
-            use_pkce: false, // Garmin uses OAuth 1.0a
+            use_pkce: true,
             additional_auth_params: &[],
         })
     }
 
+    /// Garmin's refresh grant: `client_id` and `client_secret` in the form
+    /// body beside `grant_type=refresh_token` and the refresh token, with no
+    /// other field. Garmin returns a new refresh token on every refresh, which
+    /// the platform's compare-and-swap write stores.
     fn oauth_refresh(&self) -> Option<OAuthRefresh> {
-        // LIMITATION(registre#737): `GarminDescriptor::oauth_refresh` declares no
-        // refresh grant. This descriptor's endpoints are Garmin's OAuth 1.0a ones
-        // (`oauth-service/oauth/access_token`, no PKCE), whose tokens have no refresh
-        // grant, while `GarminProvider::refresh_token_if_needed` posts an OAuth2
-        // `grant_type=refresh_token` form to that same URL, and neither is verified
-        // against the vendor.
-        None
+        Some(OAuthRefresh::STANDARD)
+    }
+
+    /// Garmin's token response carries no user id; it is served at `user/id`.
+    fn owner_id_from_api(&self) -> bool {
+        true
     }
 
     fn api_base_url(&self) -> &'static str {
-        "https://apis.garmin.com/wellness-api/rest"
+        GARMIN_API_BASE_URL
     }
 
+    /// None: Garmin's scope is fixed server-side and its authorization
+    /// request takes no `scope` parameter, so none is sent.
     fn default_scopes(&self) -> &'static [&'static str] {
-        // Garmin uses comma-separated scopes in some flows
-        &[
-            "activity:read",
-            "sleep:read",
-            "health:read",
-            "user_metrics:read",
-        ]
+        &[]
     }
 }
 
@@ -572,6 +590,12 @@ impl ProviderDescriptor for WhoopDescriptor {
             client_auth: RefreshClientAuth::RequestBody,
             extra_form: WHOOP_REFRESH_EXTRA_FORM,
         })
+    }
+
+    /// WHOOP's token response carries no user id; it is served at
+    /// `user/profile/basic`.
+    fn owner_id_from_api(&self) -> bool {
+        true
     }
 
     fn api_base_url(&self) -> &'static str {

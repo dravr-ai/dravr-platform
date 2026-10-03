@@ -153,10 +153,11 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                 ..Default::default()
             },
             garmin_api: GarminApiConfig {
-                base_url: "https://apis.garmin.com".to_owned(),
-                auth_url: "https://connect.garmin.com/oauthConfirm".to_owned(),
-                token_url: "https://connect.garmin.com/oauth-service/oauth/access_token".to_owned(),
-                revoke_url: "https://connect.garmin.com/oauth-service/oauth/revoke".to_owned(),
+                base_url: "https://apis.garmin.com/wellness-api/rest".to_owned(),
+                auth_url: "https://connect.garmin.com/oauth2Confirm".to_owned(),
+                token_url: "https://diauth.garmin.com/di-oauth2-service/oauth/token".to_owned(),
+                revoke_url: "https://apis.garmin.com/wellness-api/rest/user/registration"
+                    .to_owned(),
                 ..Default::default()
             },
         },
@@ -581,10 +582,11 @@ async fn test_set_goal_tool() -> Result<()> {
                 ..Default::default()
             },
             garmin_api: GarminApiConfig {
-                base_url: "https://apis.garmin.com".to_owned(),
-                auth_url: "https://connect.garmin.com/oauthConfirm".to_owned(),
-                token_url: "https://connect.garmin.com/oauth-service/oauth/access_token".to_owned(),
-                revoke_url: "https://connect.garmin.com/oauth-service/oauth/revoke".to_owned(),
+                base_url: "https://apis.garmin.com/wellness-api/rest".to_owned(),
+                auth_url: "https://connect.garmin.com/oauth2Confirm".to_owned(),
+                token_url: "https://diauth.garmin.com/di-oauth2-service/oauth/token".to_owned(),
+                revoke_url: "https://apis.garmin.com/wellness-api/rest/user/registration"
+                    .to_owned(),
                 ..Default::default()
             },
         },
@@ -1517,10 +1519,11 @@ async fn test_disconnect_provider_tool() -> Result<()> {
                 ..Default::default()
             },
             garmin_api: GarminApiConfig {
-                base_url: "https://apis.garmin.com".to_owned(),
-                auth_url: "https://connect.garmin.com/oauthConfirm".to_owned(),
-                token_url: "https://connect.garmin.com/oauth-service/oauth/access_token".to_owned(),
-                revoke_url: "https://connect.garmin.com/oauth-service/oauth/revoke".to_owned(),
+                base_url: "https://apis.garmin.com/wellness-api/rest".to_owned(),
+                auth_url: "https://connect.garmin.com/oauth2Confirm".to_owned(),
+                token_url: "https://diauth.garmin.com/di-oauth2-service/oauth/token".to_owned(),
+                revoke_url: "https://apis.garmin.com/wellness-api/rest/user/registration"
+                    .to_owned(),
                 ..Default::default()
             },
         },

@@ -171,11 +171,12 @@ impl ProviderRegistry {
         registry.register_descriptor(oauth_providers::GARMIN, Box::new(GarminDescriptor));
         let (auth_url, token_url, api_base_url, revoke_url, scopes) = load_provider_env_config(
             oauth_providers::GARMIN,
-            "https://connect.garmin.com/oauthConfirm",
-            "https://connectapi.garmin.com/oauth-service/oauth/access_token",
-            "https://apis.garmin.com/wellness-api/rest",
-            Some("https://apis.garmin.com/wellness-api/rest/user/registration"),
-            &["wellness:read".to_owned(), "activities:read".to_owned()],
+            oauth_providers::GARMIN_AUTH_URL,
+            oauth_providers::GARMIN_TOKEN_URL,
+            oauth_providers::GARMIN_API_BASE_URL,
+            Some(oauth_providers::GARMIN_DEREGISTRATION_URL),
+            // Garmin's scope is fixed server-side; its authorization takes none.
+            &[],
         );
         registry.set_default_config(
             oauth_providers::GARMIN,

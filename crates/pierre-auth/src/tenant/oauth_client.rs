@@ -10,6 +10,7 @@
 use super::oauth_manager::TenantOAuthManager;
 use super::TenantContext;
 use crate::oauth2_client::{OAuth2Client, OAuth2Config, OAuth2Token, PkceParams};
+use pierre_core::constants::oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{TenantId, TenantOAuthCredentials};
 use pierre_database::backends::{OAuthTokenRepository, TenantRepository};
@@ -367,10 +368,11 @@ impl TenantOAuthClient {
                 "https://www.strava.com/oauth/token".to_owned(),
                 true,
             ),
+            // Garmin's OAuth2 PKCE flow; the descriptor reads the same constants.
             "garmin" => (
-                "https://connect.garmin.com/oauthConfirm".to_owned(),
-                "https://connectapi.garmin.com/oauth-service/oauth/access_token".to_owned(),
-                false, // Garmin uses OAuth 1.0a, no PKCE
+                oauth_providers::GARMIN_AUTH_URL.to_owned(),
+                oauth_providers::GARMIN_TOKEN_URL.to_owned(),
+                true,
             ),
             "whoop" => (
                 "https://api.prod.whoop.com/oauth/oauth2/auth".to_owned(),
@@ -412,5 +414,85 @@ impl TenantOAuthClient {
             scopes: credentials.scopes.clone(), // Safe: Option<String> ownership for OAuth config
             use_pkce,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TenantOAuthClient;
+    use crate::oauth2_client::{OAuth2Client, PkceParams};
+    use pierre_core::models::{TenantId, TenantOAuthCredentials};
+    use url::Url;
+
+    /// The connect route builds Garmin's authorization from this table, and
+    /// sends the PKCE challenge only when it says `use_pkce`. Garmin's `OAuth2`
+    /// PKCE specification requires `code_challenge` with
+    /// `code_challenge_method=S256` at `connect.garmin.com/oauth2Confirm`, and
+    /// the code is exchanged at `diauth.garmin.com`.
+    #[test]
+    fn garmin_connect_authorization_is_oauth2_pkce() {
+        let credentials = TenantOAuthCredentials {
+            tenant_id: TenantId::generate(),
+            provider: "garmin".to_owned(),
+            client_id: "garmin-client".to_owned(),
+            client_secret: "garmin-secret".to_owned(),
+            redirect_uri: "https://dravr.example/api/oauth/callback/garmin".to_owned(),
+            scopes: Vec::new(),
+            rate_limit_per_day: 1000,
+        };
+        let config = TenantOAuthClient::build_oauth_config(&credentials, "garmin").unwrap();
+        assert_eq!(
+            config.token_url,
+            "https://diauth.garmin.com/di-oauth2-service/oauth/token"
+        );
+        assert!(config.use_pkce, "Garmin requires PKCE");
+
+        let pkce = PkceParams::generate();
+        let url = OAuth2Client::new(config)
+            .unwrap()
+            .get_authorization_url_with_pkce("state-1", &pkce)
+            .unwrap();
+        let url = Url::parse(&url).unwrap();
+        assert_eq!(
+            format!("{}{}", url.origin().ascii_serialization(), url.path()),
+            "https://connect.garmin.com/oauth2Confirm"
+        );
+        let query = |key: &str| {
+            url.query_pairs()
+                .find(|(name, _)| name == key)
+                .map(|(_, value)| value.into_owned())
+        };
+        assert_eq!(query("response_type").as_deref(), Some("code"));
+        assert_eq!(query("client_id").as_deref(), Some("garmin-client"));
+        assert_eq!(query("code_challenge"), Some(pkce.code_challenge));
+        assert_eq!(query("code_challenge_method").as_deref(), Some("S256"));
+        // Garmin's scope is fixed server-side: no `scope` parameter at all,
+        // not an empty one.
+        assert_eq!(query("scope"), None);
+    }
+
+    /// A provider that requests scopes still sends them.
+    #[test]
+    fn whoop_connect_authorization_carries_its_scope() {
+        let credentials = TenantOAuthCredentials {
+            tenant_id: TenantId::generate(),
+            provider: "whoop".to_owned(),
+            client_id: "whoop-client".to_owned(),
+            client_secret: "whoop-secret".to_owned(),
+            redirect_uri: "https://dravr.example/api/oauth/callback/whoop".to_owned(),
+            scopes: vec!["offline".to_owned(), "read:sleep".to_owned()],
+            rate_limit_per_day: 1000,
+        };
+        let config = TenantOAuthClient::build_oauth_config(&credentials, "whoop").unwrap();
+        let url = OAuth2Client::new(config)
+            .unwrap()
+            .get_authorization_url_with_pkce("state-1", &PkceParams::generate())
+            .unwrap();
+        let url = Url::parse(&url).unwrap();
+        let scope = url
+            .query_pairs()
+            .find(|(name, _)| name == "scope")
+            .map(|(_, value)| value.into_owned());
+        assert_eq!(scope.as_deref(), Some("offline read:sleep"));
     }
 }

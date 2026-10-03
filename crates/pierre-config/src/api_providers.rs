@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use pierre_core::constants::api_provider_limits::{garmin, strava};
+use pierre_core::constants::oauth;
 use pierre_core::constants::rate_limits::{STRAVA_RATE_LIMIT_15MIN, STRAVA_RATE_LIMIT_DAILY};
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -171,19 +172,10 @@ impl GarminApiConfig {
     #[must_use]
     pub fn from_env() -> Self {
         Self {
-            base_url: env_var_or(
-                "GARMIN_API_BASE",
-                "https://apis.garmin.com/wellness-api/rest",
-            ),
-            auth_url: env_var_or("GARMIN_AUTH_URL", "https://connect.garmin.com/oauthConfirm"),
-            token_url: env_var_or(
-                "GARMIN_TOKEN_URL",
-                "https://connectapi.garmin.com/oauth-service/oauth/access_token",
-            ),
-            revoke_url: env_var_or(
-                "GARMIN_REVOKE_URL",
-                "https://apis.garmin.com/wellness-api/rest/user/registration",
-            ),
+            base_url: env_var_or("GARMIN_API_BASE", oauth::GARMIN_API_BASE_URL),
+            auth_url: env_var_or("GARMIN_AUTH_URL", oauth::GARMIN_AUTH_URL),
+            token_url: env_var_or("GARMIN_TOKEN_URL", oauth::GARMIN_TOKEN_URL),
+            revoke_url: env_var_or("GARMIN_REVOKE_URL", oauth::GARMIN_DEREGISTRATION_URL),
             default_activities_per_page: env::var("GARMIN_DEFAULT_ACTIVITIES_PER_PAGE")
                 .ok()
                 .and_then(|s| s.parse().ok())

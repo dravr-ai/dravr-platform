@@ -497,20 +497,6 @@ pub async fn refresh_oauth_token(
     })
 }
 
-/// Check if `OAuth2` credentials need refresh
-/// Returns `true` if token expires within the threshold
-#[must_use]
-pub fn needs_token_refresh(
-    credentials: &Option<OAuth2Credentials>,
-    refresh_threshold_minutes: i64,
-) -> bool {
-    credentials.as_ref().is_some_and(|creds| {
-        creds.expires_at.is_some_and(|expires_at| {
-            Utc::now() + chrono::Duration::minutes(refresh_threshold_minutes) > expires_at
-        })
-    })
-}
-
 /// Check if credentials are authenticated (has valid access token)
 #[must_use]
 pub fn is_authenticated(credentials: &Option<OAuth2Credentials>) -> bool {

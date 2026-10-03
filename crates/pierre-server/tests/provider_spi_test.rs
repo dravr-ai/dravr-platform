@@ -19,6 +19,8 @@ use pierre_providers::ProviderDescriptor;
 use pierre_providers::StravaDescriptor;
 
 #[cfg(feature = "provider-garmin")]
+use pierre_providers::spi::RefreshClientAuth;
+#[cfg(feature = "provider-garmin")]
 use pierre_providers::GarminDescriptor;
 
 #[cfg(feature = "provider-whoop")]
@@ -92,9 +94,21 @@ fn test_garmin_oauth_params() {
     assert!(oauth_params.is_some());
     if let Some(params) = oauth_params {
         assert_eq!(params.scope_separator, ",");
-        assert!(!params.use_pkce); // Garmin uses OAuth 1.0a
+        // Garmin's OAuth2 PKCE specification requires an S256 challenge.
+        assert!(params.use_pkce);
         assert!(params.additional_auth_params.is_empty());
     }
+
+    // Garmin's refresh grant: the client in the form body, no other field.
+    let refresh = desc
+        .oauth_refresh()
+        .expect("Garmin declares its refresh grant");
+    assert_eq!(refresh.client_auth, RefreshClientAuth::RequestBody);
+    assert!(refresh.extra_form.is_empty());
+    assert!(
+        desc.owner_id_from_api(),
+        "Garmin's token response names no user"
+    );
 }
 
 #[test]
@@ -201,12 +215,16 @@ fn test_garmin_full_descriptor() {
     // Test OAuth configuration
     assert!(desc.oauth_endpoints().is_some());
     if let Some(endpoints) = desc.oauth_endpoints() {
-        assert!(endpoints.auth_url.contains("garmin.com"));
-        assert!(endpoints.token_url.contains("garmin.com"));
+        assert_eq!(
+            endpoints.auth_url,
+            "https://connect.garmin.com/oauth2Confirm"
+        );
+        assert_eq!(
+            endpoints.token_url,
+            "https://diauth.garmin.com/di-oauth2-service/oauth/token"
+        );
     }
 
-    // Test default scopes
-    let scopes = desc.default_scopes();
-    assert!(!scopes.is_empty());
-    assert!(scopes.contains(&"activity:read"));
+    // Garmin's scope is fixed server-side: its authorization requests none.
+    assert!(desc.default_scopes().is_empty());
 }

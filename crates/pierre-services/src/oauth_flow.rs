@@ -704,13 +704,19 @@ impl OAuthService {
             (client_id, scope, None)
         };
 
-        let encoded_scope = encode(&scope);
-
         // Build authorization URL with provider-specific parameters
         let mut auth_url = format!(
-            "{}?client_id={}&response_type=code&redirect_uri={}&scope={}&state={}",
-            endpoints.auth_url, client_id, encoded_redirect_uri, encoded_scope, encoded_state
+            "{}?client_id={}&response_type=code&redirect_uri={}&state={}",
+            endpoints.auth_url, client_id, encoded_redirect_uri, encoded_state
         );
+
+        // A provider with no scope to request (Garmin's is fixed server-side)
+        // gets no `scope` parameter at all: an empty `scope=` is a parameter
+        // its authorization does not define.
+        if !scope.is_empty() {
+            use Write;
+            let _ = write!(&mut auth_url, "&scope={}", encode(&scope));
+        }
 
         // Add PKCE code_challenge to authorization URL when enabled
         if let Some(ref pkce_params) = pkce {
@@ -742,7 +748,7 @@ impl OAuthService {
             user_id: Some(user_id),
             tenant_id: Some(tenant_id.to_string()),
             redirect_uri,
-            scope: Some(scope),
+            scope: Some(scope).filter(|scope| !scope.is_empty()),
             pkce_code_verifier: pkce.as_ref().map(|p| p.code_verifier.clone()),
             oauth_app_client_id: oauth_app_attribution,
             created_at: now,

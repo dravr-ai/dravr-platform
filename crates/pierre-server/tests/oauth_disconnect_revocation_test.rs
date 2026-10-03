@@ -732,14 +732,14 @@ async fn garmin_backend_deregisters_user_with_bearer_delete() {
     config.external_services.garmin_api.revoke_url =
         format!("{}/wellness-api/rest/user/registration", upstream.base_url);
     config.external_services.garmin_api.token_url =
-        format!("{}/oauth-service/oauth/access_token", upstream.base_url);
+        format!("{}/di-oauth2-service/oauth/token", upstream.base_url);
     let service = oauth_service(&resources, config);
 
     assert_eq!(
         revocation_shape(&service, "garmin"),
         Some(RevocationShape::BearerDeregistration {
             revoke_url: format!("{}/wellness-api/rest/user/registration", upstream.base_url),
-            token_url: format!("{}/oauth-service/oauth/access_token", upstream.base_url),
+            token_url: format!("{}/di-oauth2-service/oauth/token", upstream.base_url),
         }),
         "the Garmin arm reads its endpoints from the Garmin API config"
     );
@@ -775,7 +775,7 @@ async fn garmin_backend_deregisters_user_with_bearer_delete() {
     revoke_for_disconnect(&service, user_id, tenant_id, "garmin").await;
     let refresh = upstream.next_request("Garmin token refresh").await;
     assert_eq!(refresh.method, "POST");
-    assert_eq!(refresh.target, "/oauth-service/oauth/access_token");
+    assert_eq!(refresh.target, "/di-oauth2-service/oauth/token");
     assert!(
         refresh
             .body

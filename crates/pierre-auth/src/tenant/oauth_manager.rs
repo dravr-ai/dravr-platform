@@ -532,11 +532,9 @@ impl TenantOAuthManager {
                 client_id: client_id.clone(),
                 client_secret: client_secret.clone(),
                 redirect_uri,
-                scopes: if garmin_config.scopes.is_empty() {
-                    vec!["wellness:read".to_owned(), "activities:read".to_owned()]
-                } else {
-                    garmin_config.scopes.clone()
-                },
+                // Garmin's scope is fixed server-side: none is requested
+                // unless `PIERRE_GARMIN_SCOPES` / `GARMIN_SCOPES` sets one.
+                scopes: garmin_config.scopes.clone(),
                 rate_limit_per_day: GARMIN_DEFAULT_DAILY_RATE_LIMIT,
             });
         }
@@ -668,10 +666,12 @@ impl TenantOAuthManager {
     }
 
     /// Get default scopes for a provider
+    ///
+    /// Garmin has none: its scope is fixed server-side and its authorization
+    /// takes no `scope` parameter.
     fn default_scopes_for_provider(provider: &str) -> Vec<String> {
         match provider.to_lowercase().as_str() {
             "strava" => "activity:read_all".split(',').map(str::to_owned).collect(),
-            "garmin" => vec!["wellness:read".to_owned(), "activities:read".to_owned()],
             "whoop" => vec![
                 "offline".to_owned(),
                 "read:profile".to_owned(),

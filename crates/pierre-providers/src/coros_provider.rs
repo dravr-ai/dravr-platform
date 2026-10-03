@@ -53,6 +53,7 @@ use crate::activity_paging::pages_for;
 use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient};
+use crate::models::refresh_due;
 use crate::models::{Activity, ActivityBuilder, Athlete, SportType, Stats};
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
 use crate::spi::RefreshClientAuth;
@@ -406,9 +407,7 @@ impl FitnessProvider for CorosProvider {
         let (needs_refresh, credentials) = {
             let guard = self.credentials.read().await;
             let needs_refresh = if let Some(creds) = guard.as_ref() {
-                creds.expires_at.is_some_and(|expires_at| {
-                    Utc::now() + chrono::Duration::minutes(5) > expires_at
-                })
+                creds.expires_at.is_some_and(refresh_due)
             } else {
                 let err = ProviderError::ConfigurationError {
                     provider: oauth_providers::COROS.to_owned(),

@@ -10,7 +10,18 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::constants::time::TOKEN_REFRESH_WINDOW_MINUTES;
 use crate::errors::{AppError, AppResult};
+
+/// Whether a provider access token expiring at `expires_at` is due for
+/// refresh now: it expires within [`TOKEN_REFRESH_WINDOW_MINUTES`].
+///
+/// Every refresh decision on a provider token reads this one window: the
+/// platform's stored-token refresh and each provider client's own refresh.
+#[must_use]
+pub fn refresh_due(expires_at: DateTime<Utc>) -> bool {
+    expires_at <= Utc::now() + chrono::Duration::minutes(TOKEN_REFRESH_WINDOW_MINUTES)
+}
 
 /// OAuth application credentials for protocol initialization (MCP and A2A)
 ///
@@ -277,15 +288,6 @@ impl UserOAuthToken {
     pub fn is_expired(&self) -> bool {
         self.expires_at
             .is_some_and(|expires_at| Utc::now() > expires_at)
-    }
-
-    /// Check if token needs refresh (expires within 5 minutes)
-    #[must_use]
-    pub fn needs_refresh(&self) -> bool {
-        self.expires_at.is_some_and(|expires_at| {
-            let refresh_threshold = Utc::now() + chrono::Duration::minutes(5);
-            refresh_threshold >= expires_at
-        })
     }
 }
 
@@ -751,4 +753,19 @@ pub struct StravaSeatReclaimWarning {
     /// by definition does not open the app, so it never justifies a
     /// disconnect.
     pub reached: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::refresh_due;
+    use chrono::{Duration, Utc};
+
+    /// The window is ten minutes: a token expiring in nine is due, one
+    /// expiring in eleven is not, and an expired one is due.
+    #[test]
+    fn refresh_is_due_inside_the_ten_minute_window_only() {
+        assert!(refresh_due(Utc::now() + Duration::minutes(9)));
+        assert!(!refresh_due(Utc::now() + Duration::minutes(11)));
+        assert!(refresh_due(Utc::now() - Duration::minutes(1)));
+    }
 }

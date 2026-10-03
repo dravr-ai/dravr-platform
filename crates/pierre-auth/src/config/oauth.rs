@@ -658,11 +658,12 @@ pub fn get_oauth_config(provider_name: &str) -> OAuthProviderConfig {
             "STRAVA_CLIENT_SECRET",
             parse_scopes(oauth_providers::STRAVA_DEFAULT_SCOPES),
         ),
-        p if p == oauth_providers::GARMIN => (
-            "GARMIN_CLIENT_ID",
-            "GARMIN_CLIENT_SECRET",
-            parse_scopes(oauth_providers::GARMIN_DEFAULT_SCOPES),
-        ),
+        // Garmin's scope is fixed server-side and its authorization takes
+        // none (Garmin Connect Developer Program OAuth2.0 PKCE
+        // Specification), so no scope is requested unless one is configured.
+        p if p == oauth_providers::GARMIN => {
+            ("GARMIN_CLIENT_ID", "GARMIN_CLIENT_SECRET", Vec::new())
+        }
         p if p == oauth_providers::WHOOP => (
             "WHOOP_CLIENT_ID",
             "WHOOP_CLIENT_SECRET",

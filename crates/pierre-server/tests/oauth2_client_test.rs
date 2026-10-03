@@ -115,48 +115,6 @@ fn test_oauth2_token_not_expired_when_no_expiry() {
     assert!(!token.is_expired());
 }
 
-#[test]
-fn test_oauth2_token_will_expire_soon_within_5_minutes() {
-    let token = OAuth2Token {
-        access_token: "test_access_token".to_owned(),
-        token_type: "Bearer".to_owned(),
-        expires_at: Some(Utc::now() + Duration::minutes(3)),
-        refresh_token: Some("test_refresh_token".to_owned()),
-        scope: Some("read".to_owned()),
-        provider_user_id: None,
-    };
-
-    assert!(token.will_expire_soon());
-}
-
-#[test]
-fn test_oauth2_token_will_not_expire_soon_beyond_5_minutes() {
-    let token = OAuth2Token {
-        access_token: "test_access_token".to_owned(),
-        token_type: "Bearer".to_owned(),
-        expires_at: Some(Utc::now() + Duration::minutes(10)),
-        refresh_token: Some("test_refresh_token".to_owned()),
-        scope: Some("read".to_owned()),
-        provider_user_id: None,
-    };
-
-    assert!(!token.will_expire_soon());
-}
-
-#[test]
-fn test_oauth2_token_will_not_expire_soon_when_no_expiry() {
-    let token = OAuth2Token {
-        access_token: "test_access_token".to_owned(),
-        token_type: "Bearer".to_owned(),
-        expires_at: None,
-        refresh_token: None,
-        scope: None,
-        provider_user_id: None,
-    };
-
-    assert!(!token.will_expire_soon());
-}
-
 // =============================================================================
 // OAuth2Config Tests
 // =============================================================================
@@ -373,8 +331,8 @@ fn test_oauth2_token_boundary_expiration() {
         provider_user_id: None,
     };
 
-    // Should be considered expired (or just about to)
-    assert!(token.is_expired() || token.will_expire_soon());
+    // A token expiring exactly now is expired
+    assert!(token.is_expired());
 }
 
 #[test]
@@ -392,8 +350,10 @@ fn test_oauth2_config_empty_scopes() {
     let client = OAuth2Client::new(config).unwrap();
     let url = client.get_authorization_url("state").unwrap();
 
-    // URL should still be valid even with empty scopes
-    assert!(url.contains("scope="));
+    // No scope to request: the parameter is left out, not sent empty (a
+    // provider whose scope is fixed server-side, like Garmin, defines none).
+    assert!(url.starts_with("https://provider.com/auth?"));
+    assert!(!url.contains("scope"));
 }
 
 #[test]

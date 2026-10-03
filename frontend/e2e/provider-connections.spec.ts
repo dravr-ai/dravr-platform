@@ -199,7 +199,7 @@ test.describe('Provider Connections - OAuth Flow', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          authorization_url: 'https://connect.garmin.com/oauthConfirm',
+          authorization_url: 'https://connect.garmin.com/oauth2Confirm',
         }),
       });
     });

@@ -42,6 +42,7 @@ use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_chat_pipeline::stages::prefetch::{
     agentless_activity_window, inject_activity_refresh, prefetch_activity_context,
 };
+use pierre_core::constants::time::TOKEN_REFRESH_WINDOW_MINUTES;
 use pierre_core::errors::ErrorCode;
 use pierre_core::http_client::api_client;
 use pierre_core::models::{
@@ -1387,15 +1388,16 @@ async fn a_provider_built_for_a_pool_token_refreshes_under_its_own_app() {
         .unwrap();
     let (user_id, tenant) = athlete(&resources, "provider-refresh").await;
     connect(repos, user_id, tenant, Some("910021")).await;
-    // Valid for the lookup, which refreshes within five minutes of expiry,
-    // and inside the provider's own five-minute window two seconds later.
+    // Valid for the lookup, which refreshes within the refresh window of
+    // expiry, and inside that same window two seconds later, when the
+    // provider's own refresh reads it.
     let nearly_expired = UserOAuthToken::new(
         user_id,
         tenant.to_string(),
         "strava".to_owned(),
         "access-of-the-replaced-grant".to_owned(),
         Some(REPLACED_REFRESH.to_owned()),
-        Some(Utc::now() + Duration::minutes(5) + Duration::seconds(2)),
+        Some(Utc::now() + Duration::minutes(TOKEN_REFRESH_WINDOW_MINUTES) + Duration::seconds(2)),
         Some("read".to_owned()),
     )
     .with_oauth_app_client_id(Some("910021".to_owned()));
