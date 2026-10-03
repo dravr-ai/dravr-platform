@@ -42,6 +42,8 @@ pub mod dossier;
 /// The profile-recorded window of an athlete's most recent fixed-list walk.
 pub mod guided_window;
 mod health;
+/// Measured-vs-estimated provenance carried by a physiological value.
+pub mod measurement;
 mod nutrition;
 mod oauth;
 /// Guided-flow state + the two next-topic policies (coverage, calibration list).
@@ -135,6 +137,11 @@ pub use nutrition::{FoodItem, MealEntry, MealType, NutritionLog};
 pub use athlete::{Athlete, PeriodTotals, Stats};
 pub use delegated_connection::{
     DelegatedConnection, DelegationEndReason, DelegationStatus, RosterAthlete,
+};
+
+// Physiology provenance domain
+pub use measurement::{
+    MeasurementKind, MetricProvenance, ProvenancedValue, ATHLETE_REPORTED_ORIGIN,
 };
 
 // User domain

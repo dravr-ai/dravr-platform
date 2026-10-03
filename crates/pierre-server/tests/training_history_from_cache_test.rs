@@ -110,6 +110,10 @@ async fn fixture() -> Fixture {
         threshold_pace_sec_per_km: Some(225.0),
         hr_zones: None,
         power_zones: None,
+        critical_power_watts: None,
+        w_prime_joules: None,
+        critical_speed_mps: None,
+        d_prime_meters: None,
     };
     resources
         .common

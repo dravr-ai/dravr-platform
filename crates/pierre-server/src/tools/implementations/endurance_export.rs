@@ -229,9 +229,13 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
             "export_dossier",
             "Export the Endurance 'dossier.json' aggregate for the authenticated \
              user — physiological profile (VO2max, FTP, threshold pace, fitness \
-             level), HR + power zones, goals, nutrition, and equipment slots — \
-             composed at read time from the underlying tables. Empty slots come \
-             back as `null` rather than 404, so agents can rely on the shape.",
+             level, critical power, W′, critical speed, D′), HR + power zones, \
+             goals, nutrition, and equipment slots — composed at read time from \
+             the underlying tables. Critical power, W′, critical speed and D′ each \
+             carry `kind` (measured or estimated) and `origin`: quote an estimated \
+             value as an estimate attributed to its origin ('Vekta estimates your \
+             CP at 312 W'), never as a measurement. Empty slots come back as \
+             `null` rather than 404, so agents can rely on the shape.",
             schema,
             Some(read_only_annotations()),
         )))

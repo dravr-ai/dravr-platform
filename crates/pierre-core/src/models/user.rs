@@ -19,7 +19,7 @@ use crate::intelligence::algorithms::maxhr::MaxHrAlgorithm;
 use crate::permissions::UserRole;
 
 use super::zones::{HrZoneSet, PowerZoneSet};
-use super::{EncryptedToken, SportType};
+use super::{EncryptedToken, ProvenancedValue, SportType};
 
 /// Type-safe wrapper for user identifiers.
 ///
@@ -696,6 +696,23 @@ pub struct UserPhysiologicalProfile {
     /// athletes without a power meter or saved FTP.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub power_zones: Option<PowerZoneSet>,
+    /// Critical power in watts: the asymptote of the hyperbolic power-duration
+    /// relationship, the highest power sustained without a steady drain of
+    /// [`Self::w_prime_joules`]. Always carries whether it was measured or
+    /// estimated, and by whom.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub critical_power_watts: Option<ProvenancedValue<u32>>,
+    /// W′ (W prime) in joules: the finite work capacity above critical power.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub w_prime_joules: Option<ProvenancedValue<u32>>,
+    /// Critical speed in metres per second: the running and swimming analogue
+    /// of critical power.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub critical_speed_mps: Option<ProvenancedValue<f64>>,
+    /// D′ (D prime) in metres: the finite distance capacity above critical
+    /// speed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub d_prime_meters: Option<ProvenancedValue<f64>>,
 }
 
 impl UserPhysiologicalProfile {
@@ -718,6 +735,10 @@ impl UserPhysiologicalProfile {
             threshold_pace_sec_per_km: None,
             hr_zones: None,
             power_zones: None,
+            critical_power_watts: None,
+            w_prime_joules: None,
+            critical_speed_mps: None,
+            d_prime_meters: None,
         }
     }
 

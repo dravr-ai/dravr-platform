@@ -27,9 +27,10 @@ use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::config::intelligence::{TrainingZonesConfig, VO2MaxCalculator};
 use pierre_core::ai_policy::AiPolicyLookup;
 use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
+use pierre_core::models::ProvenancedValue;
 use pierre_core::models::{Activity, TenantId, UserPhysiologicalProfile};
 use pierre_database::RepositoryRegistry;
-use pierre_evals::AthleteMetrics;
+use pierre_evals::{AthleteMetrics, StoredMetric};
 use pierre_fitness_compute::{compute_training_history, AthleteInputs};
 use pierre_providers::ai_scope;
 use uuid::Uuid;
@@ -65,6 +66,16 @@ async fn load_user_timezone(repos: &RepositoryRegistry, user_id: Uuid) -> Option
     }
 }
 
+/// The verifier's copy of a provenanced profile value: the number, whether it
+/// is an estimate the reply must quote as one, and who produced it.
+fn stored_metric<T>(stored: &ProvenancedValue<T>, value: f64) -> StoredMetric {
+    StoredMetric {
+        value,
+        kind: stored.provenance.kind,
+        origin: stored.provenance.origin.clone(),
+    }
+}
+
 /// Assemble the [`AthleteMetrics`] snapshot for one athlete.
 ///
 /// Best-effort: a failed read logs and leaves the affected metrics `None`,
@@ -97,6 +108,19 @@ pub async fn build_athlete_metrics(
         metrics.vdot = p.vo2_max;
         metrics.ftp_watts = p.ftp_watts.map(f64::from);
         metrics.max_hr = p.max_hr.map(f64::from);
+        metrics.critical_power_watts = p
+            .critical_power_watts
+            .as_ref()
+            .map(|v| stored_metric(v, f64::from(v.value)));
+        metrics.w_prime_joules = p
+            .w_prime_joules
+            .as_ref()
+            .map(|v| stored_metric(v, f64::from(v.value)));
+        metrics.critical_speed_mps = p
+            .critical_speed_mps
+            .as_ref()
+            .map(|v| stored_metric(v, v.value));
+        metrics.d_prime_meters = p.d_prime_meters.as_ref().map(|v| stored_metric(v, v.value));
 
         if let Some(vo2) = p.vo2_max {
             let calculator = VO2MaxCalculator::new(

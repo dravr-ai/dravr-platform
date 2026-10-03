@@ -181,6 +181,21 @@ pub fn classify_heuristic(sentence: &str) -> Option<ClaimCategory> {
                 "substrate",
                 "zone",
                 "ftp",
+                // Critical-power family in the five shipped locales. The
+                // prime symbols are left out: tokenized, "W′" is the bare
+                // "w" every wattage carries.
+                "critical power",
+                "critical speed",
+                "w prime",
+                "d prime",
+                "puissance critique",
+                "vitesse critique",
+                "potencia crítica",
+                "velocidad crítica",
+                "kritische leistung",
+                "kritische geschwindigkeit",
+                "potência crítica",
+                "velocidade crítica",
                 // French
                 "fc",
                 "fc moy",

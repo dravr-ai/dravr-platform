@@ -5,10 +5,14 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
+use chrono::NaiveDate;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::zones::{HrZoneSet, PowerZoneSet};
-use pierre_core::models::{Dossier, SportType, TenantId, UserPhysiologicalProfile};
+use pierre_core::models::{
+    Dossier, MeasurementKind, MetricProvenance, ProvenancedValue, SportType, TenantId,
+    UserPhysiologicalProfile,
+};
 use serde_json::Value;
 use sqlx::Row;
 use uuid::Uuid;
@@ -81,10 +85,16 @@ pub(crate) const UPSERT_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                 lactate_threshold_percentage, age, weight, fitness_level,
                 primary_sport, training_experience_years, ftp_watts,
                 threshold_pace_sec_per_km, hr_zones_json, power_zones_json,
-                threshold_hr, created_at, updated_at
+                threshold_hr,
+                critical_power_watts, critical_power_watts_kind, critical_power_watts_origin, critical_power_watts_as_of,
+                w_prime_joules, w_prime_joules_kind, w_prime_joules_origin, w_prime_joules_as_of,
+                critical_speed_mps, critical_speed_mps_kind, critical_speed_mps_origin, critical_speed_mps_as_of,
+                d_prime_meters, d_prime_meters_kind, d_prime_meters_origin, d_prime_meters_as_of,
+                created_at, updated_at
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-                    $16, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28,
+                    $29, $30, $31, $32, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ON CONFLICT (tenant_id, user_id) DO UPDATE SET
                 vo2_max = EXCLUDED.vo2_max,
                 resting_hr = EXCLUDED.resting_hr,
@@ -100,6 +110,22 @@ pub(crate) const UPSERT_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                 hr_zones_json = EXCLUDED.hr_zones_json,
                 power_zones_json = EXCLUDED.power_zones_json,
                 threshold_hr = EXCLUDED.threshold_hr,
+                critical_power_watts = EXCLUDED.critical_power_watts,
+                critical_power_watts_kind = EXCLUDED.critical_power_watts_kind,
+                critical_power_watts_origin = EXCLUDED.critical_power_watts_origin,
+                critical_power_watts_as_of = EXCLUDED.critical_power_watts_as_of,
+                w_prime_joules = EXCLUDED.w_prime_joules,
+                w_prime_joules_kind = EXCLUDED.w_prime_joules_kind,
+                w_prime_joules_origin = EXCLUDED.w_prime_joules_origin,
+                w_prime_joules_as_of = EXCLUDED.w_prime_joules_as_of,
+                critical_speed_mps = EXCLUDED.critical_speed_mps,
+                critical_speed_mps_kind = EXCLUDED.critical_speed_mps_kind,
+                critical_speed_mps_origin = EXCLUDED.critical_speed_mps_origin,
+                critical_speed_mps_as_of = EXCLUDED.critical_speed_mps_as_of,
+                d_prime_meters = EXCLUDED.d_prime_meters,
+                d_prime_meters_kind = EXCLUDED.d_prime_meters_kind,
+                d_prime_meters_origin = EXCLUDED.d_prime_meters_origin,
+                d_prime_meters_as_of = EXCLUDED.d_prime_meters_as_of,
                 updated_at = CURRENT_TIMESTAMP
             ";
 
@@ -109,7 +135,11 @@ pub(crate) const GET_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                    age, weight, fitness_level, primary_sport,
                    training_experience_years, ftp_watts,
                    threshold_pace_sec_per_km, hr_zones_json, power_zones_json,
-                   threshold_hr
+                   threshold_hr,
+                   critical_power_watts, critical_power_watts_kind, critical_power_watts_origin, critical_power_watts_as_of,
+                   w_prime_joules, w_prime_joules_kind, w_prime_joules_origin, w_prime_joules_as_of,
+                   critical_speed_mps, critical_speed_mps_kind, critical_speed_mps_origin, critical_speed_mps_as_of,
+                   d_prime_meters, d_prime_meters_kind, d_prime_meters_origin, d_prime_meters_as_of
             FROM user_physiological_profiles
             WHERE tenant_id = $1 AND user_id = $2
             LIMIT 1
@@ -125,6 +155,50 @@ pub(crate) struct ProfileBinds {
     pub(crate) ftp_watts: Option<i32>,
     pub(crate) hr_zones: Option<Value>,
     pub(crate) power_zones: Option<Value>,
+    pub(crate) critical_power_watts: ProvenanceBinds<i32>,
+    pub(crate) w_prime_joules: ProvenanceBinds<i32>,
+    pub(crate) critical_speed_mps: ProvenanceBinds<f64>,
+    pub(crate) d_prime_meters: ProvenanceBinds<f64>,
+}
+
+/// The four columns one [`ProvenancedValue`] is stored in: the value, its
+/// kind, its origin and its as-of date. All four are `None` together when the
+/// profile has no such value.
+pub(crate) struct ProvenanceBinds<V> {
+    pub(crate) value: Option<V>,
+    pub(crate) kind: Option<&'static str>,
+    pub(crate) origin: Option<String>,
+    pub(crate) as_of: Option<NaiveDate>,
+}
+
+/// Split a provenanced value into its four column binds, converting the value
+/// to its column type.
+fn provenance_binds<T, V>(
+    value: Option<&ProvenancedValue<T>>,
+    convert: impl Fn(&T) -> AppResult<V>,
+) -> AppResult<ProvenanceBinds<V>> {
+    let Some(v) = value else {
+        return Ok(ProvenanceBinds {
+            value: None,
+            kind: None,
+            origin: None,
+            as_of: None,
+        });
+    };
+    Ok(ProvenanceBinds {
+        value: Some(convert(&v.value)?),
+        kind: Some(v.provenance.kind.as_str()),
+        origin: v.provenance.origin.clone(),
+        as_of: v.provenance.as_of,
+    })
+}
+
+/// A whole-number value bound to an `INTEGER` column.
+fn integer_bind(field: &'static str) -> impl Fn(&u32) -> AppResult<i32> {
+    move |v| {
+        i32::try_from(*v)
+            .map_err(|_| AppError::invalid_input(format!("{field} is out of range: {v}")))
+    }
 }
 
 /// Serialize the fields whose column type is not the field's own type.
@@ -167,6 +241,16 @@ pub(crate) fn profile_binds(profile: &UserPhysiologicalProfile) -> AppResult<Pro
         ftp_watts,
         hr_zones,
         power_zones,
+        critical_power_watts: provenance_binds(
+            profile.critical_power_watts.as_ref(),
+            integer_bind("critical_power_watts"),
+        )?,
+        w_prime_joules: provenance_binds(
+            profile.w_prime_joules.as_ref(),
+            integer_bind("w_prime_joules"),
+        )?,
+        critical_speed_mps: provenance_binds(profile.critical_speed_mps.as_ref(), |v| Ok(*v))?,
+        d_prime_meters: provenance_binds(profile.d_prime_meters.as_ref(), |v| Ok(*v))?,
     })
 }
 
@@ -190,6 +274,7 @@ where
     i32: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     f64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Value: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    NaiveDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let fitness_level_str: String = row
         .try_get("fitness_level")
@@ -249,7 +334,76 @@ where
             .flatten(),
         hr_zones,
         power_zones,
+        critical_power_watts: provenanced_from_row(row, "critical_power_watts", |v: i32| {
+            u32::try_from(v).ok()
+        })?,
+        w_prime_joules: provenanced_from_row(row, "w_prime_joules", |v: i32| {
+            u32::try_from(v).ok()
+        })?,
+        critical_speed_mps: provenanced_from_row(row, "critical_speed_mps", Some::<f64>)?,
+        d_prime_meters: provenanced_from_row(row, "d_prime_meters", Some::<f64>)?,
     })
+}
+
+/// Read one provenanced value from the four columns
+/// [`ProvenanceBinds`] wrote: `<column>`, `<column>_kind`, `<column>_origin`
+/// and `<column>_as_of`.
+///
+/// A value with no kind, or a kind with no value, is refused rather than
+/// guessed: a value whose kind is unknown would otherwise reach the athlete
+/// with nothing to say whether it was measured.
+///
+/// # Errors
+/// Returns a database error when a column cannot be decoded, the value does
+/// not fit its type, or the value and its kind are not stored together.
+fn provenanced_from_row<R, V, T>(
+    row: &R,
+    column: &str,
+    convert: impl Fn(V) -> Option<T>,
+) -> AppResult<Option<ProvenancedValue<T>>>
+where
+    R: Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    V: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    NaiveDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let read = |e: sqlx::Error, which: &str| AppError::database(format!("read {which}: {e}"));
+    let kind_column = format!("{column}_kind");
+    let value: Option<V> = row.try_get(column).map_err(|e| read(e, column))?;
+    let kind: Option<String> = row
+        .try_get(kind_column.as_str())
+        .map_err(|e| read(e, &kind_column))?;
+    match (value, kind) {
+        (None, None) => Ok(None),
+        (Some(value), Some(kind)) => {
+            let value = convert(value).ok_or_else(|| {
+                AppError::database(format!("{column} is out of range for its type"))
+            })?;
+            let origin_column = format!("{column}_origin");
+            let as_of_column = format!("{column}_as_of");
+            let origin: Option<String> = row
+                .try_get(origin_column.as_str())
+                .map_err(|e| read(e, &origin_column))?;
+            let as_of: Option<NaiveDate> = row
+                .try_get(as_of_column.as_str())
+                .map_err(|e| read(e, &as_of_column))?;
+            Ok(Some(ProvenancedValue::new(
+                value,
+                MetricProvenance {
+                    kind: MeasurementKind::parse_lenient(&kind),
+                    origin,
+                    as_of,
+                },
+            )))
+        }
+        (Some(_), None) => Err(AppError::database(format!(
+            "{column} is stored without its kind (measured or estimated)"
+        ))),
+        (None, Some(_)) => Err(AppError::database(format!(
+            "{kind_column} is stored without a {column} value"
+        ))),
+    }
 }
 
 /// Emit the [`UserPhysiologicalProfileRepository`] and [`DossierRepository`]
@@ -291,6 +445,22 @@ macro_rules! impl_user_physiological_profile_repository {
                     .bind(binds.hr_zones)
                     .bind(binds.power_zones)
                     .bind(profile.threshold_hr.map(i32::from))
+                    .bind(binds.critical_power_watts.value)
+                    .bind(binds.critical_power_watts.kind)
+                    .bind(binds.critical_power_watts.origin)
+                    .bind(binds.critical_power_watts.as_of)
+                    .bind(binds.w_prime_joules.value)
+                    .bind(binds.w_prime_joules.kind)
+                    .bind(binds.w_prime_joules.origin)
+                    .bind(binds.w_prime_joules.as_of)
+                    .bind(binds.critical_speed_mps.value)
+                    .bind(binds.critical_speed_mps.kind)
+                    .bind(binds.critical_speed_mps.origin)
+                    .bind(binds.critical_speed_mps.as_of)
+                    .bind(binds.d_prime_meters.value)
+                    .bind(binds.d_prime_meters.kind)
+                    .bind(binds.d_prime_meters.origin)
+                    .bind(binds.d_prime_meters.as_of)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

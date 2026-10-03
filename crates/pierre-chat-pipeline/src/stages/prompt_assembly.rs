@@ -161,10 +161,12 @@ pub const TURN_DIRECTIVE: &str = "\n\n# This turn\n\
      their injury history, their event, or what they told you earlier in this conversation.\n\
      If you need data you do not have, call one tool and then answer.\n\
      If the athlete addressing you states a physiological value about themselves — FTP or \
-     threshold power, max or resting heart rate, lactate threshold, weight, VO2max — call \
+     threshold power, max or resting heart rate, lactate threshold, weight, VO2max, critical \
+     power or critical speed — call \
      `set_physiology` on that same turn before using it; it writes to their profile, so never \
      call it for a number someone else in the room stated. A value only quoted back is gone by \
-     the next conversation, and the zones derived from it never exist.\n\
+     the next conversation, and the zones derived from it never exist. A critical power or \
+     critical speed is saved as estimated unless they name the test that measured it.\n\
      Do not restate the question, and do not list assumptions in place of an answer.";
 
 /// Voice anchor for an agent-bound turn, placed just ahead of the

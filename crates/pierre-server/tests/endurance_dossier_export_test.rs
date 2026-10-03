@@ -7,9 +7,13 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use chrono::NaiveDate;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::zones::{HrZoneSet, PowerZoneSet};
-use pierre_core::models::{SportType, TenantId, UserPhysiologicalProfile};
+use pierre_core::models::{
+    MeasurementKind, MetricProvenance, ProvenancedValue, SportType, TenantId,
+    UserPhysiologicalProfile,
+};
 use pierre_database::backends::factory::Database;
 use pierre_database::DatabaseProvider;
 use pierre_test_support::db::create_test_db_with_key;
@@ -41,6 +45,10 @@ fn make_profile(user_id: Uuid) -> UserPhysiologicalProfile {
         threshold_pace_sec_per_km: Some(225.0),
         hr_zones: Some(HrZoneSet::new(120, 140, 160, 180, 200).unwrap()),
         power_zones: Some(PowerZoneSet::new(150, 200, 240, 280, 320).unwrap()),
+        critical_power_watts: None,
+        w_prime_joules: None,
+        critical_speed_mps: None,
+        d_prime_meters: None,
     }
 }
 
@@ -191,4 +199,44 @@ async fn dossier_serialises_to_endurance_conformant_json() {
     ] {
         assert!(obj.contains_key(key), "missing key: {key}");
     }
+}
+
+/// carnet#714: the dossier is how the agent reads physiology, so a critical
+/// power reaches it with its kind and origin in the same object — the agent
+/// cannot read the number without reading that it is an estimate.
+#[tokio::test]
+async fn dossier_carries_critical_power_with_its_provenance() {
+    let db = make_test_db().await;
+    let tenant_id = TenantId::generate();
+    let user_id = Uuid::new_v4();
+    let mut profile = make_profile(user_id);
+    profile.critical_power_watts = Some(ProvenancedValue::new(
+        312,
+        MetricProvenance {
+            kind: MeasurementKind::Estimated,
+            origin: Some("vekta".to_owned()),
+            as_of: NaiveDate::from_ymd_opt(2026, 10, 1),
+        },
+    ));
+    let repos = db.repositories();
+    repos
+        .user_physiological_profile
+        .upsert_user_physiological_profile(tenant_id, user_id, &profile)
+        .await
+        .expect("upsert");
+
+    let dossier = repos
+        .dossier
+        .compose_dossier(tenant_id, user_id)
+        .await
+        .expect("compose");
+    let json = serde_json::to_value(&dossier).expect("serialize");
+    assert_eq!(
+        json["physiology"]["critical_power_watts"],
+        serde_json::json!({"value": 312, "kind": "estimated", "origin": "vekta", "as_of": "2026-10-01"})
+    );
+    assert!(
+        json["physiology"].get("w_prime_joules").is_none(),
+        "an absent value is absent, not a zero"
+    );
 }

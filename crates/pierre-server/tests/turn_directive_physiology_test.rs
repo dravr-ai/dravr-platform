@@ -97,6 +97,19 @@ fn the_rule_covers_the_values_an_athlete_volunteers() {
     }
 }
 
+/// A critical power an athlete states is usually an app's model output, not a
+/// test result (carnet#714). The rule says so, or the agent saves "my CP is
+/// 300" as a measurement and later quotes it as one.
+#[test]
+fn a_stated_critical_power_is_saved_as_an_estimate_by_default() {
+    for term in ["critical power", "critical speed", "estimated"] {
+        assert!(
+            TURN_DIRECTIVE.contains(term),
+            "the directive must carry `{term}`: {TURN_DIRECTIVE}"
+        );
+    }
+}
+
 /// The capability itself, pinned separately: the directive is worthless if the
 /// tool is not on the chat surface at all.
 #[test]

@@ -711,7 +711,7 @@ export interface EstimateVo2maxParams {
 
 
 /**
- * Export the Endurance 'dossier.json' aggregate for the authenticated user — physiological profile (VO2max, FTP, threshold pace, fitness level), HR + power zones, goals, nutrition, and equipment slots — composed at read time from the underlying tables. Empty slots come back as `null` rather than 404, so agents can rely on the shape.
+ * Export the Endurance 'dossier.json' aggregate for the authenticated user — physiological profile (VO2max, FTP, threshold pace, fitness level, critical power, W′, critical speed, D′), HR + power zones, goals, nutrition, and equipment slots — composed at read time from the underlying tables. Critical power, W′, critical speed and D′ each carry `kind` (measured or estimated) and `origin`: quote an estimated value as an estimate attributed to its origin ('Vekta estimates your CP at 312 W'), never as a measurement. Empty slots come back as `null` rather than 404, so agents can rely on the shape.
  */
 export interface ExportDossierParams {}
 
@@ -1951,12 +1951,21 @@ export interface SetGoalParams {
 
 
 /**
- * Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, weight, age — so training load, zones and every personalised calculation use their real numbers instead of generic per-sport estimates. Training load is scored against what is saved here and nowhere else — power against the FTP, heart rate against the threshold heart rate (estimated from the lactate threshold and max HR when none is saved) — in analyze_training_load, get_training_history, calculate_fitness_score, generate_recommendations and the recovery tools. Call this whenever the athlete states one of these values, for example 'my FTP is 285' or 'my max HR is 190'. Pass only the fields they actually gave you; everything else keeps its stored value. The result is the profile re-read from storage after the write, so report back only what it contains.
+ * Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, weight, age — so training load, zones and every personalised calculation use their real numbers instead of generic per-sport estimates. Training load is scored against what is saved here and nowhere else — power against the FTP, heart rate against the threshold heart rate (estimated from the lactate threshold and max HR when none is saved) — in analyze_training_load, get_training_history, calculate_fitness_score, generate_recommendations and the recovery tools. Also saves critical power, W′, critical speed and D′, each with whether it was measured or estimated (measurement_kind) and by whom (measurement_source); an estimated value is quoted as an estimate with its source, never as a measurement. Call this whenever the athlete states one of these values, for example 'my FTP is 285' or 'my max HR is 190'. Pass only the fields they actually gave you; everything else keeps its stored value. The result is the profile re-read from storage after the write, so report back only what it contains.
  */
 export interface SetPhysiologyParams {
 
   /** Age in years. */
   age?: number;
+
+  /** Critical power (CP) in watts: the asymptote of the power-duration curve. Needs measurement_kind. */
+  critical_power_watts?: number;
+
+  /** Critical speed (CS) in metres per second, the running analogue of critical power: 4:00/km is 4.17. Needs measurement_kind. */
+  critical_speed_mps?: number;
+
+  /** D′ (D prime) in metres, the distance capacity above critical speed. Needs measurement_kind. */
+  d_prime_meters?: number;
 
   /** One of beginner, recreational, intermediate, advanced, elite, professional. */
   fitness_level?: string;
@@ -1969,6 +1978,15 @@ export interface SetPhysiologyParams {
 
   /** Maximum heart rate in bpm. Saving it together with resting_hr derives and stores the athlete's heart-rate zones. */
   max_hr?: number;
+
+  /** The day the critical power, W′, critical speed or D′ in this call was measured or estimated, as YYYY-MM-DD, when the athlete or the source gives it. */
+  measured_on?: string;
+
+  /** Required with critical_power_watts, w_prime_joules, critical_speed_mps or d_prime_meters, and applies to all of them in this call. measured only when the athlete names the test that produced the value (a lab test, a 3-min all-out test, time trials fitted to the model); estimated when an app or provider modelled it from training data, or the athlete gave the number without naming a test. One of: measured, estimated. */
+  measurement_kind?: string;
+
+  /** Who or what produced the critical power, W′, critical speed or D′ in this call: a provider or app (vekta, intervals.icu), a test (lab, 3-min all-out test), or athlete-reported when the athlete named no source. An estimate is quoted with it. */
+  measurement_source?: string;
 
   /** The athlete's main sport, e.g. run, ride, swim, trail_running. */
   primary_sport?: string;
@@ -1987,6 +2005,9 @@ export interface SetPhysiologyParams {
 
   /** VO2 max in ml/kg/min. */
   vo2_max?: number;
+
+  /** W′ (W prime) in joules, the work capacity above critical power: 20 kJ is 20000. Needs measurement_kind. */
+  w_prime_joules?: number;
 
   /** Body weight in kilograms. */
   weight?: number;

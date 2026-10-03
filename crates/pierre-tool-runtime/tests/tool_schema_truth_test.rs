@@ -29,13 +29,13 @@ use pierre_tool_runtime::implementations::analytics::{
 use pierre_tool_runtime::implementations::goals::{
     AnalyzeGoalFeasibilityTool, SetGoalTool, TrackProgressTool,
 };
-use pierre_tool_runtime::implementations::physiology::EstimateVo2maxTool;
 use pierre_tool_runtime::implementations::recipes::{SaveRecipeTool, ValidateRecipeTool};
 use pierre_tool_runtime::implementations::sleep::{
     AnalyzeSleepQualityTool, CalculateRecoveryScoreTool, OptimizeSleepScheduleTool,
     SuggestRestDayTool, TrackSleepTrendsTool,
 };
 use pierre_tool_runtime::implementations::sync::RefreshProviderDataTool;
+use pierre_tool_runtime::implementations::vo2max_estimate::EstimateVo2maxTool;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
 macro_rules! def {

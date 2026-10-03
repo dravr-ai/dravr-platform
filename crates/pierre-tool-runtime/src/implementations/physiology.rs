@@ -1,4 +1,4 @@
-// ABOUTME: set_physiology, the only production writer of user_physiological_profiles, and estimate_vo2max beside it
+// ABOUTME: set_physiology, the only production writer of user_physiological_profiles, and the physiology tool set
 // ABOUTME: Read-modify-write so saving one measurement never nulls the rest of the athlete's profile
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -32,6 +32,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use chrono::{NaiveDate, Utc};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use tracing::info;
@@ -42,21 +43,20 @@ use crate::implementations::configuration::{
     derive_hr_zone_set, derive_power_zone_set, validate_parameter_ranges,
     validate_parameter_relationships,
 };
-use crate::implementations::data_helpers::read_only_annotations;
 use crate::implementations::lactate_thresholds::EstimateLactateThresholdsTool;
 use crate::implementations::plan_flavour::RecommendPlanFlavourTool;
+use crate::implementations::vo2max_estimate::EstimateVo2maxTool;
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use crate::training_history_compute::{recompute_stored_history, HistoryRefresh};
-use dravr_cageux::algorithms::{VdotAlgorithm, Vo2maxAlgorithm};
-use dravr_cageux::config::intelligence::VO2MaxCalculator;
-use dravr_cageux::physiological_constants::physiological_defaults::DEFAULT_LACTATE_THRESHOLD;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
-use pierre_config::environment::TrainingZonesConfig;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{HrZoneSet, PowerZoneSet, SportType, TenantId, UserPhysiologicalProfile};
+use pierre_core::models::{
+    HrZoneSet, MeasurementKind, MetricProvenance, PowerZoneSet, ProvenancedValue, SportType,
+    TenantId, UserPhysiologicalProfile, ATHLETE_REPORTED_ORIGIN,
+};
 use pierre_fitness_compute::AthleteInputs;
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
@@ -98,6 +98,48 @@ const LACTATE_THRESHOLD_PCT_MIN: f64 = 0.65;
 /// Highest lactate threshold accepted, as a fraction of `VO2max`.
 const LACTATE_THRESHOLD_PCT_MAX: f64 = 0.95;
 
+/// Lowest critical power accepted, in watts. Below FTP's 50 W floor on
+/// purpose: patients with COPD measure 46 ± 22 W (Tiller 2023), and a
+/// floor at 50 would refuse half of such a cohort. Sources for every bound
+/// below: `Methodology/Intelligence/Critical Power and Critical Speed`.
+const CRITICAL_POWER_WATTS_MIN: u32 = 30;
+
+/// Highest critical power accepted, in watts — above the 402 ± 33 W elite
+/// track riders reach on a 3-minute all-out test (Bartram 2017).
+const CRITICAL_POWER_WATTS_MAX: u32 = 600;
+
+/// Smallest W′ accepted, in joules. Habitually active adults hold 15-16 kJ
+/// (Vanhatalo 2007), so anything below 2 kJ is a kilojoules-for-joules slip.
+const W_PRIME_JOULES_MIN: u32 = 2_000;
+
+/// Largest W′ accepted, in joules — well above the 24 ± 4 kJ of elite track
+/// endurance riders (Bartram 2017).
+const W_PRIME_JOULES_MAX: u32 = 60_000;
+
+/// Slowest critical speed accepted, in metres per second (11:07/km).
+const CRITICAL_SPEED_MPS_MIN: f64 = 1.5;
+
+/// Fastest critical speed accepted, in metres per second (2:23/km). Critical
+/// speed sits below 5000 m race speed, and the world record is about
+/// 6.6 m/s; Kipchoge's is 6.04 m/s (Jones & Vanhatalo 2017).
+const CRITICAL_SPEED_MPS_MAX: f64 = 7.0;
+
+/// Smallest D′ accepted, in metres.
+const D_PRIME_METERS_MIN: f64 = 30.0;
+
+/// Largest D′ accepted, in metres. Elite marathoners reach 616 m (Jones &
+/// Vanhatalo 2017, Table 1) and middle-distance runners plausibly more.
+const D_PRIME_METERS_MAX: f64 = 1_000.0;
+
+/// Longest `measurement_source` accepted, in characters: room for "3-min
+/// all-out test on the velodrome", short of a pasted paragraph.
+const MEASUREMENT_SOURCE_MAX_CHARS: usize = 80;
+
+/// The fields one call's `measurement_kind`, `measurement_source` and
+/// `measured_on` describe, as the error messages name them.
+const PROVENANCED_FIELDS: &str =
+    "critical_power_watts, w_prime_joules, critical_speed_mps or d_prime_meters";
+
 /// Annotation set for the physiology write.
 fn write_annotations() -> ToolAnnotations {
     ToolAnnotations {
@@ -126,7 +168,7 @@ pub(super) fn optional_number(args: &Value, key: &str) -> AppResult<Option<f64>>
 /// Read an optional whole number, tolerating the `285.0` an LLM emits where
 /// the schema says integer — the same leniency `commitment_create` needed
 /// after strict rejection killed live calls.
-fn optional_whole_number(args: &Value, key: &str) -> AppResult<Option<u64>> {
+pub(super) fn optional_whole_number(args: &Value, key: &str) -> AppResult<Option<u64>> {
     let Some(n) = optional_number(args, key)? else {
         return Ok(None);
     };
@@ -159,6 +201,72 @@ fn parse_fitness_level(raw: &str) -> AppResult<FitnessLevel> {
     }
 }
 
+/// Parse `measurement_kind`. Strict: a kind the tool cannot read must not be
+/// guessed into a measurement.
+fn parse_measurement_kind(raw: &str) -> AppResult<MeasurementKind> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "measured" => Ok(MeasurementKind::Measured),
+        "estimated" => Ok(MeasurementKind::Estimated),
+        other => Err(AppError::invalid_input(format!(
+            "measurement_kind must be measured or estimated; got '{other}'"
+        ))),
+    }
+}
+
+/// Parse the provenance one call gives its critical-power family values:
+/// `None` when the call names none of `measurement_kind`,
+/// `measurement_source` or `measured_on`.
+///
+/// # Errors
+/// Returns an invalid-input error when `measurement_source` or `measured_on`
+/// arrives without `measurement_kind`, the source is too long, or the date is
+/// not a `YYYY-MM-DD` day up to today.
+fn provenance_from_args(args: &Value) -> AppResult<Option<MetricProvenance>> {
+    let kind = args
+        .get("measurement_kind")
+        .and_then(Value::as_str)
+        .map(parse_measurement_kind)
+        .transpose()?;
+    let origin = args
+        .get("measurement_source")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    if let Some(ref source) = origin {
+        if source.chars().count() > MEASUREMENT_SOURCE_MAX_CHARS {
+            return Err(AppError::invalid_input(format!(
+                "measurement_source must be at most {MEASUREMENT_SOURCE_MAX_CHARS} characters"
+            )));
+        }
+    }
+    let as_of = args
+        .get("measured_on")
+        .and_then(Value::as_str)
+        .map(|raw| {
+            NaiveDate::parse_from_str(raw.trim(), "%Y-%m-%d").map_err(|_| {
+                AppError::invalid_input(format!(
+                    "measured_on must be a date as YYYY-MM-DD; got '{raw}'"
+                ))
+            })
+        })
+        .transpose()?;
+    if let Some(day) = as_of {
+        if day > Utc::now().date_naive() {
+            return Err(AppError::invalid_input(format!(
+                "measured_on cannot be in the future; got {day}"
+            )));
+        }
+    }
+    match kind {
+        Some(kind) => Ok(Some(MetricProvenance { kind, origin, as_of })),
+        None if origin.is_some() || as_of.is_some() => Err(AppError::invalid_input(
+            "measurement_source and measured_on describe a measurement_kind; pass measurement_kind too",
+        )),
+        None => Ok(None),
+    }
+}
+
 /// The fields one `set_physiology` call carries. Every field is optional; the
 /// tool rejects a call that sets none of them.
 struct PhysiologyUpdate {
@@ -174,6 +282,13 @@ struct PhysiologyUpdate {
     fitness_level: Option<FitnessLevel>,
     primary_sport: Option<SportType>,
     training_experience_years: Option<u8>,
+    critical_power_watts: Option<u32>,
+    w_prime_joules: Option<u32>,
+    critical_speed_mps: Option<f64>,
+    d_prime_meters: Option<f64>,
+    /// How every critical-power family value in this call was obtained.
+    /// Present exactly when one of them is.
+    provenance: Option<MetricProvenance>,
 }
 
 impl PhysiologyUpdate {
@@ -237,6 +352,45 @@ impl PhysiologyUpdate {
             .and_then(Value::as_str)
             .map(|s| SportType::from_provider_string(s, None));
 
+        let critical_power_watts = optional_whole_number(args, "critical_power_watts")?
+            .map(|v| {
+                u32::try_from(v).map_err(|_| {
+                    AppError::invalid_input(format!("critical_power_watts is out of range: {v}"))
+                })
+            })
+            .transpose()?;
+        let w_prime_joules = optional_whole_number(args, "w_prime_joules")?
+            .map(|v| {
+                u32::try_from(v).map_err(|_| {
+                    AppError::invalid_input(format!("w_prime_joules is out of range: {v}"))
+                })
+            })
+            .transpose()?;
+        let critical_speed_mps = optional_number(args, "critical_speed_mps")?;
+        let d_prime_meters = optional_number(args, "d_prime_meters")?;
+        // A critical-power family value never lands without saying whether it
+        // was measured: that kind is what keeps a modelled number from
+        // reaching the athlete as a measurement. A kind with nothing to
+        // describe is refused too, so no caller believes it qualified the FTP.
+        let provenance = provenance_from_args(args)?;
+        let carries_provenanced_value = critical_power_watts.is_some()
+            || w_prime_joules.is_some()
+            || critical_speed_mps.is_some()
+            || d_prime_meters.is_some();
+        match (carries_provenanced_value, provenance.is_some()) {
+            (true, false) => {
+                return Err(AppError::invalid_input(format!(
+                    "measurement_kind is required with {PROVENANCED_FIELDS}: measured only when the athlete named the test that produced it, estimated otherwise"
+                )));
+            }
+            (false, true) => {
+                return Err(AppError::invalid_input(format!(
+                    "measurement_kind describes {PROVENANCED_FIELDS}, and this call sets none of them"
+                )));
+            }
+            _ => {}
+        }
+
         Ok(Self {
             ftp_watts,
             threshold_pace_sec_per_km: optional_number(args, "threshold_pace_sec_per_km")?,
@@ -250,6 +404,11 @@ impl PhysiologyUpdate {
             fitness_level,
             primary_sport,
             training_experience_years,
+            critical_power_watts,
+            w_prime_joules,
+            critical_speed_mps,
+            d_prime_meters,
+            provenance,
         })
     }
 
@@ -295,6 +454,18 @@ impl PhysiologyUpdate {
         if self.training_experience_years.is_some() {
             names.push("training_experience_years");
         }
+        if self.critical_power_watts.is_some() {
+            names.push("critical_power_watts");
+        }
+        if self.w_prime_joules.is_some() {
+            names.push("w_prime_joules");
+        }
+        if self.critical_speed_mps.is_some() {
+            names.push("critical_speed_mps");
+        }
+        if self.d_prime_meters.is_some() {
+            names.push("d_prime_meters");
+        }
         names
     }
 
@@ -337,6 +508,33 @@ impl PhysiologyUpdate {
         if let Some(v) = self.training_experience_years {
             profile.training_experience_years = Some(v);
         }
+        // `from_args` guarantees a provenance whenever one of these is set.
+        if let Some(ref provenance) = self.provenance {
+            overlay(
+                &mut profile.critical_power_watts,
+                self.critical_power_watts,
+                provenance,
+            );
+            overlay(&mut profile.w_prime_joules, self.w_prime_joules, provenance);
+            overlay(
+                &mut profile.critical_speed_mps,
+                self.critical_speed_mps,
+                provenance,
+            );
+            overlay(&mut profile.d_prime_meters, self.d_prime_meters, provenance);
+        }
+    }
+}
+
+/// Replace a stored provenanced value when the call supplies a new one,
+/// pairing it with the call's provenance; leave it untouched otherwise.
+fn overlay<T>(
+    stored: &mut Option<ProvenancedValue<T>>,
+    supplied: Option<T>,
+    provenance: &MetricProvenance,
+) {
+    if let Some(value) = supplied {
+        *stored = Some(ProvenancedValue::new(value, provenance.clone()));
     }
 }
 
@@ -379,6 +577,38 @@ fn validate_uncovered_ranges(profile: &UserPhysiologicalProfile, errors: &mut Ve
         if !(LACTATE_THRESHOLD_PCT_MIN..=LACTATE_THRESHOLD_PCT_MAX).contains(&pct) {
             errors.push(format!(
                 "lactate_threshold_percentage must be between {LACTATE_THRESHOLD_PCT_MIN} and {LACTATE_THRESHOLD_PCT_MAX} (fraction of VO2max), got {pct:.2}"
+            ));
+        }
+    }
+    if let Some(ref cp) = profile.critical_power_watts {
+        if !(CRITICAL_POWER_WATTS_MIN..=CRITICAL_POWER_WATTS_MAX).contains(&cp.value) {
+            errors.push(format!(
+                "critical_power_watts must be between {CRITICAL_POWER_WATTS_MIN} and {CRITICAL_POWER_WATTS_MAX} W, got {}",
+                cp.value
+            ));
+        }
+    }
+    if let Some(ref w_prime) = profile.w_prime_joules {
+        if !(W_PRIME_JOULES_MIN..=W_PRIME_JOULES_MAX).contains(&w_prime.value) {
+            errors.push(format!(
+                "w_prime_joules must be between {W_PRIME_JOULES_MIN} and {W_PRIME_JOULES_MAX} J (W′ is in joules: 20 kJ is 20000), got {}",
+                w_prime.value
+            ));
+        }
+    }
+    if let Some(ref cs) = profile.critical_speed_mps {
+        if !(CRITICAL_SPEED_MPS_MIN..=CRITICAL_SPEED_MPS_MAX).contains(&cs.value) {
+            errors.push(format!(
+                "critical_speed_mps must be between {CRITICAL_SPEED_MPS_MIN} and {CRITICAL_SPEED_MPS_MAX} m/s (4:00/km is 4.17), got {:.2}",
+                cs.value
+            ));
+        }
+    }
+    if let Some(ref d_prime) = profile.d_prime_meters {
+        if !(D_PRIME_METERS_MIN..=D_PRIME_METERS_MAX).contains(&d_prime.value) {
+            errors.push(format!(
+                "d_prime_meters must be between {D_PRIME_METERS_MIN} and {D_PRIME_METERS_MAX} m, got {:.1}",
+                d_prime.value
             ));
         }
     }
@@ -468,6 +698,10 @@ fn profile_payload(profile: &UserPhysiologicalProfile) -> PhysiologyProfile {
         training_experience_years: profile.training_experience_years,
         hr_zones: profile.hr_zones,
         power_zones: profile.power_zones,
+        critical_power_watts: profile.critical_power_watts.clone(),
+        w_prime_joules: profile.w_prime_joules.clone(),
+        critical_speed_mps: profile.critical_speed_mps.clone(),
+        d_prime_meters: profile.d_prime_meters.clone(),
     }
 }
 
@@ -515,6 +749,20 @@ pub struct PhysiologyProfile {
     /// Power zone boundaries. Absent for an athlete with no power meter or
     /// saved FTP.
     pub power_zones: Option<PowerZoneSet>,
+    /// Critical power, in watts, with whether it was measured or estimated
+    /// and by whom. Quote an estimated value as an estimate, attributed to
+    /// its origin ("Vekta estimates your CP at 312 W"), never as a
+    /// measurement.
+    pub critical_power_watts: Option<ProvenancedValue<u32>>,
+    /// W′, in joules, with its provenance. Quoted the same way as
+    /// `critical_power_watts`.
+    pub w_prime_joules: Option<ProvenancedValue<u32>>,
+    /// Critical speed, in metres per second, with its provenance. Quoted the
+    /// same way as `critical_power_watts`.
+    pub critical_speed_mps: Option<ProvenancedValue<f64>>,
+    /// D′, in metres, with its provenance. Quoted the same way as
+    /// `critical_power_watts`.
+    pub d_prime_meters: Option<ProvenancedValue<f64>>,
 }
 
 /// What `set_physiology` answers with.
@@ -533,37 +781,6 @@ pub struct SetPhysiologyResult {
     /// (`get_training_history`): recomputed when it moved a number training
     /// load is scored against.
     pub training_history: HistoryRefresh,
-}
-
-/// What `estimate_vo2max` answers with.
-///
-/// Deliberately does not save. The estimate comes off a published equation
-/// fitted on a field test, and an athlete should confirm a number before it
-/// starts shaping their zones — which is what `to_store` says to do.
-#[derive(Debug, Serialize, schemars::JsonSchema)]
-pub struct EstimateVo2maxResult {
-    /// Which field test the estimate came from.
-    pub method: String,
-    /// The estimate, in ml/kg/min, rounded to one decimal.
-    pub vo2max_ml_kg_min: f64,
-    /// The equation used, named so the number is auditable.
-    pub formula: String,
-    /// Which inputs were taken from the stored profile rather than given in
-    /// the call, by name — so the athlete can see what the estimate assumed.
-    pub defaults_from_profile: Vec<&'static str>,
-    /// The `VO2max` already on the profile, for comparison. Absent when none
-    /// is stored.
-    pub stored_vo2_max: Option<f64>,
-    /// The threshold pace this estimate implies, in seconds per kilometre —
-    /// the running pace at the share of velocity-at-`VO2max` the training
-    /// zones config states, which is what `set_physiology` stores as
-    /// `threshold_pace_sec_per_km`. Absent when the estimate does not give a
-    /// usable velocity.
-    pub implied_threshold_pace_sec_per_km: Option<f64>,
-    /// Always false: this tool estimates, it does not write.
-    pub saved: bool,
-    /// What to do with the number once the athlete confirms it.
-    pub to_store: String,
 }
 
 // ============================================================================
@@ -623,6 +840,31 @@ impl SetPhysiologyTool {
                 "integer",
                 "Years of structured training experience.",
             ),
+            (
+                "critical_power_watts",
+                "integer",
+                "Critical power (CP) in watts: the asymptote of the power-duration curve. Needs measurement_kind.",
+            ),
+            (
+                "w_prime_joules",
+                "integer",
+                "W′ (W prime) in joules, the work capacity above critical power: 20 kJ is 20000. Needs measurement_kind.",
+            ),
+            (
+                "critical_speed_mps",
+                "number",
+                "Critical speed (CS) in metres per second, the running analogue of critical power: 4:00/km is 4.17. Needs measurement_kind.",
+            ),
+            (
+                "d_prime_meters",
+                "number",
+                "D′ (D prime) in metres, the distance capacity above critical speed. Needs measurement_kind.",
+            ),
+            (
+                "measured_on",
+                "string",
+                "The day the critical power, W′, critical speed or D′ in this call was measured or estimated, as YYYY-MM-DD, when the athlete or the source gives it.",
+            ),
         ] {
             properties.insert(
                 name.to_owned(),
@@ -633,6 +875,26 @@ impl SetPhysiologyTool {
                 },
             );
         }
+        properties.insert(
+            "measurement_source".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(format!(
+                    "Who or what produced the critical power, W′, critical speed or D′ in this call: a provider or app (vekta, intervals.icu), a test (lab, 3-min all-out test), or {ATHLETE_REPORTED_ORIGIN} when the athlete named no source. An estimate is quoted with it."
+                )),
+                ..Default::default()
+            },
+        );
+        properties.insert(
+            "measurement_kind".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "Required with critical_power_watts, w_prime_joules, critical_speed_mps or d_prime_meters, and applies to all of them in this call. measured only when the athlete names the test that produced the value (a lab test, a 3-min all-out test, time trials fitted to the model); estimated when an app or provider modelled it from training data, or the athlete gave the number without naming a test. One of: measured, estimated.".to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
         properties
     }
 }
@@ -650,7 +912,7 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
         };
         answers_with::<SetPhysiologyResult>(tool_definition(
             "set_physiology",
-            "Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, weight, age — so training load, zones and every personalised calculation use their real numbers instead of generic per-sport estimates. Training load is scored against what is saved here and nowhere else — power against the FTP, heart rate against the threshold heart rate (estimated from the lactate threshold and max HR when none is saved) — in analyze_training_load, get_training_history, calculate_fitness_score, generate_recommendations and the recovery tools. Call this whenever the athlete states one of these values, for example 'my FTP is 285' or 'my max HR is 190'. Pass only the fields they actually gave you; everything else keeps its stored value. The result is the profile re-read from storage after the write, so report back only what it contains.",
+            "Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, weight, age — so training load, zones and every personalised calculation use their real numbers instead of generic per-sport estimates. Training load is scored against what is saved here and nowhere else — power against the FTP, heart rate against the threshold heart rate (estimated from the lactate threshold and max HR when none is saved) — in analyze_training_load, get_training_history, calculate_fitness_score, generate_recommendations and the recovery tools. Also saves critical power, W′, critical speed and D′, each with whether it was measured or estimated (measurement_kind) and by whom (measurement_source); an estimated value is quoted as an estimate with its source, never as a measurement. Call this whenever the athlete states one of these values, for example 'my FTP is 285' or 'my max HR is 190'. Pass only the fields they actually gave you; everything else keeps its stored value. The result is the profile re-read from storage after the write, so report back only what it contains.",
             schema,
             Some(write_annotations()),
         ))
@@ -683,7 +945,7 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
             let updated_fields = update.field_names();
             if updated_fields.is_empty() {
                 return Err(AppError::invalid_input(
-                    "set_physiology needs at least one measurement: ftp_watts, threshold_pace_sec_per_km, max_hr, resting_hr, threshold_hr, lactate_threshold_percentage, vo2_max, weight, age, fitness_level, primary_sport or training_experience_years",
+                    "set_physiology needs at least one measurement: ftp_watts, threshold_pace_sec_per_km, max_hr, resting_hr, threshold_hr, lactate_threshold_percentage, vo2_max, weight, age, fitness_level, primary_sport, training_experience_years, critical_power_watts, w_prime_joules, critical_speed_mps or d_prime_meters",
                 ));
             }
 
@@ -772,384 +1034,6 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
     }
 }
 
-// ============================================================================
-// EstimateVo2maxTool
-// ============================================================================
-
-/// Estimates `VO₂max` from a field test the athlete describes in conversation.
-///
-/// The five estimators in `dravr_cageux::algorithms::vo2max` — Cooper,
-/// Rockport, Åstrand-Ryhming, Daniels' VDOT and a pace ratio — each need a
-/// measured test result that no provider capture path supplies: a 12-minute
-/// run distance, a timed mile walk with the finishing heart rate, steady-state
-/// ergometer watts. Those are things an athlete *says*, so this is the capture
-/// path. It estimates and reports; it does not write. Storing the number is
-/// `set_physiology`'s job, which keeps one writer for the profile and lets the
-/// agent confirm the value with the athlete before it becomes the basis for
-/// every personalised calculation.
-///
-/// Body weight and age default to the stored profile when the athlete does
-/// not restate them, and the response names which inputs came from there so
-/// the agent can say so.
-pub struct EstimateVo2maxTool;
-
-/// The field-test methods the tool accepts, in the spelling the schema
-/// advertises. Each maps to exactly one [`Vo2maxAlgorithm`] variant.
-const VO2MAX_METHODS: [&str; 6] = [
-    "cooper_test",
-    "rockport_walk",
-    "astrand_ryhming",
-    "from_pace",
-    "from_vdot",
-    "race_result",
-];
-
-impl EstimateVo2maxTool {
-    fn properties() -> BTreeMap<String, PropertySchema> {
-        let mut properties = BTreeMap::new();
-        properties.insert(
-            "method".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some(
-                    "Which field test the athlete did — one of cooper_test, rockport_walk, astrand_ryhming, from_pace, from_vdot, race_result. cooper_test: distance run in 12 minutes. \
-                     rockport_walk: a timed one-mile walk with heart rate at the finish. \
-                     astrand_ryhming: steady-state cycling at a known power with heart rate. \
-                     from_pace: a hard 3–8 minute speed and an easy speed. \
-                     from_vdot: a VDOT the athlete already knows. \
-                     race_result: a race or time trial the athlete ran — its distance and its time."
-                        .to_owned(),
-                ),
-                ..Default::default()
-            },
-        );
-        for (name, property_type, description) in [
-            (
-                "distance_meters",
-                "number",
-                "cooper_test: metres covered in 12 minutes on flat ground. race_result: the race distance in metres (5 km is 5000).",
-            ),
-            (
-                "time_seconds",
-                "number",
-                "rockport_walk: seconds taken to walk one mile (1,609 m) as fast as possible. race_result: the finishing time in seconds (19:30 is 1170).",
-            ),
-            (
-                "heart_rate",
-                "number",
-                "rockport_walk: heart rate in bpm immediately at the finish. astrand_ryhming: steady-state heart rate during the ride, 120–170 bpm.",
-            ),
-            (
-                "power_watts",
-                "number",
-                "astrand_ryhming: the steady power held on the ergometer, in watts.",
-            ),
-            (
-                "weight_kg",
-                "number",
-                "Body weight in kilograms. rockport_walk and astrand_ryhming need it; when omitted the stored profile weight is used.",
-            ),
-            (
-                "age",
-                "integer",
-                "Age in years. rockport_walk needs it; when omitted the stored profile age is used.",
-            ),
-            (
-                "max_speed_ms",
-                "number",
-                "from_pace: the fastest speed in metres per second the athlete can hold for 3–8 minutes.",
-            ),
-            (
-                "recovery_speed_ms",
-                "number",
-                "from_pace: the athlete's easy or recovery speed in metres per second.",
-            ),
-            (
-                "vdot",
-                "number",
-                "from_vdot: the VDOT value, 30–85. It is already VO2max in ml/kg/min, so this reports it after range-checking.",
-            ),
-        ] {
-            properties.insert(
-                name.to_owned(),
-                PropertySchema {
-                    property_type: property_type.to_owned(),
-                    description: Some(description.to_owned()),
-                    ..Default::default()
-                },
-            );
-        }
-        properties.insert(
-            "gender".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some(
-                    "rockport_walk and astrand_ryhming: the sex the published equation was fitted on, female or male."
-                        .to_owned(),
-                ),
-                ..Default::default()
-            },
-        );
-        properties
-    }
-
-    /// Read a required number for the named method, so the error names both
-    /// the field and the test it belongs to.
-    fn required_number(args: &Value, key: &str, method: &str) -> AppResult<f64> {
-        optional_number(args, key)?
-            .ok_or_else(|| AppError::invalid_input(format!("{method} needs '{key}'")))
-    }
-
-    /// Weight in kg from the call, else from the profile, recording the source.
-    fn weight_kg(
-        args: &Value,
-        profile: Option<&UserPhysiologicalProfile>,
-        defaults: &mut Vec<&'static str>,
-        method: &str,
-    ) -> AppResult<f64> {
-        if let Some(w) = optional_number(args, "weight_kg")? {
-            return Ok(w);
-        }
-        if let Some(w) = profile.and_then(|p| p.weight) {
-            defaults.push("weight_kg");
-            return Ok(w);
-        }
-        Err(AppError::invalid_input(format!(
-            "{method} needs 'weight_kg' — none was given and the profile has no weight; ask the athlete or save it with set_physiology"
-        )))
-    }
-
-    /// Age in years from the call, else from the profile, recording the source.
-    fn age(
-        args: &Value,
-        profile: Option<&UserPhysiologicalProfile>,
-        defaults: &mut Vec<&'static str>,
-    ) -> AppResult<u8> {
-        let years = match optional_whole_number(args, "age")? {
-            Some(a) => a,
-            None => match profile.and_then(|p| p.age) {
-                Some(a) => {
-                    defaults.push("age");
-                    u64::from(a)
-                }
-                None => {
-                    return Err(AppError::invalid_input(
-                        "rockport_walk needs 'age' — none was given and the profile has no age; ask the athlete or save it with set_physiology",
-                    ))
-                }
-            },
-        };
-        u8::try_from(years)
-            .map_err(|_| AppError::invalid_input(format!("'age' must be at most 255, got {years}")))
-    }
-
-    /// The published equations were fitted per sex; cageux encodes it as
-    /// 0 = female, 1 = male.
-    fn gender(args: &Value, method: &str) -> AppResult<u8> {
-        match args.get("gender").and_then(Value::as_str) {
-            Some(g) if g.eq_ignore_ascii_case("female") => Ok(0),
-            Some(g) if g.eq_ignore_ascii_case("male") => Ok(1),
-            Some(other) => Err(AppError::invalid_input(format!(
-                "'gender' must be female or male, got '{other}'"
-            ))),
-            None => Err(AppError::invalid_input(format!(
-                "{method} needs 'gender' (female or male) — the published equation is fitted per sex"
-            ))),
-        }
-    }
-
-    /// Build the estimator from the call, filling weight and age from the
-    /// profile where the athlete did not restate them.
-    fn algorithm(
-        args: &Value,
-        profile: Option<&UserPhysiologicalProfile>,
-        defaults: &mut Vec<&'static str>,
-    ) -> AppResult<(String, Vo2maxAlgorithm)> {
-        let method = args
-            .get("method")
-            .and_then(Value::as_str)
-            .map(str::to_ascii_lowercase)
-            .ok_or_else(|| {
-                AppError::invalid_input(format!(
-                    "'method' is required: one of {}",
-                    VO2MAX_METHODS.join(", ")
-                ))
-            })?;
-        let algorithm = match method.as_str() {
-            "cooper_test" => Vo2maxAlgorithm::CooperTest {
-                distance_meters: Self::required_number(args, "distance_meters", &method)?,
-            },
-            "rockport_walk" => Vo2maxAlgorithm::RockportWalk {
-                weight_kg: Self::weight_kg(args, profile, defaults, &method)?,
-                age: Self::age(args, profile, defaults)?,
-                gender: Self::gender(args, &method)?,
-                time_seconds: Self::required_number(args, "time_seconds", &method)?,
-                heart_rate: Self::required_number(args, "heart_rate", &method)?,
-            },
-            "astrand_ryhming" => Vo2maxAlgorithm::AstrandRyhming {
-                gender: Self::gender(args, &method)?,
-                heart_rate: Self::required_number(args, "heart_rate", &method)?,
-                power_watts: Self::required_number(args, "power_watts", &method)?,
-                weight_kg: Self::weight_kg(args, profile, defaults, &method)?,
-            },
-            "from_pace" => Vo2maxAlgorithm::FromPace {
-                max_speed_ms: Self::required_number(args, "max_speed_ms", &method)?,
-                recovery_speed_ms: Self::required_number(args, "recovery_speed_ms", &method)?,
-            },
-            "from_vdot" => Vo2maxAlgorithm::FromVdot {
-                vdot: Self::required_number(args, "vdot", &method)?,
-            },
-            // A race the athlete actually ran is a field test with a much
-            // longer history than the rest: the distance and the time give
-            // VDOT through Daniels' own curve, and VDOT is already a method
-            // here. Nothing is invented in between.
-            "race_result" => {
-                let distance_meters = Self::required_number(args, "distance_meters", &method)?;
-                let time_seconds = Self::required_number(args, "time_seconds", &method)?;
-                let vdot = VdotAlgorithm::Daniels
-                    .calculate_vdot(distance_meters, time_seconds)
-                    .map_err(|e| {
-                        AppError::invalid_input(format!(
-                            "race_result: {distance_meters:.0} m in {time_seconds:.0} s does not \
-                             give a usable VDOT: {e}"
-                        ))
-                    })?;
-                Vo2maxAlgorithm::FromVdot { vdot }
-            }
-            other => {
-                return Err(AppError::invalid_input(format!(
-                    "unknown method '{other}': expected one of {}",
-                    VO2MAX_METHODS.join(", ")
-                )))
-            }
-        };
-        Ok((method, algorithm))
-    }
-}
-
-#[async_trait]
-impl McpTool<dyn ToolRuntime> for EstimateVo2maxTool {
-    fn definition(&self) -> Tool {
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(Self::properties()),
-            required: Some(vec!["method".to_owned()]),
-            ..Default::default()
-        };
-        answers_with::<EstimateVo2maxResult>(tool_definition(
-            "estimate_vo2max",
-            "Estimate the athlete's VO2max in ml/kg/min from a field test they describe — a Cooper 12-minute run distance, a Rockport timed mile walk with finishing heart rate, an Astrand-Ryhming steady-state ride at a known power, a hard-versus-easy pace ratio, a VDOT they already know, or a race or time trial they ran (its distance and time). Call it when the athlete reports a test result such as 'I ran 2.8 km in 12 minutes' or 'I walked a mile in 13 minutes and my heart rate was 140'. Body weight and age come from the stored profile when not restated, and the result says which inputs were defaulted. This only estimates: to keep the number, call set_physiology with vo2_max after the athlete confirms it.",
-            schema,
-            Some(read_only_annotations()),
-        ))
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        // Reads the stored profile for weight and age defaults and echoes
-        // `stored_vo2_max`, so it discloses identity data. Runtime
-        // requirements alone resolve to an empty scope list, which the
-        // read-only default grant satisfies.
-        ToolCapabilities::REQUIRES_AUTH
-            | ToolCapabilities::REQUIRES_TENANT
-            | ToolCapabilities::READS_DATA
-            | ToolCapabilities::PROFILE
-    }
-
-    async fn execute(
-        &self,
-        state: &Arc<dyn ToolRuntime>,
-        ctx: &ToolContext,
-        args: Value,
-    ) -> ToolResponse {
-        let context = ToolExecutionContext::from_tronc(state, ctx);
-        let result: AppResult<ToolResult> = async move {
-            let tenant_id = TenantId::from_uuid(context.require_tenant()?);
-            let user_id = context.user_id;
-
-            let profile = context
-                .resources
-                .repos()
-                .user_physiological_profile
-                .get_user_physiological_profile(tenant_id, user_id)
-                .await?;
-
-            let mut defaults_from_profile: Vec<&'static str> = Vec::new();
-            let (method, algorithm) =
-                Self::algorithm(&args, profile.as_ref(), &mut defaults_from_profile)?;
-
-            // Every failure the estimator can raise is an input outside the
-            // range the published equation was fitted on, so it is the
-            // athlete's number to correct, not a server fault.
-            let vo2max = algorithm
-                .estimate_vo2max()
-                .map_err(|e| AppError::invalid_input(format!("cannot estimate VO2max: {e}")))?;
-
-            info!(
-                user_id = %user_id,
-                tenant_id = %tenant_id,
-                method = %method,
-                // The method and which inputs were defaulted, never the
-                // measurements themselves — they are health data.
-                defaults = %defaults_from_profile.join(","),
-                "estimated VO2max from a field test"
-            );
-
-            ok_typed(
-                "estimate_vo2max",
-                EstimateVo2maxResult {
-                    method,
-                    vo2max_ml_kg_min: (vo2max * 10.0).round() / 10.0,
-                    formula: algorithm.description(),
-                    defaults_from_profile,
-                    stored_vo2_max: profile.as_ref().and_then(|p| p.vo2_max),
-                    implied_threshold_pace_sec_per_km: implied_threshold_pace(
-                        vo2max,
-                        profile
-                            .as_ref()
-                            .and_then(|p| p.lactate_threshold_percentage)
-                            .unwrap_or(DEFAULT_LACTATE_THRESHOLD),
-                        &context.resources.config().training_zones,
-                    ),
-                    saved: false,
-                    to_store:
-                        "call set_physiology with vo2_max, and with threshold_pace_sec_per_km when \
-                         the athlete confirms the implied pace too"
-                            .to_owned(),
-                },
-            )
-        }
-        .await;
-        tool_result_to_response(result)
-    }
-}
-
-/// The threshold pace an estimated `VO2max` implies, in seconds per
-/// kilometre.
-///
-/// Read off cageux's [`VO2MaxCalculator::calculate_pace_zones`], the function
-/// the pace zones are cut by: threshold pace is the pace the athlete's lactate
-/// threshold (`lactate_threshold`, a fraction of `VO2max`) puts them at on
-/// Daniels' curve, and the threshold zone's slow edge is a configured multiple
-/// of it. So a pace offered here and a pace drawn in the zones cannot
-/// disagree. `None` when the pace is not usable — an estimate that low
-/// describes no running pace, and inventing one would be worse than saying
-/// nothing.
-fn implied_threshold_pace(
-    vo2max: f64,
-    lactate_threshold: f64,
-    zones: &TrainingZonesConfig,
-) -> Option<f64> {
-    if !vo2max.is_finite() || vo2max <= 0.0 || zones.vdot_threshold_zone_slow_factor <= 0.0 {
-        return None;
-    }
-    // Pace zones read only VO2max and the lactate threshold; the calculator's
-    // heart-rate fields and sport efficiency feed nothing asked for here.
-    let paces =
-        VO2MaxCalculator::new(vo2max, 0, 0, lactate_threshold, 1.0).calculate_pace_zones(zones);
-    let pace = paces.threshold_pace_range.0 / zones.vdot_threshold_zone_slow_factor;
-    (pace.is_finite() && pace > 0.0).then(|| (pace * 10.0).round() / 10.0)
-}
-
 /// Build the physiology tool set for registration.
 #[must_use]
 pub fn create_physiology_tools() -> Vec<Box<dyn RuntimeTool>> {
@@ -1165,8 +1049,3 @@ pub fn create_physiology_tools() -> Vec<Box<dyn RuntimeTool>> {
 // internal and correctable, echoes no third-party text, and sends nothing
 // outbound, so it carries no labels.
 crate::declare_security!(SetPhysiologyTool => empty);
-
-// Pure computation over inputs the athlete states plus a read of their own
-// profile. Nothing is written, nothing leaves the process, and the response
-// carries no third-party text.
-crate::declare_security!(EstimateVo2maxTool => empty);

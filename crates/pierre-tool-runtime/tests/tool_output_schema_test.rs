@@ -17,13 +17,14 @@
 //! describes the fields the payload carries, and it rejects a payload missing
 //! one.
 
+use chrono::NaiveDate;
 use dravr_meteo::{
     DummyWeatherProvider, GeocodeError, Geocoded, Geocoder, Place, PlaceQuery, WeatherError,
     WeatherProvider, WeatherQuery, WeatherSample,
 };
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_core::config::profiles::FitnessLevel;
-use pierre_core::models::SportType;
+use pierre_core::models::{MeasurementKind, MetricProvenance, ProvenancedValue, SportType};
 use pierre_fitness_compute::weather::WeatherDifficulty;
 use pierre_services::plan_calendar_push::PushReport;
 use pierre_tool_runtime::conversions::output_schema_for;
@@ -130,8 +131,7 @@ use pierre_tool_runtime::implementations::nutrition::{
 };
 use pierre_tool_runtime::implementations::nutrition_gate::{FiguresWithheld, NutritionAnswer};
 use pierre_tool_runtime::implementations::physiology::{
-    EstimateVo2maxResult, EstimateVo2maxTool, PhysiologyProfile, SetPhysiologyResult,
-    SetPhysiologyTool,
+    PhysiologyProfile, SetPhysiologyResult, SetPhysiologyTool,
 };
 use pierre_tool_runtime::implementations::plan_flavour_output::PlanFlavourResult;
 use pierre_tool_runtime::implementations::planned_workouts::{
@@ -178,6 +178,9 @@ use pierre_tool_runtime::implementations::training_plans_output::{
     GetTrainingPlanResult, SaveTrainingPlanResult,
 };
 use pierre_tool_runtime::implementations::verification::{VerifyClaimResult, VerifyClaimTool};
+use pierre_tool_runtime::implementations::vo2max_estimate::{
+    EstimateVo2maxResult, EstimateVo2maxTool,
+};
 use pierre_tool_runtime::implementations::weather_forecast::{
     forecast, GetWeatherForecastTool, WeatherForecastResult,
 };
@@ -4304,6 +4307,10 @@ fn an_almost_empty_physiology_profile_still_validates() {
             training_experience_years: None,
             hr_zones: None,
             power_zones: None,
+            critical_power_watts: None,
+            w_prime_joules: None,
+            critical_speed_mps: None,
+            d_prime_meters: None,
         },
         training_history: HistoryRefresh::Unaffected,
     })
@@ -4318,6 +4325,72 @@ fn an_almost_empty_physiology_profile_still_validates() {
     assert!(
         value["profile"]["hr_zones"].is_null(),
         "zones derived from a pair must be absent when only one is known"
+    );
+}
+
+#[test]
+fn a_critical_power_reaches_the_agent_with_its_kind_beside_it() {
+    // carnet#714: the provenance is flattened beside the value, so the agent
+    // reads `kind: estimated` in the same object as the number it qualifies
+    // and cannot quote one without seeing the other.
+    let derived = output_schema_for::<SetPhysiologyResult>();
+    let validator = jsonschema::validator_for(&derived).expect("compiles");
+    let estimated = MetricProvenance {
+        kind: MeasurementKind::Estimated,
+        origin: Some("vekta".to_owned()),
+        as_of: NaiveDate::from_ymd_opt(2026, 10, 1),
+    };
+    let value = serde_json::to_value(SetPhysiologyResult {
+        saved: true,
+        created: true,
+        updated_fields: vec!["critical_power_watts", "critical_speed_mps"],
+        profile: PhysiologyProfile {
+            ftp_watts: None,
+            threshold_pace_sec_per_km: None,
+            max_hr: None,
+            resting_hr: None,
+            threshold_hr: None,
+            lactate_threshold_percentage: None,
+            vo2_max: None,
+            weight: None,
+            age: None,
+            fitness_level: FitnessLevel::Intermediate,
+            primary_sport: SportType::Ride,
+            training_experience_years: None,
+            hr_zones: None,
+            power_zones: None,
+            critical_power_watts: Some(ProvenancedValue::new(312, estimated)),
+            w_prime_joules: None,
+            critical_speed_mps: Some(ProvenancedValue::new(
+                4.2,
+                MetricProvenance {
+                    kind: MeasurementKind::Measured,
+                    origin: None,
+                    as_of: None,
+                },
+            )),
+            d_prime_meters: None,
+        },
+        training_history: HistoryRefresh::Unaffected,
+    })
+    .expect("serializes");
+
+    assert!(
+        validator.is_valid(&value),
+        "a provenanced profile must satisfy the schema:\n{value:#}"
+    );
+    assert_eq!(
+        value["profile"]["critical_power_watts"],
+        serde_json::json!({"value": 312, "kind": "estimated", "origin": "vekta", "as_of": "2026-10-01"})
+    );
+    let mut unkinded = value;
+    unkinded["profile"]["critical_power_watts"]
+        .as_object_mut()
+        .expect("an object")
+        .remove("kind");
+    assert!(
+        !validator.is_valid(&unkinded),
+        "the schema must require the kind beside the value"
     );
 }
 

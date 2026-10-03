@@ -64,6 +64,10 @@ fn make_profile(
         threshold_pace_sec_per_km: Some(240.0),
         hr_zones,
         power_zones: None,
+        critical_power_watts: None,
+        w_prime_joules: None,
+        critical_speed_mps: None,
+        d_prime_meters: None,
     }
 }
 

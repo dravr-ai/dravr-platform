@@ -124,6 +124,10 @@ fn test_vo2_max_requirement() {
         threshold_pace_sec_per_km: None,
         hr_zones: None,
         power_zones: None,
+        critical_power_watts: None,
+        w_prime_joules: None,
+        critical_speed_mps: None,
+        d_prime_meters: None,
     };
 
     let result = validator.validate(&changes, Some(&profile));

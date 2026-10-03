@@ -44,6 +44,7 @@
 use crate::claim_extractor::ExtractedClaim;
 use crate::deterministic_bounds::extract_number_near;
 use crate::verdict_engine::VerdictOutcome;
+use pierre_core::models::{MeasurementKind, ATHLETE_REPORTED_ORIGIN};
 use pierre_memory::{ClaimStatus, EvidenceStrength, VerdictLayer};
 
 /// Minimum days of activity history backing the snapshot before the personalized
@@ -83,8 +84,68 @@ pub struct AthleteMetrics {
     pub max_hr: Option<f64>,
     /// Recent training-stress balance / form (Coggan TSB).
     pub recent_tsb: Option<f64>,
+    /// Critical power (watts), with whether it was measured or estimated.
+    pub critical_power_watts: Option<StoredMetric>,
+    /// W′ (joules), with its provenance.
+    pub w_prime_joules: Option<StoredMetric>,
+    /// Critical speed (metres per second), with its provenance.
+    pub critical_speed_mps: Option<StoredMetric>,
+    /// D′ (metres), with its provenance.
+    pub d_prime_meters: Option<StoredMetric>,
     /// Days of activity history backing these estimates; gates [`MIN_DATA_DAYS`].
     pub data_days: u32,
+}
+
+/// A stored physiological value and whether the athlete's profile holds it as
+/// an estimate — the snapshot's copy of the profile's provenance, kept plain
+/// so this crate never reaches for the profile type.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StoredMetric {
+    /// The stored value, in the unit the field name carries.
+    pub value: f64,
+    /// Measured, or estimated — modelled or stated without a named test, and
+    /// so quoted as an estimate.
+    pub kind: MeasurementKind,
+    /// Who produced the value (`vekta`, `lab`, `athlete-reported`), when known.
+    pub origin: Option<String>,
+}
+
+/// The prefix of every explanation the framing check writes. Verdicts reach
+/// the outside world only as persisted rows, so this is what counts them.
+const ESTIMATE_STATED_AS_MEASUREMENT: &str = "Estimate stated as a measurement";
+
+/// Words that mark a number as an estimate or attribute it to a source, in the
+/// five shipped locales. Matched as lowercase substrings, so a stem covers its
+/// inflections: `estim` is estimate, estimated, estimé, estimado, estimativa.
+const ESTIMATE_MARKERS: &[&str] = &[
+    // en / fr / es / pt
+    "estim",
+    "model",
+    "modél",
+    "according to",
+    "predict",
+    // fr
+    "selon",
+    "prédi",
+    // es
+    "según",
+    // de
+    "schätz",
+    "laut ",
+    // pt. Not "segundo": in es and pt it is also "second", and "metros por
+    // segundo" is how a critical speed is stated. "Segundo a Vekta" still
+    // counts, through the source's own name.
+    "de acordo com",
+];
+
+/// True when `sentence` frames a value as an estimate: an estimate marker, or
+/// the source that produced the value named in the same sentence.
+fn frames_as_estimate(sentence: &str, origin: Option<&str>) -> bool {
+    let lower = sentence.to_lowercase();
+    ESTIMATE_MARKERS.iter().any(|m| lower.contains(m))
+        || origin
+            .map(|o| o.trim().to_lowercase())
+            .is_some_and(|o| !o.is_empty() && o != ATHLETE_REPORTED_ORIGIN && lower.contains(&o))
 }
 
 impl AthleteMetrics {
@@ -101,7 +162,11 @@ impl AthleteMetrics {
                 || self.interval_pace_range.is_some()
                 || self.ftp_watts.is_some()
                 || self.max_hr.is_some()
-                || self.recent_tsb.is_some())
+                || self.recent_tsb.is_some()
+                || self.critical_power_watts.is_some()
+                || self.w_prime_joules.is_some()
+                || self.critical_speed_mps.is_some()
+                || self.d_prime_meters.is_some())
     }
 }
 
@@ -245,6 +310,12 @@ pub fn check(claim: &ExtractedClaim, ctx: &PersonalizedContext<'_>) -> Option<Ve
         return None;
     }
     let text = claim.text.as_str();
+
+    // --- Critical-power family: probed first, because "threshold power" is
+    // an FTP keyword and would otherwise claim a CP sentence. ---
+    if let Some(verdict) = check_critical_power_family(text, ctx) {
+        return Some(verdict);
+    }
 
     // --- Pace probes: value parsed as M:SS/km, scored against the native range ---
     let pace_probes: [PaceProbe; 4] = [
@@ -471,6 +542,187 @@ pub fn check(claim: &ExtractedClaim, ctx: &PersonalizedContext<'_>) -> Option<Ve
     }
 
     None
+}
+
+/// Keywords for critical power, in the five shipped locales. No bare "cp":
+/// as a substring it matches too much to anchor a number.
+const CRITICAL_POWER_KEYWORDS: &[&str] = &[
+    "critical power",
+    "puissance critique",
+    "potencia crítica",
+    "kritische leistung",
+    "potência crítica",
+];
+
+/// Keywords for W′. The apostrophe forms are how a reply types the prime.
+const W_PRIME_KEYWORDS: &[&str] = &["w′", "w'", "w prime", "w-prime"];
+
+/// Keywords for critical speed, in the five shipped locales.
+const CRITICAL_SPEED_KEYWORDS: &[&str] = &[
+    "critical speed",
+    "vitesse critique",
+    "velocidad crítica",
+    "kritische geschwindigkeit",
+    "velocidade crítica",
+];
+
+/// Keywords for D′. No `d'`: in French it is an elision on every other word.
+const D_PRIME_KEYWORDS: &[&str] = &["d′", "d prime", "d-prime"];
+
+/// Below this a claimed W′ is read as kilojoules (21.5 → 21 500 J): no human
+/// W′ is under 100 J, and a reply says "21.5 kJ" far more than "21500 J".
+const W_PRIME_KJ_CEILING: f64 = 100.0;
+
+/// Above this a claimed critical speed is read as km/h (15 → 4.17 m/s): no
+/// human critical speed is above 10 m/s.
+const CRITICAL_SPEED_MPS_CEILING: f64 = 10.0;
+
+/// How one critical-power family parameter is scored and described.
+struct FamilyProbe {
+    /// The name the explanation gives the parameter.
+    label: &'static str,
+    /// Half-width of the accepted band, as a fraction of the stored value.
+    band_frac: f64,
+    /// Decimals the explanation prints the values with.
+    decimals: usize,
+}
+
+/// Critical power: ±5%, whole watts.
+const CP_PROBE: FamilyProbe = FamilyProbe {
+    label: "CP",
+    band_frac: 0.05,
+    decimals: 0,
+};
+
+/// W′: ±25%, whole joules.
+const W_PRIME_PROBE: FamilyProbe = FamilyProbe {
+    label: "W′",
+    band_frac: 0.25,
+    decimals: 0,
+};
+
+/// Critical speed: ±3%, in m/s to the hundredth (4.17, not 4).
+const CRITICAL_SPEED_PROBE: FamilyProbe = FamilyProbe {
+    label: "critical speed",
+    band_frac: 0.03,
+    decimals: 2,
+};
+
+/// D′: ±25%, whole metres.
+const D_PRIME_PROBE: FamilyProbe = FamilyProbe {
+    label: "D′",
+    band_frac: 0.25,
+    decimals: 0,
+};
+
+/// Score a claim about critical power, W′, critical speed or D′ against the
+/// stored value, then check how an estimate is framed.
+///
+/// Bands are the test-retest reliability of each parameter
+/// (`Methodology/Intelligence/Critical Power and Critical Speed`): CP ±5%,
+/// CS ±3%, W′ and D′ ±25%.
+fn check_critical_power_family(
+    text: &str,
+    ctx: &PersonalizedContext<'_>,
+) -> Option<VerdictOutcome> {
+    let m = ctx.metrics;
+    if let Some(ref cp) = m.critical_power_watts {
+        if let Some(v) = first_number_near(text, CRITICAL_POWER_KEYWORDS) {
+            return provenanced_verdict(ctx, text, cp, v, &CP_PROBE);
+        }
+    }
+    if let Some(ref w_prime) = m.w_prime_joules {
+        if let Some(v) = first_number_near(text, W_PRIME_KEYWORDS) {
+            let joules = if v < W_PRIME_KJ_CEILING {
+                v * 1000.0
+            } else {
+                v
+            };
+            return provenanced_verdict(ctx, text, w_prime, joules, &W_PRIME_PROBE);
+        }
+    }
+    if let Some(ref cs) = m.critical_speed_mps {
+        let pace = CRITICAL_SPEED_KEYWORDS
+            .iter()
+            .find_map(|kw| extract_pace_sec_per_km(text, kw))
+            .filter(|sec| *sec > 0.0)
+            .map(|sec| 1000.0 / sec);
+        let speed = pace.or_else(|| {
+            first_number_near(text, CRITICAL_SPEED_KEYWORDS).map(|v| {
+                if v > CRITICAL_SPEED_MPS_CEILING {
+                    v / 3.6
+                } else {
+                    v
+                }
+            })
+        });
+        if let Some(v) = speed {
+            return provenanced_verdict(ctx, text, cs, v, &CRITICAL_SPEED_PROBE);
+        }
+    }
+    if let Some(ref d_prime) = m.d_prime_meters {
+        if let Some(v) = first_number_near(text, D_PRIME_KEYWORDS) {
+            return provenanced_verdict(ctx, text, d_prime, v, &D_PRIME_PROBE);
+        }
+    }
+    None
+}
+
+/// The number nearest the first keyword of `keywords` the text contains.
+fn first_number_near(text: &str, keywords: &[&str]) -> Option<f64> {
+    keywords.iter().find_map(|kw| extract_number_near(text, kw))
+}
+
+/// The verdict for a claim about a provenanced value.
+///
+/// A wrong number is contradicted as any other. A right number that the
+/// profile holds as an estimate, quoted with no estimate marker and no source,
+/// is `Unsupported`: the number matches, but the sentence asserts a
+/// measurement the athlete never made — "your CP is 312 W" where only "Vekta
+/// estimates your CP at 312 W" is true.
+fn provenanced_verdict(
+    ctx: &PersonalizedContext<'_>,
+    text: &str,
+    stored: &StoredMetric,
+    claimed: f64,
+    probe: &FamilyProbe,
+) -> Option<VerdictOutcome> {
+    let FamilyProbe {
+        label,
+        band_frac,
+        decimals,
+    } = *probe;
+    let range = (
+        stored.value * (1.0 - band_frac),
+        stored.value * (1.0 + band_frac),
+    );
+    let verdict = verdict_for(
+        ctx,
+        range,
+        claimed,
+        &format!(
+            "{label} {claimed:.decimals$} vs your {:.decimals$}",
+            stored.value
+        ),
+    )?;
+    if verdict.status != ClaimStatus::Supported
+        || stored.kind == MeasurementKind::Measured
+        || frames_as_estimate(text, stored.origin.as_deref())
+    {
+        return Some(verdict);
+    }
+    let source = stored.origin.as_deref().unwrap_or("a model");
+    Some(VerdictOutcome {
+        status: ClaimStatus::Unsupported,
+        evidence_strength: EvidenceStrength::Strong,
+        confidence: 0.9,
+        layer_fired: VerdictLayer::Personalized,
+        explanation: format!(
+            "{ESTIMATE_STATED_AS_MEASUREMENT} — your {label} of {:.decimals$} is an estimate from {source}; quote it as one",
+            stored.value
+        ),
+        evidence_refs: None,
+    })
 }
 
 /// Build the verdict for a resolved probe. `Indeterminate` collapses to `None`

@@ -70,7 +70,7 @@ pub use judge::{ClaimJudge, ClaimJudgement, JudgeVerdict, RubricScore};
 pub use multi_turn::{MultiTurnEvaluator, MultiTurnReport};
 pub use personalized::{
     AgentConfiguredStrategy, AthleteMetrics, ConservativeStrategy, PersonalizedContext,
-    TightStrategy, ToleranceCall, ToleranceStrategy,
+    StoredMetric, TightStrategy, ToleranceCall, ToleranceStrategy,
 };
 pub use report::{EvalSummary, RubricKind};
 pub use rhetoric_detector::{classify as classify_rhetoric, RhetoricVerdict};

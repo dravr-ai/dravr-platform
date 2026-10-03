@@ -137,11 +137,17 @@ pub mod fitness_config;
 /// Athlete physiology tools (`tools-config` feature).
 ///
 /// `set_physiology` is the only production writer of
-/// `user_physiological_profiles`; `estimate_vo2max` turns a field test the
-/// athlete describes into a number for it. The lactate step test has its own
-/// module, [`lactate_thresholds`].
+/// `user_physiological_profiles`. The lactate step test has its own module,
+/// [`lactate_thresholds`], and the `VO2max` field-test estimate its own,
+/// [`vo2max_estimate`].
 #[cfg(feature = "tools-config")]
 pub mod physiology;
+
+/// `estimate_vo2max` — turns a field test the athlete describes into a
+/// `VO2max` for `set_physiology` to store once confirmed (`tools-config`
+/// feature).
+#[cfg(feature = "tools-config")]
+pub mod vo2max_estimate;
 
 /// `estimate_lactate_thresholds` — LT1 and LT2 from a lactate step test the
 /// athlete reports, the read-only sibling of `set_physiology`
