@@ -47,8 +47,8 @@ use pierre_memory::PredicateCode;
 use pierre_memory::{FactKind, FactSource};
 use pierre_services::intake::{
     parse_persona, parse_yes_no, persona_to_store, record_parq_no, record_parq_yes, record_steps,
-    IntakeTopic, PersonaAnswer, MAX_ANSWER_ATTEMPTS, STATUS_COMPLETE, STATUS_NOT_APPLICABLE,
-    STATUS_SKIPPED,
+    release_coach_only_agent, IntakeTopic, PersonaAnswer, MAX_ANSWER_ATTEMPTS, STATUS_COMPLETE,
+    STATUS_NOT_APPLICABLE, STATUS_SKIPPED, STEP_PARQ,
 };
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -579,6 +579,7 @@ async fn finish(args: FinishArgs<'_>) {
     {
         warn!(error = %e, "intake: failed to record the onboarding steps");
     }
+    release_agent(resources, user_id, parq_status).await;
 
     let chat: &dyn ChatRepository = resources.common.repos.chat.as_ref();
     if let Err(e) = chat
@@ -610,6 +611,29 @@ async fn finish(args: FinishArgs<'_>) {
         return;
     }
     maybe_start_pillar_walk(&resources.common.repos, tenant_id, user_id, conversation_id).await;
+}
+
+/// Clear the agent of a coach who does not train, as the wizard's step write
+/// does. Best-effort like the step rows it follows: the intake has finished
+/// either way.
+async fn release_agent(resources: &ServerContext, user_id: &str, parq_status: &str) {
+    let user_uuid = match Uuid::parse_str(user_id) {
+        Ok(id) => id,
+        Err(e) => {
+            warn!(error = %e, "intake: user id is not a uuid; agent left as is");
+            return;
+        }
+    };
+    if let Err(e) = release_coach_only_agent(
+        resources.common.repos.tenants.as_ref(),
+        user_uuid,
+        STEP_PARQ,
+        parq_status,
+    )
+    .await
+    {
+        warn!(error = %e, "intake: failed to release a coach-only agent");
+    }
 }
 
 /// Persist the ledger, refusing to clobber a state written under this turn.

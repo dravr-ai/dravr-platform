@@ -438,6 +438,9 @@ pub async fn selected_agent_id(
 /// rebind. A lookup failure reads as "no agent" — the thread is still usable
 /// on the house prompt, the attribution panels simply skip it — and a tenant
 /// with no system agent at all is the only way the answer stays empty.
+///
+/// LIMITATION(registre#745): `selected_or_system_agent` falls back to the first system agent for a
+/// coach who does not train too, so their own 1:1 thread is answered by an athlete-facing agent.
 pub async fn selected_or_system_agent(
     tenants: &dyn TenantRepository,
     agents: &dyn AgentsRepository,

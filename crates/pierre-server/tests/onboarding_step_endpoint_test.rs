@@ -1,5 +1,5 @@
 // ABOUTME: HTTP tests for PUT /api/me/onboarding/steps/{step_id} — status (incl. not_applicable) + chosen_channel validation
-// ABOUTME: Pins the slug guard so only [a-z0-9_] channel slugs (not markup) reach the durable step store
+// ABOUTME: Pins the slug guard, and that the coach-only answer clears the account's own selected agent
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -17,8 +17,11 @@ use serde_json::json;
 
 use common::{create_test_server_resources, create_test_user, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
-use pierre_core::models::CoachingPersona;
+use pierre_core::models::agents::CreateAgentRequest;
+use pierre_core::models::{CoachingPersona, TenantId};
+use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::onboarding::OnboardingRoutes;
+use uuid::Uuid;
 
 async fn setup() -> (axum::Router, String) {
     let resources = create_test_server_resources()
@@ -157,4 +160,76 @@ async fn status_reports_a_coach_and_accepts_the_group_step() {
     assert!(steps
         .iter()
         .any(|s| s["step_id"] == "coach_group" && s["status"] == "complete"));
+}
+
+/// A user holding a selected agent in their tenant, with a token for that
+/// tenant: the state signup leaves every new account in.
+async fn user_with_selected_agent() -> (Arc<ServerContext>, axum::Router, String, Uuid, TenantId) {
+    let resources = create_test_server_resources()
+        .await
+        .expect("server resources");
+    let (user_id, user) = create_test_user(&resources.agent.database)
+        .await
+        .expect("test user");
+    let repos = resources.agent.database.repositories();
+    let tenant = repos.tenants.list_for_user(user_id).await.unwrap()[0].id;
+    let request: CreateAgentRequest = serde_json::from_value(
+        json!({"title":"Endurance","system_prompt":"Test.","category":"training","tags":["run"]}),
+    )
+    .unwrap();
+    let agent = repos
+        .agents
+        .create(user_id, tenant, &request)
+        .await
+        .unwrap();
+    repos
+        .tenants
+        .set_selected_agent(tenant, user_id, Some(&agent.id.to_string()))
+        .await
+        .unwrap();
+    let token = format!("Bearer {}", generate_test_token(&resources, &user).await);
+    let router = OnboardingRoutes::routes(Arc::clone(&resources));
+    (resources, router, token, user_id, tenant)
+}
+
+/// The agent signup picked was for an athlete's own training; a coach who does
+/// not train has none, so answering that way clears it.
+#[tokio::test]
+async fn the_coach_only_answer_clears_the_selected_agent() {
+    let (resources, router, token, user_id, tenant) = user_with_selected_agent().await;
+
+    let resp = AxumTestRequest::put("/api/me/onboarding/steps/about_you")
+        .header("Authorization", &token)
+        .json(&json!({ "status": "not_applicable" }))
+        .send(router)
+        .await;
+    assert_eq!(resp.status_code(), StatusCode::NO_CONTENT);
+
+    let selected = resources
+        .agent
+        .database
+        .repositories()
+        .tenants
+        .get_selected_agent(tenant, user_id)
+        .await
+        .unwrap();
+    assert_eq!(selected, None, "a coach who does not train holds no agent");
+}
+
+#[tokio::test]
+async fn an_athletes_answer_keeps_the_selected_agent() {
+    let (resources, router, token, user_id, tenant) = user_with_selected_agent().await;
+    let tenants = Arc::clone(&resources.agent.database.repositories().tenants);
+    let held = tenants.get_selected_agent(tenant, user_id).await.unwrap();
+    assert!(held.is_some(), "the fixture selects an agent");
+
+    let resp = AxumTestRequest::put("/api/me/onboarding/steps/parq")
+        .header("Authorization", &token)
+        .json(&json!({ "status": "complete" }))
+        .send(router)
+        .await;
+    assert_eq!(resp.status_code(), StatusCode::NO_CONTENT);
+
+    let selected = tenants.get_selected_agent(tenant, user_id).await.unwrap();
+    assert_eq!(selected, held, "an athlete keeps the agent they hold");
 }

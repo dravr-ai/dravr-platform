@@ -48,8 +48,9 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::errors::AppResult;
 use pierre_core::models::{CoachingPersona, TenantId, TopicSlug};
 use pierre_database::repositories::{
-    HarnessMemoryRepository, OnboardingStepRecord, UserOnboardingRepository,
+    HarnessMemoryRepository, OnboardingStepRecord, TenantRepository, UserOnboardingRepository,
 };
+use uuid::Uuid;
 
 use crate::parq::{persist_parq_flags, retire_parq_flags};
 
@@ -411,10 +412,47 @@ pub fn is_outstanding(steps: &[OnboardingStepRecord]) -> bool {
 /// both `about_you` and `parq`.
 #[must_use]
 pub fn athlete_steps_waived(steps: &[OnboardingStepRecord]) -> bool {
-    steps.iter().any(|step| {
-        (step.step_id == STEP_PARQ || step.step_id == STEP_ABOUT_YOU)
-            && step.status == STATUS_NOT_APPLICABLE
-    })
+    steps
+        .iter()
+        .any(|step| waives_athlete_steps(&step.step_id, &step.status))
+}
+
+/// Whether writing `status` to `step_id` is the coach-only answer.
+fn waives_athlete_steps(step_id: &str, status: &str) -> bool {
+    (step_id == STEP_PARQ || step_id == STEP_ABOUT_YOU) && status == STATUS_NOT_APPLICABLE
+}
+
+/// Clear the agent a coach who does not train holds for themselves.
+///
+/// Called by every surface right after it writes a step, so the answer and
+/// the selection never disagree: an agent is picked for an athlete's own
+/// training, and this person said they have none. Any other step write is a
+/// no-op. The agent their groups answer with is the group's own, untouched.
+///
+/// The answer is the person's, like the step rows, while the selection is per
+/// membership: every membership is cleared, not only the tenant the answer
+/// arrived through.
+///
+/// # Errors
+///
+/// Returns the repository error if listing the memberships or clearing a
+/// selection fails.
+pub async fn release_coach_only_agent<T>(
+    tenants: &T,
+    user_id: Uuid,
+    step_id: &str,
+    status: &str,
+) -> AppResult<()>
+where
+    T: TenantRepository + ?Sized,
+{
+    if !waives_athlete_steps(step_id, status) {
+        return Ok(());
+    }
+    for tenant_id in tenants.list_membership_tenant_ids(user_id).await? {
+        tenants.set_selected_agent(tenant_id, user_id, None).await?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -446,6 +484,18 @@ mod tests {
             STEP_ABOUT_YOU,
             STATUS_NOT_APPLICABLE
         )]));
+    }
+
+    #[test]
+    fn only_a_not_applicable_athlete_step_is_the_coach_only_answer() {
+        assert!(waives_athlete_steps(STEP_PARQ, STATUS_NOT_APPLICABLE));
+        assert!(waives_athlete_steps(STEP_ABOUT_YOU, STATUS_NOT_APPLICABLE));
+        assert!(!waives_athlete_steps(STEP_PARQ, STATUS_COMPLETE));
+        assert!(!waives_athlete_steps(STEP_PARQ, STATUS_SKIPPED));
+        assert!(!waives_athlete_steps(
+            STEP_PROFILE_TYPE,
+            STATUS_NOT_APPLICABLE
+        ));
     }
 
     #[test]

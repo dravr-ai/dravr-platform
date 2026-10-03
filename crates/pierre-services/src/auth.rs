@@ -382,6 +382,9 @@ impl AuthService {
     ///
     /// Best-effort: registration has already succeeded, and failing it over a
     /// default would trade a working account for a cosmetic one.
+    ///
+    /// LIMITATION(registre#745): `select_starter_agent` runs before the account says whether it
+    /// trains; a coach who does not train holds this agent until that answer clears it.
     async fn select_starter_agent(&self, tenant_id: TenantId, user_id: uuid::Uuid) {
         let agents = match self.data.repos().agents.list_system_agents(tenant_id).await {
             Ok(c) => c,

@@ -39,6 +39,7 @@ mod intake_tests {
         ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk,
         TokenUsage,
     };
+    use pierre_core::models::agents::CreateAgentRequest;
     use pierre_core::models::{ConnectionType, Tenant, TenantId, User, UserStatus};
     use pierre_database::backends::factory::DatabaseBackend;
     use pierre_database::backends::{
@@ -786,6 +787,25 @@ mod intake_tests {
         let (user_id, tenant_id) =
             create_user_with_own_tenant(&resources, "intake_coach@example.com").await;
         link_channel(&resources, tenant_id, user_id, "82").await;
+        // The agent signup selects for every new account, before the persona.
+        let request: CreateAgentRequest = serde_json::from_value(
+            json!({"title":"Endurance","system_prompt":"Test.","category":"training","tags":["run"]}),
+        )
+        .unwrap();
+        let agent = resources
+            .common
+            .repos
+            .agents
+            .create(user_id, tenant_id, &request)
+            .await
+            .unwrap();
+        resources
+            .common
+            .repos
+            .tenants
+            .set_selected_agent(tenant_id, user_id, Some(&agent.id.to_string()))
+            .await
+            .unwrap();
 
         send_turn(&resources, 8201, 82, "Bonjour", false).await;
         assert!(wait_for_turns(&calls, 1).await);
@@ -823,6 +843,17 @@ mod intake_tests {
             active_flow(&resources, user_id).await.as_deref(),
             Some("pillars"),
             "the pillar walk must not start for a coach who does not train"
+        );
+        assert_eq!(
+            resources
+                .common
+                .repos
+                .tenants
+                .get_selected_agent(tenant_id, user_id)
+                .await
+                .unwrap(),
+            None,
+            "'I coach others' must clear the agent signup selected, as the web step does"
         );
     }
 

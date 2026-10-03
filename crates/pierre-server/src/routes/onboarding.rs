@@ -440,6 +440,13 @@ pub async fn handle_step_put(
             tenant_id.as_deref(),
         )
         .await?;
+    intake::release_coach_only_agent(
+        resources.common.repos.tenants.as_ref(),
+        auth.user_id,
+        &step_id,
+        &req.status,
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
