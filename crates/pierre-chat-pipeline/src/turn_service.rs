@@ -157,6 +157,10 @@ pub struct CommandTurn {
     /// thread (carnet#735) — `/agent add`, or `/group create` adopting the
     /// thread. Written after the command's own rows, so a surface delivers it
     /// after the reply.
+    ///
+    /// On a rotation it is the first row of [`Self::rotated_to`], not of the
+    /// thread the command was typed in: `/reset` lands the athlete on a fresh
+    /// thread bound to the same agent, and the agent opens it (carnet#750).
     pub welcome: Option<PostedWelcome>,
 }
 
@@ -471,9 +475,23 @@ pub async fn dispatch_slash(
         return Ok(None);
     };
     persist_if_covered(ctx, request, &mut command).await;
-    if let Some(before) = agent_before {
-        command.welcome = welcome_if_bound(ctx, request, &user_id, before).await;
-    }
+    command.welcome = match command.rotated_to.as_deref() {
+        // A thread the command just forged held no agent before it existed.
+        Some(fresh) => welcome_if_bound(ctx, request, &user_id, fresh, None).await,
+        None => match agent_before {
+            Some(before) => {
+                welcome_if_bound(
+                    ctx,
+                    request,
+                    &user_id,
+                    request.conversation_id,
+                    before.as_deref(),
+                )
+                .await
+            }
+            None => None,
+        },
+    };
     Ok(Some(command))
 }
 
@@ -502,33 +520,33 @@ async fn bound_agent(
     }
 }
 
-/// Post the agent's welcome when the command bound a different agent into
-/// the thread than the one it held before.
+/// Post the agent's welcome when the thread the athlete ends up on holds a
+/// different agent than `before`.
 ///
-/// Decided from the thread's stored agent, not from the command's name: any
+/// Decided from that thread's stored agent, not from the command's name: any
 /// command that binds an agent welcomes it, and one that unbinds (`/agent
-/// remove`) or moves the athlete elsewhere (`/reset`) leaves this thread's
-/// agent as it was and posts nothing. Best-effort: a welcome that cannot be
-/// written is logged, and the command's answer still goes out.
+/// remove`) leaves the thread's agent as it was and posts nothing. `/reset`
+/// lands the athlete on a fresh thread bound to the same agent
+/// (`conversation_id` is then the rotated thread, `before` is `None`), so the
+/// agent opens it the way it opens any new thread (carnet#750). Best-effort:
+/// a welcome that cannot be written is logged, and the command's answer still
+/// goes out.
 async fn welcome_if_bound(
     ctx: &ChatPipelineContext,
     request: &SlashRequest<'_>,
     user_id: &str,
-    before: Option<String>,
+    conversation_id: &str,
+    before: Option<&str>,
 ) -> Option<PostedWelcome> {
     let conversation = ctx
         .repos
         .chat
-        .get_conversation(
-            request.conversation_id,
-            user_id,
-            request.conversation_tenant_id,
-        )
+        .get_conversation(conversation_id, user_id, request.conversation_tenant_id)
         .await
         .ok()
         .flatten()?;
     let agent_id = conversation.agent_id.as_deref()?;
-    if before.as_deref() == Some(agent_id) {
+    if before == Some(agent_id) {
         return None;
     }
     let target = WelcomeTarget {
@@ -542,7 +560,7 @@ async fn welcome_if_bound(
     match post_agent_welcome(&ctx.repos, &ctx.messaging_strings_registry, target).await {
         Ok(welcome) => welcome,
         Err(e) => {
-            warn!(error = %e, agent_id, conversation_id = %request.conversation_id, "agent welcome not posted after the bind");
+            warn!(error = %e, agent_id, conversation_id, "agent welcome not posted after the bind");
             None
         }
     }

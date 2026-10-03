@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The mobile code step names the provider that sent the code and keeps the sign-in on a refused one
-// ABOUTME: Pins the one-time-code input, the inline refusal, and the lapsed and failed sign-in copy
+// ABOUTME: Pins the one-time-code input, the verifying state, the inline refusal, and the lapsed and failed sign-in copy
 
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
@@ -26,6 +26,7 @@ const sciotteSubmitOTP = oauthApi.sciotteSubmitOTP as jest.Mock;
 const sciotteSelect2FA = oauthApi.sciotteSelect2FA as jest.Mock;
 
 const CODE_PROMPT = 'Enter the 6-digit code COROS sent you';
+const LOGIN_COPY = 'This may take a moment while we securely connect your account';
 
 /** Sign in to COROS up to its code step. */
 async function reachCodeStep(onConnected = jest.fn()): Promise<jest.Mock> {
@@ -64,6 +65,32 @@ describe('SciotteLoginModal (mobile) — the code step', () => {
     expect(input.props.maxLength).toBe(6);
     expect(input.props.accessibilityLabel).toBe(CODE_PROMPT);
     expect(screen.queryByTestId('sciotte-otp-error')).toBeNull();
+  });
+
+  it('says it is verifying the code while the code is checked', async () => {
+    await reachCodeStep();
+    sciotteSubmitOTP.mockReturnValueOnce(new Promise(() => {}));
+    await submitCode('246810');
+
+    expect(await screen.findByTestId('sciotte-verifying')).toBeTruthy();
+    expect(screen.getAllByText('Verifying code...').length).toBeGreaterThan(0);
+    expect(screen.queryByText(LOGIN_COPY)).toBeNull();
+    expect(screen.queryByTestId('sciotte-otp')).toBeNull();
+  });
+
+  it('shows verifying, not the login copy, while a 2FA pick is checked', async () => {
+    sciotteLogin.mockResolvedValueOnce({
+      status: 'two_factor_choice',
+      options: [{ id: 'sms', label: 'Text message' }],
+    });
+    render(<SciotteLoginModal visible onClose={jest.fn()} onConnected={jest.fn()} target="coros" />);
+    signIn();
+    sciotteSelect2FA.mockReturnValueOnce(new Promise(() => {}));
+    fireEvent.press(await screen.findByText('Text message'));
+
+    expect(await screen.findByTestId('sciotte-verifying')).toBeTruthy();
+    expect(screen.getAllByText('Verifying...').length).toBeGreaterThan(0);
+    expect(screen.queryByText(LOGIN_COPY)).toBeNull();
   });
 
   it('stays on the code step when a code is refused, then connects on the right one', async () => {

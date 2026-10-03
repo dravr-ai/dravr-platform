@@ -480,7 +480,7 @@ describe('StoreScreen', () => {
       expect(screen.queryByText(/has been added to your agents/)).not.toBeInTheDocument();
     });
 
-    it('Open chat starts a conversation and routes to it', async () => {
+    it('Open chat starts a conversation bound to the installed copy and routes to it', async () => {
       const user = userEvent.setup();
       renderStoreScreen();
       await openMarathonListing(user);
@@ -489,9 +489,11 @@ describe('StoreScreen', () => {
 
       await user.click(screen.getByRole('button', { name: 'Open chat' }));
 
-      // No title: the server names the thread, the same way for every client.
+      // Bound to the athlete's own copy, not the store listing, so the server
+      // posts the agent's welcome. No title: the server names the thread
+      // after the agent, the same way for every client.
       await waitFor(() => {
-        expect(chatApi.createConversation).toHaveBeenCalledWith({});
+        expect(chatApi.createConversation).toHaveBeenCalledWith({ agent_id: 'installed-copy-1' });
       });
       await waitFor(() => {
         expect(mockOnNavigate).toHaveBeenCalledWith('chat/conv-new');

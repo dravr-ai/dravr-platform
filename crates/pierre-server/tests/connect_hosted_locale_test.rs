@@ -48,7 +48,9 @@ use pierre_contremaitre::hosted_strings::{
     KEY_INTERVALS_API_KEY_LABEL, KEY_INTERVALS_ATHLETE_ID, KEY_INTERVALS_CONNECT_ACTION,
     KEY_INTERVALS_CREDENTIALS_HELP, KEY_SCIOTTE_CODE_REJECTED, TEMPLATE_KEYS,
 };
-use pierre_contremaitre::messaging_strings::DEFAULT_LOCALE;
+use pierre_contremaitre::messaging_strings::{
+    DEFAULT_LOCALE, KEY_PROVIDER_DESCRIPTION_TRAININGPEAKS,
+};
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::html::escape_html_attribute;
 use pierre_core::models::{TenantId, SUPPORTED_LOCALES};
@@ -315,7 +317,23 @@ async fn the_picker_is_written_in_the_athletes_locale_in_all_five() {
             trainingpeaks["notice"]["consent"],
             catalogue.text("providers.trainingpeaksNotice.consent", &[])
         );
+        // So is the line under the card's name.
+        assert_eq!(
+            trainingpeaks["description"],
+            catalogue.text(KEY_PROVIDER_DESCRIPTION_TRAININGPEAKS, &[]),
+            "{locale}: the TrainingPeaks description is translated"
+        );
     }
+}
+
+/// The line under a card's name on the picker `body`, for `target`.
+fn card_description(body: &str, target: &str) -> String {
+    picker_cards(body)
+        .iter()
+        .find(|card| card["target"] == target)
+        .and_then(|card| card["description"].as_str())
+        .unwrap_or_else(|| panic!("the picker describes {target}"))
+        .to_owned()
 }
 
 /// The locale is the stored one: a browser asking for another language, or a
@@ -803,8 +821,28 @@ async fn a_channel_language_override_writes_the_pages_the_chat_links_to() {
         assert_fully_rendered(&body, what);
     }
 
-    // The form again, after a refused attempt, stays in the chat's language.
+    // The cards' descriptions follow the chat too, not the profile beneath it.
     let german = Catalogue::new("de");
+    let french = Catalogue::new("fr");
+    let german_line = german.text(KEY_PROVIDER_DESCRIPTION_TRAININGPEAKS, &[]);
+    assert_ne!(
+        german_line,
+        french.text(KEY_PROVIDER_DESCRIPTION_TRAININGPEAKS, &[]),
+        "the two languages word the description differently"
+    );
+    let picker = fixture
+        .get(
+            &format!("/providers/connect?token={}", fixture.connect_token()),
+            None,
+        )
+        .await;
+    assert_eq!(
+        card_description(&picker, "trainingpeaks"),
+        german_line,
+        "the picker's cards are described in the chat's language"
+    );
+
+    // The form again, after a refused attempt, stays in the chat's language.
     let token = fixture.connect_token();
     let refused = AxumTestRequest::post("/providers/connect/intervals_icu")
         .form(&[
@@ -832,6 +870,11 @@ async fn a_channel_language_override_writes_the_pages_the_chat_links_to() {
         )
         .await;
     assert_lang(&slack, "fr", "a picker linked from another channel");
+    assert_eq!(
+        card_description(&slack, "trainingpeaks"),
+        french.text(KEY_PROVIDER_DESCRIPTION_TRAININGPEAKS, &[]),
+        "a picker linked from another channel describes its cards in the profile's language"
+    );
 
     // Cleared, the channel inherits the profile again — chat and pages alike.
     fixture.set_telegram_language(None).await;

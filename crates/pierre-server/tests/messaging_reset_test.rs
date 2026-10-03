@@ -75,6 +75,8 @@ mod reset_locale {
         KEY_RESET_CONFIRM, KEY_RESET_QUOTA, KEY_RESET_WALK_INTERRUPTED,
     };
     use pierre_core::errors::{AppError, ErrorCode};
+    use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
+    use pierre_core::models::{MessageRecord, AGENT_WELCOME_FINISH_REASON};
     use pierre_database::backends::factory::DatabaseBackend;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_runtime_context::CommandCtx;
@@ -1021,6 +1023,136 @@ mod reset_locale {
                 .as_deref(),
             Some(before.as_str()),
             "the session still names the thread it named before /reset"
+        );
+    }
+
+    /// The starters the agent `/reset` carries onto the fresh thread offers.
+    const WELCOME_STARTERS: [&str; 3] = [
+        "Plan my tempo week",
+        "Check my tempo pace",
+        "How long should a tempo run be",
+    ];
+
+    /// `/reset` on an agent-bound DM (carnet#750): the athlete hears the
+    /// confirmation, then the agent opening the fresh thread with its starters
+    /// listed — the same welcome as any new thread — and the row is in the
+    /// thread the session now names, not the one it left.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial]
+    async fn reset_of_an_agent_thread_sends_the_agent_welcome_after_the_confirmation() {
+        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        let llm = RouterLlm::new();
+        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
+            .await
+            .unwrap();
+        let e2e = CommandE2e::start(resources, llm).await;
+        let en_confirm = e2e
+            .resources
+            .mcp
+            .messaging_strings_registry
+            .get(KEY_RESET_CONFIRM, "en");
+
+        let (member, session, baseline) = primed_en_member(&e2e).await;
+        let before = e2e
+            .conversation_id(&member, member.home_tenant, &member.channel_user_id)
+            .await
+            .expect("the primed session names its conversation");
+        // Retire the intake the DM opened with, so the confirmation is the
+        // plain one and carries no interrupted-walk note.
+        e2e.resources
+            .common
+            .repos
+            .chat
+            .set_conversation_onboarding_state(&before, None, member.home_tenant)
+            .await
+            .unwrap();
+        let agent = e2e
+            .resources
+            .common
+            .repos
+            .agents
+            .create(
+                member.user_id,
+                member.home_tenant,
+                &CreateAgentRequest {
+                    title: "Tempo Agent".to_owned(),
+                    description: Some("Tempo runs for the marathon build".to_owned()),
+                    system_prompt: "You are a tempo coach.".to_owned(),
+                    category: AgentCategory::Training,
+                    tags: vec![],
+                    sample_prompts: WELCOME_STARTERS.iter().map(|s| (*s).to_owned()).collect(),
+                    startup_query: None,
+                    data_requirements: None,
+                    purpose: None,
+                    when_to_use: None,
+                    instructions: None,
+                    example_inputs: None,
+                    example_outputs: None,
+                    success_criteria: None,
+                    max_tool_iterations: None,
+                },
+            )
+            .await
+            .unwrap()
+            .id
+            .to_string();
+        e2e.send_dm(&member, &format!("/agent add {agent}")).await;
+        // The bind's own answer and welcome.
+        let bound = e2e.wait_outbound_for_session(&session, baseline + 2).await;
+
+        reset_bodies(&e2e, &member, &session, bound).await;
+        // The welcome is ledgered after the confirmation `reset_bodies` waited on.
+        e2e.wait_outbound_for_session(&session, bound + 2).await;
+        let bodies: Vec<String> = e2e
+            .outbound_bodies_for_session(&session)
+            .await
+            .into_iter()
+            .skip(usize::try_from(bound).unwrap())
+            .collect();
+        assert_eq!(
+            bodies.len(),
+            2,
+            "the confirmation, then the welcome: {bodies:?}"
+        );
+        assert_eq!(bodies[0], en_confirm, "the confirmation goes first");
+        assert!(bodies[1].contains("Tempo Agent"), "{}", bodies[1]);
+        for starter in WELCOME_STARTERS {
+            assert!(
+                bodies[1].contains(starter),
+                "{starter:?} missing from {}",
+                bodies[1]
+            );
+        }
+
+        let fresh = e2e
+            .conversation_id(&member, member.home_tenant, &member.channel_user_id)
+            .await
+            .expect("the session names the fresh thread");
+        assert_ne!(fresh, before, "the session moved onto the fresh thread");
+        let welcomes = |rows: Vec<MessageRecord>| {
+            rows.into_iter()
+                .filter(|row| row.finish_reason.as_deref() == Some(AGENT_WELCOME_FINISH_REASON))
+                .count()
+        };
+        let chat = e2e.resources.common.repos.chat.as_ref();
+        let user = member.user_id.to_string();
+        assert_eq!(
+            welcomes(
+                chat.get_messages(&fresh, &user, member.home_tenant)
+                    .await
+                    .unwrap()
+            ),
+            1,
+            "the agent opened the fresh thread"
+        );
+        assert_eq!(
+            welcomes(
+                chat.get_messages(&before, &user, member.home_tenant)
+                    .await
+                    .unwrap()
+            ),
+            1,
+            "the thread left behind keeps only the bind's welcome"
         );
     }
 }

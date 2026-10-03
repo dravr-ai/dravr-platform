@@ -946,7 +946,7 @@ test.describe('Agent Store Failures', () => {
 });
 
 test.describe('Agent Store Navigation', () => {
-  test('Open chat on the hint starts a conversation and lands on it', async ({ page }) => {
+  test('Open chat on the hint starts a conversation bound to the installed copy and lands on it', async ({ page }) => {
     await setupStoreMocks(page, { installed: [] });
     await loginToDashboard(page);
     await page.waitForSelector('main', { timeout: 10000 });
@@ -963,7 +963,9 @@ test.describe('Agent Store Navigation', () => {
       (request) => request.method() === 'POST' && request.url().includes('/api/chat/conversations'),
     );
     await page.getByTestId('post-install-open-chat').click();
-    await created;
+    // Bound to the copy the install minted, not the listing, so the server
+    // posts the agent's welcome; no title, so it names the thread after it.
+    expect((await created).postDataJSON()).toEqual({ agent_id: personalCopyOf(mockStoreCoaches[0]).id });
 
     // The new conversation is the route: Discover has no agent list to return to.
     await expect(page).toHaveURL(/#chat\/conv-from-hint$/, { timeout: 10000 });

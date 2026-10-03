@@ -1,5 +1,5 @@
 // ABOUTME: An agent bound into a thread opens it with one welcome, as itself: title, role, starters
-// ABOUTME: Drives the create route, /agent add, a room and a guided walk; pins the once-per-(agent, thread) rule
+// ABOUTME: Drives the create route, /agent add, /reset, a room and a guided walk; pins the once-per-(agent, thread) rule
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -16,7 +16,8 @@
 //! to ask.
 //!
 //! These walk every way an agent is bound into a thread from the app — the
-//! create route the proposal's « Démarrer » calls, `/agent add` — and assert
+//! create route the proposal's « Démarrer » calls, `/agent add`, the fresh
+//! thread `/reset` forges (carnet#750) — and assert
 //! the one row the agent posts: in the athlete's language, with its starter
 //! questions as controls, written once per agent per thread, and counted as
 //! the agent's introduction.
@@ -54,6 +55,7 @@ use pierre_mcp_server::routes::chat::{
     ChatRoutes, ConversationListResponse, ConversationResponse, MessageResponse,
     MessagesListResponse, TurnResponse,
 };
+use pierre_services::intake::{STATUS_COMPLETE, STEP_PARQ, STEP_PROFILE_TYPE};
 
 const FUELLING_TITLE: &str = "Fuelling Agent";
 const FUELLING_ROLE: &str =
@@ -780,4 +782,130 @@ async fn the_welcome_write_is_once_per_thread_even_when_racing() {
     assert_eq!(rows.len(), 1);
     assert!(rows[0].is_agent_welcome());
     assert!(introduced(&resources, &conv, &agent, jo.tenant_id).await);
+}
+
+/// `/reset` on an agent thread (carnet#750): the athlete lands on a fresh
+/// thread bound to the same agent, and the agent opens it the way it opens
+/// any new thread — one welcome, in the athlete's language, with its
+/// starters. The welcome stays off the turn: the client posted to the
+/// archived thread and reads the fresh one whole, so a welcome riding the
+/// turn would be drawn under the thread the athlete just left.
+#[tokio::test]
+async fn reset_reopens_the_fresh_thread_with_the_agent_welcome() {
+    let resources = setup().await;
+    let kai = athlete(&resources, "welcome-reset@test.com").await;
+    let agent = own_agent(
+        &resources,
+        &kai,
+        "Reset Agent",
+        Some("Keeps the marathon build on track."),
+        &[
+            "Plan my week",
+            "Check my long run",
+            "Taper advice",
+            "Fourth",
+        ],
+    )
+    .await;
+    let old = create_conversation(&resources, &kai, Some(&agent)).await;
+    assert_eq!(welcomes(&messages(&resources, &kai, &old).await).len(), 1);
+
+    let turn = send_command(&resources, &kai, &old, "/reset").await;
+
+    let fresh = turn
+        .rotated_to_conversation_id
+        .clone()
+        .expect("/reset moves the athlete to a fresh thread");
+    assert_ne!(fresh, old);
+    assert!(
+        turn.welcome_message.is_none(),
+        "the welcome belongs to the fresh thread, not the turn posted to the old one"
+    );
+    let rows = messages(&resources, &kai, &fresh).await;
+    let posted = welcomes(&rows);
+    assert_eq!(posted.len(), 1, "the agent opens the fresh thread once");
+    assert_eq!(
+        posted[0].content,
+        render(
+            &resources,
+            KEY_AGENT_WELCOME_GREETING,
+            "fr",
+            &["Reset Agent", "Keeps the marathon build on track."]
+        )
+    );
+    assert_eq!(
+        starters(posted[0]),
+        vec!["Plan my week", "Check my long run", "Taper advice"]
+    );
+    assert!(introduced(&resources, &fresh, &agent, kai.tenant_id).await);
+    assert_eq!(
+        welcomes(&messages(&resources, &kai, &old).await).len(),
+        1,
+        "the archived thread keeps its own welcome and gains none"
+    );
+}
+
+/// A thread with no agent resets onto a thread with no agent: nothing to
+/// welcome, in either.
+#[tokio::test]
+async fn reset_of_a_thread_without_an_agent_posts_no_welcome() {
+    let resources = setup().await;
+    let lea = athlete(&resources, "welcome-reset-none@test.com").await;
+    let old = create_conversation(&resources, &lea, None).await;
+
+    let turn = send_command(&resources, &lea, &old, "/reset").await;
+
+    let fresh = turn
+        .rotated_to_conversation_id
+        .clone()
+        .expect("/reset moves the athlete to a fresh thread");
+    assert!(turn.welcome_message.is_none());
+    assert!(welcomes(&messages(&resources, &lea, &fresh).await).is_empty());
+    assert!(welcomes(&messages(&resources, &lea, &old).await).is_empty());
+}
+
+/// The fresh thread a 1:1 reset forges can open with the pillar walk — an
+/// athlete past the intake who has told us nothing yet. The walk owns that
+/// thread's first word, exactly as on any other bind, so the agent posts no
+/// welcome and its first reply still introduces it.
+#[tokio::test]
+async fn reset_into_a_guided_walk_posts_no_welcome() {
+    let resources = setup().await;
+    let max = athlete(&resources, "welcome-reset-walk@test.com").await;
+    let user = max.user_id.to_string();
+    for step in [STEP_PROFILE_TYPE, STEP_PARQ] {
+        resources
+            .common
+            .repos
+            .user_onboarding
+            .set_onboarding_step(&user, step, STATUS_COMPLETE, None, None)
+            .await
+            .unwrap();
+    }
+    let agent = own_agent(&resources, &max, "Walk Reset Agent", Some("Role."), &["Q"]).await;
+    let old = create_conversation(&resources, &max, Some(&agent)).await;
+
+    let turn = send_command(&resources, &max, &old, "/reset").await;
+
+    let fresh = turn
+        .rotated_to_conversation_id
+        .clone()
+        .expect("/reset moves the athlete to a fresh thread");
+    let thread = resources
+        .common
+        .repos
+        .chat
+        .get_conversation(&fresh, &user, max.tenant_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        OnboardingState::from_column(thread.onboarding_state.as_deref()).map(|s| s.flow),
+        Some(GuidedFlow::Pillars),
+        "the fresh thread opens with the pillar walk, or this test proves nothing"
+    );
+    assert_eq!(thread.agent_id.as_deref(), Some(agent.as_str()));
+    assert!(turn.welcome_message.is_none());
+    assert!(welcomes(&messages(&resources, &max, &fresh).await).is_empty());
+    assert!(!introduced(&resources, &fresh, &agent, max.tenant_id).await);
 }

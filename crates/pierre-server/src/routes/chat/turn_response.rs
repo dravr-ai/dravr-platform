@@ -54,6 +54,12 @@ pub struct TurnResponse {
     /// after the command's answer, and carries its starter questions in
     /// `actions`; a client appends it after [`Self::assistant`] instead of
     /// re-reading the thread.
+    ///
+    /// Absent too on a rotated turn, though `/reset` does welcome the fresh
+    /// thread (carnet#750): that row is the first of
+    /// [`Self::rotated_to_conversation_id`], which the client opens and reads
+    /// whole, and appended here it would land under the archived thread the
+    /// turn was posted to.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub welcome_message: Option<MessageResponse>,
     /// Cost and provenance facts about the turn. Not for rendering.

@@ -1,7 +1,7 @@
 // ABOUTME: Agent Store detail screen showing full agent info with install/uninstall/edit actions
-// ABOUTME: Installing ends with the hint that teaches /agent add @handle; an installed copy can be edited from here
+// ABOUTME: Installing ends with the hint that teaches /agent add @handle and opens a thread bound to the copy
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -15,7 +15,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { useCardStyle, useThemeColors, categoryAccent, categoryInk } from '../../constants/theme';
 import { Feather } from '@expo/vector-icons';
-import { storeApi } from '../../services/api';
+import { useQueryClient } from '@tanstack/react-query';
+import { chatApi, storeApi } from '../../services/api';
 import { trackMobile } from '../../services/analytics';
 import { COACH_EDIT_ROUTE, threadHref } from '../../navigation/routes';
 import { useAuth } from '../../contexts/AuthContext';
@@ -24,7 +25,7 @@ import { Section, Row } from '../../components/ui';
 import type { StoreAgent, StoreAgentDetail } from '../../types';
 import { useTranslation } from '@pierre/i18n';
 import { formatCount, formatDate } from '@pierre/chat-utils';
-import { coachCategoryLabelKey } from '@pierre/shared-constants';
+import { coachCategoryLabelKey, QUERY_KEYS } from '@pierre/shared-constants';
 
 /**
  * The athlete's installed copy of a listing, if any. An install mints a copy
@@ -37,8 +38,12 @@ function findInstalledCopy(listing: StoreAgentDetail, copies: StoreAgent[]): Sto
   return copies.find((copy) => copy.handle === listing.handle) ?? null;
 }
 
-/** What the post-install hint teaches: the copy the install minted, by title and handle. */
+/**
+ * The copy the install minted: its id binds the thread Open chat starts, its
+ * title and handle are what the post-install hint teaches.
+ */
 interface InstalledCopy {
+  id: string;
   title: string;
   handle: string | undefined;
 }
@@ -50,6 +55,7 @@ export function StoreCoachDetailScreen() {
   // Boreal v2.2 Phase 5 (P5.3), but the action bar itself is out of that scope.
   const cardStyle = useCardStyle();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { agentId } = useLocalSearchParams<{ agentId: string }>();
   const { isAuthenticated } = useAuth();
   // The action bar sits in the flow above the system tab bar; its own padding
@@ -60,6 +66,9 @@ export function StoreCoachDetailScreen() {
   const [isInstalling, setIsInstalling] = useState(false);
   const [installedCopy, setInstalledCopy] = useState<StoreAgent | null>(null);
   const [postInstall, setPostInstall] = useState<InstalledCopy | null>(null);
+  const [isOpeningChat, setIsOpeningChat] = useState(false);
+  // A second tap lands before the re-render that disables the button.
+  const openingChatRef = useRef(false);
   const isInstalled = installedCopy !== null;
 
   const loadCoachDetail = useCallback(async () => {
@@ -92,7 +101,7 @@ export function StoreCoachDetailScreen() {
       setIsInstalling(true);
       const response = await storeApi.install(coach.id);
       setInstalledCopy(response.agent);
-      setPostInstall({ title: coach.title, handle: response.agent.handle });
+      setPostInstall({ id: response.agent.id, title: coach.title, handle: response.agent.handle });
       trackMobile({ name: 'feature_engaged', props: { feature: 'coach_installed' } });
     } catch (error) {
       console.error('Failed to install coach:', error);
@@ -102,11 +111,27 @@ export function StoreCoachDetailScreen() {
     }
   };
 
-  // t('discover.openChat') on the post-install hint: a fresh thread, its
-  // composer pre-filled with the `/agent add @handle` draft the hint taught.
-  const handleOpenChat = (draft: string) => {
-    setPostInstall(null);
-    router.push(threadHref(undefined, { draft }));
+  // t('discover.openChat') on the post-install hint: a fresh thread bound to the
+  // copy the install minted. Binding it at creation is what makes the server
+  // post the agent's welcome before the thread is read. The store refuses to
+  // install a listing twice, so the hint only ever holds a freshly minted copy
+  // and its id. No title: the server names the thread after the agent.
+  const handleOpenChat = async () => {
+    if (!postInstall || openingChatRef.current) return;
+    openingChatRef.current = true;
+    setIsOpeningChat(true);
+    try {
+      const conversation = await chatApi.createConversation({ agent_id: postInstall.id });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
+      setPostInstall(null);
+      router.push(threadHref(conversation.id));
+    } catch (error) {
+      console.error('Failed to open a chat with the installed agent:', error);
+      Alert.alert(t('common.error'), t('app.couldNotOpenChat'));
+    } finally {
+      openingChatRef.current = false;
+      setIsOpeningChat(false);
+    }
   };
 
   const handleEdit = () => {
@@ -301,6 +326,7 @@ export function StoreCoachDetailScreen() {
             <PostInstallHint
               agentTitle={postInstall.title}
               handle={postInstall.handle}
+              isOpeningChat={isOpeningChat}
               onOpenChat={handleOpenChat}
               onDismiss={() => setPostInstall(null)}
             />

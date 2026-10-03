@@ -57,7 +57,10 @@ mod session;
 /// auth and locale in, an addressed `OutgoingMessage` out.
 #[cfg(feature = "client-messaging")]
 mod slash;
-use outbound_send::{send_channel_response, send_private_channel_response, OutboundPersistSpec};
+use outbound_send::{
+    send_channel_response, send_channel_responses, send_private_channel_response,
+    OutboundPersistSpec,
+};
 /// Ambient room-chatter capture into the shared group transcript read model.
 mod transcript;
 
@@ -452,6 +455,9 @@ async fn dispatch_slash_command_if_any(inputs: SlashDispatchInputs<'_>) -> bool 
             Some(ledger_spec(None)),
         )
         .await;
+        // The room hears the echo notice, then the welcome, from one delivery
+        // so the welcome never lands ahead of the notice it follows.
+        let mut room_sends = Vec::with_capacity(2);
         if let Some(room_id) = message.conversation_id.as_deref() {
             if let Some(mut notice) = room_echo::settle_room_echo(room_echo::RoomEchoSettlement {
                 resources,
@@ -469,20 +475,12 @@ async fn dispatch_slash_command_if_any(inputs: SlashDispatchInputs<'_>) -> bool 
             {
                 // Platform furniture in the same turn: recorded, not ratable.
                 notice.turn_id = message.turn_id;
-                send_channel_response(
-                    resources,
-                    tenant_id,
-                    channel,
-                    adapter,
-                    notice,
-                    Some(ledger_spec(None)),
-                )
-                .await;
+                room_sends.push((notice, Some(ledger_spec(None))));
             }
         }
-        if let Some((message, spec)) = welcome {
-            send_channel_response(resources, tenant_id, channel, adapter, message, Some(spec))
-                .await;
+        room_sends.extend(welcome.map(|(message, spec)| (message, Some(spec))));
+        if !room_sends.is_empty() {
+            send_channel_responses(resources, tenant_id, channel, adapter, room_sends).await;
         }
     } else {
         // Either a 1:1 DM (the conversation IS the private chat) or a

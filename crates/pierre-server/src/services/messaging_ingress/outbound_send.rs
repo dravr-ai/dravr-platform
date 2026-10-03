@@ -1,6 +1,5 @@
-// ABOUTME: The two outbound paths every non-pipeline messaging reply leaves through
-// ABOUTME: Loads channel config, splits a body past the channel ceiling, and spawns delivery
-// ABOUTME: under the in-flight tracker, so a shutdown drain awaits a reply it has not sent yet
+// ABOUTME: The room and private outbound paths every non-pipeline messaging reply leaves through
+// ABOUTME: Splits past the channel ceiling and sends a batch in order from one drain-tracked task
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -46,66 +45,64 @@ enum DeliveryMode {
     Private { recipient: String },
 }
 
-/// Deliver the split parts sequentially, writing one ledger row per part.
+/// One message of an ordered send: its split parts and the ledger they write.
+struct Delivery {
+    parts: Vec<OutgoingMessage>,
+    persist: Option<OutboundPersistSpec>,
+}
+
+/// Deliver each message's split parts in order, writing one ledger row per
+/// part under that message's spec.
 ///
-/// A failure part-way stops the rest rather than posting a tail with no head;
-/// the failed attempt still lands in the ledger (`failed-…`) so the wire stays
+/// A failure part-way stops the rest of that message rather than posting a
+/// tail with no head; the next message still goes, since each stands on its
+/// own. The failed attempt lands in the ledger (`failed-…`) so the wire stays
 /// observable. Slash replies are synchronous request/response and are NOT
 /// queued for retry: the retry worker re-sends through `send`, addressed to
 /// the room, which would post a privately-redirected answer publicly.
 async fn deliver_and_persist(
     adapter: Arc<dyn MessagingChannel>,
     config: ChannelConfig,
-    parts: Vec<OutgoingMessage>,
+    deliveries: Vec<Delivery>,
     mode: DeliveryMode,
     channel: String,
-    persist: Option<OutboundPersistSpec>,
 ) {
-    for message in parts {
-        let sent = match &mode {
-            DeliveryMode::Room => adapter.send(&message, &config).await,
-            DeliveryMode::Private { recipient } => {
-                adapter
-                    .send_private_reply(&message, recipient, &config)
-                    .await
-            }
-        };
-        match sent {
-            Ok(receipt) => {
-                if let Some(spec) = &persist {
-                    persist_outbound_row(
-                        spec.db.as_ref(),
-                        &OutboundRowParams {
-                            session_tenant_id: spec.session_tenant_id,
-                            session_id: &spec.session_id,
-                            channel: &channel,
-                            receipt_id: receipt.channel_message_id.as_deref(),
-                            delivered: true,
-                            chat_message_id: spec.chat_message_id.as_deref(),
-                        },
-                        &message,
-                    )
-                    .await;
+    for Delivery { parts, persist } in deliveries {
+        for message in parts {
+            let sent = match &mode {
+                DeliveryMode::Room => adapter.send(&message, &config).await,
+                DeliveryMode::Private { recipient } => {
+                    adapter
+                        .send_private_reply(&message, recipient, &config)
+                        .await
                 }
-            }
-            Err(e) => {
-                error!(error = %e, channel = %channel, "Failed to send channel response");
-                if let Some(spec) = &persist {
-                    persist_outbound_row(
-                        spec.db.as_ref(),
-                        &OutboundRowParams {
-                            session_tenant_id: spec.session_tenant_id,
-                            session_id: &spec.session_id,
-                            channel: &channel,
-                            receipt_id: None,
-                            delivered: false,
-                            chat_message_id: spec.chat_message_id.as_deref(),
-                        },
-                        &message,
-                    )
-                    .await;
+            };
+            let receipt = match sent {
+                Ok(receipt) => Some(receipt),
+                Err(e) => {
+                    error!(error = %e, channel = %channel, "Failed to send channel response");
+                    None
                 }
-                return;
+            };
+            if let Some(spec) = &persist {
+                persist_outbound_row(
+                    spec.db.as_ref(),
+                    &OutboundRowParams {
+                        session_tenant_id: spec.session_tenant_id,
+                        session_id: &spec.session_id,
+                        channel: &channel,
+                        receipt_id: receipt
+                            .as_ref()
+                            .and_then(|r| r.channel_message_id.as_deref()),
+                        delivered: receipt.is_some(),
+                        chat_message_id: spec.chat_message_id.as_deref(),
+                    },
+                    &message,
+                )
+                .await;
+            }
+            if receipt.is_none() {
+                break;
             }
         }
     }
@@ -135,18 +132,50 @@ pub async fn send_channel_response(
     message: OutgoingMessage,
     persist: Option<OutboundPersistSpec>,
 ) {
-    let ceiling = block_render::channel_ceiling(message.channel_type);
-    let messages = block_render::fan_out(message, ceiling);
+    send_channel_responses(
+        resources,
+        tenant_id,
+        channel,
+        adapter,
+        vec![(message, persist)],
+    )
+    .await;
+}
+
+/// Send several replies to the room, in order, from one delivery task.
+///
+/// Each reply spawned on its own would race the others to the channel, so a
+/// command's answer and the agent welcome that follows it (carnet#750) could
+/// arrive welcome first. One task sends them in order; a message that fails
+/// does not hold back the next. Each message is split, and the task
+/// drain-tracked, as [`send_channel_response`] describes — that function is
+/// this one with a single reply.
+pub async fn send_channel_responses(
+    resources: &ServerContext,
+    tenant_id: TenantId,
+    channel: &str,
+    adapter: &Arc<dyn MessagingChannel>,
+    messages: Vec<(OutgoingMessage, Option<OutboundPersistSpec>)>,
+) {
+    let deliveries = messages
+        .into_iter()
+        .map(|(message, persist)| {
+            let ceiling = block_render::channel_ceiling(message.channel_type);
+            Delivery {
+                parts: block_render::fan_out(message, ceiling),
+                persist,
+            }
+        })
+        .collect();
     let db = resources.common.repos.messaging.as_ref();
     let config = load_channel_config(db, tenant_id, channel).await;
     if let Some(cfg) = config {
         resources.common.turns.spawn(deliver_and_persist(
             Arc::clone(adapter),
             cfg,
-            messages,
+            deliveries,
             DeliveryMode::Room,
             channel.to_owned(),
-            persist,
         ));
     } else {
         // A missing config dropped the message with no trace at all, which is
@@ -183,12 +212,14 @@ pub async fn send_private_channel_response(
         resources.common.turns.spawn(deliver_and_persist(
             Arc::clone(adapter),
             cfg,
-            messages,
+            vec![Delivery {
+                parts: messages,
+                persist,
+            }],
             DeliveryMode::Private {
                 recipient: recipient_user_id.to_owned(),
             },
             channel.to_owned(),
-            persist,
         ));
     } else {
         error!(

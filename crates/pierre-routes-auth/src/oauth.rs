@@ -286,10 +286,13 @@ pub async fn handle_providers_status(
         .authenticate_request_with_headers(&headers)
         .await?;
 
+    // The web and mobile screens read the user's profile locale.
+    let locale = resolve_user_locale(resources.repos.users.as_ref(), auth_result.user_id).await;
     let response = compute_providers_status(
         &resources,
         auth_result.user_id,
         auth_result.active_tenant_id,
+        &locale,
     )
     .await?;
     Ok((StatusCode::OK, Json(response)).into_response())
@@ -383,7 +386,10 @@ async fn notice_outstanding(
 /// "we could not find out" must stay distinguishable. The seat summary still
 /// degrades to "no seats left", which only steers a new Strava connection to
 /// the mirror. `tenant_id` is the session's active tenant, whose feature
-/// flags decide whether an exposure notice is asked for.
+/// flags decide whether an exposure notice is asked for. `locale` words each
+/// card's description and is the caller's: the page around the cards already
+/// chose it (a hosted page puts the chat's `/language` before the profile),
+/// so resolving it again here would let the two disagree.
 ///
 /// # Errors
 /// Returns the repository's error when the user's connections cannot be read.
@@ -391,15 +397,13 @@ pub async fn compute_providers_status(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Option<Uuid>,
+    locale: &str,
 ) -> Result<ProvidersStatusResponse, AppError> {
     use pierre_providers::registry::global_registry;
 
     // Get all supported providers from the registry
     let registry = global_registry();
     let supported_providers = registry.supported_providers();
-
-    // Each card's description reads in the user's own locale.
-    let locale = resolve_user_locale(resources.repos.users.as_ref(), user_id).await;
 
     // Get user's provider connections (cross-tenant view, single source of truth)
     let connections = resources
@@ -548,7 +552,7 @@ pub async fn compute_providers_status(
                 display_name: descriptor.display_name().to_owned(),
                 description: resources
                     .messaging_strings
-                    .get(provider_description_key(provider_name), &locale),
+                    .get(provider_description_key(provider_name), locale),
                 requires_oauth,
                 connected,
                 connected_backend,

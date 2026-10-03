@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests for the post-install hint — the copy it teaches and the draft it hands to Open chat
+// ABOUTME: Tests for the post-install hint — the copy it teaches and the Open chat it hands to the caller
 // ABOUTME: Pins the /agent add @handle command and the @handle mention as the two ways to use an agent
 
 import { describe, it, expect, vi } from 'vitest';
@@ -27,7 +27,7 @@ describe('PostInstallHint', () => {
     );
   });
 
-  it('hands the /agent add draft to Open chat', () => {
+  it('Open chat asks the caller for a thread bound to the agent, handing it no draft', () => {
     const onOpenChat = vi.fn();
     render(
       <PostInstallHint agentTitle="Tempo" handle="tempo-coach" onOpenChat={onOpenChat} onDismiss={vi.fn()} />,
@@ -35,7 +35,26 @@ describe('PostInstallHint', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Open chat' }));
 
-    expect(onOpenChat).toHaveBeenCalledWith('/agent add @tempo-coach');
+    expect(onOpenChat).toHaveBeenCalledTimes(1);
+    expect(onOpenChat).toHaveBeenCalledWith();
+  });
+
+  it('disables Open chat while the bound thread is being created', () => {
+    const onOpenChat = vi.fn();
+    render(
+      <PostInstallHint
+        agentTitle="Tempo"
+        handle="tempo-coach"
+        isOpeningChat
+        onOpenChat={onOpenChat}
+        onDismiss={vi.fn()}
+      />,
+    );
+
+    const openChat = screen.getByRole('button', { name: 'Open chat' });
+    expect(openChat).toBeDisabled();
+    fireEvent.click(openChat);
+    expect(onOpenChat).not.toHaveBeenCalled();
   });
 
   it('dismisses through onDismiss', () => {

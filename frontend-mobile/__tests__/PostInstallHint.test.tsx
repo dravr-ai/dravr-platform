@@ -1,4 +1,4 @@
-// ABOUTME: Unit tests for the post-install hint — the copy it teaches and the draft it hands to Open chat
+// ABOUTME: Unit tests for the post-install hint — the copy it teaches and the Open chat it hands to the caller
 // ABOUTME: Pins the /agent add @handle command and the @handle mention as the two ways to use an agent
 
 import React from 'react';
@@ -23,7 +23,7 @@ describe('PostInstallHint', () => {
     );
   });
 
-  it('hands the /agent add draft to Open chat', () => {
+  it('Open chat asks the caller for a thread bound to the agent, handing it no draft', () => {
     const onOpenChat = jest.fn();
     const { getByTestId } = render(
       <PostInstallHint agentTitle="Tempo" handle="tempo-coach" onOpenChat={onOpenChat} onDismiss={jest.fn()} />,
@@ -31,7 +31,25 @@ describe('PostInstallHint', () => {
 
     fireEvent.press(getByTestId('post-install-open-chat'));
 
-    expect(onOpenChat).toHaveBeenCalledWith('/agent add @tempo-coach');
+    expect(onOpenChat).toHaveBeenCalledTimes(1);
+    expect(onOpenChat).toHaveBeenCalledWith();
+  });
+
+  it('disables Open chat while the bound thread is being created', () => {
+    const onOpenChat = jest.fn();
+    const { getByTestId } = render(
+      <PostInstallHint
+        agentTitle="Tempo"
+        handle="tempo-coach"
+        isOpeningChat
+        onOpenChat={onOpenChat}
+        onDismiss={jest.fn()}
+      />,
+    );
+
+    fireEvent.press(getByTestId('post-install-open-chat'));
+
+    expect(onOpenChat).not.toHaveBeenCalled();
   });
 
   it('dismisses through onDismiss', () => {

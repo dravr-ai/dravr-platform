@@ -38,10 +38,13 @@ import { useTranslation } from '@pierre/i18n';
 import { PROVIDER_BRAND } from '../constants/brands';
 import { describeApiError, refusalReason } from '@pierre/ui-logic';
 
+// `logging-in` is the credential login, shown with its connecting copy;
+// `verifying` is a code or a 2FA pick being checked, shown with its status only.
 type LoginPhase =
   | 'choose'
   | 'credentials'
   | 'logging-in'
+  | 'verifying'
   | 'two-factor'
   | 'waiting-approval'
   | 'number-match'
@@ -361,7 +364,7 @@ export function SciotteLoginModal({
   const handleSelect2FA = useCallback(async (optionId: string) => {
     setIsLoading(true);
     if (optionId === 'app') setPhase('waiting-approval');
-    else if (optionId !== 'poll') setPhase('logging-in');
+    else if (optionId !== 'poll') setPhase('verifying');
     setStatus(optionId === 'app' ? t('app.approveOnDevice') : t('app.verifying'));
 
     try {
@@ -411,7 +414,7 @@ export function SciotteLoginModal({
 
     setIsLoading(true);
     setCodeRejected(false);
-    setPhase('logging-in');
+    setPhase('verifying');
     setStatus(t('app.verifyingCode'));
 
     try {
@@ -669,6 +672,18 @@ export function SciotteLoginModal({
               ? t('app.openAuthenticatorApp')
               : t('app.connectingMoment')}
           </Text>
+        </View>
+      );
+    }
+
+    // A code or a 2FA pick being checked
+    if (phase === 'verifying') {
+      return (
+        <View className="items-center py-10" testID="sciotte-verifying">
+          <View className="w-16 h-16 rounded-2xl items-center justify-center mb-5" style={{ backgroundColor: `${colors.tokens.primary}20` }}>
+            <ActivityIndicator size="large" color={colors.tokens.primary} />
+          </View>
+          <Text accessibilityLiveRegion="polite" className="text-base font-medium text-text-primary">{status}</Text>
         </View>
       );
     }

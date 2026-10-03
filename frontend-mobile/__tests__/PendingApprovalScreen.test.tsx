@@ -85,9 +85,9 @@ describe('PendingApprovalScreen', () => {
 
       fireEvent.press(getByTestId('pending-resend-button'));
 
-      // The corpus entry carries a literal `&apos;` (an existing, out-of-scope
-      // encoding quirk on this app.* key — not decoded by RN's plain Text).
-      await waitFor(() => expect(getByText(/send it just now/)).toBeTruthy());
+      await waitFor(() =>
+        expect(getByText('Couldn’t send it just now. Try again in a moment.')).toBeTruthy(),
+      );
     });
   });
 });

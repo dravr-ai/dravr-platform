@@ -152,7 +152,7 @@ pub fn validate_connect_token(
 
 /// Map the provider catalogue into the picker's cards, applying the web
 /// onboarding OAuth-first decision tree. `strings` words each card's notice
-/// in the page's locale.
+/// and description in the page's locale.
 async fn build_connect_providers(
     resources: &AuthRoutesContext,
     strings: &PageStrings<'_>,
@@ -160,7 +160,7 @@ async fn build_connect_providers(
     tenant_id: Option<Uuid>,
     link_token: &str,
 ) -> Result<Vec<ConnectProviderCard>, AppError> {
-    let status = compute_providers_status(resources, user_id, tenant_id).await?;
+    let status = compute_providers_status(resources, user_id, tenant_id, strings.locale()).await?;
 
     // The `sciotte` card already counts a native Strava OAuth grant as
     // connected (`card_is_connected`), so a user connected either way never

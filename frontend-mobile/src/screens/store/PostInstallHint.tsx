@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The card shown after an agent is installed from Discover — teaches /agent add @handle and @handle
-// ABOUTME: Dismissible; t('discover.openChat') hands the /agent add draft to the caller and starts a conversation
+// ABOUTME: Dismissible; t('discover.openChat') asks the caller for a thread bound to the agent, which welcomes
 
 import React from 'react';
 import { View, Text } from 'react-native';
@@ -15,15 +15,23 @@ export interface PostInstallHintProps {
   agentTitle: string;
   /** The catalogue handle the copy inherited from its listing. */
   handle: string | undefined;
+  /** True while the caller creates the bound thread; Open chat waits on it. */
+  isOpeningChat?: boolean;
   /**
-   * Receives the `/agent add @handle` command so the caller can start a
-   * conversation and seed its composer with it.
+   * Starts a conversation bound to the installed copy, so the agent's welcome
+   * is in it. The `/agent add @handle` the hint teaches is for any other chat.
    */
-  onOpenChat: (draft: string) => void;
+  onOpenChat: () => void;
   onDismiss: () => void;
 }
 
-export function PostInstallHint({ agentTitle, handle, onOpenChat, onDismiss }: PostInstallHintProps) {
+export function PostInstallHint({
+  agentTitle,
+  handle,
+  isOpeningChat = false,
+  onOpenChat,
+  onDismiss,
+}: PostInstallHintProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const draft = coachAddDraft(handle);
@@ -42,7 +50,12 @@ export function PostInstallHint({ agentTitle, handle, onOpenChat, onDismiss }: P
           {' for one turn'}
         </Text>
         <View className="flex-row gap-2 mt-3">
-          <Button title={t('discover.openChat')} onPress={() => onOpenChat(draft)} testID="post-install-open-chat" />
+          <Button
+            title={t('discover.openChat')}
+            onPress={() => onOpenChat()}
+            loading={isOpeningChat}
+            testID="post-install-open-chat"
+          />
           <Button title={t('app.dismiss')} variant="secondary" onPress={onDismiss} testID="post-install-dismiss" />
         </View>
       </Card>

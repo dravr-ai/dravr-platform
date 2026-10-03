@@ -378,8 +378,12 @@ impl TurnEgress {
                 finish_reason: Some(COMMAND_FINISH_REASON.to_owned()),
             },
             conversation_updated_at,
+            // A rotated turn's welcome opens the fresh thread, which the client
+            // reads whole; carried here it would be drawn under the archived one.
+            welcome_message: welcome
+                .filter(|_| rotated_to.is_none())
+                .map(|posted| welcome_response(posted.message)),
             rotated_to_conversation_id: rotated_to,
-            welcome_message: welcome.map(|posted| welcome_response(posted.message)),
             telemetry: TurnTelemetryResponse {
                 model: COMMAND_MODEL.to_owned(),
                 provider_name: COMMAND_PROVIDER.to_owned(),

@@ -2,9 +2,11 @@
 // ABOUTME: Tests agent detail display, install → hint → Open chat, uninstall by copy id, and Edit agent
 
 import React from 'react';
-import { act, render, fireEvent, waitFor } from '@testing-library/react-native';
+import { act, render as rtlRender, fireEvent, waitFor } from '@testing-library/react-native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { i18n } from '@pierre/i18n';
 import { Alert } from 'react-native';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 
 // Per-file expo-router mock override with spyable router methods
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), navigate: jest.fn(), canGoBack: () => true };
@@ -32,8 +34,12 @@ const mockGet = jest.fn();
 const mockInstall = jest.fn();
 const mockUninstall = jest.fn();
 const mockGetInstallations = jest.fn();
+const mockCreateConversation = jest.fn();
 
 jest.mock('../src/services/api', () => ({
+  chatApi: {
+    createConversation: (...args: unknown[]) => mockCreateConversation(...args),
+  },
   storeApi: {
     get: (...args: unknown[]) => mockGet(...args),
     install: (...args: unknown[]) => mockInstall(...args),
@@ -91,8 +97,16 @@ const installedCopy: StoreAgent = {
   handle: COACH_HANDLE,
 };
 
+// Open chat refreshes the conversation list the chat tab reads from the
+// React Query cache, so every render gets a client of its own.
+let queryClient: QueryClient;
+function render(ui: React.ReactElement) {
+  return rtlRender(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+}
+
 describe('StoreCoachDetailScreen', () => {
   beforeEach(() => {
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     jest.clearAllMocks();
     mockRouter.push.mockClear();
     mockRouter.replace.mockClear();
@@ -101,6 +115,7 @@ describe('StoreCoachDetailScreen', () => {
     mockGet.mockResolvedValue(createMockStoreCoachDetail());
     mockGetInstallations.mockResolvedValue({ agents: [] });
     mockInstall.mockResolvedValue({ message: 'Coach installed successfully', agent: installedCopy });
+    mockCreateConversation.mockResolvedValue({ id: 'conv-new', title: 'Marathon Training Agent' });
   });
 
   describe('rendering', () => {
@@ -320,7 +335,8 @@ describe('StoreCoachDetailScreen', () => {
       expect(getByTestId('edit-coach-button')).toBeTruthy();
     });
 
-    it('Open chat on the hint opens a fresh thread', async () => {
+    it('Open chat on the hint opens a thread bound to the installed copy', async () => {
+      const invalidate = jest.spyOn(queryClient, 'invalidateQueries');
       const { getByText, findByTestId, getByTestId, queryByTestId } = render(
         <StoreCoachDetailScreen />
       );
@@ -333,13 +349,63 @@ describe('StoreCoachDetailScreen', () => {
 
       fireEvent.press(getByTestId('post-install-open-chat'));
 
-      // The draft the hint taught — `/agent add @handle` — rides along, so the
-      // fresh thread's composer opens pre-filled instead of blank.
-      expect(mockRouter.push).toHaveBeenCalledWith({
-        pathname: CHAT_THREAD_ROUTE,
-        params: { conversationId: 'new', draft: `/agent add @${COACH_HANDLE}` },
+      // Bound at creation to the athlete's own copy, not the store listing, so
+      // the server has posted the agent's welcome before the thread is read.
+      // No title: the server names the thread after the agent.
+      await waitFor(() => {
+        expect(mockRouter.push).toHaveBeenCalledWith({
+          pathname: CHAT_THREAD_ROUTE,
+          params: { conversationId: 'conv-new' },
+        });
       });
+      expect(mockCreateConversation).toHaveBeenCalledTimes(1);
+      expect(mockCreateConversation).toHaveBeenCalledWith({ agent_id: 'installed-copy-1' });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: QUERY_KEYS.chat.conversations() });
       expect(queryByTestId('post-install-hint')).toBeNull();
+    });
+
+    it('Open chat creates one thread however often it is tapped', async () => {
+      let resolveCreate: (conversation: { id: string; title: string }) => void = () => {};
+      mockCreateConversation.mockReturnValue(
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        }),
+      );
+      const { getByText, findByTestId, getByTestId } = render(<StoreCoachDetailScreen />);
+
+      await waitFor(() => {
+        expect(getByText('Install Agent')).toBeTruthy();
+      });
+      fireEvent.press(getByText('Install Agent'));
+      await findByTestId('post-install-hint');
+
+      fireEvent.press(getByTestId('post-install-open-chat'));
+      fireEvent.press(getByTestId('post-install-open-chat'));
+      await act(async () => {
+        resolveCreate({ id: 'conv-new', title: 'Marathon Training Agent' });
+      });
+
+      expect(mockCreateConversation).toHaveBeenCalledTimes(1);
+      expect(mockRouter.push).toHaveBeenCalledTimes(1);
+    });
+
+    it('Open chat that cannot create the thread says so and keeps the hint', async () => {
+      mockCreateConversation.mockRejectedValue(new Error('conversation limit reached'));
+      const { getByText, findByTestId, getByTestId } = render(<StoreCoachDetailScreen />);
+
+      await waitFor(() => {
+        expect(getByText('Install Agent')).toBeTruthy();
+      });
+      fireEvent.press(getByText('Install Agent'));
+      await findByTestId('post-install-hint');
+
+      fireEvent.press(getByTestId('post-install-open-chat'));
+
+      await waitFor(() => {
+        expect(Alert.alert).toHaveBeenCalledWith('Error', 'Could not open a chat');
+      });
+      expect(mockRouter.push).not.toHaveBeenCalled();
+      expect(getByTestId('post-install-hint')).toBeTruthy();
     });
 
     it('Dismiss hides the hint and leaves the agent installed', async () => {

@@ -13,7 +13,8 @@
 //!
 //! Now the agent opens the thread. When an agent is bound into a thread — a
 //! conversation created with an `agent_id`, `/agent add`, the messaging
-//! proposal's numeric pick — it posts one row as itself: its title in the
+//! proposal's numeric pick, the fresh thread `/reset` forges for the same
+//! agent (carnet#750) — it posts one row as itself: its title in the
 //! athlete's language, its one-line role, and up to three starter questions
 //! taken from its own authored Example Inputs. No model runs: the row is
 //! instant, free and the same every time.

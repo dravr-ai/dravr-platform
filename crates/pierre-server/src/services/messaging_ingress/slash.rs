@@ -28,7 +28,7 @@ use pierre_services::conversation_forge::conversation_cap_reply;
 use super::addressing::reply_recipient;
 use super::card_or_rich_text;
 use super::connect::build_connect_card_direct;
-use super::outbound_send::{send_channel_response, OutboundPersistSpec};
+use super::outbound_send::{send_channel_responses, OutboundPersistSpec};
 use super::surface::messaging_render_profile;
 use super::ResolvedSession;
 use pierre_contremaitre::messaging_strings::KEY_NO_PROVIDER_CONNECTED;
@@ -142,10 +142,9 @@ pub(super) async fn send_visible_reply(
     let welcome = reply
         .welcome
         .map(|welcome| welcome.into_send(reply.message.turn_id, &ledger_spec));
-    send_channel_response(resources, tenant_id, channel, adapter, reply.message, spec).await;
-    if let Some((message, spec)) = welcome {
-        send_channel_response(resources, tenant_id, channel, adapter, message, Some(spec)).await;
-    }
+    let mut sends = vec![(reply.message, spec)];
+    sends.extend(welcome.map(|(message, spec)| (message, Some(spec))));
+    send_channel_responses(resources, tenant_id, channel, adapter, sends).await;
 }
 
 impl WelcomeReply {

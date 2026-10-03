@@ -30,7 +30,7 @@ use uuid::Uuid;
 
 use super::content_body_text;
 use super::otp::apply_conversation_recipient;
-use super::outbound_send::{send_channel_response, OutboundPersistSpec};
+use super::outbound_send::{send_channel_responses, OutboundPersistSpec};
 use super::session::rebind_conversation_agent;
 use super::slash::welcome_content;
 use super::ResolvedSession;
@@ -109,7 +109,7 @@ pub(super) async fn answer_agent_choice(params: AgentChoiceParams<'_>) -> bool {
         &[&agent.title],
     );
     let confirmation = proactive_text(params.channel_type, params.message.sender_id.clone(), body);
-    deliver(&params, confirmation, None).await;
+    let mut answers = vec![(confirmation, None)];
 
     let session = params.session;
     rebind_conversation_agent(
@@ -134,8 +134,9 @@ pub(super) async fn answer_agent_choice(params: AgentChoiceParams<'_>) -> bool {
             session_id: session.session_id.clone(),
             chat_message_id: Some(welcome.message.id),
         };
-        deliver(&params, message, Some(ledger)).await;
+        answers.push((message, Some(ledger)));
     }
+    deliver(&params, answers).await;
     true
 }
 
@@ -263,21 +264,23 @@ async fn welcome_chosen_agent(
     }
 }
 
-/// Send one answer to the pick, addressed and threaded like the reply it is.
+/// Send the pick's answers in order from one delivery, each addressed and
+/// threaded like the reply it is: sent one by one they would race, and the
+/// welcome could arrive before the confirmation it follows.
 async fn deliver(
     params: &AgentChoiceParams<'_>,
-    mut message: OutgoingMessage,
-    ledger: Option<OutboundPersistSpec>,
+    mut answers: Vec<(OutgoingMessage, Option<OutboundPersistSpec>)>,
 ) {
-    message.thread_id.clone_from(&params.thread_id);
-    apply_conversation_recipient(&mut message, params.message.conversation_id.as_deref());
-    send_channel_response(
+    for (message, _) in &mut answers {
+        message.thread_id.clone_from(&params.thread_id);
+        apply_conversation_recipient(message, params.message.conversation_id.as_deref());
+    }
+    send_channel_responses(
         params.resources,
         params.tenant_id,
         params.channel,
         params.adapter,
-        message,
-        ledger,
+        answers,
     )
     .await;
 }

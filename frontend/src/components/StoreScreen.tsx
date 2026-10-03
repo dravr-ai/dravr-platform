@@ -74,8 +74,12 @@ interface StoreAgentDetail extends StoreAgent {
   publish_status: string;
 }
 
-/** What the post-install hint teaches: the copy the install minted, by title and handle. */
+/**
+ * The copy the install minted: its id binds the thread Open chat starts, its
+ * title and handle are what the post-install hint teaches.
+ */
 interface InstalledCopy {
+  id: string;
   title: string;
   handle: string | undefined;
 }
@@ -83,7 +87,8 @@ interface InstalledCopy {
 interface StoreScreenProps {
   /**
    * Dashboard route navigator, `tab[/subview]`. t('discover.openChat') on the post-install
-   * hint starts a conversation and routes to `chat/<conversationId>`; closing
+   * hint starts a conversation bound to the installed copy and routes to
+   * `chat/<conversationId>`; closing
    * the edit sheet opened by route returns to `discover`.
    */
   onNavigate?: (route: string) => void;
@@ -208,7 +213,11 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
       setActionError(null);
       setSuccessMessage(null);
-      setInstalledCopy({ title: installed.agent.title, handle: installed.agent.handle });
+      setInstalledCopy({
+        id: installed.agent.id,
+        title: installed.agent.title,
+        handle: installed.agent.handle,
+      });
       track({ name: 'feature_engaged', props: { feature: 'coach_installed' } });
     },
     onError: (error: Error) => {
@@ -233,12 +242,15 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
     },
   });
 
-  // t('discover.openChat') on the post-install hint: a fresh conversation, then the chat
-  // tab. The hint hands over the `/agent add @handle` draft the athlete types
-  // there.
+  // t('discover.openChat') on the post-install hint: a fresh conversation bound to
+  // the copy the install minted, then the chat tab. Binding it at creation is
+  // what makes the server post the agent's welcome before the thread is read.
+  // The store refuses to install a listing twice, so the hint only ever holds
+  // a freshly minted copy and its id.
   const openChat = useMutation({
-    // The server names the thread, the way it names one the chat tab opens.
-    mutationFn: () => chatApi.createConversation({}),
+    // No title: the server names the thread after the agent, the way it names
+    // one the chat tab opens.
+    mutationFn: (agentId: string) => chatApi.createConversation({ agent_id: agentId }),
     onSuccess: (conversation) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
       setActionError(null);
@@ -251,8 +263,10 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
   });
 
   const handleOpenChat = useCallback(() => {
-    openChat.mutate();
-  }, [openChat]);
+    if (installedCopy) {
+      openChat.mutate(installedCopy.id);
+    }
+  }, [openChat, installedCopy]);
 
   const handleDismissHint = useCallback(() => {
     setInstalledCopy(null);
@@ -579,7 +593,7 @@ interface CoachDetailViewProps {
   onRemove: () => void;
   /** Open the edit sheet on the athlete's installed copy. */
   onEdit: () => void;
-  onOpenChat: (draft: string) => void;
+  onOpenChat: () => void;
   onDismissHint: () => void;
 }
 
@@ -746,6 +760,7 @@ function CoachDetailView({
             <PostInstallHint
               agentTitle={installedCopy.title}
               handle={installedCopy.handle}
+              isOpeningChat={isOpeningChat}
               onOpenChat={onOpenChat}
               onDismiss={onDismissHint}
             />
