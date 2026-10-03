@@ -478,8 +478,6 @@ pub struct UpdateGroupRequest {
     pub description: Option<String>,
     /// Updated agent persona ID
     pub agent_id: Option<String>,
-    /// Updated max members
-    pub max_members: Option<i32>,
     /// Toggle peer data sharing
     pub peer_data_sharing: Option<bool>,
     /// Change when the AI agent replies in the bound channel chat
@@ -502,7 +500,6 @@ impl UpdateGroupRequest {
             name,
             description,
             agent_id,
-            max_members,
             peer_data_sharing,
             respond_mode,
             digest_mode,
@@ -512,7 +509,6 @@ impl UpdateGroupRequest {
             && name.is_none()
             && description.is_none()
             && agent_id.is_none()
-            && max_members.is_none()
             && peer_data_sharing.is_none()
             && respond_mode.is_none()
             && is_active.is_none()

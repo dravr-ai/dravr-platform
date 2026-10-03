@@ -107,7 +107,6 @@ export interface UpdateGroupRequest {
   name?: string;
   description?: string;
   agent_id?: string;
-  max_members?: number;
   peer_data_sharing?: boolean;
   respond_mode?: GroupRespondMode;
   /** The group's attached human coach may send this field and no other */

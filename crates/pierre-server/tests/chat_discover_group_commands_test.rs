@@ -32,7 +32,7 @@ use pierre_core::models::{
 };
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_groups::creation_policy::GROUP_CREATION_POLICY_KEY;
-use pierre_groups::strategies::tier::tier_strategy_for;
+use pierre_groups::strategies::tier::{tier_strategy_for, ProfessionalTierStrategy};
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::admin::postgres_manager::PostgresAdminConfigManager;
 use pierre_mcp_server::config::admin::repository::SetOverrideParams;
@@ -862,8 +862,8 @@ async fn group_create_refuses_without_a_name_or_an_agent() {
 
 #[tokio::test]
 async fn group_create_on_a_starter_tenant_applies_the_starter_cap_like_the_rest_route() {
-    // POST /api/groups resolves the member cap from the tenant plan and hands
-    // it to the service, which refuses only a cap of zero. Starter's cap is a
+    // POST /api/groups resolves the tenant plan's tier and hands it to the
+    // service, which refuses only a member cap of zero. Starter's cap is a
     // real number, so a Starter owner creates a group there — and here.
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) =
@@ -980,7 +980,7 @@ async fn seed_group_with_invite(
     };
     let group = resources
         .group_service()
-        .create_group(&request, owner_id, tenant_id, 10)
+        .create_group(&request, owner_id, tenant_id, &ProfessionalTierStrategy)
         .await
         .unwrap();
     let invite = resources

@@ -64,37 +64,37 @@ pub trait GroupTierStrategy: Send + Sync {
 /// it. A messaging auto-bind is not a request — the group materializes because
 /// somebody added the bot to a chat — and refusing it would leave that chat
 /// with no group context and only a log line to say why, so the per-group
-/// member cap is the gate there instead. That matters more than the tier
-/// numbers suggest: [`crate::GroupService`] is built once with a hardcoded
-/// `professional` strategy, so `max_groups` is the same `Some(3)` for every
-/// tenant regardless of plan, and an allowance that is not yet a real pricing
-/// signal must not silently un-group a live chat.
+/// member cap is the gate there instead: a live chat must never be silently
+/// un-grouped because its owner reached the plan's allowance.
 pub(crate) enum OwnerGroupLimit {
-    /// Count the owner's groups against `max_groups` and refuse beyond it.
-    Enforced,
+    /// Count the owner's groups against this plan allowance (`None` =
+    /// unlimited) and refuse beyond it.
+    Enforced(Option<usize>),
     /// Skip the count — the member cap governs this path.
     Exempt,
 }
 
-/// Starter tier: small groups, no group features.
+/// Starter tier: one group per athlete, no group features.
 ///
-/// The caps are deliberately generous relative to the feature set: a Starter
-/// tenant can hold a handful of people in a chat group, but every group
-/// *feature* below (roster, dashboard, peer sharing, digests) stays off. The
-/// member cap is what [`crate::GroupService::create_group`] and
+/// A Starter group is a coach, one athlete and the agent: the owner (the
+/// coach) and the athlete are its two members, and the agent is the group's
+/// `agent_id`, never a member row. A coach brings each athlete into their own
+/// group, so the group allowance is sized for the validation cohort's 5–10
+/// athletes per coach. Every group *feature* below (roster, dashboard, peer
+/// sharing, digests) stays off. The member cap is what
+/// [`crate::GroupService::create_group`] and
 /// [`crate::GroupService::create_channel_group`] gate on — a cap of `0` there
 /// rejects creation outright, which is why this tier carries a real number
-/// rather than zero: adding the bot to a Telegram group is the primary way
-/// groups come into existence, and every tenant is created on Starter.
+/// rather than zero: every tenant is created on Starter.
 pub struct StarterTierStrategy;
 
 impl GroupTierStrategy for StarterTierStrategy {
     fn max_groups(&self) -> Option<usize> {
-        Some(3)
+        Some(10)
     }
 
     fn max_members_per_group(&self) -> usize {
-        5
+        2
     }
 
     fn allowed_features(&self) -> GroupFeatureFlags {
@@ -126,16 +126,17 @@ impl GroupTierStrategy for StarterTierStrategy {
     }
 }
 
-/// Professional tier: 3 groups, 10 members each
+/// Professional tier: one group per athlete, like Starter, for the 15
+/// athletes a paid coach seat includes.
 pub struct ProfessionalTierStrategy;
 
 impl GroupTierStrategy for ProfessionalTierStrategy {
     fn max_groups(&self) -> Option<usize> {
-        Some(3)
+        Some(15)
     }
 
     fn max_members_per_group(&self) -> usize {
-        10
+        2
     }
 
     fn allowed_features(&self) -> GroupFeatureFlags {

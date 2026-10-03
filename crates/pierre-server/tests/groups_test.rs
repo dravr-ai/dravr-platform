@@ -94,8 +94,8 @@ impl Doors {
             .to_string()
     }
 
-    /// Create a group as the caller, capped by the tenant plan's member limit
-    /// exactly as `/group create` caps it, and return it as `{"id": ...}`.
+    /// Create a group as the caller, under the tenant plan's tier exactly as
+    /// `/group create` creates it, and return it as `{"id": ...}`.
     async fn group(&self, auth: &str, body: Value) -> Value {
         let (user_id, tenant_id) = self.caller(auth);
         let request: CreateGroupRequest = serde_json::from_value(body).unwrap();
@@ -108,11 +108,15 @@ impl Doors {
             .await
             .unwrap()
             .plan;
-        let cap = i32::try_from(tier_strategy_for(&plan).max_members_per_group()).unwrap();
         let group = self
             .res
             .group_service()
-            .create_group(&request, user_id, tenant_id, cap)
+            .create_group(
+                &request,
+                user_id,
+                tenant_id,
+                tier_strategy_for(&plan).as_ref(),
+            )
             .await
             .unwrap();
         json!({ "id": group.id.to_string() })
@@ -1054,6 +1058,114 @@ async fn cross_tenant_group_entity_isolation() {
 }
 
 // ============================================================================
+// Starter plan: a coach, one athlete and the agent per group
+// ============================================================================
+
+/// POST `/api/groups` as `auth` with the given agent, returning status + body.
+async fn post_group(
+    router: &axum::Router,
+    auth: &str,
+    agent_id: &str,
+    name: &str,
+) -> (StatusCode, Value) {
+    let resp = AxumTestRequest::post("/api/groups")
+        .header("authorization", auth)
+        .json(&json!({ "name": name, "agent_id": agent_id }))
+        .send(router.clone())
+        .await;
+    let status = resp.status_code();
+    (status, resp.json())
+}
+
+/// A Starter athlete with their own tenant, as a `Bearer` header.
+async fn starter_athlete(doors: &Doors, email: &str) -> String {
+    let (_, user, _) = create_test_user_with_plan(&doors.res.agent.database, email, "starter")
+        .await
+        .unwrap();
+    format!("Bearer {}", generate_test_token(&doors.res, &user).await)
+}
+
+#[tokio::test]
+async fn test_starter_group_holds_its_coach_and_one_athlete() {
+    let (router, auth, _coach_id, agent_id, doors) =
+        Box::pin(setup_single_user_with("starter-coach@test.com", "starter")).await;
+
+    let (status, group) = post_group(&router, &auth, &agent_id, "Marie").await;
+    assert_eq!(status, StatusCode::CREATED, "{group}");
+    // The coach (owner) and the athlete; the agent is the group's agent_id.
+    assert_eq!(group["max_members"], 2);
+    let group_id = group["id"].as_str().unwrap();
+
+    let resp = AxumTestRequest::post(&format!("/api/groups/{group_id}/invites"))
+        .header("authorization", &auth)
+        .json(&json!({}))
+        .send(router.clone())
+        .await;
+    assert_eq!(resp.status_code(), StatusCode::CREATED);
+    let code = resp.json::<Value>()["code"].as_str().unwrap().to_owned();
+
+    let athlete = starter_athlete(&doors, "starter-athlete@test.com").await;
+    let joined = doors.join(&athlete, &code).await.unwrap();
+    assert_eq!(joined.group_id.to_string(), group_id);
+
+    let second = starter_athlete(&doors, "starter-second@test.com").await;
+    let refusal = doors
+        .join(&second, &code)
+        .await
+        .expect_err("a Starter group holds one athlete");
+    assert_eq!(refusal.code, ErrorCode::InvalidInput);
+    assert_eq!(refusal.message, "This group is full");
+}
+
+/// Group settings no longer change the member limit: a `max_members` in an
+/// update body is ignored, so an owner cannot lift a group past its plan.
+#[tokio::test]
+async fn test_group_update_cannot_raise_the_member_limit() {
+    let (router, auth, _coach_id, agent_id, _doors) = Box::pin(setup_single_user_with(
+        "starter-settings@test.com",
+        "starter",
+    ))
+    .await;
+
+    let (status, group) = post_group(&router, &auth, &agent_id, "Marie").await;
+    assert_eq!(status, StatusCode::CREATED, "{group}");
+    let group_id = group["id"].as_str().unwrap();
+
+    let resp = AxumTestRequest::put(&format!("/api/groups/{group_id}"))
+        .header("authorization", &auth)
+        .json(&json!({ "name": "Marie's training", "max_members": 50 }))
+        .send(router.clone())
+        .await;
+    assert_eq!(resp.status_code(), StatusCode::OK);
+    let updated: Value = resp.json();
+    assert_eq!(updated["name"], "Marie's training");
+    assert_eq!(updated["max_members"], 2);
+}
+
+/// The group allowance comes from the tenant's plan, not the tier the
+/// `GroupService` itself is built with (Professional, which allows 15): a
+/// Starter coach makes a group per athlete for a 5–10 athlete cohort, so the
+/// 10th group is granted and the 11th refused.
+#[tokio::test]
+async fn test_starter_coach_gets_a_group_per_athlete_up_to_ten() {
+    let (router, auth, _coach_id, agent_id, _doors) =
+        Box::pin(setup_single_user_with("starter-cohort@test.com", "starter")).await;
+
+    for athlete in 1..=10 {
+        let (status, body) =
+            post_group(&router, &auth, &agent_id, &format!("Athlete {athlete}")).await;
+        assert_eq!(status, StatusCode::CREATED, "group {athlete}: {body}");
+    }
+
+    let (status, body) = post_group(&router, &auth, &agent_id, "Athlete 11").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(
+        body.to_string().contains("Group limit reached (10)"),
+        "the refusal names the plan's allowance: {body}"
+    );
+}
+
+// ============================================================================
 // Deleted-group access tests
 // ============================================================================
 
@@ -1567,7 +1679,6 @@ async fn repoint_group_agent(fx: &RosterFixture, agent_id: &str) {
                 name: None,
                 description: None,
                 agent_id: Some(agent_id.to_owned()),
-                max_members: None,
                 peer_data_sharing: None,
                 respond_mode: None,
                 digest_mode: None,

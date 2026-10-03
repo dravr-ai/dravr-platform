@@ -197,7 +197,6 @@ async fn a_group_without_a_digest_mode_reads_off_until_an_update_sets_one() {
         name: None,
         description: None,
         agent_id: None,
-        max_members: None,
         peer_data_sharing: None,
         respond_mode: None,
         digest_mode: Some(GroupDigestMode::Managers),

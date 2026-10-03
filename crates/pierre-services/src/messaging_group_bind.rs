@@ -250,7 +250,6 @@ async fn adopt_chat_title(
         name: Some(title.to_owned()),
         description: None,
         agent_id: None,
-        max_members: None,
         peer_data_sharing: None,
         respond_mode: None,
         digest_mode: None,

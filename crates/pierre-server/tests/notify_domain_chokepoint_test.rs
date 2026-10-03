@@ -36,6 +36,7 @@ use pierre_core::models::agents::CreateAgentRequest;
 use pierre_core::models::groups::CreateGroupRequest;
 use pierre_core::models::TenantId;
 use pierre_groups::service::ChannelGroupSpec;
+use pierre_groups::strategies::tier::ProfessionalTierStrategy;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
 use pierre_services::messaging_group_bind::{
@@ -260,9 +261,10 @@ async fn auto_bound_group_carries_the_chat_binding_and_tier_cap() {
     assert_eq!(group.channel_chat_id.as_deref(), Some("-100888"));
     assert_eq!(group.agent_id, agent_id);
     assert_eq!(group.owner_id, user_id);
-    // Professional caps a group at 10 members. Before the auto-bind path went
-    // through GroupService it wrote a hardcoded 20, ignoring the plan.
-    assert_eq!(group.max_members, 10);
+    // Professional caps a group at 2 members, a coach and one athlete. Before
+    // the auto-bind path went through GroupService it wrote a hardcoded 20,
+    // ignoring the plan.
+    assert_eq!(group.max_members, 2);
 }
 
 // ============================================================================
@@ -455,9 +457,9 @@ async fn a_full_group_leaves_the_sender_ungrouped() {
 
 /// Routing auto-bind through `GroupService` newly exposed it to the tier's
 /// per-owner group *count* allowance, which the repository shortcut had never
-/// applied. Since the service runs with a hardcoded `professional` strategy
-/// for every tenant, that would have silently un-grouped the 4th Telegram
-/// chat of anyone who owns three — with only a log line to say why.
+/// applied. That would have silently un-grouped the next Telegram chat of a
+/// Professional owner who already holds the whole allowance — with only a
+/// log line to say why.
 ///
 /// Adding the bot to a chat is not a request for a new group, so the chat
 /// path is exempt; the member cap is the gate that applies there.
@@ -469,9 +471,9 @@ async fn chat_auto_bind_is_exempt_from_the_owner_group_allowance() {
     let agent = res.common.repos.agent_repos();
     let user_str = user_id.to_string();
 
-    // Spend the owner's whole allowance (professional = 3 groups).
-    for n in 0..3 {
-        let chat_id = format!("-10044{n}");
+    // Spend the owner's whole allowance (professional = 15 groups).
+    for n in 0..15 {
+        let chat_id = format!("-10044{n:02}");
         res.group_service()
             .create_channel_group(
                 &ChannelGroupSpec {
@@ -494,7 +496,7 @@ async fn chat_auto_bind_is_exempt_from_the_owner_group_allowance() {
         .group_service()
         .create_group(
             &CreateGroupRequest {
-                name: "Fourth By REST".to_owned(),
+                name: "Past The Allowance By REST".to_owned(),
                 description: None,
                 agent_id: agent_id.clone(),
                 max_members: None,
@@ -502,19 +504,19 @@ async fn chat_auto_bind_is_exempt_from_the_owner_group_allowance() {
             },
             user_id,
             tenant_id,
-            10,
+            &ProfessionalTierStrategy,
         )
         .await
         .expect_err("REST creation past the allowance must still be refused");
     assert_eq!(refused.code, ErrorCode::InvalidInput);
 
-    // The 4th chat still binds, and still emits.
+    // The chat past the allowance still binds, and still emits.
     let (events, _guard) = capture_notify();
     let group_id = resolve_or_create_channel_group(
         &auth,
         &agent,
         res.group_service(),
-        &binding(tenant_id, "-100555", &user_str, "Fourth Chat"),
+        &binding(tenant_id, "-100555", &user_str, "Past The Allowance Chat"),
     )
     .await
     .unwrap()

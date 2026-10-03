@@ -802,7 +802,6 @@ async fn the_groups_kill_switch_refuses_despite_consent() {
                 name: None,
                 description: None,
                 agent_id: None,
-                max_members: None,
                 peer_data_sharing: Some(false),
                 respond_mode: None,
                 digest_mode: None,

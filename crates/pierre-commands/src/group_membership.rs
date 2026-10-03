@@ -226,20 +226,19 @@ impl CommandHandler for GroupCreateHandler {
             return Err(e);
         }
 
-        // The tenant plan's per-group member cap, resolved as the REST route
-        // resolves it; a cap of zero is a plan without group coaching, and is
-        // answered here in the caller's locale rather than as the service's
+        // The tenant plan's tier, resolved as the REST route resolves it; a
+        // member cap of zero is a plan without group coaching, and is answered
+        // here in the caller's locale rather than as the service's
         // PermissionDenied error.
         let plan = repos.tenants.get_by_id(ctx.tenant_id).await?.plan;
-        let tier_cap = tier_strategy_for(&plan).max_members_per_group();
-        if tier_cap == 0 {
+        let plan_tier = tier_strategy_for(&plan);
+        if plan_tier.max_members_per_group() == 0 {
             return Ok(CommandResponse::text(reg.render(
                 KEY_GROUP_CREATE_UNAVAILABLE,
                 locale,
                 &[],
             )));
         }
-        let tier_cap = i32::try_from(tier_cap).unwrap_or(i32::MAX);
 
         let request = CreateGroupRequest {
             name: name.to_owned(),
@@ -253,7 +252,7 @@ impl CommandHandler for GroupCreateHandler {
         let group = ctx
             .ctx
             .group_service()
-            .create_group(&request, ctx.user_id, ctx.tenant_id, tier_cap)
+            .create_group(&request, ctx.user_id, ctx.tenant_id, plan_tier.as_ref())
             .await?;
 
         Self::file_creator_conversation(ctx, thread, &group).await?;

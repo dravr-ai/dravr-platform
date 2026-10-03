@@ -179,13 +179,12 @@ pub(crate) const UPDATE_GROUP_SQL: &str = r"UPDATE coaching_groups SET
               name = COALESCE($1, name),
               description = COALESCE($2, description),
               agent_id = COALESCE($3, agent_id),
-              max_members = COALESCE($4, max_members),
-              peer_data_sharing = COALESCE($5, peer_data_sharing),
-              respond_mode = COALESCE($6, respond_mode),
-              digest_mode = COALESCE($7, digest_mode),
-              is_active = COALESCE($8, is_active),
-              updated_at = $9
-              WHERE id = $10 AND tenant_id = $11";
+              peer_data_sharing = COALESCE($4, peer_data_sharing),
+              respond_mode = COALESCE($5, respond_mode),
+              digest_mode = COALESCE($6, digest_mode),
+              is_active = COALESCE($7, is_active),
+              updated_at = $8
+              WHERE id = $9 AND tenant_id = $10";
 
 /// Archive a group under its tenant: the authoritative, tenant-scoped step
 /// of a delete.
@@ -727,7 +726,6 @@ macro_rules! impl_coaching_group_repository {
                     .bind(&request.name)
                     .bind(&request.description)
                     .bind(&request.agent_id)
-                    .bind(request.max_members)
                     .bind(request.peer_data_sharing)
                     .bind(request.respond_mode.map(|m| m.as_str()))
                     .bind(request.digest_mode.map(|m| m.as_str()))

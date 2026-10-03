@@ -19,6 +19,7 @@ use pierre_core::models::agents::CreateAgentRequest;
 use pierre_core::models::groups::{GroupMember, GroupRole};
 use pierre_core::models::CreateGroupRequest;
 use pierre_core::models::{Activity, ActivityBuilder, ConnectionType, SportType, TenantId};
+use pierre_groups::strategies::tier::EnterpriseTierStrategy;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_groups::group_analytics::GroupAnalyticsRoutes;
 use pierre_routes_groups::GroupRoutes;
@@ -158,7 +159,7 @@ async fn owner_with_group() -> Fixture {
     };
     let group_id = res
         .group_service()
-        .create_group(&group_request, owner_id, tenant_id, 20)
+        .create_group(&group_request, owner_id, tenant_id, &EnterpriseTierStrategy)
         .await
         .unwrap()
         .id

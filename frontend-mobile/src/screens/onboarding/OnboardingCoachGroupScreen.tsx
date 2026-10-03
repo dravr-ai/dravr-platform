@@ -25,8 +25,8 @@ import { inviteLink } from '../../constants/inviteLink';
 
 /**
  * How long the onboarding athlete invite stays valid — the web step's value:
- * a coach shares it with a whole roster, and five athletes rarely all join
- * within the 7 days a chat-issued invite gets.
+ * a coach sets up during onboarding, often before the athlete is ready to
+ * sign up, and the 7 days a chat-issued invite gets are easily missed.
  */
 const ONBOARDING_INVITE_DAYS = 30;
 

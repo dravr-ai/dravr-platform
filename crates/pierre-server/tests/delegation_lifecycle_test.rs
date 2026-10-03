@@ -492,7 +492,6 @@ fn active(is_active: bool) -> UpdateGroupRequest {
         name: None,
         description: None,
         agent_id: None,
-        max_members: None,
         peer_data_sharing: None,
         respond_mode: None,
         digest_mode: None,

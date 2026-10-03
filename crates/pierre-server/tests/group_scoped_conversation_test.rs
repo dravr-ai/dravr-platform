@@ -19,6 +19,7 @@ use common::{create_test_server_resources, create_test_user_with_plan, generate_
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::agents::CreateAgentRequest;
 use pierre_core::models::CreateGroupRequest;
+use pierre_groups::strategies::tier::EnterpriseTierStrategy;
 use pierre_mcp_server::routes::chat::{ChatRoutes, ConversationResponse};
 
 /// The chat router, over a group its owner created through `GroupService` —
@@ -109,7 +110,12 @@ async fn setup() -> Fixture {
     };
     let group_id = res
         .group_service()
-        .create_group(&group_request, owner_id, shared_tid, 20)
+        .create_group(
+            &group_request,
+            owner_id,
+            shared_tid,
+            &EnterpriseTierStrategy,
+        )
         .await
         .unwrap()
         .id

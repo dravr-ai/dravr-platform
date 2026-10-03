@@ -551,7 +551,6 @@ async fn update_group_agent(
         name: None,
         description: None,
         agent_id: Some(agent_id.to_owned()),
-        max_members: None,
         peer_data_sharing: None,
         respond_mode: None,
         digest_mode: None,

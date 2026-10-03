@@ -270,25 +270,27 @@ impl GroupService {
 
     /// Create a new coaching group with tier limit enforcement.
     ///
-    /// `tier_member_cap` is the tenant plan's per-group member cap, resolved
-    /// by the caller (which owns tenant-plan access via the tenants repo):
-    /// `tier_strategy_for(&plan).max_members_per_group()`. The service owns
-    /// the policy *application*: a cap of `0` (Starter) rejects creation with
-    /// [`ErrorCode::PermissionDenied`]; otherwise the requested `max_members`
-    /// (defaulting to 20) is clamped into `2..=tier_member_cap`.
+    /// `plan_tier` is the tenant plan's tier, resolved by the caller (which
+    /// owns tenant-plan access via the tenants repo): `tier_strategy_for(&plan)`.
+    /// The service owns the policy *application*: a member cap of `0` rejects
+    /// creation with [`ErrorCode::PermissionDenied`], the owner's groups are
+    /// counted against the plan's `max_groups`, and the requested
+    /// `max_members` (defaulting to 20) is clamped into `2..=member cap`.
     ///
     /// # Errors
     ///
-    /// Returns [`ErrorCode::PermissionDenied`] when the tenant tier disables
-    /// group coaching (`tier_member_cap == 0`), an `invalid_input` error when
-    /// the owner's group limit is reached, or a database error on failure.
+    /// Returns [`ErrorCode::PermissionDenied`] when the plan's tier disables
+    /// group coaching (a member cap of `0`), an `invalid_input` error when the
+    /// owner already holds the plan's `max_groups`, or a database error on
+    /// failure.
     pub async fn create_group(
         &self,
         request: &CreateGroupRequest,
         owner_id: Uuid,
         tenant_id: TenantId,
-        tier_member_cap: i32,
+        plan_tier: &dyn GroupTierStrategy,
     ) -> AppResult<CoachingGroup> {
+        let tier_member_cap = i32::try_from(plan_tier.max_members_per_group()).unwrap_or(i32::MAX);
         let group = CoachingGroup {
             id: Uuid::new_v4(),
             tenant_id: tenant_id.to_string(),
@@ -327,7 +329,7 @@ impl GroupService {
             owner_id,
             tenant_id,
             tier_member_cap,
-            OwnerGroupLimit::Enforced,
+            OwnerGroupLimit::Enforced(plan_tier.max_groups()),
         )
         .await
     }
@@ -433,17 +435,15 @@ impl GroupService {
         }
 
         // Per-owner group allowance, on the paths that spend it.
-        if matches!(limit, OwnerGroupLimit::Enforced) {
-            if let Some(max) = self.tier.max_groups() {
-                let current = self
-                    .repo
-                    .count_groups_for_owner(owner_id, tenant_id)
-                    .await?;
-                if current >= i64::try_from(max).unwrap_or_default() {
-                    return Err(AppError::invalid_input(format!(
-                        "Group limit reached ({max}). Upgrade your plan for more groups."
-                    )));
-                }
+        if let OwnerGroupLimit::Enforced(Some(max)) = limit {
+            let current = self
+                .repo
+                .count_groups_for_owner(owner_id, tenant_id)
+                .await?;
+            if current >= i64::try_from(max).unwrap_or_default() {
+                return Err(AppError::invalid_input(format!(
+                    "Group limit reached ({max}). Upgrade your plan for more groups."
+                )));
             }
         }
 

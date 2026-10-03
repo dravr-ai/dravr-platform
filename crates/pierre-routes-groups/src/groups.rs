@@ -524,8 +524,7 @@ impl GroupRoutes {
         };
 
         let plan = repos.tenants.get_by_id(tenant_id).await?.plan;
-        let tier_cap =
-            i32::try_from(tier_strategy_for(&plan).max_members_per_group()).unwrap_or(i32::MAX);
+        let plan_tier = tier_strategy_for(&plan);
 
         let request = CreateGroupRequest {
             name: name.to_owned(),
@@ -537,7 +536,7 @@ impl GroupRoutes {
         // `group.created` is emitted by the service, once for every surface.
         let created = resources
             .group_service()
-            .create_group(&request, auth.user_id, tenant_id, tier_cap)
+            .create_group(&request, auth.user_id, tenant_id, plan_tier.as_ref())
             .await?;
 
         let response = Self::group_response(&resources, created, auth.user_id).await?;

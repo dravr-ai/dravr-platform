@@ -25,6 +25,7 @@ use helpers::axum_test::AxumTestRequest;
 use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::agents::CreateAgentRequest;
 use pierre_core::models::{CoachingGroup, CreateGroupRequest, TenantId};
+use pierre_groups::strategies::tier::EnterpriseTierStrategy;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_groups::GroupRoutes;
 
@@ -126,7 +127,7 @@ async fn create_group(
         coach_user_id: None,
     };
     res.group_service()
-        .create_group(&request, owner_id, tenant, 50)
+        .create_group(&request, owner_id, tenant, &EnterpriseTierStrategy)
         .await
         .unwrap()
         .id

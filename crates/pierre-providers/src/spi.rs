@@ -77,6 +77,7 @@
 use super::core::{FitnessProvider, ProviderConfig};
 #[cfg(feature = "provider-whoop")]
 use crate::provider_ai_terms;
+#[cfg(feature = "provider-whoop")]
 use crate::utils::WHOOP_REFRESH_EXTRA_FORM;
 use pierre_core::ai_policy::SourcePolicy;
 use std::fmt;

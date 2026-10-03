@@ -17,8 +17,8 @@ import OnboardingShell from './OnboardingShell';
 
 /**
  * How long the onboarding athlete invite stays valid. Longer than the 7 days a
- * chat-issued invite gets: a coach shares this one with a whole roster, and
- * five athletes rarely all join within a week.
+ * chat-issued invite gets: a coach sets up during onboarding, often before
+ * the athlete is ready to sign up, and a week is easily missed.
  */
 const ONBOARDING_INVITE_DAYS = 30;
 
