@@ -80,6 +80,8 @@ pub fn to_app_error(error: ClientError) -> AppError {
         ClientError::AthleteNotAccessible { .. } => athlete_not_accessible(),
         refused @ ClientError::QueryRefused { .. } => AppError::internal(refused.to_string()),
         mismatch @ ClientError::CountMismatch { .. } => AppError::internal(mismatch.to_string()),
+        // LIMITATION(registre#746): the login-step `ClientError::Unexpected` arm also receives a
+        // login that ran out its budget, which the service answers `401 session_expired`.
         ClientError::Unexpected {
             exchange,
             status,
