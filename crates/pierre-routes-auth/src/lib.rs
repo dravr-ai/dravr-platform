@@ -49,7 +49,6 @@ use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase::FirebaseAuth;
 use pierre_auth::security::csrf::CsrfTokenManager;
-use pierre_auth::tenant::TenantOAuthClient;
 use pierre_cache::Cache;
 use pierre_config::environment::ServerConfig;
 use pierre_contremaitre::MessagingStringsRegistry;
@@ -163,8 +162,6 @@ pub struct AuthRoutesContext {
     pub firebase_auth: Option<Arc<FirebaseAuth>>,
     /// Outbound email service (Resend). `None` when not configured.
     pub email_service: Option<Arc<ResendEmailService>>,
-    /// Tenant OAuth client — generates per-tenant authorization URLs.
-    pub tenant_oauth_client: Arc<TenantOAuthClient>,
     /// Provider registry — descriptor lookups (PKCE capability, OAuth params).
     pub provider_registry: Arc<ProviderRegistry>,
     /// Background sync notifier (the SSE manager in production).

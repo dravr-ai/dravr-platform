@@ -27,7 +27,6 @@ use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase::FirebaseAuth;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::security::csrf::CsrfTokenManager;
-use pierre_auth::tenant::{oauth_manager::TenantOAuthManager, TenantOAuthClient};
 use pierre_cache::Cache;
 #[cfg(feature = "client-messaging")]
 use pierre_commands as commands;
@@ -202,10 +201,7 @@ impl ServerContext {
 
         let auth_manager_arc = Arc::new(auth_manager);
 
-        // Create tenant OAuth client and provider registry once
-        let tenant_oauth_client = Arc::new(TenantOAuthClient::new(TenantOAuthManager::new(
-            Arc::new(config.oauth.clone()),
-        )));
+        // Create the provider registry once
         let provider_registry = Arc::new(ProviderRegistry::new());
 
         // Seed the cageux config registry with the layered stack of
@@ -554,7 +550,6 @@ impl ServerContext {
             firebase_auth,
             oauth2_rate_limiter,
             admin_jwt_secret: admin_jwt_secret.into(),
-            tenant_oauth_client,
             #[cfg(feature = "provider-sciotte")]
             nonce_store,
             repos: auth_repos_view,

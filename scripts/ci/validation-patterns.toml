@@ -252,8 +252,7 @@ magic_numbers = [
 resource_creation = [
     "AuthManager::new",
     "OAuthManager::new",
-    "A2AClientManager::new",
-    "TenantOAuthManager::new"
+    "A2AClientManager::new"
 ]
 
 fake_resources = [

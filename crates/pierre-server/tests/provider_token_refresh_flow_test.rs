@@ -403,6 +403,31 @@ async fn two_concurrent_lookups_share_one_refresh_of_a_rotating_token() {
     assert_eq!(stored.refresh_token.as_deref(), Some("refresh-gen-1"));
 }
 
+/// A token issued without an expiry (an Intervals.icu OAuth token never
+/// expires) is stored with none and read back with none: the caller gets the
+/// stored pair untouched, with no expiry invented for it and no refresh.
+#[tokio::test]
+async fn a_stored_token_with_no_expiry_reads_back_with_no_expiry() {
+    let vendor = Arc::new(RotatingVendor::new(StdDuration::ZERO, false));
+    let (resources, athlete) = connected_to(&vendor).await;
+    let row = athlete.stored().await;
+    let landed = athlete
+        .repos
+        .oauth_tokens
+        .refresh_token(&row, FIRST_ACCESS, Some(FIRST_REFRESH), None)
+        .await
+        .unwrap();
+    assert!(landed, "the row now carries no expiry");
+
+    let token = lookup(&resources, &athlete)
+        .await
+        .expect("the athlete gets a token");
+
+    assert_eq!(token.expires_at, None, "no expiry is invented on read");
+    assert_eq!(token.access_token, FIRST_ACCESS);
+    assert_eq!(vendor.calls.load(Ordering::SeqCst), 0, "nothing to refresh");
+}
+
 /// The caller whose lookup started the refresh goes away while the vendor is
 /// answering (a client that disconnected, an outer timeout). The vendor has
 /// rotated all the same, so the refresh must not stop with its caller: it

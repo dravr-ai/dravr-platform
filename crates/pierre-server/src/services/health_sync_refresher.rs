@@ -56,7 +56,7 @@ fn token_to_credentials(user_id: Uuid, token: TokenData) -> ProviderCredentials 
     ProviderCredentials {
         access_token: token.access_token,
         refresh_token,
-        expires_at: Some(token.expires_at),
+        expires_at: token.expires_at,
         scopes,
         user_id: user_id.to_string(),
         provider: token.provider,

@@ -1,12 +1,11 @@
-// ABOUTME: Per-tenant OAuth credential management for isolated multi-tenant operation
-// ABOUTME: Handles secure storage, encryption, and retrieval of tenant-specific OAuth applications
+// ABOUTME: The OAuth client a grant belongs to: one resolution order for authorize, exchange, refresh and revoke
+// ABOUTME: Strava pool app, the user's own app, the tenant's credentials, then the server-level app
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::config::oauth::{OAuthConfig, OAuthProviderConfig};
+use crate::config::oauth::OAuthProviderConfig;
 use crate::strava_pool::select_strava_app;
-use chrono::Utc;
 use pierre_core::constants::oauth_providers;
 use pierre_core::constants::rate_limits::{
     GARMIN_DEFAULT_DAILY_RATE_LIMIT, STRAVA_RATE_LIMIT_DAILY, TERRA_DEFAULT_DAILY_RATE_LIMIT,
@@ -15,9 +14,6 @@ use pierre_core::constants::rate_limits::{
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{TenantId, TenantOAuthCredentials, UserOAuthApp};
 use pierre_database::backends::{OAuthTokenRepository, TenantRepository};
-use std::collections::HashMap;
-use std::env;
-use std::sync::Arc;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -96,8 +92,9 @@ pub struct IssuingLookup<'a> {
 /// 3. The tenant's credentials (the `tenants` repository)
 /// 4. The server-level credentials
 ///
-/// This is the one place the order is written; the tenant OAuth manager, the
-/// token refresh and the code exchange all resolve through it.
+/// This is the one place the order is written; the token refresh, the code
+/// exchange and the revocation all resolve through it, and a new
+/// authorization resolves through [`authorizing_client`], which keeps it.
 ///
 /// # Errors
 ///
@@ -122,6 +119,63 @@ pub async fn issuing_client(
         return Ok(IssuingClient::Tenant(credentials));
     }
     server_level_client(&lookup)
+}
+
+/// The client a new authorization for `user_id` runs under, and the Strava
+/// shared-pool app it belongs to (`None` for every other source).
+///
+/// Resolution order, [`issuing_client`]'s with the seat rules where a token
+/// would name its app, since no grant exists yet:
+/// 1. The user's own OAuth app (`user_oauth_app_credentials`)
+/// 2. The tenant's credentials (the `tenants` repository)
+/// 3. Strava only: the app [`select_strava_app`] picks — the one the athlete's
+///    grant holds a seat on, else the env app, then a pool app with a free seat
+/// 4. The server-level credentials
+///
+/// The caller pins the pool app on the state it stores, so the code exchange
+/// resolves the same client through [`issuing_client`].
+///
+/// # Errors
+///
+/// Returns an error when a credential read fails, when every Strava app is at
+/// capacity, or when no source holds credentials for the provider.
+pub async fn authorizing_client(
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+    server_level: &OAuthProviderConfig,
+    tenants: &dyn TenantRepository,
+    oauth_tokens: &dyn OAuthTokenRepository,
+) -> AppResult<(IssuingClient, Option<String>)> {
+    let lookup = IssuingLookup {
+        user_id: Some(user_id),
+        tenant_id: Some(tenant_id),
+        provider,
+        issuing_app: None,
+        server_level,
+    };
+    if let Some(app) = user_app(user_id, provider, oauth_tokens).await {
+        return Ok((IssuingClient::UserApp(app), None));
+    }
+    if let Some(credentials) = tenant_credentials(&lookup, tenants).await? {
+        return Ok((IssuingClient::Tenant(credentials), None));
+    }
+    if provider.eq_ignore_ascii_case(oauth_providers::STRAVA) {
+        let selected = select_strava_app(oauth_tokens, user_id, tenant_id).await?;
+        let client = if selected.attribution.is_some() {
+            IssuingClient::StravaPool {
+                client_id: selected.client_id,
+                client_secret: selected.client_secret,
+            }
+        } else {
+            IssuingClient::ServerLevel {
+                client_id: selected.client_id,
+                client_secret: selected.client_secret,
+            }
+        };
+        return Ok((client, selected.attribution));
+    }
+    server_level_client(&lookup).map(|client| (client, None))
 }
 
 /// The Strava shared-pool app the lookup names, while its secret is stored.
@@ -221,517 +275,15 @@ fn server_level_client(lookup: &IssuingLookup<'_>) -> AppResult<IssuingClient> {
     )))
 }
 
-/// Manager for tenant-specific OAuth credentials.
-///
-/// Tenant credentials live in the `tenants` repository alone, written by
-/// `pierre-cli tenant set-oauth-app` (secret encrypted at rest) and read here.
-/// The manager keeps only per-process daily usage counters for rate limiting.
-pub struct TenantOAuthManager {
-    /// Per-process daily usage counters used for rate limiting.
-    usage_tracking: HashMap<(TenantId, String, chrono::NaiveDate), u32>,
-    // Server-level OAuth configuration (read once at startup)
-    oauth_config: Arc<OAuthConfig>,
-}
-
-impl TenantOAuthManager {
-    /// Create new OAuth manager with server-level configuration
-    #[must_use]
-    pub fn new(oauth_config: Arc<OAuthConfig>) -> Self {
-        Self {
-            usage_tracking: HashMap::new(),
-            oauth_config,
-        }
-    }
-
-    /// Load OAuth credentials for a specific tenant and provider
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if no credentials are found for the tenant/provider combination
-    pub async fn get_credentials(
-        &self,
-        tenant_id: TenantId,
-        provider: &str,
-        tenants: &dyn TenantRepository,
-        oauth_tokens: &dyn OAuthTokenRepository,
-    ) -> AppResult<TenantOAuthCredentials> {
-        self.get_credentials_for_user(None, tenant_id, provider, tenants, oauth_tokens)
-            .await
-    }
-
-    /// Load OAuth credentials with user-specific priority: the client of the
-    /// user's stored token, resolved by [`issuing_client`] with the Strava
-    /// pool app that token names, this manager's server-level configuration
-    /// and the tenant's stored credentials.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if a lookup fails or no credentials are found for the
-    /// user/tenant/provider combination
-    pub async fn get_credentials_for_user(
-        &self,
-        user_id: Option<Uuid>,
-        tenant_id: TenantId,
-        provider: &str,
-        tenants: &dyn TenantRepository,
-        oauth_tokens: &dyn OAuthTokenRepository,
-    ) -> AppResult<TenantOAuthCredentials> {
-        // The Strava pool app that issued the user's stored token, if any.
-        let issuing_app = match user_id {
-            Some(uid) if provider.eq_ignore_ascii_case(oauth_providers::STRAVA) => oauth_tokens
-                .get_token(uid, tenant_id, oauth_providers::STRAVA)
-                .await
-                .ok()
-                .flatten()
-                .and_then(|t| t.oauth_app_client_id),
-            _ => None,
-        };
-        let server_level = self
-            .oauth_config
-            .provider(provider)
-            .cloned()
-            .unwrap_or_default();
-        let client = issuing_client(
-            IssuingLookup {
-                user_id,
-                tenant_id: Some(tenant_id),
-                provider,
-                issuing_app: issuing_app.as_deref(),
-                server_level: &server_level,
-            },
-            tenants,
-            oauth_tokens,
-        )
-        .await?;
-
-        match client {
-            IssuingClient::StravaPool {
-                client_id,
-                client_secret,
-            } => Ok(self.strava_credentials(tenant_id, client_id, client_secret)),
-            IssuingClient::UserApp(app) => Ok(Self::user_app_credentials(tenant_id, provider, app)),
-            IssuingClient::Tenant(credentials) => Ok(credentials),
-            IssuingClient::ServerLevel { .. } => self
-                .try_server_level_credentials(tenant_id, provider)
-                .ok_or_else(|| {
-                    AppError::not_found(format!(
-                        "No server-level OAuth credentials for provider {provider}"
-                    ))
-                }),
-        }
-    }
-
-    /// The credentials a new authorization for `user_id` runs under, with the
-    /// Strava shared-pool app they belong to.
-    ///
-    /// Resolution order, the one the code exchange resolves the pinned state
-    /// by (`OAuthService::create_oauth_config_with_user`):
-    /// 1. User-specific credentials (from `user_oauth_app_credentials` table)
-    /// 2. Tenant-specific credentials (the `tenants` repository)
-    /// 3. Strava only: the app [`select_strava_app`] picks — the one the
-    ///    athlete's grant holds a seat on, else their pool app while it has
-    ///    room, else the env app, then a pool app with a free seat
-    /// 4. Server-level OAuth configuration (environment variables)
-    ///
-    /// The second value is the pool app's `client_id` when step 3 chose one,
-    /// else `None`. The caller pins it on the state it stores, so the exchange
-    /// spends the code under the client the URL named. Unlike
-    /// [`Self::get_credentials_for_user`], which serves a token already issued,
-    /// this chooses where a new grant goes, so it applies the seat rules.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if no credentials are found for the user/tenant/provider
-    /// combination, or when every Strava app is at capacity.
-    pub async fn get_connect_credentials_for_user(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        provider: &str,
-        tenants: &dyn TenantRepository,
-        oauth_tokens: &dyn OAuthTokenRepository,
-    ) -> AppResult<(TenantOAuthCredentials, Option<String>)> {
-        if let Some(credentials) = self
-            .try_user_specific_credentials(user_id, tenant_id, provider, oauth_tokens)
-            .await
-        {
-            return Ok((credentials, None));
-        }
-        if let Some(credentials) = self
-            .try_tenant_specific_credentials(tenant_id, provider, tenants)
-            .await
-        {
-            return Ok((credentials, None));
-        }
-        if provider.eq_ignore_ascii_case("strava") {
-            let selected = select_strava_app(oauth_tokens, user_id, tenant_id).await?;
-            return Ok((
-                self.strava_credentials(tenant_id, selected.client_id, selected.client_secret),
-                selected.attribution,
-            ));
-        }
-        self.try_server_level_credentials(tenant_id, provider)
-            .map(|credentials| (credentials, None))
-            .ok_or_else(|| {
-                AppError::not_found(format!(
-                    "No OAuth credentials configured for tenant {tenant_id} and provider {provider}"
-                ))
-            })
-    }
-
-    /// A tenant's usage of `provider` today and its daily limit: the limit its
-    /// stored credentials carry, else the provider's default.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the tenant's credentials cannot be read
-    pub async fn check_rate_limit(
-        &self,
-        tenant_id: TenantId,
-        provider: &str,
-        tenants: &dyn TenantRepository,
-    ) -> AppResult<(u32, u32)> {
-        let today = Utc::now().date_naive();
-        let usage = self
-            .usage_tracking
-            .get(&(tenant_id, provider.to_owned(), today))
-            .copied()
-            .unwrap_or(0);
-
-        // Get tenant's rate limit
-        let daily_limit = tenants
-            .get_oauth_credentials(tenant_id, provider)
-            .await?
-            .map_or_else(
-                || Self::default_rate_limit_for_provider(provider),
-                |c| c.rate_limit_per_day,
-            );
-
-        Ok((usage, daily_limit))
-    }
-
-    /// Increment tenant's usage counter
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if usage increment fails
-    pub fn increment_usage(
-        &mut self,
-        tenant_id: TenantId,
-        provider: &str,
-        successful_requests: u32,
-        _failed_requests: u32,
-    ) -> AppResult<()> {
-        let today = Utc::now().date_naive();
-        let key = (tenant_id, provider.to_owned(), today);
-        let current = self.usage_tracking.get(&key).copied().unwrap_or(0);
-        self.usage_tracking
-            .insert(key, current + successful_requests);
-        Ok(())
-    }
-
-    /// Try to load server-level OAuth credentials from `ServerConfig`
-    fn try_server_level_credentials(
-        &self,
-        tenant_id: TenantId,
-        provider: &str,
-    ) -> Option<TenantOAuthCredentials> {
-        match provider.to_lowercase().as_str() {
-            "strava" => self.try_strava_config_credentials(tenant_id),
-            "garmin" => self.try_garmin_config_credentials(tenant_id),
-            "whoop" => self.try_whoop_config_credentials(tenant_id),
-            "terra" => self.try_terra_config_credentials(tenant_id),
-            // Synthetic providers generate data locally, COROS OAuth not yet configured
-            // Sciotte uses browser session cookies, not OAuth credentials
-            "synthetic"
-            | "synthetic_sleep"
-            | "coros"
-            | "sciotte"
-            | "sciotte_garmin"
-            | "sciotte_trainingpeaks"
-            | "sciotte_coros" => None,
-            _ => {
-                warn!("Unsupported OAuth provider: {}", provider);
-                None
-            }
-        }
-    }
-
-    /// Build Strava [`TenantOAuthCredentials`] for a resolved `client_id`/secret.
-    ///
-    /// Reuses the configured redirect URI and scopes. Shared by the env-config
-    /// path and the shared-app pool resolution so both produce identical
-    /// redirect/scope/rate-limit settings.
-    fn strava_credentials(
-        &self,
-        tenant_id: TenantId,
-        client_id: String,
-        client_secret: String,
-    ) -> TenantOAuthCredentials {
-        let strava_config = &self.oauth_config.strava;
-        let redirect_uri = strava_config
-            .redirect_uri
-            .clone()
-            .unwrap_or_else(|| Self::default_redirect_uri("strava"));
-        TenantOAuthCredentials {
-            tenant_id,
-            provider: "strava".to_owned(),
-            client_id,
-            client_secret,
-            redirect_uri,
-            scopes: if strava_config.scopes.is_empty() {
-                "activity:read_all".split(',').map(str::to_owned).collect()
-            } else {
-                strava_config.scopes.clone()
-            },
-            rate_limit_per_day: STRAVA_RATE_LIMIT_DAILY,
-        }
-    }
-
-    /// Try to load Strava credentials from `ServerConfig` (env-default app).
-    fn try_strava_config_credentials(&self, tenant_id: TenantId) -> Option<TenantOAuthCredentials> {
-        let strava_config = &self.oauth_config.strava;
-        if let (Some(client_id), Some(client_secret)) =
-            (&strava_config.client_id, &strava_config.client_secret)
-        {
-            info!(
-                "Using server-level Strava OAuth credentials for tenant {} (client_id={})",
-                tenant_id, client_id
-            );
-            return Some(self.strava_credentials(
-                tenant_id,
-                client_id.clone(),
-                client_secret.clone(),
-            ));
-        }
-        warn!(
-            "No Strava OAuth credentials in ServerConfig for tenant {}. MCP client should provide these credentials via OAuth configuration tool.",
-            tenant_id
-        );
-        None
-    }
-
-    /// Try to load Garmin credentials from `ServerConfig`
-    fn try_garmin_config_credentials(&self, tenant_id: TenantId) -> Option<TenantOAuthCredentials> {
-        let garmin_config = &self.oauth_config.garmin;
-
-        if let (Some(client_id), Some(client_secret)) =
-            (&garmin_config.client_id, &garmin_config.client_secret)
-        {
-            let redirect_uri = garmin_config
-                .redirect_uri
-                .clone()
-                .unwrap_or_else(|| Self::default_redirect_uri("garmin"));
-            info!(
-                "Using server-level Garmin OAuth credentials for tenant {}",
-                tenant_id
-            );
-            return Some(TenantOAuthCredentials {
-                tenant_id,
-                provider: "garmin".to_owned(),
-                client_id: client_id.clone(),
-                client_secret: client_secret.clone(),
-                redirect_uri,
-                // Garmin's scope is fixed server-side: none is requested
-                // unless `PIERRE_GARMIN_SCOPES` / `GARMIN_SCOPES` sets one.
-                scopes: garmin_config.scopes.clone(),
-                rate_limit_per_day: GARMIN_DEFAULT_DAILY_RATE_LIMIT,
-            });
-        }
-        warn!(
-            "No Garmin OAuth credentials in ServerConfig for tenant {}. MCP client should provide these credentials via OAuth configuration tool.",
-            tenant_id
-        );
-        None
-    }
-
-    /// Try to load WHOOP credentials from `ServerConfig`
-    fn try_whoop_config_credentials(&self, tenant_id: TenantId) -> Option<TenantOAuthCredentials> {
-        let whoop_config = &self.oauth_config.whoop;
-
-        if let (Some(client_id), Some(client_secret)) =
-            (&whoop_config.client_id, &whoop_config.client_secret)
-        {
-            let redirect_uri = whoop_config
-                .redirect_uri
-                .clone()
-                .unwrap_or_else(|| Self::default_redirect_uri("whoop"));
-            info!(
-                "Using server-level WHOOP OAuth credentials for tenant {}",
-                tenant_id
-            );
-            return Some(TenantOAuthCredentials {
-                tenant_id,
-                provider: "whoop".to_owned(),
-                client_id: client_id.clone(),
-                client_secret: client_secret.clone(),
-                redirect_uri,
-                scopes: if whoop_config.scopes.is_empty() {
-                    vec![
-                        "offline".to_owned(),
-                        "read:profile".to_owned(),
-                        "read:body_measurement".to_owned(),
-                        "read:workout".to_owned(),
-                        "read:sleep".to_owned(),
-                        "read:recovery".to_owned(),
-                        "read:cycles".to_owned(),
-                    ]
-                } else {
-                    whoop_config.scopes.clone()
-                },
-                rate_limit_per_day: WHOOP_DEFAULT_DAILY_RATE_LIMIT,
-            });
-        }
-        warn!(
-            "No WHOOP OAuth credentials in ServerConfig for tenant {}. MCP client should provide these credentials via OAuth configuration tool.",
-            tenant_id
-        );
-        None
-    }
-
-    /// Try to load Terra credentials from `ServerConfig`
-    fn try_terra_config_credentials(&self, tenant_id: TenantId) -> Option<TenantOAuthCredentials> {
-        let terra_config = &self.oauth_config.terra;
-
-        if let (Some(client_id), Some(client_secret)) =
-            (&terra_config.client_id, &terra_config.client_secret)
-        {
-            let redirect_uri = terra_config
-                .redirect_uri
-                .clone()
-                .unwrap_or_else(|| Self::default_redirect_uri("terra"));
-            info!(
-                "Using server-level Terra OAuth credentials for tenant {}",
-                tenant_id
-            );
-            return Some(TenantOAuthCredentials {
-                tenant_id,
-                provider: "terra".to_owned(),
-                client_id: client_id.clone(),
-                client_secret: client_secret.clone(),
-                redirect_uri,
-                scopes: if terra_config.scopes.is_empty() {
-                    vec![
-                        "activity".to_owned(),
-                        "sleep".to_owned(),
-                        "body".to_owned(),
-                        "daily".to_owned(),
-                        "nutrition".to_owned(),
-                    ]
-                } else {
-                    terra_config.scopes.clone()
-                },
-                rate_limit_per_day: TERRA_DEFAULT_DAILY_RATE_LIMIT,
-            });
-        }
-        warn!(
-            "No Terra OAuth credentials in ServerConfig for tenant {}. MCP client should provide these credentials via OAuth configuration tool.",
-            tenant_id
-        );
-        None
-    }
-
-    /// A user's own OAuth app as the credentials this manager serves: the
-    /// app's client and redirect, the provider's default scopes and rate limit.
-    fn user_app_credentials(
-        tenant_id: TenantId,
-        provider: &str,
-        app: UserOAuthApp,
-    ) -> TenantOAuthCredentials {
-        TenantOAuthCredentials {
-            tenant_id,
-            provider: provider.to_owned(),
-            client_id: app.client_id,
-            client_secret: app.client_secret,
-            redirect_uri: app.redirect_uri,
-            scopes: Self::default_scopes_for_provider(provider),
-            rate_limit_per_day: Self::default_rate_limit_for_provider(provider),
-        }
-    }
-
-    /// Try to load user-specific OAuth credentials from database
-    ///
-    /// This allows individual users to configure their own OAuth application
-    /// credentials for a provider, avoiding rate limits on shared apps.
-    async fn try_user_specific_credentials(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        provider: &str,
-        oauth_tokens: &dyn OAuthTokenRepository,
-    ) -> Option<TenantOAuthCredentials> {
-        user_app(user_id, provider, oauth_tokens)
-            .await
-            .map(|app| Self::user_app_credentials(tenant_id, provider, app))
-    }
-
-    /// Get default scopes for a provider
-    ///
-    /// Garmin has none: its scope is fixed server-side and its authorization
-    /// takes no `scope` parameter.
-    fn default_scopes_for_provider(provider: &str) -> Vec<String> {
-        match provider.to_lowercase().as_str() {
-            "strava" => "activity:read_all".split(',').map(str::to_owned).collect(),
-            "whoop" => vec![
-                "offline".to_owned(),
-                "read:profile".to_owned(),
-                "read:body_measurement".to_owned(),
-                "read:workout".to_owned(),
-                "read:sleep".to_owned(),
-                "read:recovery".to_owned(),
-                "read:cycles".to_owned(),
-            ],
-            "terra" => vec![
-                "activity".to_owned(),
-                "sleep".to_owned(),
-                "body".to_owned(),
-                "daily".to_owned(),
-                "nutrition".to_owned(),
-            ],
-            _ => vec![],
-        }
-    }
-
-    /// Get default rate limit for a provider
-    #[must_use]
-    pub fn default_rate_limit_for_provider(provider: &str) -> u32 {
-        match provider.to_lowercase().as_str() {
-            "strava" => STRAVA_RATE_LIMIT_DAILY,
-            "garmin" => GARMIN_DEFAULT_DAILY_RATE_LIMIT,
-            "whoop" => WHOOP_DEFAULT_DAILY_RATE_LIMIT,
-            "terra" => TERRA_DEFAULT_DAILY_RATE_LIMIT,
-            _ => 1000, // Default fallback
-        }
-    }
-
-    /// Build the default OAuth callback redirect URI for a provider.
-    ///
-    /// Uses the `BASE_URL` environment variable (falling back to `http://localhost:8081`)
-    /// to construct the redirect URI, matching the server's configured external address.
-    fn default_redirect_uri(provider: &str) -> String {
-        let base_url = env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8081".to_owned());
-        format!("{base_url}/api/oauth/callback/{provider}")
-    }
-
-    /// Load the tenant's stored OAuth credentials from the `tenants` repository
-    async fn try_tenant_specific_credentials(
-        &self,
-        tenant_id: TenantId,
-        provider: &str,
-        tenants: &dyn TenantRepository,
-    ) -> Option<TenantOAuthCredentials> {
-        if let Ok(Some(db_credentials)) = tenants.get_oauth_credentials(tenant_id, provider).await {
-            info!(
-                "Using database-stored tenant-specific {} OAuth credentials for tenant {}",
-                provider, tenant_id
-            );
-            return Some(db_credentials);
-        }
-
-        debug!(
-            "No tenant-specific {} OAuth credentials found for tenant {}",
-            provider, tenant_id
-        );
-        None
+/// The daily request budget a tenant's OAuth app for `provider` is registered
+/// with when its operator names none (`pierre-cli tenant set-oauth-app`).
+#[must_use]
+pub fn default_rate_limit_for_provider(provider: &str) -> u32 {
+    match provider.to_lowercase().as_str() {
+        "strava" => STRAVA_RATE_LIMIT_DAILY,
+        "garmin" => GARMIN_DEFAULT_DAILY_RATE_LIMIT,
+        "whoop" => WHOOP_DEFAULT_DAILY_RATE_LIMIT,
+        "terra" => TERRA_DEFAULT_DAILY_RATE_LIMIT,
+        _ => 1000, // Default fallback
     }
 }

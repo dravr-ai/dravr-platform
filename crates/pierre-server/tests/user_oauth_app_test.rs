@@ -14,10 +14,15 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+mod common;
+
 use anyhow::Result;
 use chrono::Utc;
-use pierre_auth::tenant::oauth_manager::TenantOAuthManager;
+use pierre_auth::tenant::oauth_manager::{
+    default_rate_limit_for_provider, issuing_client, IssuingClient, IssuingLookup,
+};
 use pierre_config::environment::{OAuthConfig, OAuthProviderConfig};
+use pierre_core::errors::AppResult;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{
     Tenant, TenantId, TenantOAuthCredentials, User, UserOAuthToken, UserStatus, UserTier,
@@ -126,6 +131,40 @@ fn create_test_oauth_config() -> OAuthConfig {
         whoop: OAuthProviderConfig::default(),
         terra: OAuthProviderConfig::default(),
     }
+}
+
+/// The client a token of `user_id` for `provider` presents: the Strava
+/// shared-pool app their stored token names, else their own app, the tenant's
+/// credentials, then the server-level app, as [`issuing_client`] resolves it.
+async fn resolve(
+    database: &Database,
+    config: &OAuthConfig,
+    user_id: Option<Uuid>,
+    tenant_id: TenantId,
+    provider: &str,
+) -> AppResult<IssuingClient> {
+    let repos = database.repositories();
+    let issuing_app = match user_id {
+        Some(user_id) if provider == "strava" => repos
+            .oauth_tokens
+            .get_token(user_id, tenant_id, provider)
+            .await?
+            .and_then(|token| token.oauth_app_client_id),
+        _ => None,
+    };
+    let server_level = config.provider(provider).cloned().unwrap_or_default();
+    issuing_client(
+        IssuingLookup {
+            user_id,
+            tenant_id: Some(tenant_id),
+            provider,
+            issuing_app: issuing_app.as_deref(),
+            server_level: &server_level,
+        },
+        &*repos.tenants,
+        &*repos.oauth_tokens,
+    )
+    .await
 }
 
 // =============================================================================
@@ -392,7 +431,6 @@ async fn test_user_credentials_priority_over_server() -> Result<()> {
 
     // Set up server-level credentials
     let oauth_config = Arc::new(create_test_oauth_config());
-    let oauth_manager = TenantOAuthManager::new(oauth_config);
 
     // Store user-specific credentials
     database
@@ -408,18 +446,11 @@ async fn test_user_credentials_priority_over_server() -> Result<()> {
         .await?;
 
     // Get credentials with user_id - should return user-specific
-    let credentials = oauth_manager
-        .get_credentials_for_user(
-            Some(user_id),
-            tenant_id,
-            "strava",
-            &*database.repositories().tenants,
-            &*database.repositories().oauth_tokens,
-        )
-        .await?;
+    let credentials = resolve(&database, &oauth_config, Some(user_id), tenant_id, "strava").await?;
 
     assert_eq!(
-        credentials.client_id, "user_specific_client_id",
+        credentials.client_id(),
+        "user_specific_client_id",
         "User-specific credentials should take priority"
     );
 
@@ -436,50 +467,34 @@ async fn test_fallback_to_server_credentials() -> Result<()> {
 
     // Set up server-level credentials only (no user-specific)
     let oauth_config = Arc::new(create_test_oauth_config());
-    let oauth_manager = TenantOAuthManager::new(oauth_config);
 
     // Get credentials - should fall back to server-level
-    let credentials = oauth_manager
-        .get_credentials_for_user(
-            Some(user_id),
-            tenant_id,
-            "strava",
-            &*database.repositories().tenants,
-            &*database.repositories().oauth_tokens,
-        )
-        .await?;
+    let credentials = resolve(&database, &oauth_config, Some(user_id), tenant_id, "strava").await?;
 
     assert_eq!(
-        credentials.client_id, "server_strava_id",
+        credentials.client_id(),
+        "server_strava_id",
         "Should fall back to server-level credentials"
     );
 
     Ok(())
 }
 
-/// Test: Backward compatibility - `get_credentials` without `user_id` uses server-level
+/// Test: a lookup with no user resolves the server-level app
 #[tokio::test]
 #[serial]
-async fn test_backward_compatible_get_credentials() -> Result<()> {
+async fn test_no_user_resolves_server_credentials() -> Result<()> {
     let database = setup_test_database().await?;
     let tenant_id = TenantId::generate();
 
     let oauth_config = Arc::new(create_test_oauth_config());
-    let oauth_manager = TenantOAuthManager::new(oauth_config);
 
-    // Use the original get_credentials (no user_id)
-    let credentials = oauth_manager
-        .get_credentials(
-            tenant_id,
-            "strava",
-            &*database.repositories().tenants,
-            &*database.repositories().oauth_tokens,
-        )
-        .await?;
+    let credentials = resolve(&database, &oauth_config, None, tenant_id, "strava").await?;
 
     assert_eq!(
-        credentials.client_id, "server_strava_id",
-        "Original get_credentials should use server-level"
+        credentials.client_id(),
+        "server_strava_id",
+        "a lookup with no user should use server-level"
     );
 
     Ok(())
@@ -495,18 +510,9 @@ async fn test_error_when_no_credentials() -> Result<()> {
 
     // Set up empty OAuth config (no server-level credentials)
     let oauth_config = Arc::new(OAuthConfig::default());
-    let oauth_manager = TenantOAuthManager::new(oauth_config);
 
     // Should fail for garmin (no credentials anywhere)
-    let result = oauth_manager
-        .get_credentials_for_user(
-            Some(user_id),
-            tenant_id,
-            "garmin",
-            &*database.repositories().tenants,
-            &*database.repositories().oauth_tokens,
-        )
-        .await;
+    let result = resolve(&database, &oauth_config, Some(user_id), tenant_id, "garmin").await;
 
     assert!(result.is_err(), "Should error when no credentials exist");
 
@@ -525,7 +531,6 @@ async fn test_different_users_different_credentials() -> Result<()> {
 
     // Set up server-level credentials
     let oauth_config = Arc::new(create_test_oauth_config());
-    let oauth_manager = TenantOAuthManager::new(oauth_config);
 
     // User A has custom credentials
     database
@@ -543,28 +548,12 @@ async fn test_different_users_different_credentials() -> Result<()> {
     // User B has no custom credentials
 
     // User A should get their own credentials
-    let creds_a = oauth_manager
-        .get_credentials_for_user(
-            Some(user_a),
-            tenant_id,
-            "strava",
-            &*database.repositories().tenants,
-            &*database.repositories().oauth_tokens,
-        )
-        .await?;
-    assert_eq!(creds_a.client_id, "user_a_client_id");
+    let creds_a = resolve(&database, &oauth_config, Some(user_a), tenant_id, "strava").await?;
+    assert_eq!(creds_a.client_id(), "user_a_client_id");
 
     // User B should get server-level credentials
-    let creds_b = oauth_manager
-        .get_credentials_for_user(
-            Some(user_b),
-            tenant_id,
-            "strava",
-            &*database.repositories().tenants,
-            &*database.repositories().oauth_tokens,
-        )
-        .await?;
-    assert_eq!(creds_b.client_id, "server_strava_id");
+    let creds_b = resolve(&database, &oauth_config, Some(user_b), tenant_id, "strava").await?;
+    assert_eq!(creds_b.client_id(), "server_strava_id");
 
     Ok(())
 }
@@ -579,7 +568,6 @@ async fn test_tenant_credentials_priority() -> Result<()> {
 
     // Set up server-level credentials
     let oauth_config = Arc::new(create_test_oauth_config());
-    let oauth_manager = TenantOAuthManager::new(oauth_config);
 
     // Store tenant-specific credentials (priority 2)
     database
@@ -592,23 +580,16 @@ async fn test_tenant_credentials_priority() -> Result<()> {
             client_secret: "tenant_strava_secret".to_owned(),
             redirect_uri: "http://tenant.example.com/callback".to_owned(),
             scopes: vec!["read".to_owned()],
-            rate_limit_per_day: TenantOAuthManager::default_rate_limit_for_provider("strava"),
+            rate_limit_per_day: default_rate_limit_for_provider("strava"),
         })
         .await?;
 
     // With no user credentials, should get tenant-specific
-    let credentials = oauth_manager
-        .get_credentials_for_user(
-            Some(user_id),
-            tenant_id,
-            "strava",
-            &*database.repositories().tenants,
-            &*database.repositories().oauth_tokens,
-        )
-        .await?;
+    let credentials = resolve(&database, &oauth_config, Some(user_id), tenant_id, "strava").await?;
 
     assert_eq!(
-        credentials.client_id, "tenant_strava_id",
+        credentials.client_id(),
+        "tenant_strava_id",
         "Should use tenant-specific credentials when no user credentials exist"
     );
 
@@ -626,18 +607,11 @@ async fn test_tenant_credentials_priority() -> Result<()> {
         .await?;
 
     // Should now prefer user-specific over tenant-specific
-    let credentials = oauth_manager
-        .get_credentials_for_user(
-            Some(user_id),
-            tenant_id,
-            "strava",
-            &*database.repositories().tenants,
-            &*database.repositories().oauth_tokens,
-        )
-        .await?;
+    let credentials = resolve(&database, &oauth_config, Some(user_id), tenant_id, "strava").await?;
 
     assert_eq!(
-        credentials.client_id, "user_strava_id",
+        credentials.client_id(),
+        "user_strava_id",
         "Should prefer user-specific over tenant-specific"
     );
 
@@ -656,7 +630,6 @@ async fn test_pool_attribution_priority_over_user_and_tenant_credentials() -> Re
     let repos = database.repositories();
 
     let oauth_config = Arc::new(create_test_oauth_config());
-    let oauth_manager = TenantOAuthManager::new(oauth_config);
     database
         .repositories()
         .tenants
@@ -667,7 +640,7 @@ async fn test_pool_attribution_priority_over_user_and_tenant_credentials() -> Re
             client_secret: "tenant_strava_secret".to_owned(),
             redirect_uri: "http://tenant.example.com/callback".to_owned(),
             scopes: vec!["read".to_owned()],
-            rate_limit_per_day: TenantOAuthManager::default_rate_limit_for_provider("strava"),
+            rate_limit_per_day: default_rate_limit_for_provider("strava"),
         })
         .await?;
     repos
@@ -696,76 +669,22 @@ async fn test_pool_attribution_priority_over_user_and_tenant_credentials() -> Re
     .with_oauth_app_client_id(Some("pool_strava_id".to_owned()));
     repos.oauth_tokens.upsert_token(&token).await?;
 
-    let credentials = oauth_manager
-        .get_credentials_for_user(
-            Some(user_id),
-            tenant_id,
-            "strava",
-            &*repos.tenants,
-            &*repos.oauth_tokens,
-        )
-        .await?;
+    let credentials = resolve(&database, &oauth_config, Some(user_id), tenant_id, "strava").await?;
 
     assert_eq!(
-        credentials.client_id, "pool_strava_id",
+        credentials.client_id(),
+        "pool_strava_id",
         "the pool app that issued the token wins over the user's and the tenant's apps"
     );
-    assert_eq!(credentials.client_secret, "pool_strava_secret");
+    assert_eq!(credentials.client_secret(), "pool_strava_secret");
+    assert!(matches!(credentials, IssuingClient::StravaPool { .. }));
 
     Ok(())
 }
 
 // =============================================================================
-// Unit Tests: Default Scopes and Rate Limits
+// Unit Tests: Default Rate Limits
 // =============================================================================
-
-/// Test: User credentials get correct default scopes for each provider
-#[tokio::test]
-#[serial]
-async fn test_user_credentials_default_scopes() -> Result<()> {
-    let database = setup_test_database().await?;
-    let tenant_id = TenantId::generate();
-    let user_id = create_test_user_with_tenant(&database, "user@example.com", tenant_id).await?;
-
-    let oauth_config = Arc::new(OAuthConfig::default());
-    let oauth_manager = TenantOAuthManager::new(oauth_config);
-
-    // Store user credentials for WHOOP
-    database
-        .repositories()
-        .oauth_tokens
-        .store_user_oauth_app(
-            user_id,
-            "whoop",
-            "whoop_id",
-            "whoop_secret",
-            "http://app.com/whoop",
-        )
-        .await?;
-
-    let credentials = oauth_manager
-        .get_credentials_for_user(
-            Some(user_id),
-            tenant_id,
-            "whoop",
-            &*database.repositories().tenants,
-            &*database.repositories().oauth_tokens,
-        )
-        .await?;
-
-    // Should have WHOOP default scopes
-    assert!(!credentials.scopes.is_empty(), "Should have default scopes");
-    assert!(
-        credentials.scopes.contains(&"offline".to_owned()),
-        "WHOOP should have 'offline' scope"
-    );
-    assert!(
-        credentials.scopes.contains(&"read:profile".to_owned()),
-        "WHOOP should have 'read:profile' scope"
-    );
-
-    Ok(())
-}
 
 /// Test: User credentials get correct default rate limits
 #[tokio::test]
@@ -776,7 +695,6 @@ async fn test_user_credentials_default_rate_limits() -> Result<()> {
     let user_id = create_test_user_with_tenant(&database, "user@example.com", tenant_id).await?;
 
     let oauth_config = Arc::new(OAuthConfig::default());
-    let oauth_manager = TenantOAuthManager::new(oauth_config);
 
     // Store user credentials for Strava
     database
@@ -791,19 +709,14 @@ async fn test_user_credentials_default_rate_limits() -> Result<()> {
         )
         .await?;
 
-    let credentials = oauth_manager
-        .get_credentials_for_user(
-            Some(user_id),
-            tenant_id,
-            "strava",
-            &*database.repositories().tenants,
-            &*database.repositories().oauth_tokens,
-        )
-        .await?;
+    let credentials = resolve(&database, &oauth_config, Some(user_id), tenant_id, "strava").await?;
 
-    // Strava's default is the standard read limit (1000/day)
+    assert_eq!(credentials.client_id(), "strava_id", "the user's own app");
+    // Strava's default is the standard read limit (1000/day): the budget an
+    // app is registered with when its operator names none
     assert_eq!(
-        credentials.rate_limit_per_day, 1000,
+        default_rate_limit_for_provider("strava"),
+        1000,
         "Strava should have 1000/day rate limit"
     );
 
@@ -1067,7 +980,6 @@ async fn test_all_provider_rate_limits() -> Result<()> {
     let user_id = create_test_user_with_tenant(&database, "user@example.com", tenant_id).await?;
 
     let oauth_config = Arc::new(OAuthConfig::default());
-    let oauth_manager = TenantOAuthManager::new(oauth_config);
 
     // Expected rate limits per provider (from src/constants/mod.rs)
     let expected_rate_limits = [
@@ -1091,20 +1003,14 @@ async fn test_all_provider_rate_limits() -> Result<()> {
             )
             .await?;
 
-        let credentials = oauth_manager
-            .get_credentials_for_user(
-                Some(user_id),
-                tenant_id,
-                provider,
-                &*database.repositories().tenants,
-                &*database.repositories().oauth_tokens,
-            )
-            .await?;
+        let credentials =
+            resolve(&database, &oauth_config, Some(user_id), tenant_id, provider).await?;
 
+        assert_eq!(credentials.client_id(), format!("{provider}_id"));
+        let limit = default_rate_limit_for_provider(provider);
         assert_eq!(
-            credentials.rate_limit_per_day, *expected_limit,
-            "{provider} should have {expected_limit}/day rate limit, got {}",
-            credentials.rate_limit_per_day
+            limit, *expected_limit,
+            "{provider} should have {expected_limit}/day rate limit, got {limit}"
         );
     }
 
@@ -1115,100 +1021,80 @@ async fn test_all_provider_rate_limits() -> Result<()> {
 // Provider-Specific Scope Tests
 // =============================================================================
 
-/// Test: All providers get correct default scopes
+/// Test: a user's own app asks, at authorize, for the scopes its provider
+/// declares by default. Garmin's app asks for none: its scope is fixed
+/// server-side and its authorization defines no `scope` parameter (Garmin
+/// Connect Developer Program `OAuth2.0` PKCE Specification), so the URL
+/// carries none at all, not an empty one.
+#[cfg(all(
+    feature = "provider-strava",
+    feature = "provider-whoop",
+    feature = "provider-garmin"
+))]
 #[tokio::test]
 #[serial]
-async fn test_all_provider_default_scopes() -> Result<()> {
-    let database = setup_test_database().await?;
-    let tenant_id = TenantId::generate();
-    let user_id = create_test_user_with_tenant(&database, "user@example.com", tenant_id).await?;
+async fn a_users_own_app_asks_for_its_providers_default_scopes() -> Result<()> {
+    use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
+    use url::Url;
 
-    let oauth_config = Arc::new(OAuthConfig::default());
-    let oauth_manager = TenantOAuthManager::new(oauth_config);
+    let resources = common::create_test_server_resources().await?;
+    let (user_id, _user, tenant_id) = common::create_test_user_with_plan(
+        &resources.agent.database,
+        "own-app-scopes@example.com",
+        "starter",
+    )
+    .await?;
+    let service = OAuthService::new(resources.data(), resources.common.config.clone());
 
-    // Expected scopes per provider (from src/tenant/oauth_manager.rs::default_scopes_for_provider)
-    // Only checking key scopes, not exhaustive list
-    // Garmin is absent: its scope is fixed server-side and none is requested
-    // (`garmin_requests_no_default_scope` below).
-    let expected_scopes: [(&str, Vec<&str>); 3] = [
-        ("strava", vec!["activity:read_all"]),
-        ("whoop", vec!["offline", "read:profile", "read:sleep"]),
-        ("terra", vec!["activity", "body", "daily", "sleep"]),
+    // Key scopes only, not the exhaustive list; Garmin requests none.
+    let expected_scopes: [(&str, &[&str]); 3] = [
+        ("strava", &["activity:read_all"]),
+        ("whoop", &["offline", "read:profile", "read:sleep"]),
+        ("garmin", &[]),
     ];
-
-    for (provider, required_scopes) in &expected_scopes {
-        // Store user credentials
-        database
-            .repositories()
+    for (provider, required_scopes) in expected_scopes {
+        resources
+            .common
+            .repos
             .oauth_tokens
             .store_user_oauth_app(
                 user_id,
                 provider,
-                &format!("{provider}_id"),
-                &format!("{provider}_secret"),
+                &format!("{provider}_own_id"),
+                &format!("{provider}_own_secret"),
                 &format!("http://app.com/{provider}"),
             )
             .await?;
 
-        let credentials = oauth_manager
-            .get_credentials_for_user(
-                Some(user_id),
-                tenant_id,
-                provider,
-                &*database.repositories().tenants,
-                &*database.repositories().oauth_tokens,
-            )
+        let authorization = service
+            .get_auth_url(user_id, tenant_id, provider, AuthUrlOptions::default())
             .await?;
-
-        for scope in required_scopes {
+        let url = Url::parse(&authorization.authorization_url)?;
+        let param = |key: &str| {
+            url.query_pairs()
+                .find(|(name, _)| name == key)
+                .map(|(_, value)| value.into_owned())
+        };
+        assert_eq!(
+            param("client_id"),
+            Some(format!("{provider}_own_id")),
+            "{provider}: the user's own app"
+        );
+        let scope = param("scope");
+        if required_scopes.is_empty() {
+            assert_eq!(scope, None, "{provider} requests no scope");
+            continue;
+        }
+        let scope = scope.unwrap_or_else(|| panic!("{provider} requests its default scopes"));
+        let granted: Vec<&str> = scope.split([' ', ',']).collect();
+        for required in required_scopes {
             assert!(
-                credentials.scopes.iter().any(|s| s == *scope),
-                "{provider} should have '{scope}' scope, got: {:?}",
-                credentials.scopes
+                granted.contains(required),
+                "{provider} should ask for '{required}', got: {scope}"
             );
         }
     }
 
-    Ok(())
-}
-
-/// Test: Garmin's user-app credentials request no scope. Garmin's scope is
-/// fixed server-side and its authorization takes no `scope` parameter
-/// (Garmin Connect Developer Program `OAuth2.0` PKCE Specification).
-#[tokio::test]
-#[serial]
-async fn garmin_requests_no_default_scope() -> Result<()> {
-    let database = setup_test_database().await?;
-    let tenant_id = TenantId::generate();
-    let user_id = create_test_user_with_tenant(&database, "user@example.com", tenant_id).await?;
-    let oauth_manager = TenantOAuthManager::new(Arc::new(OAuthConfig::default()));
-    database
-        .repositories()
-        .oauth_tokens
-        .store_user_oauth_app(
-            user_id,
-            "garmin",
-            "garmin_id",
-            "garmin_secret",
-            "http://app.com/garmin",
-        )
-        .await?;
-
-    let credentials = oauth_manager
-        .get_credentials_for_user(
-            Some(user_id),
-            tenant_id,
-            "garmin",
-            &*database.repositories().tenants,
-            &*database.repositories().oauth_tokens,
-        )
-        .await?;
-
-    assert!(
-        credentials.scopes.is_empty(),
-        "got: {:?}",
-        credentials.scopes
-    );
     Ok(())
 }
 
@@ -1263,20 +1149,12 @@ async fn test_complete_three_tier_resolution() -> Result<()> {
 
     // Level 3: Server credentials
     let oauth_config = Arc::new(create_test_oauth_config());
-    let oauth_manager = TenantOAuthManager::new(oauth_config);
 
     // Test with only server credentials
-    let creds = oauth_manager
-        .get_credentials_for_user(
-            Some(user_id),
-            tenant_id,
-            "strava",
-            &*database.repositories().tenants,
-            &*database.repositories().oauth_tokens,
-        )
-        .await?;
+    let creds = resolve(&database, &oauth_config, Some(user_id), tenant_id, "strava").await?;
     assert_eq!(
-        creds.client_id, "server_strava_id",
+        creds.client_id(),
+        "server_strava_id",
         "Should use server credentials"
     );
 
@@ -1291,21 +1169,14 @@ async fn test_complete_three_tier_resolution() -> Result<()> {
             client_secret: "tenant_secret".to_owned(),
             redirect_uri: "http://tenant.com/callback".to_owned(),
             scopes: vec!["read".to_owned()],
-            rate_limit_per_day: TenantOAuthManager::default_rate_limit_for_provider("strava"),
+            rate_limit_per_day: default_rate_limit_for_provider("strava"),
         })
         .await?;
 
-    let creds = oauth_manager
-        .get_credentials_for_user(
-            Some(user_id),
-            tenant_id,
-            "strava",
-            &*database.repositories().tenants,
-            &*database.repositories().oauth_tokens,
-        )
-        .await?;
+    let creds = resolve(&database, &oauth_config, Some(user_id), tenant_id, "strava").await?;
     assert_eq!(
-        creds.client_id, "tenant_strava_id",
+        creds.client_id(),
+        "tenant_strava_id",
         "Should use tenant credentials"
     );
 
@@ -1322,17 +1193,10 @@ async fn test_complete_three_tier_resolution() -> Result<()> {
         )
         .await?;
 
-    let creds = oauth_manager
-        .get_credentials_for_user(
-            Some(user_id),
-            tenant_id,
-            "strava",
-            &*database.repositories().tenants,
-            &*database.repositories().oauth_tokens,
-        )
-        .await?;
+    let creds = resolve(&database, &oauth_config, Some(user_id), tenant_id, "strava").await?;
     assert_eq!(
-        creds.client_id, "user_strava_id",
+        creds.client_id(),
+        "user_strava_id",
         "Should use user credentials"
     );
 
@@ -1343,17 +1207,10 @@ async fn test_complete_three_tier_resolution() -> Result<()> {
         .remove_user_oauth_app(user_id, "strava")
         .await?;
 
-    let creds = oauth_manager
-        .get_credentials_for_user(
-            Some(user_id),
-            tenant_id,
-            "strava",
-            &*database.repositories().tenants,
-            &*database.repositories().oauth_tokens,
-        )
-        .await?;
+    let creds = resolve(&database, &oauth_config, Some(user_id), tenant_id, "strava").await?;
     assert_eq!(
-        creds.client_id, "tenant_strava_id",
+        creds.client_id(),
+        "tenant_strava_id",
         "Should fall back to tenant"
     );
 
@@ -1383,21 +1240,13 @@ async fn test_none_user_id_skips_user_lookup() -> Result<()> {
 
     // Server credentials
     let oauth_config = Arc::new(create_test_oauth_config());
-    let oauth_manager = TenantOAuthManager::new(oauth_config);
 
     // With None user_id, should skip user lookup and use server
-    let creds = oauth_manager
-        .get_credentials_for_user(
-            None,
-            tenant_id,
-            "strava",
-            &*database.repositories().tenants,
-            &*database.repositories().oauth_tokens,
-        )
-        .await?;
+    let creds = resolve(&database, &oauth_config, None, tenant_id, "strava").await?;
 
     assert_eq!(
-        creds.client_id, "server_strava_id",
+        creds.client_id(),
+        "server_strava_id",
         "None user_id should skip user credentials and use server"
     );
 
@@ -1418,7 +1267,6 @@ async fn test_user_with_all_providers() -> Result<()> {
         create_test_user_with_tenant(&database, "power_user@example.com", tenant_id).await?;
 
     let oauth_config = Arc::new(OAuthConfig::default());
-    let oauth_manager = TenantOAuthManager::new(oauth_config);
 
     let providers = ["strava", "garmin", "whoop", "terra"];
 
@@ -1439,18 +1287,10 @@ async fn test_user_with_all_providers() -> Result<()> {
 
     // Verify each provider returns correct credentials
     for provider in &providers {
-        let creds = oauth_manager
-            .get_credentials_for_user(
-                Some(user_id),
-                tenant_id,
-                provider,
-                &*database.repositories().tenants,
-                &*database.repositories().oauth_tokens,
-            )
-            .await?;
+        let creds = resolve(&database, &oauth_config, Some(user_id), tenant_id, provider).await?;
 
         assert_eq!(
-            creds.client_id,
+            creds.client_id(),
             format!("unique_{provider}_client_id"),
             "Provider {provider} should return correct user credentials"
         );
@@ -1480,19 +1320,16 @@ async fn test_error_unsupported_provider() -> Result<()> {
     let user_id = create_test_user_with_tenant(&database, "user@example.com", tenant_id).await?;
 
     let oauth_config = Arc::new(OAuthConfig::default());
-    let oauth_manager = TenantOAuthManager::new(oauth_config);
 
     // Request credentials for unsupported provider
-    let repos = database.repositories();
-    let result = oauth_manager
-        .get_credentials_for_user(
-            Some(user_id),
-            tenant_id,
-            "unsupported_provider",
-            &*repos.tenants,
-            &*repos.oauth_tokens,
-        )
-        .await;
+    let result = resolve(
+        &database,
+        &oauth_config,
+        Some(user_id),
+        tenant_id,
+        "unsupported_provider",
+    )
+    .await;
 
     assert!(result.is_err(), "Should error for unsupported provider");
 

@@ -70,7 +70,6 @@ use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase::FirebaseAuth;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::security::csrf::CsrfTokenManager;
-use pierre_auth::tenant::TenantOAuthClient;
 use pierre_cache::Cache;
 #[cfg(feature = "client-messaging")]
 use pierre_commands::CommandHandlerRegistry;
@@ -214,8 +213,6 @@ pub struct AuthSlice {
     pub oauth2_rate_limiter: Arc<OAuth2RateLimiter>,
     /// Secret key for admin JWT token generation.
     pub admin_jwt_secret: Arc<str>,
-    /// OAuth client for multi-tenant authentication flows.
-    pub tenant_oauth_client: Arc<TenantOAuthClient>,
     /// Cache-backed one-time nonce store for link-token page loads.
     #[cfg(feature = "provider-sciotte")]
     pub nonce_store: Arc<NonceStore<Cache>>,

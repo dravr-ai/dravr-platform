@@ -163,10 +163,11 @@ resource "google_secret_manager_secret_version" "strava_client_id_placeholder" {
 }
 
 # WHOOP central OAuth app. When real values land in the version
-# (`gcloud secrets versions add`), the platform's
-# `try_whoop_config_credentials` (crates/pierre-auth/.../oauth_manager.rs)
-# picks them up identically to Strava and Whoop becomes 1-step for every
-# user. Until then the BYO modal on web/mobile stays as the only path.
+# (`gcloud secrets versions add`), the platform's server-level app
+# resolution (`issuing_client` / `authorizing_client`,
+# crates/pierre-auth/.../oauth_manager.rs) picks them up identically to
+# Strava and Whoop becomes 1-step for every user. Until then the BYO modal
+# on web/mobile stays as the only path.
 resource "google_secret_manager_secret" "whoop_client_id" {
   project   = var.project_id
   secret_id = "${var.service_name}-whoop-client-id"

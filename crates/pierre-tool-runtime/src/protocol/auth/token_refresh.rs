@@ -36,7 +36,6 @@ use super::single_flight::{Lost, SingleFlight};
 use super::{AuthService, OAuthError, TokenData};
 use crate::protocol::reauth_notice::notify_needs_reauth;
 use crate::protocol::refresh_failure::classify_refresh_failure;
-use chrono::Utc;
 use pierre_core::http_client::api_client;
 use pierre_core::models::{connection_needs_reauth, TenantId, UserOAuthToken};
 use pierre_providers::owner_id::owner_id_for_access_token;
@@ -701,7 +700,7 @@ impl AuthService {
             provider: provider.to_owned(),
             access_token: new_access_token,
             refresh_token: new_refresh_token,
-            expires_at: new_expires_at.unwrap_or_else(Utc::now),
+            expires_at: new_expires_at,
             scopes: stored.scope.clone().unwrap_or_default(),
             provider_user_id: None,
             oauth_app_client_id: stored.oauth_app_client_id.clone(),

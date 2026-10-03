@@ -1,5 +1,5 @@
 // ABOUTME: Multi-tenant architecture support for enterprise SaaS deployment
-// ABOUTME: Provides tenant management, OAuth credential isolation, and per-tenant rate limiting
+// ABOUTME: Provides tenant management, OAuth credential isolation, and per-tenant LLM keys
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,15 +9,12 @@
 //! This module implements true multi-tenancy for Pierre MCP Server, enabling:
 //! - Per-tenant OAuth credential management
 //! - Per-tenant LLM API key management
-//! - Tenant-isolated rate limiting
 //! - Enterprise-ready `SaaS` deployment
 //! - Secure tenant data isolation
 
 /// LLM credential management for tenants and users
 pub mod llm_manager;
-/// Tenant-aware OAuth client implementation
-pub mod oauth_client;
-/// OAuth credential management for tenants
+/// The OAuth client a grant belongs to, resolved in one order
 pub mod oauth_manager;
 /// Tenant database schema and models
 pub mod schema;
@@ -25,8 +22,6 @@ pub mod schema;
 pub use llm_manager::{
     CredentialSource, LlmCredentials, LlmProvider, StoreLlmCredentialsRequest, TenantLlmManager,
 };
-pub use oauth_client::{ConnectAuthorization, TenantOAuthClient};
-pub use oauth_manager::TenantOAuthManager;
 pub use pierre_core::models::{LlmCredentialRecord, LlmCredentialSummary, TenantOAuthCredentials};
 pub use schema::{Tenant, TenantProviderUsage, TenantRole, TenantUser};
 

@@ -8,7 +8,6 @@ use super::ServerContext;
 use dravr_cageux::types::ActivityIntelligence;
 #[cfg(feature = "health-sync")]
 use dravr_enforme::SyncOrchestrator;
-use pierre_auth::tenant::TenantOAuthClient;
 use pierre_cache::Cache;
 use pierre_config::environment::ServerConfig;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
@@ -51,10 +50,6 @@ impl ToolRuntime for ServerContext {
 
     fn provider_registry(&self) -> &Arc<ProviderRegistry> {
         &self.fitness.provider_registry
-    }
-
-    fn tenant_oauth_client(&self) -> &Arc<TenantOAuthClient> {
-        &self.auth.tenant_oauth_client
     }
 
     fn cageux_config_registry(&self) -> &Arc<CageuxConfigRegistry> {

@@ -8,7 +8,7 @@ use std::io::{self, BufRead};
 use std::sync::Arc;
 
 use clap::Subcommand;
-use pierre_auth::tenant::TenantOAuthManager;
+use pierre_auth::tenant::oauth_manager::default_rate_limit_for_provider;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{TenantId, TenantOAuthCredentials, ToolEnablementSource};
 use pierre_database::RepositoryRegistry;
@@ -282,7 +282,7 @@ pub async fn set_oauth_app(
     }
     let rate_limit_per_day = settings
         .rate_limit_per_day
-        .unwrap_or_else(|| TenantOAuthManager::default_rate_limit_for_provider(&provider));
+        .unwrap_or_else(|| default_rate_limit_for_provider(&provider));
     repos
         .tenants
         .store_oauth_credentials(&TenantOAuthCredentials {

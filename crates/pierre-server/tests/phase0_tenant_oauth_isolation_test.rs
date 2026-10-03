@@ -1,5 +1,5 @@
 // ABOUTME: Phase 0 OAuth isolation tests for per-tenant credential management
-// ABOUTME: Critical security tests verifying tenant-specific OAuth credentials and rate limiting
+// ABOUTME: Critical security tests verifying tenant-specific OAuth credentials and token isolation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,7 +8,6 @@
 //!
 //! These tests verify the foundation for caching architecture:
 //! - Tenant A and Tenant B can use different Strava apps
-//! - Rate limits are tracked separately per tenant
 //! - OAuth tokens are properly isolated by (`user_id`, `tenant_id`, `provider`)
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -16,7 +15,9 @@
 
 use anyhow::Result;
 use chrono::Utc;
-use pierre_auth::tenant::oauth_manager::TenantOAuthManager;
+use pierre_auth::tenant::oauth_manager::{
+    default_rate_limit_for_provider, issuing_client, IssuingClient, IssuingLookup,
+};
 use pierre_config::environment::{OAuthConfig, OAuthProviderConfig};
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{
@@ -30,8 +31,7 @@ use pierre_database::{
 use pierre_mcp_server::constants::oauth_providers;
 use pierre_test_support::db::create_test_db_with_key;
 use serial_test::serial;
-use std::{env, sync::Arc};
-use tokio::sync::RwLock;
+use std::sync::Arc;
 use uuid::Uuid;
 
 /// Create test database with migrations
@@ -108,6 +108,30 @@ fn make_tenant(
     }
 }
 
+/// The client a token of `tenant_id` for `provider` presents when no user's
+/// own app is in play: the tenant's credentials, else the server-level app.
+async fn tenant_client(
+    database: &Database,
+    config: &OAuthConfig,
+    tenant_id: TenantId,
+    provider: &str,
+) -> Result<IssuingClient> {
+    let repos = database.repositories();
+    let server_level = config.provider(provider).cloned().unwrap_or_default();
+    Ok(issuing_client(
+        IssuingLookup {
+            user_id: None,
+            tenant_id: Some(tenant_id),
+            provider,
+            issuing_app: None,
+            server_level: &server_level,
+        },
+        &*repos.tenants,
+        &*repos.oauth_tokens,
+    )
+    .await?)
+}
+
 /// Test 1: Tenant Credential Isolation
 ///
 /// Verifies that tenant A uses server-level credentials while tenant B uses
@@ -129,7 +153,6 @@ async fn test_tenant_credential_isolation() -> Result<()> {
         whoop: OAuthProviderConfig::default(),
         terra: OAuthProviderConfig::default(),
     });
-    let oauth_manager = TenantOAuthManager::new(oauth_config);
 
     // Create two tenants
     let env_tenant_id = TenantId::generate();
@@ -172,218 +195,76 @@ async fn test_tenant_credential_isolation() -> Result<()> {
             client_secret: "db_secret_b".to_owned(),
             redirect_uri: "http://localhost:8080/api/oauth/callback/strava".to_owned(),
             scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
-            rate_limit_per_day: TenantOAuthManager::default_rate_limit_for_provider(
-                oauth_providers::STRAVA,
-            ),
+            rate_limit_per_day: default_rate_limit_for_provider(oauth_providers::STRAVA),
         })
         .await?;
 
     // Get credentials for tenant A (should use server-level config)
-    let env_creds = oauth_manager
-        .get_credentials(
-            env_tenant_id,
-            oauth_providers::STRAVA,
-            &*database.repositories().tenants,
-            &*database.repositories().oauth_tokens,
-        )
-        .await?;
+    let env_creds = tenant_client(
+        &database,
+        &oauth_config,
+        env_tenant_id,
+        oauth_providers::STRAVA,
+    )
+    .await?;
 
     // Get credentials for tenant B (should use tenant-specific credentials)
-    let db_creds = oauth_manager
-        .get_credentials(
-            db_tenant_id,
-            oauth_providers::STRAVA,
-            &*database.repositories().tenants,
-            &*database.repositories().oauth_tokens,
-        )
-        .await?;
+    let db_creds = tenant_client(
+        &database,
+        &oauth_config,
+        db_tenant_id,
+        oauth_providers::STRAVA,
+    )
+    .await?;
 
     // Verify tenant A uses server-level credentials
     assert_eq!(
-        env_creds.client_id, "163846",
+        env_creds.client_id(),
+        "163846",
         "Tenant A should use server-level CLIENT_ID"
     );
     assert_eq!(
-        env_creds.client_secret, "env_secret_a",
+        env_creds.client_secret(),
+        "env_secret_a",
         "Tenant A should use server-level SECRET"
     );
-    assert_eq!(
-        env_creds.tenant_id, env_tenant_id,
-        "Credentials should belong to tenant A"
+    assert!(
+        matches!(env_creds, IssuingClient::ServerLevel { .. }),
+        "Tenant A, with nothing stored, should use the server-level app"
     );
 
     // Verify tenant B uses database credentials
     assert_eq!(
-        db_creds.client_id, "999888",
+        db_creds.client_id(),
+        "999888",
         "Tenant B should use database CLIENT_ID"
     );
     assert_eq!(
-        db_creds.client_secret, "db_secret_b",
+        db_creds.client_secret(),
+        "db_secret_b",
         "Tenant B should use database SECRET"
     );
+    let IssuingClient::Tenant(db_tenant_creds) = &db_creds else {
+        panic!("Tenant B should use its stored credentials, got {db_creds:?}");
+    };
     assert_eq!(
-        db_creds.tenant_id, db_tenant_id,
+        db_tenant_creds.tenant_id, db_tenant_id,
         "Credentials should belong to tenant B"
     );
 
     // Verify credentials are different
     assert_ne!(
-        env_creds.client_id, db_creds.client_id,
+        env_creds.client_id(),
+        db_creds.client_id(),
         "Tenants should have different CLIENT_IDs"
     );
     assert_ne!(
-        env_creds.client_secret, db_creds.client_secret,
+        env_creds.client_secret(),
+        db_creds.client_secret(),
         "Tenants should have different CLIENT_SECRETs"
     );
 
     tracing::info!(" Test 1: Tenant credential isolation verified");
-    Ok(())
-}
-
-/// Test 2: Rate Limit Tracking Per Tenant
-///
-/// Verifies that rate limits are tracked separately for each tenant,
-/// ensuring one tenant's usage doesn't affect another
-#[tokio::test]
-async fn test_rate_limit_tracking_per_tenant() -> Result<()> {
-    let database = setup_test_database().await?;
-    let oauth_config = Arc::new(OAuthConfig {
-        strava: OAuthProviderConfig::default(),
-        garmin: OAuthProviderConfig::default(),
-        whoop: OAuthProviderConfig::default(),
-        terra: OAuthProviderConfig::default(),
-    });
-    let mut oauth_manager = TenantOAuthManager::new(oauth_config);
-
-    // Create two tenants
-    let first_tenant_id = TenantId::generate();
-    let second_tenant_id = TenantId::generate();
-
-    let first_owner = create_test_user(&database, "owner_a@example.com").await?;
-    let second_owner = create_test_user(&database, "owner_b@example.com").await?;
-
-    let first_tenant = make_tenant(
-        first_tenant_id,
-        "Tenant A",
-        &first_tenant_id.to_string(),
-        Some("tenant-a.example.com"),
-        "professional",
-        first_owner,
-    );
-    database
-        .repositories()
-        .tenants
-        .create(&first_tenant)
-        .await?;
-    assign_to_tenant(&database, first_owner, first_tenant_id).await?;
-
-    let second_tenant = make_tenant(
-        second_tenant_id,
-        "Tenant B",
-        &second_tenant_id.to_string(),
-        Some("tenant-b.example.com"),
-        "professional",
-        second_owner,
-    );
-    database
-        .repositories()
-        .tenants
-        .create(&second_tenant)
-        .await?;
-    assign_to_tenant(&database, second_owner, second_tenant_id).await?;
-
-    // Initial rate limit check - both should be zero
-    let (first_usage_initial, first_limit) = oauth_manager
-        .check_rate_limit(
-            first_tenant_id,
-            oauth_providers::STRAVA,
-            &*database.repositories().tenants,
-        )
-        .await?;
-    let (second_usage_initial, second_limit) = oauth_manager
-        .check_rate_limit(
-            second_tenant_id,
-            oauth_providers::STRAVA,
-            &*database.repositories().tenants,
-        )
-        .await?;
-
-    assert_eq!(first_usage_initial, 0, "Tenant A should start with 0 usage");
-    assert_eq!(
-        second_usage_initial, 0,
-        "Tenant B should start with 0 usage"
-    );
-    assert!(first_limit > 0, "Tenant A should have a rate limit");
-    assert!(second_limit > 0, "Tenant B should have a rate limit");
-
-    // Simulate 50 API calls from tenant A
-    oauth_manager.increment_usage(first_tenant_id, oauth_providers::STRAVA, 50, 0)?;
-
-    // Simulate 30 API calls from tenant B
-    oauth_manager.increment_usage(second_tenant_id, oauth_providers::STRAVA, 30, 0)?;
-
-    // Check rate limits after usage
-    let (first_usage_after, _) = oauth_manager
-        .check_rate_limit(
-            first_tenant_id,
-            oauth_providers::STRAVA,
-            &*database.repositories().tenants,
-        )
-        .await?;
-    let (second_usage_after, _) = oauth_manager
-        .check_rate_limit(
-            second_tenant_id,
-            oauth_providers::STRAVA,
-            &*database.repositories().tenants,
-        )
-        .await?;
-
-    // Verify tenant A usage
-    assert_eq!(
-        first_usage_after, 50,
-        "Tenant A should have 50 requests used"
-    );
-
-    // Verify tenant B usage
-    assert_eq!(
-        second_usage_after, 30,
-        "Tenant B should have 30 requests used"
-    );
-
-    // Verify independence - tenant A's usage doesn't affect tenant B
-    assert_ne!(
-        first_usage_after, second_usage_after,
-        "Tenants should have independent usage tracking"
-    );
-
-    // Simulate more calls from tenant A
-    oauth_manager.increment_usage(first_tenant_id, oauth_providers::STRAVA, 25, 0)?;
-
-    let (first_usage_final, _) = oauth_manager
-        .check_rate_limit(
-            first_tenant_id,
-            oauth_providers::STRAVA,
-            &*database.repositories().tenants,
-        )
-        .await?;
-    let (second_usage_final, _) = oauth_manager
-        .check_rate_limit(
-            second_tenant_id,
-            oauth_providers::STRAVA,
-            &*database.repositories().tenants,
-        )
-        .await?;
-
-    assert_eq!(
-        first_usage_final, 75,
-        "Tenant A should have 75 requests used"
-    );
-    assert_eq!(
-        second_usage_final, 30,
-        "Tenant B usage should remain unchanged"
-    );
-
-    tracing::info!(" Test 2: Rate limit tracking per tenant verified");
     Ok(())
 }
 
@@ -598,7 +479,6 @@ async fn test_token_refresh_uses_tenant_credentials() -> Result<()> {
         whoop: OAuthProviderConfig::default(),
         terra: OAuthProviderConfig::default(),
     });
-    let oauth_manager = TenantOAuthManager::new(oauth_config);
 
     // Create tenant
     let tenant_id = TenantId::generate();
@@ -626,29 +506,23 @@ async fn test_token_refresh_uses_tenant_credentials() -> Result<()> {
             client_secret: "tenant_specific_secret".to_owned(),
             redirect_uri: "http://localhost:8080/api/oauth/callback/strava".to_owned(),
             scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
-            rate_limit_per_day: TenantOAuthManager::default_rate_limit_for_provider(
-                oauth_providers::STRAVA,
-            ),
+            rate_limit_per_day: default_rate_limit_for_provider(oauth_providers::STRAVA),
         })
         .await?;
 
     // Get credentials for token refresh
-    let refresh_creds = oauth_manager
-        .get_credentials(
-            tenant_id,
-            oauth_providers::STRAVA,
-            &*database.repositories().tenants,
-            &*database.repositories().oauth_tokens,
-        )
-        .await?;
+    let refresh_creds =
+        tenant_client(&database, &oauth_config, tenant_id, oauth_providers::STRAVA).await?;
 
     // Verify correct credentials are returned for refresh
     assert_eq!(
-        refresh_creds.client_id, "tenant_specific_client_id",
+        refresh_creds.client_id(),
+        "tenant_specific_client_id",
         "Token refresh should use tenant-specific CLIENT_ID"
     );
     assert_eq!(
-        refresh_creds.client_secret, "tenant_specific_secret",
+        refresh_creds.client_secret(),
+        "tenant_specific_secret",
         "Token refresh should use tenant-specific CLIENT_SECRET"
     );
 
@@ -658,18 +532,12 @@ async fn test_token_refresh_uses_tenant_credentials() -> Result<()> {
 
 /// Test 6: Tenant-Specific Rate Limit Configuration
 ///
-/// Verifies that different tenants can have different rate limit configurations
+/// Verifies that a tenant's stored OAuth app keeps its own daily limit, and a
+/// tenant with none stored has no credentials row to carry one
 #[tokio::test]
 #[serial]
 async fn test_tenant_specific_rate_limits() -> Result<()> {
     let database = setup_test_database().await?;
-    let oauth_config = Arc::new(OAuthConfig {
-        strava: OAuthProviderConfig::default(),
-        garmin: OAuthProviderConfig::default(),
-        whoop: OAuthProviderConfig::default(),
-        terra: OAuthProviderConfig::default(),
-    });
-    let oauth_manager = TenantOAuthManager::new(oauth_config);
 
     // Create two tenants with different rate limit needs
     let tenant_standard_id = TenantId::generate();
@@ -709,10 +577,6 @@ async fn test_tenant_specific_rate_limits() -> Result<()> {
         .await?;
     assign_to_tenant(&database, owner_enterprise, tenant_enterprise_id).await?;
 
-    // Standard tenant uses default rate limits (via environment)
-    env::set_var("STRAVA_CLIENT_ID", "163846");
-    env::set_var("STRAVA_CLIENT_SECRET", "standard_secret");
-
     // Enterprise tenant gets custom credentials with higher rate limits
     database
         .repositories()
@@ -728,36 +592,21 @@ async fn test_tenant_specific_rate_limits() -> Result<()> {
         })
         .await?;
 
-    // Check rate limits for both tenants
-    let (_, limit_standard) = oauth_manager
-        .check_rate_limit(
-            tenant_standard_id,
-            oauth_providers::STRAVA,
-            &*database.repositories().tenants,
-        )
+    let repos = database.repositories();
+    let standard = repos
+        .tenants
+        .get_oauth_credentials(tenant_standard_id, oauth_providers::STRAVA)
         .await?;
-    let (_, limit_enterprise) = oauth_manager
-        .check_rate_limit(
-            tenant_enterprise_id,
-            oauth_providers::STRAVA,
-            &*database.repositories().tenants,
-        )
-        .await?;
-
-    // Both should have limits configured
-    assert!(limit_standard > 0, "Standard tenant should have rate limit");
-    assert!(
-        limit_enterprise > 0,
-        "Enterprise tenant should have rate limit"
-    );
+    let enterprise = repos
+        .tenants
+        .get_oauth_credentials(tenant_enterprise_id, oauth_providers::STRAVA)
+        .await?
+        .expect("the enterprise tenant's app is stored");
 
     // The enterprise tenant's stored credentials carry their own daily
-    // limit; the standard tenant, with none stored, gets the provider default.
-    assert_eq!(limit_enterprise, 12_345);
-    assert_eq!(
-        limit_standard,
-        TenantOAuthManager::default_rate_limit_for_provider(oauth_providers::STRAVA)
-    );
+    // limit; the standard tenant has no stored app to carry one.
+    assert_eq!(enterprise.rate_limit_per_day, 12_345);
+    assert!(standard.is_none(), "the standard tenant stores no app");
 
     tracing::info!(" Test 6: Tenant-specific rate limit configuration verified");
     Ok(())
@@ -775,14 +624,12 @@ async fn test_concurrent_multitenant_oauth_operations() -> Result<()> {
         whoop: OAuthProviderConfig::default(),
         terra: OAuthProviderConfig::default(),
     });
-    let oauth_manager = Arc::new(RwLock::new(TenantOAuthManager::new(oauth_config)));
 
     // Create 5 tenants concurrently
     let mut tasks = vec![];
 
     for i in 0..5 {
         let db = database.clone();
-        let manager = oauth_manager.clone();
 
         let task = tokio::spawn(async move {
             let tenant_id = TenantId::generate();
@@ -809,9 +656,7 @@ async fn test_concurrent_multitenant_oauth_operations() -> Result<()> {
                     client_secret: format!("secret_{i}"),
                     redirect_uri: "http://localhost:8080/api/oauth/callback/strava".to_owned(),
                     scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
-                    rate_limit_per_day: TenantOAuthManager::default_rate_limit_for_provider(
-                        oauth_providers::STRAVA,
-                    ),
+                    rate_limit_per_day: default_rate_limit_for_provider(oauth_providers::STRAVA),
                 })
                 .await?;
 
@@ -826,12 +671,6 @@ async fn test_concurrent_multitenant_oauth_operations() -> Result<()> {
                 Some("read,activity:read_all".to_owned()),
             );
             db.repositories().oauth_tokens.upsert_token(&token).await?;
-
-            // Simulate API calls
-            manager
-                .write()
-                .await
-                .increment_usage(tenant_id, oauth_providers::STRAVA, 10, 0)?;
 
             Ok::<(TenantId, Uuid), anyhow::Error>((tenant_id, user_id))
         });
@@ -849,35 +688,15 @@ async fn test_concurrent_multitenant_oauth_operations() -> Result<()> {
     // Verify all tenants have independent data
     for (tenant_id, user_id) in tenant_user_pairs {
         // Check credentials
-        let creds = {
-            let manager_guard = oauth_manager.read().await;
-            let repos = database.repositories();
-            manager_guard
-                .get_credentials(
-                    tenant_id,
-                    oauth_providers::STRAVA,
-                    &*repos.tenants,
-                    &*repos.oauth_tokens,
-                )
-                .await?
+        let creds =
+            tenant_client(&database, &oauth_config, tenant_id, oauth_providers::STRAVA).await?;
+        let IssuingClient::Tenant(creds) = creds else {
+            panic!("each tenant resolves its own stored app, got {creds:?}");
         };
         assert_eq!(
             creds.tenant_id, tenant_id,
             "Credentials should match tenant"
         );
-
-        // Check rate limit usage
-        let (usage, _) = {
-            let manager_guard = oauth_manager.read().await;
-            manager_guard
-                .check_rate_limit(
-                    tenant_id,
-                    oauth_providers::STRAVA,
-                    &*database.repositories().tenants,
-                )
-                .await?
-        };
-        assert_eq!(usage, 10, "Each tenant should have 10 requests used");
 
         // Check token
         let token = database

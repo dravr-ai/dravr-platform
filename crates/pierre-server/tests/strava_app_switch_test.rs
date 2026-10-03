@@ -1506,6 +1506,101 @@ async fn the_mobile_authorize_route_pins_the_pool_app_for_the_exchange() {
     );
 }
 
+/// An athlete who registered their own Strava app is authorized under it and
+/// has the code spent under it, whichever surface starts the connect: the web
+/// launch, the mobile app's init route and the chat connect tool all mint the
+/// URL through one builder, whose client is the one the exchange resolves. The
+/// web path used to send the athlete to the env app and then exchange the code
+/// under their own.
+#[tokio::test]
+#[serial]
+async fn an_athletes_own_app_names_one_client_at_authorize_and_exchange_on_every_surface() {
+    const OWN_CLIENT: &str = "athlete-own-app";
+    const OWN_SECRET: &str = "athlete-own-secret";
+    const OWN_REDIRECT: &str = "https://own-app.example.test/api/oauth/callback/strava";
+    let (base, mock) = mock_strava().await;
+    let (resources, service, _env) = service_pointed_at(&base).await;
+    let repos = &resources.common.repos;
+    let (user_id, tenant) = athlete(&resources, "own-app-every-surface").await;
+    repos
+        .oauth_tokens
+        .store_user_oauth_app(user_id, "strava", OWN_CLIENT, OWN_SECRET, OWN_REDIRECT)
+        .await
+        .unwrap();
+
+    let web = service
+        .get_auth_url(user_id, tenant, "strava", AuthUrlOptions::default())
+        .await
+        .expect("the web launch mints a URL");
+    let runtime: &dyn ToolRuntime = resources.as_ref();
+    let tool = mint_oauth_authorize_url(runtime, user_id, tenant, "strava", None)
+        .await
+        .expect("the connect tool mints a URL");
+    let user = repos.users.get_global(user_id).await.unwrap().unwrap();
+    let jwt = resources
+        .auth
+        .auth_manager
+        .generate_token_with_tenant(
+            &user,
+            &resources.auth.jwks_manager,
+            Some(tenant.to_string()),
+        )
+        .unwrap();
+    let response = AuthRoutes::routes(resources.auth_routes_context())
+        .oneshot(
+            Request::get("/api/oauth/mobile/init/strava")
+                .header("authorization", format!("Bearer {jwt}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    let mobile = (
+        body["authorization_url"].as_str().unwrap().to_owned(),
+        body["state"].as_str().unwrap().to_owned(),
+    );
+
+    for (surface, (url, state)) in [
+        ("web", (web.authorization_url, web.state)),
+        ("tool", tool),
+        ("mobile", mobile),
+    ] {
+        let url = url::Url::parse(&url).unwrap();
+        let query = |key: &str| {
+            url.query_pairs()
+                .find(|(name, _)| name == key)
+                .map(|(_, value)| value.into_owned())
+        };
+        assert_eq!(query("client_id").as_deref(), Some(OWN_CLIENT), "{surface}");
+        assert_eq!(
+            query("redirect_uri").as_deref(),
+            Some(OWN_REDIRECT),
+            "{surface}"
+        );
+
+        service
+            .handle_callback("auth-code", &state, "strava")
+            .await
+            .unwrap_or_else(|e| panic!("{surface}: the exchange succeeds: {e}"));
+        let exchange = mock.token_requests.lock().unwrap().pop().unwrap().1;
+        assert!(
+            exchange.contains(&format!("client_id={OWN_CLIENT}"))
+                && exchange.contains(&format!("client_secret={OWN_SECRET}")),
+            "{surface}: the code is spent under the app the URL named: {exchange}"
+        );
+        assert!(
+            exchange.contains(&format!(
+                "redirect_uri={}",
+                urlencoding::encode(OWN_REDIRECT)
+            )),
+            "{surface}: the exchange presents the redirect URI the URL named: {exchange}"
+        );
+    }
+}
+
 /// Run `sql` against the test database with text binds, on whichever backend
 /// `DATABASE_URL` opened.
 async fn run_sql(resources: &ServerContext, sql: &str, binds: &[&str]) {
@@ -2070,10 +2165,9 @@ async fn a_sync_credential_read_reports_a_rate_limited_refresh_as_the_providers(
 
 /// A Strava token whose pool app is no longer registered, for an athlete who
 /// registered their own Strava app since, resolves one client on every path
-/// that presents it: the tenant OAuth manager, the refresh and the
-/// revocation all take the athlete's own app, through the one resolver. The
-/// refresh used to go straight to the env app while the manager and the
-/// revocation took the athlete's.
+/// that presents it: the refresh and the revocation both take the athlete's
+/// own app, through the one resolver. The refresh used to go straight to the
+/// env app while the revocation took the athlete's.
 #[tokio::test]
 #[serial]
 async fn a_token_of_a_removed_pool_app_resolves_one_client_everywhere() {
@@ -2096,24 +2190,6 @@ async fn a_token_of_a_removed_pool_app_resolves_one_client_everywhere() {
         .await
         .unwrap();
 
-    let managed = resources
-        .auth
-        .tenant_oauth_client
-        .oauth_manager
-        .lock()
-        .await
-        .get_credentials_for_user(
-            Some(user_id),
-            tenant,
-            "strava",
-            repos.tenants.as_ref(),
-            repos.oauth_tokens.as_ref(),
-        )
-        .await
-        .expect("the manager resolves a client");
-    assert_eq!(managed.client_id, OWN_CLIENT);
-    assert_eq!(managed.client_secret, OWN_SECRET);
-
     AuthService::new(Arc::clone(&resources) as Arc<dyn ToolRuntime>)
         .get_valid_token(user_id, "strava", Some(&tenant.to_string()))
         .await
@@ -2126,7 +2202,7 @@ async fn a_token_of_a_removed_pool_app_resolves_one_client_everywhere() {
             && refreshes[0]
                 .1
                 .contains(&format!("client_secret={OWN_SECRET}")),
-        "the refresh presents the client the manager resolves: {}",
+        "the refresh presents the athlete's own app: {}",
         refreshes[0].1
     );
 

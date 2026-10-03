@@ -12,13 +12,9 @@
 //! - `DisconnectProviderTool` - Disconnect and revoke OAuth tokens
 
 use std::collections::{BTreeMap, HashMap};
-use std::env;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
-use pierre_auth::oauth2_client::OAuthClientState;
-use pierre_auth::tenant::TenantContext;
 use pierre_core::models::{ConnectionStatus, TenantId};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -41,7 +37,7 @@ use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_providers::backend_resolver::{self, BackendKind, CoalescedStatus};
 use pierre_providers::ProviderRegistry;
 use pierre_services::delegated_connections::describe_link;
-use pierre_services::oauth_flow::OAuthService;
+use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
 use pierre_services::provider_notice::{require_notice_accepted, NOTICE_REFUSAL_ACTION};
 use pierre_services::provider_revocation::DisconnectReason;
 use pierre_tools_core::ToolResult;
@@ -183,18 +179,6 @@ fn validate_redirect_url_scheme(url: &str) -> bool {
         || url.starts_with("https://")
 }
 
-/// Build OAuth state string with optional redirect URL
-fn build_oauth_state(user_uuid: uuid::Uuid, redirect_url: Option<&str>) -> String {
-    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-    redirect_url.map_or_else(
-        || format!("{}:{}", user_uuid, uuid::Uuid::new_v4()),
-        |url| {
-            let encoded_url = URL_SAFE_NO_PAD.encode(url.as_bytes());
-            format!("{}:{}:{}", user_uuid, uuid::Uuid::new_v4(), encoded_url)
-        },
-    )
-}
-
 /// Build successful OAuth connection payload
 fn build_oauth_success_payload(
     provider: &str,
@@ -246,9 +230,10 @@ fn oauth_error_result(provider: &str, error: &str) -> ToolResult {
 ///
 /// Shared by `connect_provider` (interactive connect) and the chat auth-recovery stage
 /// (reconnect a dead OAuth provider). Applies the provider's notice precondition
-/// ([`require_notice_accepted`]) first, builds the opaque `state`, asks the tenant OAuth
-/// client for the provider's authorization URL, and stores an [`OAuthClientState`] row so
-/// the callback can validate the round-trip. Returns `(authorization_url, state)`.
+/// ([`require_notice_accepted`]) first, then mints the URL through the authorize builder
+/// every surface shares ([`OAuthService::get_auth_url`]): the client the code exchange will
+/// resolve, the provider's endpoints, scopes and PKCE, and the state row the callback
+/// redeems. Returns `(authorization_url, state)`.
 ///
 /// Neither caller can carry an acceptance: the notice (WHOOP's owner authorization) is
 /// accepted by ticking it on a connect surface that shows it — the app's connect screens
@@ -258,9 +243,9 @@ fn oauth_error_result(provider: &str, error: &str) -> ToolResult {
 /// # Errors
 ///
 /// Returns the precondition's refusal (`details.action = "accept_provider_notice"`) while
-/// the provider's notice is outstanding, or an error if the tenant has no OAuth client for
-/// the provider, the authorization URL cannot be generated, or the CSRF state row cannot
-/// be persisted.
+/// the provider's notice is outstanding, or an error if no OAuth app (the user's own, the
+/// tenant's or the server's) is configured for the provider, the authorization URL cannot
+/// be generated, or the CSRF state row cannot be persisted.
 pub async fn mint_oauth_authorize_url(
     resources: &dyn ToolRuntime,
     user_id: uuid::Uuid,
@@ -282,55 +267,18 @@ pub async fn mint_oauth_authorize_url(
     )
     .await?;
 
-    let tenant_name = resources
-        .repos()
-        .tenants
-        .get_by_id(tenant_id)
-        .await
-        .map_or_else(|_| "Unknown Tenant".to_owned(), |t| t.name);
-    // Minting an authorize URL for a caller that already holds both ids; no
-    // membership lookup happened, so no role is asserted.
-    let tenant_context =
-        TenantContext::for_tenant_scoped_operation(tenant_id, tenant_name, user_id);
-
-    let state = build_oauth_state(user_id, redirect_url);
-
-    let authorization = resources
-        .tenant_oauth_client()
-        .get_authorization_url(
-            &tenant_context,
+    let authorization = OAuthService::new(resources.data(), resources.config().clone())
+        .get_auth_url(
+            user_id,
+            tenant_id,
             provider,
-            &state,
-            resources.repos().tenants.as_ref(),
-            resources.repos().oauth_tokens.as_ref(),
+            AuthUrlOptions {
+                return_redirect: redirect_url,
+            },
         )
         .await?;
 
-    let now = Utc::now();
-    let base_url = env::var("BASE_URL")
-        .unwrap_or_else(|_| format!("http://localhost:{}", resources.config().http_port));
-    let oauth_callback_uri = format!("{base_url}/api/oauth/callback/{provider}");
-    let client_state = OAuthClientState {
-        state: state.clone(),
-        provider: provider.to_owned(),
-        user_id: Some(user_id),
-        tenant_id: Some(tenant_id.to_string()),
-        redirect_uri: oauth_callback_uri,
-        scope: None,
-        pkce_code_verifier: None,
-        // The shared-pool app the URL names, so the exchange uses its client.
-        oauth_app_client_id: authorization.oauth_app_client_id,
-        created_at: now,
-        expires_at: now + Duration::minutes(i64::from(AUTHORIZATION_EXPIRES_MINUTES)),
-        used: false,
-    };
-    resources
-        .repos()
-        .oauth_client_state
-        .store_oauth_client_state(&client_state)
-        .await?;
-
-    Ok((authorization.url, state))
+    Ok((authorization.authorization_url, authorization.state))
 }
 
 /// Whether `error` is the notice precondition's refusal rather than a failure

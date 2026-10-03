@@ -22,15 +22,12 @@ use serde_json::json;
 use tracing::{error, field, field::Empty, info, warn, Span};
 
 use crate::AuthRoutesContext;
-use pierre_auth::oauth2_client::{OAuthClientState, PkceParams};
-use pierre_auth::tenant::TenantContext;
 use pierre_core::errors::AppError;
 use pierre_core::models::{ConnectionType, DelegationStatus, TenantId};
 use pierre_mcp_transport::oauth_flow_manager::OAuthTemplateRenderer;
 use pierre_providers::backend_resolver;
 #[cfg(feature = "health-sync")]
 use pierre_providers::connect_prefetch::PrefetchWait;
-use pierre_providers::ProviderDescriptor;
 use pierre_services::delegated_connections::{member_delegation, MemberDelegation};
 use pierre_services::oauth_flow::{
     categorize_oauth_error, extract_tenant_id, get_user_for_oauth, AuthUrlOptions, OAuthService,
@@ -662,8 +659,6 @@ pub async fn handle_mobile_oauth_init(
     headers: HeaderMap,
     Query(query): Query<HashMap<String, String>>,
 ) -> Result<Response, AppError> {
-    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-
     // Authenticate using middleware
     let auth_result = resources
         .auth_middleware
@@ -696,99 +691,20 @@ pub async fn handle_mobile_oauth_init(
     let tos_consent = query.get("tos_consent").is_some_and(|v| v == "true");
     require_oauth_start_notice(&resources, user_id, tenant_id, &provider, tos_consent).await?;
 
-    // Build OAuth state with optional redirect URL
-    let state = redirect_url.map_or_else(
-        || format!("{}:{}", user_id, uuid::Uuid::new_v4()),
-        |url| {
-            let encoded_url = URL_SAFE_NO_PAD.encode(url.as_bytes());
-            format!("{}:{}:{}", user_id, uuid::Uuid::new_v4(), encoded_url)
-        },
-    );
-
-    // Generate OAuth URL using the state with embedded redirect URL
-    let tenant_name = resources
-        .repos
-        .tenants
-        .get_by_id(tenant_id)
+    // The shared authorize builder: the client the exchange will resolve, the
+    // provider's descriptor for endpoints, scopes and PKCE, and the state row
+    // the callback redeems. The deep link rides the state's third segment.
+    let authorization = OAuthService::new(resources.data.clone(), resources.config.clone())
+        .get_auth_url(
+            user_id,
+            tenant_id,
+            &provider,
+            AuthUrlOptions {
+                return_redirect: redirect_url.map(String::as_str),
+            },
+        )
         .await
-        .map_or_else(|_| "Unknown Tenant".to_owned(), |t| t.name);
-
-    // Generating an OAuth authorize URL for an already-identified user and
-    // tenant; no membership lookup happened, so no role is asserted.
-    let ctx = TenantContext::for_tenant_scoped_operation(tenant_id, tenant_name, user_id);
-
-    // Check if the provider supports PKCE for enhanced security
-    let use_pkce = resources
-        .provider_registry
-        .get_descriptor(&provider)
-        .and_then(ProviderDescriptor::oauth_params)
-        .is_some_and(|p| p.use_pkce);
-
-    let pkce = if use_pkce {
-        Some(PkceParams::generate())
-    } else {
-        None
-    };
-
-    let authorization = if let Some(ref pkce_params) = pkce {
-        resources
-            .tenant_oauth_client
-            .get_authorization_url_with_pkce(
-                &ctx,
-                &provider,
-                &state,
-                pkce_params,
-                resources.repos.tenants.as_ref(),
-                resources.repos.oauth_tokens.as_ref(),
-            )
-            .await
-    } else {
-        resources
-            .tenant_oauth_client
-            .get_authorization_url(
-                &ctx,
-                &provider,
-                &state,
-                resources.repos.tenants.as_ref(),
-                resources.repos.oauth_tokens.as_ref(),
-            )
-            .await
-    }
-    .map_err(|e| oauth_url_failure(e, &provider, user_id))?;
-
-    // Build redirect URI for state storage
-    let oauth_redirect_uri = format!(
-        "{}/api/oauth/callback/{provider}",
-        resources.config.base_url
-    );
-
-    // Store state server-side for CSRF protection with 10-minute TTL.
-    // The pkce_code_verifier is stored alongside the state for PKCE token exchange.
-    let now = chrono::Utc::now();
-    let client_state = OAuthClientState {
-        state: state.clone(),
-        provider: provider.clone(),
-        user_id: Some(user_id),
-        tenant_id: Some(tenant_id.to_string()),
-        redirect_uri: oauth_redirect_uri,
-        scope: None,
-        pkce_code_verifier: pkce.as_ref().map(|p| p.code_verifier.clone()),
-        // The shared-pool app the URL names, so the exchange uses its client.
-        oauth_app_client_id: authorization.oauth_app_client_id,
-        created_at: now,
-        expires_at: now + chrono::Duration::minutes(10),
-        used: false,
-    };
-
-    resources
-        .repos
-        .oauth_client_state
-        .store_oauth_client_state(&client_state)
-        .await
-        .map_err(|e| {
-            error!("Failed to store OAuth state for CSRF protection: {}", e);
-            AppError::internal("Failed to initiate OAuth flow")
-        })?;
+        .map_err(|e| oauth_url_failure(e, &provider, user_id))?;
 
     info!(
         "Generated mobile OAuth URL for {} user {} (state issued){}",
@@ -806,9 +722,9 @@ pub async fn handle_mobile_oauth_init(
     Ok((
         StatusCode::OK,
         Json(json!({
-            "authorization_url": authorization.url,
+            "authorization_url": authorization.authorization_url,
             "provider": provider,
-            "state": state,
+            "state": authorization.state,
             "message": format!("Visit the authorization URL to connect your {} account", provider)
         })),
     )

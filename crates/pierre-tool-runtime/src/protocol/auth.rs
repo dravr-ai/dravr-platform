@@ -9,7 +9,6 @@ use crate::protocol::types::{UniversalResponse, META_AUTH_REQUIRED_PROVIDER};
 use crate::runtime::ToolRuntime;
 use chrono::{DateTime, Utc};
 use pierre_auth::tenant::oauth_manager::{issuing_client, IssuingLookup};
-use pierre_auth::tenant::TenantContext;
 use pierre_config::environment::get_oauth_config;
 use pierre_core::errors::AppError;
 use pierre_core::models::{refresh_due, TenantId, UserOAuthToken};
@@ -34,11 +33,9 @@ pub struct TokenData {
     pub access_token: String,
     /// OAuth refresh token
     pub refresh_token: String,
-    /// When the access token expires
-    ///
-    /// LIMITATION(registre#729): `TokenData::expires_at` is not optional, so a stored token
-    /// with no expiry (an Intervals.icu OAuth token) reads as expiring now.
-    pub expires_at: DateTime<Utc>,
+    /// When the access token expires; `None` for a token issued without an
+    /// expiry (an Intervals.icu OAuth token never expires)
+    pub expires_at: Option<DateTime<Utc>>,
     /// OAuth scopes as comma-separated string
     pub scopes: String,
     /// Provider name (e.g., "strava", "whoop")
@@ -163,12 +160,6 @@ impl AuthService {
             user_id, provider, tenant_id
         );
 
-        // If we have tenant context, initialize tenant-specific OAuth credentials
-        if let Some(tenant_id_str) = tenant_id {
-            self.initialize_tenant_oauth_context(user_id, tenant_id_str, provider)
-                .await;
-        }
-
         // Look up token from database with tenant context
         let Some(tenant_id_str) = tenant_id else {
             debug!("No tenant_id provided, returning Ok(None)");
@@ -204,42 +195,6 @@ impl AuthService {
             .await
     }
 
-    /// Initialize tenant-specific OAuth context if available
-    async fn initialize_tenant_oauth_context(
-        &self,
-        user_id: Uuid,
-        tenant_id_str: &str,
-        provider: &str,
-    ) {
-        let Ok(tenant_uuid) = TenantId::parse_str(tenant_id_str) else {
-            return;
-        };
-
-        let Ok(tenant) = self.resources.repos().tenants.get_by_id(tenant_uuid).await else {
-            return;
-        };
-
-        // Resolving per-tenant OAuth credentials — no membership was looked up
-        // here, so this context asserts a tenant and user, not a role.
-        let tenant_context = TenantContext::for_tenant_scoped_operation(
-            tenant_uuid,
-            tenant.name.clone(), // Safe: String ownership needed for tenant context
-            user_id,
-        );
-
-        // Get tenant-specific OAuth credentials - result is unused but initializes context
-        let _ = self
-            .resources
-            .tenant_oauth_client()
-            .get_oauth_client(
-                &tenant_context,
-                provider,
-                self.resources.repos().tenants.as_ref(),
-                self.resources.repos().oauth_tokens.as_ref(),
-            )
-            .await;
-    }
-
     /// Process OAuth token - validate expiration and refresh if needed
     async fn process_oauth_token(
         &self,
@@ -267,7 +222,7 @@ impl AuthService {
             provider: provider.to_owned(),
             access_token: oauth_token.access_token,
             refresh_token: oauth_token.refresh_token.unwrap_or_default(),
-            expires_at: oauth_token.expires_at.unwrap_or_else(chrono::Utc::now),
+            expires_at: oauth_token.expires_at,
             scopes: oauth_token.scope.unwrap_or_default(),
             provider_user_id: oauth_token.provider_user_id,
             oauth_app_client_id: oauth_token.oauth_app_client_id,
@@ -517,7 +472,7 @@ impl AuthService {
                     client_secret,
                     access_token: Some(token_data.access_token),
                     refresh_token: Some(token_data.refresh_token),
-                    expires_at: Some(token_data.expires_at),
+                    expires_at: token_data.expires_at,
                     scopes,
                     kind: token_data.kind,
                 };

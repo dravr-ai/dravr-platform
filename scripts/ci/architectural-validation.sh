@@ -197,7 +197,7 @@ prod_src_matches() { # $1 = pattern, remaining = rg paths/flags
     { rg -n --with-filename "$pattern" "$@" 2>/dev/null || true; } | "$TEST_MODULE_LINES"
 }
 NULL_UUIDS=$(prod_src_matches "00000000-0000-0000-0000-000000000000" crates/pierre-server/src/ | wc -l | tr -d ' ')
-RESOURCE_CREATION=$(rg "AuthManager::new|OAuthManager::new|A2AClientManager::new|TenantOAuthManager::new" crates/pierre-server/src/ -g "!crates/pierre-server/src/mcp/multitenant.rs" -g "!crates/pierre-server/src/mcp/resources.rs" -g "!crates/pierre-server/src/bin/*" -g "!crates/pierre-server/tests/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+RESOURCE_CREATION=$(rg "AuthManager::new|OAuthManager::new|A2AClientManager::new" crates/pierre-server/src/ -g "!crates/pierre-server/src/mcp/multitenant.rs" -g "!crates/pierre-server/src/mcp/resources.rs" -g "!crates/pierre-server/src/bin/*" -g "!crates/pierre-server/tests/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 FAKE_RESOURCES=$(rg "Arc::new\(ServerResources\s*[\{\:]" crates/pierre-server/src/ -g "!crates/pierre-server/src/bin/*" 2>/dev/null | wc -l | awk '{print $1+0}')
 OBSOLETE_FUNCTIONS=$(rg "fn.*run_http_server\(" crates/pierre-server/src/ 2>/dev/null | wc -l | awk '{print $1+0}')
 

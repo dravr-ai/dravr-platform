@@ -33,7 +33,6 @@ use crate::registry::ToolRegistry;
 use crate::tool_selection::ToolSelectionService;
 use dravr_cageux::config::intelligence::IntelligenceConfig;
 use dravr_cageux::types::ActivityIntelligence;
-use pierre_auth::tenant::TenantOAuthClient;
 use pierre_cache::Cache;
 use pierre_config::environment::ServerConfig;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
@@ -155,9 +154,6 @@ pub trait ToolRuntime: Send + Sync + 'static {
 
     /// Registry of fitness providers (Strava, Garmin, …).
     fn provider_registry(&self) -> &Arc<ProviderRegistry>;
-
-    /// Tenant-scoped OAuth client manager.
-    fn tenant_oauth_client(&self) -> &Arc<TenantOAuthClient>;
 
     /// Hot-reloadable `IntelligenceConfig` snapshot registry.
     fn cageux_config_registry(&self) -> &Arc<CageuxConfigRegistry>;

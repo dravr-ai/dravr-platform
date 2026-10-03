@@ -11,7 +11,6 @@ use crate::a2a::client::A2AClientManager;
 #[cfg(feature = "protocol-a2a")]
 use crate::a2a::system_user::A2ASystemUserService;
 use crate::config::admin::AdminConfigService;
-use pierre_auth::tenant::TenantOAuthClient;
 use pierre_config::environment::ServerConfig;
 
 /// Configuration context containing config and OAuth dependencies
@@ -21,14 +20,12 @@ use pierre_config::environment::ServerConfig;
 ///
 /// # Dependencies
 /// - `config`: Server configuration settings
-/// - `tenant_oauth_client`: Multi-tenant OAuth client management
 /// - `a2a_client_manager`: Application-to-application client management (protocol-a2a)
 /// - `a2a_system_user_service`: System user service for A2A operations (protocol-a2a)
 /// - `admin_config`: Admin configuration service for runtime parameter management
 #[derive(Clone)]
 pub struct ConfigContext {
     config: Arc<ServerConfig>,
-    tenant_oauth_client: Arc<TenantOAuthClient>,
     #[cfg(feature = "protocol-a2a")]
     a2a_client_manager: Arc<A2AClientManager>,
     #[cfg(feature = "protocol-a2a")]
@@ -41,14 +38,12 @@ impl ConfigContext {
     #[must_use]
     pub const fn new(
         config: Arc<ServerConfig>,
-        tenant_oauth_client: Arc<TenantOAuthClient>,
         #[cfg(feature = "protocol-a2a")] a2a_client_manager: Arc<A2AClientManager>,
         #[cfg(feature = "protocol-a2a")] a2a_system_user_service: Arc<A2ASystemUserService>,
         admin_config: Option<Arc<AdminConfigService>>,
     ) -> Self {
         Self {
             config,
-            tenant_oauth_client,
             #[cfg(feature = "protocol-a2a")]
             a2a_client_manager,
             #[cfg(feature = "protocol-a2a")]
@@ -61,12 +56,6 @@ impl ConfigContext {
     #[must_use]
     pub const fn config(&self) -> &Arc<ServerConfig> {
         &self.config
-    }
-
-    /// Get tenant OAuth client for multi-tenant operations
-    #[must_use]
-    pub const fn tenant_oauth_client(&self) -> &Arc<TenantOAuthClient> {
-        &self.tenant_oauth_client
     }
 
     /// Get A2A client manager for application-to-application operations

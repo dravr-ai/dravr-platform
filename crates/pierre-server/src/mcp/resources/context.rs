@@ -218,7 +218,6 @@ impl ServerContext {
             data: self.data(),
             firebase_auth: self.auth.firebase_auth.clone(),
             email_service: self.common.email_service.clone(),
-            tenant_oauth_client: self.auth.tenant_oauth_client.clone(),
             provider_registry: self.fitness.provider_registry.clone(),
             sync_notifier: self.sse.sse_manager.clone(),
             #[cfg(feature = "health-sync")]

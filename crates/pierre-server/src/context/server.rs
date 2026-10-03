@@ -54,7 +54,6 @@ impl ServerContext {
     pub fn config(&self) -> ConfigContext {
         ConfigContext::new(
             self.common.config.clone(),
-            self.auth.tenant_oauth_client.clone(),
             #[cfg(feature = "protocol-a2a")]
             self.a2a.a2a_client_manager.clone(),
             #[cfg(feature = "protocol-a2a")]

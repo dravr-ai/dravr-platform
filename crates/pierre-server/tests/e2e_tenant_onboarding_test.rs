@@ -23,15 +23,19 @@ use dravr_cageux::types::{
 };
 use pierre_auth::{
     auth::AuthManager,
-    tenant::{oauth_manager::TenantOAuthManager, TenantContext, TenantOAuthClient, TenantRole},
+    tenant::oauth_manager::{
+        authorizing_client, default_rate_limit_for_provider, issuing_client, IssuingClient,
+        IssuingLookup,
+    },
 };
-use pierre_config::environment::{OAuthConfig, OAuthProviderConfig, ServerConfig};
+use pierre_config::environment::{OAuthProviderConfig, ServerConfig};
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, TenantOAuthCredentials, User, UserStatus, UserTier};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
 use pierre_test_support::db::create_test_db;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::json;
@@ -146,16 +150,7 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
 
     database.repositories().tenants.create(&beta_tenant).await?;
 
-    // Step 5: Set up tenant OAuth client and configure credentials
-    let oauth_config = Arc::new(OAuthConfig {
-        strava: OAuthProviderConfig::default(),
-        garmin: OAuthProviderConfig::default(),
-        whoop: OAuthProviderConfig::default(),
-        terra: OAuthProviderConfig::default(),
-    });
-    let tenant_oauth_client = Arc::new(TenantOAuthClient::new(TenantOAuthManager::new(
-        oauth_config,
-    )));
+    // Step 5: Configure each tenant's OAuth credentials
 
     // Configure Acme's Strava credentials
 
@@ -169,7 +164,7 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
             client_secret: "acme_secret_key".to_owned(),
             redirect_uri: "https://acme-fitness.com/oauth/strava/callback".to_owned(),
             scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
-            rate_limit_per_day: TenantOAuthManager::default_rate_limit_for_provider("strava"),
+            rate_limit_per_day: default_rate_limit_for_provider("strava"),
         })
         .await?;
 
@@ -185,7 +180,7 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
             client_secret: "beta_secret_key".to_owned(),
             redirect_uri: "https://beta-health.com/oauth/strava/callback".to_owned(),
             scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
-            rate_limit_per_day: TenantOAuthManager::default_rate_limit_for_provider("strava"),
+            rate_limit_per_day: default_rate_limit_for_provider("strava"),
         })
         .await?;
 
@@ -240,17 +235,12 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         .await
         .unwrap(),
     );
+    // The executor and the authorize builder (Step 10) share the one context
+    let executor_resources: Arc<ServerContext> = Arc::clone(&server_resources);
     let executor =
-        UniversalToolExecutor::new(server_resources).with_scopes(OAuthScope::self_grant());
+        UniversalToolExecutor::new(executor_resources).with_scopes(OAuthScope::self_grant());
 
     // Step 7: Test tenant-aware tool execution for Acme
-    let acme_context = TenantContext::from_verified_membership(
-        acme_tenant_id,
-        "Acme Fitness Co.".to_owned(),
-        acme_admin_id,
-        TenantRole::Admin,
-    );
-
     let acme_request = UniversalRequest {
         tool_name: "get_connection_status".to_owned(),
         parameters: json!({}),
@@ -264,13 +254,6 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
     println!("Acme tenant tool execution successful");
 
     // Step 8: Test tenant-aware tool execution for Beta
-    let beta_context = TenantContext::from_verified_membership(
-        beta_tenant_id,
-        "Beta Health Inc.".to_owned(),
-        beta_admin_id,
-        TenantRole::Admin,
-    );
-
     let beta_request = UniversalRequest {
         tool_name: "get_connection_status".to_owned(),
         parameters: json!({}),
@@ -283,82 +266,73 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
     assert!(beta_response.success);
     println!("Beta tenant tool execution successful");
 
-    // Step 9: Verify tenant isolation - check OAuth credentials
+    // Step 9: Verify tenant isolation - each tenant's grants belong to its own app
     let repos = database.repositories();
-    let acme_oauth_creds = tenant_oauth_client
-        .get_tenant_credentials(
-            acme_tenant_id,
-            "strava",
-            &*repos.tenants,
-            &*repos.oauth_tokens,
-        )
-        .await?;
-    let beta_oauth_creds = tenant_oauth_client
-        .get_tenant_credentials(
-            beta_tenant_id,
-            "strava",
-            &*repos.tenants,
-            &*repos.oauth_tokens,
-        )
-        .await?;
-
-    assert!(acme_oauth_creds.is_some());
-    assert!(beta_oauth_creds.is_some());
-
-    let acme_creds = acme_oauth_creds.unwrap();
-    let beta_creds = beta_oauth_creds.unwrap();
-
-    // Verify credentials are isolated
-    assert_eq!(acme_creds.client_id, "acme_strava_client_123");
-    assert_eq!(beta_creds.client_id, "beta_strava_client_456");
-    assert_ne!(acme_creds.client_secret, beta_creds.client_secret);
+    let acme_client = tenant_client(&database, acme_tenant_id, None).await?;
+    let beta_client = tenant_client(&database, beta_tenant_id, None).await?;
+    assert!(matches!(acme_client, IssuingClient::Tenant(_)));
+    assert!(matches!(beta_client, IssuingClient::Tenant(_)));
+    assert_eq!(acme_client.client_id(), "acme_strava_client_123");
+    assert_eq!(beta_client.client_id(), "beta_strava_client_456");
+    assert_ne!(acme_client.client_secret(), beta_client.client_secret());
 
     println!("Tenant OAuth credential isolation verified");
 
-    // Step 10: Test rate limiting isolation
-    let (acme_usage, acme_limit) = tenant_oauth_client
-        .check_rate_limit(acme_tenant_id, "strava", &*database.repositories().tenants)
-        .await?;
-    let (beta_usage, beta_limit) = tenant_oauth_client
-        .check_rate_limit(beta_tenant_id, "strava", &*database.repositories().tenants)
-        .await?;
+    // Step 10: A new authorization in each tenant runs under that tenant's app,
+    // which no Strava pool app owns
+    let server_level = OAuthProviderConfig::default();
+    let (acme_authorizing, acme_pool_app) = authorizing_client(
+        acme_admin_id,
+        acme_tenant_id,
+        "strava",
+        &server_level,
+        &*repos.tenants,
+        &*repos.oauth_tokens,
+    )
+    .await?;
+    let (beta_authorizing, beta_pool_app) = authorizing_client(
+        beta_admin_id,
+        beta_tenant_id,
+        "strava",
+        &server_level,
+        &*repos.tenants,
+        &*repos.oauth_tokens,
+    )
+    .await?;
+    assert_eq!(acme_authorizing.client_id(), "acme_strava_client_123");
+    assert_eq!(beta_authorizing.client_id(), "beta_strava_client_456");
+    assert_eq!(acme_pool_app, None);
+    assert_eq!(beta_pool_app, None);
 
-    // Both should start at 0 usage
-    assert_eq!(acme_usage, 0);
-    assert_eq!(beta_usage, 0);
-    assert_eq!(acme_limit, 1000); // Default Strava limit
-    assert_eq!(beta_limit, 1000);
-
-    println!("Tenant rate limiting isolation verified");
-
-    // Step 11: Test OAuth authorization URL generation for each tenant
-    let acme_auth_url = tenant_oauth_client
-        .get_authorization_url(
-            &acme_context,
+    // The authorize URL each tenant's athlete is sent to names that app
+    let oauth_service = OAuthService::new(
+        server_resources.data(),
+        server_resources.common.config.clone(),
+    );
+    let acme_auth_url = oauth_service
+        .get_auth_url(
+            acme_admin_id,
+            acme_tenant_id,
             "strava",
-            "acme_state_123",
-            &*repos.tenants,
-            &*repos.oauth_tokens,
+            AuthUrlOptions::default(),
         )
         .await?;
-
-    let beta_auth_url = tenant_oauth_client
-        .get_authorization_url(
-            &beta_context,
+    let beta_auth_url = oauth_service
+        .get_auth_url(
+            beta_admin_id,
+            beta_tenant_id,
             "strava",
-            "beta_state_456",
-            &*repos.tenants,
-            &*repos.oauth_tokens,
+            AuthUrlOptions::default(),
         )
         .await?;
+    assert!(acme_auth_url
+        .authorization_url
+        .contains("client_id=acme_strava_client_123&"));
+    assert!(beta_auth_url
+        .authorization_url
+        .contains("client_id=beta_strava_client_456&"));
 
-    // Verify URLs contain tenant-specific client IDs, which no pool app owns
-    assert!(acme_auth_url.url.contains("acme_strava_client_123"));
-    assert!(beta_auth_url.url.contains("beta_strava_client_456"));
-    assert_eq!(acme_auth_url.oauth_app_client_id, None);
-    assert_eq!(beta_auth_url.oauth_app_client_id, None);
-
-    println!("Tenant-specific OAuth authorization URLs generated");
+    println!("Tenant-specific OAuth authorizations resolved");
 
     // Step 12: Comprehensive workflow validation
     println!("\nEND-TO-END TENANT ONBOARDING WORKFLOW COMPLETED SUCCESSFULLY!");
@@ -368,8 +342,7 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
     println!("   Tenant-specific credential configuration");
     println!("   Isolated tool execution per tenant");
     println!("   OAuth credential isolation verification");
-    println!("   Rate limiting isolation");
-    println!("   Tenant-specific OAuth URLs");
+    println!("   Tenant-specific OAuth authorizations");
 
     Ok(())
 }
@@ -453,15 +426,6 @@ async fn test_tenant_context_switching() -> Result<()> {
     let (tenant1_id, tenant2_id, user_id) = setup_multitenant_scenario(&database).await?;
 
     // Set up different OAuth credentials for each tenant
-    let oauth_config = Arc::new(OAuthConfig {
-        strava: OAuthProviderConfig::default(),
-        garmin: OAuthProviderConfig::default(),
-        whoop: OAuthProviderConfig::default(),
-        terra: OAuthProviderConfig::default(),
-    });
-    let tenant_oauth_client = Arc::new(TenantOAuthClient::new(TenantOAuthManager::new(
-        oauth_config,
-    )));
 
     database
         .repositories()
@@ -473,7 +437,7 @@ async fn test_tenant_context_switching() -> Result<()> {
             client_secret: "tenant1_secret".to_owned(),
             redirect_uri: "https://tenant1.com/callback".to_owned(),
             scopes: vec!["read".to_owned()],
-            rate_limit_per_day: TenantOAuthManager::default_rate_limit_for_provider("strava"),
+            rate_limit_per_day: default_rate_limit_for_provider("strava"),
         })
         .await?;
     database
@@ -486,47 +450,17 @@ async fn test_tenant_context_switching() -> Result<()> {
             client_secret: "tenant2_secret".to_owned(),
             redirect_uri: "https://tenant2.com/callback".to_owned(),
             scopes: vec!["read".to_owned(), "write".to_owned()],
-            rate_limit_per_day: TenantOAuthManager::default_rate_limit_for_provider("strava"),
+            rate_limit_per_day: default_rate_limit_for_provider("strava"),
         })
         .await?;
 
-    // Test that the same user gets different OAuth clients for different tenants
-    let tenant1_context = TenantContext::from_verified_membership(
-        tenant1_id,
-        "Tenant One".to_owned(),
-        user_id,
-        TenantRole::Member,
-    );
+    // The same user resolves a different OAuth client in each tenant
+    let oauth1 = tenant_client(&database, tenant1_id, Some(user_id)).await?;
+    let oauth2 = tenant_client(&database, tenant2_id, Some(user_id)).await?;
 
-    let tenant2_context = TenantContext::from_verified_membership(
-        tenant2_id,
-        "Tenant Two".to_owned(),
-        user_id,
-        TenantRole::Member,
-    );
-
-    let repos = database.repositories();
-    let oauth1 = tenant_oauth_client
-        .get_oauth_client(
-            &tenant1_context,
-            "strava",
-            &*repos.tenants,
-            &*repos.oauth_tokens,
-        )
-        .await?;
-    let oauth2 = tenant_oauth_client
-        .get_oauth_client(
-            &tenant2_context,
-            "strava",
-            &*repos.tenants,
-            &*repos.oauth_tokens,
-        )
-        .await?;
-
-    // Verify different configurations are used
-    assert_eq!(oauth1.config().client_id, "tenant1_client");
-    assert_eq!(oauth2.config().client_id, "tenant2_client");
-    assert_ne!(oauth1.config().client_secret, oauth2.config().client_secret);
+    assert_eq!(oauth1.client_id(), "tenant1_client");
+    assert_eq!(oauth2.client_id(), "tenant2_client");
+    assert_ne!(oauth1.client_secret(), oauth2.client_secret());
 
     println!("Tenant context switching validated");
 
@@ -619,24 +553,14 @@ fn create_test_server_config() -> ServerConfig {
 }
 
 /// Tenant OAuth credentials live in the `tenants` repository alone, encrypted
-/// at rest, so a client built after they were stored (a restart, another
-/// instance) reads the same app and secret. There is no per-process copy to
-/// lose.
+/// at rest, so whatever resolves a client after they were stored (a restart,
+/// another instance) reads the same app and secret. There is no per-process
+/// copy to lose.
 #[tokio::test]
-async fn tenant_credentials_survive_a_new_oauth_client() -> Result<()> {
+async fn tenant_credentials_are_read_from_the_store() -> Result<()> {
     let database = create_tenant_test_database().await?;
     let (tenant_id, _other_tenant, _user_id) = setup_multitenant_scenario(&database).await?;
     let repos = database.repositories();
-    let new_client = || {
-        TenantOAuthClient::new(TenantOAuthManager::new(Arc::new(OAuthConfig {
-            strava: OAuthProviderConfig::default(),
-            garmin: OAuthProviderConfig::default(),
-            whoop: OAuthProviderConfig::default(),
-            terra: OAuthProviderConfig::default(),
-        })))
-    };
-
-    let before = new_client();
     repos
         .tenants
         .store_oauth_credentials(&TenantOAuthCredentials {
@@ -649,18 +573,48 @@ async fn tenant_credentials_survive_a_new_oauth_client() -> Result<()> {
             rate_limit_per_day: 4_321,
         })
         .await?;
-    drop(before);
 
-    let after = new_client();
-    let stored = after
-        .get_tenant_credentials(tenant_id, "whoop", &*repos.tenants, &*repos.oauth_tokens)
-        .await?
-        .expect("the tenant's app is read back");
+    let resolved = issuing_client(
+        IssuingLookup {
+            user_id: None,
+            tenant_id: Some(tenant_id),
+            provider: "whoop",
+            issuing_app: None,
+            server_level: &OAuthProviderConfig::default(),
+        },
+        &*repos.tenants,
+        &*repos.oauth_tokens,
+    )
+    .await?;
+    let IssuingClient::Tenant(stored) = resolved else {
+        panic!("the tenant's app is read back, got {resolved:?}");
+    };
     assert_eq!(stored.client_id, "tenant-whoop-app");
     assert_eq!(stored.client_secret, "tenant-whoop-secret");
-    let (usage, limit) = after
-        .check_rate_limit(tenant_id, "whoop", &*repos.tenants)
-        .await?;
-    assert_eq!((usage, limit), (0, 4_321), "the stored daily limit applies");
+    assert_eq!(
+        stored.rate_limit_per_day, 4_321,
+        "the stored daily limit persists"
+    );
     Ok(())
+}
+
+/// The client a grant for `user_id` in `tenant_id` belongs to, with no server-level app.
+async fn tenant_client(
+    database: &Database,
+    tenant_id: TenantId,
+    user_id: Option<Uuid>,
+) -> Result<IssuingClient> {
+    let repos = database.repositories();
+    Ok(issuing_client(
+        IssuingLookup {
+            user_id,
+            tenant_id: Some(tenant_id),
+            provider: "strava",
+            issuing_app: None,
+            server_level: &OAuthProviderConfig::default(),
+        },
+        &*repos.tenants,
+        &*repos.oauth_tokens,
+    )
+    .await?)
 }
