@@ -17,13 +17,17 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::Utc;
 use pierre_config::environment::HttpClientConfig;
+use pierre_core::errors::ErrorCode;
 use pierre_mcp_server::constants::{init_server_config, oauth_providers};
 use pierre_mcp_server::utils::http_client::initialize_http_clients;
 use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::garmin_provider::GarminProvider;
 use pierre_providers::registry::{get_supported_providers, global_registry};
+use pierre_providers::request_budget::{ProviderRateLimiter, RequestBudget, ONE_DAY};
+use pierre_test_support::db::create_test_db;
 use serde_json::json;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Once};
 use tokio::net::TcpListener;
 use url::form_urlencoded;
@@ -103,6 +107,7 @@ async fn test_garmin_provider_authentication_lifecycle() {
         expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
         scopes: vec!["wellness:read".to_owned(), "activities:read".to_owned()],
         kind: CredentialKind::OAuthBearer,
+        request_budget: None,
     };
 
     provider
@@ -128,6 +133,7 @@ async fn test_garmin_provider_expired_token() {
         expires_at: Some(Utc::now() - chrono::Duration::hours(1)), // Already expired
         scopes: vec!["wellness:read".to_owned()],
         kind: CredentialKind::OAuthBearer,
+        request_budget: None,
     };
 
     provider
@@ -153,6 +159,7 @@ async fn test_garmin_provider_no_expiry() {
         expires_at: None, // No expiry
         scopes: vec!["wellness:read".to_owned()],
         kind: CredentialKind::OAuthBearer,
+        request_budget: None,
     };
 
     provider
@@ -279,6 +286,7 @@ async fn test_garmin_provider_refresh_token_not_needed() {
         expires_at: Some(Utc::now() + chrono::Duration::hours(2)),
         scopes: vec!["wellness:read".to_owned()],
         kind: CredentialKind::OAuthBearer,
+        request_budget: None,
     };
 
     provider
@@ -339,6 +347,7 @@ async fn test_garmin_credentials_without_access_token() {
         expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
         scopes: vec!["wellness:read".to_owned()],
         kind: CredentialKind::OAuthBearer,
+        request_budget: None,
     };
 
     provider
@@ -442,6 +451,7 @@ async fn test_garmin_api_call_refreshes_a_token_inside_the_window() {
             expires_at: Some(Utc::now() + chrono::Duration::minutes(5)),
             scopes: Vec::new(),
             kind: CredentialKind::OAuthBearer,
+            request_budget: None,
         })
         .await
         .unwrap();
@@ -470,5 +480,74 @@ async fn test_garmin_api_call_refreshes_a_token_inside_the_window() {
     assert_eq!(
         written_back[0].refresh_token.as_deref(),
         Some("garmin_rotated_refresh")
+    );
+}
+
+/// A Garmin read is admitted against Garmin's budget of the signing app: with
+/// one request a day left, the first read reaches Garmin and the second is
+/// refused as rate-limited without being sent.
+#[tokio::test]
+async fn test_garmin_api_call_is_admitted_against_the_garmin_budget() {
+    ensure_http_clients_initialized();
+    let served = Arc::new(AtomicUsize::new(0));
+    let count = Arc::clone(&served);
+    let app = Router::new().route(
+        "/user/id",
+        get(move || {
+            let count = Arc::clone(&count);
+            async move {
+                count.fetch_add(1, Ordering::SeqCst);
+                Json(json!({ "userId": "garmin-user-1" }))
+            }
+        }),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let db = create_test_db().await.unwrap();
+    let limiter = Arc::new(ProviderRateLimiter::new(Arc::clone(
+        &db.repositories().usage_counters,
+    )));
+    limiter.set_budgets(oauth_providers::GARMIN, &[(1, ONE_DAY)]);
+    let provider = GarminProvider::with_config(ProviderConfig {
+        name: oauth_providers::GARMIN.to_owned(),
+        auth_url: "https://connect.garmin.com/oauth2Confirm".to_owned(),
+        token_url: format!("{base}/token"),
+        api_base_url: base,
+        revoke_url: None,
+        default_scopes: Vec::new(),
+    });
+    provider
+        .set_credentials(OAuth2Credentials {
+            client_id: "garmin_client".to_owned(),
+            client_secret: "garmin_secret".to_owned(),
+            access_token: Some("garmin_access".to_owned()),
+            refresh_token: Some("garmin_refresh".to_owned()),
+            expires_at: Some(Utc::now() + chrono::Duration::hours(6)),
+            scopes: Vec::new(),
+            kind: CredentialKind::OAuthBearer,
+            request_budget: Some(RequestBudget::new(
+                limiter,
+                "garmin_client".to_owned(),
+                None,
+            )),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(provider.get_athlete().await.unwrap().id, "garmin-user-1");
+    let refused = provider.get_athlete().await.map(|athlete| athlete.id);
+
+    assert_eq!(
+        refused.map_err(|e| e.code),
+        Err(ErrorCode::ExternalRateLimited)
+    );
+    assert_eq!(
+        served.load(Ordering::SeqCst),
+        1,
+        "the refused read never reached Garmin"
     );
 }

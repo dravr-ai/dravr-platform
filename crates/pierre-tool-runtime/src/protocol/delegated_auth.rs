@@ -326,6 +326,7 @@ impl AuthService {
                 expires_at: token.expires_at,
                 scopes: vec![],
                 kind: CredentialKind::OAuthBearer,
+                request_budget: None,
             })
             .await
             .map_err(|e| Box::new(refusal(format!("Failed to set provider credentials: {e}"))))?;

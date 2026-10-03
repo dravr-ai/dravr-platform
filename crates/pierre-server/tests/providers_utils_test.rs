@@ -49,6 +49,7 @@ fn test_is_authenticated() {
         expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
         scopes: vec![],
         kind: CredentialKind::OAuthBearer,
+        request_budget: None,
     });
     assert!(!is_authenticated(&no_token));
 
@@ -61,6 +62,7 @@ fn test_is_authenticated() {
         expires_at: Some(Utc::now() - chrono::Duration::hours(1)),
         scopes: vec![],
         kind: CredentialKind::OAuthBearer,
+        request_budget: None,
     });
     assert!(!is_authenticated(&expired));
 
@@ -73,6 +75,7 @@ fn test_is_authenticated() {
         expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
         scopes: vec![],
         kind: CredentialKind::OAuthBearer,
+        request_budget: None,
     });
     assert!(is_authenticated(&valid));
 
@@ -85,6 +88,7 @@ fn test_is_authenticated() {
         expires_at: None,
         scopes: vec![],
         kind: CredentialKind::OAuthBearer,
+        request_budget: None,
     });
     assert!(is_authenticated(&no_expiry));
 }

@@ -35,6 +35,7 @@ use pierre_mcp_transport::OAuthCallbackResponse;
 
 pub use crate::oauth_state_redeem::ParsedOAuthState;
 use pierre_providers::backend_resolver;
+use pierre_providers::request_budget::RequestBudget;
 use pierre_providers::spi::ProviderDescriptor;
 use pierre_runtime_context::DataContext;
 
@@ -61,6 +62,9 @@ struct ClientSettings {
     /// The scopes it asks for, joined by the provider's separator; empty when
     /// the provider takes none.
     scope: String,
+    /// The daily request budget its operator registered (a tenant's own app);
+    /// `None` takes the provider's.
+    daily_limit: Option<u32>,
 }
 
 // ---------------------------------------------------------------------------
@@ -166,7 +170,7 @@ impl OAuthService {
 
         // Exchange OAuth code for access token (with PKCE if verifier was stored)
         // Pass tenant_id from state so exchange uses tenant-specific credentials if available
-        let token = self
+        let (token, budget) = self
             .exchange_oauth_code(
                 code,
                 provider,
@@ -181,7 +185,9 @@ impl OAuthService {
 
         // A token that arrived without its provider-side owner id gets it now,
         // so a provider push event can be routed to this user.
-        let token = self.with_provider_user_id(provider, user_id, token).await;
+        let token = self
+            .with_provider_user_id(provider, user_id, token, budget)
+            .await;
 
         // Persist token and dispatch all post-connection side effects. A failure
         // there still settles the grants: see `ReplacedGrants::abandon`.
@@ -297,10 +303,16 @@ impl OAuthService {
         pkce_code_verifier: Option<&str>,
         tenant_id: Option<uuid::Uuid>,
         oauth_app_client_id: Option<&str>,
-    ) -> AppResult<OAuth2Token> {
-        let oauth_config = self
+    ) -> AppResult<(OAuth2Token, Option<RequestBudget>)> {
+        let (oauth_config, daily_limit) = self
             .create_oauth_config_with_user(provider, user_id, tenant_id, oauth_app_client_id)
             .await?;
+        // The budget of the app that signs the token, which its first calls
+        // (the owner-id read) are admitted against.
+        let budget = self
+            .data
+            .provider_registry()
+            .request_budget(&oauth_config.client_id, daily_limit);
         let oauth_client = OAuth2Client::new(oauth_config)?;
 
         let token = if let Some(verifier) = pkce_code_verifier {
@@ -321,7 +333,7 @@ impl OAuthService {
                 .map_err(|e| code_exchange_failure(e, provider, user_id))?
         };
 
-        Ok(token)
+        Ok((token, budget))
     }
 
     /// Create `OAuth2` config with user-specific credential priority
@@ -334,6 +346,7 @@ impl OAuthService {
     ///
     /// This ensures the token exchange uses the same credentials as the authorization
     /// URL generation, preventing `client_id` mismatches that cause "invalid code" errors.
+    /// The second value is the app's own daily request budget (a tenant's app).
     ///
     /// # Errors
     /// Returns error if provider is unsupported, a credential lookup fails, or
@@ -344,7 +357,7 @@ impl OAuthService {
         user_id: uuid::Uuid,
         tenant_id: Option<uuid::Uuid>,
         oauth_app_client_id: Option<&str>,
-    ) -> AppResult<OAuth2Config> {
+    ) -> AppResult<(OAuth2Config, Option<u32>)> {
         let descriptor = self
             .data
             .provider_registry()
@@ -377,6 +390,7 @@ impl OAuthService {
             client_secret,
             redirect_uri,
             scope,
+            daily_limit,
         } = self.client_settings(
             provider,
             client,
@@ -385,7 +399,7 @@ impl OAuthService {
             &server_level,
         );
 
-        Ok(OAuth2Config {
+        let config = OAuth2Config {
             client_id,
             client_secret,
             auth_url: endpoints.auth_url.to_owned(),
@@ -393,7 +407,8 @@ impl OAuthService {
             redirect_uri,
             scopes: vec![scope],
             use_pkce: params.use_pkce,
-        })
+        };
+        Ok((config, daily_limit))
     }
 
     /// What `client` presents at `provider`: its id and secret, the redirect
@@ -416,9 +431,11 @@ impl OAuthService {
                 client_secret: app.client_secret,
                 redirect_uri: app.redirect_uri,
                 scope: descriptor.default_scopes().join(scope_separator),
+                daily_limit: None,
             },
             IssuingClient::Tenant(credentials) => ClientSettings {
                 scope: credentials.scopes.join(scope_separator),
+                daily_limit: Some(credentials.rate_limit_per_day),
                 client_id: credentials.client_id,
                 client_secret: credentials.client_secret,
                 redirect_uri: credentials.redirect_uri,
@@ -444,6 +461,7 @@ impl OAuthService {
                     client_secret,
                     redirect_uri,
                     scope: server_level.scopes.join(scope_separator),
+                    daily_limit: None,
                 }
             }
         }

@@ -23,6 +23,7 @@ use crate::models::{
     Activity, ActivityBuilder, Athlete, SportType, Stats,
 };
 use crate::pagination::{CursorPage, PaginationParams};
+use crate::request_budget;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
@@ -320,12 +321,15 @@ impl GarminProvider {
                 api_provider_limits::garmin::ESTIMATED_RATE_LIMIT_BLOCK_DURATION_SECS,
         };
 
+        // The signing app's budget, which admits each request before it is sent.
+        let budget = request_budget::carried_by(&self.credentials).await;
         let result = utils::api_request_with_retry(
             &self.client,
             &url,
             &access_token,
-            "Garmin",
+            oauth_providers::GARMIN,
             &retry_config,
+            budget.as_ref(),
             utils::no_vendor_error,
         )
         .await;
@@ -333,7 +337,7 @@ impl GarminProvider {
         // Record success/failure for circuit breaker
         match &result {
             Ok(_) => self.circuit_breaker.record_success(),
-            Err(_) => self.circuit_breaker.record_failure(),
+            Err(e) => self.circuit_breaker.record_error(e),
         }
 
         result
@@ -636,6 +640,8 @@ impl FitnessProvider for GarminProvider {
 
         // Preserve original scopes
         new_credentials.scopes = credentials.scopes;
+        // A refresh keeps the app that signs the token, so its budget carries over.
+        new_credentials.request_budget = credentials.request_budget;
 
         *self.credentials.write().await = Some(new_credentials.clone());
 

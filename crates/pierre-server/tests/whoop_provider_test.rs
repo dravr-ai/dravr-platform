@@ -80,6 +80,7 @@ async fn test_whoop_provider_authentication_lifecycle() {
         expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
         scopes: vec!["read:profile".to_owned(), "read:workout".to_owned()],
         kind: CredentialKind::OAuthBearer,
+        request_budget: None,
     };
 
     provider
@@ -105,6 +106,7 @@ async fn test_whoop_provider_expired_token() {
         expires_at: Some(Utc::now() - chrono::Duration::hours(1)), // Already expired
         scopes: vec!["read:profile".to_owned()],
         kind: CredentialKind::OAuthBearer,
+        request_budget: None,
     };
 
     provider
@@ -130,6 +132,7 @@ async fn test_whoop_provider_no_expiry() {
         expires_at: None, // No expiry
         scopes: vec!["read:profile".to_owned()],
         kind: CredentialKind::OAuthBearer,
+        request_budget: None,
     };
 
     provider
@@ -251,6 +254,7 @@ async fn test_whoop_provider_refresh_token_not_needed() {
         expires_at: Some(Utc::now() + chrono::Duration::hours(2)),
         scopes: vec!["read:profile".to_owned()],
         kind: CredentialKind::OAuthBearer,
+        request_budget: None,
     };
 
     provider
@@ -309,6 +313,7 @@ async fn test_whoop_credentials_without_access_token() {
         expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
         scopes: vec!["read:profile".to_owned()],
         kind: CredentialKind::OAuthBearer,
+        request_budget: None,
     };
 
     provider

@@ -235,6 +235,7 @@ async fn provider_holding(
             expires_at: None,
             scopes: vec![],
             kind: CredentialKind::OAuthBearer,
+            request_budget: None,
         })
         .await
         .expect("a serialized session is accepted"); // Safe: the JSON is a valid AuthSession

@@ -26,6 +26,7 @@ use crate::errors::provider::ProviderError;
 use crate::errors::AppResult;
 use crate::models::{Activity, Athlete, Stats};
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
+use crate::request_budget;
 use crate::spi::{
     OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderCapabilities, ProviderDescriptor,
 };
@@ -141,6 +142,9 @@ impl FitnessProvider for TerraProvider {
 
         // If we have an API client, fetch user info
         if let Some(ref client) = self.api_client {
+            // The signing app's budget admits the request before it is sent.
+            let budget = request_budget::carried_by(&self.credentials).await;
+            request_budget::admit(budget.as_ref(), "terra").await?;
             let user_info = client.get_user_info(&user_id).await?;
             if let Some(user) = user_info.user {
                 return Ok(Athlete {

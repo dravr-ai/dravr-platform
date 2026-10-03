@@ -5,8 +5,9 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::constants::oauth_providers;
-use crate::errors::{AppError, AppResult};
+use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::http_client::SharedHttpClient;
+use crate::request_budget::{self, RequestBudget};
 use chrono::{TimeZone, Utc};
 use reqwest::StatusCode;
 use serde::Deserialize;
@@ -144,7 +145,10 @@ fn check_retry_status(
     RetryDecision::Retry { backoff_ms }
 }
 
-/// Create a rate limit exceeded error
+/// The error a provider's own `429` is once retries are spent: the same
+/// [`ErrorCode::ExternalRateLimited`] the signing app's request budget refuses
+/// with, carrying the wait, so a caller tells "the provider is throttling"
+/// apart from a failure either way.
 fn rate_limit_error(
     status: StatusCode,
     provider_name: &str,
@@ -159,7 +163,8 @@ fn rate_limit_error(
             "API rate limit ({status_code}) - max retries reached - wait ~{minutes} minutes"
         ),
     };
-    AppError::external_service(provider_name, err.to_string())
+    AppError::new(ErrorCode::ExternalRateLimited, err.to_string())
+        .with_retry_after(retry_config.estimated_block_duration_secs)
 }
 
 /// Map a provider's `401` onto the structured re-authentication error.
@@ -205,6 +210,26 @@ pub fn api_error(status: StatusCode, text: &str, provider_name: &str) -> AppErro
     AppError::external_service(provider_name, err.to_string())
 }
 
+/// Admit one GET to `url` against `budget`, then send it with `access_token`
+/// as the bearer.
+async fn send_admitted(
+    client: &SharedHttpClient,
+    url: &str,
+    access_token: &str,
+    provider_name: &str,
+    budget: Option<&RequestBudget>,
+) -> AppResult<reqwest::Response> {
+    request_budget::admit(budget, provider_name).await?;
+    client
+        .get(url)
+        .header("Authorization", format!("Bearer {access_token}"))
+        .send()
+        .await
+        .map_err(|e| {
+            AppError::external_service(provider_name, format!("Failed to send request: {e}"))
+        })
+}
+
 /// Make an authenticated HTTP GET request with retry logic
 ///
 /// # Errors
@@ -217,9 +242,15 @@ pub fn api_error(status: StatusCode, text: &str, provider_name: &str) -> AppErro
 /// `NotFound`, Whoop's 404 → `NoDataAvailable`). Return `None` — or pass
 /// [`no_vendor_error`] — to take the generic mapping.
 ///
+/// Each attempt, retries included, is first admitted against `budget`, the
+/// signing app's request budget; a refusal ends the request with
+/// [`ErrorCode::ExternalRateLimited`](crate::errors::ErrorCode) and nothing
+/// more is sent.
+///
 /// # Errors
 ///
 /// Returns an error if:
+/// - The app's request budget refuses the request
 /// - No access token is available
 /// - All retry attempts are exhausted
 /// - Network request fails
@@ -230,6 +261,7 @@ pub async fn api_request_with_retry<T, F>(
     access_token: &str,
     provider_name: &str,
     retry_config: &RetryConfig,
+    budget: Option<&RequestBudget>,
     vendor_error: F,
 ) -> AppResult<T>
 where
@@ -240,14 +272,8 @@ where
 
     let mut attempt = 0;
     loop {
-        let response = client
-            .get(url)
-            .header("Authorization", format!("Bearer {access_token}"))
-            .send()
-            .await
-            .map_err(|e| {
-                AppError::external_service(provider_name, format!("Failed to send request: {e}"))
-            })?;
+        // Every attempt is a request the provider counts, retries included.
+        let response = send_admitted(client, url, access_token, provider_name, budget).await?;
 
         let status = response.status();
         info!("Received HTTP response with status: {status}");
@@ -494,6 +520,7 @@ pub async fn refresh_oauth_token(
         expires_at,
         scopes: vec![], // Preserve original scopes in caller
         kind: CredentialKind::OAuthBearer,
+        request_budget: None,
     })
 }
 

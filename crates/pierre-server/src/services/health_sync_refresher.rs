@@ -9,7 +9,10 @@ use std::sync::{Arc, Weak};
 use async_trait::async_trait;
 use dravr_enforme::error::{EnformeError, EnformeResult};
 use dravr_enforme::models::connection::ProviderCredentials;
-use pierre_services::health_sync::{enforme_credential_kind, SyncCredentialRefresher};
+use dravr_enforme::RequestGateHandle;
+use pierre_services::health_sync::{
+    enforme_credential_kind, request_gate, SyncCredentialRefresher,
+};
 use pierre_tool_runtime::protocol::auth::{OAuthError, TokenData};
 use pierre_tool_runtime::protocol::AuthService;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -41,8 +44,13 @@ impl AuthServiceCredentialRefresher {
     }
 }
 
-/// Map the tool-runtime token shape onto enforme's credential model.
-fn token_to_credentials(user_id: Uuid, token: TokenData) -> ProviderCredentials {
+/// Map the tool-runtime token shape onto enforme's credential model, carrying
+/// `request_gate`, the signing app's budget every request is admitted against.
+fn token_to_credentials(
+    user_id: Uuid,
+    token: TokenData,
+    request_gate: Option<RequestGateHandle>,
+) -> ProviderCredentials {
     let scopes = if token.scopes.is_empty() {
         Vec::new()
     } else {
@@ -62,7 +70,23 @@ fn token_to_credentials(user_id: Uuid, token: TokenData) -> ProviderCredentials 
         provider: token.provider,
         provider_user_id: token.provider_user_id,
         kind: enforme_credential_kind(token.kind),
+        request_gate,
     }
+}
+
+/// `token` as enforme credentials, gated by the budget of the app that signs
+/// it.
+async fn gated_credentials(
+    auth: &AuthService,
+    user_id: Uuid,
+    tenant_id: &str,
+    provider: &str,
+    token: TokenData,
+) -> ProviderCredentials {
+    let budget = auth
+        .request_budget_for(provider, &token, user_id, tenant_id)
+        .await;
+    token_to_credentials(user_id, token, budget.map(request_gate))
 }
 
 /// The enforme error a failed token read or refresh is: a refresh the
@@ -88,7 +112,12 @@ impl SyncCredentialRefresher for AuthServiceCredentialRefresher {
             .get_valid_token(user_id, provider, Some(tenant_id))
             .await
             .map_err(|e| credential_error(provider, "OAuth token lookup failed", &e))?;
-        Ok(token.map(|t| token_to_credentials(user_id, t)))
+        match token {
+            Some(t) => Ok(Some(
+                gated_credentials(&auth, user_id, tenant_id, provider, t).await,
+            )),
+            None => Ok(None),
+        }
     }
 
     async fn force_refresh(
@@ -102,7 +131,12 @@ impl SyncCredentialRefresher for AuthServiceCredentialRefresher {
             .force_refresh_token(user_id, tenant_id, provider)
             .await
             .map_err(|e| credential_error(provider, "OAuth token refresh failed", &e))?;
-        Ok(token.map(|t| token_to_credentials(user_id, t)))
+        match token {
+            Some(t) => Ok(Some(
+                gated_credentials(&auth, user_id, tenant_id, provider, t).await,
+            )),
+            None => Ok(None),
+        }
     }
 }
 

@@ -671,6 +671,7 @@ async fn a_whoop_workout_reaches_the_activity_model_without_its_strain() {
             expires_at: Some(Utc::now() + Duration::hours(1)),
             scopes: Vec::new(),
             kind: CredentialKind::OAuthBearer,
+            request_budget: None,
         })
         .await
         .unwrap();

@@ -79,6 +79,7 @@ async fn a_401_requires_reauth_before_the_vendor_hook_reads_it() {
         "revoked-token",
         "strava",
         &RetryConfig::default(),
+        None,
         |status, body| Some(claimed(status, body)),
     )
     .await
@@ -115,6 +116,7 @@ async fn any_other_status_keeps_the_vendor_hook_reading() {
         "valid-token",
         "strava",
         &RetryConfig::default(),
+        None,
         |status, body| Some(claimed(status, body)),
     )
     .await

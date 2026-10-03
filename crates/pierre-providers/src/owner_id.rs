@@ -18,6 +18,7 @@
 use crate::core::{CredentialKind, OAuth2Credentials};
 use crate::errors::AppResult;
 use crate::registry::ProviderRegistry;
+use crate::request_budget::RequestBudget;
 use crate::spi::ProviderDescriptor;
 
 /// Read the owner id behind `access_token` when `provider`'s token response
@@ -27,7 +28,8 @@ use crate::spi::ProviderDescriptor;
 /// registered): its token response is where the id comes from, if anywhere.
 /// The access token is the only credential set: a bearer read never
 /// refreshes, so no client id, secret, refresh token or expiry is needed, and
-/// the provider instance is dropped afterwards.
+/// the provider instance is dropped afterwards. The read is admitted against
+/// `request_budget`, the signing app's, like every provider call.
 ///
 /// # Errors
 ///
@@ -38,6 +40,7 @@ pub async fn owner_id_for_access_token(
     registry: &ProviderRegistry,
     provider: &str,
     access_token: &str,
+    request_budget: Option<RequestBudget>,
 ) -> AppResult<Option<String>> {
     let declared = registry
         .get_descriptor(provider)
@@ -55,6 +58,7 @@ pub async fn owner_id_for_access_token(
             expires_at: None,
             scopes: Vec::new(),
             kind: CredentialKind::OAuthBearer,
+            request_budget,
         })
         .await?;
     Ok(Some(client.get_athlete().await?.id))

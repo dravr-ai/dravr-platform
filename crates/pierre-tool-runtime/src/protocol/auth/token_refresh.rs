@@ -33,7 +33,7 @@
 //! [`ProviderDescriptor::oauth_refresh`]: pierre_providers::spi::ProviderDescriptor::oauth_refresh
 
 use super::single_flight::{Lost, SingleFlight};
-use super::{AuthService, OAuthError, TokenData};
+use super::{AuthService, OAuthError, SigningClient, TokenData};
 use crate::protocol::reauth_notice::notify_needs_reauth;
 use crate::protocol::refresh_failure::classify_refresh_failure;
 use pierre_core::http_client::api_client;
@@ -352,10 +352,19 @@ impl AuthService {
         if stored.provider_user_id.is_some() {
             return stored.provider_user_id.clone();
         }
+        let budget = self
+            .request_budget_for(
+                &stored.provider,
+                refreshed,
+                stored.user_id,
+                &stored.tenant_id,
+            )
+            .await;
         match owner_id_for_access_token(
             self.resources.provider_registry(),
             &stored.provider,
             &refreshed.access_token,
+            budget,
         )
         .await
         {
@@ -642,7 +651,11 @@ impl AuthService {
     ) -> Result<Option<TokenData>, OAuthError> {
         let provider = plan.provider;
         let issuing_app = stored.oauth_app_client_id.as_deref();
-        let (client_id, client_secret) = self
+        let SigningClient {
+            client_id,
+            client_secret,
+            ..
+        } = self
             .issuing_client_credentials(user_id, Some(&tenant.to_string()), provider, issuing_app)
             .await
             .map_err(OAuthError::TokenRefreshFailed)?;

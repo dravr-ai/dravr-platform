@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use tracing::{info, warn};
 
 use super::errors::provider::ProviderError;
+use super::errors::{AppError, ErrorCode};
 
 /// Circuit breaker states
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -238,6 +239,18 @@ impl CircuitBreaker {
         }
     }
 
+    /// Record a call that ended in `error`, unless the error is a rate limit.
+    ///
+    /// A rate limit ([`ErrorCode::ExternalRateLimited`]) is back-pressure, not
+    /// a fault: either the signing app's own budget refused the request
+    /// before it was sent, or the provider asked us to slow down. Neither says
+    /// the provider is down, so neither moves the breaker toward open.
+    pub fn record_error(&self, error: &AppError) {
+        if error.code != ErrorCode::ExternalRateLimited {
+            self.record_failure();
+        }
+    }
+
     /// Record a failed operation
     pub fn record_failure(&self) {
         match self.state() {
@@ -340,5 +353,29 @@ impl CircuitBreaker {
             provider = %self.provider_name,
             "Circuit breaker manually reset to closed state"
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CircuitBreaker, CircuitState};
+    use crate::errors::{AppError, ErrorCode};
+
+    /// A rate limit, the app's own budget or the provider's, never opens the
+    /// breaker however often it is hit; any other failure still does.
+    #[test]
+    fn a_rate_limit_is_not_a_failure_and_a_fault_still_is() {
+        let breaker = CircuitBreaker::new("strava");
+        let rate_limited = AppError::new(ErrorCode::ExternalRateLimited, "budget spent");
+        for _ in 0..50 {
+            breaker.record_error(&rate_limited);
+        }
+        assert_eq!(breaker.state(), CircuitState::Closed);
+
+        let fault = AppError::external_service("strava", "HTTP 503");
+        for _ in 0..5 {
+            breaker.record_error(&fault);
+        }
+        assert_eq!(breaker.state(), CircuitState::Open);
     }
 }

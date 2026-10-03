@@ -26,12 +26,15 @@ use dravr_enforme::traits::health_store::HealthStore;
 use dravr_enforme::traits::recovery_store::RecoveryStore;
 use dravr_enforme::traits::sleep_store::SleepStore;
 use dravr_enforme::traits::timeseries_store::TimeSeriesPointStore;
+use dravr_enforme::{RequestGate, RequestGateHandle};
 use dravr_equilibre_sync::SyncStatus;
 use dravr_riviere::DataPoint;
+use pierre_core::errors::ErrorCode;
 use pierre_core::models::{TenantId, UserOAuthToken};
 use pierre_database::repositories::SyncCursorRow;
 use pierre_database::{AuthRepos, FitnessRepos, RepositoryRegistry};
 use pierre_providers::backend_resolver::sync_backend;
+use pierre_providers::request_budget::RequestBudget;
 use pierre_providers::CredentialKind;
 use tracing::info;
 use uuid::Uuid;
@@ -561,6 +564,37 @@ impl SyncCursorStore for PierreSyncStorage {
 // CredentialStore
 // ============================================================================
 
+/// The wait an enforme rate-limit refusal reports when the budget's refusal
+/// carries none; [`RequestBudget::admit`] always states one.
+const UNSTATED_RETRY_AFTER_SECS: u64 = 60;
+
+/// The signing app's request budget as enforme's [`RequestGate`], so the
+/// health sync's provider calls are admitted against the same windows as
+/// every other call that app signs.
+struct BudgetGate(RequestBudget);
+
+#[async_trait]
+impl RequestGate for BudgetGate {
+    async fn admit(&self, provider: &str) -> EnformeResult<()> {
+        self.0.admit(provider).await.map_err(|e| {
+            if e.code == ErrorCode::ExternalRateLimited {
+                EnformeError::RateLimited {
+                    provider: provider.to_owned(),
+                    retry_after_secs: e.retry_after_secs().unwrap_or(UNSTATED_RETRY_AFTER_SECS),
+                }
+            } else {
+                EnformeError::store(format!("provider request budget: {e}"))
+            }
+        })
+    }
+}
+
+/// The gate an enforme credential carries for `budget`, the signing app's.
+#[must_use]
+pub fn request_gate(budget: RequestBudget) -> RequestGateHandle {
+    RequestGateHandle(Arc::new(BudgetGate(budget)))
+}
+
 /// The enforme credential kind of a platform credential: an OAuth token goes
 /// out as a bearer, a pasted API key (intervals.icu) as HTTP Basic.
 #[must_use]
@@ -617,6 +651,9 @@ impl CredentialStore for PierreSyncStorage {
                 provider: t.provider,
                 provider_user_id: t.provider_user_id,
                 kind: enforme_credential_kind(CredentialKind::from_token_type(&t.token_type)),
+                // Only the refresher resolves the signing app; this stored-row
+                // read serves the startup window before it is installed.
+                request_gate: None,
             }
         }))
     }

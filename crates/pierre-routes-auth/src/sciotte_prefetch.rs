@@ -195,6 +195,7 @@ async fn fetch_prefetch_window(
         expires_at: None,
         scopes: vec![],
         kind: CredentialKind::OAuthBearer,
+        request_budget: None,
     };
     provider
         .set_credentials(credentials)

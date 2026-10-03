@@ -136,6 +136,7 @@ async fn connected_provider() -> Box<dyn FitnessProvider> {
             expires_at: None,
             scopes: vec![],
             kind: CredentialKind::OAuthBearer,
+            request_budget: None,
         })
         .await
         .expect("a serialized session is accepted"); // Safe: the JSON above is a valid AuthSession

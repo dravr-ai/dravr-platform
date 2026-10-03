@@ -98,8 +98,6 @@ use pierre_notifications::NotificationService;
 use pierre_providers::registry::ProviderRegistry;
 #[cfg(feature = "health-sync")]
 use pierre_services::health_sync::PierreSyncStorage;
-#[cfg(feature = "health-sync")]
-use pierre_services::provider_rate_limiter::ProviderRateLimiter;
 use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 #[cfg(feature = "transport-sse")]
 use pierre_sse::SseManager;
@@ -253,12 +251,6 @@ pub struct FitnessSlice {
     /// Abort handle for the background health data sync scheduler task.
     #[cfg(feature = "health-sync")]
     pub sync_scheduler_abort_handle: Option<AbortHandle>,
-    /// The provider request budgets (Strava's 15-minute and daily windows
-    /// among them), counted in the database so every instance shares them,
-    /// and taken from by the scheduled health sync, a synced run's
-    /// personal-best scan and the walk of an athlete's history alike.
-    #[cfg(feature = "health-sync")]
-    pub provider_rate_limiter: Arc<ProviderRateLimiter>,
     /// Hot-swappable cageux intelligence config snapshot.
     pub cageux_config_registry: Arc<CageuxConfigRegistry>,
     /// Hot-swappable coaching harness config snapshot.

@@ -23,6 +23,7 @@ use pierre_auth::oauth2_client::OAuth2Token;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::User;
 use pierre_providers::owner_id::owner_id_for_access_token;
+use pierre_providers::request_budget::RequestBudget;
 use pierre_providers::OAuthEndpoints;
 use tracing::{error, info, warn};
 
@@ -105,6 +106,7 @@ impl OAuthService {
         provider: &str,
         user_id: uuid::Uuid,
         mut token: OAuth2Token,
+        budget: Option<RequestBudget>,
     ) -> OAuth2Token {
         if token.provider_user_id.is_some() {
             return token;
@@ -113,6 +115,7 @@ impl OAuthService {
             self.data.provider_registry(),
             provider,
             &token.access_token,
+            budget,
         )
         .await
         {

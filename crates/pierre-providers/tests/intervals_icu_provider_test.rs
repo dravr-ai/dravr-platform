@@ -82,6 +82,7 @@ fn empty_credentials() -> OAuth2Credentials {
         expires_at: None,
         scopes: Vec::new(),
         kind: CredentialKind::ApiKey,
+        request_budget: None,
     }
 }
 
@@ -94,6 +95,7 @@ fn good_credentials() -> OAuth2Credentials {
         expires_at: None,
         scopes: Vec::new(),
         kind: CredentialKind::ApiKey,
+        request_budget: None,
     }
 }
 
@@ -361,6 +363,7 @@ fn bearer_credentials() -> OAuth2Credentials {
         expires_at: None,
         scopes: vec!["ACTIVITY:READ".to_owned()],
         kind: CredentialKind::OAuthBearer,
+        request_budget: None,
     }
 }
 

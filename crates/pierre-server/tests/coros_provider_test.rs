@@ -100,6 +100,7 @@ async fn test_coros_provider_authentication_lifecycle() {
         expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
         scopes: vec!["read:workouts".to_owned(), "read:sleep".to_owned()],
         kind: CredentialKind::OAuthBearer,
+        request_budget: None,
     };
 
     provider
@@ -125,6 +126,7 @@ async fn test_coros_provider_expired_token() {
         expires_at: Some(Utc::now() - chrono::Duration::hours(1)), // Already expired
         scopes: vec!["read:workouts".to_owned()],
         kind: CredentialKind::OAuthBearer,
+        request_budget: None,
     };
 
     provider
@@ -150,6 +152,7 @@ async fn test_coros_provider_no_expiry() {
         expires_at: None, // No expiry
         scopes: vec!["read:workouts".to_owned()],
         kind: CredentialKind::OAuthBearer,
+        request_budget: None,
     };
 
     provider
@@ -521,6 +524,7 @@ async fn test_coros_provider_stats_returns_empty() {
         expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
         scopes: vec!["read:workouts".to_owned()],
         kind: CredentialKind::OAuthBearer,
+        request_budget: None,
     };
 
     provider.set_credentials(credentials).await.unwrap();

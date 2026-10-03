@@ -80,7 +80,6 @@ use dravr_canot::ChannelRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
 use pierre_contremaitre::ContremaitreConfig;
 use pierre_core::billing::{dummy::DummyProvider, BillingProvider};
-#[cfg(feature = "health-sync")]
 use pierre_core::constants::oauth_providers;
 use pierre_core::errors::AppResult;
 #[cfg(feature = "client-messaging")]
@@ -103,6 +102,7 @@ use pierre_middleware::McpAuthMiddleware;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::NotificationService;
 use pierre_providers::registry::ProviderRegistry;
+use pierre_providers::request_budget::{ProviderRateLimiter, FIFTEEN_MINUTES, ONE_DAY};
 use pierre_services::api_key_cleanup::start_api_key_cleanup_task;
 #[cfg(feature = "health-sync")]
 use pierre_services::health_sync::PierreSyncStorage;
@@ -115,8 +115,6 @@ use pierre_services::notification_localizer::UserLocaleNotificationLocalizer;
 #[cfg(feature = "client-notifications")]
 use pierre_services::persona_notification_policy_gate::PersonaNotificationPolicyGate;
 use pierre_services::pricing_loader;
-#[cfg(feature = "health-sync")]
-use pierre_services::provider_rate_limiter::{ProviderRateLimiter, FIFTEEN_MINUTES, ONE_DAY};
 #[cfg(feature = "health-sync")]
 use pierre_services::sync_failure_notice::SyncFailureNotices;
 #[cfg(feature = "client-messaging")]
@@ -201,8 +199,12 @@ impl ServerContext {
 
         let auth_manager_arc = Arc::new(auth_manager);
 
-        // Create the provider registry once
-        let provider_registry = Arc::new(ProviderRegistry::new());
+        // Create the provider registry once, admitting every provider call
+        // against the signing app's budget
+        let provider_registry = Arc::new(
+            ProviderRegistry::new()
+                .with_request_limiter(Self::create_provider_rate_limiter(&config, &repos)),
+        );
 
         // Seed the cageux config registry with the layered stack of
         // compiled-in defaults + INTELLIGENCE_* env vars. The contremaitre
@@ -475,13 +477,10 @@ impl ServerContext {
         #[cfg(all(feature = "health-sync", not(feature = "client-notifications")))]
         let sync_notice_service = None;
         #[cfg(feature = "health-sync")]
-        let provider_rate_limiter = Self::create_provider_rate_limiter(&config, &repos);
-        #[cfg(feature = "health-sync")]
         let (sync_storage, sync_orchestrator, sync_scheduler_abort_handle) = Self::init_health_sync(
             &repos,
             &sse_manager,
             SyncFailureNotices::new(Arc::clone(&repos.provider_connections), sync_notice_service),
-            &provider_rate_limiter,
         );
 
         // Cache-backed nonce store for channel-initiated provider links
@@ -570,8 +569,6 @@ impl ServerContext {
             sync_storage: Some(sync_storage),
             #[cfg(feature = "health-sync")]
             sync_scheduler_abort_handle: Some(sync_scheduler_abort_handle),
-            #[cfg(feature = "health-sync")]
-            provider_rate_limiter,
             cageux_config_registry,
             harness_config_registry,
             guardian_config_registry,
@@ -833,7 +830,6 @@ impl ServerContext {
     /// carries, so only a pair of positive budgets replaces the limiter's
     /// built-in Strava windows, which hold the same defaults the environment
     /// falls back to.
-    #[cfg(feature = "health-sync")]
     fn create_provider_rate_limiter(
         config: &ServerConfig,
         repos: &Arc<RepositoryRegistry>,
@@ -865,7 +861,6 @@ impl ServerContext {
         repos: &Arc<RepositoryRegistry>,
         sse_manager: &Arc<SseManager>,
         notices: SyncFailureNotices,
-        rate_limiter: &Arc<ProviderRateLimiter>,
     ) -> (
         Arc<PierreSyncStorage>,
         Arc<dravr_enforme::SyncOrchestrator>,
@@ -878,13 +873,8 @@ impl ServerContext {
         let orchestrator = adapter.build_orchestrator();
         let notifier: Arc<dyn SyncNotifier> = Arc::clone(sse_manager) as Arc<dyn SyncNotifier>;
         let auth_repos = repos.auth_repos();
-        let abort_handle = start_scheduled_sync(
-            Arc::clone(&orchestrator),
-            &auth_repos,
-            notifier,
-            Some(Arc::clone(rate_limiter)),
-            notices,
-        );
+        let abort_handle =
+            start_scheduled_sync(Arc::clone(&orchestrator), &auth_repos, notifier, notices);
         info!("Health data sync scheduler started (Pierre-aware)");
         (adapter, orchestrator, abort_handle)
     }

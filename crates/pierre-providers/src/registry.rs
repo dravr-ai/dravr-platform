@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::core::{FitnessProvider, ProviderConfig, ProviderFactory};
+use crate::request_budget::{ProviderRateLimiter, RequestBudget};
 use crate::spi::{ProviderBundle, ProviderCapabilities, ProviderDescriptor};
 #[cfg(any(
     feature = "provider-strava",
@@ -97,6 +98,9 @@ pub struct ProviderRegistry {
     factories: HashMap<&'static str, Box<dyn ProviderFactory>>,
     default_configs: HashMap<&'static str, ProviderConfig>,
     descriptors: HashMap<&'static str, Box<dyn ProviderDescriptor>>,
+    /// The request budgets every provider call is admitted against, per
+    /// signing OAuth app. `None` counts nothing (a registry built for a test).
+    request_limiter: Option<Arc<ProviderRateLimiter>>,
 }
 
 impl ProviderRegistry {
@@ -110,6 +114,7 @@ impl ProviderRegistry {
             factories: HashMap::new(),
             default_configs: HashMap::new(),
             descriptors: HashMap::new(),
+            request_limiter: None,
         };
 
         // Register all enabled providers
@@ -589,6 +594,24 @@ impl ProviderRegistry {
             .collect();
         names.sort_unstable();
         names
+    }
+
+    /// This registry, admitting every provider call it hands credentials for
+    /// against `limiter`'s per-app budgets.
+    #[must_use]
+    pub fn with_request_limiter(mut self, limiter: Arc<ProviderRateLimiter>) -> Self {
+        self.request_limiter = Some(limiter);
+        self
+    }
+
+    /// The budget of `app` (the signing OAuth client's id), with the app's own
+    /// `daily_limit` when it registered one, for credentials to carry; `None`
+    /// when this registry counts nothing.
+    #[must_use]
+    pub fn request_budget(&self, app: &str, daily_limit: Option<u32>) -> Option<RequestBudget> {
+        self.request_limiter
+            .as_ref()
+            .map(|limiter| RequestBudget::new(Arc::clone(limiter), app.to_owned(), daily_limit))
     }
 
     /// Create a provider instance with default configuration

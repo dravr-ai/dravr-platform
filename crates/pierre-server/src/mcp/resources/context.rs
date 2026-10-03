@@ -194,7 +194,6 @@ impl ServerContext {
         PersonalBests::new(
             Arc::clone(&self.common.repos.personal_bests),
             service,
-            Arc::clone(&self.fitness.provider_rate_limiter),
             Arc::clone(&self.common.repos.worker_runs),
         )
     }

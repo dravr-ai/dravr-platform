@@ -195,6 +195,7 @@ pub async fn link_intervals_icu_account(
             expires_at: None,
             scopes: vec![],
             kind: CredentialKind::ApiKey,
+            request_budget: None,
         })
         .await?;
     let athlete = provider

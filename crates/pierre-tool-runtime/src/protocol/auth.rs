@@ -8,12 +8,13 @@ use crate::protocol::token_writeback::persist_refreshed_token;
 use crate::protocol::types::{UniversalResponse, META_AUTH_REQUIRED_PROVIDER};
 use crate::runtime::ToolRuntime;
 use chrono::{DateTime, Utc};
-use pierre_auth::tenant::oauth_manager::{issuing_client, IssuingLookup};
+use pierre_auth::tenant::oauth_manager::{issuing_client, IssuingClient, IssuingLookup};
 use pierre_config::environment::get_oauth_config;
 use pierre_core::errors::AppError;
 use pierre_core::models::{refresh_due, TenantId, UserOAuthToken};
 use pierre_providers::ai_scope::AiGovernedProvider;
 use pierre_providers::backend_resolver;
+use pierre_providers::request_budget::RequestBudget;
 use pierre_providers::{CoreFitnessProvider, CredentialKind, OAuth2Credentials};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
@@ -25,6 +26,17 @@ use uuid::Uuid;
 mod single_flight;
 /// The refresh of a stored token: descriptor-driven, single-flight, compare-and-swap
 mod token_refresh;
+
+/// The OAuth client a stored token is signed by.
+pub(crate) struct SigningClient {
+    /// The client's id: the app a provider counts the token's calls against.
+    pub(crate) client_id: String,
+    /// The client's secret, which a refresh presents.
+    pub(crate) client_secret: String,
+    /// The daily request budget the app's operator registered (a tenant's own
+    /// app); `None` takes the provider's.
+    pub(crate) daily_limit: Option<u32>,
+}
 
 /// OAuth token data structure
 #[derive(Debug, Clone)]
@@ -402,6 +414,69 @@ impl AuthService {
         }
     }
 
+    /// The client credentials a stored token's provider calls present, and
+    /// the request budget they are admitted against: the signing OAuth app's.
+    ///
+    /// Non-OAuth providers (sciotte, synthetic) skip the client lookup
+    /// entirely, and so does a pasted API key on a provider that also links
+    /// by OAuth (intervals.icu): no client issued it, so no app budget
+    /// applies, and its provider-side user id rides as `client_id`, the
+    /// athlete the API path addresses.
+    async fn signing_credentials(
+        &self,
+        provider_name: &str,
+        token_data: &TokenData,
+        user_id: Uuid,
+        tenant_id: Option<&str>,
+    ) -> Result<(String, String, Option<RequestBudget>), String> {
+        let registry = self.resources.provider_registry();
+        let needs_client = token_data.kind == CredentialKind::OAuthBearer
+            && registry.requires_oauth(provider_name);
+        if !needs_client {
+            return Ok((
+                token_data.provider_user_id.clone().unwrap_or_default(),
+                String::new(),
+                None,
+            ));
+        }
+        // The provider refreshes on its own when a call is refused, so it
+        // gets the client that issued the token, as the expiry refresh does.
+        let signing = self
+            .issuing_client_credentials(
+                user_id,
+                tenant_id,
+                provider_name,
+                token_data.oauth_app_client_id.as_deref(),
+            )
+            .await?;
+        let budget = registry.request_budget(&signing.client_id, signing.daily_limit);
+        Ok((signing.client_id, signing.client_secret, budget))
+    }
+
+    /// The request budget a stored token's provider calls are admitted
+    /// against, for credentials built outside this service (the health
+    /// sync's enforme credentials). `None` when no OAuth app signs the token,
+    /// or when its client cannot be resolved (logged; the calls then go out
+    /// uncounted).
+    pub async fn request_budget_for(
+        &self,
+        provider_name: &str,
+        token_data: &TokenData,
+        user_id: Uuid,
+        tenant_id: &str,
+    ) -> Option<RequestBudget> {
+        match self
+            .signing_credentials(provider_name, token_data, user_id, Some(tenant_id))
+            .await
+        {
+            Ok((_, _, budget)) => budget,
+            Err(error) => {
+                warn!(%user_id, provider = provider_name, %error, "the signing app of a token could not be resolved; its requests go uncounted");
+                None
+            }
+        }
+    }
+
     /// Create provider with token and tenant-aware credentials
     async fn create_provider_with_token(
         &self,
@@ -410,25 +485,8 @@ impl AuthService {
         user_id: Uuid,
         tenant_id: Option<&str>,
     ) -> Result<Box<dyn CoreFitnessProvider>, Box<UniversalResponse>> {
-        // Get tenant-aware OAuth credentials or fall back to environment.
-        // Non-OAuth providers (sciotte, synthetic) skip credential lookup
-        // entirely, and so does a pasted API key on a provider that also
-        // links by OAuth (intervals.icu): no client issued it.
-        let needs_client = token_data.kind == CredentialKind::OAuthBearer
-            && self
-                .resources
-                .provider_registry()
-                .requires_oauth(provider_name);
-
-        let (client_id, client_secret) = if needs_client {
-            // The provider refreshes on its own when a call is refused, so it
-            // gets the client that issued the token, as the expiry refresh does.
-            self.issuing_client_credentials(
-                user_id,
-                tenant_id,
-                provider_name,
-                token_data.oauth_app_client_id.as_deref(),
-            )
+        let (client_id, client_secret, request_budget) = self
+            .signing_credentials(provider_name, &token_data, user_id, tenant_id)
             .await
             .map_err(|error| {
                 Box::new(UniversalResponse {
@@ -437,16 +495,7 @@ impl AuthService {
                     error: Some(error),
                     metadata: None,
                 })
-            })?
-        } else {
-            // An API key (intervals.icu) carries its provider-side user id
-            // here so it reaches the provider as `client_id`, the athlete the
-            // API path addresses. Synthetic providers have no id → empty string.
-            (
-                token_data.provider_user_id.clone().unwrap_or_default(),
-                String::new(),
-            )
-        };
+            })?;
 
         let row_id = token_data.row_id.clone();
 
@@ -475,6 +524,7 @@ impl AuthService {
                     expires_at: token_data.expires_at,
                     scopes,
                     kind: token_data.kind,
+                    request_budget,
                 };
 
                 // Set credentials asynchronously
@@ -533,7 +583,7 @@ impl AuthService {
         tenant_id: Option<&str>,
         provider: &str,
         issuing_app: Option<&str>,
-    ) -> Result<(String, String), String> {
+    ) -> Result<SigningClient, String> {
         let tenant_id = tenant_id
             .filter(|t| !t.is_empty())
             .map(|t| TenantId::parse_str(t).map_err(|_| format!("Invalid tenant_id: {t}")))
@@ -553,10 +603,16 @@ impl AuthService {
         )
         .await
         .map_err(|e| e.to_string())?;
-        Ok((
-            client.client_id().to_owned(),
-            client.client_secret().to_owned(),
-        ))
+        // A tenant's own app carries the daily budget its operator registered.
+        let daily_limit = match &client {
+            IssuingClient::Tenant(credentials) => Some(credentials.rate_limit_per_day),
+            _ => None,
+        };
+        Ok(SigningClient {
+            client_id: client.client_id().to_owned(),
+            client_secret: client.client_secret().to_owned(),
+            daily_limit,
+        })
     }
 
     /// Refresh the stored token for `provider` regardless of its recorded expiry.

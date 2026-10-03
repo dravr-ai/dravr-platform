@@ -89,6 +89,7 @@ async fn get_stats_returns_year_to_date_distinct_from_all_time() {
             expires_at: Some(Utc::now() + chrono::Duration::days(30)),
             scopes: vec!["read".to_owned()],
             kind: CredentialKind::OAuthBearer,
+            request_budget: None,
         })
         .await
         .expect("set_credentials");

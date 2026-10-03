@@ -21,8 +21,9 @@
 //! conversation, writes no activity, and owes every Strava athlete one walk
 //! whoever they are: a sweep over the athletes whose walk is incomplete.
 //!
-//! Every request a pass makes is taken from the background share of the
-//! [`ProviderRateLimiter`](pierre_services::provider_rate_limiter::ProviderRateLimiter),
+//! Every request a pass makes is admitted against the background share of
+//! the signing app's budget in the
+//! [`ProviderRateLimiter`](pierre_providers::request_budget::ProviderRateLimiter),
 //! whose Strava 15-minute and daily windows are counted in the database, so
 //! every instance of the backend draws on the same windows — Cloud Run runs up
 //! to three — and together they never spend more than the walk's share: when

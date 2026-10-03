@@ -18,10 +18,11 @@
 //! - **The whole history is measured first.** [`PersonalBests::advance_seed`]
 //!   walks the athlete's activities at the provider once, newest first, one
 //!   listing per page and one samples request per past run, and stores the
-//!   bests they set without telling anything. The walk is paced by the shared
-//!   [`ProviderRateLimiter`]: it takes only the background share of each
-//!   window, stops when that share is spent, and resumes on a later pass from
-//!   the cursor it saved, skipping every run `best_effort_scans` already holds.
+//!   bests they set without telling anything. The walk runs
+//!   [`in_background`], so each of its provider requests is admitted against
+//!   only the background share of the signing app's budget; it stops when that
+//!   share is spent, and resumes on a later pass from the cursor it saved,
+//!   skipping every run `best_effort_scans` already holds.
 //! - **Nothing is told against a partial history.** Until the walk reached
 //!   the athlete's first activity, a synced run is measured and its bests
 //!   stored like the walk's, and nothing is announced: a time faster than the
@@ -59,7 +60,7 @@ use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use dravr_cageux::best_efforts::{best_efforts, STANDARD_RUNNING_DISTANCES_METERS};
-use pierre_core::errors::AppResult;
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{Activity, SportType, TenantId, TimeSeriesData};
 use pierre_database::repositories::{
     PersonalBest, PersonalBestRepository, PersonalBestSeed, WorkerRunRepository,
@@ -67,6 +68,7 @@ use pierre_database::repositories::{
 use pierre_notifications::triggers::trigger_personal_record;
 use pierre_notifications::{NotificationService, TenantId as CommTenantId};
 use pierre_providers::core::{ActivityQueryParams, FitnessProvider};
+use pierre_providers::request_budget::in_background;
 use tokio::time::sleep;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -74,7 +76,6 @@ use uuid::Uuid;
 use crate::notification_text::{
     PR_DISTANCE_10K, PR_DISTANCE_5K, PR_DISTANCE_HALF_MARATHON, PR_DISTANCE_MARATHON,
 };
-use crate::provider_rate_limiter::{ProviderRateLimiter, RateLimitStatus};
 
 /// The catalogue code of each standard distance, index-aligned with
 /// [`STANDARD_RUNNING_DISTANCES_METERS`]; the array length ties the two.
@@ -166,15 +167,6 @@ pub enum SeedProgress {
     Held,
 }
 
-/// Whether a request is one an athlete is waiting on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Pace {
-    /// A sync the athlete's upload set off: the whole budget is open to it.
-    Live,
-    /// The history walk: only the background share of each window.
-    Background,
-}
-
 /// Whether best efforts are measured on `sport`.
 #[must_use]
 pub const fn is_measured_sport(sport: &SportType) -> bool {
@@ -216,29 +208,22 @@ pub struct PersonalBests {
     /// Where a new best is announced. `None` when the deployment runs without
     /// the notification backend: bests are then stored and nothing is sent.
     service: Option<Arc<NotificationService>>,
-    /// The provider request budgets every instance counts in the database,
-    /// shared with every other caller that counts its provider requests
-    /// there: each listing and samples request made here is taken from it
-    /// first.
-    limiter: Arc<ProviderRateLimiter>,
     /// The worker ledger, where the lease on each athlete's measuring lives.
     leases: Arc<dyn WorkerRunRepository>,
 }
 
 impl PersonalBests {
-    /// Personal bests over `repo`, announced through `service`, paced by
-    /// `limiter`, with each athlete's measuring leased in `leases`.
+    /// Personal bests over `repo`, announced through `service`, with each
+    /// athlete's measuring leased in `leases`.
     #[must_use]
     pub fn new(
         repo: Arc<dyn PersonalBestRepository>,
         service: Option<Arc<NotificationService>>,
-        limiter: Arc<ProviderRateLimiter>,
         leases: Arc<dyn WorkerRunRepository>,
     ) -> Self {
         Self {
             repo,
             service,
-            limiter,
             leases,
         }
     }
@@ -334,8 +319,8 @@ impl PersonalBests {
     /// walk of the athlete's history is complete — tell them about each
     /// all-time best one sets. Returns how many runs were measured.
     ///
-    /// Each run costs one samples request, taken from the shared budget as a
-    /// request the athlete is waiting on; when the budget is spent, or the
+    /// Each run costs one samples request, admitted against the signing app's
+    /// budget as a request the athlete is waiting on; when it is spent, or the
     /// provider refuses two requests in a row, the runs left wait for the next
     /// sync, whose window lists them again.
     ///
@@ -372,7 +357,7 @@ impl PersonalBests {
             .is_seed_complete(user_id, tenant_id, provider.name())
             .await?;
         let runs = self.unscanned_runs(user_id, tenant_id, activities).await?;
-        let mut batch = Batch::new(self, provider, user_id, tenant_id, announce, Pace::Live);
+        let mut batch = Batch::new(self, provider, user_id, tenant_id, announce);
         for run in runs {
             if let Step::Stop(pause) = batch.measure(run).await? {
                 info!(%user_id, ?pause, "run scan stopped; the runs left wait for the next sync");
@@ -386,11 +371,12 @@ impl PersonalBests {
     /// stopped, newest activity first, measuring every run no sync or earlier
     /// walk measured, and storing the bests they set without telling anything.
     ///
-    /// One listing per page and one samples request per run, each taken from
-    /// the background share of the shared budget. The walk stops when that
-    /// share is spent or the provider refuses, saving the cursor it reached so
-    /// the next call lists from there; it completes when a listing past the
-    /// oldest activity comes back empty, and from then on records are told.
+    /// One listing per page and one samples request per run, each admitted
+    /// [`in_background`] against the background share of the signing app's
+    /// budget. The walk stops when that share is spent or the provider
+    /// refuses, saving the cursor it reached so the next call lists from
+    /// there; it completes when a listing past the oldest activity comes back
+    /// empty, and from then on records are told.
     ///
     /// # Errors
     /// Returns a database error when the walk's progress, the scans or the
@@ -407,7 +393,7 @@ impl PersonalBests {
         {
             return Ok(SeedProgress::Held);
         }
-        let progress = self.walk_history_held(provider, user_id, tenant_id).await;
+        let progress = in_background(self.walk_history_held(provider, user_id, tenant_id)).await;
         self.release_athlete(user_id, tenant_id).await;
         progress
     }
@@ -429,7 +415,7 @@ impl PersonalBests {
             return Ok(SeedProgress::Complete);
         }
 
-        let mut batch = Batch::new(self, provider, user_id, tenant_id, false, Pace::Background);
+        let mut batch = Batch::new(self, provider, user_id, tenant_id, false);
         // `walk` bounds the next listing and follows every activity handled;
         // `seed.cursor_before` is what a restart lists from, so it stays put
         // while a failed run is held unresolved.
@@ -502,23 +488,6 @@ impl PersonalBests {
             }
         }
         Ok(None)
-    }
-
-    /// Take one request to `provider` from the shared budget: the whole of it
-    /// for a live request, the background share for the walk. `false` when
-    /// the budget says stop, or cannot be counted.
-    async fn take_request(&self, provider: &str, pace: Pace) -> bool {
-        let status = match pace {
-            Pace::Live => self.limiter.acquire(provider).await,
-            Pace::Background => self.limiter.acquire_background(provider).await,
-        };
-        match status {
-            Ok(status) => status == RateLimitStatus::Allowed,
-            Err(e) => {
-                warn!(provider, error = %e, "provider budget could not be counted; the request is not made");
-                false
-            }
-        }
     }
 
     /// Measure `run` on `series`, store each best it sets, record the run as
@@ -613,7 +582,7 @@ enum PageOutcome {
 }
 
 /// Ask for the page of the athlete's history just before `walk` (the newest
-/// page when `None`), taking the request from the batch's budget.
+/// page when `None`); a spent budget stops the walk.
 ///
 /// The provider answering resolves a run held from the page before as the
 /// run's own failure; the saved cursor then moves to `walk`, since every
@@ -623,9 +592,6 @@ async fn next_page(
     seed: &mut PersonalBestSeed,
     walk: Option<i64>,
 ) -> AppResult<PageOutcome> {
-    if !batch.take_request().await {
-        return Ok(PageOutcome::Stop(SeedPause::Budget));
-    }
     let params = ActivityQueryParams {
         limit: Some(SEED_PAGE_SIZE),
         offset: None,
@@ -634,6 +600,7 @@ async fn next_page(
     };
     let mut page = match batch.provider.get_activities_with_params(&params).await {
         Ok(page) => page,
+        Err(e) if budget_spent(&e) => return Ok(PageOutcome::Stop(SeedPause::Budget)),
         Err(e) => {
             warn!(user_id = %batch.user_id, provider = batch.provider.name(), error = %e, "history walk listing failed; the walk resumes on a later pass");
             return Ok(PageOutcome::Stop(SeedPause::Refused));
@@ -654,6 +621,13 @@ async fn next_page(
     })
 }
 
+/// Whether `error` says a request budget is spent: the signing app's, which
+/// refused the request before it was sent, or the provider's own, which
+/// answered `429` once retries ran out. Neither is the run's fault.
+fn budget_spent(error: &AppError) -> bool {
+    error.code == ErrorCode::ExternalRateLimited
+}
+
 /// What measuring one run decided about the rest of the batch.
 enum Step {
     /// Go on to the next run.
@@ -672,7 +646,6 @@ struct Batch<'a> {
     tenant_id: TenantId,
     /// Whether a beaten best is told: the walk of the history is complete.
     announce: bool,
-    pace: Pace,
     /// The run whose samples request failed, until the provider answers or
     /// refuses the next request.
     suspect: Option<Activity>,
@@ -687,7 +660,6 @@ impl<'a> Batch<'a> {
         user_id: Uuid,
         tenant_id: TenantId,
         announce: bool,
-        pace: Pace,
     ) -> Self {
         Self {
             bests,
@@ -695,17 +667,9 @@ impl<'a> Batch<'a> {
             user_id,
             tenant_id,
             announce,
-            pace,
             suspect: None,
             measured: 0,
         }
-    }
-
-    /// Take one request from the shared budget at this batch's pace.
-    async fn take_request(&self) -> bool {
-        self.bests
-            .take_request(self.provider.name(), self.pace)
-            .await
     }
 
     /// The provider answered a request, so a held run's failure was its own:
@@ -730,9 +694,6 @@ impl<'a> Batch<'a> {
     /// when the request fails; stop when the budget is spent, or when the
     /// provider refuses a second run in a row.
     async fn measure(&mut self, run: &Activity) -> AppResult<Step> {
-        if !self.take_request().await {
-            return Ok(Step::Stop(SeedPause::Budget));
-        }
         match self.provider.get_activity_streams(run.id()).await {
             Ok(series) => {
                 self.provider_answered().await?;
@@ -750,6 +711,8 @@ impl<'a> Batch<'a> {
                 info!(user_id = %self.user_id, activity_id = %run.id(), distances = results.len(), announce = self.announce, "run scanned for best efforts");
                 Ok(Step::Continue)
             }
+            // A spent budget is no fault of the run's: it is not suspect.
+            Err(e) if budget_spent(&e) => Ok(Step::Stop(SeedPause::Budget)),
             Err(e) => {
                 warn!(user_id = %self.user_id, activity_id = %run.id(), error = %e, "run samples request failed");
                 if self.suspect.is_some() {

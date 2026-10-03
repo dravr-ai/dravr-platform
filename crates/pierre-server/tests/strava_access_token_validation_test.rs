@@ -91,6 +91,7 @@ async fn provider_with_token(api_base_url: String, access_token: &str) -> Strava
             expires_at: Some(Utc::now() + chrono::Duration::days(30)),
             scopes: vec!["read".to_owned()],
             kind: CredentialKind::OAuthBearer,
+            request_budget: None,
         })
         .await
         .expect("set_credentials");

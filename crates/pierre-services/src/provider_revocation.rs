@@ -283,7 +283,7 @@ async fn revoke_with_shape(
         )
         .await
     {
-        Ok(creds) => creds,
+        Ok((creds, _)) => creds,
         Err(e) => {
             warn!(
                 user_id = %user_id,

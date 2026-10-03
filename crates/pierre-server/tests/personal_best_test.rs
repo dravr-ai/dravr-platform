@@ -37,7 +37,6 @@ use pierre_notifications::{NotificationService, TenantId as CommereTenantId};
 use pierre_routes_groups::NotificationRoutes;
 use pierre_services::notification_localizer::UserLocaleNotificationLocalizer;
 use pierre_services::personal_bests::{format_effort_time, BestOutcome, PersonalBests};
-use pierre_services::provider_rate_limiter::ProviderRateLimiter;
 use serde_json::Value;
 use tokio::time::sleep;
 use tokio_util::task::TaskTracker;
@@ -95,9 +94,6 @@ async fn fixture(email: &str) -> Fixture {
     let bests = PersonalBests::new(
         Arc::clone(&resources.common.repos.personal_bests),
         Some(Arc::clone(&service)),
-        Arc::new(ProviderRateLimiter::new(Arc::clone(
-            &resources.common.repos.usage_counters,
-        ))),
         Arc::clone(&resources.common.repos.worker_runs),
     );
     Fixture {

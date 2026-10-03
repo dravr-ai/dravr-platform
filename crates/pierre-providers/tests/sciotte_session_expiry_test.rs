@@ -62,6 +62,7 @@ async fn set_session(provider: &dyn FitnessProvider, expires_at: Option<DateTime
         expires_at: None,
         scopes: vec![],
         kind: CredentialKind::OAuthBearer,
+        request_budget: None,
     };
     provider
         .set_credentials(creds)

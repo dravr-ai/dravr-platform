@@ -127,6 +127,7 @@ use crate::models::{
     API_KEY_TOKEN_TYPE,
 };
 use crate::pagination::{CursorPage, PaginationParams};
+use crate::request_budget::RequestBudget;
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -169,6 +170,11 @@ pub struct OAuth2Credentials {
     /// What `access_token` is, and so how a call presents it
     #[serde(default)]
     pub kind: CredentialKind,
+    /// The budget of the OAuth app that signs these credentials, which every
+    /// request they authorize is admitted against before it is sent. `None`
+    /// sends uncounted (a provider no budget applies to, or a test).
+    #[serde(skip)]
+    pub request_budget: Option<RequestBudget>,
 }
 
 /// What a stored credential's `access_token` is.

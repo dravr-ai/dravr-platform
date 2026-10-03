@@ -278,6 +278,7 @@ fn credentials(session_id: &str) -> OAuth2Credentials {
         expires_at: None,
         scopes: vec![],
         kind: CredentialKind::OAuthBearer,
+        request_budget: None,
     }
 }
 

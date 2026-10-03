@@ -38,6 +38,8 @@ pub mod owner_id;
 pub mod provider_ai_terms;
 /// Global provider registry and factory
 pub mod registry;
+/// Provider request budgets per OAuth app, admitted before every provider call
+pub mod request_budget;
 /// Service Provider Interface for external providers
 pub mod spi;
 /// Provider utility functions (retry, type conversion)

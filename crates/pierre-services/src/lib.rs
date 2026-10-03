@@ -275,9 +275,6 @@ pub mod prompt_leak;
 /// Detects LLM-provider CLI error text that leaked into assistant replies
 pub mod provider_error_filter;
 
-/// App-wide rate limiter for external fitness provider APIs
-pub mod provider_rate_limiter;
-
 /// The messaging delivery sink for dispatched notifications — the third sink
 /// beside persist and Expo push (`client-messaging` feature).
 #[cfg(feature = "client-messaging")]

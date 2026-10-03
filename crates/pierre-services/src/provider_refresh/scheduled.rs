@@ -23,7 +23,6 @@ use uuid::Uuid;
 use super::{
     compute_smart_interval, record_sync_latency, SyncNotifier, SYNC_FAILURES, SYNC_SUCCESSES,
 };
-use crate::provider_rate_limiter::{ProviderRateLimiter, RateLimitStatus};
 use crate::sync_failure_notice::{health_sync_failure_is_told, SyncFailureNotices};
 
 /// Start the scheduled sync loop with post-sync SSE notifications.
@@ -36,14 +35,13 @@ use crate::sync_failure_notice::{health_sync_failure_is_told, SyncFailureNotices
 /// - Tells the athlete once when a provider's sync fails, and re-arms that
 ///   notice when one lands ([`SyncFailureNotices`])
 /// - Tracks sync metrics (success/failure counts, latency)
-/// - Checks per-provider rate limits before each sync
+/// - Leaves each request to the signing app's budget, which the credentials carry
 ///
 /// Returns an `AbortHandle` to cancel the background task on shutdown.
 pub fn start_scheduled_sync(
     orchestrator: Arc<dravr_enforme::SyncOrchestrator>,
     repos: &AuthRepos,
     sse_manager: Arc<dyn SyncNotifier>,
-    rate_limiter: Option<Arc<ProviderRateLimiter>>,
     notices: SyncFailureNotices,
 ) -> AbortHandle {
     use dravr_enforme::orchestrator::scheduler::with_jitter;
@@ -62,14 +60,7 @@ pub fn start_scheduled_sync(
             let sleep_duration = with_jitter(poll_interval);
             sleep(sleep_duration).await;
 
-            run_scheduled_sync_cycle(
-                &orchestrator,
-                &repos,
-                &sse_manager,
-                rate_limiter.as_ref(),
-                &notices,
-            )
-            .await;
+            run_scheduled_sync_cycle(&orchestrator, &repos, &sse_manager, &notices).await;
         }
     });
 
@@ -83,7 +74,6 @@ async fn run_scheduled_sync_cycle(
     orchestrator: &Arc<dravr_enforme::SyncOrchestrator>,
     repos: &AuthRepos,
     sse_manager: &Arc<dyn SyncNotifier>,
-    rate_limiter: Option<&Arc<ProviderRateLimiter>>,
     notices: &SyncFailureNotices,
 ) {
     for provider_name in orchestrator.provider_names() {
@@ -109,7 +99,6 @@ async fn run_scheduled_sync_cycle(
             orchestrator,
             repos,
             sse_manager,
-            rate_limiter,
             notices,
             &users,
             provider_name,
@@ -118,12 +107,15 @@ async fn run_scheduled_sync_cycle(
     }
 }
 
-/// Sync all active users for a single provider, checking rate limits per user.
+/// Sync all active users for a single provider.
+///
+/// Each request a sync makes is admitted against the budget of the app that
+/// signs the user's token (the credentials carry its gate), so a spent budget
+/// refuses only the users that app signs.
 async fn sync_provider_users(
     orchestrator: &Arc<dravr_enforme::SyncOrchestrator>,
     repos: &AuthRepos,
     sse_manager: &Arc<dyn SyncNotifier>,
-    rate_limiter: Option<&Arc<ProviderRateLimiter>>,
     notices: &SyncFailureNotices,
     users: &[ConnectedUser],
     provider_name: &str,
@@ -131,30 +123,6 @@ async fn sync_provider_users(
     for user in users {
         if !user.is_active || scrape_sync_not_due(repos, user, provider_name).await {
             continue;
-        }
-
-        // Take each user's sync from the provider's shared budget first
-        if let Some(limiter) = rate_limiter {
-            match limiter.acquire(provider_name).await {
-                Ok(RateLimitStatus::Allowed) => {}
-                Ok(RateLimitStatus::Exceeded { retry_after }) => {
-                    warn!(
-                        provider = provider_name,
-                        user_id = user.user_id,
-                        retry_after_secs = retry_after.as_secs(),
-                        "Provider rate limit hit during user iteration, stopping provider cycle"
-                    );
-                    break;
-                }
-                Err(e) => {
-                    warn!(
-                        provider = provider_name,
-                        error = %e,
-                        "Provider rate limit could not be counted, stopping provider cycle"
-                    );
-                    break;
-                }
-            }
         }
 
         sync_single_user(

@@ -588,6 +588,7 @@ mod tests {
                 expires_at: Some(Utc::now() + Duration::days(1)),
                 scopes: vec!["read".to_owned()],
                 kind: CredentialKind::OAuthBearer,
+                request_budget: None,
             })
             .await
             .expect("credentials");

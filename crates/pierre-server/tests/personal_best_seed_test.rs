@@ -46,11 +46,12 @@ use pierre_mcp_server::services::personal_best_seed::{
 };
 use pierre_notifications::events::event_params;
 use pierre_notifications::TenantId as CommereTenantId;
-use pierre_services::personal_bests::athlete_lease_name;
-use pierre_services::provider_rate_limiter::{
+use pierre_providers::registry::ProviderRegistry;
+use pierre_providers::request_budget::{
     budget_counter_key, budget_period, ProviderRateLimiter, RateLimitStatus, ONE_DAY,
     PLATFORM_SCOPE,
 };
+use pierre_services::personal_bests::athlete_lease_name;
 use serde_json::{json, Value};
 use serial_test::serial;
 use tokio::net::TcpListener;
@@ -317,14 +318,27 @@ impl Drop for EnvGuard {
 ///
 /// The registry reads `PIERRE_STRAVA_API_BASE_URL` when the context is
 /// built, so the guard must be alive before this call.
-async fn context_pointed_at(api_base: &str) -> (Arc<ServerContext>, EnvGuard) {
+async fn context_pointed_at(api_base: &str, per_window: u32) -> (Arc<ServerContext>, EnvGuard) {
     let guard = EnvGuard::set(&[
         ("PIERRE_STRAVA_API_BASE_URL", api_base.to_owned()),
         ("STRAVA_CLIENT_ID", "test_client".to_owned()),
         ("STRAVA_CLIENT_SECRET", "test_secret".to_owned()),
     ]);
     let resources = common::create_test_server_resources().await.unwrap();
-    (resources, guard)
+    (with_strava_window(&resources, per_window), guard)
+}
+
+/// `resources` composed as the server composes its registry, with a Strava
+/// window allowing `per_window` requests a day for each signing app, a
+/// quarter of which the walk may take. The registry is built here, after the
+/// environment pointing Strava at the mock is set.
+fn with_strava_window(resources: &Arc<ServerContext>, per_window: u32) -> Arc<ServerContext> {
+    let limiter = ProviderRateLimiter::new(Arc::clone(&resources.common.repos.usage_counters));
+    limiter.set_budgets("strava", &[(per_window, ONE_DAY)]);
+    let mut context = (**resources).clone();
+    context.fitness.provider_registry =
+        Arc::new(ProviderRegistry::new().with_request_limiter(Arc::new(limiter)));
+    Arc::new(context)
 }
 
 /// An OAuth-connected Strava athlete.
@@ -381,45 +395,32 @@ async fn linked_athlete(
     }
 }
 
-/// Open a fresh Strava window allowing `per_window` requests, a quarter of
-/// which the walk may take, on every instance in `instances`.
-///
-/// The windows are counted in the database, so opening a fresh one clears
-/// the counted buckets. The window is a day long, so a test never straddles
-/// one of its boundaries the way it could a 15-minute one.
-async fn open_window(instances: &[&Arc<ServerContext>], per_window: u32) {
-    let first = instances.first().expect("an instance");
-    first
+/// Open a fresh Strava window: the windows are counted in the database, so
+/// opening one clears the counted buckets. The window is a day long, so a
+/// test never straddles one of its boundaries the way it could a 15-minute
+/// one.
+async fn open_window(resources: &Arc<ServerContext>) {
+    resources
         .common
         .repos
         .usage_counters
         .delete_old_counters("9999")
         .await
         .unwrap();
-    for instance in instances {
-        instance
-            .fitness
-            .provider_rate_limiter
-            .set_budgets("strava", &[(per_window, ONE_DAY)]);
-    }
 }
 
 /// Another instance of the backend over the same database: it shares the
 /// database and nothing held in memory, the rate limiter included. Built
 /// after the first one, it also stands for that one restarted.
-fn another_instance(resources: &Arc<ServerContext>) -> Arc<ServerContext> {
-    let mut context = (**resources).clone();
-    context.fitness.provider_rate_limiter = Arc::new(ProviderRateLimiter::new(Arc::clone(
-        &resources.common.repos.usage_counters,
-    )));
-    Arc::new(context)
+fn another_instance(resources: &Arc<ServerContext>, per_window: u32) -> Arc<ServerContext> {
+    with_strava_window(resources, per_window)
 }
 
-/// Run passes, each in a fresh window of `per_window` requests, until no
+/// Run passes, each in a fresh window, until no
 /// athlete is owed a walk. Panics when that takes more than 30 passes.
-async fn walk_to_completion(resources: &Arc<ServerContext>, per_window: u32) {
+async fn walk_to_completion(resources: &Arc<ServerContext>) {
     for _ in 0..30 {
-        open_window(&[resources], per_window).await;
+        open_window(resources).await;
         run_personal_best_seed_pass(resources).await.unwrap();
         let owed = resources
             .common
@@ -525,7 +526,7 @@ async fn sync_scan(resources: &Arc<ServerContext>, athlete: &Athlete, activities
 #[serial]
 async fn the_walk_measures_every_past_run_exactly_once_across_a_restart() {
     let (api_base, mock) = mock_strava().await;
-    let (resources, _env) = context_pointed_at(&api_base).await;
+    let (resources, _env) = context_pointed_at(&api_base, 16).await;
     let runs = [
         run(101, 400, 330),
         run(102, 300, 300),
@@ -539,7 +540,7 @@ async fn the_walk_measures_every_past_run_exactly_once_across_a_restart() {
 
     // Sixteen requests a window, four of them the walk's: one listing, then
     // runs 105 and 104 from the first page, then the second listing.
-    open_window(&[&resources], 16).await;
+    open_window(&resources).await;
     let report = run_personal_best_seed_pass(&resources).await.unwrap();
     assert_eq!(
         report,
@@ -555,8 +556,8 @@ async fn the_walk_measures_every_past_run_exactly_once_across_a_restart() {
     assert_eq!(mock.total_streams_hits(), 2, "the budget stopped the walk");
     assert!(!walk_complete(&resources, &athlete).await);
 
-    let resumed = another_instance(&resources);
-    walk_to_completion(&resumed, 16).await;
+    let resumed = another_instance(&resources, 16);
+    walk_to_completion(&resumed).await;
 
     for measured in runs {
         assert_eq!(
@@ -589,7 +590,7 @@ async fn the_walk_measures_every_past_run_exactly_once_across_a_restart() {
 #[serial]
 async fn the_walk_stops_when_the_budget_says_stop_and_resumes_in_the_next_window() {
     let (api_base, mock) = mock_strava().await;
-    let (resources, _env) = context_pointed_at(&api_base).await;
+    let (resources, _env) = context_pointed_at(&api_base, 12).await;
     let runs = [
         run(301, 90, 300),
         run(302, 60, 300),
@@ -606,7 +607,7 @@ async fn the_walk_stops_when_the_budget_says_stop_and_resumes_in_the_next_window
     .await;
 
     // Twelve requests a window, three of them the walk's.
-    open_window(&[&resources], 12).await;
+    open_window(&resources).await;
     let first = run_personal_best_seed_pass(&resources).await.unwrap();
     assert!(first.budget_spent);
     assert_eq!(mock.list_hits(&athlete.token), 1);
@@ -624,19 +625,18 @@ async fn the_walk_stops_when_the_budget_says_stop_and_resumes_in_the_next_window
         2,
         "no streams request in a spent window"
     );
+    // The walk's requests are signed by the server's app; a live request
+    // under it counts in the same windows, in the same database.
+    let live = ProviderRateLimiter::new(Arc::clone(&resources.common.repos.usage_counters));
+    live.set_budgets("strava", &[(12, ONE_DAY)]);
     assert_eq!(
-        resources
-            .fitness
-            .provider_rate_limiter
-            .acquire("strava")
-            .await
-            .unwrap(),
+        live.acquire("strava", "test_client", None).await.unwrap(),
         RateLimitStatus::Allowed,
         "three quarters of the window stay open to live requests"
     );
     assert!(!walk_complete(&resources, &athlete).await);
 
-    walk_to_completion(&resources, 12).await;
+    walk_to_completion(&resources).await;
     for measured in runs {
         assert_eq!(mock.streams_hits(measured.id), 1, "run {}", measured.id);
     }
@@ -651,7 +651,7 @@ async fn the_walk_stops_when_the_budget_says_stop_and_resumes_in_the_next_window
 #[serial]
 async fn no_record_is_told_while_the_walk_is_incomplete() {
     let (api_base, mock) = mock_strava().await;
-    let (resources, _env) = context_pointed_at(&api_base).await;
+    let (resources, _env) = context_pointed_at(&api_base, 100).await;
     let old = run(401, 300, 300);
     let earlier = run(402, 20, 290);
     let athlete = linked_athlete(
@@ -679,7 +679,7 @@ async fn no_record_is_told_while_the_walk_is_incomplete() {
         "no record is told against a partial history"
     );
 
-    walk_to_completion(&resources, 100).await;
+    walk_to_completion(&resources).await;
     assert_eq!(mock.streams_hits(401), 1);
     assert_eq!(mock.streams_hits(402), 1, "the walk skips a synced run");
     assert_eq!(mock.streams_hits(403), 1, "the walk skips a synced run");
@@ -695,7 +695,7 @@ async fn no_record_is_told_while_the_walk_is_incomplete() {
 #[serial]
 async fn after_the_walk_only_a_run_beating_the_all_time_best_is_told_once() {
     let (api_base, mock) = mock_strava().await;
-    let (resources, _env) = context_pointed_at(&api_base).await;
+    let (resources, _env) = context_pointed_at(&api_base, 100).await;
     let athlete = linked_athlete(
         &resources,
         &mock,
@@ -704,7 +704,7 @@ async fn after_the_walk_only_a_run_beating_the_all_time_best_is_told_once() {
         vec![run(501, 500, 280), run(502, 30, 300)],
     )
     .await;
-    walk_to_completion(&resources, 100).await;
+    walk_to_completion(&resources).await;
     assert!(walk_complete(&resources, &athlete).await);
     assert_eq!(stored_5k(&resources, &athlete).await, Some(1400.0));
     assert!(record_notices(&resources, &athlete).await.is_empty());
@@ -736,7 +736,7 @@ async fn after_the_walk_only_a_run_beating_the_all_time_best_is_told_once() {
 #[serial]
 async fn each_athletes_streams_requests_equal_their_runs() {
     let (api_base, mock) = mock_strava().await;
-    let (resources, _env) = context_pointed_at(&api_base).await;
+    let (resources, _env) = context_pointed_at(&api_base, 100).await;
     let first_runs = [
         run(601, 40, 300),
         run(602, 30, 300),
@@ -751,7 +751,7 @@ async fn each_athletes_streams_requests_equal_their_runs() {
     second_history.extend([ride(751, 30), ride(752, 20)]);
     let second = linked_athlete(&resources, &mock, "seed_b@example.com", 16, second_history).await;
 
-    open_window(&[&resources], 100).await;
+    open_window(&resources).await;
     let report = run_personal_best_seed_pass(&resources).await.unwrap();
     assert_eq!(
         report,
@@ -788,7 +788,7 @@ async fn each_athletes_streams_requests_equal_their_runs() {
 #[serial]
 async fn a_run_failing_alone_is_recorded_unmeasured_and_the_walk_completes() {
     let (api_base, mock) = mock_strava().await;
-    let (resources, _env) = context_pointed_at(&api_base).await;
+    let (resources, _env) = context_pointed_at(&api_base, 100).await;
     let runs = [
         run(801, 50, 330),
         run(802, 40, 300),
@@ -808,7 +808,7 @@ async fn a_run_failing_alone_is_recorded_unmeasured_and_the_walk_completes() {
     )
     .await;
 
-    walk_to_completion(&resources, 100).await;
+    walk_to_completion(&resources).await;
 
     for asked in runs {
         assert_eq!(mock.streams_hits(asked.id), 1, "run {}", asked.id);
@@ -837,7 +837,7 @@ async fn a_run_failing_alone_is_recorded_unmeasured_and_the_walk_completes() {
 #[serial]
 async fn two_runs_failing_in_a_row_pause_the_walk_until_strava_answers() {
     let (api_base, mock) = mock_strava().await;
-    let (resources, _env) = context_pointed_at(&api_base).await;
+    let (resources, _env) = context_pointed_at(&api_base, 100).await;
     let runs = [run(901, 30, 300), run(902, 20, 290), run(903, 10, 300)];
     mock.failing.lock().unwrap().extend([903, 902]);
     let athlete = linked_athlete(
@@ -849,7 +849,7 @@ async fn two_runs_failing_in_a_row_pause_the_walk_until_strava_answers() {
     )
     .await;
 
-    open_window(&[&resources], 100).await;
+    open_window(&resources).await;
     let refused = run_personal_best_seed_pass(&resources).await.unwrap();
     assert_eq!(
         refused,
@@ -870,7 +870,7 @@ async fn two_runs_failing_in_a_row_pause_the_walk_until_strava_answers() {
     assert_eq!(mock.streams_hits(901), 0, "the walk stopped at the refusal");
 
     mock.failing.lock().unwrap().clear();
-    walk_to_completion(&resources, 100).await;
+    walk_to_completion(&resources).await;
     assert_eq!(mock.streams_hits(903), 2, "asked again once Strava answers");
     assert_eq!(mock.streams_hits(902), 2, "asked again once Strava answers");
     assert_eq!(mock.streams_hits(901), 1);
@@ -885,8 +885,8 @@ async fn two_runs_failing_in_a_row_pause_the_walk_until_strava_answers() {
 #[serial]
 async fn two_instances_walking_at_once_never_exceed_the_walks_share_together() {
     let (api_base, mock) = mock_strava().await;
-    let (first, _env) = context_pointed_at(&api_base).await;
-    let second = another_instance(&first);
+    let (first, _env) = context_pointed_at(&api_base, 16).await;
+    let second = another_instance(&first, 16);
     let history = |base: u64| {
         (0..6_u32)
             .map(|i| run(base + u64::from(i), 60 - 5 * i64::from(i), 300))
@@ -896,7 +896,7 @@ async fn two_instances_walking_at_once_never_exceed_the_walks_share_together() {
     linked_athlete(&first, &mock, "seed_two@example.com", 22, history(2_001)).await;
 
     // Sixteen requests a window, four of them the walk's, for both.
-    open_window(&[&first, &second], 16).await;
+    open_window(&first).await;
     let (a, b) = tokio::join!(
         run_personal_best_seed_pass(&first),
         run_personal_best_seed_pass(&second)
@@ -919,8 +919,8 @@ async fn two_instances_walking_at_once_never_exceed_the_walks_share_together() {
 #[serial]
 async fn two_seed_workers_never_walk_the_same_athlete_at_once() {
     let (api_base, mock) = mock_strava().await;
-    let (first, _env) = context_pointed_at(&api_base).await;
-    let second = another_instance(&first);
+    let (first, _env) = context_pointed_at(&api_base, 100).await;
+    let second = another_instance(&first, 100);
     let runs: Vec<MockActivity> = (0..5_u32)
         .map(|i| run(3_001 + u64::from(i), 50 - 5 * i64::from(i), 300))
         .collect();
@@ -928,7 +928,7 @@ async fn two_seed_workers_never_walk_the_same_athlete_at_once() {
     // Slow streams, so the two passes overlap for as long as the walk lasts.
     *mock.streams_delay.lock().unwrap() = Duration::from_millis(60);
 
-    open_window(&[&first, &second], 100).await;
+    open_window(&first).await;
     let (a, b) = tokio::join!(
         run_personal_best_seed_pass(&first),
         run_personal_best_seed_pass(&second)
@@ -959,7 +959,7 @@ async fn two_seed_workers_never_walk_the_same_athlete_at_once() {
 #[serial]
 async fn an_expired_lease_is_taken_over() {
     let (api_base, mock) = mock_strava().await;
-    let (resources, _env) = context_pointed_at(&api_base).await;
+    let (resources, _env) = context_pointed_at(&api_base, 100).await;
     let runs = [
         run(4_001, 30, 300),
         run(4_002, 20, 300),
@@ -981,7 +981,7 @@ async fn an_expired_lease_is_taken_over() {
         .await
         .unwrap());
 
-    open_window(&[&resources], 100).await;
+    open_window(&resources).await;
     let held = run_personal_best_seed_pass(&resources).await.unwrap();
     assert_eq!(held.held, 1);
     assert_eq!(held.completed, 0);
@@ -1005,7 +1005,7 @@ async fn an_expired_lease_is_taken_over() {
 #[serial]
 async fn the_webhook_scan_and_the_walk_share_the_budget() {
     let (api_base, mock) = mock_strava().await;
-    let (resources, _env) = context_pointed_at(&api_base).await;
+    let (resources, _env) = context_pointed_at(&api_base, 16).await;
     let history = [
         run(5_001, 90, 300),
         run(5_002, 60, 300),
@@ -1021,7 +1021,7 @@ async fn the_webhook_scan_and_the_walk_share_the_budget() {
     .await;
 
     // Sixteen requests a window, four of them the walk's.
-    open_window(&[&resources], 16).await;
+    open_window(&resources).await;
     let uploads = [run(5_101, 1, 290), run(5_102, 0, 280)];
     for upload in uploads {
         mock.upload(&athlete.token, upload);
@@ -1047,7 +1047,7 @@ async fn the_webhook_scan_and_the_walk_share_the_budget() {
         .get_counter(
             PLATFORM_SCOPE,
             PLATFORM_SCOPE,
-            &budget_counter_key("strava"),
+            &budget_counter_key("strava", "test_client"),
             &budget_period(Utc::now(), ONE_DAY),
         )
         .await

@@ -83,6 +83,7 @@ use crate::models::{
     SportType, Stats, TimeSeriesData,
 };
 use crate::pagination::{CursorPage, PaginationParams};
+use crate::request_budget;
 use crate::utils::auth_error_for_status;
 
 /// Default base URL for Intervals.icu's REST API (overridable by tests).
@@ -354,6 +355,13 @@ impl IntervalsIcuProvider {
         }
     }
 
+    /// Admit one request against the budget of the app that signs the
+    /// stored credentials, before it is sent.
+    async fn admit_request(&self) -> AppResult<()> {
+        let budget = request_budget::carried_by(&self.credentials).await;
+        request_budget::admit(budget.as_ref(), "intervals_icu").await
+    }
+
     async fn require_credentials(&self) -> AppResult<CallAuth> {
         let guard = self.credentials.read().await;
         let creds = guard.as_ref().ok_or_else(|| {
@@ -435,6 +443,7 @@ impl IntervalsIcuProvider {
             .authorize(self.http.get(&url))
             .header("Accept", "application/json")
             .query(&query);
+        self.admit_request().await?;
         let response = send_traced(req, "list_activities", &url)
             .await
             .map_err(|e| {
@@ -537,6 +546,7 @@ impl IntervalsIcuProvider {
         let req = auth
             .authorize(self.http.get(&url))
             .header("Accept", "application/json");
+        self.admit_request().await?;
         let response = send_traced(req, "get_streams", &url).await.map_err(|e| {
             AppError::external_service("intervals_icu", format!("get_streams: {e}"))
         })?;
@@ -569,6 +579,7 @@ impl IntervalsIcuProvider {
             .authorize(self.http.get(&url))
             .header("Accept", "application/json")
             .query(&[("limit", MAX_ACTIVITY_MESSAGES.to_string())]);
+        self.admit_request().await?;
         let response = send_traced(req, "get_activity_comments", &url)
             .await
             .map_err(|e| {
@@ -606,6 +617,7 @@ impl IntervalsIcuProvider {
         let req = auth
             .authorize(self.http.get(&url))
             .header("Accept", "application/json");
+        self.admit_request().await?;
         let response = send_traced(req, "get_activity", &url).await.map_err(|e| {
             AppError::external_service("intervals_icu", format!("get_activity: {e}"))
         })?;
@@ -637,6 +649,7 @@ impl IntervalsIcuProvider {
                 ("oldest", oldest.format("%Y-%m-%d").to_string()),
                 ("newest", newest.format("%Y-%m-%d").to_string()),
             ]);
+        self.admit_request().await?;
         let response = send_traced(req, "get_events", &url)
             .await
             .map_err(|e| AppError::external_service("intervals_icu", format!("get_events: {e}")))?;
@@ -946,6 +959,7 @@ impl FitnessProvider for IntervalsIcuProvider {
         let req = auth
             .authorize(self.http.get(&url))
             .header("Accept", "application/json");
+        self.admit_request().await?;
         let response = send_traced(req, "get_athlete", &url).await.map_err(|e| {
             AppError::external_service("intervals_icu", format!("get_athlete: {e}"))
         })?;
@@ -1082,6 +1096,7 @@ impl FitnessProvider for IntervalsIcuProvider {
             .authorize(self.http.post(&url))
             .header("Accept", "application/json")
             .json(&event_body(session));
+        self.admit_request().await?;
         let response = send_traced(req, "push_planned_session", &url)
             .await
             .map_err(|e| {
@@ -1108,6 +1123,7 @@ impl FitnessProvider for IntervalsIcuProvider {
             .authorize(self.http.put(&url))
             .header("Accept", "application/json")
             .json(&event_body(session));
+        self.admit_request().await?;
         let response = send_traced(req, "update_planned_session", &url)
             .await
             .map_err(|e| {
@@ -1137,6 +1153,7 @@ impl FitnessProvider for IntervalsIcuProvider {
             .authorize(self.http.put(&url))
             .header("Accept", "application/json")
             .json(&doomed);
+        self.admit_request().await?;
         let response = send_traced(req, "delete_planned_sessions", &url)
             .await
             .map_err(|e| {

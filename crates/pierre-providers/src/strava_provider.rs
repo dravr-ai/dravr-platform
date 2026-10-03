@@ -24,6 +24,7 @@ use crate::models::{
     resolve_sport_type, Activity, ActivityBuilder, Athlete, SportType, Stats, TimeSeriesData,
 };
 use crate::pagination::{Cursor, CursorPage, PaginationDirection, PaginationParams};
+use crate::request_budget;
 use crate::strava_types::{
     DetailedActivityResponse, StravaActivityResponse, StravaAthleteResponse, StravaErrorResponse,
     StravaLap, StravaSplit, StravaStatsResponse, StravaStreamSet,
@@ -211,12 +212,15 @@ impl StravaProvider {
                 api_provider_limits::strava::ESTIMATED_RATE_LIMIT_BLOCK_DURATION_SECS,
             ..utils::RetryConfig::default()
         };
+        // The signing app's budget, which admits each request before it is sent.
+        let budget = request_budget::carried_by(&self.credentials).await;
         let result = utils::api_request_with_retry(
             &self.client,
             &url,
             &access_token,
             oauth_providers::STRAVA,
             &retry_config,
+            budget.as_ref(),
             |status, text| vendor_error(status, text, &url),
         )
         .await;
@@ -227,7 +231,7 @@ impl StravaProvider {
             Err(e) if e.code == ErrorCode::ResourceNotFound => {
                 self.circuit_breaker.record_success();
             }
-            Err(_) => self.circuit_breaker.record_failure(),
+            Err(e) => self.circuit_breaker.record_error(e),
         }
 
         result
@@ -649,6 +653,8 @@ impl FitnessProvider for StravaProvider {
         // `expires_at`, which the exchange prefers; scopes are not re-issued.
         new_credentials.refresh_token = new_credentials.refresh_token.or(Some(refresh_token));
         new_credentials.scopes = credentials.scopes;
+        // A refresh keeps the app that signs the token, so its budget carries over.
+        new_credentials.request_budget = credentials.request_budget;
 
         *self.credentials.write().await = Some(new_credentials.clone());
 

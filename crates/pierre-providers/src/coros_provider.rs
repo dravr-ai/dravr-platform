@@ -56,6 +56,7 @@ use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::refresh_due;
 use crate::models::{Activity, ActivityBuilder, Athlete, SportType, Stats};
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
+use crate::request_budget;
 use crate::spi::RefreshClientAuth;
 use crate::utils;
 use async_trait::async_trait;
@@ -252,12 +253,15 @@ impl CorosProvider {
                 api_provider_limits::coros::ESTIMATED_RATE_LIMIT_BLOCK_DURATION_SECS,
             ..utils::RetryConfig::default()
         };
+        // The signing app's budget, which admits each request before it is sent.
+        let budget = request_budget::carried_by(&self.credentials).await;
         let result = utils::api_request_with_retry(
             &self.client,
             &url,
             &access_token,
             oauth_providers::COROS,
             &retry_config,
+            budget.as_ref(),
             utils::no_vendor_error,
         )
         .await;
@@ -265,7 +269,7 @@ impl CorosProvider {
         // Record success/failure for circuit breaker
         match &result {
             Ok(_) => self.circuit_breaker.record_success(),
-            Err(_) => self.circuit_breaker.record_failure(),
+            Err(e) => self.circuit_breaker.record_error(e),
         }
 
         result
@@ -450,6 +454,8 @@ impl FitnessProvider for CorosProvider {
         // refresh token when it is unchanged, and scopes are not re-issued.
         new_credentials.refresh_token = new_credentials.refresh_token.or(Some(refresh_token));
         new_credentials.scopes = credentials.scopes;
+        // A refresh keeps the app that signs the token, so its budget carries over.
+        new_credentials.request_budget = credentials.request_budget;
 
         *self.credentials.write().await = Some(new_credentials.clone());
 
