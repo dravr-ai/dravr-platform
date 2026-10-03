@@ -123,8 +123,8 @@ export interface UpdateGroupRequest {
 export interface CreateGroupRequest {
   name: string;
   description?: string;
-  /** Omitted → the caller's selected agent */
-  agent_id?: string;
+  /** The agent the group answers with, picked while creating the group */
+  agent_id: string;
   coach_is_me?: boolean;
 }
 

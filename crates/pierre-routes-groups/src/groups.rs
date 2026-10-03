@@ -228,8 +228,11 @@ pub struct CreateGroupBody {
     /// Optional description
     #[serde(default)]
     pub description: Option<String>,
-    /// The AI agent the group answers with; omitted → the caller's selected
-    /// agent, the one onboarding's agent step chose
+    /// The AI agent the group answers with, picked while creating the group.
+    /// Required, with no fallback to the caller's own agent: that is no
+    /// evidence of what the group's athletes need, and a coach who does not
+    /// train has none. Optional only at deserialization, so a missing one is
+    /// refused with the API's JSON error rather than the extractor's plain text.
     #[serde(default)]
     pub agent_id: Option<String>,
     /// Make the caller the group's human coach. Honoured only when they may
@@ -496,18 +499,9 @@ impl GroupRoutes {
 
         // The agent must be one the caller can read in this tenant, so a
         // stale or foreign id never makes a group nobody can talk to.
-        let agent_id = match body.agent_id {
-            Some(id) => Some(id),
-            None => {
-                repos
-                    .tenants
-                    .get_selected_agent(tenant_id, auth.user_id)
-                    .await?
-            }
-        };
-        let Some(agent_id) = agent_id else {
+        let Some(agent_id) = body.agent_id else {
             return Err(AppError::invalid_input(
-                "Choose an agent before creating a group",
+                "Choose the group's agent before creating it",
             ));
         };
         let agent = repos

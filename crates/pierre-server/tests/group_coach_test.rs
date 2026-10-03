@@ -397,8 +397,15 @@ async fn test_create_group_refuses_an_agent_the_caller_cannot_read() {
 
 #[tokio::test]
 async fn test_create_group_without_an_agent_asks_for_one() {
-    let (_res, router, owner_auth, _owner_id, _tid, _persona) = setup().await;
-    // No agent_id and no selected agent.
+    let (res, router, owner_auth, owner_id, tid, persona) = setup().await;
+    // Even with an agent of their own selected, the caller's agent is never
+    // the group's: the group's agent is picked when the group is created.
+    res.common
+        .repos
+        .tenants
+        .set_selected_agent(tid, owner_id, Some(&persona))
+        .await
+        .unwrap();
     let (status, _) = post_group(&router, &owner_auth, json!({"name": "No agent"})).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }

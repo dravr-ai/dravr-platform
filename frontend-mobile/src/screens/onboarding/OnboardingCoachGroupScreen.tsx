@@ -1,4 +1,4 @@
-// ABOUTME: Onboarding step (mobile) — a coach creates their group and leaves with the athlete invite link and QR
+// ABOUTME: Onboarding step (mobile) — a coach names their group, picks the agent its athletes talk to, leaves with the invite
 // ABOUTME: Mirrors the web OnboardingCoachGroup; coach access is never granted here (ADR-018)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,15 +7,18 @@
 import React, { useState } from 'react';
 import { View, Text, ScrollView, Pressable, Share, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useQuery } from '@tanstack/react-query';
+import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import QRCode from 'react-native-qrcode-svg';
 import type { CoachingGroup } from '@pierre/shared-types';
-import { BOREAL_LIGHT } from '@pierre/shared-constants';
+import { BOREAL_LIGHT, QUERY_KEYS, coachCategoryLabelKey } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
-import { Button, Input } from '../../components/ui';
+import { Button, Input, Row } from '../../components/ui';
 import { OnboardingProgressBar } from '../../components/ui/OnboardingProgressBar';
 import { useAuth } from '../../contexts/AuthContext';
-import { chatApi, groupsApi, userApi } from '../../services/api';
+import { useThemeColors } from '../../constants/theme';
+import { chatApi, coachesApi, groupsApi, userApi } from '../../services/api';
 import { COACH_GROUP_DONE_PREFIX, useOnboardingFlag } from '../../hooks/useOnboardingFlag';
 import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
 import { inviteLink } from '../../constants/inviteLink';
@@ -32,9 +35,11 @@ const QR_GROUND = BOREAL_LIGHT.surfaceContainerLowest;
 const QR_INK = BOREAL_LIGHT.onSurface;
 
 /**
- * The coach's group step (mobile): name the group, then share the athlete
- * invite. The server decides whether the coach is set as the group's coach; a
- * group that comes back without one is shown as access pending.
+ * The coach's group step (mobile): name the group, pick its agent, then share
+ * the athlete invite. The agent is chosen from the catalogue here rather than
+ * inherited from the coach's own selection — a coach who does not train never
+ * picked one. The server decides whether the coach is set as the group's
+ * coach; a group that comes back without one is shown as access pending.
  */
 export function OnboardingCoachGroupScreen() {
   const { t } = useTranslation();
@@ -42,6 +47,8 @@ export function OnboardingCoachGroupScreen() {
   const { mark } = useOnboardingFlag(COACH_GROUP_DONE_PREFIX, user?.id);
   const progress = useOnboardingProgress('coach_group');
   const [name, setName] = useState('');
+  const [pickingAgent, setPickingAgent] = useState(false);
+  const [agentId, setAgentId] = useState<string | null>(null);
   const [created, setCreated] = useState<CoachingGroup | null>(null);
   const [link, setLink] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
@@ -55,13 +62,14 @@ export function OnboardingCoachGroupScreen() {
 
   const create = async () => {
     const trimmed = name.trim();
-    if (!trimmed || working) return;
+    if (!trimmed || !agentId || working) return;
     setWorking(true);
     setFailed(false);
     try {
       // A retry after a later call failed reuses the group already made.
       const group =
-        created ?? (await groupsApi.createGroup({ name: trimmed, coach_is_me: true }));
+        created ??
+        (await groupsApi.createGroup({ name: trimmed, agent_id: agentId, coach_is_me: true }));
       setCreated(group);
       await chatApi.createConversation({ group_id: group.id, agent_id: group.agent_id });
       const invite = await groupsApi.createInvite(group.id, {
@@ -150,6 +158,59 @@ export function OnboardingCoachGroupScreen() {
     );
   }
 
+  if (pickingAgent) {
+    return (
+      <SafeAreaView className="flex-1 bg-surface">
+        <ScrollView contentContainerClassName="py-10">
+          <View className="px-4">
+            <OnboardingProgressBar steps={progress} />
+            <Text className="mt-4 text-3xl font-display text-left text-on-surface">
+              {t('onboarding.groupAgentHeading')}
+            </Text>
+            <Text className="mt-3 text-sm text-on-surface-variant">
+              {t('onboarding.groupAgentIntro')}
+            </Text>
+          </View>
+
+          <AgentPicker
+            selected={agentId}
+            onSelect={(id) => {
+              if (!working) setAgentId(id);
+            }}
+          />
+
+          <View className="mt-8 gap-3 px-4">
+            {failed ? (
+              <Text className="text-center text-sm text-error" accessibilityRole="alert">
+                {t('onboarding.groupCreateFailed')}
+              </Text>
+            ) : null}
+            <Button
+              title={working ? t('onboarding.groupCreating') : t('onboarding.groupCreate')}
+              onPress={() => void create()}
+              disabled={working || agentId === null}
+              testID="onboarding-group-create"
+            />
+            {/* Once the group exists its name and agent are fixed: going back
+                would only offer edits the retry cannot apply. */}
+            {created ? null : (
+              <Pressable
+                onPress={() => setPickingAgent(false)}
+                disabled={working}
+                accessibilityRole="button"
+                testID="onboarding-group-back"
+              >
+                <Text className="text-center text-sm text-on-surface-variant">
+                  {t('common.back')}
+                </Text>
+              </Pressable>
+            )}
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView className="flex-1 bg-surface">
       <ScrollView contentContainerClassName="py-10 px-4" keyboardShouldPersistTaps="handled">
@@ -166,21 +227,19 @@ export function OnboardingCoachGroupScreen() {
             value={name}
             maxLength={100}
             onChangeText={setName}
-            error={failed ? t('onboarding.groupCreateFailed') : undefined}
             testID="onboarding-group-name"
           />
         </View>
 
         <View className="mt-8 gap-3">
           <Button
-            title={working ? t('onboarding.groupCreating') : t('onboarding.groupCreate')}
-            onPress={() => void create()}
-            disabled={working || name.trim() === ''}
-            testID="onboarding-group-create"
+            title={t('common.next')}
+            onPress={() => setPickingAgent(true)}
+            disabled={name.trim() === ''}
+            testID="onboarding-group-next"
           />
           <Pressable
             onPress={() => void finish('skipped')}
-            disabled={working}
             accessibilityRole="button"
             testID="onboarding-group-later"
           >
@@ -191,5 +250,71 @@ export function OnboardingCoachGroupScreen() {
         </View>
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+/**
+ * The catalogue as a single-choice list. Unranked on purpose: the coach's own
+ * activities are no evidence of what their athletes need.
+ */
+function AgentPicker({
+  selected,
+  onSelect,
+}: {
+  selected: string | null;
+  onSelect: (agentId: string) => void;
+}) {
+  const { t } = useTranslation();
+  const colors = useThemeColors();
+  const { data, isLoading, isError } = useQuery({
+    queryKey: QUERY_KEYS.coaches.list(),
+    queryFn: () => coachesApi.list(),
+  });
+  const agents = (data?.agents ?? []).filter((a) => !a.is_hidden);
+
+  if (isLoading) {
+    return (
+      <Text className="mt-8 px-4 text-center text-sm text-on-surface-variant">
+        {t('discover.loadingAgents')}
+      </Text>
+    );
+  }
+  if (isError) {
+    return (
+      <Text className="mt-8 px-4 text-center text-sm text-error" accessibilityRole="alert">
+        {t('app.failedLoadAgents')}
+      </Text>
+    );
+  }
+  if (agents.length === 0) {
+    return (
+      <Text className="mt-8 px-4 text-center text-sm text-on-surface-variant">
+        {t('app.noAgentsAvailable')}
+      </Text>
+    );
+  }
+
+  return (
+    <View className="mt-6" testID="onboarding-group-agents">
+      {agents.map((agent, index) => {
+        const checked = agent.id === selected;
+        return (
+          <Row
+            key={agent.id}
+            title={agent.title}
+            subtitle={t(coachCategoryLabelKey(agent.category))}
+            trailing={
+              checked ? <Feather name="check" size={18} color={colors.tokens.primary} /> : undefined
+            }
+            showChevron={false}
+            onPress={() => onSelect(agent.id)}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: checked }}
+            last={index === agents.length - 1}
+            testID={`onboarding-group-agent-${agent.id}`}
+          />
+        );
+      })}
+    </View>
   );
 }

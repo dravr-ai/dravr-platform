@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: E2E for the coach's onboarding group step — name the group, leave with its invite link and QR code
+// ABOUTME: E2E for the coach's onboarding group step — name it, pick its agent, leave with its invite link and QR code
 // ABOUTME: The first spec on the coach branch: a coach with and without coach access, and putting the step off
 
 import { test, expect, type Page, type Route } from '@playwright/test';
@@ -37,6 +37,18 @@ async function setupCoach(page: Page, managesRoster: boolean) {
     calls.steps.push(`${route.request().url().split('/').pop()}:${route.request().postDataJSON().status}`);
     await route.fulfill({ status: 204, body: '' });
   });
+  // The catalogue the group's agent is picked from.
+  await page.route('**/api/agents**', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    await json(route, 200, {
+      agents: [
+        { id: 'a-1', title: 'Endurance Agent', description: null, category: 'training', tags: [] },
+        { id: 'a-2', title: 'Triathlon Agent', description: null, category: 'training', tags: [] },
+      ],
+      total: 2,
+      metadata: { timestamp: new Date().toISOString(), api_version: 'v1' },
+    });
+  });
   await page.route('**/api/groups', async (route) => {
     calls.createGroup.push(route.request().postDataJSON());
     await json(route, 201, {
@@ -44,7 +56,7 @@ async function setupCoach(page: Page, managesRoster: boolean) {
       tenant_id: 'user-123',
       name: 'Les Rouleurs',
       description: null,
-      agent_id: 'a-1',
+      agent_id: 'a-2',
       owner_id: 'user-123',
       coach_user_id: managesRoster ? 'user-123' : null,
     });
@@ -68,18 +80,27 @@ async function setupCoach(page: Page, managesRoster: boolean) {
   return calls;
 }
 
+/** Name the group, pick its agent, create it. */
+async function createGroup(page: Page) {
+  await page.getByTestId('onboarding-group-name').fill('Les Rouleurs');
+  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByTestId('onboarding-group-agent-a-2').click();
+  await page.getByRole('button', { name: 'Create the group' }).click();
+}
+
 test('a coach with coach access leaves onboarding with a group, its link and its QR code', async ({
   page,
 }) => {
   const calls = await setupCoach(page, true);
 
-  await page.getByTestId('onboarding-group-name').fill('Les Rouleurs');
-  await page.getByRole('button', { name: 'Create the group' }).click();
+  await createGroup(page);
 
   await expect(page.getByTestId('onboarding-group-link')).toContainText('/groups/join/ABCD2345');
   await expect(page.getByTestId('onboarding-group-qr')).toBeVisible();
   await expect(page.getByTestId('onboarding-group-access-pending')).toHaveCount(0);
-  expect(calls.createGroup).toEqual([{ name: 'Les Rouleurs', coach_is_me: true }]);
+  expect(calls.createGroup).toEqual([
+    { name: 'Les Rouleurs', agent_id: 'a-2', coach_is_me: true },
+  ]);
   expect(calls.invites).toEqual([{ expires_in_days: 30 }]);
 
   await page.getByRole('button', { name: 'Go to my group' }).click();
@@ -92,8 +113,7 @@ test('a coach without coach access gets the group and is told access is pending'
 }) => {
   await setupCoach(page, false);
 
-  await page.getByTestId('onboarding-group-name').fill('Les Rouleurs');
-  await page.getByRole('button', { name: 'Create the group' }).click();
+  await createGroup(page);
 
   await expect(page.getByTestId('onboarding-group-access-pending')).toContainText(
     'Coach access pending',

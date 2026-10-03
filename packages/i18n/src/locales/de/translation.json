@@ -2446,6 +2446,8 @@
     "goalLabel": "Worauf trainierst du hin?",
     "goalPlaceholder": "Ein erster Halbmarathon im Frühling, zum Beispiel",
     "groupAccessContact": "Schreib an support@dravr.ai",
+    "groupAgentHeading": "Wähle den Agenten deiner Gruppe",
+    "groupAgentIntro": "Deine Athleten sprechen im Gruppen-Thread mit diesem Agenten. Wähle den, der zu ihrer Sportart passt.",
     "groupCopyLink": "Link kopieren",
     "groupCreate": "Gruppe erstellen",
     "groupCreateFailed": "Die Gruppe konnte nicht erstellt werden. Versuch es noch einmal.",

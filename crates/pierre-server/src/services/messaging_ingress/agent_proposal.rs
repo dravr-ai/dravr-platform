@@ -11,11 +11,14 @@ use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_AGENT_PROPOSAL_FOOTER, KEY_AGENT_PROPOSAL_WELCOME,
     KEY_AGENT_PROPOSAL_WELCOME_GENERIC,
 };
+use pierre_core::errors::AppResult;
 use pierre_core::models::messaging::{ChannelConfig, MessageContent, OutgoingMessage};
 use pierre_database::backends::MessagingRepository;
+use pierre_database::repositories::OnboardingStepRecord;
 use pierre_routes_agents::agents::{build_agent_proposal, ProposedAgent, SportProfileSummary};
 use pierre_services::activity_sports::sport_label;
 use pierre_services::analytics::hash_id;
+use pierre_services::intake;
 use tracing::{info, warn};
 
 use super::PendingDispatch;
@@ -68,13 +71,27 @@ async fn stamp_agent_proposal_sent(dispatch: &PendingDispatch, offered_ids: &[St
     }
 }
 
+/// Whether the user's onboarding steps rule the proposal out.
+///
+/// A coach who does not train has no agent of their own to pick: the
+/// proposal ranks agents on the reader's own activities, and their group's
+/// agent is chosen when the group is created. Fails closed like the other
+/// checks in [`build_agent_proposal_message`] — a read error must not offer an
+/// athlete's agent to a coach.
+fn withheld_for_onboarding_steps(steps: &AppResult<Vec<OnboardingStepRecord>>) -> bool {
+    steps
+        .as_ref()
+        .map_or(true, |steps| intake::athlete_steps_waived(steps))
+}
+
 /// Decide whether to auto-send and, if so, build the outbound proposal message.
 ///
 /// Returns `None` when the proposal was already sent (or the idempotency read
 /// errored — fail closed), when the user already has an active agent (they are
-/// past onboarding), when the build fails, or when no agents are eligible yet
-/// (cold start). In the cold-start case the link is intentionally left
-/// un-stamped so a later turn can propose once activities sync.
+/// past onboarding), when they coach others and do not train, when the build
+/// fails, or when no agents are eligible yet (cold start). In the cold-start
+/// case the link is intentionally left un-stamped so a later turn can propose
+/// once activities sync.
 async fn build_agent_proposal_message(
     dispatch: &PendingDispatch,
 ) -> Option<(OutgoingMessage, Vec<String>)> {
@@ -107,6 +124,18 @@ async fn build_agent_proposal_message(
         .await
         .map_or(true, |agent| agent.is_some()); // fail closed: never onboard a possibly-coached user
     if has_active_agent {
+        return None;
+    }
+
+    // Left un-stamped, so a later turn re-reads the steps.
+    let steps = dispatch
+        .resources
+        .common
+        .repos
+        .user_onboarding
+        .get_onboarding_steps(&dispatch.auth_result.user_id.to_string())
+        .await;
+    if withheld_for_onboarding_steps(&steps) {
         return None;
     }
 
@@ -190,4 +219,40 @@ fn render_agent_proposal_text(
     }
     body.push_str(&registry.get(KEY_AGENT_PROPOSAL_FOOTER, locale));
     body
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pierre_core::errors::AppError;
+
+    fn step(step_id: &str, status: &str) -> OnboardingStepRecord {
+        OnboardingStepRecord {
+            step_id: step_id.to_owned(),
+            status: status.to_owned(),
+            chosen_channel: None,
+        }
+    }
+
+    #[test]
+    fn a_coach_who_does_not_train_is_not_offered_an_agent() {
+        let steps = Ok(vec![
+            step(intake::STEP_PROFILE_TYPE, intake::STATUS_COMPLETE),
+            step(intake::STEP_PARQ, intake::STATUS_NOT_APPLICABLE),
+        ]);
+        assert!(withheld_for_onboarding_steps(&steps));
+    }
+
+    #[test]
+    fn an_athlete_is_still_offered_one() {
+        assert!(!withheld_for_onboarding_steps(&Ok(vec![])));
+        let skipped_parq = Ok(vec![step(intake::STEP_PARQ, intake::STATUS_SKIPPED)]);
+        assert!(!withheld_for_onboarding_steps(&skipped_parq));
+    }
+
+    #[test]
+    fn an_unreadable_record_withholds_the_proposal() {
+        let steps = Err(AppError::internal("read failed"));
+        assert!(withheld_for_onboarding_steps(&steps));
+    }
 }

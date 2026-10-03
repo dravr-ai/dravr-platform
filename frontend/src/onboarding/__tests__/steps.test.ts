@@ -385,6 +385,28 @@ describe('coach who does not train — athlete steps leave the journey', () => {
   it('a coach who trains still gets the athlete steps', () => {
     expect(currentOnboardingStep(coachOnly({ athleteStepsWaived: false }))?.id).toBe('about_you');
   });
+
+  it('is never offered an agent for their own training once connected — the group step comes next', () => {
+    const connected = coachOnly({
+      needsProviderConnection: false,
+      justOnboarded: true,
+      coachesOthers: true,
+    });
+    expect(currentOnboardingStep(connected)?.id).toBe('coach_group');
+    expect(onboardingProgress(connected).map((s) => s.id)).not.toContain('coach_proposal');
+  });
+
+  it('a coach who trains still gets the agent step before the group step', () => {
+    const connected = coachOnly({
+      needsProviderConnection: false,
+      justOnboarded: true,
+      coachesOthers: true,
+      athleteStepsWaived: false,
+      aboutYouDone: true,
+      parqDone: true,
+    });
+    expect(currentOnboardingStep(connected)?.id).toBe('coach_proposal');
+  });
 });
 
 describe('athleteStepsWaived — durable coach-only record', () => {

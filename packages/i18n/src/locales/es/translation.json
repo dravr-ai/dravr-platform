@@ -2446,6 +2446,8 @@
     "goalLabel": "¿Para qué te estás preparando?",
     "goalPlaceholder": "Una primera media maratón en primavera, por ejemplo",
     "groupAccessContact": "Escribe a support@dravr.ai",
+    "groupAgentHeading": "Elige el agente de tu grupo",
+    "groupAgentIntro": "Tus atletas hablan con este agente en el hilo del grupo. Elige el que se ajuste a su deporte.",
     "groupCopyLink": "Copiar enlace",
     "groupCreate": "Crear el grupo",
     "groupCreateFailed": "No pudimos crear el grupo. Inténtalo de nuevo.",

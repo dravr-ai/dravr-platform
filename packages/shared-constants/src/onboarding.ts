@@ -142,17 +142,24 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     isComplete: (c) => c.needsProviderConnection === false,
   },
   {
+    // An agent for the athlete's own training, ranked on their own activities.
+    // A coach who does not train has no such agent: their group's agent is
+    // chosen while creating the group, in the coach_group step.
     id: 'coach_proposal',
     labelKey: 'onboarding.stepAgent',
     isApplicable: (c) =>
-      c.onboardingActive && c.justOnboarded && c.needsProviderConnection === false,
+      c.onboardingActive &&
+      c.justOnboarded &&
+      c.needsProviderConnection === false &&
+      !c.athleteStepsWaived,
     isComplete: (c) => c.coachProposalDone,
   },
   {
     // A coach leaves onboarding with a group and an athlete invite link instead
-    // of discovering /group create in chat. Post-connect like the agent step,
-    // whose agent the group answers with; not gated on `justOnboarded`, so a
-    // coach who onboarded before this step existed is offered it once.
+    // of discovering /group create in chat. Post-connect like the agent step;
+    // the group's agent is picked inside this step, never inherited from the
+    // coach's own. Not gated on `justOnboarded`, so a coach who onboarded
+    // before this step existed is offered it once.
     id: 'coach_group',
     labelKey: 'onboarding.stepGroup',
     isApplicable: (c) =>
