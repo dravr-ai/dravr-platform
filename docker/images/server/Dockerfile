@@ -92,12 +92,12 @@ FROM --platform=linux/amd64 debian:trixie-slim
 
 # Before the apt and npm layers, so it depends on the base image alone. Nothing
 # after the large layers below may read the filesystem under it: a RUN mounts
-# it, and so does WORKDIR, which BuildKit runs as a mkdir on the full rootfs.
-# Either one forces BuildKit to download every cached layer under it (~1 GB of
-# chromium, node and the CLIs) from the registry cache on each warm build, which
-# is billed Artifact Registry egress. The COPYs further down are --link with
-# --chown/--chmod for the same reason; only metadata (USER, ENV, ARG, EXPOSE,
-# HEALTHCHECK, ENTRYPOINT, CMD) may follow them.
+# it, COPY --chmod mounts it too (even with --link), and WORKDIR runs as a mkdir
+# on the full rootfs. Any of them forces BuildKit to download and unpack every
+# cached layer under it (~1 GB of chromium, node and the CLIs) from the registry
+# cache on each warm build, which is billed Artifact Registry egress. The COPYs
+# further down are --link with --chown only (see there); only metadata (USER,
+# ENV, ARG, EXPOSE, HEALTHCHECK, ENTRYPOINT, CMD) may follow them.
 RUN useradd -m -u 1001 appuser \
     && mkdir -p /app/data \
     && chown -R appuser:appuser /app
@@ -278,13 +278,16 @@ RUN npm install -g "@github/copilot-linux-x64@${COPILOT_CLI_VERSION}" \
 
 # Server binary, pierre-cli (seeders + admin tools), and entrypoint scripts.
 # --link builds each layer independently of the filesystem underneath, and
-# --chown/--chmod set ownership and the exec bit in the copy itself rather than
-# in a RUN — so no step here reads the cached layers above, and BuildKit leaves
-# them in the registry.
+# --chown sets ownership in the copy itself rather than in a RUN — so no step
+# here reads the cached layers above, and BuildKit leaves them in the registry.
+# There is no --chmod: it mounts the filesystem under the copy even with --link
+# (bisected 2026-10-04), so the exec bit comes from the source instead. Cargo
+# writes the binaries 0755 (server-binaries' cp keeps that mode for the
+# prebuilt context), and the scripts are 100755 in git.
 # Ownership is numeric (appuser is uid 1001, created above); /app itself keeps
 # appuser ownership through the merge.
-COPY --link --chown=1001:1001 --chmod=755 --from=binaries /app/target/release-lto/pierre-mcp-server /app/pierre-mcp-server
-COPY --link --chown=1001:1001 --chmod=755 --from=binaries /app/target/release-lto/pierre-cli /app/pierre-cli
+COPY --link --chown=1001:1001 --from=binaries /app/target/release-lto/pierre-mcp-server /app/pierre-mcp-server
+COPY --link --chown=1001:1001 --from=binaries /app/target/release-lto/pierre-cli /app/pierre-cli
 # commands/ and the eval fixtures are source files, so they come from the build
 # context, which the builder stage copied them from under the same .dockerignore.
 COPY --link --chown=1001:1001 commands /app/commands
@@ -293,9 +296,9 @@ COPY --link --chown=1001:1001 commands /app/commands
 # the runtime at this baked-in path so the route returns real data instead
 # of the empty fallback when the workspace tree isn't present.
 COPY --link --chown=1001:1001 crates/pierre-evals/fixtures /app/fixtures
-COPY --link --chown=1001:1001 --chmod=755 docker/images/server/entrypoint.sh /app/docker-entrypoint.sh
-COPY --link --chown=1001:1001 --chmod=755 docker/images/server/seed-entrypoint.sh /app/seed-entrypoint.sh
-COPY --link --chmod=755 docker/images/server/chromium-headless.sh /usr/local/bin/chromium-headless
+COPY --link --chown=1001:1001 docker/images/server/entrypoint.sh /app/docker-entrypoint.sh
+COPY --link --chown=1001:1001 docker/images/server/seed-entrypoint.sh /app/seed-entrypoint.sh
+COPY --link docker/images/server/chromium-headless.sh /usr/local/bin/chromium-headless
 
 # Switch to non-root user. The working directory, /app, is set above the apt
 # layer: a WORKDIR here would pull the cached layers (see the useradd RUN).
