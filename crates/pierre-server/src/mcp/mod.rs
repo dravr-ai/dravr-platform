@@ -15,6 +15,8 @@ pub mod prompt_templates;
 pub mod resource_catalog;
 /// Resource management for MCP
 pub mod resources;
+/// Cross-replica carrier for MCP task cancels and input (Postgres LISTEN/NOTIFY)
+pub mod task_signals;
 /// Durable owner-scoped store for MCP Tasks extension handles
 pub mod task_store;
 /// MCP tool handler implementations

@@ -36,7 +36,9 @@ use dravr_tronc::mcp::schema::{
     Tool, ToolResponse, ToolSchema, ToolsCapability,
 };
 use dravr_tronc::mcp::server::{InstructionsSource, McpServer};
-use dravr_tronc::mcp::tasks::{TaskManager, TaskOptions, TaskOwner, TaskRun, TaskStatus};
+use dravr_tronc::mcp::tasks::{
+    TaskError, TaskManager, TaskOptions, TaskOwner, TaskRun, TaskStatus,
+};
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext, ToolRegistry};
 use pierre_auth::auth::AuthResult;
 use pierre_auth::config::DIALED_HOST_HEADERS;
@@ -63,6 +65,7 @@ use uuid::Uuid;
 use super::prompt_templates::{self, PromptGetOutcome};
 use super::resource_catalog;
 use super::resources::ServerContext;
+use super::task_signals::TaskSignals;
 use super::task_store::{PierreTaskStore, MCP_TASK_POLL_INTERVAL_MS, MCP_TASK_TTL_MS};
 use super::tool_handlers::ToolHandlers;
 use crate::constants::errors::{
@@ -411,9 +414,16 @@ fn join_to_response(joined: Result<ToolResponse, JoinError>) -> ToolResponse {
     })
 }
 
+/// How often a running task's follower re-reads its row. The run's token is
+/// the fast path, fired by a cancel answered here or carried by
+/// [`TaskSignals`]; this read is the backstop for a signal lost while a
+/// listener reconnected, for a replica whose listener could not start, and
+/// for expiry, which no signal announces.
+const CANCEL_BACKSTOP_INTERVAL: Duration = Duration::from_secs(15);
+
 /// Await the worker, raising the scoped cancel flag when the run's
-/// cancellation token fires or the task store shows the task cancelled — the
-/// relay half of cooperative cancellation.
+/// cancellation token fires or the task store shows the task cancelled or
+/// gone — the relay half of cooperative cancellation.
 async fn await_work_relaying_cancel(
     manager: &TaskManager,
     run: &TaskRun,
@@ -424,32 +434,40 @@ async fn await_work_relaying_cancel(
     loop {
         tokio::select! {
             joined = &mut work => return join_to_response(joined),
-            // A tasks/cancel answered by this replica fires the run's token
-            // at once. Expiry does not: the mcp_task_sweeper deletes rows
-            // through the repository, not through the manager.
+            // A tasks/cancel answered by this replica, or by another one
+            // whose cancel the task signal listener carried here, fires the
+            // run's token at once.
             () = cancelled.cancelled(), if !cancel_flag.load(Ordering::Relaxed) => {
                 debug!(task_id = %run.id(), "Task cancelled — flagging the worker");
                 cancel_flag.store(true, Ordering::Relaxed);
             }
-            // One answered by another replica reaches only the store
-            // (carnet#761, a tronc limitation), so it is still polled for.
-            () = sleep(Duration::from_millis(MCP_TASK_POLL_INTERVAL_MS)) => {
+            () = sleep(CANCEL_BACKSTOP_INTERVAL) => {
                 relay_cancel_once(manager, run, cancel_flag).await;
             }
         }
     }
 }
 
-/// One store check: raise the flag if the task turned `cancelled`.
+/// One store check: fire the run's token if the task turned `cancelled`, or
+/// if its row is gone. Reads skip a row past its `expires_at_ms`, so an
+/// expired task reads as absent before the sweeper deletes it; nobody can
+/// read or settle its result any more, so the worker has nothing left to
+/// write for. The token, not just the flag, so an operation parked waiting
+/// for input it will never get wakes too.
 async fn relay_cancel_once(manager: &TaskManager, run: &TaskRun, cancel_flag: &AtomicBool) {
     if cancel_flag.load(Ordering::Relaxed) {
         return;
     }
-    if let Ok(task) = manager.get(run.owner(), run.id()).await {
-        if task.status() == TaskStatus::Cancelled {
+    match manager.get(run.owner(), run.id()).await {
+        Ok(task) if task.status() == TaskStatus::Cancelled => {
             debug!(task_id = %run.id(), "Task cancelled — flagging the worker");
-            cancel_flag.store(true, Ordering::Relaxed);
+            run.cancellation().cancel();
         }
+        Err(TaskError::NotFound(_)) => {
+            debug!(task_id = %run.id(), "Task expired — flagging the worker");
+            run.cancellation().cancel();
+        }
+        Ok(_) | Err(_) => {}
     }
 }
 
@@ -458,9 +476,9 @@ async fn relay_cancel_once(manager: &TaskManager, run: &TaskRun, cancel_flag: &A
 ///
 /// The engine transitions the task row to `cancelled` synchronously when the
 /// client asks; the worker only learns of it through this follower, which
-/// watches the run's cancellation token (a cancel answered by this replica)
-/// and polls the store between join attempts (one answered by another
-/// replica), and flips the scoped cancel flag so
+/// watches the run's cancellation token (a cancel answered by this replica or
+/// carried here by [`TaskSignals`]) and re-reads the store as a backstop, and
+/// flips the scoped cancel flag so
 /// a tool with a natural stopping point (the plan-push entry loop) stops
 /// instead of writing on. Cancellation stays cooperative and best-effort — a
 /// worker mid-provider-call finishes that call first.
@@ -507,6 +525,9 @@ pub struct PierreToolDispatcher {
     /// the same instance is installed on the engine (which serves `tasks/get`)
     /// and cloned into detached completion followers.
     task_manager: Arc<TaskManager>,
+    /// Carrier for cancels and input answered by another replica; its
+    /// listener starts with the first task this process mints.
+    task_signals: TaskSignals,
 }
 
 impl PierreToolDispatcher {
@@ -516,17 +537,21 @@ impl PierreToolDispatcher {
         let store = Arc::new(PierreTaskStore::new(
             resources.common.repos.mcp_tasks.clone(),
         ));
-        let task_manager = Arc::new(TaskManager::with_options(
-            store,
-            // The mcp_task_sweeper service reclaims expired rows, so the
-            // manager runs no sweep of its own.
-            TaskOptions::host_swept()
-                .with_ttl_ms(Some(MCP_TASK_TTL_MS))
-                .with_poll_interval_ms(MCP_TASK_POLL_INTERVAL_MS),
-        ));
+        let task_signals = TaskSignals::for_database(&resources.agent.database);
+        let task_manager = Arc::new(
+            task_signals.install(TaskManager::with_options(
+                store,
+                // The mcp_task_sweeper service reclaims expired rows, so the
+                // manager runs no sweep of its own.
+                TaskOptions::host_swept()
+                    .with_ttl_ms(Some(MCP_TASK_TTL_MS))
+                    .with_poll_interval_ms(MCP_TASK_POLL_INTERVAL_MS),
+            )),
+        );
         Self {
             resources,
             task_manager,
+            task_signals,
         }
     }
 
@@ -765,6 +790,7 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
                     user_id: ctx.user_id.clone(),
                     tenant_id: ctx.tenant_id.clone(),
                 };
+                self.task_signals.ensure_listening(&self.task_manager).await;
                 match self.task_manager.create(&owner).await {
                     Ok(run) => {
                         let task = run.task().clone();
