@@ -427,8 +427,20 @@ async fn test_mcp_request_empty_body() {
         .send(routes)
         .await;
 
-    // Should handle empty body gracefully
-    assert!(response.status() == 400 || response.status() == 200);
+    // A body that does not declare `application/json` (here, no Content-Type at
+    // all) is refused with 415 before it is parsed: browsers send `text/plain`
+    // and form bodies cross-origin without a CORS preflight, so parsing them
+    // would let a page reach the tools without the CORS policy being consulted.
+    // The refusal still carries a JSON-RPC invalid-request error. The same
+    // empty body declared as JSON is the parse error
+    // `test_mcp_request_invalid_json` pins.
+    assert_eq!(response.status(), 415);
+    let body: serde_json::Value = response.json();
+    assert_eq!(
+        body["error"]["code"], -32600,
+        "an undeclared body must carry the invalid-request code: {:?}",
+        body["error"]
+    );
 }
 
 #[tokio::test]
