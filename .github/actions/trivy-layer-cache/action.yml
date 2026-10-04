@@ -14,11 +14,14 @@ description: >-
   restore: downloads the newest unexpired artifact called `name` that a run on main of this
   repository uploaded. Artifacts are listed repo-wide, and a fork's pull_request run can
   upload one under any name; an analysis cache it planted could hide vulnerabilities from
-  the gate, so only main runs of this repository are trusted. A miss is not an error: the
-  scan then downloads the layers it needs.
+  the gate, so only main runs of this repository are trusted. That trust holds only while
+  no pull_request_target or workflow_run workflow here runs a pull request's code: such a
+  run executes on main of this repository and would pass the filter. A miss, or any failure
+  to list or download, is not an error: the scan then downloads the layers it needs.
 
   save: uploads the cache under `name`. Every run saves, hit or miss, so the newest
   artifact always carries the latest layers and never ages out while builds keep coming.
+  A failed upload only warns: the save sits before the gating scan and must never stop it.
 
 inputs:
   mode:
@@ -30,16 +33,10 @@ inputs:
       layers, so an older analysis has nothing left to skip and the cache starts over.
     required: true
 
-outputs:
-  hit:
-    description: "'true' when restore found and unpacked a cache"
-    value: ${{ steps.restore.outputs.hit }}
-
 runs:
   using: composite
   steps:
     - name: Restore Trivy layer cache
-      id: restore
       if: inputs.mode == 'restore'
       shell: bash
       env:
@@ -48,15 +45,19 @@ runs:
       run: |
         set -uo pipefail
         dest="${HOME}/.cache/trivy/fanal"
-        id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${NAME}&per_page=30" --jq '
+        # The runner invokes bash with -e, so a failed listing would fail the step and skip
+        # the gating scan; it is caught here and treated as a miss.
+        if ! id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${NAME}&per_page=30" --jq '
           [.artifacts[]
             | select(.expired | not)
             | select(.workflow_run.head_branch == "main")
             | select(.workflow_run.head_repository_id == .workflow_run.repository_id)]
-          | sort_by(.created_at) | last | .id // empty')"
+          | sort_by(.created_at) | last | .id // empty')"; then
+          echo "::warning::Could not list ${NAME} artifacts; the scan downloads every layer it analyzes."
+          exit 0
+        fi
         if [ -z "${id}" ]; then
           echo "No trusted ${NAME} artifact; the scan downloads every layer it analyzes."
-          echo "hit=false" >> "$GITHUB_OUTPUT"
           exit 0
         fi
         zip="${RUNNER_TEMP}/trivy-fanal.zip"
@@ -64,19 +65,20 @@ runs:
              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" -o "${zip}" \
            && mkdir -p "${dest}" && unzip -oq "${zip}" -d "${dest}"; then
           echo "Restored ${NAME} from artifact ${id}."
-          echo "hit=true" >> "$GITHUB_OUTPUT"
         else
           echo "::warning::Could not restore ${NAME} from artifact ${id}; the scan downloads every layer it analyzes."
           rm -rf "${dest}"
-          echo "hit=false" >> "$GITHUB_OUTPUT"
         fi
 
     - name: Save Trivy layer cache
       if: inputs.mode == 'save'
+      continue-on-error: true
       uses: actions/upload-artifact@v4
       with:
         name: ${{ inputs.name }}
         path: ~/.cache/trivy/fanal
         retention-days: 14
+        # A re-run attempt sees the first attempt's artifact of this name in the same run.
+        overwrite: true
         include-hidden-files: true
         if-no-files-found: warn
