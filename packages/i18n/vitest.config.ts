@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Vitest configuration for the i18n package's tests
-// ABOUTME: Runs the locale corpus checks against the shared catalogue in node, once for both clients
+// ABOUTME: Runs the locale corpus checks in node, once for both clients; hook tests opt into jsdom per file
 
 import { defineConfig } from 'vitest/config';
 

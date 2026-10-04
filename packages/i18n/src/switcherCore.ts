@@ -4,7 +4,7 @@
 // ABOUTME: Platform-neutral body of the language switcher shared by web and React Native
 // ABOUTME: Restores a remembered preference on mount, then moves chrome and server locale together
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { DEFAULT_LANGUAGE, isSupportedLanguage, type SupportedLanguage } from './config';
 import { persistLocaleToServer } from './localeSync';
 import { useTranslation } from './types';
@@ -27,15 +27,43 @@ export interface LocaleStorage {
 /** Progress of the write to `users.locale` behind the last language change. */
 export type LocaleSyncState = 'idle' | 'saving' | 'error';
 
+/** The restore write-back currently in flight, shared by every mounted switcher. */
+let pendingWriteBack: { language: SupportedLanguage; done: Promise<void> } | null = null;
+
+/**
+ * Push a restored device locale to `users.locale`, joining an identical write
+ * already in flight instead of issuing a second one.
+ *
+ * The web app mounts the switcher hook twice while Settings is open (app root
+ * and the picker), and StrictMode re-runs effects; both would otherwise send
+ * the same `PUT` side by side. A write for a different language is never
+ * joined — the latest choice always reaches the server.
+ */
+function writeBackRestoredLocale(language: SupportedLanguage): Promise<void> {
+  if (pendingWriteBack !== null && pendingWriteBack.language === language) {
+    return pendingWriteBack.done;
+  }
+  const entry = { language, done: persistLocaleToServer(language) };
+  pendingWriteBack = entry;
+  const settle = (): void => {
+    if (pendingWriteBack === entry) {
+      pendingWriteBack = null;
+    }
+  };
+  entry.done.then(settle, settle);
+  return entry.done;
+}
+
 /** Options accepted by both language-switcher hooks. */
 export interface LanguageSwitcherOptions {
   /** Override the storage key. Defaults to [`LANGUAGE_STORAGE_KEY`]. */
   storageKey?: string;
   /**
    * The locale the server has on record for the signed-in user
-   * (`User.locale`). Used only when this device has no stored choice, so a
-   * user who picked German on the web does not land back in French on their
-   * phone.
+   * (`User.locale`), `undefined` while nobody is signed in. Adopted when this
+   * device has no stored choice, so a user who picked German on the web does
+   * not land back in French on their phone; overwritten with the stored choice
+   * when the two disagree, so the agent answers in the language on screen.
    */
   serverLocale?: string;
   /** Notified after a successful change, once chrome and server agree. */
@@ -68,13 +96,38 @@ export function useSwitcherCore(
   const { storageKey = LANGUAGE_STORAGE_KEY, serverLocale, onLanguageChange } = options;
   const { i18n, language } = useTranslation();
   const [syncState, setSyncState] = useState<LocaleSyncState>('idle');
+  // Which write owns `syncState`: the restore pass that started a write-back,
+  // a user change, or nothing once the hook is gone. A restore pass that a
+  // dependency change superseded still reports its write unless a newer write
+  // took over — otherwise a `serverLocale` that catches up mid-write (a user
+  // refetch landing before the PUT's response) would leave `'saving'` behind,
+  // and the pickers stay disabled on it.
+  const syncOwner = useRef<object | null>(null);
+
+  // react-i18next hands out a fresh `i18n` wrapper on every language change,
+  // so the restore effect reads it through a ref instead of depending on it.
+  // As a dependency it re-ran the restore after each switch, and that pass
+  // found the new choice disagreeing with a `serverLocale` not yet refetched
+  // and sent a second `PUT` beside the one `changeLanguage` already made.
+  const i18nRef = useRef(i18n);
+  useEffect(() => {
+    i18nRef.current = i18n;
+  }, [i18n]);
+
+  useEffect(
+    () => () => {
+      syncOwner.current = null;
+    },
+    [],
+  );
 
   // Deliberately not guarded by a "ran once" ref. StrictMode mounts, tears
   // down and remounts every effect in development: a ref guard would let the
   // teardown cancel the only restore attempt and leave the second mount with
   // no stored preference applied at all. Re-running is safe instead, because
   // `changeLanguage` writes storage before anything can re-read it — a repeat
-  // pass finds the viewer's own choice and re-applies the same value.
+  // pass finds the viewer's own choice and re-applies the same value, and a
+  // repeat write-back joins the one already in flight.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -87,18 +140,45 @@ export function useSwitcherCore(
         : isSupportedLanguage(serverLocale)
           ? serverLocale
           : null;
-      if (preferred !== null && preferred !== i18n.language) {
-        await i18n.changeLanguage(preferred);
+      const instance = i18nRef.current;
+      if (preferred !== null && preferred !== instance.language) {
+        await instance.changeLanguage(preferred);
+      }
+      // A choice made on this device wins over the account, so the account
+      // must hear about it: without this write the chrome renders the stored
+      // language while the agent keeps answering in `users.locale`. Only for a
+      // signed-in user (a supported `serverLocale`) whose record disagrees.
+      if (
+        cancelled ||
+        !isSupportedLanguage(stored) ||
+        !isSupportedLanguage(serverLocale) ||
+        stored === serverLocale
+      ) {
+        return;
+      }
+      const owner = {};
+      syncOwner.current = owner;
+      setSyncState('saving');
+      let outcome: LocaleSyncState = 'idle';
+      try {
+        await writeBackRestoredLocale(stored);
+      } catch {
+        outcome = 'error';
+      }
+      if (syncOwner.current === owner) {
+        setSyncState(outcome);
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [storage, storageKey, serverLocale, i18n]);
+  }, [storage, storageKey, serverLocale]);
 
   const changeLanguage = useCallback(
     async (next: SupportedLanguage): Promise<void> => {
+      // The user's choice supersedes a restore write-back still in flight.
+      syncOwner.current = {};
       setSyncState('saving');
       // Storage first, so the restore effect can never observe a window where
       // i18next has moved on but the remembered preference has not.

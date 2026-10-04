@@ -22,6 +22,9 @@ import { typedTextWouldBeLost } from '../utils/typedText';
  * reload would cost. With no typed text on the page it costs nothing, and the
  * build is taken without a question — that is every sign-in, where the worker
  * is found as the page loads and is ready seconds after the athlete arrives.
+ * Typed text means a field the athlete edited and has not emptied again; a
+ * value the page filled in itself, such as the saved display name on the
+ * settings form, is not a draft and does not ask.
  * With typed text in a signed-in session this asks, and dismissing keeps the
  * old build until the next natural reload. On the sign-in form it neither
  * asks nor reloads over the credentials being typed; the build is taken when

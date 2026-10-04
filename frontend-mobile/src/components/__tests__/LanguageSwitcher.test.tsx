@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Covers the mobile language switcher — French by default, and one tap moving both locales
-// ABOUTME: Asserts the real PUT /api/user/locale fires, so chrome and reply language cannot drift apart
+// ABOUTME: Asserts the real PUT /api/user/locale fires on a tap and when a stored choice disagrees with the account
 
 import React from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -88,6 +88,56 @@ describe('LanguageSwitcher — one tap, two locales', () => {
 
     render(<Harness />);
     fireEvent.press(screen.getByTestId('language-option-es'));
+
+    const alert = await screen.findByTestId('language-sync-error');
+    expect(alert).toHaveTextContent(
+      'El idioma de la interfaz cambió, pero no se pudo guardar el de las respuestas de tu agente. Inténtalo de nuevo.',
+    );
+  });
+});
+
+describe('LanguageSwitcher — a stored choice reaches the account on mount', () => {
+  it('PUTs the stored locale when the signed-in account disagrees', async () => {
+    await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'es');
+    mockPut.mockResolvedValue({ data: { message: 'Locale updated', locale: 'es' } });
+
+    render(<Harness serverLocale="de" />);
+
+    await waitFor(() => {
+      expect(mockPut).toHaveBeenCalledWith('/api/user/locale', { locale: 'es' });
+    });
+    expect(mockPut).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('chrome')).toHaveTextContent('Idioma');
+    expect(screen.queryByTestId('language-sync-error')).toBeNull();
+  });
+
+  it('does not PUT when the stored locale already matches the account', async () => {
+    await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'de');
+
+    render(<Harness serverLocale="de" />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('chrome')).toHaveTextContent('Sprache');
+    });
+    expect(mockPut).not.toHaveBeenCalled();
+  });
+
+  it('does not PUT when nobody is signed in', async () => {
+    await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'es');
+
+    render(<Harness />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('chrome')).toHaveTextContent('Idioma');
+    });
+    expect(mockPut).not.toHaveBeenCalled();
+  });
+
+  it('tells the user when the write-back failed', async () => {
+    await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'es');
+    mockPut.mockRejectedValue(new Error('offline'));
+
+    render(<Harness serverLocale="fr" />);
 
     const alert = await screen.findByTestId('language-sync-error');
     expect(alert).toHaveTextContent(

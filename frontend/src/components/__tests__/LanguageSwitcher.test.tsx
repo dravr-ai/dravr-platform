@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Covers the web language switcher — French by default, and one switch moving both locales
-// ABOUTME: Asserts the real PUT /api/user/locale fires, so chrome and reply language cannot drift apart
+// ABOUTME: Asserts the real PUT /api/user/locale fires on a switch and when a stored choice disagrees with the account
 
 import { StrictMode } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -93,6 +93,63 @@ describe('LanguageSwitcher — one switch, two locales', () => {
 
     render(<Harness />);
     await userEvent.selectOptions(screen.getByLabelText('Choisir la langue'), 'pt');
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toBe(
+      'O idioma da interface mudou, mas o das respostas do teu agente não pôde ser guardado. Tenta de novo.',
+    );
+  });
+});
+
+describe('LanguageSwitcher — a stored choice reaches the account on mount', () => {
+  it('PUTs the stored locale when the signed-in account disagrees', async () => {
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, 'es');
+    const put = vi
+      .spyOn(pierreApi.axios, 'put')
+      .mockResolvedValue({ data: { message: 'Locale updated', locale: 'es' } });
+
+    render(<Harness serverLocale="de" />);
+
+    await waitFor(() => {
+      expect(put).toHaveBeenCalledWith('/api/user/locale', { locale: 'es' });
+    });
+    expect(put).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('chrome').textContent).toBe('Idioma');
+    await waitFor(() => {
+      expect(screen.getByLabelText('Elegir idioma')).toBeEnabled();
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('does not PUT when the stored locale already matches the account', async () => {
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, 'de');
+    const put = vi.spyOn(pierreApi.axios, 'put');
+
+    render(<Harness serverLocale="de" />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('chrome').textContent).toBe('Sprache');
+    });
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('does not PUT when nobody is signed in', async () => {
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, 'es');
+    const put = vi.spyOn(pierreApi.axios, 'put');
+
+    render(<Harness />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('chrome').textContent).toBe('Idioma');
+    });
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('tells the user when the write-back failed', async () => {
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, 'pt');
+    vi.spyOn(pierreApi.axios, 'put').mockRejectedValue(new Error('offline'));
+
+    render(<Harness serverLocale="en" />);
 
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toBe(

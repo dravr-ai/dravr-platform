@@ -22,8 +22,11 @@
   },
   "devDependencies": {
     "@react-native-async-storage/async-storage": "^2.2.0",
+    "@testing-library/react": "^16.3.0",
     "@types/react": "^19.1.2",
+    "jsdom": "^26.1.0",
     "react": "^19.2.0",
+    "react-dom": "^19.2.0",
     "typescript": "~5.8.3",
     "vitest": "^4.1.8"
   },

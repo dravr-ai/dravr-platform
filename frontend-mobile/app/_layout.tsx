@@ -27,6 +27,7 @@ import { currentOnboardingStep, type OnboardingStepId } from '@pierre/shared-con
 import { bootMobileAnalytics, shutdownMobileAnalytics, trackMobile } from '../src/services/analytics';
 import { HOME_ROUTE } from '../src/navigation/routes';
 import { initI18n } from '@pierre/i18n';
+import { useLanguageSwitcherNative } from '@pierre/i18n/native';
 import { persistLocale } from '../src/i18n/localePersister';
 import { i18nApi } from '../src/services/api';
 
@@ -80,6 +81,11 @@ function RootLayoutNav() {
   const segments = useSegments();
   const router = useRouter();
   const navigationRef = useNavigationContainerRef();
+  // Adopt the viewer's language at launch, not only once Profile mounts the
+  // picker: the restore effect lives in the switcher hook, and on a phone the
+  // picker sits on one settings screen. Same hook as the web root, so a device
+  // choice reaches the chrome and users.locale from the first screen.
+  useLanguageSwitcherNative({ serverLocale: user?.locale });
   // ThemeProvider resolves the user's appearance preference (System / Light /
   // Dark, default = Dark) from AsyncStorage and pushes it to NativeWind so
   // every Tailwind class flips automatically. `tokens` is the live BOREAL_*
