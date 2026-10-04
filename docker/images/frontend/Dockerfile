@@ -1,6 +1,14 @@
 # ABOUTME: Multi-stage build for Pierre admin frontend served by nginx
 # ABOUTME: Builds Vite SPA with bun, serves static files via nginx-alpine
 
+# Where the SPA comes from: `builder` runs bun in the stage below (local builds),
+# `prebuilt` takes a frontend/dist built on the CI runner by
+# .github/actions/frontend-dist and passed as the `prebuilt-dist` build context.
+# CI uses prebuilt: building in Docker restores the bun base image and the
+# node_modules layer from the registry cache on every build (86-258 MB of billed
+# Artifact Registry egress), and BuildKit skips a stage nothing references.
+ARG DIST_SOURCE=builder
+
 # ---------------------------------------------------------------------------
 # Build stage: install dependencies and build the Vite SPA
 # ---------------------------------------------------------------------------
@@ -38,6 +46,13 @@ ENV VITE_FIREBASE_MESSAGING_SENDER_ID=${VITE_FIREBASE_MESSAGING_SENDER_ID}
 ENV VITE_FIREBASE_APP_ID=${VITE_FIREBASE_APP_ID}
 
 RUN cd frontend && bun run build
+
+# The same dist, built outside Docker (DIST_SOURCE=prebuilt). The `prebuilt-dist`
+# context is the frontend/dist directory itself.
+FROM scratch AS prebuilt
+COPY --from=prebuilt-dist . /app/frontend/dist/
+
+FROM ${DIST_SOURCE} AS dist
 
 # ---------------------------------------------------------------------------
 # Runtime stage: serve static files with nginx
@@ -78,10 +93,12 @@ RUN echo "apk security epoch: ${APK_SECURITY_EPOCH}" && \
     ln -sf /dev/stdout /var/log/nginx/access.log && \
     ln -sf /dev/stderr /var/log/nginx/error.log
 
-# Copy built assets from the builder stage. --link on every COPY below keeps
+# Copy built assets from the dist stage. --link on every COPY below keeps
 # each layer independent of the apk layer above, so a CI build whose cache holds
 # that layer pushes it by reference instead of downloading it from the registry.
-COPY --link --from=builder /app/frontend/dist /usr/share/nginx/html
+# Only metadata may follow: a RUN or WORKDIR here would mount the apk layer and
+# pull it back out of the cache.
+COPY --link --from=dist /app/frontend/dist /usr/share/nginx/html
 
 # Copy nginx config template (envsubst injects BACKEND_URL at startup)
 COPY --link docker/images/frontend/nginx.conf /etc/nginx/nginx.conf.template

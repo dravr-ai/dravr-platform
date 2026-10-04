@@ -1,0 +1,36 @@
+# ABOUTME: Builds the web SPA (frontend/dist) on the runner for the frontend image's prebuilt-dist context
+# ABOUTME: Single source for publish-images.yml and fasttrack-deploy.yml, so the image never runs bun itself
+
+name: Frontend Dist
+description: >-
+  Installs the frontend workspace with bun and runs the Vite build on the runner, then hands
+  the dist directory to `docker build --build-context prebuilt-dist=<dir>` with
+  DIST_SOURCE=prebuilt. Building in Docker instead would restore the bun base image and the
+  node_modules layer from the registry cache on every build, which is billed Artifact Registry
+  egress; packages fetched here come from the npm registry at no cost.
+  The VITE_* variables the bundle bakes in (VITE_FIREBASE_*) are read from the calling step's env.
+
+outputs:
+  dir:
+    description: The built frontend/dist directory — the image's `prebuilt-dist` context
+    value: ${{ steps.build.outputs.dir }}
+
+runs:
+  using: composite
+  steps:
+    # The version the frontend CI lanes pin; the Dockerfile's builder stage
+    # (oven/bun:1.3) is the same minor for local builds.
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: "1.3.4"
+
+    - name: Build frontend/dist
+      id: build
+      shell: bash
+      run: |
+        set -euo pipefail
+        bun install --frozen-lockfile --filter frontend
+        (cd frontend && bun run build)
+        test -f frontend/dist/index.html
+        echo "dir=${GITHUB_WORKSPACE}/frontend/dist" >> "$GITHUB_OUTPUT"

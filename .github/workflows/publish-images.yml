@@ -52,6 +52,7 @@ on:
     paths:
       - 'docker/**'
       - '.github/workflows/publish-images.yml'
+      - '.github/actions/frontend-dist/**'
       - '.trivyignore'
     tags:
       - 'v*.*.*'
@@ -496,6 +497,20 @@ jobs:
           submodules: recursive
           token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
 
+      # The SPA is built here and handed to the image as `prebuilt-dist`
+      # (DIST_SOURCE=prebuilt), so the image build restores no bun or
+      # node_modules layer from the registry cache.
+      - name: Build frontend dist
+        id: dist
+        uses: ./.github/actions/frontend-dist
+        env:
+          VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -540,18 +555,18 @@ jobs:
           file: docker/images/frontend/Dockerfile
           push: true
           tags: ${{ steps.tags.outputs.frontend_tags }}
+          build-contexts: |
+            prebuilt-dist=${{ steps.dist.outputs.dir }}
           build-args: |
-            VITE_FIREBASE_API_KEY=${{ vars.VITE_FIREBASE_API_KEY }}
-            VITE_FIREBASE_AUTH_DOMAIN=${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
-            VITE_FIREBASE_PROJECT_ID=${{ vars.VITE_FIREBASE_PROJECT_ID }}
-            VITE_FIREBASE_STORAGE_BUCKET=${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
-            VITE_FIREBASE_MESSAGING_SENDER_ID=${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
-            VITE_FIREBASE_APP_ID=${{ vars.VITE_FIREBASE_APP_ID }}
+            DIST_SOURCE=prebuilt
           # Registry-backed buildx cache in its own frontend-cache package (see
           # server job for both halves of the reasoning) — replaces the flaky
           # type=gha cache whose export step intermittently failed the build.
+          # mode=min: with DIST_SOURCE=prebuilt the only stage besides the
+          # runtime is the scratch stage holding this build's dist, which never
+          # repeats; the apk layer worth reusing is in the final image.
           cache-from: type=registry,ref=${{ steps.tags.outputs.registry }}/frontend-cache:buildcache
-          cache-to: type=registry,ref=${{ steps.tags.outputs.registry }}/frontend-cache:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
+          cache-to: type=registry,ref=${{ steps.tags.outputs.registry }}/frontend-cache:buildcache,mode=min,image-manifest=true,oci-mediatypes=true
 
       - name: Install Trivy
         uses: aquasecurity/setup-trivy@v0.3.1
