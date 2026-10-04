@@ -24,8 +24,10 @@ on:
       - '.github/workflows/ci-redis.yml'
       - '.github/actions/rust-setup/**'
   schedule:
-    # Weekly full Redis validation (Sundays at 3 AM UTC)
-    - cron: '0 3 * * 0'
+    # Daily full Redis validation (3 AM UTC). Daily, not weekly, because this run
+    # is the only one that saves the redis-tests Rust cache (rust-setup
+    # cache-save: auto); push runs restore it.
+    - cron: '0 3 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -34,7 +36,10 @@ concurrency:
   # ref and keep cancelling, where fast feedback beats a stale result. The ref
   # test lives in `group` rather than in `cancel-in-progress` because only the
   # former is known to work here — see ci-backend.yml for the run that proved it.
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
+  # The event name is in the group because the daily cron on main carries the
+  # tip's sha: without it the cron joins the tip's push-run group and cancels
+  # that verdict mid-flight (ci-backend.yml records the same collision).
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
   cancel-in-progress: true
 
 permissions:

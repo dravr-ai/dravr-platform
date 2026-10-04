@@ -17,7 +17,9 @@ inputs:
     description: Keep Docker images when freeing disk space (needed for service containers)
     default: 'false'
   cache-save:
-    description: Override rust-cache save behavior (auto uses main-branch-only default, false disables saving)
+    description: >-
+      When rust-cache saves. auto (the default) saves only on the scheduled run on main, so each
+      cache is written once a day; true always saves; false never does. See the cache step.
     default: 'auto'
   reclaim-android:
     description: Remove the Android SDK while freeing disk space (measured 55.5s of the step)
@@ -119,10 +121,20 @@ runs:
       with:
         components: ${{ inputs.components }}
 
+    # The key ends in a hash of Cargo.lock, and restore falls back to the newest
+    # entry without it, so any run that restores across a lockfile change saves a
+    # fresh entry if it is allowed to save. Cargo.lock moves 11-22 times a day on
+    # main (satellite bumps); saving on every main push rewrote every cache that
+    # often until 2026-10-04, ~200 GB a day into a 10 GB repository quota, and
+    # entries were evicted within the hour. So auto saves on the daily scheduled
+    # run on main only. Every other run restores the newest entry and compiles
+    # what changed since the night before.
+    # A workflow whose jobs use auto needs a daily schedule that runs them, or its
+    # cache is never refreshed.
     - name: Cache Rust dependencies
       uses: Swatinem/rust-cache@v2
       with:
         workspaces: ". -> target"
         cache-on-failure: true
         shared-key: ${{ inputs.shared-key }}
-        save-if: ${{ inputs.cache-save == 'auto' && github.ref == 'refs/heads/main' || inputs.cache-save == 'true' }}
+        save-if: ${{ inputs.cache-save == 'auto' && github.ref == 'refs/heads/main' && github.event_name == 'schedule' || inputs.cache-save == 'true' }}

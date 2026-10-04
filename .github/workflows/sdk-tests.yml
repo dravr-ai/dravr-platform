@@ -49,12 +49,20 @@ env:
   # downloads ~130 MB and embeds the Copilot CLI unless told not to; the runtime
   # is a file COPILOT_RUNTIME_PATH names, never a payload in the binary.
   COPILOT_SKIP_CLI_DOWNLOAD: "1"
+  # The same CARGO_* values as ci-backend.yml: rust-cache hashes every CARGO_*
+  # and RUST_* variable into its key, and these jobs restore the test-dev cache
+  # that workflow saves, so a difference here would make every restore miss.
+  CARGO_TERM_COLOR: always
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
 
 jobs:
   sdk-types-check:
     name: SDK Types Up-to-Date
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # A backstop. The build took 4m47s on 2026-10-04 with all of target/ cached;
+    # the test-dev cache holds dependencies only, so the workspace crates
+    # compile on every run.
+    timeout-minutes: 20
 
     steps:
       - name: Checkout code
@@ -75,21 +83,15 @@ jobs:
         with:
           bun-version: "1.3.4"
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@1.98.1
-
-      - name: Cache Rust dependencies
-        uses: actions/cache@v6
+      # The dev-profile dependency cache ci-backend.yml's backend-tests job saves
+      # nightly (shared-key test-dev); these jobs build the same dev-profile
+      # dependencies, so they restore it and never save. rust-setup also links
+      # with mold, which the cached artifacts were built with.
+      - name: Setup Rust environment
+        uses: ./.github/actions/rust-setup
         with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-sdk-types-1.98.1-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-sdk-types-1.98.1-
-            ${{ runner.os }}-cargo-
+          shared-key: test-dev
+          cache-save: 'false'
 
       - name: Build Pierre server and CLI
         run: cargo build --quiet --bin pierre-mcp-server --bin pierre-cli
@@ -195,21 +197,15 @@ jobs:
         with:
           bun-version: "1.3.4"
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@1.98.1
-
-      - name: Cache Rust dependencies
-        uses: actions/cache@v6
+      # The dev-profile dependency cache ci-backend.yml's backend-tests job saves
+      # nightly (shared-key test-dev); these jobs build the same dev-profile
+      # dependencies, so they restore it and never save. rust-setup also links
+      # with mold, which the cached artifacts were built with.
+      - name: Setup Rust environment
+        uses: ./.github/actions/rust-setup
         with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-sdk-1.98.1-v2-${{ hashFiles('**/Cargo.lock', 'migrations/**') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-sdk-1.98.1-v2-
-            ${{ runner.os }}-cargo-
+          shared-key: test-dev
+          cache-save: 'false'
 
       - name: Install SDK dependencies
         working-directory: sdk

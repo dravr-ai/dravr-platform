@@ -438,6 +438,9 @@ jobs:
         uses: ./.github/actions/rust-setup
         with:
           components: clippy
+          # The full-workspace clippy job's cache, restored; that job saves it.
+          shared-key: clippy
+          cache-save: 'false'
 
       - name: Per-crate clippy
         if: steps.detect.outputs.skip != 'true'
@@ -503,6 +506,9 @@ jobs:
         with:
           components: clippy
           free-disk-space: 'true'
+          # One clippy cache for this job and preflight-clippy; this job, on the
+          # daily scheduled run, is the only one that saves it.
+          shared-key: clippy
 
       # The wrapper runs `cargo clippy --keep-going --all-targets --all-features
       # --config build.warnings="deny"` unchanged — same diagnostics, same exit status — and adds
@@ -591,6 +597,10 @@ jobs:
 
       - name: Setup Rust environment
         uses: ./.github/actions/rust-setup
+        with:
+          # The dev-profile test cache backend-tests saves; restored only.
+          shared-key: test-dev
+          cache-save: 'false'
 
       # Runs the doctests AND checks none are ignored, from one invocation.
       #
@@ -665,6 +675,10 @@ jobs:
 
       - name: Setup Rust environment
         uses: ./.github/actions/rust-setup
+        with:
+          # The dev-profile test cache backend-tests saves; restored only.
+          shared-key: test-dev
+          cache-save: 'false'
 
       - name: Coupling tests (tool list, notify catalogue, locales)
         run: |
@@ -787,6 +801,12 @@ jobs:
         uses: ./.github/actions/rust-setup
         with:
           free-disk-space: 'true'
+          # The one dev-profile test cache doc-tests, contremaitre-sync and
+          # changed-server-tests restore. Shard 1 of this daily run is its only
+          # producer: the shards build the same dependencies, and Swatinem keeps
+          # dependencies only, never the workspace's test binaries.
+          shared-key: test-dev
+          cache-save: ${{ matrix.shard == 1 && 'auto' || 'false' }}
 
       - name: Setup Node.js (for SDK E2E tests runtime)
         uses: actions/setup-node@v7
@@ -1031,6 +1051,9 @@ jobs:
         uses: ./.github/actions/rust-setup
         with:
           free-disk-space: 'true'
+          # The dev-profile test cache backend-tests saves; restored only.
+          shared-key: test-dev
+          cache-save: 'false'
 
       - name: Setup Node.js (for SDK E2E tests runtime)
         if: steps.changed.outputs.files != ''

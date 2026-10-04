@@ -101,6 +101,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: chat-eval-structural
+          # Written by the nightly scheduled run on main only; every other run restores
+          # (see .github/actions/rust-setup for why a cache is saved once a day).
+          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'schedule' }}
 
       - name: Run chat_scenario_test (structural mode)
         run: cargo test --test chat_scenario_test
@@ -184,6 +187,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: chat-eval-live
+          # Written by the nightly scheduled run on main only; every other run restores
+          # (see .github/actions/rust-setup for why a cache is saved once a day).
+          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'schedule' }}
 
       - name: Install Ollama
         run: |

@@ -70,6 +70,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: "llm-live-cron"
+          # Written by the nightly scheduled run on main only; every other run restores
+          # (see .github/actions/rust-setup for why a cache is saved once a day).
+          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'schedule' }}
 
       - name: Build the live test
         run: cargo test --test llm_local_integration_test --no-run

@@ -71,8 +71,10 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.98.1
 
-      - name: Cache Rust dependencies
-        uses: actions/cache@v6
+      # Restored on every run, saved only by the nightly scheduled run on main
+      # (see .github/actions/rust-setup for why a cache is saved once a day).
+      - name: Restore Rust build cache
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cargo/registry/index/
@@ -88,6 +90,17 @@ jobs:
         run: cargo build --release
         env:
           CARGO_INCREMENTAL: 0
+
+      - name: Save Rust build cache
+        if: github.ref == 'refs/heads/main' && github.event_name == 'schedule'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-mobile-server-1.98.1-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Upload server binaries
         uses: actions/upload-artifact@v4

@@ -40,8 +40,9 @@ on:
   # started when CI was requested (carnet#498), which took the build off the
   # push-to-serving path but built every red commit too (13.5% of September's
   # builds) and held four runners beside CI on a 20-job plan that CI was already
-  # saturating. The build compiles on the runner against the rust-cache CI has
-  # just saved, so after green it is the shorter half of that trade.
+  # saturating. The build compiles on the runner against the rust-cache that
+  # ci-backend.yml's nightly run saves, so after green it is the shorter half of
+  # that trade.
   workflow_run:
     workflows: ["CI: Backend (Rust)"]
     types: [completed]
@@ -115,6 +116,9 @@ jobs:
       # 'true' only when the guard below PROVED this deploy would roll dev
       # back; empty on push and workflow_dispatch, where the guard does not run.
       rollback: ${{ steps.guard.outputs.rollback }}
+      # 'false' only when the step below PROVED nothing the frontend image is
+      # built from changed since the commit the dev frontend serves.
+      frontend_changed: ${{ steps.frontend.outputs.changed }}
     # Job-level permissions replace the workflow's for this job, so the two it
     # inherits are restated. actions: read lets the picker list Backend CI runs.
     permissions:
@@ -298,6 +302,58 @@ jobs:
               ;;
           esac
 
+      # -----------------------------------------------------------------------
+      # Frontend skip: build the frontend image only when something it is built
+      # from changed since the commit the dev frontend serves. On 2026-10-03 half
+      # of the 14 deploys changed no frontend input and still built, scanned and
+      # rolled out an identical SPA. The dev frontend keeps serving its revision,
+      # whose commit-sha label still names the commit it was built from, so the
+      # next deploy compares against that commit, not the API's.
+      #
+      # Fail-open like the rollback guard: only a readable label, a linear
+      # history (compare status ahead or identical) and a complete file list
+      # (under the compare API's 300-file cap) with no frontend input in it
+      # skip the build. push and workflow_dispatch always build, and so does a
+      # change to a VITE_* repository variable once the next deploy runs one of
+      # those (a variable is not in git, so no diff can see it).
+      # -----------------------------------------------------------------------
+      - name: Read the commit the dev frontend serves
+        id: live-frontend
+        if: steps.dev-auth.outcome == 'success'
+        run: |
+          SERVICE="${{ vars.GCP_DEV_SERVICE_NAME }}-frontend"
+          REGION="${{ vars.GCP_DEV_CLOUD_RUN_REGION }}"
+          REV="$(gcloud run services describe "$SERVICE" --region="$REGION" \
+                   --format='value(status.latestReadyRevisionName)' 2>/dev/null || true)"
+          LIVE=""
+          if [ -n "$REV" ]; then
+            LIVE="$(gcloud run revisions describe "$REV" --region="$REGION" --format=json 2>/dev/null \
+                      | jq -r '.metadata.labels["commit-sha"] // empty' || true)"
+          fi
+          echo "dev frontend serves revision '${REV}', built from '${LIVE}'"
+          echo "sha=${LIVE}" >> "$GITHUB_OUTPUT"
+
+      - name: Decide whether the frontend image needs a build
+        id: frontend
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESOLVED: ${{ steps.sha.outputs.sha }}
+          LIVE_FRONTEND: ${{ steps.live-frontend.outputs.sha }}
+        run: |
+          changed=true
+          if [[ "$LIVE_FRONTEND" =~ ^[0-9a-f]{40}$ ]] \
+             && FILES="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${LIVE_FRONTEND}...${RESOLVED}" --jq '
+                  if (.status == "ahead" or .status == "identical") and (.files | length) < 300
+                  then [.files[] | .filename, (.previous_filename // empty)] | .[]
+                  else "UNKNOWN" end')"; then
+            if [ "$FILES" != "UNKNOWN" ] && ! printf '%s\n' "$FILES" | grep -qE \
+                 '^(frontend/|packages/|package\.json$|bun\.lock$|docker/images/frontend/|\.dockerignore$|\.github/actions/frontend-dist/|\.github/workflows/publish-images\.yml$)'; then
+              changed=false
+              echo "::notice title=Frontend unchanged::no frontend input changed since ${LIVE_FRONTEND}, which the dev frontend serves; it keeps serving that revision"
+            fi
+          fi
+          echo "changed=${changed}" >> "$GITHUB_OUTPUT"
+
   # ---------------------------------------------------------------------------
   # Build and push server image to central Artifact Registry
   # ---------------------------------------------------------------------------
@@ -305,11 +361,10 @@ jobs:
     name: Publish Server Image
     runs-on: ubuntu-latest
     needs: resolve-sha
-    # The rollback verdict is honoured here and in publish-frontend only. Every
-    # later job reaches this one through `needs` with no status function in its
-    # `if:`, so skipping the two publish jobs skips deploy-dev, tag-deployed-dev,
-    # sdk-smoke-dev and seed-dev with them — the same path a missing GCP
-    # secret already takes.
+    # The rollback verdict is honoured here and in publish-frontend only. deploy-dev
+    # requires this job's success in its `if:`, and tag-deployed-dev, sdk-smoke-dev
+    # and seed-dev require deploy-dev's, so skipping this job skips all four with
+    # it — the same path a missing GCP secret already takes.
     if: needs.resolve-sha.outputs.gcp_configured == 'true' && needs.resolve-sha.outputs.rollback != 'true'
 
     outputs:
@@ -483,7 +538,10 @@ jobs:
     name: Publish Frontend Image
     runs-on: ubuntu-latest
     needs: resolve-sha
-    if: needs.resolve-sha.outputs.gcp_configured == 'true' && needs.resolve-sha.outputs.rollback != 'true'
+    if: >-
+      needs.resolve-sha.outputs.gcp_configured == 'true' &&
+      needs.resolve-sha.outputs.rollback != 'true' &&
+      needs.resolve-sha.outputs.frontend_changed != 'false'
 
     outputs:
       image: ${{ steps.digest.outputs.image }}
@@ -632,7 +690,14 @@ jobs:
     # CI gate is resolve-sha's `if:`: a run for a CI run that is not green
     # skips resolve-sha, and with it every job here.
     needs: [resolve-sha, publish-server, publish-frontend]
-    if: github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    # publish-frontend is skipped when the frontend did not change (resolve-sha),
+    # and a skipped need would skip this job too; the status check below lets a
+    # skipped frontend through and nothing else.
+    if: >-
+      !cancelled() &&
+      (github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch' || github.event_name == 'push') &&
+      needs.publish-server.result == 'success' &&
+      (needs.publish-frontend.result == 'success' || needs.publish-frontend.result == 'skipped')
     environment: development
 
     steps:
@@ -685,13 +750,17 @@ jobs:
           PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
         run: ./scripts/ci/wait-cloud-run-service-ready.sh service --region "${REGION}" --prefix "${PREFIX}" --service api --timeout-seconds 600
 
+      # The frontend steps run only when publish-frontend built an image; a
+      # skipped build leaves the dev frontend on the revision it serves.
       - name: Wait until no dev Cloud Run service is mid-rollout (before the frontend)
+        if: needs.publish-frontend.result == 'success'
         env:
           REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
           PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
         run: ./scripts/ci/wait-cloud-run-service-ready.sh quiesce --region "${REGION}" --prefix "${PREFIX}" --timeout-seconds 900
 
       - name: Deploy frontend to Cloud Run (dev)
+        if: needs.publish-frontend.result == 'success'
         uses: google-github-actions/deploy-cloudrun@v3
         with:
           service: ${{ vars.GCP_DEV_SERVICE_NAME }}-frontend
@@ -703,6 +772,7 @@ jobs:
             commit-sha=${{ needs.resolve-sha.outputs.sha }}
 
       - name: Wait for the frontend to settle
+        if: needs.publish-frontend.result == 'success'
         env:
           REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
           PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
@@ -715,6 +785,9 @@ jobs:
     name: Tag Deployed Digests (dev)
     runs-on: ubuntu-latest
     needs: [publish-server, publish-frontend, deploy-dev]
+    # A skipped publish-frontend (frontend unchanged) must not skip the server's
+    # tag; the frontend's deployed-dev tag then stays on the digest dev serves.
+    if: ${{ !cancelled() && needs.deploy-dev.result == 'success' }}
 
     steps:
       # image-publisher (artifactregistry.writer), not the dev deployer: the tag
@@ -745,6 +818,8 @@ jobs:
           for IMAGE in \
             "${{ needs.publish-server.outputs.image }}" \
             "${{ needs.publish-frontend.outputs.image }}"; do
+            # Empty when publish-frontend was skipped: nothing new to tag.
+            [ -n "${IMAGE}" ] || continue
             PACKAGE="${IMAGE%@*}"
             for TAG in deployed-dev latest; do
               echo "Tagging ${IMAGE} as ${PACKAGE}:${TAG}"
@@ -770,6 +845,9 @@ jobs:
     name: MCP SDK Smoke (dev)
     runs-on: ubuntu-latest
     needs: [deploy-dev]
+    # Without it the implicit success() also counts deploy-dev's skipped
+    # publish-frontend (frontend unchanged) and would skip the smoke test.
+    if: ${{ !cancelled() && needs.deploy-dev.result == 'success' }}
     environment: development
 
     steps:
@@ -805,6 +883,8 @@ jobs:
     name: Run Seed Jobs (dev)
     runs-on: ubuntu-latest
     needs: [deploy-dev, publish-server]
+    # As sdk-smoke-dev: a skipped publish-frontend must not skip the seeds.
+    if: ${{ !cancelled() && needs.deploy-dev.result == 'success' && needs.publish-server.result == 'success' }}
     environment: development
 
     steps:

@@ -37,8 +37,10 @@ on:
       - '.github/ci-postgres-test-durations.tsv'
       - '.github/actions/rust-setup/**'
   schedule:
-    # Weekly full PostgreSQL validation (Sundays at 2:30 AM UTC)
-    - cron: '30 2 * * 0'
+    # Daily full PostgreSQL validation (2:30 AM UTC). Daily, not weekly, because
+    # this run is the only one that saves the postgres-tests Rust cache
+    # (rust-setup cache-save: auto); push runs restore it.
+    - cron: '30 2 * * *'
   workflow_dispatch:
 
 concurrency:

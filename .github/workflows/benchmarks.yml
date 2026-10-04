@@ -1,25 +1,23 @@
-# ABOUTME: Criterion benchmark CI — runs on backend pushes, compares against the main baseline, gates severe regressions.
-# ABOUTME: Baseline lives in the actions cache (updated on main pushes); on-demand flamegraph job via workflow_dispatch.
+# ABOUTME: Criterion benchmark CI — runs nightly on main and on dispatch, compares against the main baseline, reports regressions.
+# ABOUTME: Baseline lives in the actions cache (updated by the nightly main run); on-demand flamegraph job via workflow_dispatch.
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 #
-# Merges land on main via local squash (no PRs), so comparison runs on EVERY
-# push: branch runs compare against the last main baseline without touching it;
-# main pushes compare against the previous baseline, then overwrite it.
+# Nightly, not per push: the regression check is advisory (see below), so a
+# per-push run gated nothing while it held a runner for 31-51 minutes on every
+# backend push and rewrote the bench Rust cache on every Cargo.lock change. The
+# nightly run on main compares against the previous night's baseline, then
+# overwrites it. To measure a branch, dispatch this workflow on it: it compares
+# against main's baseline without touching it.
 
 name: "CI: Benchmarks"
 
 on:
-  push:
-    branches: [ "main", "debug/**", "feature/**", "features/**", "fix/**", "claude/**", "copilot/**" ]
-    paths:
-      - 'crates/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'scripts/ci/bench-regression-check.py'
-      - '.github/workflows/benchmarks.yml'
-      - '.github/actions/rust-setup/**'
+  schedule:
+    # 05:00 UTC, after the 02:30-03:00 database lanes and before ci-backend's
+    # 08:00 run, so it does not compete with them for runners.
+    - cron: '0 5 * * *'
   workflow_dispatch:
     inputs:
       benchmark_suite:
@@ -38,9 +36,11 @@ concurrency:
   # ref and keep cancelling, where fast feedback beats a stale result. The ref
   # test lives in `group` rather than in `cancel-in-progress` because only the
   # former is known to work here — see ci-backend.yml for the run that proved it.
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
-  # A rapid follow-up push to main must not cancel a run between benching and
-  # the baseline cache save; branch runs are safe to supersede.
+  # The event name is in the group because a dispatch on main at the tip carries
+  # the nightly run's sha: without it the dispatch would join the nightly's group
+  # and cancel it between benching and the baseline cache save. Branch runs are
+  # safe to supersede.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
   cancel-in-progress: true
 
 # Security: Explicit permissions following principle of least privilege
@@ -60,16 +60,15 @@ jobs:
   benchmark:
     name: Run Benchmarks
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || inputs.flamegraph != true
+    if: github.event_name == 'schedule' || inputs.flamegraph != true
     # A backstop, not a performance budget. Successful runs land in 31-51 min.
     #
-    # On main `cancel-in-progress` is false (see above, and for a good reason:
-    # a follow-up push must not kill a run between benching and the baseline
-    # save). The cost of that is a hung job nothing can displace — on
-    # 2026-08-19 this job sat 316 min in `Setup Rust environment` and every
-    # later push queued behind it, so main went five hours with no benchmark
-    # verdict. The bound lives on the job because composite actions cannot
-    # bound their own steps.
+    # On main every run has its own concurrency group (see above), so nothing
+    # can cancel a run between benching and the baseline save. The cost of that
+    # is a hung job nothing can displace — on 2026-08-19 this job sat 316 min
+    # in `Setup Rust environment` and every later run queued behind it. The
+    # bound lives on the job because composite actions cannot bound their own
+    # steps.
     timeout-minutes: 75
 
     steps:
@@ -112,7 +111,7 @@ jobs:
             # Running workspace-wide would hit non-Criterion crates that reject Criterion flags.
             TARGET="--benches"
           fi
-          if [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ github.event_name }}" = "push" ]; then
+          if [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ github.event_name }}" = "schedule" ]; then
             # Compares against the previous main baseline, then becomes it.
             cargo bench -p pierre_mcp_server $TARGET -- --save-baseline main
           else
@@ -123,7 +122,7 @@ jobs:
       - name: Save criterion baseline (main only)
         # Placed before the regression gate: the baseline must track what main
         # actually is, even when the gate fails the job.
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'schedule'
         uses: actions/cache/save@v6
         with:
           path: target/criterion

@@ -72,17 +72,22 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.98.1
 
-      - name: Cache Rust dependencies
-        uses: actions/cache@v6
+      # Restore only. The build below is the one mobile-e2e-android.yml's server
+      # job runs (`cargo build --release`, CARGO_INCREMENTAL=0, the same env), so
+      # this restores that lane's cache, which its nightly scheduled run on main
+      # writes. A cache of its own, saved on every branch and every Cargo.lock
+      # change, held up to 1.6 GB per branch of the repository's 10 GB quota.
+      - name: Restore Rust build cache
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-integration-1.98.1-v2-${{ hashFiles('**/Cargo.lock', 'migrations/**') }}
+          key: ${{ runner.os }}-cargo-mobile-server-1.98.1-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-integration-1.98.1-v2-
+            ${{ runner.os }}-cargo-mobile-server-1.98.1-
             ${{ runner.os }}-cargo-
 
       - name: Build Pierre server (release for performance)

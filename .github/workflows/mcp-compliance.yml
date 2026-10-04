@@ -30,6 +30,10 @@ on:
       - 'packages/mcp-types/**'
       - 'scripts/ci/ensure-mcp-compliance.sh'
       - '.github/workflows/mcp-compliance.yml'
+  # Nightly on main: the only run that saves this job's Rust cache, which every
+  # push and pull_request run restores.
+  schedule:
+    - cron: '30 4 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -38,7 +42,10 @@ concurrency:
   # ref and keep cancelling, where fast feedback beats a stale result. The ref
   # test lives in `group` rather than in `cancel-in-progress` because only the
   # former is known to work here — see ci-backend.yml for the run that proved it.
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
+  # The event name is in the group because the nightly cron on main carries the
+  # tip's sha: without it the cron joins the tip's push-run group and cancels
+  # that verdict mid-flight (ci-backend.yml records the same collision).
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
   cancel-in-progress: true
 
 # Security: Explicit permissions following principle of least privilege
@@ -94,14 +101,19 @@ jobs:
         with:
           python-version: '3.11'
 
-      # Reuse the backend workflows' WARM release cache (shared-key: release) so the
-      # server build below is incremental, not a cold from-scratch build. The prior
-      # raw actions/cache of the full debug target/ blew the 10GB limit (save silently
-      # failed) and the inline cold debug build OOM-thrashed the 2-core runner (~90min+).
+      # This job's own dependency cache, so the server build below is incremental,
+      # not a cold from-scratch build. It cannot share ci-backend.yml's release
+      # cache: that build is release-lto linked with mold, this one is the plain
+      # release profile. The prior raw actions/cache of the full debug target/
+      # blew the 10GB limit (save silently failed) and the inline cold debug
+      # build OOM-thrashed the 2-core runner (~90min+).
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: release
+          shared-key: mcp-compliance
+          # Written by the nightly scheduled run on main only; every other run restores
+          # (see .github/actions/rust-setup for why a cache is saved once a day).
+          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'schedule' }}
 
       - name: Install SDK dependencies
         working-directory: sdk
@@ -128,7 +140,7 @@ jobs:
           fi
           echo "✅ SDK types validated successfully"
 
-      # Build the server here (release, incremental off the warm shared release
+      # Build the server here (release, incremental off the restored dependency
       # cache) so the validation script reuses target/release/pierre-mcp-server
       # instead of cold-building it inline (which OOM-thrashed the runner ~90min+).
       - name: Build server (release)
