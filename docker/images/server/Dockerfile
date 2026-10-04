@@ -94,9 +94,8 @@ FROM --platform=linux/amd64 debian:trixie-slim
 # after the large layers below may read the filesystem under it: a RUN mounts
 # it, and so does WORKDIR, which BuildKit runs as a mkdir on the full rootfs.
 # Either one forces BuildKit to download every cached layer under it (~1 GB of
-# chromium, node and the CLIs) from the registry cache on each warm build — a
-# trailing WORKDIR did exactly that from 2026-10-02 to 2026-10-04 (~1.05 GB of
-# Artifact Registry egress per build). The COPYs further down are --link with
+# chromium, node and the CLIs) from the registry cache on each warm build, which
+# is billed Artifact Registry egress. The COPYs further down are --link with
 # --chown/--chmod for the same reason; only metadata (USER, ENV, ARG, EXPOSE,
 # HEALTHCHECK, ENTRYPOINT, CMD) may follow them.
 RUN useradd -m -u 1001 appuser \
