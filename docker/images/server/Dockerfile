@@ -91,13 +91,19 @@ FROM ${BINARY_SOURCE} AS binaries
 FROM --platform=linux/amd64 debian:trixie-slim
 
 # Before the apt and npm layers, so it depends on the base image alone. Nothing
-# after the large layers below may be a RUN: a RUN mounts its parent filesystem,
-# which forces BuildKit to download every cached layer under it (~1 GB of
-# chromium, node and the CLIs) from the registry cache on each build. The COPYs
-# further down are --link with --chown/--chmod for the same reason.
+# after the large layers below may read the filesystem under it: a RUN mounts
+# it, and so does WORKDIR, which BuildKit runs as a mkdir on the full rootfs.
+# Either one forces BuildKit to download every cached layer under it (~1 GB of
+# chromium, node and the CLIs) from the registry cache on each warm build — a
+# trailing WORKDIR did exactly that from 2026-10-02 to 2026-10-04 (~1.05 GB of
+# Artifact Registry egress per build). The COPYs further down are --link with
+# --chown/--chmod for the same reason; only metadata (USER, ENV, ARG, EXPOSE,
+# HEALTHCHECK, ENTRYPOINT, CMD) may follow them.
 RUN useradd -m -u 1001 appuser \
     && mkdir -p /app/data \
     && chown -R appuser:appuser /app
+
+WORKDIR /app
 
 # Cache-bust token for the apt layer below. The build uses a registry-backed
 # buildx cache, so the `apt-get upgrade` layer is otherwise reused verbatim
@@ -292,11 +298,9 @@ COPY --link --chown=1001:1001 --chmod=755 docker/images/server/entrypoint.sh /ap
 COPY --link --chown=1001:1001 --chmod=755 docker/images/server/seed-entrypoint.sh /app/seed-entrypoint.sh
 COPY --link --chmod=755 docker/images/server/chromium-headless.sh /usr/local/bin/chromium-headless
 
-# Switch to non-root user
+# Switch to non-root user. The working directory, /app, is set above the apt
+# layer: a WORKDIR here would pull the cached layers (see the useradd RUN).
 USER appuser
-
-# Set working directory
-WORKDIR /app
 
 # Git commit SHA baked into the image at build time (survives Terraform reconciliation)
 ARG GIT_COMMIT_SHA=unknown
