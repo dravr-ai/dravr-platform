@@ -2437,6 +2437,8 @@
     "channelScanQr": "Scanne un QR ou appuie pour ouvrir l’app",
     "channelSettingUp": "Configuration en cours…",
     "connectAnytimeHint": "Tu peux connecter un fournisseur à tout moment — ton agent en a besoin pour lire ton activité.",
+    "connectCoachPlatformIntro": "Tu coaches sur TrainingPeaks ou Intervals.icu ? Connecte-le maintenant, ou passe cette étape — Dravr ne lit pas ton propre entraînement.",
+    "connectCoachPlatformLaterHint": "Ton groupe vient ensuite. Tu pourras connecter une plateforme de coaching plus tard dans les Réglages.",
     "connectPreviewSample": "Ta charge est en hausse de 24 % par rapport à la semaine dernière et tu as dormi moins de six heures à deux reprises — des jambes lourdes sont le résultat attendu, pas un signal d'alarme. Garde ta sortie de samedi, passe-la en allure facile et retire les 5 derniers kilomètres. Ça protège l'habitude de la sortie longue sans alourdir une semaine déjà la plus grosse de ton bloc.",
     "connectPreviewSampleShort": "Ta charge est en hausse de 24 % par rapport à la semaine dernière et tu as dormi moins de six heures à deux reprises — des jambes lourdes sont le résultat attendu, pas un signal d'alarme. Garde ta sortie de samedi, passe-la en allure facile et retire les 5 derniers kilomètres.",
     "connectProviderIntro": "Connecte un service de fitness pour démarrer. Dravr te coache sur les activités que ton fournisseur enregistre déjà — sans lui, le modèle n’a rien à lire.",

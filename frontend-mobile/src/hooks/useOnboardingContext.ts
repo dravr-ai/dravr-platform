@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   athleteStepsWaived as serverAthleteStepsWaived,
   isServerStepComplete,
+  pastProviderGate,
   type OnboardingContext,
 } from '@pierre/shared-constants';
 import { useAuth } from '../contexts/AuthContext';
@@ -78,7 +79,10 @@ export function useOnboardingContext(): OnboardingContextState {
   const { skipped: skippedProvider } = useProviderSkipped(user?.id);
   const needsProviderConnection = onboardingStatus?.needs_provider_connection;
   // The messaging steps live post-connect; only fetch the channel list there.
-  const postConnect = onboardingActive && needsProviderConnection === false;
+  // A coach who does not train is past the gate without connecting, so the
+  // group flag and the channel list load (and are waited on) for them too.
+  const postConnect =
+    onboardingActive && pastProviderGate({ needsProviderConnection, athleteStepsWaived });
   const messaging = useMessagingOnboarding(user?.id, postConnect);
 
   // First-connect transition (needs true→false) — gates coach-proposal only, so

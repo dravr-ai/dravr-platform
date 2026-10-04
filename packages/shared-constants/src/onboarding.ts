@@ -91,6 +91,32 @@ export interface OnboardingStepDef {
 }
 
 /**
+ * The providers a coach coaches on, the only ones the connect step offers a
+ * coach who does not train. A TrainingPeaks coach account is also how a
+ * group's athletes are read (delegated connections) once they join.
+ *
+ * LIMITATION(registre#785): `COACH_PLATFORM_PROVIDERS` offers `intervals_icu`, which no delegated connection reads athletes through.
+ */
+export const COACH_PLATFORM_PROVIDERS: readonly string[] = [
+  'sciotte_trainingpeaks',
+  'intervals_icu',
+];
+
+/**
+ * Whether the post-connect steps are open: a provider is connected, or the
+ * user is a coach who does not train. Nothing reads such a coach's own
+ * training, so a missing provider holds back none of their steps; the connect
+ * step still comes first by order, and skipping it moves on to the group.
+ * `undefined` (status still loading) opens nothing, so no step flashes.
+ */
+export function pastProviderGate(
+  c: Pick<OnboardingContext, 'needsProviderConnection' | 'athleteStepsWaived'>,
+): boolean {
+  if (c.needsProviderConnection === undefined) return false;
+  return c.needsProviderConnection === false || c.athleteStepsWaived;
+}
+
+/**
  * Canonical onboarding pipeline, in order. The current step is the first
  * applicable step that is not yet complete (see `currentOnboardingStep`); when
  * none remain, onboarding is done and the dashboard/chat renders.
@@ -133,9 +159,16 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     isComplete: (c) => c.parqDone,
   },
   {
+    // A coach who does not train meets this step too, offered only the
+    // coaching platforms (`COACH_PLATFORM_PROVIDERS`) and only until their
+    // group exists: nothing reads their own training, so it is no gate for
+    // them, and once the group is made it is not asked again at every login.
     id: 'connect_provider',
     labelKey: 'onboarding.stepConnect',
-    isApplicable: (c) => c.needsProviderConnection === true && !c.skippedProvider,
+    isApplicable: (c) =>
+      c.needsProviderConnection === true &&
+      !c.skippedProvider &&
+      !(c.athleteStepsWaived && c.coachGroupDone),
     // "Complete" once a provider is connected. Only ever evaluated for the
     // progress indicator: while the step is applicable `needs === true`, so this
     // reads false; once a provider connects, `isApplicable` drops the step.
@@ -159,11 +192,11 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     // of discovering /group create in chat. Post-connect like the agent step;
     // the group's agent is picked inside this step, never inherited from the
     // coach's own. Not gated on `justOnboarded`, so a coach who onboarded
-    // before this step existed is offered it once.
+    // before this step existed is offered it once. A coach who does not train
+    // reaches it without a provider (`pastProviderGate`).
     id: 'coach_group',
     labelKey: 'onboarding.stepGroup',
-    isApplicable: (c) =>
-      c.onboardingActive && c.coachesOthers && c.needsProviderConnection === false,
+    isApplicable: (c) => c.onboardingActive && c.coachesOthers && pastProviderGate(c),
     isComplete: (c) => c.coachGroupDone,
   },
   {
@@ -176,9 +209,7 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     id: 'messaging_channel',
     labelKey: 'onboarding.stepChatApp',
     isApplicable: (c) =>
-      c.onboardingActive &&
-      c.needsProviderConnection === false &&
-      c.messagingAvailableCount > 1,
+      c.onboardingActive && pastProviderGate(c) && c.messagingAvailableCount > 1,
     // Done means the user picked or skipped — NOT "there was nothing to pick".
     // Those were conflated, which made the step read as complete for a tenant
     // with no channels and put a step on the progress bar that could never run.
@@ -192,7 +223,7 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     labelKey: 'onboarding.stepLink',
     isApplicable: (c) =>
       c.onboardingActive &&
-      c.needsProviderConnection === false &&
+      pastProviderGate(c) &&
       c.messagingAvailableCount >= 1 &&
       c.messagingChannelChosen,
     // Same split as the picker: "nothing to configure" is inapplicability, not

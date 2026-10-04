@@ -2437,6 +2437,8 @@
     "channelScanQr": "Scan a QR or tap to open the app",
     "channelSettingUp": "Setting things up…",
     "connectAnytimeHint": "You can connect anytime — your agent needs a provider to read your activity.",
+    "connectCoachPlatformIntro": "Coaching on TrainingPeaks or Intervals.icu? Connect it now, or skip this step — Dravr does not read your own training.",
+    "connectCoachPlatformLaterHint": "Your group comes next. You can connect a coaching platform later in Settings.",
     "connectPreviewSample": "Your load is up 24% on last week and you slept under six hours twice — heavy legs are the expected result, not a warning sign. Keep Saturday, drop it to easy pace and cut the last 5k. That protects the long-run habit without adding to a week that is already the biggest of your block.",
     "connectPreviewSampleShort": "Your load is up 24% on last week and you slept under six hours twice — heavy legs are the expected result, not a warning sign. Keep Saturday, drop it to easy pace and cut the last 5k.",
     "connectProviderIntro": "Connect a fitness service to get started. Dravr coaches you on the activities your provider already tracks — without one, there's nothing for the model to read.",

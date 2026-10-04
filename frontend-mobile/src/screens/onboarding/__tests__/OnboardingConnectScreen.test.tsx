@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Unit tests for the mobile OnboardingConnectScreen Strava OAuth failure fallback
-// ABOUTME: Verifies a failed Strava OAuth attempt falls back to the Sciotte credential login instead of stranding the first-run user
+// ABOUTME: Unit tests for the mobile OnboardingConnectScreen: the Strava OAuth failure fallback and the coach-only offer
+// ABOUTME: A failed Strava OAuth falls back to the Sciotte credential login; a coach who does not train sees only the coaching platforms
 
 import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react-native';
@@ -23,6 +23,11 @@ jest.mock('../../../hooks/useOnboardingProgress', () => ({
   useOnboardingProgress: () => [
     { id: 'connect_provider', labelKey: 'onboarding.stepConnect', status: 'current' },
   ],
+}));
+// Whether the account is a coach who does not train; flipped per test.
+let mockCoachOnly = false;
+jest.mock('../../../hooks/useOnboardingContext', () => ({
+  useOnboardingContext: () => ({ context: { athleteStepsWaived: mockCoachOnly } }),
 }));
 jest.mock('../../../services/api', () => ({
   oauthApi: { getProvidersStatus: jest.fn(), initMobileOAuth: jest.fn() },
@@ -206,5 +211,55 @@ describe('OnboardingConnectScreen — Strava OAuth failure fallback', () => {
 
     await waitFor(() => expect(openAuthSessionAsync).toHaveBeenCalled());
     expect(screen.queryByText('sciotte-modal:strava')).toBeNull();
+  });
+});
+
+describe('OnboardingConnectScreen — a coach who does not train', () => {
+  const card = (provider: string, display_name: string) => ({
+    ...STRAVA_CARD,
+    provider,
+    display_name,
+    requires_oauth: provider === 'whoop',
+  });
+  const served = {
+    providers: [
+      card('sciotte', 'Strava'),
+      card('sciotte_garmin', 'Garmin'),
+      card('sciotte_trainingpeaks', 'TrainingPeaks'),
+      card('whoop', 'WHOOP'),
+      card('intervals_icu', 'Intervals.icu'),
+    ],
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getProvidersStatus.mockResolvedValue(served);
+  });
+
+  afterEach(() => {
+    mockCoachOnly = false;
+  });
+
+  it('is offered only TrainingPeaks and Intervals.icu, with the coach copy', async () => {
+    mockCoachOnly = true;
+
+    renderScreen();
+
+    expect(await screen.findByLabelText('Connect TrainingPeaks')).toBeTruthy();
+    expect(screen.getByLabelText('Connect Intervals.icu')).toBeTruthy();
+    for (const hidden of ['Strava', 'Garmin', 'WHOOP']) {
+      expect(screen.queryByLabelText(`Connect ${hidden}`)).toBeNull();
+    }
+    expect(screen.getByText(i18n.t('onboarding.connectCoachPlatformIntro'))).toBeTruthy();
+    expect(screen.getByText(i18n.t('onboarding.connectCoachPlatformLaterHint'))).toBeTruthy();
+    expect(screen.queryByText(i18n.t('onboarding.connectProviderIntro'))).toBeNull();
+  });
+
+  it('an athlete still sees every provider an athlete connects', async () => {
+    renderScreen();
+
+    expect(await screen.findByLabelText('Connect Strava')).toBeTruthy();
+    expect(screen.getByLabelText('Connect WHOOP')).toBeTruthy();
+    expect(screen.getByText(i18n.t('onboarding.connectProviderIntro'))).toBeTruthy();
   });
 });

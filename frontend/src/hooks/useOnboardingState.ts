@@ -15,6 +15,7 @@ import {
   ATHLETE_STEP_IDS,
   athleteStepsWaived as serverAthleteStepsWaived,
   isServerStepComplete,
+  pastProviderGate,
   type OnboardingContext,
 } from '../onboarding/steps';
 
@@ -77,11 +78,6 @@ export function useOnboardingState(): OnboardingState {
     // as the provider connection lands.
     staleTime: 5_000,
   });
-
-  // The messaging steps live in the just-connected phase, so only fetch the
-  // connectable-channel list once the user is past the provider gate.
-  const postConnect = onboardingActive && onboardingStatus?.needs_provider_connection === false;
-  const { channels: availableChannels } = useAvailableChannels({ enabled: postConnect });
 
   // Session-only "continue without a provider": lets the user into the app
   // without connecting. Deliberately not persisted — the connect prompts in
@@ -160,6 +156,17 @@ export function useOnboardingState(): OnboardingState {
   const athleteStepsWaived = athleteStepsWaivedLocal || serverAthleteStepsWaived(serverSteps);
   const coachGroupDone = coachGroupDoneLocal || isServerStepComplete(serverSteps, 'coach_group');
   const coachesOthers = onboardingStatus?.coaches_others === true;
+
+  // The messaging steps live in the just-connected phase, so only fetch the
+  // connectable-channel list once the user is past the provider gate — which a
+  // coach who does not train is without connecting.
+  const postConnect =
+    onboardingActive &&
+    pastProviderGate({
+      needsProviderConnection: onboardingStatus?.needs_provider_connection,
+      athleteStepsWaived,
+    });
+  const { channels: availableChannels } = useAvailableChannels({ enabled: postConnect });
 
   // Messaging derivations. The chosen channel is the one picked this session,
   // else the server-persisted `chosen_channel`, else the sole configured channel

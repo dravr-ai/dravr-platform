@@ -32,9 +32,15 @@ import { getOAuthCallbackUrl } from '../../utils/oauth';
 import type { ExtendedProviderStatus } from '../../types';
 import { useProviderSkipped } from '../../hooks/useProviderSkipped';
 import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
+import { useOnboardingContext } from '../../hooks/useOnboardingContext';
 import { ConnectPreview } from '../../components/ConnectPreview';
 import { useTranslation } from '@pierre/i18n';
-import { SCIOTTE_LOGIN_PRESETS, noticeRequired, sciotteTargetForBackend } from '@pierre/shared-constants';
+import {
+  COACH_PLATFORM_PROVIDERS,
+  SCIOTTE_LOGIN_PRESETS,
+  noticeRequired,
+  sciotteTargetForBackend,
+} from '@pierre/shared-constants';
 import type { SciotteTarget } from '@pierre/shared-types';
 import { describeApiError } from '@pierre/ui-logic';
 
@@ -53,6 +59,10 @@ import { describeApiError } from '@pierre/ui-logic';
  * session-only (see `useProviderSkipped`), so the nudge returns next launch, and
  * the backend `NoProviderConnected` 403 still refuses any turn that would need
  * provider data. Skipping defers the ask; it does not buy access.
+ *
+ * A coach who does not train is offered only the coaching platforms, with no
+ * preview of athlete coaching: nothing reads their own training, and skipping
+ * moves them on to their group.
  */
 export function OnboardingConnectScreen() {
   const { t } = useTranslation();
@@ -61,6 +71,7 @@ export function OnboardingConnectScreen() {
   const { isAuthenticated, user, logout } = useAuth();
   const { skip } = useProviderSkipped(user?.id);
   const progress = useOnboardingProgress('connect_provider');
+  const coachOnly = useOnboardingContext().context.athleteStepsWaived;
   const [providers, setProviders] = useState<ExtendedProviderStatus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
@@ -253,9 +264,12 @@ export function OnboardingConnectScreen() {
   // The server withholds the raw `strava` / `garmin` rows a mirror card
   // covers and coalesces a card's two backends (carnet#255, carnet#574).
   // Onboarding offers only what an athlete connects themselves: the OAuth,
-  // scrape and API-key cards, not the synthetic dev providers.
-  const visibleProviders = providers.filter(
-    (p) => p.requires_oauth || p.provider.startsWith('sciotte') || p.provider === 'intervals_icu',
+  // scrape and API-key cards, not the synthetic dev providers. A coach who does
+  // not train is offered the coaching platforms alone.
+  const visibleProviders = providers.filter((p) =>
+    coachOnly
+      ? COACH_PLATFORM_PROVIDERS.includes(p.provider)
+      : p.requires_oauth || p.provider.startsWith('sciotte') || p.provider === 'intervals_icu',
   );
 
   const renderProvider = (provider: ExtendedProviderStatus, last: boolean) => {
@@ -350,7 +364,7 @@ export function OnboardingConnectScreen() {
             {user?.display_name ? t('onboarding.welcomeNamed', { name: user.display_name }) : t('app.welcomeToDravr')}
           </Text>
           <Text className="text-base text-text-secondary leading-6">
-            {t('onboarding.connectProviderIntro')}
+            {coachOnly ? t('onboarding.connectCoachPlatformIntro') : t('onboarding.connectProviderIntro')}
           </Text>
         </View>
 
@@ -379,7 +393,7 @@ export function OnboardingConnectScreen() {
           {t('app.credsEncrypted')}
         </Text>
 
-        <ConnectPreview />
+        {!coachOnly && <ConnectPreview />}
 
         <View className="mt-6 items-center">
           <TouchableOpacity onPress={skip} accessibilityRole="button">
@@ -388,7 +402,7 @@ export function OnboardingConnectScreen() {
             </Text>
           </TouchableOpacity>
           <Text className="text-xs text-text-tertiary text-center mt-1">
-            {t('app.connectAnytime')}
+            {coachOnly ? t('onboarding.connectCoachPlatformLaterHint') : t('app.connectAnytime')}
           </Text>
         </View>
 

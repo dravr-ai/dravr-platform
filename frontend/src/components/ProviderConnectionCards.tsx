@@ -103,6 +103,12 @@ interface ProviderConnectionCardsProps {
    * with the provider's brand.
    */
   onOAuthLaunched?: (providerName: string) => void;
+  /**
+   * Shows only these providers (by `provider` name), in the server's order.
+   * The connect step of a coach who does not train passes the coaching
+   * platforms; every other caller shows the full served list.
+   */
+  onlyProviders?: readonly string[];
 }
 
 export default function ProviderConnectionCards({
@@ -112,6 +118,7 @@ export default function ProviderConnectionCards({
   onSkip,
   isSkipPending,
   onOAuthLaunched,
+  onlyProviders,
 }: ProviderConnectionCardsProps) {
   const { t } = useTranslation();
   const { scheme } = useTheme();
@@ -285,8 +292,12 @@ export default function ProviderConnectionCards({
 
   // Rendered as served: the server withholds the raw `strava` / `garmin` rows
   // a mirror card covers and coalesces a card's two backends before answering
-  // (carnet#255, carnet#574), so no client filters or merges them again.
-  const providers = providersData?.providers ?? [];
+  // (carnet#255, carnet#574), so no client filters or merges them again. The
+  // one narrowing here is by audience (`onlyProviders`), never by backend.
+  const served = providersData?.providers ?? [];
+  const providers = onlyProviders
+    ? served.filter((p) => onlyProviders.includes(p.provider))
+    : served;
 
   return (
     <div className="w-full">

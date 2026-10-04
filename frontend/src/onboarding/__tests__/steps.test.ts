@@ -396,6 +396,56 @@ describe('coach who does not train — athlete steps leave the journey', () => {
     expect(onboardingProgress(connected).map((s) => s.id)).not.toContain('coach_proposal');
   });
 
+  it('is shown the group step ahead on the progress bar while on connect_provider', () => {
+    expect(onboardingProgress(coachOnly({ coachesOthers: true })).map((s) => s.id)).toEqual([
+      'profile_type',
+      'connect_provider',
+      'coach_group',
+    ]);
+  });
+
+  it('skipping the connect step moves on to the group, not the dashboard', () => {
+    expect(
+      currentOnboardingStep(coachOnly({ coachesOthers: true, skippedProvider: true }))?.id,
+    ).toBe('coach_group');
+  });
+
+  it('skipping still leads on to the messaging steps after the group', () => {
+    expect(
+      currentOnboardingStep(
+        coachOnly({
+          coachesOthers: true,
+          skippedProvider: true,
+          coachGroupDone: true,
+          messagingAvailableCount: 2,
+        }),
+      )?.id,
+    ).toBe('messaging_channel');
+  });
+
+  it('is not asked to connect again at the next login once the group exists', () => {
+    expect(
+      currentOnboardingStep(coachOnly({ coachesOthers: true, coachGroupDone: true })),
+    ).toBeNull();
+  });
+
+  it('meets no post-connect step while the onboarding status is loading', () => {
+    expect(
+      currentOnboardingStep(coachOnly({ coachesOthers: true, needsProviderConnection: undefined })),
+    ).toBeNull();
+  });
+
+  it('a coach who trains is still held at connect_provider and waits there for the group', () => {
+    const trains = coachOnly({
+      coachesOthers: true,
+      athleteStepsWaived: false,
+      aboutYouDone: true,
+      parqDone: true,
+    });
+    expect(currentOnboardingStep(trains)?.id).toBe('connect_provider');
+    expect(currentOnboardingStep({ ...trains, skippedProvider: true })).toBeNull();
+  });
+
   it('a coach who trains still gets the agent step before the group step', () => {
     const connected = coachOnly({
       needsProviderConnection: false,

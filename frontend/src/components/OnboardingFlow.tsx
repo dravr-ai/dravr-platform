@@ -77,6 +77,7 @@ function renderStep(
         <OnboardingConnectProvider
           userDisplayName={userDisplayName}
           onContinueWithoutProvider={state.skipProvider}
+          coachOnly={state.ctx.athleteStepsWaived}
         />
       );
     case 'coach_proposal':

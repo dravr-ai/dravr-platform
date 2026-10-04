@@ -259,6 +259,33 @@ describe('useOnboardingProgress', () => {
     expect(currentOnboardingStep(result.current.context)?.id).toBe('coach_group');
   });
 
+  it('a coach who does not train is offered connect first, and skipping it routes to the group', async () => {
+    mockGetOnboardingStatus.mockResolvedValue({
+      ...status(true),
+      coaches_others: true,
+      steps: [{ step_id: 'parq', status: 'not_applicable' }],
+    });
+    await markDone('dravr.profile_type_chosen.');
+    const { client, wrapper } = setup();
+
+    const { result } = renderHook(() => useOnboardingContext(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.context.athleteStepsWaived).toBe(true);
+      expect(result.current.settled).toBe(true);
+    });
+    // The group flag loaded rather than failing open, so the group is still ahead.
+    expect(result.current.context.coachGroupDone).toBe(false);
+    expect(currentOnboardingStep(result.current.context)?.id).toBe('connect_provider');
+
+    act(() => {
+      client.setQueryData(['provider-skipped', 'u1'], true);
+    });
+
+    await waitFor(() => expect(result.current.context.skippedProvider).toBe(true));
+    expect(currentOnboardingStep(result.current.context)?.id).toBe('coach_group');
+  });
+
   it('a group step recorded on the server is done on a new device', async () => {
     mockGetOnboardingStatus.mockResolvedValue({
       ...status(false),
