@@ -37,6 +37,7 @@ permissions:
   contents: read
   id-token: write
   security-events: write # For Trivy SARIF upload
+  actions: read # List and download the Trivy layer-cache artifacts
 
 jobs:
   publish-sciotte:
@@ -132,12 +133,10 @@ jobs:
       # Layer-analysis cache so the scan does not re-download the pushed image
       # from Artifact Registry — see publish-images.yml's server job.
       - name: Restore Trivy layer cache
-        id: trivy-cache
-        uses: actions/cache/restore@v4
+        uses: ./platform/.github/actions/trivy-layer-cache
         with:
-          path: ~/.cache/trivy/fanal
-          key: trivy-fanal-sciotte-${{ hashFiles('sciotte/Dockerfile') }}
-          restore-keys: trivy-fanal-sciotte-
+          mode: restore
+          name: trivy-fanal-sciotte-${{ hashFiles('sciotte/Dockerfile') }}
 
       - name: Scan sciotte image for vulnerabilities (report)
         # Reporting pass: no allowlist, never blocks. Trivy applies --ignorefile
@@ -154,11 +153,10 @@ jobs:
             "${{ steps.tags.outputs.registry }}/sciotte@${{ steps.build.outputs.digest }}"
 
       - name: Save Trivy layer cache
-        if: steps.trivy-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: ./platform/.github/actions/trivy-layer-cache
         with:
-          path: ~/.cache/trivy/fanal
-          key: trivy-fanal-sciotte-${{ hashFiles('sciotte/Dockerfile') }}
+          mode: save
+          name: trivy-fanal-sciotte-${{ hashFiles('sciotte/Dockerfile') }}
 
       - name: Scan sciotte image for vulnerabilities (gate)
         # Gating pass over the same digest with an explicit --ignorefile — the

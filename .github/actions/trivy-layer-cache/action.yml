@@ -1,0 +1,82 @@
+# ABOUTME: Restores or saves Trivy's layer-analysis cache (~/.cache/trivy/fanal) as a GitHub artifact
+# ABOUTME: Single source for every image workflow's Trivy scan, so a scan by digest skips layers it already analyzed
+
+name: Trivy Layer Cache
+description: >-
+  Trivy scans an image by registry digest and downloads only the layers whose analysis is
+  missing from its fanal cache, so with the cache a rescan of an image whose large layers
+  did not change fetches just the new ones instead of ~1 GB of billed Artifact Registry
+  egress. The cache lives in an artifact rather than actions/cache: the repository's
+  Actions cache is far over its quota from Rust caches and evicts this small, hourly-read
+  entry within the hour, while an artifact is kept until its retention date and costs no
+  GCP egress to fetch.
+
+  restore: downloads the newest unexpired artifact called `name` that a run on main of this
+  repository uploaded. Artifacts are listed repo-wide, and a fork's pull_request run can
+  upload one under any name; an analysis cache it planted could hide vulnerabilities from
+  the gate, so only main runs of this repository are trusted. A miss is not an error: the
+  scan then downloads the layers it needs.
+
+  save: uploads the cache under `name`. Every run saves, hit or miss, so the newest
+  artifact always carries the latest layers and never ages out while builds keep coming.
+
+inputs:
+  mode:
+    description: restore or save
+    required: true
+  name:
+    description: >-
+      Artifact name. Key it on the Dockerfile's hash: a Dockerfile change rebuilds the large
+      layers, so an older analysis has nothing left to skip and the cache starts over.
+    required: true
+
+outputs:
+  hit:
+    description: "'true' when restore found and unpacked a cache"
+    value: ${{ steps.restore.outputs.hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Restore Trivy layer cache
+      id: restore
+      if: inputs.mode == 'restore'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        NAME: ${{ inputs.name }}
+      run: |
+        set -uo pipefail
+        dest="${HOME}/.cache/trivy/fanal"
+        id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${NAME}&per_page=30" --jq '
+          [.artifacts[]
+            | select(.expired | not)
+            | select(.workflow_run.head_branch == "main")
+            | select(.workflow_run.head_repository_id == .workflow_run.repository_id)]
+          | sort_by(.created_at) | last | .id // empty')"
+        if [ -z "${id}" ]; then
+          echo "No trusted ${NAME} artifact; the scan downloads every layer it analyzes."
+          echo "hit=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        zip="${RUNNER_TEMP}/trivy-fanal.zip"
+        if curl -sSfL -H "Authorization: Bearer ${GH_TOKEN}" \
+             "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" -o "${zip}" \
+           && mkdir -p "${dest}" && unzip -oq "${zip}" -d "${dest}"; then
+          echo "Restored ${NAME} from artifact ${id}."
+          echo "hit=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "::warning::Could not restore ${NAME} from artifact ${id}; the scan downloads every layer it analyzes."
+          rm -rf "${dest}"
+          echo "hit=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Save Trivy layer cache
+      if: inputs.mode == 'save'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.name }}
+        path: ~/.cache/trivy/fanal
+        retention-days: 14
+        include-hidden-files: true
+        if-no-files-found: warn

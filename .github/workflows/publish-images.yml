@@ -61,6 +61,7 @@ permissions:
   contents: read
   id-token: write
   security-events: write  # For Trivy SARIF upload
+  actions: read  # List and download the Trivy layer-cache artifacts
 
 # A push burst on main fires one workflow_run event per Backend CI run,
 # and every deploy that actually builds pulls from the registry buildcache
@@ -417,14 +418,13 @@ jobs:
       # it. The large layers change only when this Dockerfile does (apt epoch,
       # CLI versions), so the cache key follows the Dockerfile; the binary layers
       # are new every build and are cheap to fetch. Only fanal is cached: the
-      # vulnerability DB comes from a free mirror and must stay fresh.
+      # vulnerability DB comes from a free mirror and must stay fresh. The cache
+      # is an artifact, not actions/cache — see the action for why.
       - name: Restore Trivy layer cache
-        id: trivy-cache
-        uses: actions/cache/restore@v4
+        uses: ./.github/actions/trivy-layer-cache
         with:
-          path: ~/.cache/trivy/fanal
-          key: trivy-fanal-server-${{ hashFiles('docker/images/server/Dockerfile') }}
-          restore-keys: trivy-fanal-server-
+          mode: restore
+          name: trivy-fanal-server-${{ hashFiles('docker/images/server/Dockerfile') }}
 
       - name: Scan server image for vulnerabilities (report)
         # Reporting pass: no allowlist, never blocks. Trivy applies --ignorefile
@@ -443,11 +443,10 @@ jobs:
       # Saved after the reporting pass, which never fails, so a gated build
       # still keeps the analysis it paid to download.
       - name: Save Trivy layer cache
-        if: steps.trivy-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: ./.github/actions/trivy-layer-cache
         with:
-          path: ~/.cache/trivy/fanal
-          key: trivy-fanal-server-${{ hashFiles('docker/images/server/Dockerfile') }}
+          mode: save
+          name: trivy-fanal-server-${{ hashFiles('docker/images/server/Dockerfile') }}
 
       - name: Scan server image for vulnerabilities (gate)
         # Gating pass over the same digest, allowlist applied. Run trivy directly
@@ -576,12 +575,10 @@ jobs:
       # Layer-analysis cache so the scan does not re-download the pushed image
       # from Artifact Registry — see the server job.
       - name: Restore Trivy layer cache
-        id: trivy-cache
-        uses: actions/cache/restore@v4
+        uses: ./.github/actions/trivy-layer-cache
         with:
-          path: ~/.cache/trivy/fanal
-          key: trivy-fanal-frontend-${{ hashFiles('docker/images/frontend/Dockerfile') }}
-          restore-keys: trivy-fanal-frontend-
+          mode: restore
+          name: trivy-fanal-frontend-${{ hashFiles('docker/images/frontend/Dockerfile') }}
 
       - name: Scan frontend image for vulnerabilities (report)
         # Reporting pass: no allowlist, never blocks — see the server job for why
@@ -595,11 +592,10 @@ jobs:
             "${{ steps.tags.outputs.registry }}/frontend@${{ steps.build.outputs.digest }}"
 
       - name: Save Trivy layer cache
-        if: steps.trivy-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: ./.github/actions/trivy-layer-cache
         with:
-          path: ~/.cache/trivy/fanal
-          key: trivy-fanal-frontend-${{ hashFiles('docker/images/frontend/Dockerfile') }}
+          mode: save
+          name: trivy-fanal-frontend-${{ hashFiles('docker/images/frontend/Dockerfile') }}
 
       - name: Scan frontend image for vulnerabilities (gate)
         # Gating pass over the same digest, allowlist applied. Explicit trivy run
