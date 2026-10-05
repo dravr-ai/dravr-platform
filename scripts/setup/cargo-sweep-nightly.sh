@@ -22,7 +22,10 @@ CAP_SPEC="${CARGO_SWEEP_CAP:-400GiB}"
 DAYS="${CARGO_SWEEP_DAYS:-30}"
 IDLE_DAYS="${CARGO_SWEEP_IDLE_DAYS:-7}"
 KEEP="${CARGO_SWEEP_KEEP:-1}"
-MAX_DEPTH="${CARGO_SWEEP_MAX_DEPTH:-3}"
+# Five, not three: an agent worktree builds at
+# <repo>/.claude/worktrees/<name>/target, depth 5 under the root. At three those
+# trees were never counted against the cap and grew to ~250 GiB unswept.
+MAX_DEPTH="${CARGO_SWEEP_MAX_DEPTH:-5}"
 
 NO_CAP=0
 FORCE=0
@@ -70,7 +73,7 @@ Options:
   --idle-days N    Purge: a repo counts as idle     (env CARGO_SWEEP_IDLE_DAYS, default 7)
   --keep N         Never wholesale-drop the N most-recently-built repos
                                                     (env CARGO_SWEEP_KEEP,      default 1)
-  --max-depth N    Discovery depth under the root   (env CARGO_SWEEP_MAX_DEPTH, default 3)
+  --max-depth N    Discovery depth under the root   (env CARGO_SWEEP_MAX_DEPTH, default 5)
   --no-cap         Run the sweep or purge, skip cap enforcement
   --force          Proceed on repos whose cargo build lock is held
   --dry-run        Print every action, change nothing

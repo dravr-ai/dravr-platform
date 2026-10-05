@@ -67,6 +67,19 @@ else
 fi
 rm -rf "$root"
 
+# An agent worktree builds at <repo>/.claude/worktrees/<name>/target, depth 5 under
+# the root. The default depth must reach it: at three, such trees went uncounted.
+root="$(new_root)"; repo="$(make_repo "$root" "host")"
+nested="$(make_repo "$repo/.claude/worktrees" "agent-x")"
+make_tree "$nested" "target"
+got="$(labels_of "$root")"
+if [[ "$got" == "agent-x" ]]; then
+  pass "an agent worktree's target/ under .claude/worktrees is discovered by default"
+else
+  fail "an agent worktree's target/ under .claude/worktrees is discovered by default (got: ${got:-<none>})"
+fi
+rm -rf "$root"
+
 # The plain tree keeps its bare repository label, so protected lists and cap
 # ledgers written against the old name still match.
 root="$(new_root)"; repo="$(make_repo "$root" "plain-only")"
