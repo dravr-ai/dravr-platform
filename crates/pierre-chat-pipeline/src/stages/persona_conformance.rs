@@ -660,8 +660,8 @@ fn check_p0_p3_ladder(reply: &str, contract: &PersonaContract, out: &mut Vec<Con
 /// metric ([`is_framework_bound_metric_sentence`]) — the persona prompt's
 /// "every numeric claim that maps to a published threshold or model". A date,
 /// a clock time, a lookback window or a raw measurement (distance, heart rate)
-/// maps to no framework, and demanding a citation there made every activity
-/// report fail and invited the style editor to staple a framework onto a date.
+/// maps to no framework; demanding a citation there would fail every activity
+/// report and push the style editor to staple a framework onto a date.
 ///
 /// An empty allowlist disables the rule by definition (documented on the
 /// contract field): with nothing allowed, every sentence would fail and the
@@ -883,17 +883,18 @@ const FRAMEWORK_LABELS: &[&str] = &[
 ];
 
 /// Metric acronyms whose value comes from a published model, per the
-/// power-athlete prompt's mapping: Banister (CTL/ATL/TSB), Coggan (FTP, IF,
-/// NP, EF, VI), Gabbett (ACWR). Matched case-sensitively as standalone words,
-/// so the English conjunction "if" never reads as Coggan's intensity factor.
-const FRAMEWORK_BOUND_ACRONYMS: &[&str] = &[
-    "CTL", "ATL", "TSB", "FTP", "IF", "NP", "EF", "VI", "ACWR",
-];
+/// power-athlete prompt's mapping: Banister (CTL/ATL/TSB), Coggan (IF, NP,
+/// EF, VI, and the FTP its power zones scale from), Gabbett (ACWR). Matched
+/// case-sensitively as standalone words, so the English conjunction "if"
+/// never reads as Coggan's intensity factor.
+const FRAMEWORK_BOUND_ACRONYMS: &[&str] =
+    &["CTL", "ATL", "TSB", "FTP", "IF", "NP", "EF", "VI", "ACWR"];
 
 /// Lowercase stems of the model-derived metrics the prompt names in words —
 /// Foster's monotony and strain, Seiler's and Treff's polarization. A stem
 /// covers every locale's spelling (`monotonie`, `monotonía`, `polarisation`,
-/// `Polarisierung`), so the rule does not go blind on a French turn.
+/// `Polarisierung`), so the rule does not go blind on a French turn. A stem
+/// matches only at the start of a word, so `constraint` is not Foster's strain.
 const FRAMEWORK_BOUND_STEMS: &[&str] = &["monoton", "strain", "polari"];
 
 /// `true` when `sentence` names a metric that maps to a published model, so a
@@ -906,10 +907,14 @@ fn is_framework_bound_metric_sentence(sentence: &str) -> bool {
     {
         return true;
     }
-    let lowered = sentence.to_lowercase();
-    FRAMEWORK_BOUND_STEMS
-        .iter()
-        .any(|stem| lowered.contains(stem))
+    sentence
+        .to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .any(|word| {
+            FRAMEWORK_BOUND_STEMS
+                .iter()
+                .any(|stem| word.starts_with(stem))
+        })
 }
 
 /// Whitespace-split word count. Matches the "word budget" the vault doc
@@ -939,14 +944,17 @@ pub fn longest_bullet_run(text: &str) -> usize {
     best
 }
 
+/// Markdown bullet markers, each with the space that makes it a list item.
+const BULLET_MARKERS: &[&str] = &["- ", "* ", "+ "];
+
 /// `true` when `line` is a markdown bullet — `-`, `*`, `+`, or a numbered
 /// `N.` / `N)` followed by a space. Indentation is allowed.
 #[must_use]
 pub fn is_bullet_line(line: &str) -> bool {
     let trimmed = line.trim_start();
-    trimmed.starts_with("- ")
-        || trimmed.starts_with("* ")
-        || trimmed.starts_with("+ ")
+    BULLET_MARKERS
+        .iter()
+        .any(|marker| trimmed.starts_with(marker))
         || numbered_list_prefix(trimmed)
 }
 
@@ -995,8 +1003,8 @@ const LABEL_MAX_CHARS: usize = 32;
 /// around it (`**Distance:** 42 km`), a non-ASCII label (`Durée`), French
 /// typography's space before the colon (`Durée : 1 h 12`), and a quoted name
 /// as the label (`« Sortie longue » : 32 km`). An ASCII-only bare-label
-/// detector missed every French block and every bolded one, so a strict
-/// persona's correct reply was reported and re-prompted as having none.
+/// shape would miss every French block and every bolded one, reporting a
+/// strict persona's correct reply as having none.
 fn is_label_value_line(line: &str) -> bool {
     let row = strip_list_marker(line.trim());
     let Some((label, value)) = row.split_once(':') else {
@@ -1010,7 +1018,10 @@ fn is_label_value_line(line: &str) -> bool {
     let label_chars_ok = label.chars().all(|c| {
         c.is_alphanumeric()
             || c.is_whitespace()
-            || matches!(c, '_' | '-' | '\'' | '\u{2019}' | '/' | '(' | ')' | '«' | '»' | '"')
+            || matches!(
+                c,
+                '_' | '-' | '\'' | '\u{2019}' | '/' | '(' | ')' | '«' | '»' | '"'
+            )
     });
     let starts_with_word = label
         .chars()
@@ -1021,7 +1032,7 @@ fn is_label_value_line(line: &str) -> bool {
 
 /// `line` without a leading markdown list marker (`- `, `* `, `+ `, `1. `).
 fn strip_list_marker(line: &str) -> &str {
-    if let Some(rest) = ["- ", "* ", "+ "]
+    if let Some(rest) = BULLET_MARKERS
         .iter()
         .find_map(|marker| line.strip_prefix(marker))
     {

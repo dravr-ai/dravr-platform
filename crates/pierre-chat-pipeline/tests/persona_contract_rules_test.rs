@@ -243,6 +243,7 @@ fn measurements_dates_and_windows_are_not_model_claims() {
         "Voici ce que disent les mesures de ta sortie du samedi 3 octobre (départ à 5 h 40).",
         "Une fois qu'il est accessible, je regarde ses 12 dernières semaines.",
         "Distance : 42,1 km",
+        "Given your time constraint of 45 minutes, keep it easy.",
     ] {
         let found = rules(CITE, CoachingPersona::PowerAthlete, reply, None);
         assert!(
