@@ -197,14 +197,13 @@ done < <("$PIN_SH" names)
 # manifest outside `members = ["crates/*"]` resolves against its own lockfile and
 # never reaches the workspace one. So convert a silent miss into a loud one: any
 # satellite-shaped pin outside the scanned scope fails the scan.
-# -prune, not -not -path: a filter still DESCENDS into the directory it excludes, so
-# `find . -not -path "./target/*"` walks every build artefact in the repo before
-# discarding it — 14 seconds against a warm target/, which is not a push gate.
-# Pruning never enters them at all.
-OUT_OF_SCOPE=$(find . \
-                 \( -name target -o -name node_modules -o -name .git \) -prune -o \
-                 -name Cargo.toml -print 2>/dev/null \
-               | grep -vE '^\./Cargo\.toml$|^\./crates/[^/]+/Cargo\.toml$' \
+# Tracked manifests only: the bump chain can leave behind only a pin that is
+# committed. A filesystem walk also entered the git-ignored nested worktrees under
+# .claude/worktrees/, so every session's gate in the shared checkout failed on a
+# PEER's worktree manifests (carnet#797). `git ls-files` never enters an ignored
+# directory, and never walks target/ or node_modules/ either.
+OUT_OF_SCOPE=$(git ls-files -- 'Cargo.toml' '*/Cargo.toml' \
+               | grep -vE '^Cargo\.toml$|^crates/[^/]+/Cargo\.toml$' \
                | while read -r m; do
                    if grep -qE '^(dravr-[a-z-]+|photograveur|embacle(-[a-z-]+)?) = ' "$m" 2>/dev/null; then
                      echo "$m"
