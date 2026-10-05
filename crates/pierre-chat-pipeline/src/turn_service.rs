@@ -43,7 +43,6 @@ use pierre_llm::ChatProvider;
 use pierre_providers::ai_scope;
 use pierre_services::conversation_forge::reactivate_for_turn;
 use pierre_services::tenant_chat_provider::resolve_tenant_chat_provider;
-use pierre_tool_runtime::derived_content::refuse_derived_content_off_interface;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -57,7 +56,7 @@ use crate::stages::command_persistence::{
 };
 use crate::stages::persistence::fan_out_to_group_transcript;
 use crate::surface_profile::SurfaceProfile;
-use crate::turn::TurnInput;
+use crate::turn::{AmbientContext, TurnInput};
 use crate::turn_stop::StopScope;
 use crate::usage_counters::{
     increment_usage_counters_scoped, quota_tokens_from_envelope, UsageIncrementScope,
@@ -96,7 +95,7 @@ pub struct TurnRequest<'a> {
     pub turn_id: ConversationTurnId,
     /// Pre-rendered room transcript for a group turn; `None` for a DM or an
     /// in-app conversation.
-    pub ambient_context: Option<String>,
+    pub ambient_context: Option<AmbientContext>,
     /// Canonical channel identifier (`"web"`, `"mobile"`, `"telegram"`, …)
     /// used for slash-command analytics and the command context.
     pub channel_type: &'a str,
@@ -248,10 +247,15 @@ pub async fn execute(
     request: TurnRequest<'_>,
     profile: &SurfaceProfile,
 ) -> AppResult<ServedTurn> {
-    // Everything the turn reads serves the transport its surface declared.
+    // Everything the turn reads serves the transport its surface declared, and
+    // accumulates into the turn's own provenance: every row the turn writes is
+    // stamped with what it served so far (carnet#769).
     Box::pin(ai_scope::serve_over(
         request.transport,
-        execute_turn(ctx, request, profile),
+        ai_scope::tracking(
+            ai_scope::Provenance::new(),
+            execute_turn(ctx, request, profile),
+        ),
     ))
     .await
 }
@@ -261,10 +265,6 @@ async fn execute_turn(
     request: TurnRequest<'_>,
     profile: &SurfaceProfile,
 ) -> AppResult<ServedTurn> {
-    // A turn replays the conversation's history, compaction, notes and facts
-    // into its prompt — content derived from the athlete's data with no
-    // provenance — and answers its caller with what the model makes of it.
-    refuse_derived_content_off_interface(ctx.tool_runtime.as_ref(), request.user_id).await?;
     let user_id_str = request.user_id.to_string();
 
     // The conversation row supplies the agent the per-agent cap is keyed on.
@@ -715,8 +715,7 @@ async fn fan_out_room_visible_turn(
             request.conversation_tenant_id,
             &user_id,
             speaker,
-            &row.content,
-            &row.id,
+            row,
         )
         .await
         {

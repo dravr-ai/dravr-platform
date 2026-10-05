@@ -14,6 +14,7 @@ use pierre_core::errors::AppError;
 use pierre_core::models::{
     AddMessageParams, GuidedFlow, OnboardingState, Pillar, TopicVisibility, WalkAudience,
 };
+use pierre_providers::ai_scope;
 use tracing::{info, warn};
 
 use crate::{CommandHandler, PlatformCommandContext};
@@ -226,6 +227,7 @@ impl CommandHandler for PillarsHandler {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: ai_scope::derived_policy(),
         };
         if let Err(e) = repos.chat.add_message(&opener).await {
             // The walk is already active and re-derives coverage from the

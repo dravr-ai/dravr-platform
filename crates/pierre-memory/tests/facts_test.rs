@@ -7,6 +7,7 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
+use pierre_core::transport::TransportPolicy;
 use pierre_memory::facts::{FactKind, FactSource, PredicateCode, UserFact};
 use pierre_memory::scope::MemoryScope;
 
@@ -68,6 +69,7 @@ fn is_confident_threshold() {
         source_msg_id: Some("m1".into()),
         created_at: now,
         updated_at: now,
+        transport_policy: TransportPolicy::AnyTransport,
     };
     assert!(fact.is_confident(0.7));
     assert!(!fact.is_confident(0.8));

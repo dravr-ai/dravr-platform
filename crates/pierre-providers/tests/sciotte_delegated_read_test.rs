@@ -33,17 +33,17 @@ use std::sync::{Arc, Mutex};
 
 use chrono::{NaiveDate, TimeZone, Utc};
 use dravr_sciotte::client::{ENV_AUDIENCE, ENV_REMOTE_URL};
-use dravr_sciotte::models::{AthleteId, AuthSession};
+use dravr_sciotte::models::AuthSession;
 use dravr_sciotte::wire::{ATHLETE_NOT_ACCESSIBLE, ATHLETE_REQUIRED};
 use pierre_providers::core::{
     CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
 };
+use pierre_providers::delegation::{coach_credential_expired, is_coach_credential_expired};
 use pierre_providers::errors::{AppError, ErrorCode};
 use pierre_providers::registry::global_registry;
 use pierre_providers::sciotte_error::sciotte_refusal;
 use pierre_providers::sciotte_provider::{
-    delegated_session_expired, is_delegated_session_expired, SciotteProviderFactory,
-    SciotteTrainingPeaksProviderFactory,
+    SciotteProviderFactory, SciotteTrainingPeaksProviderFactory,
 };
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -255,10 +255,6 @@ fn spawn_scraper_stub(listener: TcpListener, seen: Arc<Mutex<Vec<String>>>) {
     });
 }
 
-fn athlete(id: &str) -> AthleteId {
-    id.parse().expect("a numeric athlete id is well formed") // Safe: callers pass digit literals
-}
-
 fn day(y: i32, m: u32, d: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(y, m, d).expect("valid date literal") // Safe: literal calendar date
 }
@@ -285,7 +281,7 @@ fn credentials(session_id: &str) -> OAuth2Credentials {
 /// A delegated TrainingPeaks provider reading `athlete_id` through `session_id`.
 async fn delegated(athlete_id: &str, session_id: &str) -> Box<dyn FitnessProvider> {
     let provider = global_registry()
-        .create_delegated_provider("sciotte_trainingpeaks", athlete(athlete_id))
+        .create_delegated_provider("sciotte_trainingpeaks", athlete_id)
         .expect("the TrainingPeaks mirror reads for a coached athlete"); // Safe: the one supported name
     provider
         .set_credentials(credentials(session_id))
@@ -512,7 +508,7 @@ async fn a_dead_coach_session_is_not_the_readers_to_renew() {
                 .expect_err("a dead session reads nothing"), // Safe: the stand-in answers 401
         ),
     ] {
-        assert!(is_delegated_session_expired(&error), "{surface}: {error:?}");
+        assert!(is_coach_credential_expired(&error), "{surface}: {error:?}");
         assert_eq!(error.code, ErrorCode::ExternalAuthFailed, "{surface}");
         assert_eq!(
             error.provider_auth_required_provider(),
@@ -541,7 +537,7 @@ async fn a_dead_coach_session_is_not_the_readers_to_renew() {
         error.provider_auth_required_provider().as_deref(),
         Some("sciotte_trainingpeaks")
     );
-    assert!(!is_delegated_session_expired(&error));
+    assert!(!is_coach_credential_expired(&error));
 }
 
 async fn an_own_trainingpeaks_profile_is_fenced_and_strava_is_not() {
@@ -604,10 +600,15 @@ async fn a_delegated_read_names_its_athlete_and_reaches_no_other() {
 }
 
 #[test]
-fn only_the_trainingpeaks_mirror_reads_for_a_coached_athlete() {
-    for other in ["sciotte", "sciotte_garmin", "strava", "intervals_icu"] {
-        let Err(error) = global_registry().create_delegated_provider(other, athlete("900001"))
-        else {
+fn a_provider_with_no_coach_reads_refuses_to_read_for_a_coached_athlete() {
+    for other in ["sciotte", "sciotte_garmin", "sciotte_coros", "strava"] {
+        assert!(
+            global_registry()
+                .check_delegated_athlete(other, "900001")
+                .is_err(),
+            "{other}"
+        );
+        let Err(error) = global_registry().create_delegated_provider(other, "900001") else {
             panic!("{other} must not read on behalf of a coached athlete");
         };
         assert_eq!(error.code, ErrorCode::InvalidInput, "{other}");
@@ -620,8 +621,8 @@ fn only_the_trainingpeaks_mirror_reads_for_a_coached_athlete() {
 
 #[test]
 fn only_a_delegated_dead_session_reads_as_one() {
-    let expired = delegated_session_expired("sciotte_trainingpeaks");
-    assert!(is_delegated_session_expired(&expired));
+    let expired = coach_credential_expired("sciotte_trainingpeaks", "TrainingPeaks");
+    assert!(is_coach_credential_expired(&expired));
     assert_eq!(expired.code, ErrorCode::ExternalAuthFailed);
     assert!(
         expired
@@ -631,10 +632,10 @@ fn only_a_delegated_dead_session_reads_as_one() {
         expired.message
     );
 
-    assert!(!is_delegated_session_expired(
+    assert!(!is_coach_credential_expired(
         &AppError::provider_auth_required("sciotte_trainingpeaks")
     ));
-    assert!(!is_delegated_session_expired(&AppError::new(
+    assert!(!is_coach_credential_expired(&AppError::new(
         ErrorCode::ExternalAuthFailed,
         "a different external auth failure"
     )));

@@ -25,6 +25,7 @@
 mod common;
 mod helpers;
 
+use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
@@ -723,6 +724,7 @@ async fn room(
                     GroupRole::Member
                 },
                 peer_sharing_consent: true,
+                coach_sharing_consent: true,
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,
@@ -760,6 +762,7 @@ async fn the_welcome_write_is_once_per_thread_even_when_racing() {
         prompt_tokens: None,
         model: None,
         content_blocks: None,
+        transport_policy: TransportPolicy::AnyTransport,
     };
 
     let (a, b) = tokio::join!(

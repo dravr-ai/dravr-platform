@@ -29,6 +29,7 @@
 use chrono::{Duration, Utc};
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
+use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::{HarnessMemoryRepository, UpsertUserFactParams};
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 
@@ -101,6 +102,8 @@ where
                 source: FactSource::Onboarding,
                 valid_until,
                 source_msg_id: None,
+                // The athlete's own answers, derived from no provider data.
+                transport_policy: TransportPolicy::AnyTransport,
             })
             .await?;
         delete_parq_flag(repo, tenant_id, user_id, id, Some(&flag.id)).await?;

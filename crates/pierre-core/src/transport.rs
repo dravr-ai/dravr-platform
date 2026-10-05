@@ -19,6 +19,8 @@
 //! session token reaches `/mcp` and the web app's chat, and only the route
 //! says which one served it.
 
+use serde::{Deserialize, Serialize};
+
 /// HTTP header Dravr's own clients set to name themselves (`"web"`,
 /// `"mobile"`). Set by the client, so it labels a first-party session and
 /// never classifies a call.
@@ -86,15 +88,59 @@ impl Transport {
     }
 }
 
-/// Where a provider's terms let its data be served.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Where a provider's terms let its data be served — and, stamped on content
+/// derived from an athlete's data, where that content may be served
+/// (carnet#769).
+///
+/// A derived row (a reply, a fact, a plan, a notification) is
+/// [`Self::FirstPartyOnly`] when anything it was built from was: a
+/// first-party-only provider's data, or another row so stamped. Rows written
+/// before stamping existed read as [`Self::AnyTransport`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TransportPolicy {
     /// Only to Dravr's own surfaces: never over an external transport, in raw,
     /// derived or aggregated form.
     FirstPartyOnly,
     /// Over every transport. The default for a provider whose terms set no
     /// such restriction.
+    #[default]
     AnyTransport,
+}
+
+impl TransportPolicy {
+    /// The policy a stored `first_party_only` stamp column holds.
+    #[must_use]
+    pub const fn from_first_party_only(first_party_only: bool) -> Self {
+        if first_party_only {
+            Self::FirstPartyOnly
+        } else {
+            Self::AnyTransport
+        }
+    }
+
+    /// Whether the content stays on Dravr's own surfaces — the value of a
+    /// stored `first_party_only` stamp column.
+    #[must_use]
+    pub const fn is_first_party_only(self) -> bool {
+        matches!(self, Self::FirstPartyOnly)
+    }
+
+    /// The stricter of two policies: content built from both sources may go
+    /// only where both may.
+    #[must_use]
+    pub const fn strictest(self, other: Self) -> Self {
+        Self::from_first_party_only(self.is_first_party_only() || other.is_first_party_only())
+    }
+
+    /// The strictest policy among `policies`; [`Self::AnyTransport`] when
+    /// there are none.
+    #[must_use]
+    pub fn strictest_of(policies: impl IntoIterator<Item = Self>) -> Self {
+        policies
+            .into_iter()
+            .fold(Self::AnyTransport, Self::strictest)
+    }
 }
 
 #[cfg(test)]
@@ -149,6 +195,31 @@ mod tests {
             Transport::app_session(Some("mcp")),
             Transport::WebApp,
             "a header claiming anything else is still only a session"
+        );
+    }
+
+    #[test]
+    fn a_stamp_is_as_strict_as_the_strictest_source() {
+        use TransportPolicy::{AnyTransport, FirstPartyOnly};
+        assert_eq!(AnyTransport.strictest(AnyTransport), AnyTransport);
+        assert_eq!(AnyTransport.strictest(FirstPartyOnly), FirstPartyOnly);
+        assert_eq!(FirstPartyOnly.strictest(AnyTransport), FirstPartyOnly);
+        assert_eq!(TransportPolicy::strictest_of([]), AnyTransport);
+        assert_eq!(
+            TransportPolicy::strictest_of([AnyTransport, FirstPartyOnly, AnyTransport]),
+            FirstPartyOnly
+        );
+        for policy in [AnyTransport, FirstPartyOnly] {
+            assert_eq!(
+                TransportPolicy::from_first_party_only(policy.is_first_party_only()),
+                policy,
+                "the stored column round-trips"
+            );
+        }
+        assert_eq!(
+            TransportPolicy::default(),
+            AnyTransport,
+            "an unstamped row is served everywhere"
         );
     }
 

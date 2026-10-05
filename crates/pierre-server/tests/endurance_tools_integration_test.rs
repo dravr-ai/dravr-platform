@@ -36,6 +36,7 @@ use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::periodization::{ReadinessLevel, WorkoutPurpose};
 use pierre_core::models::{ConnectionType, SportType, TenantId, UserPhysiologicalProfile};
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::TransportPolicy;
 use pierre_tool_runtime::implementations::endurance_workouts::ListWorkoutTemplatesTool;
 use pierre_tool_runtime::protocols::ProtocolError;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
@@ -173,6 +174,7 @@ async fn seed_physiology(
         w_prime_joules: None,
         critical_speed_mps: None,
         d_prime_meters: None,
+        transport_policy: TransportPolicy::AnyTransport,
     };
     let tenant_id = TenantId::parse_str(tenant).expect("valid tenant id");
     executor

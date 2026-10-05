@@ -42,6 +42,8 @@
 //! notice may carry (carnet#734). The athlete still sees every session in the
 //! app's own activity views.
 
+use pierre_core::ai_policy::first_party_only;
+use pierre_core::transport::TransportPolicy;
 use std::fmt::Write as _;
 use std::str::FromStr;
 use std::sync::{Arc, OnceLock};
@@ -733,6 +735,7 @@ impl ServerBackfillNotifier {
                 &user_id.to_string(),
                 tenant_id,
                 REENTRY_HISTORY_LOOKBACK,
+                TransportPolicy::FirstPartyOnly,
             )
             .await
             .inspect_err(|e| {
@@ -778,6 +781,19 @@ impl ServerBackfillNotifier {
             })
             .await
     }
+}
+
+/// The stamp of a backfill notice over `provider`'s warmed window: the
+/// provider's own terms, and those of any upstream source its rows relay
+/// (carnet#769).
+fn warmed_window_policy(provider: &str, warmed: &[Activity]) -> TransportPolicy {
+    let terms = global_registry();
+    TransportPolicy::from_first_party_only(
+        first_party_only(terms.as_ref(), provider, None)
+            || warmed
+                .iter()
+                .any(|a| first_party_only(terms.as_ref(), a.provider(), a.source())),
+    )
 }
 
 /// Render one activity as a compact `• name · day · sport · 10.0 km` line.
@@ -935,6 +951,9 @@ impl BackfillNotifier for ServerBackfillNotifier {
         // The window's true size: `warmed` when the cache read landed, else the
         // count the backfill reported.
         let count = warmed.len().max(activity_count);
+        // The notice lists (or counts) the backfilled provider's data, so it
+        // is as strict as that data (carnet#769).
+        let derived_from = warmed_window_policy(provider, &warmed);
 
         match destination {
             Destination::Channel(route) => {
@@ -951,6 +970,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
                     strings: &self.strings,
                     #[cfg(feature = "client-notifications")]
                     notifications: self.notifications.as_ref(),
+                    transport_policy: derived_from,
                 }
                 // The in-app arm always ships the plain list — one text, no
                 // attachments — so the persisted turn is that single part.

@@ -9,6 +9,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
 use chrono::{Duration, Utc};
@@ -61,6 +62,7 @@ async fn record_outcome_creates_then_increments_same_playbook() {
         outcome_metric: &metric,
         label: OutcomeLabel::Success,
         at: Utc::now(),
+        transport_policy: TransportPolicy::AnyTransport,
     };
 
     let id1 = repos
@@ -87,7 +89,7 @@ async fn record_outcome_creates_then_increments_same_playbook() {
 
     let playbooks = repos
         .playbooks
-        .list_playbooks("t1", "u1", None, 10)
+        .list_playbooks("t1", "u1", None, 10, TransportPolicy::FirstPartyOnly)
         .await
         .unwrap();
     assert_eq!(playbooks.len(), 1, "exactly one playbook accrued");
@@ -120,6 +122,7 @@ async fn list_playbooks_is_tenant_isolated() {
             outcome_metric: &metric,
             label: OutcomeLabel::Success,
             at: Utc::now(),
+            transport_policy: TransportPolicy::AnyTransport,
         };
         repos
             .playbooks
@@ -130,7 +133,7 @@ async fn list_playbooks_is_tenant_isolated() {
 
     let t1 = repos
         .playbooks
-        .list_playbooks("t1", "u1", None, 10)
+        .list_playbooks("t1", "u1", None, 10, TransportPolicy::FirstPartyOnly)
         .await
         .unwrap();
     assert_eq!(t1.len(), 1);
@@ -160,6 +163,7 @@ async fn pending_advice_due_label_and_future() {
         label_source: None,
         source_msg_id: Some("m1".to_owned()),
         created_at: Utc::now(),
+        transport_policy: TransportPolicy::AnyTransport,
     };
 
     let past = make_advice("due-now", Utc::now() - Duration::hours(1));
@@ -189,6 +193,7 @@ async fn pending_advice_due_label_and_future() {
         outcome_metric: &metric,
         label: OutcomeLabel::Success,
         at: Utc::now(),
+        transport_policy: TransportPolicy::AnyTransport,
     };
     let playbook_id = repos
         .playbooks
@@ -204,7 +209,7 @@ async fn pending_advice_due_label_and_future() {
     // The atomic mark is tenant-scoped: a different tenant must not have flipped.
     let pb = repos
         .playbooks
-        .list_playbooks("t1", "u1", None, 10)
+        .list_playbooks("t1", "u1", None, 10, TransportPolicy::FirstPartyOnly)
         .await
         .unwrap();
     assert_eq!(pb.len(), 1);
@@ -235,6 +240,7 @@ async fn agent_scoping_includes_agnostic_excludes_other_agent() {
             outcome_metric: &metric,
             label: OutcomeLabel::Success,
             at: Utc::now(),
+            transport_policy: TransportPolicy::AnyTransport,
         };
         repos
             .playbooks
@@ -246,7 +252,13 @@ async fn agent_scoping_includes_agnostic_excludes_other_agent() {
     // The "trail" agent sees its own playbook AND the agent-agnostic one.
     let trail = repos
         .playbooks
-        .list_playbooks("t1", "u1", Some("trail"), 10)
+        .list_playbooks(
+            "t1",
+            "u1",
+            Some("trail"),
+            10,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap();
     assert_eq!(trail.len(), 2, "coach sees own + agnostic playbooks");
@@ -254,7 +266,7 @@ async fn agent_scoping_includes_agnostic_excludes_other_agent() {
     // No-agent context sees only the agent-agnostic playbook.
     let none = repos
         .playbooks
-        .list_playbooks("t1", "u1", None, 10)
+        .list_playbooks("t1", "u1", None, 10, TransportPolicy::FirstPartyOnly)
         .await
         .unwrap();
     assert_eq!(none.len(), 1, "no-coach context sees only agnostic");
@@ -281,6 +293,7 @@ fn due_sample_advice(id: &str) -> PendingAdvice {
         label_source: None,
         source_msg_id: None,
         created_at: Utc::now(),
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 
@@ -302,6 +315,7 @@ async fn forget_playbook_purges_pending_advice_so_it_cannot_resurrect() {
         outcome_metric: &metric,
         label: OutcomeLabel::Success,
         at: Utc::now(),
+        transport_policy: TransportPolicy::AnyTransport,
     };
     let playbook_id = repos
         .playbooks
@@ -328,7 +342,7 @@ async fn forget_playbook_purges_pending_advice_so_it_cannot_resurrect() {
     assert!(due.is_empty(), "forget purged the in-flight advice");
     let playbooks = repos
         .playbooks
-        .list_playbooks("t1", "u1", None, 10)
+        .list_playbooks("t1", "u1", None, 10, TransportPolicy::FirstPartyOnly)
         .await
         .unwrap();
     assert!(playbooks.is_empty(), "the playbook stays forgotten");

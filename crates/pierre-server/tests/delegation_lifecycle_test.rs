@@ -27,7 +27,6 @@ use std::time::Duration as StdDuration;
 
 use chrono::{Duration, Utc};
 use common::{create_test_server_resources, create_test_user_with_plan};
-use dravr_sciotte::models::CoachedAthlete;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::oauth_providers::TOKEN_TYPE_SESSION;
 use pierre_core::models::groups::{
@@ -162,6 +161,7 @@ impl World {
                 tenant_id: tenant.to_string(),
                 role: GroupRole::Member,
                 peer_sharing_consent: false,
+                coach_sharing_consent: false,
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,
@@ -694,10 +694,10 @@ async fn a_coach_disconnecting_trainingpeaks_ends_every_link_their_session_serve
     let (m2, _) = w.member("m2@lifecycle.test", other).await;
     let confirmed = w.confirmed(squad, m1, m1_tenant, "900001").await;
     let proposed = w.proposed(other, m2, "900002").await;
-    let roster_key = roster_cache_key(w.coach, w.coach_tenant);
-    let roster = vec![CoachedAthlete {
+    let roster_key = roster_cache_key(w.coach, w.coach_tenant, PROVIDER);
+    let roster = vec![RosterAthlete {
         id: "900001".to_owned(),
-        display_name: Some("Athlete 900001".to_owned()),
+        name: Some("Athlete 900001".to_owned()),
         email: None,
     }];
     let cache = &w.res.common.cache;
@@ -710,7 +710,7 @@ async fn a_coach_disconnecting_trainingpeaks_ends_every_link_their_session_serve
 
     assert!(
         cache
-            .get::<Vec<CoachedAthlete>>(&roster_key)
+            .get::<Vec<RosterAthlete>>(&roster_key)
             .await
             .unwrap()
             .is_none(),

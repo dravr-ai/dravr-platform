@@ -26,9 +26,9 @@
 //! persist and Expo push only — which is exactly the gap the sink closes, and
 //! most notifications the product raises go through a trigger.
 
+use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
-use pierre_core::constants::oauth_providers::TRAININGPEAKS;
 use pierre_core::models::NotificationScreen;
 use serde_json::{json, Value};
 use tracing::warn;
@@ -52,7 +52,12 @@ use crate::{EventDispatch, NotificationEvent, NotificationService, PushTier};
 /// `tokio::spawn`: the caller does not wait for it, but the server's shutdown
 /// drain does, so a notification fired just before SIGTERM still reaches the
 /// athlete's devices and linked chats.
-fn spawn_dispatch(service: Arc<NotificationService>, dispatch: EventDispatch, tier: PushTier) {
+fn spawn_dispatch(service: Arc<NotificationService>, mut dispatch: EventDispatch, tier: PushTier) {
+    // Read here, on the caller's task: the spawned task inherits none of the
+    // derivation the trigger fired from (carnet#769).
+    dispatch.transport_policy = dispatch
+        .transport_policy
+        .strictest(service.derived_policy());
     let dispatches = service.dispatches.clone();
     dispatches.spawn(async move {
         if let Err(e) = service.dispatch_event(&dispatch, tier).await {
@@ -110,6 +115,7 @@ pub fn trigger_training_load_alert(
         route: insight_route(conversation_id),
         actions: None,
         bypass_frequency_cap: false,
+        transport_policy: TransportPolicy::AnyTransport,
     };
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P2);
 }
@@ -131,6 +137,7 @@ pub fn trigger_low_recovery_score(
         route: insight_route(conversation_id),
         actions: None,
         bypass_frequency_cap: false,
+        transport_policy: TransportPolicy::AnyTransport,
     };
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P2);
 }
@@ -151,6 +158,7 @@ pub fn trigger_overtraining_warning(
         route: insight_route(conversation_id),
         actions: None,
         bypass_frequency_cap: false,
+        transport_policy: TransportPolicy::AnyTransport,
     };
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P2);
 }
@@ -161,6 +169,8 @@ pub fn trigger_overtraining_warning(
 /// `half_marathon`, `marathon`), never a name: the renderer names it in the
 /// reader's own language, so the row reads right again after a language
 /// change. `time_display` is the effort's elapsed time, `h:mm:ss` or `m:ss`.
+/// `transport_policy` is the run's own (carnet#769): the sync that finds the
+/// record runs in no derivation the facade could read it from.
 pub fn trigger_personal_record(
     service: &Arc<NotificationService>,
     user_id: Uuid,
@@ -168,6 +178,7 @@ pub fn trigger_personal_record(
     activity_id: &str,
     distance: &str,
     time_display: &str,
+    transport_policy: TransportPolicy,
 ) {
     let dispatch = EventDispatch {
         user_id,
@@ -178,6 +189,7 @@ pub fn trigger_personal_record(
         route: json!({ "screen": NotificationScreen::Activity.as_str(), "id": activity_id }),
         actions: None,
         bypass_frequency_cap: false,
+        transport_policy,
     };
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P3);
 }
@@ -200,6 +212,7 @@ pub fn trigger_fitness_improvement(
         route: insight_route(conversation_id),
         actions: None,
         bypass_frequency_cap: false,
+        transport_policy: TransportPolicy::AnyTransport,
     };
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P3);
 }
@@ -228,6 +241,7 @@ pub fn trigger_agent_message(
             action_type: NotificationActionType::QuickReply,
         }]),
         bypass_frequency_cap: true,
+        transport_policy: TransportPolicy::AnyTransport,
     };
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P1);
 }
@@ -258,6 +272,7 @@ pub fn trigger_agent_updated(
         route: json!({}),
         actions: None,
         bypass_frequency_cap: false,
+        transport_policy: TransportPolicy::AnyTransport,
     };
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P3);
 }
@@ -279,6 +294,7 @@ pub fn trigger_agent_assigned(
         route: json!({}),
         actions: None,
         bypass_frequency_cap: false,
+        transport_policy: TransportPolicy::AnyTransport,
     };
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P2);
 }
@@ -313,6 +329,7 @@ pub fn trigger_sync_failure(
             action_type: NotificationActionType::OpenScreen,
         }]),
         bypass_frequency_cap: false,
+        transport_policy: TransportPolicy::AnyTransport,
     };
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P1);
 }
@@ -350,6 +367,7 @@ fn delegation_dispatch(
         route,
         actions: None,
         bypass_frequency_cap: true,
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 
@@ -363,20 +381,32 @@ fn about_member(member_id: Uuid, member_name: &str) -> Value {
     json!({ SUBJECT_ATHLETE_DATA_KEY: subject.to_value() })
 }
 
-/// The member's connections, where their `TrainingPeaks` card names the link.
-fn trainingpeaks_connections_route() -> Value {
+/// The coaching platform a link notice is about.
+#[derive(Debug, Clone, Copy)]
+pub struct LinkPlatform<'a> {
+    /// The platform as clients key it (`trainingpeaks`, `intervals_icu`):
+    /// the connections card a notice opens.
+    pub provider: &'a str,
+    /// The platform's brand, as the notice's words name it.
+    pub name: &'a str,
+}
+
+/// The member's connections, where the card of `provider` (the coaching
+/// platform as the user knows it) names the link.
+fn delegation_connections_route(provider: &str) -> Value {
     json!({
         "screen": NotificationScreen::Connections.as_str(),
-        "provider": TRAININGPEAKS,
+        "provider": provider,
     })
 }
 
-/// Trigger notification asking a member to confirm the `TrainingPeaks` link
+/// Trigger notification asking a member to confirm the link on `platform`
 /// their group's coach proposed. Their confirmation is the consent to the read.
 pub fn trigger_delegation_proposed(
     service: &Arc<NotificationService>,
     member_id: Uuid,
     tenant_id: TenantId,
+    platform: LinkPlatform<'_>,
     coach_name: &str,
     group_name: &str,
 ) {
@@ -384,8 +414,12 @@ pub fn trigger_delegation_proposed(
         member_id,
         tenant_id,
         NotificationEvent::DelegationProposed,
-        json!({ "coach_name": coach_name, "group_name": group_name }),
-        trainingpeaks_connections_route(),
+        json!({
+            "coach_name": coach_name,
+            "group_name": group_name,
+            "platform_name": platform.name,
+        }),
+        delegation_connections_route(platform.provider),
     );
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P1);
 }
@@ -395,6 +429,7 @@ pub fn trigger_delegation_confirmed(
     service: &Arc<NotificationService>,
     coach_id: Uuid,
     tenant_id: TenantId,
+    platform_name: &str,
     member_id: Uuid,
     member_name: &str,
     group_name: &str,
@@ -403,7 +438,11 @@ pub fn trigger_delegation_confirmed(
         coach_id,
         tenant_id,
         NotificationEvent::DelegationConfirmed,
-        json!({ "member_name": member_name, "group_name": group_name }),
+        json!({
+            "member_name": member_name,
+            "group_name": group_name,
+            "platform_name": platform_name,
+        }),
         about_member(member_id, member_name),
     );
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P2);
@@ -414,6 +453,7 @@ pub fn trigger_delegation_declined(
     service: &Arc<NotificationService>,
     coach_id: Uuid,
     tenant_id: TenantId,
+    platform_name: &str,
     member_id: Uuid,
     member_name: &str,
     group_name: &str,
@@ -422,18 +462,23 @@ pub fn trigger_delegation_declined(
         coach_id,
         tenant_id,
         NotificationEvent::DelegationDeclined,
-        json!({ "member_name": member_name, "group_name": group_name }),
+        json!({
+            "member_name": member_name,
+            "group_name": group_name,
+            "platform_name": platform_name,
+        }),
         about_member(member_id, member_name),
     );
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P2);
 }
 
 /// Trigger notification telling the coach a linked member left their
-/// `TrainingPeaks` roster, which ended the link.
+/// coaching-platform roster, which ended the link.
 pub fn trigger_delegation_off_roster(
     service: &Arc<NotificationService>,
     coach_id: Uuid,
     tenant_id: TenantId,
+    platform_name: &str,
     member_id: Uuid,
     member_name: &str,
     group_name: &str,
@@ -442,7 +487,11 @@ pub fn trigger_delegation_off_roster(
         coach_id,
         tenant_id,
         NotificationEvent::DelegationOffRoster,
-        json!({ "member_name": member_name, "group_name": group_name }),
+        json!({
+            "member_name": member_name,
+            "group_name": group_name,
+            "platform_name": platform_name,
+        }),
         about_member(member_id, member_name),
     );
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P2);
@@ -451,11 +500,12 @@ pub fn trigger_delegation_off_roster(
 /// Trigger notification telling the member their coach's roster dropped them.
 ///
 /// Their workouts are no longer read through the coach's account. P1: their
-/// `TrainingPeaks` data stopped flowing.
+/// data on `platform` stopped flowing.
 pub fn trigger_delegation_off_coach_roster(
     service: &Arc<NotificationService>,
     member_id: Uuid,
     tenant_id: TenantId,
+    platform: LinkPlatform<'_>,
     coach_name: &str,
     group_name: &str,
 ) {
@@ -463,8 +513,12 @@ pub fn trigger_delegation_off_coach_roster(
         member_id,
         tenant_id,
         NotificationEvent::DelegationOffCoachRoster,
-        json!({ "coach_name": coach_name, "group_name": group_name }),
-        trainingpeaks_connections_route(),
+        json!({
+            "coach_name": coach_name,
+            "group_name": group_name,
+            "platform_name": platform.name,
+        }),
+        delegation_connections_route(platform.provider),
     );
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P1);
 }
@@ -480,7 +534,10 @@ mod tests {
         use tokio_util::task::TaskTracker;
         use uuid::Uuid;
 
+        use pierre_core::transport::TransportPolicy;
+
         use super::super::trigger_agent_message;
+        use crate::events::data_transport_policy;
         use crate::models::TenantId;
         use crate::NotificationService;
 
@@ -510,6 +567,43 @@ mod tests {
             dispatches.close();
             dispatches.wait().await;
             assert!(dispatches.is_empty(), "the dispatch ran to its end");
+        }
+
+        /// A trigger fired inside a derivation that served first-party-only
+        /// data is stamped with it, though its dispatch runs on another task;
+        /// one fired outside any is left open (carnet#769).
+        #[tokio::test]
+        async fn a_trigger_carries_the_stamp_of_the_derivation_it_fired_from() {
+            let db = create_sqlite_test_db().await.unwrap();
+            let pool = db.sqlite_pool().unwrap().clone();
+            for (probe, expected) in [
+                (
+                    TransportPolicy::FirstPartyOnly,
+                    TransportPolicy::FirstPartyOnly,
+                ),
+                (TransportPolicy::AnyTransport, TransportPolicy::AnyTransport),
+            ] {
+                let dispatches = TaskTracker::new();
+                let service = Arc::new(
+                    NotificationService::from_sqlite(pool.clone(), dispatches.clone())
+                        .with_provenance(Arc::new(move || probe)),
+                );
+                let (user_id, tenant_id) = (Uuid::new_v4(), TenantId(Uuid::new_v4()));
+                trigger_agent_message(&service, user_id, tenant_id, "conversation-1", "Coach");
+                dispatches.close();
+                dispatches.wait().await;
+
+                let (rows, total, _) = service
+                    .list_notifications(user_id, tenant_id, 10, 0, None, false)
+                    .await
+                    .unwrap();
+                assert_eq!(total, 1, "{probe:?}");
+                assert_eq!(
+                    data_transport_policy(rows[0].data.as_ref()),
+                    expected,
+                    "{probe:?}"
+                );
+            }
         }
     }
 }

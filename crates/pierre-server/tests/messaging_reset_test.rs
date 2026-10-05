@@ -77,6 +77,7 @@ mod reset_locale {
     use pierre_core::errors::{AppError, ErrorCode};
     use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
     use pierre_core::models::{MessageRecord, AGENT_WELCOME_FINISH_REASON};
+    use pierre_core::transport::TransportPolicy;
     use pierre_database::backends::factory::DatabaseBackend;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_runtime_context::CommandCtx;
@@ -426,11 +427,17 @@ mod reset_locale {
             "the archived thread stays readable"
         );
         assert_eq!(
-            chat.list_conversations(&user, member.home_tenant, 50, 0)
-                .await
-                .unwrap()
-                .items
-                .len(),
+            chat.list_conversations(
+                &user,
+                member.home_tenant,
+                50,
+                0,
+                TransportPolicy::FirstPartyOnly
+            )
+            .await
+            .unwrap()
+            .items
+            .len(),
             cap + 1,
             "the archived thread is still listed beside the fresh one"
         );
@@ -869,7 +876,13 @@ mod reset_locale {
             .common
             .repos
             .chat
-            .list_conversations(&member.user_id.to_string(), member.home_tenant, 50, 0)
+            .list_conversations(
+                &member.user_id.to_string(),
+                member.home_tenant,
+                50,
+                0,
+                TransportPolicy::FirstPartyOnly,
+            )
             .await
             .unwrap()
             .items

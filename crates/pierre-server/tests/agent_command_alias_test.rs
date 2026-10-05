@@ -33,6 +33,7 @@ mod helpers;
 
 #[cfg(feature = "client-messaging")]
 mod agent_alias {
+    use pierre_core::transport::TransportPolicy;
     use std::collections::{BTreeMap, BTreeSet};
     use std::env;
     use std::sync::atomic::Ordering;
@@ -578,6 +579,7 @@ mod agent_alias {
                 tenant_id: tenant_id.to_string(),
                 role: GroupRole::Owner,
                 peer_sharing_consent: false,
+                coach_sharing_consent: false,
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,
@@ -638,6 +640,7 @@ mod agent_alias {
                     prompt_tokens: None,
                     model: None,
                     content_blocks: None,
+                    transport_policy: TransportPolicy::AnyTransport,
                 })
                 .await
                 .unwrap();

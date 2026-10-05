@@ -10,6 +10,7 @@
 mod common;
 mod helpers;
 
+use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
@@ -74,6 +75,7 @@ async fn a_french_athlete_reads_her_facts_in_french() {
                 source: FactSource::Onboarding,
                 valid_until: None,
                 source_msg_id: None,
+                transport_policy: TransportPolicy::AnyTransport,
             })
             .await
             .expect("fact");

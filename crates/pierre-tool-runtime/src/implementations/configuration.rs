@@ -14,6 +14,7 @@
 //! - `CalculatePersonalizedZonesTool` - Calculate training zones
 //! - `ValidateConfigurationTool` - Validate configuration values
 
+use pierre_providers::ai_scope;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -886,6 +887,9 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
                             ctx.user_id,
                         )
                         .await?
+                        // A profile written from first-party-only data is
+                        // withheld from an external caller (carnet#769).
+                        .filter(|profile| ai_scope::admit_derived(profile.transport_policy))
                 }
                 None => None,
             };

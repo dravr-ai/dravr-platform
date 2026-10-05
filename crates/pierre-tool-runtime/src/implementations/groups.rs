@@ -1,5 +1,5 @@
 // ABOUTME: Group-aware MCP tool — fetch a consenting peer member's activities.
-// ABOUTME: Gated by shared group membership + per-member consent + group kill-switch.
+// ABOUTME: Gated by shared membership, then coach consent (the group's coach) or peer consent + kill-switch (a peer).
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,12 +12,17 @@
 //! The single-user data tools (`get_activities`) always execute as the
 //! requesting user and silently return the requester's own data when asked for
 //! a peer, so this is the only path that reads a peer's data. It hard-gates on
-//! three independent conditions, all required:
-//! 1. the requester and the target share a group (`list_groups_for_user` is
-//!    requester-scoped, so a match proves co-membership without trusting the
-//!    conversation tenant),
-//! 2. the target member's `peer_sharing_consent` is `true`, and
-//! 3. the group's `peer_data_sharing` kill-switch is `true`.
+//! the requester's standing in a group they share with the target
+//! (`list_groups_for_user` is requester-scoped, so a match proves
+//! co-membership without trusting the conversation tenant), then on the
+//! consent that standing calls for:
+//! - **the group's human coach** (`coaching_groups.coach_user_id`) reads a
+//!   member whose `coach_sharing_consent` is `true`. Joining grants it
+//!   (ADR-002: membership is consent to share with the coach), the member can
+//!   revoke it, and the group's peer switch does not govern it;
+//! - **any other member** reads a peer only when the target's
+//!   `peer_sharing_consent` is `true` AND the group's `peer_data_sharing`
+//!   kill-switch is `true`.
 //!
 //! The peer's activities are fetched under the peer's OWN connection tenant
 //! (cross-tenant lookup), matching how their 1-1 chat resolves data — the same
@@ -79,6 +84,9 @@ pub fn create_group_tools() -> Vec<Box<dyn RuntimeTool>> {
 struct MemberMatch {
     group_name: String,
     group_allows_sharing: bool,
+    /// The requester is this group's human coach, so the member's coach
+    /// consent decides rather than the peer gates.
+    requester_is_coach: bool,
     display_name: String,
     member: GroupMember,
 }
@@ -90,6 +98,7 @@ struct ReadableGroup {
     id: Uuid,
     name: String,
     peer_data_sharing: bool,
+    requester_is_coach: bool,
 }
 
 /// Every group the requester belongs to, plus every group they are the
@@ -113,6 +122,7 @@ async fn readable_groups(
             id: g.id,
             name: g.name,
             peer_data_sharing: g.peer_data_sharing,
+            requester_is_coach: false,
         })
         .collect();
     for coached in data
@@ -121,11 +131,19 @@ async fn readable_groups(
         .list_groups_coached_by(requester)
         .await?
     {
-        if coached.is_active && !groups.iter().any(|g| g.id == coached.id) {
+        if !coached.is_active {
+            continue;
+        }
+        // A coach who is also a member of the group they coach reads it as
+        // its coach.
+        if let Some(existing) = groups.iter_mut().find(|g| g.id == coached.id) {
+            existing.requester_is_coach = true;
+        } else {
             groups.push(ReadableGroup {
                 id: coached.id,
                 name: coached.name,
                 peer_data_sharing: coached.peer_data_sharing,
+                requester_is_coach: true,
             });
         }
     }
@@ -173,6 +191,7 @@ async fn scan_shared_rosters(
             matches.push(MemberMatch {
                 group_name: group.name.clone(),
                 group_allows_sharing: group.peer_data_sharing,
+                requester_is_coach: group.requester_is_coach,
                 display_name,
                 member,
             });
@@ -213,14 +232,52 @@ fn resolve_unique_peer<'a>(
         }));
     }
 
-    // Same peer (possibly across multiple groups): prefer a group where both the
-    // kill-switch and the member's consent are on, so the authorization gates
-    // below report the most permissive shared context.
+    // Same peer (possibly across multiple groups): prefer a group whose gates
+    // authorize the read, so the refusal, when there is one, reports the most
+    // permissive shared context.
     let best = matches
         .iter()
-        .find(|m| m.group_allows_sharing && m.member.peer_sharing_consent)
+        .find(|m| read_refusal(m).is_none())
         .unwrap_or(first);
     Ok(best)
+}
+
+/// Why the requester may not read `resolved`, or `None` when they may.
+///
+/// The group's human coach reads by the member's coach consent alone; any
+/// other requester needs the group's peer switch and the member's peer
+/// consent.
+fn read_refusal(resolved: &MemberMatch) -> Option<Value> {
+    if resolved.requester_is_coach {
+        return (!resolved.member.coach_sharing_consent).then(|| {
+            json!({
+                "reason": "no_coach_consent",
+                "error": format!(
+                    "{} has stopped sharing their data with you, the coach of '{}'. \
+                     They can share it again with `/group consent coach yes`.",
+                    resolved.display_name, resolved.group_name
+                )
+            })
+        });
+    }
+    if !resolved.group_allows_sharing {
+        return Some(json!({
+            "reason": "sharing_disabled",
+            "error": format!(
+                "Peer data sharing is disabled for group '{}'.",
+                resolved.group_name
+            )
+        }));
+    }
+    (!resolved.member.peer_sharing_consent).then(|| {
+        json!({
+            "reason": "no_consent",
+            "error": format!(
+                "{} hasn't shared their data with the group yet. They can opt in with `/group consent yes`.",
+                resolved.display_name
+            )
+        })
+    })
 }
 
 /// Project an activity to the compact shape the agent reasons over. Mirrors the
@@ -373,7 +430,9 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
              never a peer's. Identify the member by their roster display name. For a specific past \
              race or date range, pass `after`/`before` epoch-second bounds. Pass `group_id` to \
              pin the lookup to the room's group. Returns an error (not data) if the member has \
-             not shared their data via `/group consent yes`; the error's `reason` says why.",
+             not shared their data with you: with the group via `/group consent yes`, or with \
+             you as the group's coach (joining grants it, `/group consent coach no` revokes \
+             it); the error's `reason` says why.",
             schema,
             Some(read_only_annotations()),
         )))
@@ -439,31 +498,17 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
                 Err(payload) => return Ok(ToolResult::error(payload)),
             };
 
-            // Authorization gates — both must hold.
-            if !resolved.group_allows_sharing {
-                return Ok(ToolResult::error(json!({
-                    "reason": "sharing_disabled",
-                    "error": format!(
-                        "Peer data sharing is disabled for group '{}'.",
-                        resolved.group_name
-                    )
-                })));
-            }
-            if !resolved.member.peer_sharing_consent {
-                return Ok(ToolResult::error(json!({
-                    "reason": "no_consent",
-                    "error": format!(
-                        "{} hasn't shared their data with the group yet. They can opt in with `/group consent yes`.",
-                        resolved.display_name
-                    )
-                })));
+            // Authorization: the consent the requester's standing calls for.
+            if let Some(refusal) = read_refusal(resolved) {
+                return Ok(ToolResult::error(refusal));
             }
 
             let peer_id = resolved.member.user_id;
             info!(
                 requester = %requester,
                 peer = %peer_id,
-                "get_group_member_activities: authorized consent-gated peer fetch"
+                as_coach = resolved.requester_is_coach,
+                "get_group_member_activities: authorized consent-gated member fetch"
             );
 
             // Query params.

@@ -41,6 +41,8 @@ pub mod dispatch;
 pub mod fortnight;
 /// Group coaching commands (status, invite, members, leave)
 pub mod group;
+/// `/group consent` — whether a member shares with the group's coach and members
+pub mod group_consent;
 /// Group membership commands (`/group create`, `/group join`)
 pub mod group_membership;
 /// Handlers for /confirm and /deny — Guardian pending-action resolution.

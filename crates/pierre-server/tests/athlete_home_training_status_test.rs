@@ -23,6 +23,7 @@
 
 mod common;
 
+use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
 use axum::body::{to_bytes, Body};
@@ -95,6 +96,7 @@ async fn athlete(resources: &Arc<ServerContext>, connected: bool) -> Athlete {
         w_prime_joules: None,
         critical_speed_mps: None,
         d_prime_meters: None,
+        transport_policy: TransportPolicy::AnyTransport,
     };
     resources
         .common

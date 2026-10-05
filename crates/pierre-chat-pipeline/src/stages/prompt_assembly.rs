@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use pierre_providers::ai_scope;
 use std::sync::Arc;
 
 use chrono::Utc;
@@ -874,8 +875,15 @@ pub(crate) async fn assemble_prompt_and_messages(
     // messaging ingress. Group chat history is per member, so without this
     // block the agent never sees what OTHER members said — the transcript
     // is the only cross-member view of the room's discussion.
-    let base_prompt = match input.ambient_context.as_deref() {
-        Some(ambient) => format!("{base_prompt}\n\n{ambient}"),
+    // A block quoting room entries derived from first-party-only data is
+    // withheld from an external turn, and stamps a first-party one
+    // (carnet#769).
+    let base_prompt = match input
+        .ambient_context
+        .as_ref()
+        .filter(|ambient| ai_scope::admit_derived(ambient.transport_policy))
+    {
+        Some(ambient) => format!("{base_prompt}\n\n{}", ambient.text),
         None => base_prompt,
     };
 
@@ -1084,7 +1092,12 @@ pub(crate) async fn assemble_prompt_and_messages(
         .list_compaction_blocks(&input.conversation_id, input.conversation_tenant_id)
         .await
     {
-        Ok(blocks) => blocks,
+        Ok(mut blocks) => {
+            // A summary of first-party-only turns is withheld from an external
+            // turn, which then reads the raw rows it is served (carnet#769).
+            ai_scope::retain_admitted(&mut blocks, |block| block.transport_policy);
+            blocks
+        }
         Err(e) => {
             warn!(error = %e, "failed to list compaction blocks; proceeding with raw history");
             Vec::new()

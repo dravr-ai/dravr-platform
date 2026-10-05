@@ -23,6 +23,7 @@
 mod common;
 mod helpers;
 
+use pierre_core::transport::TransportPolicy;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -201,6 +202,7 @@ async fn lay_season(
                 source_conversation_id: None,
             }),
             weeks: &[],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap()

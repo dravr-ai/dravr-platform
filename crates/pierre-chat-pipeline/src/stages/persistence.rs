@@ -33,9 +33,11 @@
 //! as unread for them. One rule for web, mobile and messaging.
 
 use pierre_core::models::AddMessageParams;
+use pierre_core::transport::TransportPolicy;
 use pierre_database::database::repositories::ChatRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_database::repositories::CoachingGroupRepository;
+use pierre_providers::ai_scope;
 
 use crate::turn::{TurnInput, UserMessageResult};
 use crate::turn_stop::author_marker;
@@ -73,7 +75,9 @@ async fn advance_read_marker(
 }
 
 /// Fan a just-persisted user/assistant row out to the group's shared room
-/// transcript when the conversation is group-bound.
+/// transcript when the conversation is group-bound. The entry carries the
+/// row's stamp (carnet#769), so a room reader is held to the same terms as a
+/// reader of the row itself.
 ///
 /// The entry is attributed to the conversation's member (`user_id`) for both
 /// speakers: an agent row is the reply that member received, so consent
@@ -93,8 +97,7 @@ pub(crate) async fn fan_out_to_group_transcript(
     tenant_id: TenantId,
     user_id: &str,
     speaker: TranscriptSpeaker,
-    content: &str,
-    source_message_id: &str,
+    message: &MessageRecord,
 ) -> AppResult<()> {
     let Some(group_id) = conversation.group_id.as_deref() else {
         return Ok(());
@@ -105,9 +108,10 @@ pub(crate) async fn fan_out_to_group_transcript(
         tenant_id: &tenant_str,
         author_user_id: parse_uuid(user_id)?,
         speaker,
-        content,
+        content: &message.content,
         source_conversation_id: Some(&conversation.id),
-        source_message_id: Some(source_message_id),
+        source_message_id: Some(&message.id),
+        transport_policy: message.transport_policy,
     };
     groups.append_transcript_entry(&entry).await
 }
@@ -154,6 +158,8 @@ pub async fn persist_user_message(
         prompt_tokens: None,
         model: None,
         content_blocks: author.as_deref(),
+        // The athlete's own words, derived from no provider data.
+        transport_policy: TransportPolicy::AnyTransport,
     };
     let message = database.add_message(&user_msg_params).await?;
     advance_read_marker(database, conversation_id, user_id, tenant_id, &message.id).await;
@@ -164,8 +170,7 @@ pub async fn persist_user_message(
         tenant_id,
         user_id,
         TranscriptSpeaker::Member,
-        content,
-        &message.id,
+        &message,
     )
     .await?;
 
@@ -274,6 +279,7 @@ pub async fn resolve_platform_turn(
         model: None,
         finish_reason: None,
         content_blocks: None,
+        transport_policy: TransportPolicy::AnyTransport,
         created_at: Utc::now().to_rfc3339(),
     };
 
@@ -311,9 +317,19 @@ pub async fn get_conversation_history(
     limit: i64,
 ) -> AppResult<Vec<MessageRecord>> {
     let mut history = database
-        .get_recent_messages(conversation_id, user_id, tenant_id, limit)
+        .get_recent_messages(
+            conversation_id,
+            user_id,
+            tenant_id,
+            limit,
+            ai_scope::readable_policy(),
+        )
         .await?;
     history.retain(|row| !row.is_command_turn());
+    // A row derived from first-party-only data never reaches an external
+    // turn's prompt; on Dravr's own surfaces it does, and stamps the turn
+    // that replays it (carnet#769).
+    ai_scope::retain_admitted(&mut history, |row| row.transport_policy);
     Ok(history)
 }
 
@@ -356,8 +372,7 @@ pub async fn persist_assistant_response(
         tenant_id,
         params.user_id,
         TranscriptSpeaker::Coach,
-        params.content,
-        &message.id,
+        &message,
     )
     .await?;
 

@@ -35,6 +35,7 @@
 //! trigger→intervention pattern. A plan is never a followup (no due-at
 //! semantics) and never a playbook (not evidence-scored).
 
+use pierre_core::transport::TransportPolicy;
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, NaiveDate, Utc};
@@ -504,6 +505,11 @@ pub struct TrainingPlan {
     pub created_at: DateTime<Utc>,
     /// When this outline row last changed status.
     pub updated_at: DateTime<Utc>,
+    /// Where this plan may be served (carnet#769): first-party-only when what it
+    /// was derived from was. Plans written before the stamp read as unstamped.
+    #[serde(default, skip_serializing)]
+    #[schemars(skip)]
+    pub transport_policy: TransportPolicy,
 }
 
 /// One microcycle: the day-by-day prescription for a single calendar week of

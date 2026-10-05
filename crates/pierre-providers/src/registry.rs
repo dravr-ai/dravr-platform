@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::core::{FitnessProvider, ProviderConfig, ProviderFactory};
+use crate::delegation::DelegatedReads;
 use crate::request_budget::{ProviderRateLimiter, RequestBudget};
 use crate::spi::{ProviderBundle, ProviderCapabilities, ProviderDescriptor};
 #[cfg(any(
@@ -48,8 +49,8 @@ use crate::intervals_icu_provider::{
 };
 #[cfg(feature = "provider-sciotte")]
 use crate::sciotte_provider::{
-    SciotteCorosProviderFactory, SciotteGarminProviderFactory, SciotteProvider,
-    SciotteProviderFactory, SciotteTrainingPeaksProviderFactory,
+    SciotteCorosProviderFactory, SciotteGarminProviderFactory, SciotteProviderFactory,
+    SciotteTrainingPeaksProviderFactory,
 };
 #[cfg(feature = "provider-coros")]
 use crate::spi::CorosDescriptor;
@@ -76,8 +77,6 @@ use crate::terra::constants::{
 use crate::terra::{TerraDataCache, TerraDescriptor, TerraProviderFactory};
 #[cfg(feature = "provider-whoop")]
 use crate::whoop_provider::WhoopProviderFactory;
-#[cfg(feature = "provider-sciotte")]
-use dravr_sciotte::models::AthleteId;
 
 /// Factory wrapper for bundle-based provider registration
 struct BundleFactory {
@@ -642,30 +641,36 @@ impl ProviderRegistry {
         factory.create(config)
     }
 
-    /// Create a provider that reads one coached athlete's calendar through a
-    /// coach account's session, which the caller then sets as its
-    /// credentials.
-    ///
-    /// Only the `TrainingPeaks` mirror reads on behalf of a coached athlete: a
-    /// coach account there has no calendar of its own and reads each roster
-    /// athlete by id. The provider it builds names `athlete` on every read and
-    /// refuses a detail id outside that athlete's calendar.
+    /// Refuse an athlete id `provider_name` could not have issued, before it
+    /// is stored on a link or reaches a URL.
     ///
     /// # Errors
     ///
-    /// Returns an invalid-input error for any other provider, and when the
-    /// `TrainingPeaks` mirror has no default configuration.
-    #[cfg(feature = "provider-sciotte")]
+    /// Returns an invalid-input error for a provider that cannot be read on
+    /// anyone's behalf, or for an id the provider refuses.
+    pub fn check_delegated_athlete(&self, provider_name: &str, athlete_id: &str) -> AppResult<()> {
+        self.delegated_reads(provider_name)?
+            .check_athlete_id(athlete_id)
+    }
+
+    /// Create a provider that reads one coached athlete through a coach
+    /// account's credential, which the caller then sets on it.
+    ///
+    /// A coaching platform's coach account reads each athlete who shares with
+    /// it by that athlete's id. The provider it builds names `athlete_id` on
+    /// every read and refuses a detail id outside that athlete.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-input error for a provider that cannot be read on
+    /// anyone's behalf, for an athlete id it refuses, or when the provider
+    /// has no default configuration.
     pub fn create_delegated_provider(
         &self,
         provider_name: &str,
-        athlete: AthleteId,
+        athlete_id: &str,
     ) -> AppResult<Box<dyn FitnessProvider>> {
-        if provider_name != oauth_providers::SCIOTTE_TRAININGPEAKS {
-            return Err(AppError::invalid_input(format!(
-                "{provider_name} cannot be read on behalf of a coached athlete"
-            )));
-        }
+        let reads = self.delegated_reads(provider_name)?;
         let config = self
             .default_configs
             .get(provider_name)
@@ -675,7 +680,19 @@ impl ProviderRegistry {
                 ))
             })?
             .clone();
-        Ok(Box::new(SciotteProvider::delegated(config, athlete)))
+        reads.create_delegated(config, athlete_id)
+    }
+
+    /// The delegated-read capability of `provider_name`'s factory.
+    fn delegated_reads(&self, provider_name: &str) -> AppResult<&dyn DelegatedReads> {
+        self.factories
+            .get(provider_name)
+            .and_then(|factory| factory.delegated_reads())
+            .ok_or_else(|| {
+                AppError::invalid_input(format!(
+                    "{provider_name} cannot be read on behalf of a coached athlete"
+                ))
+            })
     }
 
     /// Create a provider instance with custom configuration

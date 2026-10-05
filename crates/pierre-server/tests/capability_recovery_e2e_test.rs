@@ -1229,6 +1229,7 @@ mod capability_recovery {
                     tenant_id: bot_tenant.to_string(),
                     role,
                     peer_sharing_consent: consent,
+                    coach_sharing_consent: consent,
                     consent_given_at: now,
                     joined_at: now,
                     left_at: None,

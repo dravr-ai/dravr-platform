@@ -28,7 +28,6 @@ use pierre_services::locale::resolve_user_locale;
 use pierre_services::memory_facts::{
     fact_kind_from_query, forget_user_fact, list_user_facts, SentenceRenderer, DEFAULT_LIST_LIMIT,
 };
-use pierre_tool_runtime::derived_content::refuse_derived_content_off_interface;
 
 use crate::mcp::resources::ServerContext;
 
@@ -62,9 +61,6 @@ pub async fn get_facts_handler(
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
     let tenant_id = require(resolve_tenant(&resources, &auth, TenantMode::Required).await?)?;
-    // Facts are extracted from conversations and carry no provenance
-    // (carnet#724).
-    refuse_derived_content_off_interface(resources.as_ref(), auth.user_id).await?;
     let data = resources.data();
     let limit = params.limit.unwrap_or(DEFAULT_LIST_LIMIT);
     let kind = fact_kind_from_query(params.kind.as_deref());

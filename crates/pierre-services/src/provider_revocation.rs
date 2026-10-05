@@ -40,6 +40,7 @@ use serde::Serialize;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
+use crate::coach_platform::coach_platform;
 use crate::delegated_connections::forget_coach_roster;
 use crate::oauth_flow::OAuthService;
 use crate::trainingpeaks_accounts::revoke_roster_for_coach_connection;
@@ -803,19 +804,19 @@ pub async fn clear_backend(
     if was_coach {
         revoke_roster_for_coach_connection(data.repos(), user_id, tenant_id).await?;
     }
-    if backend == oauth_providers::SCIOTTE_TRAININGPEAKS {
+    if coach_platform(backend).is_some() {
         end_delegated_connections(data, user_id, tenant_id, backend).await?;
-        forget_coach_roster(data.cache(), user_id, tenant_id).await;
+        forget_coach_roster(data.cache(), user_id, tenant_id, backend).await;
     }
 
     purge_provider_data(data, user_id, tenant_id, backend).await?;
     Ok(outcome)
 }
 
-/// End the delegated connections a `TrainingPeaks` disconnect takes away,
-/// whichever side of them the user is on.
+/// End the delegated connections a coaching platform's disconnect takes
+/// away, whichever side of them the user is on.
 ///
-/// A member who disconnects `TrainingPeaks` ends the link their reads went
+/// A member who disconnects the platform ends the link their reads went
 /// through, so the provider card's generic Disconnect is also how a member
 /// unlinks. A coach who disconnects ends every link their session served,
 /// since nothing is left to read those athletes through. Every disconnect

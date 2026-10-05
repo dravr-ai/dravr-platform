@@ -7,14 +7,15 @@
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
+use pierre_core::transport::TransportPolicy;
 use sqlx::Row;
 use uuid::Uuid;
 
 use crate::database::Database;
 use crate::repositories::activity_conversations::{
-    impl_activity_conversation_repository, ActivityConversationRepository,
-    GET_ACTIVITY_CONVERSATION_SQL, LINK_ACTIVITY_CONVERSATION_SQL,
-    UNLINK_ACTIVITY_CONVERSATION_SQL,
+    impl_activity_conversation_repository, ActivityConversationLink,
+    ActivityConversationRepository, GET_ACTIVITY_CONVERSATION_SQL, LINK_ACTIVITY_CONVERSATION_SQL,
+    LIST_ACTIVITY_CONVERSATION_LINKS_SQL, UNLINK_ACTIVITY_CONVERSATION_SQL,
 };
 
 impl_activity_conversation_repository!(Database);

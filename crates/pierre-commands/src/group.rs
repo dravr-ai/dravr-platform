@@ -14,16 +14,15 @@ use pierre_contremaitre::messaging_strings::KEY_GROUP_INVITE_UNAVAILABLE;
 #[cfg(feature = "tools-groups")]
 use pierre_contremaitre::messaging_strings::{KEY_COACH_INVITE_BODY, KEY_GROUP_INVITE_BODY};
 use pierre_contremaitre::messaging_strings::{
-    KEY_GROUP_COACH_DETACHED, KEY_GROUP_CONSENT_UPDATED, KEY_GROUP_CONSENT_USAGE,
-    KEY_GROUP_DIGEST_FORBIDDEN, KEY_GROUP_DIGEST_STATUS_CHAT, KEY_GROUP_DIGEST_STATUS_MANAGERS,
-    KEY_GROUP_DIGEST_STATUS_OFF, KEY_GROUP_DIGEST_TIER_OFF, KEY_GROUP_DIGEST_USAGE,
-    KEY_GROUP_INVITE_FORBIDDEN, KEY_GROUP_LEAVE_PROMPT, KEY_GROUP_LIST_EMPTY,
-    KEY_GROUP_LIST_HEADER, KEY_GROUP_LIST_ITEM, KEY_GROUP_MEMBERS_HEADER, KEY_GROUP_MEMBERS_ITEM,
-    KEY_GROUP_MEMBERS_UNKNOWN, KEY_GROUP_NOT_A_MEMBER, KEY_GROUP_PEER_SHARING_OFF,
-    KEY_GROUP_PEER_SHARING_ON, KEY_GROUP_RESPOND_ALL, KEY_GROUP_RESPOND_MENTIONS,
-    KEY_GROUP_RESPOND_STATUS_MENTIONS, KEY_GROUP_RESPOND_USAGE, KEY_GROUP_ROLE_ADMIN,
-    KEY_GROUP_ROLE_AGENT, KEY_GROUP_ROLE_COACH, KEY_GROUP_ROLE_MEMBER, KEY_GROUP_ROLE_OWNER,
-    KEY_GROUP_STATUS_SUMMARY,
+    KEY_GROUP_COACH_DETACHED, KEY_GROUP_DIGEST_FORBIDDEN, KEY_GROUP_DIGEST_STATUS_CHAT,
+    KEY_GROUP_DIGEST_STATUS_MANAGERS, KEY_GROUP_DIGEST_STATUS_OFF, KEY_GROUP_DIGEST_TIER_OFF,
+    KEY_GROUP_DIGEST_USAGE, KEY_GROUP_INVITE_FORBIDDEN, KEY_GROUP_LEAVE_PROMPT,
+    KEY_GROUP_LIST_EMPTY, KEY_GROUP_LIST_HEADER, KEY_GROUP_LIST_ITEM, KEY_GROUP_MEMBERS_HEADER,
+    KEY_GROUP_MEMBERS_ITEM, KEY_GROUP_MEMBERS_UNKNOWN, KEY_GROUP_NOT_A_MEMBER,
+    KEY_GROUP_PEER_SHARING_OFF, KEY_GROUP_PEER_SHARING_ON, KEY_GROUP_RESPOND_ALL,
+    KEY_GROUP_RESPOND_MENTIONS, KEY_GROUP_RESPOND_STATUS_MENTIONS, KEY_GROUP_RESPOND_USAGE,
+    KEY_GROUP_ROLE_ADMIN, KEY_GROUP_ROLE_AGENT, KEY_GROUP_ROLE_COACH, KEY_GROUP_ROLE_MEMBER,
+    KEY_GROUP_ROLE_OWNER, KEY_GROUP_STATUS_SUMMARY,
 };
 use pierre_core::models::agents::ListAgentsFilter;
 use pierre_core::models::groups::{
@@ -52,7 +51,7 @@ pub(crate) struct TargetGroup {
     pub(crate) tenant_id: TenantId,
     /// How the group was resolved, for the operator log line: either
     /// `"conversation_group_id"` or `"list_groups_for_user_first"`.
-    source: &'static str,
+    pub(crate) source: &'static str,
 }
 
 /// Resolve the group bound to this turn's conversation.
@@ -1044,84 +1043,5 @@ impl CommandHandler for GroupLeaveHandler {
     /// to will do — the conversation's group never enters into it.
     fn is_available(&self, standing: &CallerGroupStanding) -> bool {
         standing.highest.is_some()
-    }
-}
-
-/// Handler for `/group consent yes|no` — toggle peer-sharing consent.
-///
-/// Updates `coaching_group_members.peer_sharing_consent` for the requester
-/// in the group [`resolve_target_group`] names — the group bound to the chat
-/// the command was typed in, refusing rather than retargeting when a shared
-/// room cannot name one.
-///
-/// The privacy gate in `pierre_groups::GroupService::inject_group_context`
-/// honors this flag: even when the group has `peer_data_sharing = true`,
-/// only members who have set their consent to `true` will have their
-/// training summaries rendered to peers.
-pub struct GroupConsentHandler;
-
-#[async_trait]
-impl CommandHandler for GroupConsentHandler {
-    async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
-        let reg = ctx.ctx.messaging_strings_registry();
-        let locale = ctx.locale.as_str();
-
-        let arg = ctx.args.first().map_or("", String::as_str).trim();
-        let consent_choice = match arg.to_lowercase().as_str() {
-            "yes" | "on" | "true" | "1" => true,
-            "no" | "off" | "false" | "0" => false,
-            _ => {
-                return Ok(CommandResponse::text(reg.render(
-                    KEY_GROUP_CONSENT_USAGE,
-                    locale,
-                    &[],
-                )));
-            }
-        };
-
-        let target = resolve_target_group(ctx).await?;
-        let group_id_str = target.id.to_string();
-        let group_name = target.name;
-
-        let rows_affected = ctx
-            .ctx
-            .repos()
-            .groups
-            .update_peer_sharing_consent(&group_id_str, ctx.user_id, consent_choice)
-            .await?;
-
-        info!(
-            user_id = %ctx.user_id,
-            group_id = %group_id_str,
-            group_name = %group_name,
-            consent_choice,
-            rows_affected,
-            source = target.source,
-            "Applied /group consent — peer_sharing_consent updated"
-        );
-
-        if !rows_affected {
-            return Err(AppError::not_found(reg.render(
-                KEY_GROUP_NOT_A_MEMBER,
-                locale,
-                &[],
-            )));
-        }
-
-        let state_key = if consent_choice {
-            KEY_GROUP_PEER_SHARING_ON
-        } else {
-            KEY_GROUP_PEER_SHARING_OFF
-        };
-        let state = reg.render(state_key, locale, &[]);
-        let body = reg.render(KEY_GROUP_CONSENT_UPDATED, locale, &[&state, &group_name]);
-
-        Ok(CommandResponse::text(body))
-    }
-
-    /// Acts on the conversation's group and refuses a non-member — the consent
-    /// write reports zero rows and `execute` turns that into "not a member".
-    fn is_available(&self, standing: &CallerGroupStanding) -> bool {
-        standing.ambient.is_some()
     }
 }

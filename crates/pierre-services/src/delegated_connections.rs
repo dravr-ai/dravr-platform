@@ -1,52 +1,51 @@
-// ABOUTME: A group's coach links a TrainingPeaks roster athlete to a member, the member confirms, either side ends it
-// ABOUTME: Reads the coach's roster through their own session, enforces each step's rules and tells the other side
+// ABOUTME: A group's coach links a coaching-platform roster athlete to a member, the member confirms, either side ends it
+// ABOUTME: Reads the coach's roster through their own TrainingPeaks session or Intervals.icu key, enforces each step and tells the other side
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! # Delegated `TrainingPeaks` connections
+//! # Delegated connections
 //!
-//! A `TrainingPeaks` coach account keeps no calendar of its own; its session
-//! reads each athlete on the coach's roster. A group's human coach links one
-//! of those roster athletes to a live member of the group ([`propose`]); the
-//! member confirms ([`confirm`]), and that confirmation is their consent to
-//! having their `TrainingPeaks` workouts read through the coach's account.
-//! Either side can end the link ([`end`]); the group lifecycle and a
-//! disconnect end it through [`DelegationStore`].
+//! A coaching platform ([`CoachPlatform`]: `TrainingPeaks`, Intervals.icu)
+//! lets a coach's own account read the athletes who share with it. A group's
+//! human coach links one of those roster athletes to a live member of the
+//! group ([`propose`]); the member confirms ([`confirm`]), and that
+//! confirmation is their consent to having their workouts on that platform
+//! read through the coach's account. Either side can end the link ([`end`]);
+//! the group lifecycle and a disconnect end it through [`DelegationStore`].
 //!
-//! The roster comes from the coach's stored session ([`coach_roster`]), and
-//! only once every precondition holds: a `TrainingPeaks` connection of the
-//! coach's own, live, signed in with a coach account whose email is the
-//! coach's verified Dravr email, whose owner accepted the current
-//! `TrainingPeaks` notice. Each refusal carries its reason in
-//! `details.reason`, which is what a client branches on.
+//! The roster comes from the coach's stored credential ([`coach_roster`]),
+//! and only once every precondition holds: a connection of the coach's own
+//! to the platform, live, whose account email is the coach's verified Dravr
+//! email, whose owner accepted the platform's current notice where it asks
+//! for one, plus what the platform itself requires of the account
+//! ([`CoachPlatform::read_roster`]). Each refusal carries its reason in
+//! `details.reason`, which is what a client branches on, and the platform in
+//! `details.provider`.
 //!
 //! A link binds a roster athlete to a member by email: the coach proposes
-//! only an athlete whose `TrainingPeaks` email the roster lists and which is
-//! the member's verified Dravr email, and the member's confirm checks it
-//! again, so the member consents to reading their own workouts and no one
-//! else's. Every read through a confirmed link checks it once more
+//! only an athlete whose platform email the roster lists and which is the
+//! member's verified Dravr email, and the member's confirm checks it again,
+//! so the member consents to reading their own workouts and no one else's.
+//! Every read through a confirmed link checks it once more
 //! ([`link_binding`]), and a link that no longer binds reads nothing.
 //!
 //! Each step reaches the other side through the notification feed, the linked
 //! chat channels and push: the member is asked, the coach hears the answer,
-//! and both hear when `TrainingPeaks` drops the athlete from the coach's
-//! roster ([`end_off_roster`]). Notices are best-effort: a step stands even
-//! when its notice cannot be addressed.
+//! and both hear when the platform drops the athlete from the coach's roster
+//! ([`end_off_roster`]). Notices are best-effort: a step stands even when its
+//! notice cannot be addressed.
 //!
 //! The roster's athlete names are the provider's text about third parties.
 //! They are stored and shown to the two people a link concerns, and never
 //! placed in a notice or anything a model reads.
 
 use std::collections::HashMap;
-use std::str::FromStr;
 use std::sync::Arc;
 
 use chrono::Utc;
-use dravr_sciotte::models::{AthleteId, AuthSession, CoachedAthlete};
 use pierre_cache::{Cache, CacheKey, CacheResource};
-use pierre_core::constants::oauth_providers::{SCIOTTE_TRAININGPEAKS, TRAININGPEAKS};
-use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::CoachingGroup;
 use pierre_core::models::{
     ConnectionType, DelegatedConnection, DelegationEndReason, DelegationStatus,
@@ -54,171 +53,26 @@ use pierre_core::models::{
 };
 use pierre_database::RepositoryRegistry;
 use pierre_groups::delegation::DelegationStore;
-use pierre_notifications::{triggers, NotificationService, TenantId as NoticeTenantId};
+use pierre_notifications::triggers::{self, LinkPlatform};
+use pierre_notifications::{NotificationService, TenantId as NoticeTenantId};
 use pierre_providers::backend_resolver::user_facing_name;
+use pierre_providers::registry::ProviderRegistry;
 use serde_json::json;
 use tracing::{info, warn};
 use unicode_normalization::char::is_combining_mark;
 use unicode_normalization::UnicodeNormalization;
 use uuid::Uuid;
 
+use crate::coach_platform::{coach_platform, CoachPlatform, RosterRead};
+use crate::delegation_refusal::Refusal;
 use crate::provider_notice::notice_in_force;
-use crate::trainingpeaks_accounts::{
-    account_role, coach_binding, email_binding, link_binding, record_trainingpeaks_profile,
-    trainingpeaks_profile, EmailBinding,
-};
-
-/// Why a linking step was refused. The wire form travels in the error's
-/// `details.reason`; the message is what an API caller reads.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Refusal {
-    /// The coach has no `TrainingPeaks` connection of their own here.
-    NotConnected,
-    /// The coach's `TrainingPeaks` account trains rather than coaches.
-    NotCoachAccount,
-    /// `TrainingPeaks` shares no email for the coach's account.
-    CoachEmailMissing,
-    /// The coach's `TrainingPeaks` email is not their verified Dravr email.
-    CoachEmailMismatch,
-    /// The caller's own Dravr email is not verified, so it binds nothing.
-    DravrEmailUnverified,
-    /// The coach's `TrainingPeaks` session is dead or flagged.
-    ReconnectNeeded,
-    /// The coach has not accepted the current `TrainingPeaks` notice.
-    TermsOutdated,
-    /// A provider other than `TrainingPeaks` was named.
-    UnsupportedProvider,
-    /// The athlete id is not one `TrainingPeaks` could have issued.
-    InvalidAthlete,
-    /// The coach's roster does not list the athlete.
-    AthleteNotOnRoster,
-    /// `TrainingPeaks` shares no email for the athlete.
-    AthleteEmailMissing,
-    /// The athlete's `TrainingPeaks` email is not the member's verified
-    /// Dravr email.
-    AthleteEmailMismatch,
-    /// The member's Dravr email is not verified, so it binds nothing.
-    MemberEmailUnverified,
-    /// The coach named themselves as the member.
-    MemberIsCoach,
-    /// The member already has a live link in this group.
-    AlreadyProposed,
-    /// The athlete is already linked, in this group or another the coach coaches.
-    AthleteAlreadyLinked,
-    /// The member reads `TrainingPeaks` through a login of their own.
-    OwnConnection,
-}
-
-impl Refusal {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::NotConnected => "trainingpeaks_not_connected",
-            Self::NotCoachAccount => "trainingpeaks_not_coach_account",
-            Self::CoachEmailMissing => "trainingpeaks_email_missing",
-            Self::CoachEmailMismatch => "trainingpeaks_email_mismatch",
-            Self::DravrEmailUnverified => "dravr_email_unverified",
-            Self::ReconnectNeeded => "trainingpeaks_reconnect_needed",
-            Self::TermsOutdated => "trainingpeaks_terms_outdated",
-            Self::UnsupportedProvider => "unsupported_provider",
-            Self::InvalidAthlete => "invalid_athlete",
-            Self::AthleteNotOnRoster => "athlete_not_on_roster",
-            Self::AthleteEmailMissing => "athlete_email_missing",
-            Self::AthleteEmailMismatch => "athlete_email_mismatch",
-            Self::MemberEmailUnverified => "member_email_unverified",
-            Self::MemberIsCoach => "member_is_coach",
-            Self::AlreadyProposed => "already_proposed",
-            Self::AthleteAlreadyLinked => "athlete_already_linked",
-            Self::OwnConnection => "own_connection",
-        }
-    }
-
-    const fn message(self) -> &'static str {
-        match self {
-            Self::NotConnected => "Connect your TrainingPeaks coach account first",
-            Self::NotCoachAccount => "This TrainingPeaks account is not a coach account",
-            Self::CoachEmailMissing => {
-                "TrainingPeaks shares no email for this account, so it cannot be matched to \
-                 your Dravr account"
-            }
-            Self::CoachEmailMismatch => {
-                "This TrainingPeaks account's email is not your verified Dravr email"
-            }
-            Self::DravrEmailUnverified => "Verify your Dravr email first",
-            Self::ReconnectNeeded => "Reconnect TrainingPeaks to read your roster",
-            Self::TermsOutdated => {
-                "Reconnect TrainingPeaks and accept the updated notice to read your roster"
-            }
-            Self::UnsupportedProvider => "Only TrainingPeaks athletes can be linked",
-            Self::InvalidAthlete => "That is not a TrainingPeaks athlete id",
-            Self::AthleteNotOnRoster => "That athlete is not on your TrainingPeaks roster",
-            Self::AthleteEmailMissing => {
-                "TrainingPeaks shares no email for this athlete, so the link cannot be matched \
-                 to the member"
-            }
-            Self::AthleteEmailMismatch => {
-                "This athlete's TrainingPeaks email is not the member's verified Dravr email"
-            }
-            Self::MemberEmailUnverified => "This member has not verified their Dravr email yet",
-            Self::MemberIsCoach => "A coach cannot be linked as their own athlete",
-            Self::AlreadyProposed => "This member already has a TrainingPeaks link in this group",
-            Self::AthleteAlreadyLinked => "This TrainingPeaks athlete is already linked",
-            Self::OwnConnection => "You already connect TrainingPeaks with your own account",
-        }
-    }
-
-    const fn code(self) -> ErrorCode {
-        match self {
-            Self::AlreadyProposed | Self::AthleteAlreadyLinked | Self::OwnConnection => {
-                ErrorCode::ResourceAlreadyExists
-            }
-            _ => ErrorCode::InvalidInput,
-        }
-    }
-
-    fn error(self) -> AppError {
-        let mut error = AppError::new(self.code(), self.message());
-        error.details = Some(Box::new(json!({ "reason": self.as_str() })));
-        error
-    }
-
-    /// The refusal of a coach account that is not the coach's own.
-    const fn coach_account(binding: EmailBinding) -> Option<Self> {
-        match binding {
-            EmailBinding::Bound => None,
-            EmailBinding::ProviderEmailMissing => Some(Self::CoachEmailMissing),
-            EmailBinding::DravrEmailUnverified => Some(Self::DravrEmailUnverified),
-            EmailBinding::Mismatch => Some(Self::CoachEmailMismatch),
-        }
-    }
-
-    /// The refusal of a roster athlete that is not the member, told to the
-    /// coach who proposes, and why a confirmed link naming one reads nothing.
-    const fn proposal(binding: EmailBinding) -> Option<Self> {
-        match binding {
-            EmailBinding::Bound => None,
-            EmailBinding::ProviderEmailMissing => Some(Self::AthleteEmailMissing),
-            EmailBinding::DravrEmailUnverified => Some(Self::MemberEmailUnverified),
-            EmailBinding::Mismatch => Some(Self::AthleteEmailMismatch),
-        }
-    }
-
-    /// The refusal of a roster athlete that is not the member, told to the
-    /// member who confirms.
-    const fn confirmation(binding: EmailBinding) -> Option<Self> {
-        match binding {
-            EmailBinding::Bound => None,
-            EmailBinding::ProviderEmailMissing => Some(Self::AthleteEmailMissing),
-            EmailBinding::DravrEmailUnverified => Some(Self::DravrEmailUnverified),
-            EmailBinding::Mismatch => Some(Self::AthleteEmailMismatch),
-        }
-    }
-}
+use crate::trainingpeaks_accounts::{email_binding, link_binding, EmailBinding};
 
 /// One athlete on the coach's roster, as the linking picker shows it.
 #[derive(Debug, Clone)]
 pub struct RosterEntry {
-    /// The athlete as the coach's `TrainingPeaks` roster lists them.
-    pub athlete: CoachedAthlete,
+    /// The athlete as the coach's platform roster lists them.
+    pub athlete: RosterAthlete,
     /// The live link that holds this athlete in the group, when there is one.
     pub link: Option<DelegatedConnection>,
     /// The live, unlinked member whose name reads as the athlete's roster
@@ -230,12 +84,26 @@ pub struct RosterEntry {
 /// What a coach asks to link: which roster athlete is which member.
 #[derive(Debug, Clone, Copy)]
 pub struct Proposal<'a> {
-    /// The user-facing provider, `trainingpeaks`.
+    /// The coaching platform, as the user knows it (`trainingpeaks`,
+    /// `intervals_icu`).
     pub provider: &'a str,
-    /// The athlete's id on the coach's `TrainingPeaks` roster.
+    /// The athlete's id on the coach's platform roster.
     pub provider_athlete_id: &'a str,
     /// The live group member the athlete is.
     pub member_user_id: Uuid,
+}
+
+/// What the linking steps that read a coach's roster work with.
+#[derive(Clone, Copy)]
+pub struct DelegationServices<'a> {
+    /// Repositories every step reads and writes.
+    pub repos: &'a RepositoryRegistry,
+    /// Builds the provider an API-backed platform reads the roster through.
+    pub registry: &'a ProviderRegistry,
+    /// Holds each coach's roster between live reads.
+    pub cache: &'a Cache,
+    /// Tells the other side of a step; `None` tells no one.
+    pub notifications: Option<&'a Arc<NotificationService>>,
 }
 
 /// The name a person reads for another user: their display name, else their
@@ -250,59 +118,76 @@ pub fn person_name(user: &User) -> String {
         .to_owned()
 }
 
-/// The athletes on the coach's `TrainingPeaks` roster, read through the
-/// coach's own stored session in `coach_tenant`.
+/// The athletes on the coach's `platform` roster, read through the coach's
+/// own stored credential in `coach_tenant`.
 ///
 /// Refused, with its reason, until the coach has a live connection of their
-/// own, signed in with a coach account whose email is the coach's verified
-/// Dravr email, and has accepted the current `TrainingPeaks` notice. The
-/// roster is cached for ten minutes per coach and
-/// tenant, and served from the cache only once the connection is recorded as
-/// a coach account's: a connection whose role was never read is read live,
-/// which records it. `refresh` reads it live too. A live read records the
-/// account's role when it differs from the one recorded, as every
-/// `TrainingPeaks` profile read does, and checks on every read that the coach
-/// account is still the coach's own, taking back `manages_roster` when it is
-/// not. Only a roster read through a bound account is cached; the cache is
-/// dropped whenever the coach's session is stored anew or cleared
+/// own whose account the platform accepts for a roster
+/// ([`CoachPlatform::read_roster`]: a coach account whose email is the
+/// coach's verified Dravr email) and has accepted the platform's current
+/// notice where one is in force. The roster is cached for ten minutes per
+/// coach, tenant and platform, and served from the cache only once the
+/// platform says nothing is left to learn by reading it live
+/// ([`CoachPlatform::serves_cached_roster`]). `refresh` reads it live too.
+/// Only a roster read through a bound account is cached; the cache is
+/// dropped whenever the coach's credential is stored anew or cleared
 /// ([`forget_coach_roster`]).
 ///
 /// A live read also ends every live link, proposed or confirmed, the coach
-/// holds for an athlete the roster no longer lists, telling both sides as
-/// [`end_off_roster`] does, before the roster is returned: what the coach
-/// reads and what the member is asked agree. A roster served from the cache
-/// ends nothing.
+/// holds on the platform for an athlete the roster no longer lists, telling
+/// both sides as [`end_off_roster`] does, before the roster is returned: what
+/// the coach reads and what the member is asked agree. A roster served from
+/// the cache ends nothing.
 ///
 /// # Errors
 ///
-/// Returns an invalid-input error carrying the refusal reason, the scraper
-/// error when the profile cannot be read, or a repository error.
+/// Returns an invalid-input error carrying the refusal reason, the provider
+/// error when the roster cannot be read, or a repository error.
 pub async fn coach_roster(
-    repos: &RepositoryRegistry,
-    cache: &Cache,
-    notifications: Option<&Arc<NotificationService>>,
+    services: DelegationServices<'_>,
+    platform: &dyn CoachPlatform,
     coach_user_id: Uuid,
     coach_tenant: TenantId,
     refresh: bool,
-) -> AppResult<Vec<CoachedAthlete>> {
-    let (session, recorded_role) = coach_session(repos, coach_user_id, coach_tenant).await?;
-    let key = roster_cache_key(coach_user_id, coach_tenant);
-    if !refresh && recorded_role == Some(ProviderAccountRole::Coach) {
-        match cache.get::<Vec<CoachedAthlete>>(&key).await {
+) -> AppResult<Vec<RosterAthlete>> {
+    let repos = services.repos;
+    let (token, recorded_role) =
+        coach_session(repos, platform, coach_user_id, coach_tenant).await?;
+    let key = roster_cache_key(coach_user_id, coach_tenant, platform.backend());
+    if !refresh && platform.serves_cached_roster(recorded_role) {
+        match services.cache.get::<Vec<RosterAthlete>>(&key).await {
             Ok(Some(athletes)) => return Ok(athletes),
             Ok(None) => {}
             Err(e) => warn!(
                 user_id = %coach_user_id,
+                provider = platform.backend(),
                 error = %e,
-                "TrainingPeaks roster cache read failed; reading the roster live"
+                "Coach roster cache read failed; reading the roster live"
             ),
         }
     }
 
-    let athletes =
-        read_bound_roster(repos, coach_user_id, coach_tenant, &session, recorded_role).await?;
-    end_off_coach_roster(repos, notifications, coach_user_id, coach_tenant, &athletes).await?;
-    if let Err(e) = cache
+    let athletes = platform
+        .read_roster(RosterRead {
+            repos,
+            registry: services.registry,
+            coach_user_id,
+            coach_tenant,
+            token: &token,
+            recorded_role,
+        })
+        .await?;
+    end_off_coach_roster(
+        repos,
+        services.notifications,
+        platform,
+        coach_user_id,
+        coach_tenant,
+        &athletes,
+    )
+    .await?;
+    if let Err(e) = services
+        .cache
         .set(
             &key,
             &athletes,
@@ -312,133 +197,95 @@ pub async fn coach_roster(
     {
         warn!(
             user_id = %coach_user_id,
+            provider = platform.backend(),
             error = %e,
-            "TrainingPeaks roster cache write failed; the next read goes live"
+            "Coach roster cache write failed; the next read goes live"
         );
     }
     Ok(athletes)
 }
 
-/// The roster the coach's `session` reads live, once the account it signed in
-/// to is a coach account whose email is the coach's verified Dravr email.
-///
-/// The read records the account's role when it differs from
-/// `recorded_role`, which grants `manages_roster` to a bound coach account;
-/// an unchanged role re-grants nothing, and a coach account that is not the
-/// coach's own loses the grant either way.
-async fn read_bound_roster(
-    repos: &RepositoryRegistry,
-    coach_user_id: Uuid,
-    coach_tenant: TenantId,
-    session: &AuthSession,
-    recorded_role: Option<ProviderAccountRole>,
-) -> AppResult<Vec<CoachedAthlete>> {
-    let profile = match trainingpeaks_profile(session).await {
-        Ok(profile) => profile,
-        Err(e) if e.provider_auth_required_provider().is_some() => {
-            return Err(Refusal::ReconnectNeeded.error());
-        }
-        Err(e) => return Err(e),
-    };
-    let role = account_role(&profile);
-    let binding = match (recorded_role == Some(role), role) {
-        (true, ProviderAccountRole::Coach) => {
-            Some(coach_binding(repos, coach_user_id, coach_tenant, &profile).await?)
-        }
-        (true, ProviderAccountRole::Athlete) => None,
-        (false, _) => {
-            record_trainingpeaks_profile(repos, coach_user_id, coach_tenant, &profile)
-                .await?
-                .binding
-        }
-    };
-    if role != ProviderAccountRole::Coach {
-        return Err(Refusal::NotCoachAccount.error());
-    }
-    if let Some(refusal) = binding.and_then(Refusal::coach_account) {
-        return Err(refusal.error());
-    }
-    Ok(profile.coached_athletes)
-}
-
-/// The key the coach's roster is cached under in `coach_tenant`.
+/// The key the coach's `backend` roster is cached under in `coach_tenant`.
 #[must_use]
-pub fn roster_cache_key(coach_user_id: Uuid, coach_tenant: TenantId) -> CacheKey {
+pub fn roster_cache_key(coach_user_id: Uuid, coach_tenant: TenantId, backend: &str) -> CacheKey {
     CacheKey::new(
         coach_tenant,
         coach_user_id,
-        SCIOTTE_TRAININGPEAKS.to_owned(),
+        backend.to_owned(),
         CacheResource::ProviderRoster,
     )
 }
 
-/// Drop the roster cached for `coach_user_id`'s `TrainingPeaks` session in
+/// Drop the roster cached for `coach_user_id`'s `backend` credential in
 /// `coach_tenant`.
 ///
-/// Called when the session it was read through was stored anew (another
-/// login, possibly to another account) or cleared.
+/// Called when the credential it was read through was stored anew (another
+/// login or key, possibly to another account) or cleared.
 ///
 /// Best-effort: a failure is logged, and the stale roster ages out with its
 /// ten-minute lifetime.
-pub async fn forget_coach_roster(cache: &Cache, coach_user_id: Uuid, coach_tenant: TenantId) {
+pub async fn forget_coach_roster(
+    cache: &Cache,
+    coach_user_id: Uuid,
+    coach_tenant: TenantId,
+    backend: &str,
+) {
     if let Err(e) = cache
-        .invalidate(&roster_cache_key(coach_user_id, coach_tenant))
+        .invalidate(&roster_cache_key(coach_user_id, coach_tenant, backend))
         .await
     {
         warn!(
             user_id = %coach_user_id,
+            provider = backend,
             error = %e,
-            "TrainingPeaks roster cache could not be dropped; it ages out on its own"
+            "Coach roster cache could not be dropped; it ages out on its own"
         );
     }
 }
 
-/// The coach's stored `TrainingPeaks` session, once every precondition for
-/// reading their roster holds.
+/// The coach's stored `platform` credential, once every precondition the
+/// link flow shares holds: a live connection of their own, not recorded as
+/// an athlete's account, under the platform's current notice.
 ///
 /// Returned with the account role recorded on their connection (`None`
 /// while it was never read).
 async fn coach_session(
     repos: &RepositoryRegistry,
+    platform: &dyn CoachPlatform,
     coach_user_id: Uuid,
     coach_tenant: TenantId,
-) -> AppResult<(AuthSession, Option<ProviderAccountRole>)> {
+) -> AppResult<(Box<UserOAuthToken>, Option<ProviderAccountRole>)> {
+    let backend = platform.backend();
     let (token, account_role) =
-        match coach_session_state(repos, coach_user_id, coach_tenant, SCIOTTE_TRAININGPEAKS).await?
-        {
-            CoachSession::Missing => return Err(Refusal::NotConnected.error()),
-            CoachSession::NeedsReconnect => return Err(Refusal::ReconnectNeeded.error()),
+        match coach_session_state(repos, coach_user_id, coach_tenant, backend).await? {
+            CoachSession::Missing => return Err(Refusal::NotConnected.error(Some(platform))),
+            CoachSession::NeedsReconnect => {
+                return Err(Refusal::ReconnectNeeded.error(Some(platform)));
+            }
             CoachSession::Live {
                 token,
                 account_role,
             } => (token, account_role),
         };
     if account_role == Some(ProviderAccountRole::Athlete) {
-        return Err(Refusal::NotCoachAccount.error());
+        return Err(Refusal::NotCoachAccount.error(Some(platform)));
     }
     // A coach the notice is in force for reads their roster only under its
     // current version; one the flag leaves off was never asked for it.
-    if let Some(current) = notice_in_force(
-        repos,
-        coach_tenant.as_uuid(),
-        coach_user_id,
-        SCIOTTE_TRAININGPEAKS,
-    )
-    .await
+    if let Some(current) =
+        notice_in_force(repos, coach_tenant.as_uuid(), coach_user_id, backend).await
     {
         if repos
             .users
-            .provider_terms_version(coach_user_id, SCIOTTE_TRAININGPEAKS)
+            .provider_terms_version(coach_user_id, backend)
             .await?
             .as_deref()
             != Some(current)
         {
-            return Err(Refusal::TermsOutdated.error());
+            return Err(Refusal::TermsOutdated.error(Some(platform)));
         }
     }
-    let session = serde_json::from_str::<AuthSession>(&token.access_token)
-        .map_err(|_| Refusal::ReconnectNeeded.error())?;
-    Ok((session, account_role))
+    Ok((token, account_role))
 }
 
 /// Where a coach's own provider session stands: the one their roster is read
@@ -605,35 +452,30 @@ pub async fn describe_link(
     }))
 }
 
-/// The coach's roster as the linking picker for `group` shows it: each
-/// athlete with the live link that holds them in the group, and the member
-/// their roster name suggests.
+/// The coach's `platform` roster as the linking picker for `group` shows it:
+/// each athlete with the live link that holds them in the group, and the
+/// member their roster name suggests.
 ///
 /// # Errors
 ///
 /// Returns the errors of [`coach_roster`], or a repository error.
 pub async fn roster_for_group(
-    repos: &RepositoryRegistry,
-    cache: &Cache,
-    notifications: Option<&Arc<NotificationService>>,
+    services: DelegationServices<'_>,
+    platform: &dyn CoachPlatform,
     group: &CoachingGroup,
     coach_user_id: Uuid,
     coach_tenant: TenantId,
     refresh: bool,
 ) -> AppResult<Vec<RosterEntry>> {
-    let athletes = coach_roster(
-        repos,
-        cache,
-        notifications,
-        coach_user_id,
-        coach_tenant,
-        refresh,
-    )
-    .await?;
-    let links = repos
+    let repos = services.repos;
+    let athletes = coach_roster(services, platform, coach_user_id, coach_tenant, refresh).await?;
+    let links: Vec<DelegatedConnection> = repos
         .delegated_connections
         .list_live_for_coach_in_group(group.id, coach_user_id)
-        .await?;
+        .await?
+        .into_iter()
+        .filter(|link| link.provider == platform.backend())
+        .collect();
     let candidates: Vec<Uuid> = repos
         .groups
         .list_members(&group.id.to_string())
@@ -660,7 +502,7 @@ pub async fn roster_for_group(
                 .cloned();
             let suggested_member_user_id = if link.is_none() {
                 athlete
-                    .display_name
+                    .name
                     .as_deref()
                     .and_then(|name| sole_match(&names, &fold_name(name)))
             } else {
@@ -711,22 +553,24 @@ fn sole_match(names: &[(Uuid, String)], folded: &str) -> Option<Uuid> {
 /// live link holds the member or the athlete; the roster's own refusals; or a
 /// repository error.
 pub async fn propose(
-    repos: &RepositoryRegistry,
-    cache: &Cache,
-    notifications: Option<&Arc<NotificationService>>,
+    services: DelegationServices<'_>,
     group: &CoachingGroup,
     coach_user_id: Uuid,
     coach_tenant: TenantId,
     proposal: Proposal<'_>,
 ) -> AppResult<DelegatedConnection> {
-    if proposal.provider != TRAININGPEAKS {
-        return Err(Refusal::UnsupportedProvider.error());
-    }
-    let athlete = AthleteId::from_str(proposal.provider_athlete_id)
-        .map_err(|_| Refusal::InvalidAthlete.error())?;
+    let repos = services.repos;
+    let platform = coach_platform(proposal.provider)
+        .ok_or_else(|| Refusal::UnsupportedProvider.error(None))?;
+    let backend = platform.backend();
+    let athlete = proposal.provider_athlete_id;
+    services
+        .registry
+        .check_delegated_athlete(backend, athlete)
+        .map_err(|_| Refusal::InvalidAthlete.error(Some(platform)))?;
     let member = proposal.member_user_id;
     if member == coach_user_id {
-        return Err(Refusal::MemberIsCoach.error());
+        return Err(Refusal::MemberIsCoach.error(Some(platform)));
     }
     if repos
         .groups
@@ -736,34 +580,22 @@ pub async fn propose(
     {
         return Err(AppError::not_found("Group member"));
     }
-    let roster = coach_roster(
-        repos,
-        cache,
-        notifications,
-        coach_user_id,
-        coach_tenant,
-        false,
-    )
-    .await?;
-    let Some(entry) = roster.iter().find(|a| a.id == athlete.as_str()) else {
-        return Err(Refusal::AthleteNotOnRoster.error());
+    let roster = coach_roster(services, platform, coach_user_id, coach_tenant, false).await?;
+    let Some(entry) = roster.into_iter().find(|a| a.id == athlete) else {
+        return Err(Refusal::AthleteNotOnRoster.error(Some(platform)));
     };
     let binding = email_binding(repos, member, entry.email.as_deref()).await?;
     if let Some(refusal) = Refusal::proposal(binding) {
-        return Err(refusal.error());
+        return Err(refusal.error(Some(platform)));
     }
 
     let link = DelegatedConnection::propose(
-        SCIOTTE_TRAININGPEAKS.to_owned(),
+        backend.to_owned(),
         group.id,
         coach_user_id,
         coach_tenant,
         member,
-        RosterAthlete {
-            id: athlete.as_str().to_owned(),
-            name: entry.display_name.clone(),
-            email: entry.email.clone(),
-        },
+        entry,
     );
     let Some(stored) = repos.delegated_connections.propose(&link).await? else {
         let member_held = repos
@@ -771,22 +603,23 @@ pub async fn propose(
             .list_live_for_member_in_group(group.id, member)
             .await?
             .iter()
-            .any(|live| live.provider == SCIOTTE_TRAININGPEAKS);
+            .any(|live| live.provider == backend);
         return Err(if member_held {
             Refusal::AlreadyProposed
         } else {
             Refusal::AthleteAlreadyLinked
         }
-        .error());
+        .error(Some(platform)));
     };
     info!(
         link_id = %stored.id,
         group_id = %group.id,
         coach_user_id = %coach_user_id,
         member_user_id = %member,
-        "TrainingPeaks link proposed"
+        provider = backend,
+        "Delegated link proposed"
     );
-    Notices::new(repos, notifications)
+    Notices::new(repos, services.notifications)
         .proposed(&stored, &group.name)
         .await;
     Ok(stored)
@@ -799,7 +632,7 @@ pub async fn propose(
 ///
 /// # Errors
 ///
-/// Returns an already-exists error when the member connects `TrainingPeaks`
+/// Returns an already-exists error when the member connects the platform
 /// with a login of their own here (`own_connection`) or already has a
 /// confirmed link (`already_linked`); an invalid-input error when the athlete
 /// the link names is not the member by email: the link carries no roster
@@ -814,18 +647,19 @@ pub async fn confirm(
     member_tenant: TenantId,
 ) -> AppResult<DelegatedConnection> {
     let member = link.member_user_id;
+    let platform = coach_platform(&link.provider);
     if holds_own_connection(repos, member, member_tenant, &link.provider).await? {
-        return Err(Refusal::OwnConnection.error());
+        return Err(Refusal::OwnConnection.error(platform));
     }
     let binding = email_binding(repos, member, link.provider_athlete_email.as_deref()).await?;
     if let Some(refusal) = Refusal::confirmation(binding) {
-        return Err(refusal.error());
+        return Err(refusal.error(platform));
     }
     let confirmed = repos
         .delegated_connections
         .confirm(link.id, member, member_tenant, Utc::now())
         .await?
-        .ok_or_else(|| AppError::not_found("Pending TrainingPeaks link"))?;
+        .ok_or_else(|| AppError::not_found("Pending link"))?;
     supersede_other_proposals(repos, &confirmed).await?;
 
     repos
@@ -846,7 +680,7 @@ pub async fn confirm(
         delegated = true,
         user_id = %member,
         tenant_id = %member_tenant,
-        "member confirmed a delegated TrainingPeaks connection"
+        "member confirmed a delegated connection"
     );
     Notices::new(repos, notifications)
         .confirmed(&confirmed, &group.name)
@@ -909,6 +743,46 @@ async fn supersede_other_proposals(
     Ok(())
 }
 
+/// End the confirmed `backend` link a member's reads went through, now that
+/// they connect the platform with a credential of their own: their own
+/// connection takes its place.
+///
+/// Runs before the member's own connection is registered. That connection
+/// lands on the same row, and would otherwise silently turn the delegated
+/// connection into their own while the link still read as confirmed; ending
+/// it first releases the delegated connection, so the own connection lands
+/// on a clean slate.
+///
+/// # Errors
+///
+/// Returns the repository error when the link cannot be ended or its
+/// delegated connection cannot be removed.
+pub async fn supersede_delegated_link(
+    repos: &RepositoryRegistry,
+    member_user_id: Uuid,
+    tenant: TenantId,
+    backend: &str,
+) -> AppResult<()> {
+    let ended = DelegationStore::new(repos)
+        .end_confirmed_for_member(
+            member_user_id,
+            tenant,
+            backend,
+            Some(member_user_id),
+            DelegationEndReason::Superseded,
+        )
+        .await?;
+    if !ended.is_empty() {
+        info!(
+            user_id = %member_user_id,
+            tenant_id = %tenant,
+            provider = backend,
+            "A connection of the member's own superseded their coach link"
+        );
+    }
+    Ok(())
+}
+
 /// End `link` for `caller`, its coach or its member.
 ///
 /// The reason follows from who ends it and where the link stands: a member
@@ -933,18 +807,19 @@ pub async fn end(
         (DelegationStatus::Confirmed, true) => DelegationEndReason::RevokedByMember,
         (DelegationStatus::Confirmed, false) => DelegationEndReason::RevokedByCoach,
         (DelegationStatus::Revoked, _) => {
-            return Err(AppError::not_found("Live TrainingPeaks link"));
+            return Err(AppError::not_found("Live link"));
         }
     };
     let ended = DelegationStore::new(repos)
         .end_one(link.id, caller, Some(caller), reason)
         .await?
-        .ok_or_else(|| AppError::not_found("Live TrainingPeaks link"))?;
+        .ok_or_else(|| AppError::not_found("Live link"))?;
     info!(
         link_id = %ended.id,
         group_id = %group.id,
+        provider = %ended.provider,
         reason = reason.as_str(),
-        "TrainingPeaks link ended"
+        "Delegated link ended"
     );
     if reason == DelegationEndReason::Declined {
         Notices::new(repos, notifications)
@@ -986,7 +861,7 @@ pub async fn end_off_roster(
 }
 
 /// End every live link, proposed or confirmed, that `coach_user_id`'s
-/// `TrainingPeaks` session in `coach_tenant` holds for an athlete `roster`,
+/// `platform` credential in `coach_tenant` holds for an athlete `roster`,
 /// just read live, no longer lists, telling both sides as [`end_off_roster`]
 /// does.
 ///
@@ -996,13 +871,14 @@ pub async fn end_off_roster(
 async fn end_off_coach_roster(
     repos: &RepositoryRegistry,
     notifications: Option<&Arc<NotificationService>>,
+    platform: &dyn CoachPlatform,
     coach_user_id: Uuid,
     coach_tenant: TenantId,
-    roster: &[CoachedAthlete],
+    roster: &[RosterAthlete],
 ) -> AppResult<()> {
     let listed: Vec<&str> = roster.iter().map(|athlete| athlete.id.as_str()).collect();
     let ended = DelegationStore::new(repos)
-        .end_off_coach_roster(coach_user_id, coach_tenant, SCIOTTE_TRAININGPEAKS, &listed)
+        .end_off_coach_roster(coach_user_id, coach_tenant, platform.backend(), &listed)
         .await?;
     for link in &ended {
         info!(
@@ -1010,7 +886,8 @@ async fn end_off_coach_roster(
             group_id = %link.group_id,
             coach_user_id = %coach_user_id,
             member_user_id = %link.member_user_id,
-            "TrainingPeaks link ended: the coach's roster no longer lists its athlete"
+            provider = %link.provider,
+            "Delegated link ended: the coach's roster no longer lists its athlete"
         );
     }
     tell_off_roster(repos, notifications, &ended).await;
@@ -1064,6 +941,7 @@ impl<'a> Notices<'a> {
             service,
             link.member_user_id,
             member_tenant,
+            link_platform(link),
             &parties.coach_name,
             group_name,
         );
@@ -1078,6 +956,7 @@ impl<'a> Notices<'a> {
             service,
             link.coach_user_id,
             notice_tenant(link.coach_tenant_id),
+            link_platform(link).name,
             link.member_user_id,
             &parties.member_name,
             group_name,
@@ -1093,6 +972,7 @@ impl<'a> Notices<'a> {
             service,
             link.coach_user_id,
             notice_tenant(link.coach_tenant_id),
+            link_platform(link).name,
             link.member_user_id,
             &parties.member_name,
             group_name,
@@ -1125,6 +1005,7 @@ impl<'a> Notices<'a> {
             service,
             link.coach_user_id,
             notice_tenant(link.coach_tenant_id),
+            link_platform(link).name,
             link.member_user_id,
             &parties.member_name,
             &group_name,
@@ -1138,6 +1019,7 @@ impl<'a> Notices<'a> {
                 service,
                 link.member_user_id,
                 member_tenant,
+                link_platform(link),
                 &parties.coach_name,
                 &group_name,
             );
@@ -1182,6 +1064,16 @@ impl<'a> Notices<'a> {
                 None
             }
         }
+    }
+}
+
+/// The coaching platform `link` reads through, as a notice names it: the
+/// card it opens and the brand its words carry.
+fn link_platform(link: &DelegatedConnection) -> LinkPlatform<'_> {
+    let provider = user_facing_name(&link.provider);
+    LinkPlatform {
+        provider,
+        name: coach_platform(&link.provider).map_or(provider, |platform| platform.brand()),
     }
 }
 

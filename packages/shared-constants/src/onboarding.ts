@@ -92,10 +92,9 @@ export interface OnboardingStepDef {
 
 /**
  * The providers a coach coaches on, the only ones the connect step offers a
- * coach who does not train. A TrainingPeaks coach account is also how a
- * group's athletes are read (delegated connections) once they join.
- *
- * LIMITATION(registre#785): `COACH_PLATFORM_PROVIDERS` offers `intervals_icu`, which no delegated connection reads athletes through.
+ * coach who does not train. The coach's account on either is also how a
+ * group's athletes are read (delegated connections) once they join: the
+ * TrainingPeaks coach session, or the Intervals.icu coach's API key.
  */
 export const COACH_PLATFORM_PROVIDERS: readonly string[] = [
   'sciotte_trainingpeaks',

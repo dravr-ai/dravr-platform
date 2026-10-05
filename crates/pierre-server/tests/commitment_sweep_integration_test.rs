@@ -11,6 +11,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_core::transport::TransportPolicy;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -141,6 +142,7 @@ fn closed_window_commitment(
         reported_at: None,
         created_at: now - Duration::days(days_ago),
         updated_at: now - Duration::days(days_ago),
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

@@ -349,7 +349,13 @@ export interface DelegatedConnectionsResponse {
   viewer: DelegationViewer;
 }
 
-/** One athlete on the coach's TrainingPeaks roster, as the linking picker shows it. */
+/**
+ * A coaching platform a coach's own account reads group athletes through, as
+ * the athlete knows it.
+ */
+export type CoachPlatformProvider = 'trainingpeaks' | 'intervals_icu';
+
+/** One athlete on the coach's coaching-platform roster, as the linking picker shows it. */
 export interface DelegationRosterAthlete {
   provider_athlete_id: string;
   display_name: string | null;
@@ -359,31 +365,36 @@ export interface DelegationRosterAthlete {
   suggested_member_user_id: string | null;
 }
 
-/** The coach's TrainingPeaks roster for one group. */
+/** The coach's coaching-platform roster for one group. */
 export interface DelegationRosterResponse {
-  provider: 'trainingpeaks';
+  /** The platform the roster was read from. */
+  provider: CoachPlatformProvider;
   athletes: DelegationRosterAthlete[];
 }
 
 /** A coach's request to link a roster athlete to a live member. */
 export interface ProposeDelegatedConnectionRequest {
-  provider: 'trainingpeaks';
+  /** The platform the roster athlete is on: the roster's `provider`. */
+  provider: CoachPlatformProvider;
   provider_athlete_id: string;
   member_user_id: string;
 }
 
 /**
  * Why a linking step was refused, as the server sends it in the error's
- * `details.reason`. The clients branch on it; the message is not localized.
+ * `details.reason`, with the coaching platform it is about in
+ * `details.provider` when one is known. The clients branch on it; the message
+ * is not localized.
  */
 export type DelegationRefusalReason =
-  | 'trainingpeaks_not_connected'
-  | 'trainingpeaks_not_coach_account'
-  | 'trainingpeaks_email_missing'
-  | 'trainingpeaks_email_mismatch'
+  | 'coach_platform_not_connected'
+  | 'coach_platform_not_coach_account'
+  | 'coach_platform_email_missing'
+  | 'coach_platform_email_mismatch'
   | 'dravr_email_unverified'
-  | 'trainingpeaks_reconnect_needed'
-  | 'trainingpeaks_terms_outdated'
+  | 'coach_platform_reconnect_needed'
+  | 'coach_platform_api_key_required'
+  | 'coach_platform_terms_outdated'
   | 'unsupported_provider'
   | 'invalid_athlete'
   | 'athlete_not_on_roster'

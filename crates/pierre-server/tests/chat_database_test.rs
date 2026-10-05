@@ -16,6 +16,7 @@ use pierre_core::models::{
     UpsertMessageFeedbackParams, User, UserStatus, UserTier,
 };
 use pierre_core::permissions::UserRole;
+use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::Database;
 use pierre_database::repositories::{ChatRepository, NewConversation, Reactivation, SlotClaim};
 use pierre_test_support::db::create_test_db;
@@ -155,6 +156,7 @@ async fn add_row(
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap()
@@ -264,7 +266,13 @@ async fn test_list_rows_carry_agent_group_preview_and_unread() {
     .await;
 
     let page = manager
-        .list_conversations(fx.athlete(), tenant_id, 10, 0)
+        .list_conversations(
+            fx.athlete(),
+            tenant_id,
+            10,
+            0,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap();
     assert_eq!(page.total, 3);
@@ -298,7 +306,13 @@ async fn test_list_rows_carry_agent_group_preview_and_unread() {
         .await
         .unwrap());
     let page = manager
-        .list_conversations(fx.athlete(), tenant_id, 10, 0)
+        .list_conversations(
+            fx.athlete(),
+            tenant_id,
+            10,
+            0,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap();
     assert_eq!(page.items[0].unread_count, 0);
@@ -307,7 +321,7 @@ async fn test_list_rows_carry_agent_group_preview_and_unread() {
 /// The unread count `user` sees on their first listed thread.
 async fn unread_of(manager: &dyn ChatRepository, tenant_id: TenantId, user: &str) -> i64 {
     manager
-        .list_conversations(user, tenant_id, 10, 0)
+        .list_conversations(user, tenant_id, 10, 0, TransportPolicy::FirstPartyOnly)
         .await
         .unwrap()
         .items[0]
@@ -430,7 +444,13 @@ async fn test_read_marker_is_monotonic_and_membership_gated() {
         .await
         .unwrap();
     let member_page = manager
-        .list_conversations(fx.member(), tenant_id, 10, 0)
+        .list_conversations(
+            fx.member(),
+            tenant_id,
+            10,
+            0,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap();
     assert_eq!(member_page.items[0].unread_count, 3);
@@ -596,7 +616,13 @@ async fn test_list_conversations() {
         .unwrap();
 
     let list = manager
-        .list_conversations(fx.athlete(), tenant_id, 10, 0)
+        .list_conversations(
+            fx.athlete(),
+            tenant_id,
+            10,
+            0,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap()
         .items;
@@ -627,7 +653,13 @@ async fn test_list_conversations_pagination() {
 
     // Get first 2
     let page1 = manager
-        .list_conversations(fx.athlete(), tenant_id, 2, 0)
+        .list_conversations(
+            fx.athlete(),
+            tenant_id,
+            2,
+            0,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap()
         .items;
@@ -635,7 +667,13 @@ async fn test_list_conversations_pagination() {
 
     // Get next 2
     let page2 = manager
-        .list_conversations(fx.athlete(), tenant_id, 2, 2)
+        .list_conversations(
+            fx.athlete(),
+            tenant_id,
+            2,
+            2,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap()
         .items;
@@ -643,7 +681,13 @@ async fn test_list_conversations_pagination() {
 
     // Get remaining
     let page3 = manager
-        .list_conversations(fx.athlete(), tenant_id, 2, 4)
+        .list_conversations(
+            fx.athlete(),
+            tenant_id,
+            2,
+            4,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap()
         .items;
@@ -704,7 +748,13 @@ async fn test_set_conversation_channel_surfaces_in_list() {
 
     // Before stamping, the column holds the 'web' default.
     let before = manager
-        .list_conversations(fx.athlete(), tenant_id, 10, 0)
+        .list_conversations(
+            fx.athlete(),
+            tenant_id,
+            10,
+            0,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap()
         .items;
@@ -727,7 +777,13 @@ async fn test_set_conversation_channel_surfaces_in_list() {
 
     // The durable channel now surfaces in the list for the badge.
     let after = manager
-        .list_conversations(fx.athlete(), tenant_id, 10, 0)
+        .list_conversations(
+            fx.athlete(),
+            tenant_id,
+            10,
+            0,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap()
         .items;
@@ -809,6 +865,7 @@ async fn test_add_message() {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -850,6 +907,7 @@ async fn test_add_assistant_message_with_finish_reason() {
             prompt_tokens: Some(20),
             model: Some("gemini-1.5-flash"),
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -891,6 +949,7 @@ async fn test_get_messages() {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -906,6 +965,7 @@ async fn test_get_messages() {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -921,6 +981,7 @@ async fn test_get_messages() {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -969,6 +1030,7 @@ async fn test_get_recent_messages() {
                 prompt_tokens: None,
                 model: None,
                 content_blocks: None,
+                transport_policy: TransportPolicy::AnyTransport,
             })
             .await
             .unwrap();
@@ -976,7 +1038,13 @@ async fn test_get_recent_messages() {
 
     // Get last 3
     let recent = manager
-        .get_recent_messages(&conv.id, fx.athlete(), tenant_id, 3)
+        .get_recent_messages(
+            &conv.id,
+            fx.athlete(),
+            tenant_id,
+            3,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap();
 
@@ -1020,6 +1088,7 @@ async fn test_message_updates_conversation_tokens() {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -1035,6 +1104,7 @@ async fn test_message_updates_conversation_tokens() {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -1080,6 +1150,7 @@ async fn test_cascade_delete_messages() {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -1095,6 +1166,7 @@ async fn test_cascade_delete_messages() {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -1156,6 +1228,7 @@ async fn test_persist_tool_round_messages() {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -1175,6 +1248,7 @@ async fn test_persist_tool_round_messages() {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -1191,6 +1265,7 @@ async fn test_persist_tool_round_messages() {
             prompt_tokens: Some(150),
             model: Some("gemini-1.5-flash"),
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -1239,6 +1314,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -1255,6 +1331,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -1272,6 +1349,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -1320,6 +1398,7 @@ async fn seed_conversation_with_message(
             prompt_tokens: Some(5),
             model: Some("gemini-1.5-flash"),
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -1551,7 +1630,13 @@ async fn test_added_participant_reads_and_posts_like_the_owner() {
         .unwrap()
         .is_none());
     assert!(manager
-        .list_conversations(fx.member(), tenant_id, 10, 0)
+        .list_conversations(
+            fx.member(),
+            tenant_id,
+            10,
+            0,
+            TransportPolicy::FirstPartyOnly
+        )
         .await
         .unwrap()
         .items
@@ -1568,6 +1653,7 @@ async fn test_added_participant_reads_and_posts_like_the_owner() {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await;
     assert!(refused.is_err());
@@ -1592,7 +1678,13 @@ async fn test_added_participant_reads_and_posts_like_the_owner() {
     );
 
     let listed = manager
-        .list_conversations(fx.member(), tenant_id, 10, 0)
+        .list_conversations(
+            fx.member(),
+            tenant_id,
+            10,
+            0,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap()
         .items;
@@ -1611,6 +1703,7 @@ async fn test_added_participant_reads_and_posts_like_the_owner() {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -1784,7 +1877,13 @@ async fn test_count_keeps_owner_semantics() {
     );
     assert_eq!(
         manager
-            .list_conversations(fx.athlete(), tenant_id, 10, 0)
+            .list_conversations(
+                fx.athlete(),
+                tenant_id,
+                10,
+                0,
+                TransportPolicy::FirstPartyOnly
+            )
             .await
             .unwrap()
             .items
@@ -1861,7 +1960,13 @@ async fn archiving_frees_a_quota_slot_for_the_owner_only() {
     assert_eq!(archived.title, "T0");
     assert_eq!(
         manager
-            .list_conversations(fx.athlete(), tenant_id, 10, 0)
+            .list_conversations(
+                fx.athlete(),
+                tenant_id,
+                10,
+                0,
+                TransportPolicy::FirstPartyOnly
+            )
             .await
             .unwrap()
             .items
@@ -2043,7 +2148,13 @@ async fn the_capped_create_and_the_archive_read_follow_the_active_count() {
     ));
 
     let page = manager
-        .list_conversations(fx.athlete(), tenant_id, 10, 0)
+        .list_conversations(
+            fx.athlete(),
+            tenant_id,
+            10,
+            0,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap();
     let stamped: Vec<&str> = page
@@ -2120,7 +2231,13 @@ async fn a_malformed_user_id_is_refused_as_invalid_input_on_every_read() {
 
     let listed = fx
         .chat()
-        .list_conversations("not-a-uuid", tenant_id, 10, 0)
+        .list_conversations(
+            "not-a-uuid",
+            tenant_id,
+            10,
+            0,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await;
     let err = listed.unwrap_err();
     assert_eq!(err.code, ErrorCode::InvalidInput, "{err}");
@@ -2181,6 +2298,7 @@ async fn assistant_messages_walk_in_order_past_the_cursor() {
                 prompt_tokens: None,
                 model: None,
                 content_blocks: None,
+                transport_policy: TransportPolicy::AnyTransport,
             })
             .await
             .unwrap();

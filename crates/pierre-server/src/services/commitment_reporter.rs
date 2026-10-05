@@ -71,8 +71,8 @@ use pierre_services::messaging_broadcast::proactive_text;
 
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::{
-    models::NotificationCategory as CommNotifCategory, DispatchOutcome, DispatchRequest,
-    NotificationService, PushTier, TenantId as CommTenantId,
+    events::stamp_data, models::NotificationCategory as CommNotifCategory, DispatchOutcome,
+    DispatchRequest, NotificationService, PushTier, TenantId as CommTenantId,
 };
 
 /// Meta's re-engagement window for `WhatsApp` and Messenger. Outside it a plain
@@ -350,7 +350,9 @@ impl ServerCommitmentReporter {
             notification_type: "commitment_verdict".to_owned(),
             title: self.strings.get(KEY_COMMITMENT_PUSH_TITLE, locale),
             body,
-            data: None,
+            // The verdict carries the commitment's stamp, which the sweep
+            // tightened to the sessions it counted (carnet#769).
+            data: stamp_data(None, commitment.transport_policy),
             image_url: None,
             actions: None,
             // The sweep already caps itself at one verdict per athlete per day,

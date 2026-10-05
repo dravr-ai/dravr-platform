@@ -16,7 +16,9 @@
 //! each kind of hold-back, so the caller says data is unavailable instead of
 //! inventing it.
 
-use pierre_core::ai_policy::{filter_json, Exposure, ProviderTerms, Withheld};
+use pierre_core::ai_policy::{
+    carries_first_party_only, filter_json, Exposure, ProviderTerms, Withheld,
+};
 use serde_json::{Map, Value};
 
 use crate::protocol::types::UniversalResponse;
@@ -67,6 +69,19 @@ pub(crate) fn withhold_from_caller(
             response.result = Some(Value::Object(notes));
         }
     }
+}
+
+/// Whether a tool result, as it leaves for its caller, still carries an item
+/// whose terms keep it first-party — so what a turn derives from it must be
+/// stamped (carnet#769).
+pub(crate) fn serves_first_party_only(
+    lookup: &dyn ProviderTerms,
+    response: &UniversalResponse,
+) -> bool {
+    response
+        .result
+        .as_ref()
+        .is_some_and(|result| carries_first_party_only(lookup, result))
 }
 
 #[cfg(test)]

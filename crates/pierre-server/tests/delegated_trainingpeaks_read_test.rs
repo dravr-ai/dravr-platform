@@ -63,8 +63,8 @@ use pierre_core::models::{
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::core::ActivityQueryParams;
+use pierre_providers::delegation::is_coach_credential_expired;
 use pierre_providers::sciotte_error::sciotte_refusal;
-use pierre_providers::sciotte_provider::is_delegated_session_expired;
 use pierre_providers::CoreFitnessProvider;
 use pierre_routes_auth::AuthRoutes;
 use pierre_routes_groups::DelegatedConnectionRoutes;
@@ -442,6 +442,7 @@ async fn world(scraper: Scraper) -> World {
                 tenant_id: member.tenant.to_string(),
                 role: GroupRole::Member,
                 peer_sharing_consent: false,
+                coach_sharing_consent: false,
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,
@@ -812,7 +813,7 @@ async fn a_dead_coach_session_flags_the_coach(w: &World) {
         .head(&w.m1)
         .await
         .expect_err("the coach's session is dead");
-    assert!(is_delegated_session_expired(&error), "{error:?}");
+    assert!(is_coach_credential_expired(&error), "{error:?}");
     assert!(
         error.provider_auth_required_provider().is_none(),
         "never the member's reconnect: {error:?}"

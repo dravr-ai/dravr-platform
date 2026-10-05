@@ -11,6 +11,7 @@ use anyhow::Result;
 use chrono::{Duration, Utc};
 use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
 use pierre_core::models::{Tenant, TenantId, User};
+use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::Database;
 use pierre_database::repositories::InsertAgentFollowupParams;
 use pierre_services::agent_followup_scheduler::tick;
@@ -82,6 +83,7 @@ async fn tick_processes_overdue_followup_and_marks_delivered() -> Result<()> {
             conversation_id: None,
             content: "check Achilles after 24h",
             due_at: Some(due_in_past),
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     assert_eq!(inserted.status.as_str(), "pending");
@@ -135,6 +137,7 @@ async fn tick_skips_followups_with_due_at_in_the_future() -> Result<()> {
             conversation_id: None,
             content: "future check",
             due_at: Some(Utc::now() + Duration::hours(2)),
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
 
@@ -172,6 +175,7 @@ async fn tick_skips_followups_with_no_due_at() -> Result<()> {
             conversation_id: None,
             content: "no specific time",
             due_at: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
 
@@ -210,6 +214,7 @@ async fn second_tick_does_not_re_process_delivered_row() -> Result<()> {
             conversation_id: None,
             content: "check once",
             due_at: Some(Utc::now() - Duration::minutes(10)),
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
 
@@ -254,6 +259,7 @@ async fn tick_processes_multiple_overdue_in_one_batch() -> Result<()> {
                 conversation_id: None,
                 content: "overdue",
                 due_at: Some(Utc::now() - Duration::minutes(30 + i)),
+                transport_policy: TransportPolicy::AnyTransport,
             })
             .await?;
     }
@@ -280,7 +286,7 @@ async fn tick_processes_multiple_overdue_in_one_batch() -> Result<()> {
 /// push was recorded as a check-in the athlete had received).
 #[cfg(feature = "client-notifications")]
 mod dispatch_outcome {
-    use super::{open_db, seed_user_tenant_agent, Result};
+    use super::{open_db, seed_user_tenant_agent, Result, TransportPolicy};
     use chrono::{Duration, Utc};
     use pierre_database::backends::factory::{Database, DatabaseBackend};
     use pierre_database::repositories::InsertAgentFollowupParams;
@@ -331,6 +337,7 @@ mod dispatch_outcome {
                 conversation_id: None,
                 content: "ask how the Achilles held up",
                 due_at: Some(Utc::now() - Duration::minutes(5)),
+                transport_policy: TransportPolicy::AnyTransport,
             })
             .await?;
 
@@ -382,6 +389,7 @@ mod dispatch_outcome {
                 conversation_id: None,
                 content: "check on the taper week",
                 due_at: Some(Utc::now() - Duration::minutes(5)),
+                transport_policy: TransportPolicy::AnyTransport,
             })
             .await?;
 

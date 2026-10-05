@@ -28,6 +28,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use pierre_core::transport::TransportPolicy;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -104,7 +105,13 @@ async fn time_one_injection(
     let t = Instant::now();
     let playbooks: Vec<Playbook> = repos
         .playbooks
-        .list_playbooks(tenant_id, user_id, agent, PLAYBOOK_INJECT_LIMIT)
+        .list_playbooks(
+            tenant_id,
+            user_id,
+            agent,
+            PLAYBOOK_INJECT_LIMIT,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap();
     phase.list_playbooks += t.elapsed();
@@ -190,6 +197,7 @@ async fn seed_playbooks(repos: &RepositoryRegistry, tenant: &str, user: &str, n:
                 outcome_metric: &metric,
                 label,
                 at: Utc::now(),
+                transport_policy: TransportPolicy::AnyTransport,
             };
             repos
                 .playbooks

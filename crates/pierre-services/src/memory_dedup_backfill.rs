@@ -23,6 +23,7 @@
 
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
+use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::{HarnessMemoryRepository, MergeUserFactParams};
 use pierre_memory::{FactKind, UserFact};
 use tracing::info;
@@ -116,6 +117,7 @@ async fn fold_kind<R: HarnessMemoryRepository + ?Sized>(
             None,
             Some(kind),
             params.limit,
+            TransportPolicy::FirstPartyOnly,
         )
         .await?;
     stats.facts_scanned += facts.len() as u64;
@@ -162,6 +164,7 @@ async fn fold_kind<R: HarnessMemoryRepository + ?Sized>(
             fact_id: &anchor_id,
             source_msg_id: fact.source_msg_id.as_deref(),
             confidence: fact.confidence,
+            transport_policy: fact.transport_policy,
         })
         .await?;
         if repo

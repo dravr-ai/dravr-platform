@@ -14,6 +14,7 @@
     clippy::uninlined_format_args
 )]
 
+use pierre_core::transport::TransportPolicy;
 use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
@@ -507,6 +508,7 @@ impl ChatReentry for FakeReentry {
                     finish_reason: Some("stop".to_owned()),
                     content_blocks: None,
                     created_at: "2026-09-22T20:22:00Z".to_owned(),
+                    transport_policy: TransportPolicy::AnyTransport,
                 },
                 blocks,
                 finish_reason: Some("stop".to_owned()),
@@ -554,6 +556,7 @@ async fn push_sends_the_chart_and_never_its_marker() {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -672,6 +675,7 @@ async fn push_renders_deterministic_list_when_reentry_produces_no_list() {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -786,6 +790,7 @@ async fn push_re_asks_the_newest_question_in_the_conversation() {
                 prompt_tokens: None,
                 model: None,
                 content_blocks: None,
+                transport_policy: TransportPolicy::AnyTransport,
             })
             .await
             .unwrap();
@@ -879,6 +884,7 @@ async fn push_prepends_activity_list_to_agent_reply() {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -976,6 +982,7 @@ async fn push_caps_long_activity_list_for_small_screens() {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -1464,7 +1471,13 @@ async fn push_delivers_into_an_in_app_conversation_with_no_channel_session() {
 
     let messages = repos
         .chat
-        .get_recent_messages(&conversation_id, &user_id, tenant_id, 10)
+        .get_recent_messages(
+            &conversation_id,
+            &user_id,
+            tenant_id,
+            10,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap();
     let assistant: Vec<_> = messages.iter().filter(|m| m.role == "assistant").collect();
@@ -1535,7 +1548,13 @@ async fn push_still_drops_a_reset_messaging_thread() {
     );
     let messages = repos
         .chat
-        .get_recent_messages(&conversation_id, &user_id, tenant_id, 10)
+        .get_recent_messages(
+            &conversation_id,
+            &user_id,
+            tenant_id,
+            10,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap();
     assert!(
@@ -1587,7 +1606,13 @@ async fn push_body_is_rendered_in_the_users_locale() {
 
     let messages = repos
         .chat
-        .get_recent_messages(&conversation_id, &user_id, tenant_id, 10)
+        .get_recent_messages(
+            &conversation_id,
+            &user_id,
+            tenant_id,
+            10,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap();
     let body = &messages

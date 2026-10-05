@@ -52,6 +52,7 @@
 //! server bootstrap ticks every [`DEFAULT_TICK_INTERVAL`], and the testable
 //! [`tick`] does one full sweep.
 
+use pierre_core::transport::TransportPolicy;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
@@ -62,7 +63,7 @@ use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{TenantId, User};
 use pierre_database::RepositoryRegistry;
-use pierre_notifications::events::event_data;
+use pierre_notifications::events::{data_transport_policy, event_data, stamp_data};
 use pierre_notifications::models::{Notification, NotificationCategory};
 use pierre_notifications::{
     to_app_error, DigestCadence, DispatchOutcome, DispatchRequest, NotificationEvent,
@@ -434,7 +435,13 @@ impl<'a> Digests<'a> {
             notification_type: event.wire().to_owned(),
             title: self.renderer.title(event, &params),
             body: self.renderer.body(event, &params),
-            data: Some(event_data(json!({}), Value::Object(params))),
+            // As strict as the notifications it rolls up (carnet#769).
+            data: stamp_data(
+                Some(event_data(json!({}), Value::Object(params))),
+                TransportPolicy::strictest_of(
+                    rows.iter().map(|n| data_transport_policy(n.data.as_ref())),
+                ),
+            ),
             image_url: None,
             actions: None,
             bypass_frequency_cap: false,

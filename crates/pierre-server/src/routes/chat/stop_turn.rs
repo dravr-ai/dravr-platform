@@ -28,6 +28,7 @@
 //! response-boundary stages that decide what a reply may say run after
 //! generation, so a stored fragment would be coaching text none of them read.
 
+use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
@@ -120,6 +121,8 @@ pub async fn stop_turn(
         prompt_tokens: None,
         model: None,
         content_blocks: Some(&closes),
+        // The stop notice is platform text, quoting nothing the turn read.
+        transport_policy: TransportPolicy::AnyTransport,
     };
     persist_assistant_response(
         repos.chat.as_ref(),

@@ -54,6 +54,9 @@
 //! Only runs are measured, as cageux's own record detection does: `Run`,
 //! `VirtualRun` and `TrailRunning`.
 
+use pierre_core::ai_policy::first_party_only;
+use pierre_core::transport::TransportPolicy;
+use pierre_providers::registry::global_registry;
 use std::cmp::Reverse;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -537,7 +540,7 @@ impl PersonalBests {
                 self.announce(
                     user_id,
                     tenant_id,
-                    run.id(),
+                    run,
                     result.distance,
                     result.elapsed_seconds,
                 );
@@ -554,18 +557,26 @@ impl PersonalBests {
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
-        activity_id: &str,
+        run: &Activity,
         distance: &str,
         elapsed_seconds: f64,
     ) {
         if let Some(service) = &self.service {
+            // The record is the run's own data: it is served where the run's
+            // terms let it be (carnet#769).
+            let transport_policy = TransportPolicy::from_first_party_only(first_party_only(
+                global_registry().as_ref(),
+                run.provider(),
+                run.source(),
+            ));
             trigger_personal_record(
                 service,
                 user_id,
                 CommTenantId(tenant_id.as_uuid()),
-                activity_id,
+                run.id(),
                 distance,
                 &format_effort_time(elapsed_seconds),
+                transport_policy,
             );
         }
     }

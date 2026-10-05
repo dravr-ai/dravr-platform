@@ -42,10 +42,10 @@ use pierre_commands::{
     discover::{DiscoverHandler, DiscoverInstallHandler},
     fortnight::FortnightHandler,
     group::{
-        GroupCoachHandler, GroupConsentHandler, GroupDigestHandler, GroupInviteHandler,
-        GroupLeaveHandler, GroupListHandler, GroupMembersHandler, GroupRespondHandler,
-        GroupStatusHandler,
+        GroupCoachHandler, GroupDigestHandler, GroupInviteHandler, GroupLeaveHandler,
+        GroupListHandler, GroupMembersHandler, GroupRespondHandler, GroupStatusHandler,
     },
+    group_consent::GroupConsentHandler,
     group_membership::{GroupCreateHandler, GroupJoinHandler},
     guardian_confirm::{ConfirmHandler, DenyHandler},
     help::HelpHandler,
@@ -101,6 +101,8 @@ use pierre_middleware::redaction::RedactionConfig;
 use pierre_middleware::McpAuthMiddleware;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::NotificationService;
+#[cfg(feature = "client-notifications")]
+use pierre_providers::ai_scope;
 use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::request_budget::{ProviderRateLimiter, FIFTEEN_MINUTES, ONE_DAY};
 use pierre_services::api_key_cleanup::start_api_key_cleanup_task;
@@ -816,6 +818,9 @@ impl ServerContext {
             Arc::clone(repos),
             Arc::clone(messaging_strings),
         )));
+        // A notification raised from what a turn or tool served carries its
+        // stamp, so an external reader of the feed is withheld it (carnet#769).
+        let service = service.with_provenance(Arc::new(ai_scope::derived_policy));
         info!("Notification service initialized");
         Arc::new(service)
     }

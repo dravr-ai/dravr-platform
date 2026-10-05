@@ -112,7 +112,7 @@ describe('createGroupHooks — reads', () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: 3, retryDelay: 1 } } });
     const retrying = ({ children }: { children: ReactNode }) =>
       createElement(QueryClientProvider, { client }, children);
-    api.getDelegationRoster.mockRejectedValue(new Error('trainingpeaks_not_connected'));
+    api.getDelegationRoster.mockRejectedValue(new Error('coach_platform_not_connected'));
 
     const { result } = renderHook(() => hooks.useDelegationRoster('g1', true), { wrapper: retrying });
 

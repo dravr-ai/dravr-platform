@@ -23,6 +23,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_core::transport::TransportPolicy;
 use std::collections::HashMap;
 use std::fmt::Debug as FmtDebug;
 use std::sync::{Arc, Mutex};
@@ -98,6 +99,7 @@ fn message(id: &str, role: &str, content: &str, blocks: Option<&str>) -> Message
         finish_reason: Some("stop".to_owned()),
         content_blocks: blocks.map(str::to_owned),
         created_at: "2026-08-24T00:00:00Z".to_owned(),
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

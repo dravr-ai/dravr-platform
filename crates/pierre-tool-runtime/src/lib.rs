@@ -76,7 +76,7 @@ pub mod context;
 /// Conversions wiring host tool types onto the tronc MCP tool trait surface.
 pub mod conversions;
 pub mod decorators;
-/// Keeps content derived from an athlete's data off external transports (carnet#724)
+/// Holds a thread opened from an activity to that activity's terms (carnet#769)
 pub mod derived_content;
 /// Stale-while-revalidate activity cache backing the group member snapshots
 #[cfg(feature = "tools-groups")]

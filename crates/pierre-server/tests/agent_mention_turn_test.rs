@@ -20,6 +20,7 @@ mod common;
 mod helpers;
 
 use pierre_core::transport::Transport;
+use pierre_core::transport::TransportPolicy;
 use std::env;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -293,7 +294,13 @@ async fn persisted_user_rows(
         .common
         .repos
         .chat
-        .get_recent_messages(conversation_id, &user_id.to_string(), tenant_id, 50)
+        .get_recent_messages(
+            conversation_id,
+            &user_id.to_string(),
+            tenant_id,
+            50,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap()
         .into_iter()

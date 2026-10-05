@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use chrono::{DateTime, Utc};
+use pierre_core::transport::TransportPolicy;
 use serde::{Deserialize, Serialize};
 
 /// Smallest target a commitment may carry. A zero-session promise is not a
@@ -188,6 +189,11 @@ pub struct Commitment {
     pub created_at: DateTime<Utc>,
     /// When the row was last touched.
     pub updated_at: DateTime<Utc>,
+    /// Where this commitment may be served (carnet#769): first-party-only when
+    /// the turn that recorded it, or the sessions its verdict counted, were.
+    /// Rows written before the stamp read as unstamped.
+    #[serde(default, skip_serializing)]
+    pub transport_policy: TransportPolicy,
 }
 
 impl Commitment {

@@ -29,6 +29,7 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::models::{CalibrationTopic, Dossier, OnboardingState, SeasonTopic, TenantId};
 use pierre_memory::{FactSource, UserFact};
+use pierre_providers::ai_scope;
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::training_plan_render::fortnight_is_covered;
 
@@ -154,7 +155,7 @@ pub async fn render(
     // Fetch by source rather than by kind: the interview's answers span four
     // kinds, and a by-kind sweep would need one query per kind. An unreadable
     // store reports zero captured, which re-asks — the safe direction.
-    let landed = ctx
+    let mut landed = ctx
         .repos
         .memory
         .list_user_facts_by_source(
@@ -162,12 +163,16 @@ pub async fn render(
             subject_user_id,
             FactSource::Onboarding,
             LANDED_FETCH_LIMIT,
+            ai_scope::readable_policy(),
         )
         .await
         .unwrap_or_else(|e| {
             tracing::warn!(error = %e, "could not read landed calibration facts; reporting zero");
             Vec::new()
         });
+    // A fact derived from first-party-only data stays out of an external turn,
+    // and stamps a first-party one (carnet#769).
+    ai_scope::retain_admitted(&mut landed, |fact| fact.transport_policy);
 
     let (captured, missing_safety) = assess(&landed, &asked, started_at);
 
@@ -208,7 +213,7 @@ pub async fn render(
         .await
         .ok()
         .flatten()
-        .is_some();
+        .is_some_and(|plan| ai_scope::admit_derived(plan.transport_policy));
     let followup = if has_plan {
         KEY_CALIBRATE_FOLLOWUP_PLAN
     } else {
@@ -239,7 +244,7 @@ pub async fn render_season(
     let started_at = DateTime::parse_from_rfc3339(&state.started_at)
         .map_or_else(|_| Utc::now(), |d| d.with_timezone(&Utc));
 
-    let landed = ctx
+    let mut landed = ctx
         .repos
         .memory
         .list_user_facts_by_source(
@@ -247,12 +252,16 @@ pub async fn render_season(
             subject_user_id,
             FactSource::Onboarding,
             LANDED_FETCH_LIMIT,
+            ai_scope::readable_policy(),
         )
         .await
         .unwrap_or_else(|e| {
             tracing::warn!(error = %e, "could not read landed season facts; reporting zero");
             Vec::new()
         });
+    // A fact derived from first-party-only data stays out of an external turn,
+    // and stamps a first-party one (carnet#769).
+    ai_scope::retain_admitted(&mut landed, |fact| fact.transport_policy);
 
     let (captured, goal_missing) = assess_season(&landed, &asked, started_at);
 
@@ -308,7 +317,7 @@ pub async fn render_fortnight(
         .get_active_plan(&facts_tenant.to_string(), subject_user_id)
         .await
     {
-        Ok(Some(plan)) => {
+        Ok(Some(plan)) if ai_scope::admit_derived(plan.transport_policy) => {
             let weeks = ctx
                 .repos
                 .training_plans
@@ -320,7 +329,8 @@ pub async fn render_fortnight(
                 });
             fortnight_is_covered(&weeks, today)
         }
-        Ok(None) => false,
+        // No plan, or one an external turn is not served.
+        Ok(_) => false,
         Err(e) => {
             // An unreadable plan is not an empty one, and claiming the weeks
             // landed on a failed read is the false confirmation this wrap-up

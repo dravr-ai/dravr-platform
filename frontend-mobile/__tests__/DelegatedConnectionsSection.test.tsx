@@ -62,9 +62,14 @@ function link(overrides: Partial<DelegatedConnection> = {}): DelegatedConnection
 }
 
 /** An axios-shaped refusal carrying `details.reason`. */
-function refusal(reason: string) {
+/**
+ * A link step's refusal as the server sends it: the reason, and the platform
+ * it is about whenever one is known (`null` for none).
+ */
+function refusal(reason: string, provider: string | null = 'trainingpeaks') {
+  const details = provider ? { reason, provider } : { reason };
   return Object.assign(new Error('Request failed'), {
-    response: { status: 400, data: { message: 'English for an API caller', details: { reason } } },
+    response: { status: 400, data: { message: 'English for an API caller', details } },
   });
 }
 
@@ -122,6 +127,32 @@ describe('DelegatedConnectionsSection', () => {
     });
   });
 
+  it('proposes on the platform the roster was read from', async () => {
+    mockRoster.mockResolvedValue({
+      provider: 'intervals_icu',
+      athletes: [
+        {
+          provider_athlete_id: 'i201',
+          display_name: 'Alex Athlete',
+          connection: null,
+          suggested_member_user_id: 'user-alex',
+        },
+      ],
+    });
+    mockPropose.mockResolvedValue(link());
+    const { findByTestId, getByTestId } = renderSection();
+
+    fireEvent.press(await findByTestId('delegation-propose-i201'));
+    await act(async () => {
+      fireEvent.press(getByTestId('delegation-member-option-user-alex'));
+    });
+    expect(mockPropose).toHaveBeenCalledWith(GROUP_ID, {
+      provider: 'intervals_icu',
+      provider_athlete_id: 'i201',
+      member_user_id: 'user-alex',
+    });
+  });
+
   it('words a propose refusal from its reason', async () => {
     mockPropose.mockRejectedValue(refusal('athlete_already_linked'));
     const { findByTestId, getByTestId } = renderSection();
@@ -140,14 +171,46 @@ describe('DelegatedConnectionsSection', () => {
       mockRoster.mockRejectedValueOnce(refusal(reason));
       const view = renderSection({ onOpenConnections: jest.fn() });
       const refused = await view.findByTestId('delegation-roster-refused');
-      expect(refused).toHaveTextContent(en(key), { exact: false });
+      expect(refused).toHaveTextContent(en(key, { platform: 'TrainingPeaks' }), { exact: false });
       expect(refused).not.toHaveTextContent(/English for an API caller/);
       view.unmount();
     }
   });
 
+  it('names the platform a refusal is about: Intervals.icu for an OAuth-linked coach', async () => {
+    mockRoster.mockRejectedValue(refusal('coach_platform_api_key_required', 'intervals_icu'));
+    const { findByTestId } = renderSection({ onOpenConnections: jest.fn() });
+
+    const refused = await findByTestId('delegation-roster-refused');
+    expect(refused).toHaveTextContent(/Reconnect Intervals\.icu with your API key to read your roster\./);
+    expect(refused).not.toHaveTextContent(/TrainingPeaks/);
+  });
+
+  it('names every platform a coach can connect while none is connected', async () => {
+    mockRoster.mockRejectedValue(refusal('coach_platform_not_connected', null));
+    const { findByTestId } = renderSection({ onOpenConnections: jest.fn() });
+
+    expect(await findByTestId('delegation-roster-refused')).toHaveTextContent(
+      /Connect TrainingPeaks \/ Intervals\.icu with the account your athletes are on/,
+    );
+  });
+
+  it('names the platform the coach links run on when the roster read fails', async () => {
+    mockRoster.mockRejectedValue(
+      Object.assign(new Error('Request failed'), {
+        response: { status: 500, data: { message: 'English for an API caller' } },
+      }),
+    );
+    const { findByTestId } = renderSection({ connections: [link({ provider: 'intervals_icu' })] });
+
+    // A transient failure names no platform; the coach's own links still do.
+    expect(await findByTestId('delegation-roster-refused')).toHaveTextContent(
+      'Your Intervals.icu roster could not be read. Try again in a moment.',
+    );
+  });
+
   it('sends a coach whose notice is outdated to their connections', async () => {
-    mockRoster.mockRejectedValue(refusal('trainingpeaks_terms_outdated'));
+    mockRoster.mockRejectedValue(refusal('coach_platform_terms_outdated'));
     const onOpenConnections = jest.fn();
     const { findByTestId } = renderSection({ onOpenConnections });
 
@@ -156,7 +219,7 @@ describe('DelegatedConnectionsSection', () => {
   });
 
   it('sends a coach whose TrainingPeaks account is not theirs by email to their connections', async () => {
-    mockRoster.mockRejectedValue(refusal('trainingpeaks_email_mismatch'));
+    mockRoster.mockRejectedValue(refusal('coach_platform_email_mismatch'));
     const onOpenConnections = jest.fn();
     const { findByTestId } = renderSection({ onOpenConnections });
 

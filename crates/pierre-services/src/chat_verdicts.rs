@@ -12,6 +12,7 @@
 //! that mirrors the admin route response without crossing the admin
 //! permission gate.
 
+use pierre_providers::ai_scope;
 use serde::{Deserialize, Serialize};
 
 use pierre_core::errors::{AppError, AppResult};
@@ -83,10 +84,13 @@ pub async fn list_for_conversation(
         .await?
         .ok_or_else(|| AppError::not_found("Conversation not found"))?;
 
-    let verdicts = repos
+    let mut verdicts = repos
         .claim_verdicts
         .list_verdicts_for_conversation(conversation_id, tenant_id)
         .await?;
+    // A verdict quotes the reply it judged: one on a reply derived from
+    // first-party-only data is withheld from an external caller (carnet#769).
+    ai_scope::retain_admitted(&mut verdicts, |verdict| verdict.transport_policy);
 
     let rows: Vec<ChatVerdictRow> = verdicts
         .into_iter()

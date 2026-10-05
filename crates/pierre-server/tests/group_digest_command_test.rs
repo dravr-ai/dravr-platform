@@ -245,6 +245,7 @@ async fn seed_group(
                 tenant_id: tenant.to_string(),
                 role,
                 peer_sharing_consent: false,
+                coach_sharing_consent: false,
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,

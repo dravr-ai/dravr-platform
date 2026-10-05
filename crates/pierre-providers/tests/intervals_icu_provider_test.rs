@@ -446,9 +446,9 @@ async fn every_athlete_scoped_call_uses_the_literal_api_key_username() {
     let from = NaiveDate::from_ymd_opt(2026, 6, 1).expect("valid from date");
     let to = NaiveDate::from_ymd_opt(2026, 6, 10).expect("valid to date");
     let events = provider
-        .get_events(from, to)
+        .list_calendar_events(from, to)
         .await
-        .expect("get_events succeeds");
+        .expect("the calendar read succeeds");
     assert!(events.is_empty(), "stub returns an empty event list");
 
     let head = stub.await.expect("stub task joins");

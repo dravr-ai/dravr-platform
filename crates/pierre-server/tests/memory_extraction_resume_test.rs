@@ -20,6 +20,7 @@
 
 mod common;
 
+use pierre_core::transport::TransportPolicy;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -218,6 +219,7 @@ fn payload_for(user: &str, user_message: &str) -> ExtractionJobPayload {
         source: FactSource::Conversation,
         force_kind: None,
         plan_was_saved: false,
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 
@@ -409,7 +411,14 @@ async fn a_stale_row_is_resumed_and_its_facts_land() {
     let facts = fx
         .repos
         .memory
-        .list_user_facts(fx.tenant_id, &fx.user, None, Some(FactKind::Goal), 50)
+        .list_user_facts(
+            fx.tenant_id,
+            &fx.user,
+            None,
+            Some(FactKind::Goal),
+            50,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .expect("facts listed");
     assert_eq!(facts.len(), 1, "the goal landed once: {facts:?}");
@@ -466,7 +475,14 @@ async fn a_resumed_run_that_fails_keeps_its_row_claimed() {
     let facts = fx
         .repos
         .memory
-        .list_user_facts(fx.tenant_id, &fx.user, None, None, 50)
+        .list_user_facts(
+            fx.tenant_id,
+            &fx.user,
+            None,
+            None,
+            50,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap();
     assert!(facts.is_empty(), "a failed run persists nothing: {facts:?}");

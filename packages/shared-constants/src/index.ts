@@ -230,9 +230,11 @@ export {
   weeklyReportRecommendations,
 } from './groups';
 
-// TrainingPeaks link vocabulary: each refusal the group's link routes send,
-// as a corpus key resolved with each client's own t()
+// Coaching-platform link vocabulary: each refusal the group's link routes
+// send, as a corpus key resolved with each client's own t(), and the platform
+// name those keys carry
 export {
+  coachPlatformName,
   DELEGATION_REFUSAL_KEY,
   DELEGATION_ACTION_FAILED_KEY,
   DELEGATION_CONNECTION_REFUSALS,

@@ -24,6 +24,7 @@ use chrono::{Duration, Utc};
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, LoadSnapshot, SportFamily, TenantId};
+use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::ActivityCacheRepository;
 use pierre_providers::ai_scope;
 use uuid::Uuid;
@@ -61,8 +62,10 @@ pub async fn recent_load_snapshot(
         .get_cached_activities(user_id, tenant_id, None, start, end, ACTIVITY_FETCH_LIMIT)
         .await?;
     // The snapshot is quoted to a model; inside a read for one it sums only
-    // what each provider's terms let it see (carnet#723).
-    let window = ai_scope::filter_activities(policies, window);
+    // what each provider's terms let it see (carnet#723), and is stamped with
+    // what it summed (carnet#769).
+    let (window, transport_policy) =
+        ai_scope::derived(async { ai_scope::filter_activities(policies, window) }).await;
     let families = SportFamily::distinct(window.iter().map(Activity::sport_type));
     Ok(snapshot_from_durations(
         &window
@@ -73,6 +76,7 @@ pub async fn recent_load_snapshot(
     )
     .map(|snapshot| LoadSnapshot {
         sport_families: families,
+        transport_policy,
         ..snapshot
     }))
 }
@@ -107,5 +111,7 @@ pub fn snapshot_from_durations(durations_seconds: &[u64], weeks: u32) -> Option<
         weeks,
         // Durations carry no sport; the fetching caller counts families.
         sport_families: 0,
+        // Nor provenance; the fetching caller stamps what it summed.
+        transport_policy: TransportPolicy::AnyTransport,
     })
 }

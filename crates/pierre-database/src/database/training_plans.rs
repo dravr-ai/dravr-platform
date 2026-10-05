@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::transport::TransportPolicy;
 use pierre_memory::training_plans::{GoalRace, PlanWeek, TrainingPlan};
 use sqlx::Row;
 use uuid::Uuid;

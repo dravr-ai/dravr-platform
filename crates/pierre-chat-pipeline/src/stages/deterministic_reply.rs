@@ -20,6 +20,7 @@
 use pierre_core::errors::AppResult;
 use pierre_core::models::AddMessageParams;
 use pierre_database::database::{ConversationRecord, MessageRecord};
+use pierre_providers::ai_scope;
 
 use crate::envelope::{build_envelope, TurnEnvelope, TurnState, TurnTelemetry};
 use crate::quota_policy::settle_turn_notice;
@@ -109,6 +110,7 @@ pub async fn deliver(
         prompt_tokens: None,
         model: Some(&active_model),
         content_blocks: None,
+        transport_policy: ai_scope::derived_policy(),
     };
     let (assistant_message, updated_conversation) = persist_assistant_response(
         ctx.repos.chat.as_ref(),

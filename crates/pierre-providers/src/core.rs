@@ -121,6 +121,7 @@
 //! maintaining a consistent interface for the rest of the application.
 
 use crate::backend_resolver::user_facing_name;
+use crate::delegation::{CoachRoster, DelegatedReads};
 use crate::errors::{AppError, AppResult};
 use crate::models::{
     Activity, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout, Stats, TimeSeriesData,
@@ -562,6 +563,22 @@ pub trait FitnessProvider: Send + Sync {
         Err(planned_workouts_unsupported(self.name()))
     }
 
+    // ── Coach roster ─────────────────────────────────────────────────────
+
+    /// The athletes the account behind the stored credential coaches, and
+    /// the account's own email, as the platform lists them.
+    ///
+    /// A coaching platform whose factory offers
+    /// [`DelegatedReads`](crate::delegation::DelegatedReads) through an API
+    /// overrides this. Every other provider inherits the refusal: an empty
+    /// roster would read as a coach with no athletes.
+    async fn read_coach_roster(&self) -> AppResult<CoachRoster> {
+        Err(AppError::invalid_input(format!(
+            "{} does not list a coach's athletes",
+            user_facing_name(self.name())
+        )))
+    }
+
     // ── Training-calendar writes ─────────────────────────────────────────
     //
     // The four methods below are the whole write surface a provider with a
@@ -672,4 +689,10 @@ pub trait ProviderFactory: Send + Sync {
 
     /// Get supported provider names
     fn supported_providers(&self) -> &'static [&'static str];
+
+    /// How this provider reads a coached athlete through a coach's own
+    /// credential, or `None` when it cannot be read on anyone's behalf.
+    fn delegated_reads(&self) -> Option<&dyn DelegatedReads> {
+        None
+    }
 }

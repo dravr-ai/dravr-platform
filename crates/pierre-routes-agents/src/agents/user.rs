@@ -334,7 +334,12 @@ pub async fn build_agent_proposal<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
     // compose failure never blocks the proposal.
     if let Ok(dossier) = MiddlewareCtx::repos(ctx.as_ref())
         .dossier
-        .compose_dossier(tenant_id, user_id)
+        .compose_dossier(
+            tenant_id,
+            user_id,
+            ai_scope::readable_policy(),
+            &ai_scope::admit_derived,
+        )
         .await
     {
         if let Some(context) = pillar_context_prompt(&dossier) {

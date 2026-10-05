@@ -174,6 +174,7 @@ mod inject_tests {
                 tenant_id: tenant_id.to_string(),
                 role,
                 peer_sharing_consent: consent,
+                coach_sharing_consent: consent,
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,
@@ -569,6 +570,97 @@ mod inject_tests {
         assert!(
             !out.contains("PeerAlice"),
             "kill switch must hide a consenting peer's data, got: {out}"
+        );
+    }
+
+    async fn render_for(
+        resources: &ServerContext,
+        requester: Uuid,
+        agent_id: Uuid,
+        tenant_id: TenantId,
+        gid: Uuid,
+        snapshots: &[MemberFitnessSnapshot],
+    ) -> String {
+        resources
+            .group_service()
+            .inject_group_context(
+                BASE_PROMPT,
+                &agent_id.to_string(),
+                requester,
+                tenant_id,
+                Some(&gid.to_string()),
+                snapshots,
+            )
+            .await
+            .unwrap()
+    }
+
+    /// The group's human coach reads the roster by coach consent (ADR-002:
+    /// joining grants it), whatever the peer switch and the members' peer
+    /// consent say; a member who revoked coach sharing stays hidden from the
+    /// coach. The same group read by a plain member keeps the peer rule.
+    #[tokio::test]
+    async fn inject_coach_view_follows_coach_consent_not_peer_sharing() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (owner, tenant_id) = seed_user(&resources, "coachview").await;
+        let agent_id = seed_agent(&resources, owner, tenant_id).await;
+        let coach = seed_bare_user(&resources, "coachviewcoach").await;
+        let joined = seed_bare_user(&resources, "joined").await;
+        let revoked = seed_bare_user(&resources, "revoked").await;
+
+        // Peer sharing is off for the whole group.
+        let gid = create_group(
+            &resources,
+            tenant_id,
+            agent_id,
+            owner,
+            "Coached Group",
+            false,
+        )
+        .await;
+        add_member(&resources, gid, owner, tenant_id, GroupRole::Member, false).await;
+        add_member(&resources, gid, joined, tenant_id, GroupRole::Member, false).await;
+        add_member(
+            &resources,
+            gid,
+            revoked,
+            tenant_id,
+            GroupRole::Member,
+            false,
+        )
+        .await;
+        let repos = &resources.common.repos;
+        // `joined` keeps the grant joining gave; `revoked` took it back.
+        assert!(repos
+            .groups
+            .update_coach_sharing_consent(&gid.to_string(), joined, true)
+            .await
+            .unwrap());
+        assert!(repos
+            .groups
+            .set_group_coach_user(&gid.to_string(), Some(coach), tenant_id)
+            .await
+            .unwrap());
+
+        let snapshots = vec![
+            snapshot(owner, "OwnerOlga"),
+            snapshot(joined, "JoinedJules"),
+            snapshot(revoked, "RevokedRita"),
+        ];
+        let coach_view = render_for(&resources, coach, agent_id, tenant_id, gid, &snapshots).await;
+        assert!(
+            coach_view.contains("JoinedJules"),
+            "the coach reads a member who shares with them, peer switch off: {coach_view}"
+        );
+        assert!(
+            !coach_view.contains("RevokedRita"),
+            "a member who revoked coach sharing stays hidden from the coach: {coach_view}"
+        );
+
+        let member_view = render_for(&resources, owner, agent_id, tenant_id, gid, &snapshots).await;
+        assert!(
+            !member_view.contains("JoinedJules"),
+            "a fellow member still needs peer sharing: {member_view}"
         );
     }
 }

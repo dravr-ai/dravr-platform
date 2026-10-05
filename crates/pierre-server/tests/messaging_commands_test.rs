@@ -690,7 +690,7 @@ mod command_tests {
     #[tokio::test]
     async fn test_group_consent_uses_conversation_group_id() {
         use chrono::Utc;
-        use pierre_commands::group::GroupConsentHandler;
+        use pierre_commands::group_consent::GroupConsentHandler;
         use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
         use pierre_core::models::agents::{
             AgentCategory, AgentVisibility, CreateSystemAgentRequest,
@@ -784,6 +784,7 @@ mod command_tests {
             tenant_id: tenant_id.to_string(),
             role: GroupRole::Owner,
             peer_sharing_consent: false,
+            coach_sharing_consent: false,
             consent_given_at: now,
             joined_at: now,
             left_at: None,
@@ -890,7 +891,7 @@ mod command_tests {
     /// single-tenant fixture cannot reach.
     #[tokio::test]
     async fn group_consent_binds_to_chat_group_across_tenants() {
-        use pierre_commands::group::GroupConsentHandler;
+        use pierre_commands::group_consent::GroupConsentHandler;
         use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 
         let resources = create_test_server_resources().await.unwrap();
@@ -939,7 +940,7 @@ mod command_tests {
     /// consent write at `list_groups_for_user().first()`.
     #[tokio::test]
     async fn group_consent_refuses_unresolvable_conversation() {
-        use pierre_commands::group::GroupConsentHandler;
+        use pierre_commands::group_consent::GroupConsentHandler;
         use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
         use uuid::Uuid;
 
@@ -1102,6 +1103,7 @@ mod command_tests {
             tenant_id: member_tenant.to_string(),
             role: GroupRole::Owner,
             peer_sharing_consent: false,
+            coach_sharing_consent: false,
             consent_given_at: now,
             joined_at: now,
             left_at: None,
@@ -1240,6 +1242,7 @@ mod command_tests {
                 tenant_id: tenant_id.to_string(),
                 role: GroupRole::Owner,
                 peer_sharing_consent: false,
+                coach_sharing_consent: false,
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,
@@ -1395,6 +1398,7 @@ mod command_tests {
                 tenant_id: tenant_id.to_string(),
                 role: GroupRole::Owner,
                 peer_sharing_consent: false,
+                coach_sharing_consent: false,
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,
@@ -1663,9 +1667,9 @@ mod command_tests {
 
     use dravr_canot::commands::CommandRegistry;
     use pierre_commands::group::{
-        GroupConsentHandler, GroupInviteHandler, GroupListHandler, GroupMembersHandler,
-        GroupStatusHandler,
+        GroupInviteHandler, GroupListHandler, GroupMembersHandler, GroupStatusHandler,
     };
+    use pierre_commands::group_consent::GroupConsentHandler;
     use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
     use pierre_core::models::groups::{
         CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
@@ -1755,6 +1759,7 @@ mod command_tests {
                 tenant_id: tenant_id.to_string(),
                 role,
                 peer_sharing_consent: consent,
+                coach_sharing_consent: consent,
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,

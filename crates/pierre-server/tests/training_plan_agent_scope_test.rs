@@ -6,8 +6,9 @@
 
 //! `save_training_plan` / `get_training_plan` scope on the caller unless the
 //! caller is the human coach (`coaching_groups.coach_user_id`) of a group the
-//! named athlete belongs to, the athlete has consented to peer sharing, the
-//! athlete lives in exactly one tenant, and the call comes from a direct chat.
+//! named athlete belongs to, the athlete shares their data with that coach
+//! (`coach_sharing_consent`, which joining grants), the athlete lives in
+//! exactly one tenant, and the call comes from a direct chat.
 //!
 //! Every positive assertion reads the athlete's season back through the
 //! repository under the athlete's own `(tenant, user)` — a stub that ignored
@@ -34,6 +35,7 @@ use pierre_core::models::groups::{
 use pierre_core::models::{
     Tenant, TenantId, TenantPlan, ToolCatalogEntry, ToolCategory, User, UserStatus,
 };
+use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{PlanOutlineInput, SavePlanBundleParams};
@@ -197,6 +199,7 @@ async fn add_member(
             tenant_id: tenant_id.to_string(),
             role,
             peer_sharing_consent: consent,
+            coach_sharing_consent: consent,
             consent_given_at: now,
             joined_at: now,
             left_at: None,
@@ -456,6 +459,7 @@ async fn athlete_agent_lays_the_season(fx: &Fixture) -> String {
                 source_conversation_id: None,
             }),
             weeks: &[],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap()
@@ -740,7 +744,7 @@ async fn a_solo_conversation_under_the_coachs_tenant_is_a_direct_chat() {
 // ════════════════════════════════════════════════════════════════════════
 
 #[tokio::test]
-async fn a_non_consenting_athlete_is_refused() {
+async fn an_athlete_who_stopped_sharing_with_the_coach_is_refused() {
     let fx = coached_athlete(Some("Phil Tremblay"), false).await;
 
     let saved = save_as(
@@ -752,7 +756,7 @@ async fn a_non_consenting_athlete_is_refused() {
     .await;
     let err = error_text(&saved);
     assert!(
-        err.contains("hasn't shared") && err.contains("/group consent yes"),
+        err.contains("stopped sharing") && err.contains("/group consent coach yes"),
         "consent is the athlete's grant, got: {err}"
     );
     assert!(
@@ -775,18 +779,18 @@ async fn a_non_consenting_athlete_is_refused() {
     )
     .await;
     assert!(
-        error_text(&fetched).contains("hasn't shared"),
+        error_text(&fetched).contains("stopped sharing"),
         "the read side applies the same gate: {fetched}"
     );
 }
 
+/// The group's peer switch governs what members see of each other, never
+/// what their coach sees (ADR-002): with it off, the coach still acts on an
+/// athlete who shares with them.
 #[tokio::test]
-async fn the_groups_kill_switch_refuses_despite_consent() {
+async fn the_groups_peer_switch_does_not_govern_the_coach() {
     let fx = coached_athlete(Some("Phil Tremblay"), true).await;
     let repos = &fx.resources.common.repos;
-    // A second, sharing-disabled group coached by the same agent with the
-    // same athlete: the resolver prefers the open row, so switch the only
-    // group off instead.
     let group = repos
         .groups
         .get_group(&fx.group_id.to_string(), fx.coach_tenant)
@@ -819,8 +823,17 @@ async fn the_groups_kill_switch_refuses_despite_consent() {
     )
     .await;
     assert!(
-        error_text(&saved).contains("disabled for group"),
-        "got: {saved}"
+        saved.get("error").is_none(),
+        "the peer switch does not refuse the coach, got: {saved}"
+    );
+    assert!(
+        repos
+            .training_plans
+            .get_active_plan(&fx.athlete_tenant.to_string(), &fx.athlete.to_string())
+            .await
+            .unwrap()
+            .is_some(),
+        "the coach's week lands on the athlete's season"
     );
 }
 
@@ -959,7 +972,7 @@ async fn an_athlete_without_a_display_name_is_never_named_by_email() {
     .await;
     let err = error_text(&saved);
     assert!(
-        err.contains("hasn't shared"),
+        err.contains("stopped sharing"),
         "the athlete resolved by their roster name and was refused on consent: {err}"
     );
     assert!(

@@ -1064,6 +1064,7 @@ mod live_incident_eval {
                     tenant_id: tenant.to_string(),
                     role,
                     peer_sharing_consent: true,
+                    coach_sharing_consent: true,
                     consent_given_at: now,
                     joined_at: now,
                     left_at: None,

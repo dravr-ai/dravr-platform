@@ -2,9 +2,9 @@
 name: group-consent
 command: /group consent
 aliases: []
-description: Toggle whether your training data is shared with peers in this group
+description: Choose whether your training data is shared with this group's coach and its members
 domain: group
 personal: true
-arguments: "yes|no"
+arguments: "[coach] yes|no"
 confirmation: false
 ---

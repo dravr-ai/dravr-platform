@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
+use pierre_core::transport::TransportPolicy;
 use pierre_memory::{ClaimCategory, ClaimStatus, ClaimVerdict, EvidenceStrength, VerdictLayer};
 use pierre_services::agent_grading::grade_from_verdicts;
 
@@ -33,6 +34,7 @@ fn verdict(category: ClaimCategory, status: ClaimStatus) -> ClaimVerdict {
         disposition_note: None,
         disposed_by: None,
         disposed_at: None,
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

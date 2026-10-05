@@ -161,8 +161,9 @@ impl PeerFetchOutcome {
 /// The `reason` codes the peer tool stamps on a refusal that an athlete may be
 /// told about. Anything else — `no_match`, `ambiguous`, `self` — is a
 /// resolution failure whose text names members the room may not know.
-const RELAYABLE_DECLINE_REASONS: [&str; 4] = [
+const RELAYABLE_DECLINE_REASONS: [&str; 5] = [
     "no_consent",
+    "no_coach_consent",
     "sharing_disabled",
     "no_source",
     "fetch_failed",

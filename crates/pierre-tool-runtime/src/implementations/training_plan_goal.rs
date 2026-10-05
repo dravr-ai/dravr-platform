@@ -14,10 +14,12 @@
 
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Pillar, TenantId};
+use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{GoalRace, RacePriority};
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
+use pierre_providers::ai_scope;
 use tracing::warn;
 
 /// Predicate code the agent-agnostic goal `user_fact` is written under. The
@@ -95,7 +97,14 @@ pub(super) async fn converge_goal_fact(
     let object = goal_object(goal_race);
     let facts = repos
         .memory
-        .list_user_facts(tenant, user_id, None, Some(FactKind::Goal), 200)
+        .list_user_facts(
+            tenant,
+            user_id,
+            None,
+            Some(FactKind::Goal),
+            200,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await?;
     let agnostic_targets: Vec<&_> = facts
         .iter()
@@ -119,6 +128,7 @@ pub(super) async fn converge_goal_fact(
                     source: FactSource::Coach,
                     valid_until: None,
                     source_msg_id: None,
+                    transport_policy: ai_scope::derived_policy(),
                 })
                 .await?
                 .id

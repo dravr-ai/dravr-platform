@@ -20,6 +20,7 @@ use chrono::{Days, NaiveDate};
 use pierre_core::errors::AppResult;
 use pierre_core::models::periodization::{WorkoutFilter, WorkoutPurpose};
 use pierre_core::models::{TenantId, WorkoutStep};
+use pierre_core::transport::TransportPolicy;
 use pierre_core::untrusted::{cap, flatten_line};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{
@@ -652,7 +653,14 @@ pub async fn plan_goal_is_stale(
 ) -> AppResult<bool> {
     let facts = repos
         .memory
-        .list_user_facts(tenant, user_id, None, Some(FactKind::Goal), 200)
+        .list_user_facts(
+            tenant,
+            user_id,
+            None,
+            Some(FactKind::Goal),
+            200,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await?;
     let now = chrono::Utc::now();
     Ok(facts

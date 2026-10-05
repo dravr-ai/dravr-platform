@@ -5,11 +5,18 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::transport::TransportPolicy;
 use pierre_memory::training_plans::{
-    FlavourSelection, GoalRace, PlanPhase, PlanStatus, PlanWeek, PlannedDay, TrainingPlan,
-    WeekStatus,
+    FlavourSelection, GoalRace, PlanPhase, PlanWeek, PlannedDay, TrainingPlan,
+};
+
+/// Row decoders and insert encoders shared by both backends.
+mod codec;
+
+pub(crate) use codec::{
+    built_plan_week, built_training_plan, phase_index_column, plan_insert_values,
+    plan_week_from_row, training_plan_from_row, week_insert_values, BuiltPlan, BuiltWeek,
 };
 
 /// A new plan outline to persist. Saving supersedes the athlete's current
@@ -46,6 +53,8 @@ pub struct SaveTrainingPlanParams<'a> {
     pub phases: &'a [PlanPhase],
     /// Conversation the plan was agreed in, for provenance.
     pub source_conversation_id: Option<&'a str>,
+    /// The stamp of what the outline was derived from (carnet#769).
+    pub transport_policy: TransportPolicy,
 }
 
 /// The outline half of a [`SavePlanBundleParams`].
@@ -124,6 +133,11 @@ pub struct SavePlanBundleParams<'a> {
     /// Weeks to save, each superseding the plan's current active row for its
     /// `week_start`.
     pub weeks: &'a [PlanWeekInput<'a>],
+    /// The stamp of what this save was derived from (carnet#769). The plan the
+    /// save lands on keeps the stricter of its own and this one: an outline
+    /// carries the superseded season's weeks and calendar, and a weeks-only
+    /// save adds to the plan.
+    pub transport_policy: TransportPolicy,
 }
 
 /// Result of [`TrainingPlanRepository::save_plan_bundle`]: the active plan the
@@ -301,6 +315,8 @@ pub struct TrainingPlanRow {
     pub created_at: i64,
     /// `updated_at` epoch seconds.
     pub updated_at: i64,
+    /// `first_party_only` stamp (carnet#769).
+    pub first_party_only: bool,
 }
 
 /// Raw `training_plan_weeks` row as read from either backend.
@@ -339,282 +355,7 @@ pub struct PlanWeekRow {
     pub updated_at: i64,
 }
 
-/// Convert epoch seconds to `DateTime<Utc>`, treating an out-of-range value
-/// as corruption rather than silently clamping.
-fn epoch_to_datetime(epoch: i64, column: &str) -> AppResult<DateTime<Utc>> {
-    DateTime::from_timestamp(epoch, 0)
-        .ok_or_else(|| AppError::database(format!("training plan {column} out of range: {epoch}")))
-}
-
-/// Map a raw outline row to the domain type. Shared by both backends so JSON
-/// and enum parsing live in exactly one place.
-pub(crate) fn training_plan_from_row(row: TrainingPlanRow) -> AppResult<TrainingPlan> {
-    let goal_race: GoalRace = serde_json::from_str(&row.goal_race_json)
-        .map_err(|e| AppError::database(format!("training plan goal_race_json: {e}")))?;
-    let races: Vec<GoalRace> = serde_json::from_str(&row.races_json)
-        .map_err(|e| AppError::database(format!("training plan races_json: {e}")))?;
-    let phases: Vec<PlanPhase> = serde_json::from_str(&row.phases_json)
-        .map_err(|e| AppError::database(format!("training plan phases_json: {e}")))?;
-    let flavour: Option<FlavourSelection> = row
-        .flavour_json
-        .as_deref()
-        .filter(|json| !json.trim().is_empty())
-        .map(serde_json::from_str)
-        .transpose()
-        .map_err(|e| AppError::database(format!("training plan flavour_json: {e}")))?;
-    let status = PlanStatus::parse(&row.status).ok_or_else(|| {
-        AppError::database(format!("unknown training plan status: {}", row.status))
-    })?;
-    Ok(TrainingPlan {
-        id: row.id,
-        tenant_id: row.tenant_id,
-        user_id: row.user_id,
-        author_agent_id: (!row.author_agent_id.is_empty()).then_some(row.author_agent_id),
-        goal_fact_id: row.goal_fact_id,
-        goal_race,
-        races,
-        strategy: row.strategy,
-        flavour,
-        season_start: row.season_start,
-        season_end: row.season_end,
-        phases,
-        status,
-        supersedes_id: row.supersedes_id,
-        source_conversation_id: row.source_conversation_id,
-        created_at: epoch_to_datetime(row.created_at, "created_at")?,
-        updated_at: epoch_to_datetime(row.updated_at, "updated_at")?,
-    })
-}
-
-/// Map a raw week row to the domain type. Shared by both backends.
-pub(crate) fn plan_week_from_row(row: PlanWeekRow) -> AppResult<PlanWeek> {
-    let days: Vec<PlannedDay> = serde_json::from_str(&row.days_json)
-        .map_err(|e| AppError::database(format!("plan week days_json: {e}")))?;
-    let status = WeekStatus::parse(&row.status)
-        .ok_or_else(|| AppError::database(format!("unknown plan week status: {}", row.status)))?;
-    let phase_index = row
-        .phase_index
-        .map(u32::try_from)
-        .transpose()
-        .map_err(|_| {
-            AppError::database(format!(
-                "plan week phase_index out of range: {:?}",
-                row.phase_index
-            ))
-        })?;
-    Ok(PlanWeek {
-        id: row.id,
-        tenant_id: row.tenant_id,
-        user_id: row.user_id,
-        plan_id: row.plan_id,
-        week_start: row.week_start,
-        focus: row.focus,
-        phase_index,
-        days,
-        status,
-        supersedes_id: row.supersedes_id,
-        adjustment_reason: row.adjustment_reason,
-        author_agent_id: (!row.author_agent_id.is_empty()).then_some(row.author_agent_id),
-        created_at: epoch_to_datetime(row.created_at, "created_at")?,
-        updated_at: epoch_to_datetime(row.updated_at, "updated_at")?,
-    })
-}
-
-/// Serialized column values for an outline insert, shared by both backends
-/// so the JSON encoding happens once and identically.
-pub(crate) struct PlanInsertValues {
-    /// New row id.
-    pub id: String,
-    /// The outline's author as stored (`''` for no agent).
-    pub author_agent_id: String,
-    /// Serialized goal-race snapshot.
-    pub goal_race_json: String,
-    /// Serialized race calendar, or `None` to carry the superseded row's
-    /// calendar across verbatim rather than re-encode it.
-    pub races_json: Option<String>,
-    /// Serialized phases.
-    pub phases_json: String,
-    /// Serialized flavour selection, when one was chosen.
-    pub flavour_json: Option<String>,
-    /// Insert timestamp (epoch seconds).
-    pub now: i64,
-}
-
-/// Build the serialized insert values for [`SaveTrainingPlanParams`].
-pub(crate) fn plan_insert_values(
-    params: &SaveTrainingPlanParams<'_>,
-) -> AppResult<PlanInsertValues> {
-    let goal_race_json = serde_json::to_string(params.goal_race)
-        .map_err(|e| AppError::internal(format!("serialize goal race: {e}")))?;
-    let races_json = params
-        .races
-        .map(serde_json::to_string)
-        .transpose()
-        .map_err(|e| AppError::internal(format!("serialize races: {e}")))?;
-    let phases_json = serde_json::to_string(params.phases)
-        .map_err(|e| AppError::internal(format!("serialize phases: {e}")))?;
-    let flavour_json = params
-        .flavour
-        .map(serde_json::to_string)
-        .transpose()
-        .map_err(|e| AppError::internal(format!("serialize flavour: {e}")))?;
-    Ok(PlanInsertValues {
-        id: uuid::Uuid::new_v4().to_string(),
-        author_agent_id: params.author.stored().to_owned(),
-        goal_race_json,
-        races_json,
-        phases_json,
-        flavour_json,
-        now: Utc::now().timestamp(),
-    })
-}
-
-/// Serialized column values for a week insert, shared by both backends.
-pub(crate) struct WeekInsertValues {
-    /// New row id.
-    pub id: String,
-    /// Serialized day rows.
-    pub days_json: String,
-    /// Insert timestamp (epoch seconds).
-    pub now: i64,
-}
-
-/// The one guard on a caller-supplied `phase_index`: the column is `int4` on
-/// Postgres, so an index past `i32::MAX` names no phase any outline could
-/// hold and is refused as invalid input before either engine sees it — the
-/// same refusal on both, rather than `SQLite` storing what Postgres would
-/// reject with a driver error. An index read back from a stored row never
-/// passes through here: [`PlanWeekRow::phase_index`] is already the column's
-/// width, and a row past it fails its decode as a database error.
-pub(crate) fn phase_index_column(index: Option<u32>) -> AppResult<Option<i32>> {
-    index.map(i32::try_from).transpose().map_err(|_| {
-        AppError::invalid_input(format!(
-            "phase_index out of range: {index:?} exceeds the column's width"
-        ))
-    })
-}
-
-/// Build the serialized insert values for one [`PlanWeekInput`]'s day rows.
-pub(crate) fn week_insert_values(days: &[PlannedDay]) -> AppResult<WeekInsertValues> {
-    let days_json = serde_json::to_string(days)
-        .map_err(|e| AppError::internal(format!("serialize plan days: {e}")))?;
-    Ok(WeekInsertValues {
-        id: uuid::Uuid::new_v4().to_string(),
-        days_json,
-        now: Utc::now().timestamp(),
-    })
-}
-
-/// Fields of a freshly persisted outline row, shared so both backends
-/// construct the returned [`TrainingPlan`] identically.
-pub(crate) struct BuiltPlan<'a> {
-    /// New row id.
-    pub id: String,
-    /// Owning tenant.
-    pub tenant_id: &'a str,
-    /// Athlete the plan is for.
-    pub user_id: &'a str,
-    /// The agent that laid the outline (`None` = no agent).
-    pub author_agent_id: Option<&'a str>,
-    /// Linked pillar Goal fact, if any.
-    pub goal_fact_id: Option<&'a str>,
-    /// Goal-race snapshot.
-    pub goal_race: &'a GoalRace,
-    /// Secondary races.
-    pub races: &'a [GoalRace],
-    /// Strategy prose.
-    pub strategy: &'a str,
-    /// Flavour selection, when one was chosen.
-    pub flavour: Option<&'a FlavourSelection>,
-    /// Season window start.
-    pub season_start: Option<&'a str>,
-    /// Season window end.
-    pub season_end: Option<&'a str>,
-    /// Season phases.
-    pub phases: &'a [PlanPhase],
-    /// Outline this row superseded, if any.
-    pub superseded: Option<String>,
-    /// Provenance conversation.
-    pub source_conversation_id: Option<&'a str>,
-    /// Insert timestamp (epoch seconds).
-    pub now: i64,
-}
-
-/// Construct the [`TrainingPlan`] returned after an insert. Shared by both
-/// backends and by the bundle path so the mapping lives in one place.
-pub(crate) fn built_training_plan(b: BuiltPlan<'_>) -> AppResult<TrainingPlan> {
-    let created = epoch_to_datetime(b.now, "created_at")?;
-    Ok(TrainingPlan {
-        id: b.id,
-        tenant_id: b.tenant_id.to_owned(),
-        user_id: b.user_id.to_owned(),
-        author_agent_id: b.author_agent_id.map(str::to_owned),
-        goal_fact_id: b.goal_fact_id.map(str::to_owned),
-        goal_race: b.goal_race.clone(),
-        races: b.races.to_vec(),
-        strategy: b.strategy.to_owned(),
-        flavour: b.flavour.cloned(),
-        season_start: b.season_start.map(str::to_owned),
-        season_end: b.season_end.map(str::to_owned),
-        phases: b.phases.to_vec(),
-        status: PlanStatus::Active,
-        supersedes_id: b.superseded,
-        source_conversation_id: b.source_conversation_id.map(str::to_owned),
-        created_at: created,
-        updated_at: created,
-    })
-}
-
-/// Fields of a freshly persisted week row, shared across backends.
-pub(crate) struct BuiltWeek<'a> {
-    /// New row id.
-    pub id: String,
-    /// Owning tenant.
-    pub tenant_id: &'a str,
-    /// Athlete the week is for.
-    pub user_id: &'a str,
-    /// Plan the week belongs to.
-    pub plan_id: &'a str,
-    /// Civil week start.
-    pub week_start: &'a str,
-    /// Week focus.
-    pub focus: &'a str,
-    /// Day rows.
-    pub days: &'a [PlannedDay],
-    /// Week row this one superseded, if any.
-    pub superseded: Option<String>,
-    /// Adjustment reason.
-    pub adjustment_reason: &'a str,
-    /// Phase the week instantiates, when stated.
-    pub phase_index: Option<u32>,
-    /// The agent that wrote the week (`None` = no agent).
-    pub author_agent_id: Option<&'a str>,
-    /// Insert timestamp (epoch seconds).
-    pub now: i64,
-}
-
-/// Construct the [`PlanWeek`] returned after an insert. Shared by both backends.
-pub(crate) fn built_plan_week(b: BuiltWeek<'_>) -> AppResult<PlanWeek> {
-    let created = epoch_to_datetime(b.now, "created_at")?;
-    Ok(PlanWeek {
-        id: b.id,
-        tenant_id: b.tenant_id.to_owned(),
-        user_id: b.user_id.to_owned(),
-        plan_id: b.plan_id.to_owned(),
-        week_start: b.week_start.to_owned(),
-        focus: b.focus.to_owned(),
-        phase_index: b.phase_index,
-        days: b.days.to_vec(),
-        status: WeekStatus::Active,
-        supersedes_id: b.superseded,
-        adjustment_reason: b.adjustment_reason.to_owned(),
-        author_agent_id: b.author_agent_id.map(str::to_owned),
-        created_at: created,
-        updated_at: created,
-    })
-}
-
-/// The seventeen columns every outline read returns, in the order
+/// The eighteen columns every outline read returns, in the order
 /// [`plan_row`] reads them. One list after `SELECT`, inside `INSERT (...)`
 /// and after `RETURNING`, so a column added to [`TrainingPlanRow`] reaches
 /// every statement at once.
@@ -622,7 +363,7 @@ macro_rules! plan_columns {
     () => {
         "id, tenant_id, user_id, author_agent_id, goal_fact_id, goal_race_json, \
          races_json, strategy, phases_json, status, supersedes_id, source_conversation_id, \
-         created_at, updated_at, flavour_json, season_start, season_end"
+         created_at, updated_at, flavour_json, season_start, season_end, first_party_only"
     };
 }
 
@@ -647,7 +388,7 @@ macro_rules! week_columns {
 pub(crate) const SUPERSEDE_ACTIVE_PLAN_SQL: &str = "UPDATE training_plans \
      SET status = 'superseded', updated_at = $1 \
      WHERE tenant_id = $2 AND user_id = $3 AND status = 'active' \
-     RETURNING id, races_json";
+     RETURNING id, races_json, first_party_only";
 
 /// [`SUPERSEDE_ACTIVE_PLAN_SQL`] restricted to a season the writer (`$4`, as
 /// [`PlanAuthor::stored`] binds it) may re-lay unasked: one it laid, or one no
@@ -659,13 +400,13 @@ pub(crate) const SUPERSEDE_OWN_ACTIVE_PLAN_SQL: &str = "UPDATE training_plans \
      SET status = 'superseded', updated_at = $1 \
      WHERE tenant_id = $2 AND user_id = $3 AND status = 'active' \
      AND author_agent_id IN ($4, '') \
-     RETURNING id, races_json";
+     RETURNING id, races_json, first_party_only";
 
 /// Insert a new active outline.
 pub(crate) const INSERT_PLAN_SQL: &str = concat!(
     "INSERT INTO training_plans (",
     plan_columns!(),
-    ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10, $11, $12, $12, $13, $14, $15)"
+    ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10, $11, $12, $12, $13, $14, $15, $16)"
 );
 
 /// Mark the active row for one `week_start` superseded, returning its id.
@@ -705,9 +446,12 @@ pub(crate) const ACTIVE_PLAN_SQL: &str = concat!(
 /// holds while the statement takes the row lock on Postgres and the write lock
 /// on `SQLite`. A weeks-only save claims the season this way so an outline
 /// save cannot supersede it between the read and the week inserts — the weeks
-/// land on the season that is active when the save commits.
+/// land on the season that is active when the save commits. The claim also
+/// tightens the plan's stamp to the weeks' (`$3`, carnet#769): the plan now
+/// holds what they were derived from.
 pub(crate) const CLAIM_ACTIVE_PLAN_SQL: &str = concat!(
-    "UPDATE training_plans SET status = 'active' \
+    "UPDATE training_plans SET status = 'active', \
+     first_party_only = CASE WHEN $3 THEN $3 ELSE first_party_only END \
      WHERE tenant_id = $1 AND user_id = $2 AND status = 'active' \
      RETURNING ",
     plan_columns!()
@@ -749,6 +493,7 @@ where
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let col = |name: &str| -> AppResult<String> {
         row.try_get(name).map_err(|e| plan_column_error(name, &e))
@@ -777,6 +522,9 @@ where
         source_conversation_id: opt("source_conversation_id")?,
         created_at: epoch("created_at")?,
         updated_at: epoch("updated_at")?,
+        first_party_only: row
+            .try_get("first_party_only")
+            .map_err(|e| plan_column_error("first_party_only", &e))?,
     })
 }
 
@@ -933,6 +681,20 @@ macro_rules! impl_training_plan_repository {
                 .clone()
                 .or(carried_races)
                 .unwrap_or_else(|| "[]".to_owned());
+            // The new outline carries the superseded season's weeks and calendar,
+            // so it is as strict as that season and this save (carnet#769).
+            let carried_first_party_only: bool = replaced
+                .as_ref()
+                .map(|row| row.try_get("first_party_only"))
+                .transpose()
+                .map_err(|e| AppError::database(format!("superseded plan stamp: {e}")))?
+                .unwrap_or(false);
+            let transport_policy =
+                params
+                    .transport_policy
+                    .strictest(TransportPolicy::from_first_party_only(
+                        carried_first_party_only,
+                    ));
             // What the returned plan says it holds must be what the row now holds,
             // carried calendar included — a caller that read the payload back would
             // otherwise be told the calendar is empty on the very save that kept it.
@@ -957,6 +719,7 @@ macro_rules! impl_training_plan_repository {
                 .bind(v.flavour_json.as_deref())
                 .bind(params.season_start)
                 .bind(params.season_end)
+                .bind(transport_policy.is_first_party_only())
                 .execute(&mut *conn)
                 .await
                 .map_err(|e| {
@@ -1007,6 +770,7 @@ macro_rules! impl_training_plan_repository {
                 superseded,
                 source_conversation_id: params.source_conversation_id,
                 now: v.now,
+                transport_policy,
             })
         }
 
@@ -1076,11 +840,13 @@ macro_rules! impl_training_plan_repository {
             conn: &mut <$db as sqlx::Database>::Connection,
             tenant_id: &str,
             user_id: &str,
+            transport_policy: TransportPolicy,
         ) -> AppResult<Option<TrainingPlan>> {
             for _ in 0..2 {
                 let row = sqlx::query(CLAIM_ACTIVE_PLAN_SQL)
                     .bind(tenant_id)
                     .bind(user_id)
+                    .bind(transport_policy.is_first_party_only())
                     .fetch_optional(&mut *conn)
                     .await
                     .map_err(|e| AppError::database(format!("claim active plan: {e}")))?;
@@ -1121,19 +887,25 @@ macro_rules! impl_training_plan_repository {
                         season_end: o.season_end,
                         phases: o.phases,
                         source_conversation_id: o.source_conversation_id,
+                        transport_policy: params.transport_policy,
                     };
                     let plan =
                         supersede_and_insert_plan(&mut tx, &stp, params.replace_season).await?;
                     let superseded = plan.supersedes_id.clone();
                     (plan, superseded)
                 } else {
-                    let plan = claim_active_plan(&mut tx, params.tenant_id, params.user_id)
-                        .await?
-                        .ok_or_else(|| {
-                            AppError::invalid_input(
-                                "no active plan to attach weeks to — save an outline first",
-                            )
-                        })?;
+                    let plan = claim_active_plan(
+                        &mut tx,
+                        params.tenant_id,
+                        params.user_id,
+                        params.transport_policy,
+                    )
+                    .await?
+                    .ok_or_else(|| {
+                        AppError::invalid_input(
+                            "no active plan to attach weeks to — save an outline first",
+                        )
+                    })?;
                     (plan, None)
                 };
 

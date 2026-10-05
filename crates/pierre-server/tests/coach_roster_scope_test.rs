@@ -117,6 +117,7 @@ async fn add_member(repos: &RepositoryRegistry, group: Uuid, user: Uuid, tenant:
             tenant_id: tenant.to_string(),
             role: GroupRole::Member,
             peer_sharing_consent: false,
+            coach_sharing_consent: false,
             consent_given_at: now,
             joined_at: now,
             left_at: None,

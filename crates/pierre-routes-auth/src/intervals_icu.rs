@@ -23,6 +23,7 @@ use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::errors::AppError;
 use pierre_core::models::{Athlete, ConnectionType, TenantId, UserOAuthToken, API_KEY_TOKEN_TYPE};
 use pierre_providers::{CredentialKind, OAuth2Credentials};
+use pierre_services::delegated_connections::{forget_coach_roster, supersede_delegated_link};
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::provider_revocation::DisconnectReason;
 use serde::Deserialize;
@@ -223,9 +224,15 @@ pub async fn link_intervals_icu_account(
         created_at: now,
         updated_at: now,
     };
-    resources.repos.oauth_tokens.upsert_token(&token).await?;
-
     let tenant = TenantId::from_uuid(tenant_id);
+    // The athlete's own key takes the place of a link their group coach read
+    // them through.
+    supersede_delegated_link(&resources.repos, user_id, tenant, INTERVALS_ICU).await?;
+    resources.repos.oauth_tokens.upsert_token(&token).await?;
+    // A roster read through the key this one replaces may name another
+    // account's athletes.
+    forget_coach_roster(&resources.cache, user_id, tenant, INTERVALS_ICU).await;
+
     resources
         .repos
         .provider_connections

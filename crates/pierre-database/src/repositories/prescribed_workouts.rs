@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{CalendarEventSource, PrescribedWorkout, SportType, TenantId, UserId};
+use pierre_core::transport::TransportPolicy;
 use serde_json::Value;
 use sqlx::Row;
 use uuid::Uuid;
@@ -65,7 +66,7 @@ macro_rules! prescribed_columns {
         "id, tenant_id, user_id, agent_id, template_slug, sport, \
          prescribed_for_date, provider, provider_event_id, external_id, \
          source, plan_week_id, replaces_id, payload_json, payload_hash, \
-         status, created_at, updated_at"
+         status, created_at, updated_at, first_party_only"
     };
 }
 
@@ -88,13 +89,15 @@ pub(crate) const UPSERT_PRESCRIBED_WORKOUT_SQL: &str = concat!(
             INSERT INTO prescribed_workouts (",
     prescribed_columns!(),
     ")
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
             ON CONFLICT (id) DO UPDATE SET
                 provider_event_id = EXCLUDED.provider_event_id,
                 status = EXCLUDED.status,
                 payload_json = EXCLUDED.payload_json,
                 payload_hash = EXCLUDED.payload_hash,
-                updated_at = EXCLUDED.updated_at
+                updated_at = EXCLUDED.updated_at,
+                first_party_only = CASE WHEN EXCLUDED.first_party_only
+                    THEN EXCLUDED.first_party_only ELSE prescribed_workouts.first_party_only END
             "
 );
 
@@ -157,6 +160,7 @@ where
     UuidColumn: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     TenantId: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     UserId: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let id: UuidColumn = row
         .try_get("id")
@@ -230,6 +234,10 @@ where
             .map_err(|e| AppError::database(format!("read status: {e}")))?,
         created_at,
         updated_at,
+        transport_policy: TransportPolicy::from_first_party_only(
+            row.try_get("first_party_only")
+                .map_err(|e| AppError::database(format!("read first_party_only: {e}")))?,
+        ),
     })
 }
 
@@ -268,6 +276,7 @@ macro_rules! impl_prescribed_workout_repository {
                     .bind(&prescribed.status)
                     .bind(prescribed.created_at)
                     .bind(prescribed.updated_at)
+                    .bind(prescribed.transport_policy.is_first_party_only())
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("upsert_prescribed_workout: {e}")))?;

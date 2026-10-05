@@ -29,6 +29,7 @@ use pierre_core::models::agents::ActivityDataRequirements;
 use pierre_core::models::{
     AgentCategory, AgentRuntimeContext, MessageRecord, AGENT_WELCOME_FINISH_REASON,
 };
+use pierre_core::transport::TransportPolicy;
 use pierre_llm::{ChatMessage, MessageRole};
 use pierre_tool_runtime::implementations::data_helpers::PrimaryStandIn;
 use serde_json::Value;
@@ -168,6 +169,7 @@ fn row(role: &str, finish_reason: Option<&str>) -> MessageRecord {
         finish_reason: finish_reason.map(ToOwned::to_owned),
         content_blocks: None,
         created_at: "2026-10-02T12:00:00Z".to_owned(),
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

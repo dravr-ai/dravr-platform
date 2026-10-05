@@ -7,6 +7,7 @@
 //! Tests for de-duplicating an extracted fact against the athlete's existing ones.
 
 use chrono::{Duration, Utc};
+use pierre_core::transport::TransportPolicy;
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode, UserFact};
 use pierre_services::memory_dedup::{
     anchor_of, decide, introduces_a_number, normalize_object, Candidate, DedupConfig, FactWrite,
@@ -83,6 +84,7 @@ impl Stored {
             source_msg_id: None,
             created_at: created,
             updated_at: created,
+            transport_policy: TransportPolicy::AnyTransport,
         }
     }
 }

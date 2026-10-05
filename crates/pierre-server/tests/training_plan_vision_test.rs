@@ -11,6 +11,7 @@
 //! render — the phase header names the current phase's targets and the
 //! catalogue templates that fit it, from the seeded registry.
 
+use pierre_core::transport::TransportPolicy;
 use std::collections::BTreeMap;
 
 use anyhow::Result;
@@ -186,6 +187,7 @@ async fn the_vision_round_trips_through_storage() -> Result<()> {
                 adjustment_reason: "",
                 phase_index: Some(0),
             }],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
 
@@ -244,6 +246,7 @@ async fn the_vision_round_trips_through_storage() -> Result<()> {
                 source_conversation_id: None,
             }),
             weeks: &[],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     assert_eq!(
@@ -284,6 +287,7 @@ async fn the_prompt_carries_the_current_phase_header() -> Result<()> {
         source_conversation_id: None,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
+        transport_policy: TransportPolicy::AnyTransport,
     };
     let block = render_training_plan_block(
         &plan,
@@ -361,6 +365,7 @@ async fn a_phase_without_a_mix_lists_every_template_that_fits_it() -> Result<()>
         source_conversation_id: None,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
+        transport_policy: TransportPolicy::AnyTransport,
     };
     plan.phases.remove(0);
     let block = render_training_plan_block(
@@ -434,6 +439,7 @@ async fn a_fortnight_crossing_a_phase_boundary_carries_both_headers() -> Result<
         source_conversation_id: None,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
+        transport_policy: TransportPolicy::AnyTransport,
     };
     // The fortnight the block renders is the last build week and the first
     // taper week — it straddles the boundary exactly.
@@ -483,6 +489,7 @@ async fn a_fortnight_inside_one_phase_carries_that_phase_alone() -> Result<()> {
         source_conversation_id: None,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
+        transport_policy: TransportPolicy::AnyTransport,
     };
     // Both weeks sit inside build; the taper is a fortnight away.
     let weeks = vec![empty_week("2026-08-31", 0), empty_week("2026-09-07", 0)];

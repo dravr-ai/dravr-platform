@@ -41,7 +41,7 @@ use pierre_chat_pipeline::turn_stop::TurnStop;
 use pierre_chat_pipeline::{self as pipeline, ServedTurn};
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
-use pierre_core::transport::{Transport, CLIENT_PLATFORM_HEADER};
+use pierre_core::transport::{Transport, TransportPolicy, CLIENT_PLATFORM_HEADER};
 use pierre_database::database::ConversationRecord;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::triggers as notification_triggers;
@@ -580,6 +580,7 @@ async fn turn_already_answered(egress: &TurnEgress) -> bool {
             &egress.user_id.to_string(),
             egress.tenant_id,
             1,
+            TransportPolicy::FirstPartyOnly,
         )
         .await
     {
@@ -612,6 +613,8 @@ async fn write_interrupted_notice(egress: &TurnEgress, locale: &str) {
         prompt_tokens: None,
         model: None,
         content_blocks: None,
+        // Platform text that quotes nothing the turn read.
+        transport_policy: TransportPolicy::AnyTransport,
     };
     if let Err(e) = persist_assistant_response(
         repos.chat.as_ref(),

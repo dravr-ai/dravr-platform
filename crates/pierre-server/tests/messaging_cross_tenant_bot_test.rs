@@ -209,6 +209,7 @@ mod cross_tenant_bot_tests {
                 tenant_id: user.home_tenant.to_string(),
                 role: GroupRole::Owner,
                 peer_sharing_consent: false,
+                coach_sharing_consent: false,
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,

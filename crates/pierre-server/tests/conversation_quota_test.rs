@@ -28,6 +28,7 @@ use pierre_core::llm::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk, TokenUsage,
 };
 use pierre_core::models::TenantId;
+use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::{NewConversation, PendingGuardianAction};
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -321,7 +322,7 @@ async fn an_archived_thread_frees_its_slot_and_usage_reports_the_same_count() {
 
     let listed = repos
         .chat
-        .list_conversations(&user, tenant, 50, 0)
+        .list_conversations(&user, tenant, 50, 0, TransportPolicy::FirstPartyOnly)
         .await
         .unwrap();
     assert_eq!(listed.items.len(), cap);
@@ -353,7 +354,7 @@ async fn an_archived_thread_frees_its_slot_and_usage_reports_the_same_count() {
     assert_eq!(
         repos
             .chat
-            .list_conversations(&user, tenant, 50, 0)
+            .list_conversations(&user, tenant, 50, 0, TransportPolicy::FirstPartyOnly)
             .await
             .unwrap()
             .items
@@ -448,7 +449,7 @@ async fn athlete_with_one_archived() -> (Arc<ServerContext>, String, TenantId, S
     let (resources, user, tenant) = athlete_with_threads_on(resources, cap).await;
     let chat = &resources.common.repos.chat;
     let archived = chat
-        .list_conversations(&user, tenant, 50, 0)
+        .list_conversations(&user, tenant, 50, 0, TransportPolicy::FirstPartyOnly)
         .await
         .unwrap()
         .items[0]

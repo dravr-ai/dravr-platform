@@ -12,6 +12,7 @@ use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::activity::ActivityBuilder;
 use pierre_core::models::zones::HrZoneSet;
 use pierre_core::models::{Activity, SportType, TenantId, UserPhysiologicalProfile};
+use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::Database;
 use pierre_database::DatabaseProvider;
 use pierre_fitness_compute::latest_snapshot::build_latest_snapshot;
@@ -68,6 +69,7 @@ fn make_profile(
         w_prime_joules: None,
         critical_speed_mps: None,
         d_prime_meters: None,
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

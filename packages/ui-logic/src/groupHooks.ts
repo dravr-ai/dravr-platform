@@ -8,6 +8,7 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tansta
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import type { GroupsApi } from '@pierre/api-client';
 import type {
+  CoachPlatformProvider,
   CreateInviteRequest,
   GroupRole,
   ProposeDelegatedConnectionRequest,
@@ -42,7 +43,7 @@ const TRANSCRIPT_STALE_MS = 30_000;
 const LINKS_STALE_MS = 30_000;
 const ROSTER_STALE_MS = 60_000;
 
-/** Every read a TrainingPeaks link step changes: the group's links, the roster, the provider rows. */
+/** Every read a coaching-platform link step changes: the group's links, the roster, the provider rows. */
 function invalidateDelegation(queryClient: QueryClient, groupId: string) {
   return Promise.all([
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.delegatedConnections(groupId) }),
@@ -428,7 +429,7 @@ export function createGroupHooks(groupsApi: GroupsApi, freshness: GroupFreshness
   }
 
   /**
-   * The group's live TrainingPeaks links: every one for the group's coach, only
+   * The group's live coaching-platform links: every one for the group's coach, only
    * their own for a member (`viewer` says which). Asked only for a group with a
    * human coach, since a link needs one.
    */
@@ -451,10 +452,11 @@ export function createGroupHooks(groupsApi: GroupsApi, freshness: GroupFreshness
   }
 
   /**
-   * The coach's TrainingPeaks roster, each athlete with its link in this group.
-   * The coach alone may read it. A refusal (not connected, not a coach account,
-   * reconnect needed, notice outdated) is an answer, not a blip, so it is not
-   * retried: the section words `details.reason` instead.
+   * The coach's coaching-platform roster, each athlete with its link in this
+   * group, and the platform it was read from. The coach alone may read it. A
+   * refusal (not connected, not a coach account, reconnect needed, notice
+   * outdated) is an answer, not a blip, so it is not retried: the section
+   * words `details.reason` instead.
    */
   function useDelegationRoster(groupId: string, enabled: boolean) {
     const query = useQuery({
@@ -467,6 +469,7 @@ export function createGroupHooks(groupsApi: GroupsApi, freshness: GroupFreshness
 
     return {
       athletes: query.data?.athletes ?? [],
+      provider: query.data?.provider ?? null,
       isLoading: query.isLoading,
       isError: query.isError,
       error: query.error,
@@ -494,14 +497,25 @@ export function createGroupHooks(groupsApi: GroupsApi, freshness: GroupFreshness
     };
   }
 
-  /** The coach links a roster athlete to a live member; the member then confirms. */
+  /**
+   * The coach links a roster athlete to a live member; the member then
+   * confirms. `provider` is the platform the roster was read from.
+   */
   function useProposeDelegatedConnection(groupId: string) {
     const queryClient = useQueryClient();
 
     const mutation = useMutation({
-      mutationFn: ({ athleteId, memberUserId }: { athleteId: string; memberUserId: string }) => {
+      mutationFn: ({
+        provider,
+        athleteId,
+        memberUserId,
+      }: {
+        provider: CoachPlatformProvider;
+        athleteId: string;
+        memberUserId: string;
+      }) => {
         const request: ProposeDelegatedConnectionRequest = {
-          provider: 'trainingpeaks',
+          provider,
           provider_athlete_id: athleteId,
           member_user_id: memberUserId,
         };

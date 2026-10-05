@@ -24,7 +24,7 @@ mod peer_fetch_tests {
     use dravr_tronc::mcp::tool::{McpTool, ToolContext};
     use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::groups::{
-        CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+        CoachingGroup, GroupDigestMode, GroupInviteKind, GroupMember, GroupRespondMode, GroupRole,
     };
     use pierre_core::models::{
         Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserStatus,
@@ -156,6 +156,7 @@ mod peer_fetch_tests {
                 tenant_id: tenant_id.to_string(),
                 role,
                 peer_sharing_consent: consent,
+                coach_sharing_consent: consent,
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,
@@ -163,6 +164,66 @@ mod peer_fetch_tests {
             })
             .await
             .unwrap();
+    }
+
+    /// A member's two sharing decisions, set independently.
+    struct MemberSharing {
+        group_id: Uuid,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        peers: bool,
+        coach: bool,
+    }
+
+    async fn add_member_sharing(resources: &ServerContext, sharing: MemberSharing) {
+        let now = Utc::now();
+        resources
+            .common
+            .repos
+            .groups
+            .add_member(&GroupMember {
+                id: Uuid::new_v4(),
+                group_id: sharing.group_id,
+                user_id: sharing.user_id,
+                tenant_id: sharing.tenant_id.to_string(),
+                role: GroupRole::Member,
+                peer_sharing_consent: sharing.peers,
+                coach_sharing_consent: sharing.coach,
+                consent_given_at: now,
+                joined_at: now,
+                left_at: None,
+                display_name: None,
+            })
+            .await
+            .unwrap();
+    }
+
+    /// A Strava connection and one recent ride for `user_id` under their own
+    /// tenant.
+    async fn seed_ride(resources: &ServerContext, user_id: Uuid, tenant_id: TenantId) {
+        resources
+            .common
+            .repos
+            .provider_connections
+            .register_connection(user_id, tenant_id, "strava", &ConnectionType::OAuth, None)
+            .await
+            .unwrap();
+        resources
+            .common
+            .repos
+            .activity_cache
+            .upsert_activities(user_id, &tenant_id, "strava", &[recent_ride("peer-ride-1")])
+            .await
+            .unwrap();
+    }
+
+    fn first_activity_id(payload: &Value) -> Option<&str> {
+        payload
+            .get("activities")
+            .and_then(Value::as_array)
+            .and_then(|a| a.first())
+            .and_then(|a| a.get("id"))
+            .and_then(Value::as_str)
     }
 
     fn recent_ride(id: &str) -> Activity {
@@ -639,10 +700,12 @@ mod peer_fetch_tests {
     }
 
     /// The group's attached human coach has no membership row, yet their
-    /// prompt view lists the consenting roster — so their fetch resolves the
-    /// same names, under the same consent gate.
+    /// prompt view lists the roster that shares with them — so their fetch
+    /// resolves the same names. The coach reads by the member's coach consent
+    /// (ADR-002: joining grants it), which neither the member's peer consent
+    /// nor the group's peer switch governs; revoking it refuses the coach.
     #[tokio::test]
-    async fn the_attached_human_coach_can_fetch_a_consenting_member() {
+    async fn the_attached_human_coach_reads_by_coach_consent_alone() {
         let resources = create_test_server_resources().await.unwrap();
         let owner = seed_user(&resources, "ownertool").await;
         let host_tenant = create_tenant_owned_by(&resources, owner).await;
@@ -653,24 +716,22 @@ mod peer_fetch_tests {
 
         let peer = seed_user(&resources, "raphtool").await;
         let peer_tenant = create_tenant_owned_by(&resources, peer).await;
-        resources
-            .common
-            .repos
-            .provider_connections
-            .register_connection(peer, peer_tenant, "strava", &ConnectionType::OAuth, None)
-            .await
-            .unwrap();
-        resources
-            .common
-            .repos
-            .activity_cache
-            .upsert_activities(peer, &peer_tenant, "strava", &[recent_ride("peer-ride-1")])
-            .await
-            .unwrap();
+        seed_ride(&resources, peer, peer_tenant).await;
 
-        let gid = create_group(&resources, host_tenant, agent_persona, owner, true).await;
+        // Peer sharing is off at both levels: the switch and the member.
+        let gid = create_group(&resources, host_tenant, agent_persona, owner, false).await;
         add_member(&resources, gid, owner, host_tenant, GroupRole::Owner, false).await;
-        add_member(&resources, gid, peer, peer_tenant, GroupRole::Member, true).await;
+        add_member_sharing(
+            &resources,
+            MemberSharing {
+                group_id: gid,
+                user_id: peer,
+                tenant_id: peer_tenant,
+                peers: false,
+                coach: true,
+            },
+        )
+        .await;
         assert!(resources
             .common
             .repos
@@ -687,22 +748,18 @@ mod peer_fetch_tests {
                 .await,
         );
         assert_eq!(
-            payload
-                .get("activities")
-                .and_then(Value::as_array)
-                .and_then(|a| a.first())
-                .and_then(|a| a.get("id"))
-                .and_then(Value::as_str),
+            first_activity_id(&payload),
             Some("peer-ride-1"),
-            "the attached coach reads the consenting member's ride: {payload}"
+            "the attached coach reads the member's ride: {payload}"
         );
 
-        // The same gate still holds for the agent: consent withdrawn, no data.
+        // The member revokes coach sharing: the coach is refused, with the
+        // way back named.
         assert!(resources
             .common
             .repos
             .groups
-            .update_peer_sharing_consent(&gid.to_string(), peer, false)
+            .update_coach_sharing_consent(&gid.to_string(), peer, false)
             .await
             .unwrap());
         let refused = structured(
@@ -712,8 +769,82 @@ mod peer_fetch_tests {
         );
         assert_eq!(
             refused.get("reason").and_then(Value::as_str),
-            Some("no_consent"),
-            "the coach's read is gated by the member's consent too: {refused}"
+            Some("no_coach_consent"),
+            "a revoked coach consent refuses the coach: {refused}"
         );
+        assert!(refused.get("activities").is_none());
+    }
+
+    /// Joining through an invite grants the coach's read with no consent step,
+    /// and leaves the member's peers shut out: the coach reads the athlete the
+    /// moment they join, while a fellow member is refused even with the
+    /// group's peer switch on.
+    #[tokio::test]
+    async fn joining_shares_with_the_coach_and_not_with_peers() {
+        let resources = create_test_server_resources().await.unwrap();
+        let owner = seed_user(&resources, "ownerjoin").await;
+        let host_tenant = create_tenant_owned_by(&resources, owner).await;
+        let agent_persona = seed_agent(&resources, owner, host_tenant).await;
+
+        let human_coach = seed_user(&resources, "coachjoin").await;
+        let coach_tenant = create_tenant_owned_by(&resources, human_coach).await;
+
+        let athlete = seed_user(&resources, "raphjoin").await;
+        let athlete_tenant = create_tenant_owned_by(&resources, athlete).await;
+        seed_ride(&resources, athlete, athlete_tenant).await;
+
+        let gid = create_group(&resources, host_tenant, agent_persona, owner, true).await;
+        add_member(&resources, gid, owner, host_tenant, GroupRole::Owner, false).await;
+        assert!(resources
+            .common
+            .repos
+            .groups
+            .set_group_coach_user(&gid.to_string(), Some(human_coach), host_tenant)
+            .await
+            .unwrap());
+        let invite = resources
+            .group_service()
+            .create_invite(gid, owner, host_tenant, None, None, GroupInviteKind::Member)
+            .await
+            .unwrap();
+        let joined = resources
+            .group_service()
+            .join_group(&invite.code, athlete, host_tenant)
+            .await
+            .unwrap();
+        assert!(joined.coach_sharing_consent, "joining grants coach sharing");
+        assert!(!joined.peer_sharing_consent, "peer sharing stays opt-in");
+
+        let runtime: Arc<dyn ToolRuntime> = resources.clone();
+        let coach_read = structured(
+            &GetGroupMemberActivitiesTool
+                .execute(
+                    &runtime,
+                    &tool_context(human_coach, coach_tenant),
+                    json!({ "member": "raphjoin" }),
+                )
+                .await,
+        );
+        assert_eq!(
+            first_activity_id(&coach_read),
+            Some("peer-ride-1"),
+            "the coach reads the athlete right after the join: {coach_read}"
+        );
+
+        let peer_read = structured(
+            &GetGroupMemberActivitiesTool
+                .execute(
+                    &runtime,
+                    &tool_context(owner, host_tenant),
+                    json!({ "member": "raphjoin" }),
+                )
+                .await,
+        );
+        assert_eq!(
+            peer_read.get("reason").and_then(Value::as_str),
+            Some("no_consent"),
+            "a fellow member still needs the athlete's peer consent: {peer_read}"
+        );
+        assert!(peer_read.get("activities").is_none());
     }
 }

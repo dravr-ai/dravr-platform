@@ -95,7 +95,9 @@ pub async fn build_athlete_metrics(
         .get_user_physiological_profile(tenant_id, user_id)
         .await
     {
-        Ok(p) => p,
+        // A profile written from first-party-only data is withheld from an
+        // external turn (carnet#769).
+        Ok(p) => p.filter(|profile| ai_scope::admit_derived(profile.transport_policy)),
         Err(e) => {
             tracing::warn!(error = %e, "personalized verification: physiology profile load failed");
             None

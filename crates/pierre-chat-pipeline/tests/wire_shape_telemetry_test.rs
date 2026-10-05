@@ -25,6 +25,7 @@
 
 use pierre_chat_pipeline::stages::prompt_builder::build_llm_messages;
 use pierre_core::models::MessageRecord;
+use pierre_core::transport::TransportPolicy;
 use pierre_llm::MessageRole;
 
 fn row(id: &str, role: &str, content: &str) -> MessageRecord {
@@ -39,6 +40,7 @@ fn row(id: &str, role: &str, content: &str) -> MessageRecord {
         finish_reason: None,
         content_blocks: None,
         created_at: "2026-08-03T12:00:00Z".to_owned(),
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

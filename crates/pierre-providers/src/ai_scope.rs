@@ -30,11 +30,24 @@
 //!
 //! Live reads are governed in one place: every provider a tool obtains is an
 //! [`AiGovernedProvider`], which filters each read it serves under a gate.
+//!
+//! # Provenance (carnet#769)
+//!
+//! Content derived from the athlete's data — a reply, a fact, a plan — is
+//! stamped with the [`TransportPolicy`] of what it was built from. A turn (or
+//! any derivation) runs under [`tracking`], which scopes a [`Provenance`]: a
+//! positive accumulator every filter point marks when it serves an item whose
+//! terms keep it first-party, and every stored-content reader marks when it
+//! serves a row already so stamped ([`admit_derived`]). The writer then stamps
+//! its row with [`Provenance::policy`]. The accumulator is shared through an
+//! `Arc`, so an executor built inside the turn carries it onto the task its
+//! calls run on (the Copilot loop's loopback listener) and marks the turn's
+//! own flag from there.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::future::Future;
 use std::mem;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -42,11 +55,10 @@ use chrono::NaiveDate;
 use pierre_core::ai_policy::{filter_items, first_party_only, Exposure, ProviderTerms, Withheld};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    Activity, Athlete, CalendarEventRef, DataSource, PlannedSession, PlannedWorkout, Stats,
-    StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, TimeSeriesData,
+    Activity, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout, Stats, TimeSeriesData,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
-use pierre_core::transport::Transport;
+use pierre_core::transport::{Transport, TransportPolicy};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tokio::task::LocalKey;
@@ -54,6 +66,11 @@ use tokio::task::LocalKey;
 use crate::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, TokenRefreshCallback,
 };
+
+/// Provider-terms filtering of stored health records.
+mod stored_health;
+
+pub use stored_health::{filter_stored_health, StoredHealthRecord};
 
 tokio::task_local! {
     /// Set while a read is for a model.
@@ -66,6 +83,137 @@ tokio::task_local! {
     static DISPLAY: bool;
     /// The transport the current call serves, declared at its entry point.
     static TRANSPORT: Transport;
+    /// What the current derivation has served, for the row it will write.
+    static PROVENANCE: Provenance;
+}
+
+/// Whether a turn, or any other derivation, has served data whose terms keep
+/// it first-party (carnet#769).
+///
+/// A positive accumulator: it starts clear and only ever gets set. Cloning
+/// shares the flag — the `Arc` is what lets an executor built inside a turn
+/// mark the turn's own flag from the task its calls run on.
+#[derive(Debug, Clone, Default)]
+pub struct Provenance {
+    /// Set once anything first-party-only was served. Shared between the turn
+    /// and every executor and nested derivation it hands a clone to.
+    served_first_party_only: Arc<AtomicBool>,
+}
+
+impl Provenance {
+    /// A clear accumulator.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record that first-party-only data was served.
+    pub fn mark(&self) {
+        self.served_first_party_only.store(true, Ordering::Release);
+    }
+
+    /// The policy a row derived from what was served so far is stamped with.
+    #[must_use]
+    pub fn policy(&self) -> TransportPolicy {
+        TransportPolicy::from_first_party_only(self.served_first_party_only.load(Ordering::Acquire))
+    }
+}
+
+/// Run `fut` accumulating what it serves into `provenance`.
+///
+/// Whatever the enclosing derivation was accumulating is marked too when
+/// `fut` serves first-party-only data: content derived inside derived content
+/// taints both.
+pub async fn tracking<F: Future>(provenance: Provenance, fut: F) -> F::Output {
+    let enclosing = current_provenance();
+    let output = PROVENANCE.scope(provenance.clone(), fut).await;
+    if let Some(enclosing) = enclosing {
+        if provenance.policy().is_first_party_only() {
+            enclosing.mark();
+        }
+    }
+    output
+}
+
+/// Run `fut` under a fresh accumulator, returning the policy what it derived
+/// must be stamped with.
+pub async fn derived<F: Future>(fut: F) -> (F::Output, TransportPolicy) {
+    let provenance = Provenance::new();
+    let output = tracking(provenance.clone(), fut).await;
+    (output, provenance.policy())
+}
+
+/// The accumulator of the derivation running here, if any.
+#[must_use]
+pub fn current_provenance() -> Option<Provenance> {
+    PROVENANCE.try_with(Clone::clone).ok()
+}
+
+/// The policy content derived here so far must be stamped with:
+/// [`TransportPolicy::AnyTransport`] outside any tracked derivation.
+#[must_use]
+pub fn derived_policy() -> TransportPolicy {
+    current_provenance().map_or(TransportPolicy::AnyTransport, |p| p.policy())
+}
+
+/// Mark the derivation running here as having served first-party-only data.
+///
+/// Nothing is marked under [`unfiltered`]: a cache write holds the athlete's
+/// full data for later reads and serves no one, and its caller filters — and
+/// marks — what it hands back.
+pub fn mark_first_party_only_served() {
+    if flag(&UNFILTERED) {
+        return;
+    }
+    let _ = PROVENANCE.try_with(Provenance::mark);
+}
+
+/// Mark the running derivation when an item from `provider` (upstream
+/// `source`) is first-party-only.
+fn note_served(lookup: &dyn ProviderTerms, provider: &str, source: Option<&str>) {
+    if PROVENANCE.try_with(|_| ()).is_ok() && first_party_only(lookup, provider, source) {
+        mark_first_party_only_served();
+    }
+}
+
+/// Whether stored content stamped `policy` may be served here, marking the
+/// running derivation when it is first-party-only content that is served.
+///
+/// Over an external transport, content stamped
+/// [`TransportPolicy::FirstPartyOnly`] is withheld; everywhere else it is
+/// served, and whatever is derived from it inherits the stamp.
+#[must_use]
+pub fn admit_derived(policy: TransportPolicy) -> bool {
+    if !policy.is_first_party_only() {
+        return true;
+    }
+    if exposure().is_some_and(|gate| gate.external) {
+        return false;
+    }
+    mark_first_party_only_served();
+    true
+}
+
+/// The strictest stamp a stored row may carry and still be read here.
+///
+/// [`TransportPolicy::AnyTransport`] over an external transport (only
+/// unstamped rows), [`TransportPolicy::FirstPartyOnly`] everywhere else.
+///
+/// A list read binds it into its SQL so its `LIMIT` counts only rows the
+/// caller may read; the reader still passes the rows through
+/// [`retain_admitted`], which stamps a first-party derivation built on them.
+#[must_use]
+pub fn readable_policy() -> TransportPolicy {
+    if serving_external() {
+        TransportPolicy::AnyTransport
+    } else {
+        TransportPolicy::FirstPartyOnly
+    }
+}
+
+/// Keep only the stored items whose stamp [`admit_derived`] serves here.
+pub fn retain_admitted<T>(items: &mut Vec<T>, policy: impl Fn(&T) -> TransportPolicy) {
+    items.retain(|item| admit_derived(policy(item)));
 }
 
 /// Run `fut` as a read for a model, returning what the policies withheld.
@@ -176,6 +324,12 @@ pub fn policies_apply() -> bool {
     exposure().is_some()
 }
 
+/// Whether what is read now is served over an external transport.
+#[must_use]
+pub fn serving_external() -> bool {
+    exposure().is_some_and(|gate| gate.external)
+}
+
 /// Add `withheld` to the enclosing tally — for a read that tallied in a scope
 /// of its own. Nothing happens where no tally is kept.
 pub fn record_withheld(withheld: Withheld) {
@@ -194,11 +348,18 @@ where
     T: Serialize + DeserializeOwned,
     F: Fn(&T) -> (String, Option<String>),
 {
-    let Some(exposure) = exposure() else {
-        return items;
+    let kept = match exposure() {
+        None => items,
+        Some(exposure) => {
+            let (kept, withheld) = filter_items(lookup, items, &origin, required, exposure);
+            record_withheld(withheld);
+            kept
+        }
     };
-    let (kept, withheld) = filter_items(lookup, items, origin, required, exposure);
-    record_withheld(withheld);
+    for item in &kept {
+        let (provider, source) = origin(item);
+        note_served(lookup, &provider, source.as_deref());
+    }
     kept
 }
 
@@ -215,14 +376,19 @@ pub fn retain_served_here<T, F>(lookup: &dyn ProviderTerms, items: Vec<T>, origi
 where
     F: Fn(&T) -> (&str, Option<&str>),
 {
-    if !exposure().is_some_and(|gate| gate.external) {
-        return items;
-    }
+    let external = exposure().is_some_and(|gate| gate.external);
     items
         .into_iter()
         .filter(|item| {
             let (provider, source) = origin(item);
-            !first_party_only(lookup, provider, source)
+            if !first_party_only(lookup, provider, source) {
+                return true;
+            }
+            if external {
+                return false;
+            }
+            mark_first_party_only_served();
+            true
         })
         .collect()
 }
@@ -251,82 +417,6 @@ pub fn filter_planned_workouts(
         workouts,
         |w| (w.provider().to_owned(), w.source().map(str::to_owned)),
         &["title"],
-    )
-}
-
-/// A stored health record — a night's sleep, a day's recovery, a day's body
-/// metrics — as the sync pipeline persisted it.
-///
-/// The record names the data source that synced it, never a provider: the
-/// provider and upstream source live on the [`DataSource`] row.
-pub trait StoredHealthRecord: Serialize + DeserializeOwned {
-    /// The id of the data source that synced this record.
-    fn data_source_id(&self) -> &str;
-    /// The provider the record was stored under.
-    fn source_name(&self) -> &str;
-}
-
-impl StoredHealthRecord for StoredSleepSession {
-    fn data_source_id(&self) -> &str {
-        &self.data_source_id
-    }
-
-    fn source_name(&self) -> &str {
-        &self.source_name
-    }
-}
-
-impl StoredHealthRecord for StoredRecoveryMetrics {
-    fn data_source_id(&self) -> &str {
-        &self.data_source_id
-    }
-
-    fn source_name(&self) -> &str {
-        &self.source_name
-    }
-}
-
-impl StoredHealthRecord for StoredHealthMetrics {
-    fn data_source_id(&self) -> &str {
-        &self.data_source_id
-    }
-
-    fn source_name(&self) -> &str {
-        &self.source_name
-    }
-}
-
-/// The string fields every stored health record needs to deserialize, filled
-/// with a neutral placeholder when a rule removed them.
-const HEALTH_RECORD_REQUIRED: &[&str] = &["id", "user_id", "data_source_id", "source_name"];
-
-/// Stored health records as a model, or a caller over an external transport,
-/// may see them; unchanged when no gate applies (carnet#771).
-///
-/// Each record is governed by its data source's `provider` and upstream
-/// `source`, looked up in `sources` — the athlete's data sources, read once
-/// per call rather than once per record. A record whose data source is not
-/// among them is governed by the provider it was stored under.
-///
-/// Filter before merging records across sources: a merge folds one source's
-/// metrics into another's record, past the reach of any filter after it.
-#[must_use]
-pub fn filter_stored_health<T: StoredHealthRecord>(
-    lookup: &dyn ProviderTerms,
-    records: Vec<T>,
-    sources: &[DataSource],
-) -> Vec<T> {
-    let by_id: HashMap<&str, &DataSource> = sources.iter().map(|s| (s.id.as_str(), s)).collect();
-    filter_typed(
-        lookup,
-        records,
-        |record| {
-            by_id.get(record.data_source_id()).map_or_else(
-                || (record.source_name().to_ascii_lowercase(), None),
-                |source| (source.provider.to_ascii_lowercase(), source.source.clone()),
-            )
-        },
-        HEALTH_RECORD_REQUIRED,
     )
 }
 
@@ -359,13 +449,16 @@ pub fn first_party_only_read(
     provider: &str,
     source: Option<&str>,
 ) -> AppResult<()> {
-    let off_interface =
-        exposure().is_some_and(|gate| gate.external) && first_party_only(lookup, provider, source);
-    if off_interface {
+    if !first_party_only(lookup, provider, source) {
+        return Ok(());
+    }
+    if exposure().is_some_and(|gate| gate.external) {
         return Err(AppError::unavailable_over_transport(
             "this data is not available over this interface",
         ));
     }
+    // Served: whatever is derived from it inherits the stamp (carnet#769).
+    mark_first_party_only_served();
     Ok(())
 }
 
@@ -540,13 +633,11 @@ impl FitnessProvider for AiGovernedProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider_terms::{NOLIO, NOLIO_TRANSPORT, WHOOP};
-    use chrono::{Duration, TimeZone, Utc};
+    use crate::provider_terms::{NOLIO, NOLIO_TRANSPORT};
+    use chrono::{TimeZone, Utc};
     use pierre_core::ai_policy::SourcePolicy;
     use pierre_core::errors::ErrorCode;
-    use pierre_core::models::{
-        merge_recovery_metrics, merge_sleep_sessions, ActivityBuilder, DeviceType, SportType,
-    };
+    use pierre_core::models::{ActivityBuilder, SportType};
     use pierre_core::transport::TransportPolicy;
 
     struct NolioOnly;
@@ -562,7 +653,7 @@ mod tests {
     }
 
     /// A read made from Dravr's web app.
-    fn first_party<F: Future>(fut: F) -> impl Future<Output = F::Output> {
+    pub(super) fn first_party<F: Future>(fut: F) -> impl Future<Output = F::Output> {
         serve_over(Transport::WebApp, fut)
     }
 
@@ -827,209 +918,112 @@ mod tests {
         );
     }
 
-    /// Nolio first-party only with its connector rules, WHOOP scores kept
-    /// from models, Garmin unrestricted.
-    struct HealthTerms;
-
-    impl ProviderTerms for HealthTerms {
-        fn ai_policy(&self, provider: &str) -> Option<&'static SourcePolicy> {
-            match provider {
-                "nolio" => Some(&NOLIO),
-                "whoop" => Some(&WHOOP),
-                "garmin" => Some(&SourcePolicy::ALLOW_ALL),
-                _ => None,
-            }
-        }
-
-        fn transport_policy(&self, provider: &str) -> Option<TransportPolicy> {
-            match provider {
-                "nolio" => Some(NOLIO_TRANSPORT),
-                "whoop" | "garmin" => Some(TransportPolicy::AnyTransport),
-                _ => None,
-            }
-        }
-    }
-
-    fn data_source(id: &str, provider: &str, source: Option<&str>) -> DataSource {
-        DataSource {
-            id: id.to_owned(),
-            user_id: "athlete".to_owned(),
-            provider: provider.to_owned(),
-            device_model: None,
-            software_version: None,
-            source: source.map(str::to_owned),
-            device_type: DeviceType::Unknown,
-            original_source_name: None,
-        }
-    }
-
-    /// The athlete's sources: a Garmin watch, a WHOOP strap, and a Nolio
-    /// account relaying a Garmin watch and a Zepp band.
-    fn sources() -> Vec<DataSource> {
-        vec![
-            data_source("ds-garmin", "garmin", None),
-            data_source("ds-whoop", "whoop", None),
-            data_source("ds-nolio-garmin", "nolio", Some("garmin")),
-            data_source("ds-nolio-zepp", "nolio", Some("zepp")),
-        ]
-    }
-
-    /// One night every source recorded, each with metrics of its own.
-    fn night(data_source_id: &str, source_name: &str) -> StoredSleepSession {
-        let start = Utc.with_ymd_and_hms(2026, 9, 29, 22, 0, 0).unwrap();
-        let from = |name: &str| source_name.eq_ignore_ascii_case(name);
-        StoredSleepSession {
-            id: format!("sleep-{data_source_id}"),
-            user_id: "athlete".to_owned(),
-            data_source_id: data_source_id.to_owned(),
-            is_nap: false,
-            start_datetime: start,
-            end_datetime: start + Duration::hours(8),
-            total_sleep_seconds: Some(7 * 3600),
-            deep_sleep_seconds: from("nolio").then_some(5400),
-            light_sleep_seconds: None,
-            rem_sleep_seconds: None,
-            awake_seconds: None,
-            sleep_efficiency: None,
-            avg_heart_rate: None,
-            min_heart_rate: from("garmin").then_some(48),
-            avg_hrv: from("whoop").then_some(71.0),
-            sleep_score: from("whoop").then_some(88),
-            stages: Vec::new(),
-            source_name: source_name.to_owned(),
-        }
-    }
-
-    fn morning(data_source_id: &str, source_name: &str) -> StoredRecoveryMetrics {
-        StoredRecoveryMetrics {
-            id: format!("recovery-{data_source_id}"),
-            user_id: "athlete".to_owned(),
-            data_source_id: data_source_id.to_owned(),
-            date: NaiveDate::from_ymd_opt(2026, 9, 30).unwrap(),
-            recovery_score: Some(34),
-            readiness_score: None,
-            hrv_ms: Some(65.0),
-            hrv_rmssd: None,
-            resting_heart_rate: Some(if source_name == "nolio" { 39 } else { 50 }),
-            stress_score: None,
-            body_battery: None,
-            spo2: None,
-            respiratory_rate: None,
-            skin_temp_deviation: None,
-            daily_strain: None,
-            athlete_note: None,
-            source_name: source_name.to_owned(),
-            recorded_at: Utc.with_ymd_and_hms(2026, 9, 30, 7, 0, 0).unwrap(),
-        }
-    }
-
-    fn nights() -> Vec<StoredSleepSession> {
-        vec![
-            night("ds-garmin", "garmin"),
-            night("ds-whoop", "whoop"),
-            night("ds-nolio-garmin", "nolio"),
-            night("ds-nolio-zepp", "nolio"),
-        ]
-    }
-
-    fn data_source_ids<T: StoredHealthRecord>(records: &[T]) -> Vec<&str> {
-        records
-            .iter()
-            .map(StoredHealthRecord::data_source_id)
-            .collect()
-    }
-
     #[tokio::test]
-    async fn an_external_call_gets_no_first_party_only_health_record_and_the_rest_still_merge() {
-        let (kept, withheld) = serve_over(
+    async fn serving_a_first_party_only_item_stamps_the_derivation_and_withholding_it_does_not() {
+        let provider = Relay::governed();
+        let (_, served) = derived(first_party(ai_read(provider.get_activities(None, None)))).await;
+        assert_eq!(served, TransportPolicy::FirstPartyOnly);
+
+        let (_, external) = derived(serve_over(
             Transport::McpHttp,
-            ai_read(async { filter_stored_health(&HealthTerms, nights(), &sources()) }),
-        )
+            ai_read(provider.get_activities(None, None)),
+        ))
         .await;
-        assert_eq!(data_source_ids(&kept), vec!["ds-garmin", "ds-whoop"]);
         assert_eq!(
-            withheld.off_interface, 2,
-            "both Nolio rows stay first-party"
+            external,
+            TransportPolicy::AnyTransport,
+            "nothing first-party-only reached the caller"
         );
 
-        let merged = merge_sleep_sessions(kept);
-        assert_eq!(merged.len(), 1, "the two permitted sources are one night");
-        let night = &merged[0];
-        assert_eq!(night.sources.len(), 2);
-        assert!(
-            night.sources.iter().all(|s| s != "nolio"),
-            "{:?}",
-            night.sources
-        );
+        let (_, route) = derived(provider.get_activities(None, None)).await;
         assert_eq!(
-            night.record.deep_sleep_seconds, None,
-            "no Nolio metric fills the served night"
+            route,
+            TransportPolicy::FirstPartyOnly,
+            "an unfiltered first-party read still taints what is derived from it"
         );
-        assert_eq!(night.record.min_heart_rate, Some(48));
-        assert_eq!(night.record.avg_hrv, Some(71.0));
+
+        let (_, cache_write) = derived(unfiltered(provider.get_activities(None, None))).await;
         assert_eq!(
-            night.record.sleep_score, None,
-            "WHOOP's own score never reaches the model"
+            cache_write,
+            TransportPolicy::AnyTransport,
+            "a cache write serves no one"
+        );
+
+        let (_, stats) = derived(first_party(ai_read(provider.get_stats()))).await;
+        assert_eq!(
+            stats,
+            TransportPolicy::FirstPartyOnly,
+            "a read with no item provenance is the relay's"
         );
     }
 
     #[tokio::test]
-    async fn a_model_read_applies_each_sources_ai_rules_before_the_merge() {
-        let mornings = vec![
-            morning("ds-garmin", "garmin"),
-            morning("ds-whoop", "whoop"),
-            morning("ds-nolio-zepp", "nolio"),
-        ];
-        let (kept, withheld) = first_party(ai_read(async {
-            filter_stored_health(&HealthTerms, mornings, &sources())
+    async fn stamped_content_is_withheld_externally_and_taints_what_is_built_from_it() {
+        let (admitted, policy) = derived(first_party(async {
+            admit_derived(TransportPolicy::FirstPartyOnly)
         }))
         .await;
-        assert_eq!(
-            data_source_ids(&kept),
-            vec!["ds-garmin", "ds-whoop"],
-            "a relayed Zepp reading is denied to AI"
-        );
-        assert_eq!(kept[0].recovery_score, Some(34), "Garmin's score stays");
-        assert_eq!(kept[1].recovery_score, None, "WHOOP's score is redacted");
-        assert_eq!(kept[1].hrv_ms, Some(65.0), "WHOOP's measurements stay");
-        assert_eq!((withheld.dropped, withheld.reduced), (1, 1));
-        assert_eq!(withheld.off_interface, 0);
+        assert!(admitted);
+        assert_eq!(policy, TransportPolicy::FirstPartyOnly);
 
-        let merged = merge_recovery_metrics(kept);
-        assert_eq!(merged.len(), 1);
+        let (admitted, policy) = derived(serve_over(Transport::ApiKey, async {
+            admit_derived(TransportPolicy::FirstPartyOnly)
+        }))
+        .await;
+        assert!(!admitted, "an external caller never reads stamped content");
+        assert_eq!(policy, TransportPolicy::AnyTransport);
+
+        let (admitted, policy) = derived(serve_over(Transport::ApiKey, async {
+            admit_derived(TransportPolicy::AnyTransport)
+        }))
+        .await;
+        assert!(admitted, "unstamped content is served everywhere");
+        assert_eq!(policy, TransportPolicy::AnyTransport);
+
+        let mut rows = vec![
+            ("kept", TransportPolicy::AnyTransport),
+            ("stamped", TransportPolicy::FirstPartyOnly),
+        ];
+        serve_over(Transport::A2a, async {
+            retain_admitted(&mut rows, |row| row.1);
+        })
+        .await;
+        assert_eq!(rows, vec![("kept", TransportPolicy::AnyTransport)]);
+
         assert_eq!(
-            merged[0].record.resting_heart_rate,
-            Some(50),
-            "the denied Zepp reading fills nothing"
+            serve_over(Transport::McpHttp, async { readable_policy() }).await,
+            TransportPolicy::AnyTransport,
+            "an external list reads unstamped rows only"
+        );
+        assert_eq!(
+            first_party(async { readable_policy() }).await,
+            TransportPolicy::FirstPartyOnly
+        );
+        assert_eq!(
+            readable_policy(),
+            TransportPolicy::FirstPartyOnly,
+            "a job outside any declaration reads every row"
         );
     }
 
     #[tokio::test]
-    async fn outside_every_gate_the_athlete_keeps_every_health_record() {
-        let route = filter_stored_health(&HealthTerms, nights(), &sources());
-        assert_eq!(route.len(), 4);
-        assert_eq!(route[1].sleep_score, Some(88));
+    async fn a_nested_derivation_taints_its_parent_and_a_clone_marks_from_another_task() {
+        let (inner, outer) =
+            derived(async { derived(async { mark_first_party_only_served() }).await.1 }).await;
+        assert_eq!(inner, TransportPolicy::FirstPartyOnly);
+        assert_eq!(outer, TransportPolicy::FirstPartyOnly);
 
-        let (cache, withheld) = serve_over(
-            Transport::McpHttp,
-            ai_read(unfiltered(async {
-                filter_stored_health(&HealthTerms, nights(), &sources())
-            })),
-        )
+        let provenance = Provenance::new();
+        let carried = tracking(provenance.clone(), async {
+            current_provenance().expect("scoped")
+        })
         .await;
-        assert_eq!(cache.len(), 4);
-        assert!(withheld.is_empty());
-    }
-
-    #[tokio::test]
-    async fn a_record_without_its_data_source_is_governed_by_the_provider_it_was_stored_under() {
-        let orphan = night("ds-gone", "Nolio");
-        let (kept, withheld) = serve_over(
-            Transport::A2a,
-            ai_read(async { filter_stored_health(&HealthTerms, vec![orphan], &sources()) }),
-        )
-        .await;
-        assert!(kept.is_empty());
-        assert_eq!(withheld.off_interface, 1);
+        tokio::spawn(async move { carried.mark() }).await.unwrap();
+        assert_eq!(provenance.policy(), TransportPolicy::FirstPartyOnly);
+        assert_eq!(
+            derived_policy(),
+            TransportPolicy::AnyTransport,
+            "outside any derivation nothing is stamped"
+        );
     }
 }

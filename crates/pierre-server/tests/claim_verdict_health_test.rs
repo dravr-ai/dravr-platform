@@ -10,6 +10,7 @@
 mod common;
 
 use pierre_config::mcp::AppBehaviorConfig;
+use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -133,6 +134,7 @@ async fn insert(
         layer_fired: layer,
         explanation: None,
         evidence_refs: None,
+        transport_policy: TransportPolicy::AnyTransport,
     };
     repos
         .claim_verdicts

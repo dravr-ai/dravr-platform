@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use pierre_providers::ai_scope;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -358,7 +359,10 @@ impl McpTool<dyn ToolRuntime> for EstimateVo2maxTool {
                 .repos()
                 .user_physiological_profile
                 .get_user_physiological_profile(tenant_id, user_id)
-                .await?;
+                .await?
+                // A profile written from first-party-only data is withheld from an
+                // external caller (carnet#769).
+                .filter(|profile| ai_scope::admit_derived(profile.transport_policy));
 
             let mut defaults_from_profile: Vec<&'static str> = Vec::new();
             let (method, algorithm) =

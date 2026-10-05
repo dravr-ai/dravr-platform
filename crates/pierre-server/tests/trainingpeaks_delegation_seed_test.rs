@@ -15,6 +15,7 @@ use pierre_core::constants::oauth_providers::SCIOTTE_TRAININGPEAKS;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::groups::GroupRole;
 use pierre_core::models::{DelegationStatus, ProviderAccountRole};
+use pierre_core::transport::TransportPolicy;
 use pierre_seeders::trainingpeaks_delegation::{
     run, SeedArgs, ATHLETE_ID, ATHLETE_NAME, GROUP_NAME,
 };
@@ -105,7 +106,13 @@ async fn the_seeder_leaves_one_link_waiting_for_its_member() {
     // The member's group thread and the proposal naming them.
     let page = repos
         .chat
-        .list_conversations(&member.to_string(), member_tenant, 50, 0)
+        .list_conversations(
+            &member.to_string(),
+            member_tenant,
+            50,
+            0,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap();
     let group_id = group.id.to_string();
@@ -119,7 +126,13 @@ async fn the_seeder_leaves_one_link_waiting_for_its_member() {
     // The coach's own thread in the group, which is their way into Group info.
     let coach_page = repos
         .chat
-        .list_conversations(&coach.to_string(), coach_tenant, 50, 0)
+        .list_conversations(
+            &coach.to_string(),
+            coach_tenant,
+            50,
+            0,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap();
     assert_eq!(

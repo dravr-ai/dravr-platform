@@ -26,6 +26,7 @@ mod common;
 mod helpers;
 
 use pierre_core::transport::Transport;
+use pierre_core::transport::TransportPolicy;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -574,6 +575,7 @@ async fn platform_rows_do_not_stand_in_for_the_introduction() {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -716,6 +718,7 @@ async fn a_room_hears_its_agent_introduce_itself_once() {
                 tenant_id: fx.tenant_id.to_string(),
                 role,
                 peer_sharing_consent: false,
+                coach_sharing_consent: false,
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,

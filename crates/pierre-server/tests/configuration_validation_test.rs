@@ -11,6 +11,7 @@ use pierre_config::runtime::ConfigValue;
 use pierre_config::validation::ConfigValidator;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::{SportType, UserPhysiologicalProfile};
+use pierre_core::transport::TransportPolicy;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -128,6 +129,7 @@ fn test_vo2_max_requirement() {
         w_prime_joules: None,
         critical_speed_mps: None,
         d_prime_meters: None,
+        transport_policy: TransportPolicy::AnyTransport,
     };
 
     let result = validator.validate(&changes, Some(&profile));

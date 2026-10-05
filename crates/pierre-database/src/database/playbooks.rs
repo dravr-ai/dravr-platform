@@ -6,6 +6,7 @@
 
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::transport::TransportPolicy;
 use pierre_memory::playbooks::{
     ArchetypePrior, LabelSource, OutcomeLabel, PendingAdvice, Playbook,
 };

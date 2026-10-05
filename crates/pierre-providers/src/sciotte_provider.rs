@@ -22,8 +22,8 @@ use dravr_sciotte::models::{
 };
 use dravr_sciotte::wire::ATHLETE_REQUIRED;
 use pierre_core::untrusted::fence_athlete_text;
-use serde_json::{Map, Value};
 use std::env;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::RwLock;
 use tracing::{info, warn};
@@ -33,7 +33,8 @@ use crate::core::{
     OAuth2Credentials, ProviderConfig, ProviderFactory,
 };
 use crate::coros_self_report::feel_from_coros;
-use crate::errors::{AppError, AppResult, ErrorCode};
+use crate::delegation::{coach_credential_expired, DelegatedReads};
+use crate::errors::{AppError, AppResult};
 use crate::models::{
     activity::{Lap, Split},
     Activity, ActivityBuilder, ActivityComment, Athlete, Feel, PlannedWorkout, SportType, Stats,
@@ -165,49 +166,6 @@ const NAME_FENCE_MAX_CHARS: usize = 80;
 /// The username an athlete reads as when the provider gave no name at all.
 const UNNAMED_ATHLETE: &str = "Sciotte User";
 
-/// Details key marking an error as the failure of a delegated read's
-/// borrowed session, read back by [`is_delegated_session_expired`].
-const DELEGATED_DETAIL: &str = "delegated";
-
-/// The error a delegated read answers when the session it goes through — the
-/// coach's, not the reader's — is dead.
-///
-/// It is deliberately not [`AppError::provider_auth_required`]: that code
-/// sends the reader through a re-login and lets a sweep flag the reader's own
-/// connection, and neither fixes a session only the coach can renew. It is an
-/// [`ErrorCode::ExternalAuthFailed`] naming the backend, with `delegated`
-/// set in its details so a caller can tell it from any other.
-#[must_use]
-pub fn delegated_session_expired(backend: &str) -> AppError {
-    let brand = SciotteTarget::from_backend_name(backend).brand();
-    let mut error = AppError::new(
-        ErrorCode::ExternalAuthFailed,
-        format!(
-            "These {brand} workouts are read through the coach's {brand} connection, \
-             which has expired: the coach needs to reconnect {brand}. Nothing is wrong \
-             with the athlete's own account."
-        ),
-    );
-    let mut details = Map::new();
-    details.insert("provider".to_owned(), Value::from(backend));
-    details.insert(DELEGATED_DETAIL.to_owned(), Value::Bool(true));
-    error.details = Some(Box::new(Value::Object(details)));
-    error
-}
-
-/// Whether `error` is a delegated read's dead borrowed session
-/// ([`delegated_session_expired`]).
-#[must_use]
-pub fn is_delegated_session_expired(error: &AppError) -> bool {
-    matches!(error.code, ErrorCode::ExternalAuthFailed)
-        && error
-            .details
-            .as_ref()
-            .and_then(|details| details.get(DELEGATED_DETAIL))
-            .and_then(Value::as_bool)
-            == Some(true)
-}
-
 /// Sciotte provider — a thin session-holder over the dedicated scraper service.
 ///
 /// Routes every scrape to the dedicated dravr-sciotte service ([[ADR-021]]).
@@ -307,12 +265,15 @@ impl SciotteProvider {
     ///   signed in again is still a coach account.
     ///
     /// On a delegated provider the auth-shaped error becomes
-    /// [`delegated_session_expired`] instead: the dead session is the coach's,
+    /// [`coach_credential_expired`] instead: the dead session is the coach's,
     /// and a reconnect prompt to the reader could not renew it.
     fn tag_remote_auth(&self, e: AppError) -> AppError {
         if e.provider_auth_required_provider().is_some() {
             if self.subject.is_some() {
-                return delegated_session_expired(self.provider_name);
+                return coach_credential_expired(
+                    self.provider_name,
+                    SciotteTarget::from_backend_name(self.provider_name).brand(),
+                );
             }
             return AppError::provider_auth_required(self.provider_name);
         }
@@ -973,6 +934,30 @@ impl ProviderFactory for SciotteTrainingPeaksProviderFactory {
     fn supported_providers(&self) -> &'static [&'static str] {
         &["sciotte_trainingpeaks"]
     }
+
+    // A coach account there has no calendar of its own and reads each athlete
+    // on its roster by that athlete's id.
+    fn delegated_reads(&self) -> Option<&dyn DelegatedReads> {
+        Some(self)
+    }
+}
+
+impl DelegatedReads for SciotteTrainingPeaksProviderFactory {
+    fn check_athlete_id(&self, athlete_id: &str) -> AppResult<()> {
+        AthleteId::from_str(athlete_id)
+            .map(drop)
+            .map_err(|e| AppError::invalid_input(e.to_string()))
+    }
+
+    fn create_delegated(
+        &self,
+        config: ProviderConfig,
+        athlete_id: &str,
+    ) -> AppResult<Box<dyn FitnessProvider>> {
+        let athlete =
+            AthleteId::from_str(athlete_id).map_err(|e| AppError::invalid_input(e.to_string()))?;
+        Ok(Box::new(SciotteProvider::delegated(config, athlete)))
+    }
 }
 
 /// Factory for COROS Training Hub — Sciotte provider
@@ -991,6 +976,7 @@ impl ProviderFactory for SciotteCorosProviderFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::errors::ErrorCode;
 
     #[test]
     fn a_scraped_activity_names_the_service_it_was_read_from() {

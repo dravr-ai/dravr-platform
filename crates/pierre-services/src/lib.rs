@@ -374,8 +374,14 @@ pub mod plan_calendar_push;
 /// What kind of account a `TrainingPeaks` connection signed in with, and what a coach account is granted.
 pub mod trainingpeaks_accounts;
 
-/// A group's coach links `TrainingPeaks` roster athletes to members, who confirm; either side ends a link.
+/// A group's coach links coaching-platform roster athletes to members, who confirm; either side ends a link.
 pub mod delegated_connections;
+
+/// The coaching platforms a coach's own account reads group athletes through: `TrainingPeaks`, Intervals.icu.
+pub mod coach_platform;
+
+/// Why a delegated-connection step was refused, as the reason a client branches on.
+mod delegation_refusal;
 
 /// Whose data a provider push event is about: the token's owner, or the member a coach's confirmed link names.
 pub mod webhook_owner;

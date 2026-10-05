@@ -41,6 +41,7 @@ use pierre_chat_pipeline::stages::prefetch::{
 use pierre_chat_pipeline::stages::prompt_builder::{
     build_llm_messages, build_llm_messages_with_blocks,
 };
+use pierre_core::transport::TransportPolicy;
 use pierre_database::database::MessageRecord;
 use pierre_llm::{ChatMessage, MessageRole};
 use pierre_memory::CompactionBlock;
@@ -164,6 +165,7 @@ fn row(id: &str, role: &str, content: &str) -> MessageRecord {
         finish_reason: None,
         content_blocks: None,
         created_at: "2026-07-30T09:00:00Z".to_owned(),
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 
@@ -277,6 +279,7 @@ fn the_platforms_own_replayed_summary_keeps_its_framing() {
         first_message_id: "m1".to_owned(),
         last_message_id: "m2".to_owned(),
         created_at: Utc.with_ymd_and_hms(2026, 7, 30, 8, 0, 0).unwrap(),
+        transport_policy: TransportPolicy::AnyTransport,
     }];
 
     let (messages, _) = build_llm_messages_with_blocks(None, &history, &blocks);

@@ -12,6 +12,7 @@
 
 mod common;
 
+use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
 use chrono::Utc;
@@ -89,6 +90,7 @@ async fn deliver_a_reply(chat_id: &str, channel_user_id: &str) -> Delivered {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();

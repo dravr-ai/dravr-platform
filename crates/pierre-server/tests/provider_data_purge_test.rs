@@ -28,6 +28,7 @@
 
 mod common;
 
+use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
 use axum::body::to_bytes;
@@ -365,7 +366,14 @@ async fn seed_provider_rows(
         .id;
     assert!(repos
         .activity_conversations
-        .link_activity_conversation(&tenant, user_id, provider, &run_id, &thread)
+        .link_activity_conversation(
+            &tenant,
+            user_id,
+            provider,
+            &run_id,
+            &thread,
+            TransportPolicy::AnyTransport
+        )
         .await
         .unwrap());
     // The run was measured for best efforts and holds a personal best. Bests

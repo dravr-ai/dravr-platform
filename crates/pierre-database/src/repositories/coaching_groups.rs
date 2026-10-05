@@ -84,7 +84,8 @@ macro_rules! member_columns {
     () => {
         concat!(
             "m.id, m.group_id, m.user_id, m.tenant_id, m.role,
-              m.peer_sharing_consent, m.consent_given_at, m.joined_at, m.left_at,
+              m.peer_sharing_consent, m.coach_sharing_consent, m.consent_given_at,
+              m.joined_at, m.left_at,
               ",
             person_name_column!(),
             " AS display_name"
@@ -207,10 +208,12 @@ pub(crate) const SET_GROUP_COACH_USER_SQL: &str = r"UPDATE coaching_groups SET c
 // coaching_group_members
 // ============================================================================
 
-/// One membership; `$7` serves both the consent and the join instant.
+/// One membership; `$7` serves both the consent and the join instant, and
+/// `$8` is the coach-sharing grant joining carries.
 pub(crate) const INSERT_MEMBER_SQL: &str = r"INSERT INTO coaching_group_members
-              (id, group_id, user_id, tenant_id, role, peer_sharing_consent, consent_given_at, joined_at)
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $7)";
+              (id, group_id, user_id, tenant_id, role, peer_sharing_consent, consent_given_at, joined_at,
+               coach_sharing_consent)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8)";
 
 /// Mark a live membership as left.
 pub(crate) const REMOVE_MEMBER_SQL: &str = r"UPDATE coaching_group_members SET left_at = $1
@@ -244,6 +247,10 @@ pub(crate) const UPDATE_MEMBER_ROLE_SQL: &str = r"UPDATE coaching_group_members 
 
 /// Record a live member's peer-sharing decision and when it was made.
 pub(crate) const UPDATE_PEER_SHARING_CONSENT_SQL: &str = r"UPDATE coaching_group_members SET peer_sharing_consent = $1, consent_given_at = $2
+              WHERE group_id = $3 AND user_id = $4 AND left_at IS NULL";
+
+/// Record a live member's coach-sharing decision and when it was made.
+pub(crate) const UPDATE_COACH_SHARING_CONSENT_SQL: &str = r"UPDATE coaching_group_members SET coach_sharing_consent = $1, consent_given_at = $2
               WHERE group_id = $3 AND user_id = $4 AND left_at IS NULL";
 
 /// Live members of a group, counted by group alone: they may span tenants.
@@ -318,27 +325,29 @@ pub(crate) const COUNT_GROUPS_FOR_OWNER_SQL: &str = r"SELECT COUNT(*) as cnt FRO
 /// One transcript entry.
 pub(crate) const INSERT_TRANSCRIPT_ENTRY_SQL: &str = r"INSERT INTO group_transcript_entries
               (id, group_id, tenant_id, author_user_id, speaker, content,
-               source_conversation_id, source_message_id, created_at)
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)";
+               source_conversation_id, source_message_id, created_at, first_party_only)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)";
 
 /// Whether the viewer bound as `$2` may read transcript entry `e` of group
 /// `g` — the one consent rule every transcript read applies. Gated like the
-/// peer-grounding fetch: a peer's entries need the group kill-switch AND that
-/// member's own standing consent (and a member who has not left); the viewer
-/// always reads their own entries.
+/// group-member fetch: a member's entries reach a peer when the group
+/// kill-switch AND that member's own peer consent are on, and reach the
+/// group's human coach when that member's coach consent is on (the peer
+/// switch does not govern the coach, ADR-002); either way only for a member
+/// who has not left. The viewer always reads their own entries.
 macro_rules! transcript_entry_visible {
     () => {
         r"(
                   e.author_user_id = $2
-                  OR (
-                    g.peer_data_sharing = TRUE
-                    AND EXISTS (
-                      SELECT 1 FROM coaching_group_members gm
-                      WHERE gm.group_id = e.group_id
-                        AND gm.user_id = e.author_user_id
-                        AND gm.peer_sharing_consent = TRUE
-                        AND gm.left_at IS NULL
-                    )
+                  OR EXISTS (
+                    SELECT 1 FROM coaching_group_members gm
+                    WHERE gm.group_id = e.group_id
+                      AND gm.user_id = e.author_user_id
+                      AND gm.left_at IS NULL
+                      AND (
+                        (g.peer_data_sharing = TRUE AND gm.peer_sharing_consent = TRUE)
+                        OR (g.coach_user_id = $2 AND gm.coach_sharing_consent = TRUE)
+                      )
                   )
                 )"
     };
@@ -351,6 +360,7 @@ macro_rules! transcript_entry_visible {
 pub(crate) const LIST_TRANSCRIPT_VISIBLE_TO_SQL: &str = concat!(
     r"SELECT e.id, e.group_id, e.tenant_id, e.author_user_id, e.speaker,
               e.content, e.source_conversation_id, e.source_message_id, e.created_at,
+              e.first_party_only,
               ",
     person_name_column!(),
     r" AS author_display_name
@@ -374,7 +384,7 @@ pub(crate) const LIST_TRANSCRIPT_VISIBLE_TO_SQL: &str = concat!(
 /// membership is cross-tenant and the caller verified the viewer's
 /// membership.
 pub(crate) const LIST_ROOM_TRANSCRIPT_SQL: &str = concat!(
-    r"SELECT r.id, r.speaker, r.created_at, r.visible,
+    r"SELECT r.id, r.speaker, r.created_at, r.visible, r.first_party_only,
               CASE WHEN r.visible THEN r.author_user_id END AS author_user_id,
               CASE WHEN r.visible THEN ",
     person_name_column!(),
@@ -385,6 +395,7 @@ pub(crate) const LIST_ROOM_TRANSCRIPT_SQL: &str = concat!(
               FROM (
                 SELECT e.id, e.author_user_id, e.speaker, e.content,
                        e.source_conversation_id, e.source_message_id, e.created_at,
+                       e.first_party_only,
                        ",
     transcript_entry_visible!(),
     r" AS visible
@@ -507,6 +518,7 @@ macro_rules! impl_coaching_group_repository {
                 tenant_id: column(r, "tenant_id")?,
                 role: parse_role(&role),
                 peer_sharing_consent: column(r, "peer_sharing_consent")?,
+                coach_sharing_consent: column(r, "coach_sharing_consent")?,
                 consent_given_at: instant(r, "consent_given_at")?,
                 joined_at: instant(r, "joined_at")?,
                 left_at: column(r, "left_at")?,
@@ -532,6 +544,10 @@ macro_rules! impl_coaching_group_repository {
                 source_message_id: column(r, "source_message_id")?,
                 created_at: instant(r, "created_at")?,
                 author_display_name: column(r, "author_display_name")?,
+                transport_policy: TransportPolicy::from_first_party_only(column(
+                    r,
+                    "first_party_only",
+                )?),
             })
         }
 
@@ -561,6 +577,10 @@ macro_rules! impl_coaching_group_repository {
                 })?,
                 created_at: instant(r, "created_at")?,
                 body,
+                transport_policy: TransportPolicy::from_first_party_only(column(
+                    r,
+                    "first_party_only",
+                )?),
             })
         }
 
@@ -813,6 +833,7 @@ macro_rules! impl_coaching_group_repository {
                     .bind(member.role.as_str())
                     .bind(member.peer_sharing_consent)
                     .bind(Utc::now())
+                    .bind(member.coach_sharing_consent)
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to add member: {e}")))?;
@@ -893,6 +914,26 @@ macro_rules! impl_coaching_group_repository {
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to update peer sharing consent: {e}"))
+                    })?;
+
+                Ok(result.rows_affected() > 0)
+            }
+
+            async fn update_coach_sharing_consent(
+                &self,
+                group_id: &str,
+                user_id: Uuid,
+                consent: bool,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(UPDATE_COACH_SHARING_CONSENT_SQL)
+                    .bind(consent)
+                    .bind(Utc::now())
+                    .bind($ids::bind_text(group_id)?)
+                    .bind($ids::bind(user_id))
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to update coach sharing consent: {e}"))
                     })?;
 
                 Ok(result.rows_affected() > 0)
@@ -1030,6 +1071,7 @@ macro_rules! impl_coaching_group_repository {
                     .bind(entry.source_conversation_id)
                     .bind(entry.source_message_id)
                     .bind(Utc::now())
+                    .bind(entry.transport_policy.is_first_party_only())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

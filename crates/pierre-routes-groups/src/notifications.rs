@@ -10,6 +10,7 @@
 //! preference management, and notification feed. All endpoints require
 //! JWT authentication and enforce tenant-scoped data access.
 
+use pierre_providers::ai_scope;
 use std::env;
 use std::sync::Arc;
 
@@ -26,11 +27,12 @@ use tracing::info;
 use uuid::Uuid;
 
 use pierre_auth::auth::AuthResult;
+use pierre_core::ai_policy::first_party_only;
 use pierre_core::errors::AppError;
 use pierre_core::models::default_locale;
 use pierre_middleware::AuthenticatedUser;
 use pierre_notifications::constants as notif_constants;
-use pierre_notifications::events::event_params;
+use pierre_notifications::events::{data_transport_policy, event_params};
 use pierre_notifications::models::{
     collapse_notifications, CreateScheduledNotificationParams, CreateScheduledNotificationRequest,
     ListNotificationsQuery, NotificationAnalyticsQuery, NotificationCategory,
@@ -45,8 +47,20 @@ use pierre_notifications::{
 };
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
 use pierre_services::notification_text::NotificationTextRenderer;
-use pierre_tool_runtime::derived_content::refuse_derived_content_off_interface;
 use pierre_tool_runtime::runtime::ToolRuntime;
+
+/// The rows an external caller's feed read scans per request to the upstream
+/// store.
+const FEED_SCAN_PAGE: u32 = 100;
+
+/// What a feed request selects, beside its page.
+#[derive(Debug, Clone, Copy)]
+struct FeedFilter<'a> {
+    /// Only this category, when given.
+    category: Option<&'a str>,
+    /// Only rows nobody has read.
+    unread_only: bool,
+}
 
 /// Rewrite one feed row's title, body and action labels in the reader's locale.
 ///
@@ -204,6 +218,22 @@ impl NotificationRoutes {
             .ok_or_else(|| AppError::auth_invalid("No active tenant in session"))
     }
 
+    /// Whether the athlete holds a connection, in any tenant, to a provider
+    /// whose terms keep its data on Dravr's own surfaces.
+    async fn holds_first_party_only_connection<C: MiddlewareCtx + ToolRuntime>(
+        resources: &Arc<C>,
+        user_id: Uuid,
+    ) -> Result<bool, AppError> {
+        let terms = ToolRuntime::provider_registry(resources.as_ref());
+        let connections = MiddlewareCtx::repos(resources.as_ref())
+            .provider_connections
+            .get_for_user(user_id, None)
+            .await?;
+        Ok(connections
+            .iter()
+            .any(|connection| first_party_only(terms.as_ref(), &connection.provider, None)))
+    }
+
     /// Get the notification service from the context, returning an error if not initialized
     fn get_service<C: GroupsCtx>(resources: &Arc<C>) -> Result<&NotificationService, AppError> {
         resources
@@ -220,10 +250,18 @@ impl NotificationRoutes {
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
-        // A registered device receives every later push, whose text is
-        // derived from the athlete's data: an external caller cannot route
-        // them to itself (carnet#724).
-        refuse_derived_content_off_interface(resources.as_ref(), auth.user_id).await?;
+        // LIMITATION(registre#789): `handle_register_device` refuses an
+        // external caller for an athlete holding a first-party-only
+        // connection, because the push fan-out sends every notification to
+        // every active device and cannot keep a stamped push off a device an
+        // external caller registered.
+        if ai_scope::serving_external()
+            && Self::holds_first_party_only_connection(&resources, auth.user_id).await?
+        {
+            return Err(AppError::unavailable_over_transport(
+                "push devices for this athlete are registered from the Dravr app only",
+            ));
+        }
 
         // Validate expo push token format
         if !request.expo_push_token.starts_with("ExponentPushToken[")
@@ -395,16 +433,13 @@ impl NotificationRoutes {
     }
 
     /// Handle GET /api/notifications - List notifications (feed)
-    async fn handle_list_notifications<C: GroupsCtx + MiddlewareCtx + ToolRuntime>(
+    async fn handle_list_notifications<C: GroupsCtx + MiddlewareCtx>(
         State(resources): State<Arc<C>>,
         auth: AuthenticatedUser,
         Query(query): Query<ListNotificationsQuery>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
-        // A notification's text is derived from the athlete's data
-        // (carnet#724).
-        refuse_derived_content_off_interface(resources.as_ref(), auth.user_id).await?;
 
         let limit = query.limit.unwrap_or(20).clamp(1, 100);
         let offset = query.offset.unwrap_or(0);
@@ -425,23 +460,32 @@ impl NotificationRoutes {
         }
 
         let service = Self::get_service(&resources)?;
-        let (notifications, total, unread_count) = notif(
-            service
-                .list_notifications(
-                    auth.user_id,
-                    tenant_id,
-                    limit,
-                    offset,
-                    query.category.as_deref(),
-                    unread_only,
-                )
-                .await,
-        )?;
-
-        let items: Vec<NotificationItem> = notifications
-            .into_iter()
-            .map(NotificationItem::from)
-            .collect();
+        let filter = FeedFilter {
+            category: query.category.as_deref(),
+            unread_only,
+        };
+        let (items, total, unread_count) = if ai_scope::serving_external() {
+            Self::readable_feed_page(service, auth.user_id, tenant_id, filter, limit, offset)
+                .await?
+        } else {
+            let (notifications, total, unread_count) = notif(
+                service
+                    .list_notifications(
+                        auth.user_id,
+                        tenant_id,
+                        limit,
+                        offset,
+                        filter.category,
+                        filter.unread_only,
+                    )
+                    .await,
+            )?;
+            let items: Vec<NotificationItem> = notifications
+                .into_iter()
+                .map(NotificationItem::from)
+                .collect();
+            (items, total, unread_count)
+        };
 
         // Collapse consecutive notifications of the same collapsible type
         let mut collapsed_items = collapse_notifications(items);
@@ -464,6 +508,78 @@ impl NotificationRoutes {
         };
 
         Ok((StatusCode::OK, Json(response)).into_response())
+    }
+
+    /// Every notification of the reader's that `filter` selects and an
+    /// external caller may read, newest first.
+    ///
+    /// The rows live in `dravr-commere`, whose statements take no stamp
+    /// predicate, so the feed is read in full pages and the stamped rows are
+    /// left out here — the only way a page, its total and its unread count
+    /// all describe readable rows alone (carnet#769).
+    async fn readable_feed(
+        service: &NotificationService,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        filter: FeedFilter<'_>,
+    ) -> Result<Vec<NotificationItem>, AppError> {
+        let mut readable = Vec::new();
+        let mut offset = 0;
+        loop {
+            let (rows, _, _) = notif(
+                service
+                    .list_notifications(
+                        user_id,
+                        tenant_id,
+                        FEED_SCAN_PAGE,
+                        offset,
+                        filter.category,
+                        filter.unread_only,
+                    )
+                    .await,
+            )?;
+            let scanned = rows.len();
+            readable.extend(
+                rows.into_iter().map(NotificationItem::from).filter(|item| {
+                    ai_scope::admit_derived(data_transport_policy(item.data.as_ref()))
+                }),
+            );
+            if scanned < usize::try_from(FEED_SCAN_PAGE).unwrap_or(usize::MAX) {
+                return Ok(readable);
+            }
+            offset += FEED_SCAN_PAGE;
+        }
+    }
+
+    /// One page of the feed as an external caller reads it, with the total
+    /// and unread count of readable rows only.
+    async fn readable_feed_page(
+        service: &NotificationService,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        filter: FeedFilter<'_>,
+        limit: u32,
+        offset: u32,
+    ) -> Result<(Vec<NotificationItem>, i64, i64), AppError> {
+        let selected = Self::readable_feed(service, user_id, tenant_id, filter).await?;
+        let unread = Self::readable_feed(
+            service,
+            user_id,
+            tenant_id,
+            FeedFilter {
+                category: None,
+                unread_only: true,
+            },
+        )
+        .await?;
+        let total = i64::try_from(selected.len()).unwrap_or(i64::MAX);
+        let unread_count = i64::try_from(unread.len()).unwrap_or(i64::MAX);
+        let page = selected
+            .into_iter()
+            .skip(usize::try_from(offset).unwrap_or(usize::MAX))
+            .take(usize::try_from(limit).unwrap_or(0))
+            .collect();
+        Ok((page, total, unread_count))
     }
 
     /// The locale the feed renders in: the reader's own stored language.

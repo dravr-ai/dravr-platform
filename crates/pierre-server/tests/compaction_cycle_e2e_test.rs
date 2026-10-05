@@ -4,6 +4,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_core::transport::TransportPolicy;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
@@ -206,6 +207,7 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
                 prompt_tokens: None,
                 model: Some("stub-model"),
                 content_blocks: None,
+                transport_policy: TransportPolicy::AnyTransport,
             })
             .await
             .expect("message should be added");
@@ -461,6 +463,7 @@ async fn the_jammed_shape_summarizes_instead_of_raw_dropping() {
                 prompt_tokens: None,
                 model: Some("stub-model"),
                 content_blocks: None,
+                transport_policy: TransportPolicy::AnyTransport,
             })
             .await
             .expect("message should be added");
@@ -485,6 +488,7 @@ async fn the_jammed_shape_summarizes_instead_of_raw_dropping() {
                 original_tokens: 40,
                 first_message_id: &history[first].id,
                 last_message_id: &history[last].id,
+                transport_policy: TransportPolicy::AnyTransport,
             })
             .await
             .expect("block should insert");
@@ -579,6 +583,7 @@ async fn a_block_whose_first_row_scrolled_out_is_clamped_not_dropped() {
                 prompt_tokens: None,
                 model: Some("stub-model"),
                 content_blocks: None,
+                transport_policy: TransportPolicy::AnyTransport,
             })
             .await
             .expect("message should be added");
@@ -601,6 +606,7 @@ async fn a_block_whose_first_row_scrolled_out_is_clamped_not_dropped() {
             original_tokens: 40,
             first_message_id: &history[0].id,
             last_message_id: &history[3].id,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .expect("block should insert");

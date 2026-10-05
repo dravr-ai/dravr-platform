@@ -35,7 +35,6 @@ use axum::{Json, Router};
 use chrono::Utc;
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
 use dravr_sciotte::client::{ENV_AUDIENCE, ENV_REMOTE_URL};
-use dravr_sciotte::models::CoachedAthlete;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::oauth::providers::provider_terms_version;
@@ -46,7 +45,7 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::{
     AgentCategory, ConnectionType, CreateAgentRequest, DelegatedConnection, DelegationEndReason,
-    DelegationStatus, ProviderAccountRole, TenantId, UserOAuthToken,
+    DelegationStatus, ProviderAccountRole, RosterAthlete, TenantId, UserOAuthToken,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::ChatRoutes;
@@ -308,6 +307,7 @@ async fn world(roster_reads: Calls, dropped: Dropped) -> World {
                 tenant_id: member.tenant.to_string(),
                 role: GroupRole::Member,
                 peer_sharing_consent: false,
+                coach_sharing_consent: false,
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,
@@ -544,7 +544,7 @@ fn assert_notice(row: &Value, title: &str, body: &str) {
     assert_eq!(row["body"], body);
 }
 
-const COACH_ONLY: &str = "Only the group's coach can link TrainingPeaks athletes";
+const COACH_ONLY: &str = "Only the group's coach can link coaching-platform athletes";
 
 /// The coach holds no membership, yet reads the group's info and members;
 /// every other group surface keeps its member gate.
@@ -594,7 +594,7 @@ async fn only_the_coach_reads_the_roster_with_the_notice_accepted(w: &World) {
     assert_refused(
         w.get(&roster_path(w), &w.coach).await,
         StatusCode::BAD_REQUEST,
-        "trainingpeaks_terms_outdated",
+        "coach_platform_terms_outdated",
     );
     assert_eq!(w.roster_reads(), 0, "refused before any scrape");
     users
@@ -608,16 +608,16 @@ async fn only_the_coach_reads_the_roster_with_the_notice_accepted(w: &World) {
 /// the account as a coach's.
 async fn an_unread_role_never_serves_a_cached_roster(w: &World) {
     assert_eq!(w.recorded_role().await, None);
-    let planted = vec![CoachedAthlete {
+    let planted = vec![RosterAthlete {
         id: "999999".to_owned(),
-        display_name: Some("Someone Else".to_owned()),
+        name: Some("Someone Else".to_owned()),
         email: None,
     }];
     w.res
         .common
         .cache
         .set(
-            &roster_cache_key(w.coach.id, w.coach.tenant),
+            &roster_cache_key(w.coach.id, w.coach.tenant, PROVIDER),
             &planted,
             Duration::from_mins(10),
         )
@@ -704,10 +704,10 @@ async fn the_roster_read_grants_the_coach_and_is_cached(w: &World) {
 /// A new TrainingPeaks login drops the roster read through the session it
 /// replaces: the login may be another account's.
 async fn a_new_coach_login_drops_the_cached_roster(w: &World) {
-    let key = roster_cache_key(w.coach.id, w.coach.tenant);
+    let key = roster_cache_key(w.coach.id, w.coach.tenant, PROVIDER);
     let cache = &w.res.common.cache;
     assert!(cache
-        .get::<Vec<CoachedAthlete>>(&key)
+        .get::<Vec<RosterAthlete>>(&key)
         .await
         .unwrap()
         .is_some());
@@ -742,7 +742,7 @@ async fn a_new_coach_login_drops_the_cached_roster(w: &World) {
     let text = resp.text();
     assert_eq!(status, StatusCode::OK, "{text}");
     assert!(cache
-        .get::<Vec<CoachedAthlete>>(&key)
+        .get::<Vec<RosterAthlete>>(&key)
         .await
         .unwrap()
         .is_none());

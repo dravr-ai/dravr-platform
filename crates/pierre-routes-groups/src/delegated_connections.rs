@@ -1,4 +1,4 @@
-// ABOUTME: TrainingPeaks delegated-connection routes: a group's coach links roster athletes to members, who confirm
+// ABOUTME: Delegated-connection routes: a group's coach links coaching-platform roster athletes to members, who confirm
 // ABOUTME: List, roster, propose, confirm and end under /api/groups/{group_id}/delegated-connections
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,10 +6,11 @@
 
 //! Delegated-connection routes.
 //!
-//! A group's human coach reads each linked member's `TrainingPeaks` workouts
-//! through the coach's own `TrainingPeaks` account. The coach lists their
-//! roster and proposes which athlete is which member; the member confirms,
-//! which is their consent to the read; either side ends a link. The rules of
+//! A group's human coach reads each linked member's workouts on a coaching
+//! platform (`TrainingPeaks`, Intervals.icu) through the coach's own account
+//! there. The coach lists their roster and proposes which athlete is which
+//! member; the member confirms, which is their consent to the read; either
+//! side ends a link. The rules of
 //! each step live in [`pierre_services::delegated_connections`]; this module
 //! decides who may take it.
 //!
@@ -30,7 +31,6 @@ use axum::{
 };
 use chrono::Utc;
 use pierre_auth::auth::AuthResult;
-use pierre_core::constants::oauth_providers::{SCIOTTE_TRAININGPEAKS, TRAININGPEAKS};
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::groups::CoachingGroup;
 use pierre_core::models::{DelegatedConnection, DelegationStatus, TenantId, User};
@@ -40,9 +40,10 @@ use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::user_facing_name;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
+use pierre_services::coach_platform::roster_platform;
 use pierre_services::delegated_connections::{
-    confirm, end, person_name, propose, roster_for_group, unbound_link_reason, Proposal,
-    RosterEntry,
+    confirm, end, person_name, propose, roster_for_group, unbound_link_reason, DelegationServices,
+    Proposal, RosterEntry,
 };
 use pierre_services::trainingpeaks_accounts::link_binding;
 use pierre_tool_runtime::activity_fetch::fetch_provider_head;
@@ -68,7 +69,8 @@ pub struct DelegatedConnectionResponse {
     pub id: String,
     /// The group the link belongs to
     pub group_id: String,
-    /// The provider as the athlete knows it (`trainingpeaks`)
+    /// The provider as the athlete knows it (`trainingpeaks`,
+    /// `intervals_icu`)
     pub provider: String,
     /// The group's coach, whose account serves the reads
     pub coach_user_id: String,
@@ -117,8 +119,8 @@ pub struct DelegatedConnectionsResponse {
     pub metadata: GroupMetadata,
 }
 
-/// One athlete on the coach's `TrainingPeaks` roster, with its link in this
-/// group and the member its name suggests
+/// One athlete on the coach's platform roster, with its link in this group
+/// and the member its name suggests
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DelegationRosterAthlete {
     /// The athlete's id on the roster
@@ -135,7 +137,8 @@ pub struct DelegationRosterAthlete {
 /// Response for the coach's roster
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DelegationRosterResponse {
-    /// Always `trainingpeaks`
+    /// The coaching platform the roster is read from, as the athlete knows
+    /// it (`trainingpeaks`, `intervals_icu`)
     pub provider: String,
     /// The athletes the roster lists
     pub athletes: Vec<DelegationRosterAthlete>,
@@ -146,7 +149,8 @@ pub struct DelegationRosterResponse {
 /// Request to link a roster athlete to a member
 #[derive(Debug, Deserialize)]
 pub struct ProposeDelegatedConnectionRequest {
-    /// The provider, `trainingpeaks`
+    /// The coaching platform, as the athlete knows it (`trainingpeaks`,
+    /// `intervals_icu`)
     pub provider: String,
     /// The athlete's id on the coach's roster
     pub provider_athlete_id: String,
@@ -160,6 +164,10 @@ pub struct RosterQuery {
     /// Read the roster live instead of from the ten-minute cache
     #[serde(default)]
     pub refresh: bool,
+    /// The coaching platform to read (`trainingpeaks`, `intervals_icu`);
+    /// absent, the one the coach connected
+    #[serde(default)]
+    pub provider: Option<String>,
 }
 
 // ============================================================================
@@ -197,6 +205,18 @@ impl DelegatedConnectionRoutes {
     // Helpers
     // ========================================================================
 
+    /// What the linking steps that read a coach's roster work with.
+    fn services<C: ToolRuntime + GroupsCtx + MiddlewareCtx>(
+        resources: &Arc<C>,
+    ) -> DelegationServices<'_> {
+        DelegationServices {
+            repos: MiddlewareCtx::repos(resources.as_ref()),
+            registry: ToolRuntime::provider_registry(resources.as_ref()),
+            cache: ToolRuntime::cache(resources.as_ref()),
+            notifications: GroupsCtx::notification_service(resources.as_ref()),
+        }
+    }
+
     fn build_metadata() -> GroupMetadata {
         GroupMetadata {
             timestamp: Utc::now().to_rfc3339(),
@@ -230,13 +250,13 @@ impl DelegatedConnectionRoutes {
         (group.coach_user_id == Some(caller)).ok_or_else(|| {
             AppError::new(
                 ErrorCode::PermissionDenied,
-                "Only the group's coach can link TrainingPeaks athletes",
+                "Only the group's coach can link coaching-platform athletes",
             )
         })
     }
 
     fn connection_id(raw: &str) -> Result<Uuid, AppError> {
-        Uuid::parse_str(raw).map_err(|_| AppError::not_found("TrainingPeaks link"))
+        Uuid::parse_str(raw).map_err(|_| AppError::not_found("Delegated link"))
     }
 
     /// Each link as the clients show it, naming its coach and its member, and
@@ -347,7 +367,7 @@ impl DelegatedConnectionRoutes {
     }
 
     /// GET `/api/groups/:group_id/delegated-connections/roster` — the coach's
-    /// `TrainingPeaks` roster, each athlete with its link in this group.
+    /// coaching-platform roster, each athlete with its link in this group.
     async fn handle_roster<C: ToolRuntime + GroupsCtx + MiddlewareCtx>(
         State(resources): State<Arc<C>>,
         auth: AuthenticatedUser,
@@ -357,19 +377,20 @@ impl DelegatedConnectionRoutes {
         let auth = auth.into_inner();
         let (group, tenant) = Self::open_group(&resources, &auth, &group_id).await?;
         Self::require_coach(&group, auth.user_id)?;
-        // The roster is the coach's TrainingPeaks data, with no provenance of
-        // its own per athlete: refused whole over an external transport when
-        // TrainingPeaks' terms keep its data first-party (carnet#724).
-        let terms = ToolRuntime::provider_registry(resources.as_ref());
-        for backend in [TRAININGPEAKS, SCIOTTE_TRAININGPEAKS] {
-            ai_scope::first_party_only_read(terms.as_ref(), backend, None)?;
-        }
         let repos = MiddlewareCtx::repos(resources.as_ref());
+        let platform =
+            roster_platform(repos, auth.user_id, tenant, query.provider.as_deref()).await?;
+        // The roster is the coach's platform data, with no provenance of its
+        // own per athlete: refused whole over an external transport when the
+        // platform's terms keep its data first-party (carnet#724).
+        let registry = ToolRuntime::provider_registry(resources.as_ref());
+        for name in [platform.user_facing(), platform.backend()] {
+            ai_scope::first_party_only_read(registry.as_ref(), name, None)?;
+        }
 
         let entries = roster_for_group(
-            repos,
-            ToolRuntime::cache(resources.as_ref()),
-            GroupsCtx::notification_service(resources.as_ref()),
+            Self::services(&resources),
+            platform,
             &group,
             auth.user_id,
             tenant,
@@ -396,14 +417,14 @@ impl DelegatedConnectionRoutes {
                     DelegationRosterAthlete {
                         connection: link.and_then(|_| linked.remove(&athlete.id)),
                         provider_athlete_id: athlete.id,
-                        display_name: athlete.display_name,
+                        display_name: athlete.name,
                         suggested_member_user_id: suggested_member_user_id.map(|id| id.to_string()),
                     }
                 },
             )
             .collect();
         let response = DelegationRosterResponse {
-            provider: TRAININGPEAKS.to_owned(),
+            provider: platform.user_facing().to_owned(),
             athletes,
             metadata: Self::build_metadata(),
         };
@@ -424,9 +445,7 @@ impl DelegatedConnectionRoutes {
         let repos = MiddlewareCtx::repos(resources.as_ref());
 
         let link = propose(
-            repos,
-            ToolRuntime::cache(resources.as_ref()),
-            GroupsCtx::notification_service(resources.as_ref()),
+            Self::services(&resources),
             &group,
             auth.user_id,
             tenant,
@@ -472,7 +491,7 @@ impl DelegatedConnectionRoutes {
             ));
         };
         if link.status != DelegationStatus::Proposed {
-            return Err(AppError::not_found("Pending TrainingPeaks link"));
+            return Err(AppError::not_found("Pending link"));
         }
 
         let confirmed = confirm(
@@ -483,7 +502,12 @@ impl DelegatedConnectionRoutes {
             tenant,
         )
         .await?;
-        Self::spawn_warm_up(&resources, confirmed.member_user_id, tenant);
+        Self::spawn_warm_up(
+            &resources,
+            confirmed.provider.clone(),
+            confirmed.member_user_id,
+            tenant,
+        );
         let response = Self::responses(repos, &[confirmed])
             .await?
             .pop()
@@ -491,11 +515,16 @@ impl DelegatedConnectionRoutes {
         Ok((StatusCode::OK, Json(response)).into_response())
     }
 
-    /// Read the member's recent `TrainingPeaks` workouts through the link they
-    /// just confirmed, off the request, so their first question finds them
+    /// Read the member's recent `backend` workouts through the link they just
+    /// confirmed, off the request, so their first question finds them
     /// cached. The read writes through under the member's own keys; its
     /// failure is logged, and the next read tries again.
-    fn spawn_warm_up<C: ToolRuntime>(resources: &Arc<C>, member: Uuid, tenant: TenantId) {
+    fn spawn_warm_up<C: ToolRuntime>(
+        resources: &Arc<C>,
+        backend: String,
+        member: Uuid,
+        tenant: TenantId,
+    ) {
         let cloned: Arc<C> = Arc::clone(resources);
         let runtime: Arc<dyn ToolRuntime> = cloned;
         tokio::spawn(async move {
@@ -506,18 +535,18 @@ impl DelegatedConnectionRoutes {
                 after: None,
             };
             let tenant = tenant.to_string();
-            match fetch_provider_head(&runtime, SCIOTTE_TRAININGPEAKS, member, &tenant, &params)
-                .await
-            {
+            match fetch_provider_head(&runtime, &backend, member, &tenant, &params).await {
                 Ok(activities) => info!(
                     user_id = %member,
+                    provider = %backend,
                     count = activities.len(),
-                    "Confirmed TrainingPeaks link warmed up"
+                    "Confirmed delegated link warmed up"
                 ),
                 Err(e) => warn!(
                     user_id = %member,
+                    provider = %backend,
                     error = %e,
-                    "Warm-up read through a confirmed TrainingPeaks link failed"
+                    "Warm-up read through a confirmed delegated link failed"
                 ),
             }
         });

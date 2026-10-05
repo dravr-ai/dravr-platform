@@ -1187,8 +1187,12 @@
       "writing": "O teu plano está a acabar e tem as fases necessárias. Vou redigir as próximas {0} semanas — verifico a tua prontidão antes de as guardar."
     },
     "group": {
+      "coach_consent_updated": "Partilhar os teus dados com o coach humano de {1} está agora {0}.",
+      "coach_joined_notice": "{0} juntou-se a {1} e partilha contigo os seus dados de treino.",
+      "coach_sharing_named": "Os teus dados de treino estão agora partilhados com {0}, o coach humano do grupo. Para deixar de os partilhar: /group consent coach no",
+      "coach_sharing_pending": "Os teus dados de treino serão partilhados com o coach humano do grupo assim que um for associado. Para deixar de os partilhar: /group consent coach no",
       "consent_updated": "Partilhar os teus dados com os outros membros de {1} está agora {0}.",
-      "consent_usage": "Uso: /group consent yes  ou  /group consent no",
+      "consent_usage": "Uso: /group consent yes|no (os outros membros)  ou  /group consent coach yes|no (o coach humano)",
       "create_forbidden": "A criação de grupos está reservada aos administradores do teu espaço.",
       "create_no_agent": "Escolhe primeiro o agente do grupo: /agent add @handle nesta conversa e volta a correr /group create.",
       "create_unavailable": "O coaching em grupo não está incluído no teu plano.",
@@ -1239,7 +1243,7 @@
       "description": "Definir o agente Dravr deste grupo, ou desvincular o seu coach humano"
     },
     "group-consent": {
-      "description": "Escolher se os teus dados de treino são partilhados com os membros deste grupo"
+      "description": "Escolher se os teus dados de treino são partilhados com o coach humano e os membros deste grupo"
     },
     "group-create": {
       "description": "Criar um grupo de coaching à volta do agente desta conversa"
@@ -1442,51 +1446,52 @@
   },
   "delegation": {
     "actionFailed": "Não resultou. Tenta novamente.",
-    "alreadyLinked": "O teu TrainingPeaks já está associado através de outro grupo.",
-    "alreadyProposed": "Este membro já tem uma ligação ao TrainingPeaks neste grupo.",
+    "alreadyLinked": "O teu {{platform}} já está associado através de outro grupo.",
+    "alreadyProposed": "Este membro já tem uma ligação ao {{platform}} neste grupo.",
+    "apiKeyRequired": "O {{platform}} só mostra os teus atletas com uma chave de API. Volta a ligar o {{platform}} com a tua chave de API para ler a tua lista.",
     "athleteAlreadyLinked": "Este atleta já está associado.",
-    "athleteEmailMismatch": "O e-mail TrainingPeaks deste atleta não é o e-mail Dravr do membro, por isso não podem ser associados.",
-    "athleteEmailMissing": "O TrainingPeaks não partilha nenhum e-mail deste atleta, por isso o Dravr não o consegue associar a um membro.",
-    "coachEmailMismatch": "A conta TrainingPeaks que ligaste usa um e-mail diferente da tua conta Dravr. Liga a conta TrainingPeaks registada com o teu e-mail Dravr.",
-    "coachEmailMissing": "O TrainingPeaks não partilha nenhum e-mail da conta que ligaste, por isso o Dravr não consegue confirmar que é tua.",
-    "coachHint": "Associa cada atleta da tua lista do TrainingPeaks ao membro que ele é neste grupo. Ele confirma antes de o Dravr ler os treinos dele através da tua conta TrainingPeaks.",
-    "coachReconnectNeeded": "{{coach}} tem de voltar a ligar o TrainingPeaks; os teus treinos ficam em pausa até lá.",
+    "athleteEmailMismatch": "O e-mail {{platform}} deste atleta não é o e-mail Dravr do membro, por isso não podem ser associados.",
+    "athleteEmailMissing": "O {{platform}} não partilha nenhum e-mail deste atleta, por isso o Dravr não o consegue associar a um membro.",
+    "coachEmailMismatch": "A conta {{platform}} que ligaste usa um e-mail diferente da tua conta Dravr. Liga a conta {{platform}} registada com o teu e-mail Dravr.",
+    "coachEmailMissing": "O {{platform}} não partilha nenhum e-mail da conta que ligaste, por isso o Dravr não consegue confirmar que é tua.",
+    "coachHint": "Associa cada atleta da tua lista do {{platform}} ao membro que ele é neste grupo. Ele confirma antes de o Dravr ler os treinos dele através da tua conta {{platform}}.",
+    "coachReconnectNeeded": "{{coach}} tem de voltar a ligar o {{platform}}; os teus treinos ficam em pausa até lá.",
     "confirm": "Confirmar",
-    "confirmedBody": "Os teus treinos do TrainingPeaks são lidos através da conta de {{coach}}.",
-    "confirmedToast": "TrainingPeaks associado",
-    "connectFirst": "Liga o TrainingPeaks com a conta onde estão os teus atletas para os associar.",
+    "confirmedBody": "Os teus treinos do {{platform}} são lidos através da conta de {{coach}}.",
+    "confirmedToast": "{{platform}} associado",
+    "connectFirst": "Liga o {{platform}} com a conta onde estão os teus atletas para os associar.",
     "decline": "Recusar",
     "declinedToast": "Ligação recusada",
     "emailUnverified": "Confirma primeiro o teu e-mail Dravr: abre a ligação no e-mail de confirmação que te enviámos.",
-    "leaveEndsLink": "A tua ligação ao TrainingPeaks através deste grupo também termina.",
+    "leaveEndsLink": "A tua ligação ao {{platform}} através deste grupo também termina.",
     "linkedTo": "Associado a {{member}}",
     "memberEmailUnverified": "Este membro ainda não confirmou o e-mail Dravr, por isso não pode ser associado.",
     "memberLabel": "Membro",
     "memberPlaceholder": "Escolhe um membro",
-    "memberSectionTitle": "TrainingPeaks através do teu treinador humano",
-    "notCoachAccount": "A conta TrainingPeaks que ligaste é de um atleta, por isso não tem lista para associar.",
-    "notOnRoster": "Esse atleta já não está na tua lista do TrainingPeaks. Atualiza a lista e tenta novamente.",
+    "memberSectionTitle": "{{platform}} através do teu treinador humano",
+    "notCoachAccount": "A conta {{platform}} que ligaste é de um atleta, por isso não tem lista para associar.",
+    "notOnRoster": "Esse atleta já não está na tua lista do {{platform}}. Atualiza a lista e tenta novamente.",
     "openConnections": "Abrir ligações",
-    "ownConnectionConflict": "Já ligas o TrainingPeaks com a tua própria conta, e o Dravr continua a ler essa.",
+    "ownConnectionConflict": "Já ligas o {{platform}} com a tua própria conta, e o Dravr continua a ler essa.",
     "propose": "Associar",
     "proposedBody": "{{member}} confirma antes de qualquer leitura.",
     "proposedToast": "Pedido enviado",
-    "reconnectFirst": "Volta a ligar o TrainingPeaks para ler a tua lista.",
+    "reconnectFirst": "Volta a ligar o {{platform}} para ler a tua lista.",
     "refresh": "Atualizar a lista",
-    "requestBody": "{{coach}} treina-te no TrainingPeaks como {{athlete}}. Confirma, e o Dravr lê os teus treinos do TrainingPeaks através da conta de {{coach}} — não precisas de entrar tu no TrainingPeaks.",
-    "requestBodyNoName": "{{coach}} treina-te no TrainingPeaks. Confirma, e o Dravr lê os teus treinos do TrainingPeaks através da conta de {{coach}} — não precisas de entrar tu no TrainingPeaks.",
+    "requestBody": "{{coach}} treina-te no {{platform}} como {{athlete}}. Confirma, e o Dravr lê os teus treinos do {{platform}} através da conta de {{coach}} — não precisas de entrar tu no {{platform}}.",
+    "requestBodyNoName": "{{coach}} treina-te no {{platform}}. Confirma, e o Dravr lê os teus treinos do {{platform}} através da conta de {{coach}} — não precisas de entrar tu no {{platform}}.",
     "requestFootnote": "Podes desassociar a qualquer momento. Sair deste grupo também desassocia.",
-    "requestTitle": "Pedido de ligação ao TrainingPeaks",
-    "rosterEmpty": "A tua lista do TrainingPeaks ainda não tem atletas.",
-    "rosterFailed": "Não foi possível ler a tua lista do TrainingPeaks. Tenta novamente daqui a pouco.",
-    "rosterLoading": "A ler a tua lista do TrainingPeaks…",
-    "sectionTitle": "Atletas do TrainingPeaks",
+    "requestTitle": "Pedido de ligação ao {{platform}}",
+    "rosterEmpty": "A tua lista do {{platform}} ainda não tem atletas.",
+    "rosterFailed": "Não foi possível ler a tua lista do {{platform}}. Tenta novamente daqui a pouco.",
+    "rosterLoading": "A ler a tua lista do {{platform}}…",
+    "sectionTitle": "Atletas do {{platform}}",
     "suggested": "{{member}} (sugerido)",
-    "termsOutdated": "Volta a ligar o TrainingPeaks e aceita o aviso atualizado para ler a tua lista.",
+    "termsOutdated": "Volta a ligar o {{platform}} e aceita o aviso atualizado para ler a tua lista.",
     "unlink": "Desassociar",
-    "unlinkBody": "O Dravr deixa de ler estes treinos do TrainingPeaks através da conta do treinador humano e remove os que já leu da conta Dravr do atleta.",
-    "unlinkTitle": "Desassociar o TrainingPeaks?",
-    "unlinked": "Ligação ao TrainingPeaks terminada",
+    "unlinkBody": "O Dravr deixa de ler estes treinos do {{platform}} através da conta do treinador humano e remove os que já leu da conta Dravr do atleta.",
+    "unlinkTitle": "Desassociar o {{platform}}?",
+    "unlinked": "Ligação ao {{platform}} terminada",
     "waitingFor": "A aguardar a confirmação de {{member}}",
     "withdraw": "Retirar"
   },
@@ -2004,7 +2009,7 @@
     "cardDescription": "Cria planos para os atletas que treinas, com as ferramentas de planeamento para coaches. Sem perguntas sobre o teu próprio treino.",
     "coach": "Coach",
     "coachAndTrainCardDescription": "As ferramentas de planeamento para coaches, e um agente que também acompanha o teu próprio treino.",
-    "detachQ": "Desligar o treinador humano deste grupo? As ligações de atletas do TrainingPeaks dele neste grupo terminam, e ele perde o acesso à lista do grupo.",
+    "detachQ": "Desligar o treinador humano deste grupo? As ligações de atletas dele neste grupo terminam, e ele perde o acesso à lista do grupo.",
     "detached": "O treinador humano foi desassociado deste grupo.",
     "groupStepIntro": "Cada atleta tem seu próprio grupo: você como treinador, seu atleta e seu agente respondendo na conversa ao seu lado. Comece pelo seu primeiro atleta.",
     "group_detached": "{0} já não tem um treinador humano associado.",
@@ -2339,24 +2344,24 @@
         "title": "Agente atualizado"
       },
       "delegation_confirmed": {
-        "body": "{0} confirmou a tua ligação ao TrainingPeaks em {1}. Os treinos passam a ser lidos através da tua conta.",
-        "title": "Ligação ao TrainingPeaks confirmada"
+        "body": "{0} confirmou a tua ligação ao {2} em {1}. Os treinos passam a ser lidos através da tua conta.",
+        "title": "Ligação ao {0} confirmada"
       },
       "delegation_declined": {
-        "body": "{0} recusou a tua ligação ao TrainingPeaks em {1}.",
-        "title": "Ligação ao TrainingPeaks recusada"
+        "body": "{0} recusou a tua ligação ao {2} em {1}.",
+        "title": "Ligação ao {0} recusada"
       },
       "delegation_off_coach_roster": {
-        "body": "Já não constas da lista de atletas do TrainingPeaks de {0}, por isso os teus treinos deixaram de ser lidos através dessa conta em {1}. Pede a {0} para voltar a fazer a ligação ou liga o TrainingPeaks por conta própria.",
-        "title": "Ligação ao TrainingPeaks terminada"
+        "body": "Já não constas da lista de atletas do {2} de {0}, por isso os teus treinos deixaram de ser lidos através dessa conta em {1}. Pede a {0} para voltar a fazer a ligação ou liga o {2} por conta própria.",
+        "title": "Ligação ao {0} terminada"
       },
       "delegation_off_roster": {
-        "body": "{0} já não consta da tua lista de atletas do TrainingPeaks, por isso a ligação em {1} terminou. Volta a fazer a ligação quando {0} regressar à tua lista.",
-        "title": "Ligação ao TrainingPeaks terminada"
+        "body": "{0} já não consta da tua lista de atletas do {2}, por isso a ligação em {1} terminou. Volta a fazer a ligação quando {0} regressar à tua lista.",
+        "title": "Ligação ao {0} terminada"
       },
       "delegation_proposed": {
-        "body": "{0} pediu para ler os teus treinos do TrainingPeaks através da própria conta TrainingPeaks, em {1}. Nada é lido até confirmares.",
-        "title": "Pedido de ligação ao TrainingPeaks"
+        "body": "{0} pediu para ler os teus treinos do {2} através da própria conta {2}, em {1}. Nada é lido até confirmares.",
+        "title": "Pedido de ligação ao {0}"
       },
       "fitness_improvement": {
         "body": "O teu {0} subiu para {1}",

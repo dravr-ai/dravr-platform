@@ -17,6 +17,7 @@
 
 mod common;
 
+use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
 use chrono::{Duration, Utc};
@@ -86,6 +87,7 @@ impl Athlete {
                     source: FactSource::Onboarding,
                     valid_until: None,
                     source_msg_id: None,
+                    transport_policy: TransportPolicy::AnyTransport,
                 })
                 .await
                 .unwrap();

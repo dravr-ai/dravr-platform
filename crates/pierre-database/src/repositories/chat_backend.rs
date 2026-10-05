@@ -76,10 +76,16 @@ macro_rules! impl_chat_repository {
                     let last_created_at: Option<DateTime<Utc>> = row
                         .try_get("last_created_at")
                         .map_err(|e| chat_column_error("last_created_at", &e))?;
+                    let last_first_party_only: Option<bool> = row
+                        .try_get("last_first_party_only")
+                        .map_err(|e| chat_column_error("last_first_party_only", &e))?;
                     Ok(ConversationLastMessage {
                         content_head: opt("last_content_head")?.unwrap_or_default(),
                         role,
                         created_at: last_created_at.map(|t| t.to_rfc3339()).unwrap_or_default(),
+                        transport_policy: TransportPolicy::from_first_party_only(
+                            last_first_party_only.unwrap_or(false),
+                        ),
                     })
                 })
                 .transpose()?;
@@ -128,6 +134,10 @@ macro_rules! impl_chat_repository {
                 finish_reason: opt("finish_reason")?,
                 content_blocks: opt("content_blocks")?,
                 created_at: stamp_column(row, "created_at")?,
+                transport_policy: TransportPolicy::from_first_party_only(
+                    row.try_get("first_party_only")
+                        .map_err(|e| chat_column_error("first_party_only", &e))?,
+                ),
             })
         }
 
@@ -340,6 +350,7 @@ macro_rules! impl_chat_repository {
                 tenant_id: TenantId,
                 limit: i64,
                 offset: i64,
+                readable: TransportPolicy,
             ) -> AppResult<ConversationPage> {
                 let rows = sqlx::query(LIST_CONVERSATIONS_SQL)
                     .bind($ids::bind_text(user_id)?)
@@ -347,6 +358,7 @@ macro_rules! impl_chat_repository {
                     .bind(limit)
                     .bind(offset)
                     .bind(CONTENT_HEAD_CHARS)
+                    .bind(readable.is_first_party_only())
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
@@ -354,7 +366,7 @@ macro_rules! impl_chat_repository {
                     })?;
 
                 let total = self
-                    .count_participating_conversations(user_id, tenant_id)
+                    .count_participating_conversations(user_id, tenant_id, readable)
                     .await?;
 
                 Ok(ConversationPage {
@@ -370,10 +382,12 @@ macro_rules! impl_chat_repository {
                 &self,
                 user_id: &str,
                 tenant_id: TenantId,
+                readable: TransportPolicy,
             ) -> AppResult<i64> {
                 sqlx::query_scalar(COUNT_PARTICIPATING_SQL)
                     .bind($ids::bind_text(user_id)?)
                     .bind(tenant_id.to_string())
+                    .bind(readable.is_first_party_only())
                     .fetch_one(self.pool())
                     .await
                     .map_err(|e| {
@@ -522,6 +536,7 @@ macro_rules! impl_chat_repository {
                     .bind($ids::bind_text(params.user_id)?)
                     .bind(&tenant)
                     .bind(params.content_blocks)
+                    .bind(params.transport_policy.is_first_party_only())
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to add message: {e}")))?;
@@ -570,6 +585,7 @@ macro_rules! impl_chat_repository {
                     finish_reason: params.finish_reason.map(ToOwned::to_owned),
                     content_blocks: params.content_blocks.map(ToOwned::to_owned),
                     created_at: now.to_rfc3339(),
+                    transport_policy: params.transport_policy,
                 })
             }
 
@@ -595,12 +611,14 @@ macro_rules! impl_chat_repository {
                 user_id: &str,
                 tenant_id: TenantId,
                 limit: i64,
+                readable: TransportPolicy,
             ) -> AppResult<Vec<MessageRecord>> {
                 let rows = sqlx::query(GET_RECENT_MESSAGES_SQL)
                     .bind(conversation_id)
                     .bind($ids::bind_text(user_id)?)
                     .bind(tenant_id.to_string())
                     .bind(limit)
+                    .bind(readable.is_first_party_only())
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
@@ -645,6 +663,10 @@ macro_rules! impl_chat_repository {
                                 .try_get("agent_id")
                                 .map_err(|e| chat_column_error("agent_id", &e))?,
                             content: col("content")?,
+                            transport_policy: TransportPolicy::from_first_party_only(
+                                row.try_get("first_party_only")
+                                    .map_err(|e| chat_column_error("first_party_only", &e))?,
+                            ),
                         })
                     })
                     .collect()
@@ -1005,6 +1027,24 @@ macro_rules! impl_chat_repository {
                 Ok(result.rows_affected() > 0)
             }
 
+            async fn find_group_conversation(
+                &self,
+                user_id: &str,
+                tenant_id: TenantId,
+                group_id: &str,
+            ) -> AppResult<Option<ConversationRecord>> {
+                let row = sqlx::query(FIND_GROUP_CONVERSATION_SQL)
+                    .bind($ids::bind_text(user_id)?)
+                    .bind(tenant_id.to_string())
+                    .bind($ids::bind_text(group_id)?)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to find group conversation: {e}"))
+                    })?;
+                row.as_ref().map(conversation_from_row).transpose()
+            }
+
             async fn set_conversation_agent_id(
                 &self,
                 conversation_id: &str,
@@ -1098,6 +1138,7 @@ macro_rules! impl_chat_repository {
                     .bind($ids::bind_text(params.user_id)?)
                     .bind(&tenant)
                     .bind(params.content_blocks)
+                    .bind(params.transport_policy.is_first_party_only())
                     .execute(&mut *tx)
                     .await
                     .map_err(failed)?;
@@ -1126,6 +1167,7 @@ macro_rules! impl_chat_repository {
                     finish_reason: params.finish_reason.map(ToOwned::to_owned),
                     content_blocks: params.content_blocks.map(ToOwned::to_owned),
                     created_at: now.to_rfc3339(),
+                    transport_policy: params.transport_policy,
                 }))
             }
         }

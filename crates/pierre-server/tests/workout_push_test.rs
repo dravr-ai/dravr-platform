@@ -23,6 +23,7 @@
 mod common;
 
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::TransportPolicy;
 use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
@@ -502,6 +503,7 @@ impl Fixture {
                 replace_season: false,
                 outline,
                 weeks: &inputs,
+                transport_policy: TransportPolicy::AnyTransport,
             })
             .await
             .expect("save plan bundle");

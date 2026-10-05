@@ -223,6 +223,12 @@ pub struct UniversalExecutor {
     /// backstop runs after the tool body's scope has closed and a Copilot
     /// loopback call runs on another task altogether.
     transport: Option<Transport>,
+    /// What the turn this executor serves has served (carnet#769): inherited
+    /// from the derivation it was built in, scoped around each tool body and
+    /// marked from the output backstop, so content the turn derives from a
+    /// tool's first-party-only items is stamped. Held here for the reason
+    /// [`Self::transport`] is: the Copilot loop's calls run on another task.
+    provenance: Option<ai_scope::Provenance>,
 }
 
 impl UniversalExecutor {
@@ -256,6 +262,8 @@ impl UniversalExecutor {
             seat: TurnSeat::Subject,
             // A nested dispatch serves the transport its caller serves.
             transport: ai_scope::declared_transport(),
+            // And accumulates into the derivation its caller accumulates into.
+            provenance: ai_scope::current_provenance(),
         }
     }
 
@@ -715,10 +723,16 @@ impl UniversalExecutor {
                 ),
             ),
         ));
-        let (response, read_side_withheld) = match transport {
-            Some(served) => ai_scope::serve_over(served, body).await,
-            None => body.await,
+        let body = async {
+            match transport {
+                Some(served) => ai_scope::serve_over(served, body).await,
+                None => body.await,
+            }
         };
+        // A call outside any turn still tracks what its own body served, so a
+        // row the tool writes is stamped with it (carnet#769).
+        let provenance = self.provenance.clone().unwrap_or_default();
+        let (response, read_side_withheld) = ai_scope::tracking(provenance.clone(), body).await;
 
         // Guardian POST. Taint was folded atomically with the dispatch decision
         // in `decide_and_reserve` above (before the body ran), so it is already
@@ -781,6 +795,12 @@ impl UniversalExecutor {
             held_back,
             ai_scope::result_exposure(transport),
         );
+        // What the backstop let through reaches the turn: a first-party-only
+        // item still in it stamps what the turn derives (carnet#769).
+        if ai_view::serves_first_party_only(self.resources.provider_registry().as_ref(), &universal)
+        {
+            provenance.mark();
+        }
 
         // A window the athlete's healthy connections served without the elected
         // provider carries the dead backend's slug in its own payload. The

@@ -20,6 +20,7 @@
 //! The extraction prompt is compiled in here for v1. Promoting it to a
 //! dravr-contremaitre hot-reloadable prompt is a tracked follow-up.
 
+use pierre_core::transport::TransportPolicy;
 use std::sync::{Arc, LazyLock};
 
 use async_trait::async_trait;
@@ -117,6 +118,9 @@ pub struct CapturedTurn {
     pub assistant_reply: String,
     /// The assistant message id, for advice provenance.
     pub source_msg_id: Option<String>,
+    /// The assistant reply's stamp (carnet#769): advice captured from it
+    /// carries it.
+    pub transport_policy: TransportPolicy,
 }
 
 /// Pluggable mechanism for turning a finished turn into zero or more
@@ -224,6 +228,7 @@ pub fn raw_to_pending(
         label_source: None,
         source_msg_id: turn.source_msg_id.clone(),
         created_at: now,
+        transport_policy: turn.transport_policy,
     })
 }
 

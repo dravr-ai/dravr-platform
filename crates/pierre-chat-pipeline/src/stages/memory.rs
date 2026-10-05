@@ -75,7 +75,15 @@ pub async fn inject_okf_bundle(
     base_prompt: String,
     sentences: SentenceRenderer<'_>,
 ) -> String {
-    match dossier_repo.compose_dossier(tenant_id, user_id).await {
+    match dossier_repo
+        .compose_dossier(
+            tenant_id,
+            user_id,
+            ai_scope::readable_policy(),
+            &ai_scope::admit_derived,
+        )
+        .await
+    {
         Ok(dossier) => match render_okf_bundle_default(&dossier, sentences) {
             Some(block) => format!("{base_prompt}{block}"),
             None => base_prompt,
@@ -174,6 +182,11 @@ async fn active_plan_with_weeks(
             return None;
         }
     };
+    // A plan derived from first-party-only data stays out of an external
+    // turn, and stamps a first-party one (carnet#769).
+    if !ai_scope::admit_derived(plan.transport_policy) {
+        return None;
+    }
     match plans
         .list_plan_weeks(tenant_id, user_id, &plan.id, false)
         .await
@@ -205,8 +218,14 @@ pub async fn inject_agent_notes(
     let Some(agent_id) = agent_id else {
         return base_prompt;
     };
-    let notes = match memory
-        .list_agent_notes(tenant_id, user_id, agent_id, AGENT_NOTES_INJECT_LIMIT)
+    let mut notes = match memory
+        .list_agent_notes(
+            tenant_id,
+            user_id,
+            agent_id,
+            AGENT_NOTES_INJECT_LIMIT,
+            ai_scope::readable_policy(),
+        )
         .await
     {
         Ok(notes) => notes,
@@ -215,6 +234,9 @@ pub async fn inject_agent_notes(
             return base_prompt;
         }
     };
+    // A note written from first-party-only data stays out of an external
+    // turn (carnet#769).
+    ai_scope::retain_admitted(&mut notes, |note| note.transport_policy);
     if notes.is_empty() {
         return base_prompt;
     }
@@ -249,10 +271,21 @@ pub async fn inject_playbooks(
 ) -> String {
     let started = Instant::now();
     let playbooks = match playbook_repo
-        .list_playbooks(tenant_id, user_id, agent_slug, PLAYBOOK_INJECT_LIMIT)
+        .list_playbooks(
+            tenant_id,
+            user_id,
+            agent_slug,
+            PLAYBOOK_INJECT_LIMIT,
+            ai_scope::readable_policy(),
+        )
         .await
     {
-        Ok(p) => p,
+        // A playbook learned from first-party-only data stays out of an
+        // external turn (carnet#769).
+        Ok(mut p) => {
+            ai_scope::retain_admitted(&mut p, |playbook| playbook.transport_policy);
+            p
+        }
         Err(e) => {
             tracing::warn!(error = %e, "playbook list failed; continuing without playbooks");
             return base_prompt;

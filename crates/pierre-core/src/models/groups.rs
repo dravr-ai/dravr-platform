@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use crate::transport::TransportPolicy;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -229,8 +230,8 @@ pub struct CoachingGroup {
     /// Human professional agent (a Dravr user) attached to oversee this
     /// group. `None` until a coach redeems a coach-kind invite. Distinct
     /// from `agent_id`, which is the AI agent persona that answers chats:
-    /// the human coach reads the roster through that persona, gated by the
-    /// same per-member `peer_sharing_consent`.
+    /// the human coach reads the roster through that persona, gated by each
+    /// member's `coach_sharing_consent`.
     pub coach_user_id: Option<Uuid>,
     /// Whether peer data sharing is enabled for this group
     pub peer_data_sharing: bool,
@@ -262,6 +263,11 @@ pub struct CoachingGroup {
     pub updated_at: DateTime<Utc>,
 }
 
+/// The serde default of [`GroupMember::coach_sharing_consent`]: granted.
+const fn coach_sharing_granted() -> bool {
+    true
+}
+
 /// A member within a coaching group
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GroupMember {
@@ -275,8 +281,17 @@ pub struct GroupMember {
     pub tenant_id: String,
     /// Role within the group
     pub role: GroupRole,
-    /// Whether this member consents to peer data sharing
+    /// Whether this member shares their training data with the group's other
+    /// members. Opt-in, and gated again by the group's `peer_data_sharing`.
     pub peer_sharing_consent: bool,
+    /// Whether this member shares their training data with the group's human
+    /// coach (`CoachingGroup::coach_user_id`). Joining grants it — ADR-002:
+    /// membership is consent to the coach — and the member can revoke it.
+    /// Independent of `peer_sharing_consent` and of the group's peer switch.
+    /// Serde defaults keep payloads written before the field existed
+    /// deserializable, and read them as granted, as membership then implied.
+    #[serde(default = "coach_sharing_granted")]
+    pub coach_sharing_consent: bool,
     /// When consent was given (audit timestamp)
     pub consent_given_at: DateTime<Utc>,
     /// When the member joined
@@ -351,6 +366,11 @@ pub struct GroupTranscriptEntry {
     /// profile on read, not stored)
     #[serde(default)]
     pub author_display_name: Option<String>,
+    /// Where this entry may be served (carnet#769): first-party-only when the
+    /// message it was copied from was. Entries written before the stamp read
+    /// as unstamped.
+    #[serde(default, skip_serializing)]
+    pub transport_policy: TransportPolicy,
 }
 
 /// Parameters for appending one entry to a group's shared transcript.
@@ -371,6 +391,8 @@ pub struct NewGroupTranscriptEntry<'a> {
     pub source_conversation_id: Option<&'a str>,
     /// Provenance id of the source row, when any
     pub source_message_id: Option<&'a str>,
+    /// The stamp of the message the entry copies (carnet#769).
+    pub transport_policy: TransportPolicy,
 }
 
 /// One entry of a group's room as one member reads it.
@@ -388,6 +410,9 @@ pub struct RoomTranscriptEntry {
     pub created_at: DateTime<Utc>,
     /// What the reader may see of the entry
     pub body: RoomEntryBody,
+    /// The entry's stamp (carnet#769): an external reader sees a stamped
+    /// entry as withheld.
+    pub transport_policy: TransportPolicy,
 }
 
 /// What a reader may see of one room entry.
@@ -591,7 +616,8 @@ pub struct MemberFitnessSnapshot {
     /// Compact list of recent activities (last 7 days, newest first).
     /// Lets the LLM answer sub-week questions ("Saturday vs Sunday",
     /// "longest ride this week") that aggregate fields alone cannot
-    /// support. Empty for members without `peer_sharing_consent` or
+    /// support. Empty for members who do not share with the reader (see
+    /// `GroupMember::peer_sharing_consent` and `coach_sharing_consent`) or
     /// without activity data.
     pub recent_activities: Vec<RosterActivity>,
     /// Provider slugs whose connection flipped to `needs_reauth`/`revoked` for this member
@@ -645,7 +671,8 @@ impl MemberFitnessSnapshot {
 /// aggregates alone cannot support. Field set is deliberately minimal —
 /// no GPS, no streams, no per-second sensor data — to limit both token
 /// cost and the surface area of data shared between peers. Members
-/// who haven't opted in via `peer_sharing_consent` never appear here.
+/// who do not share with the reader — `peer_sharing_consent` for a fellow
+/// member, `coach_sharing_consent` for the group's coach — never appear here.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RosterActivity {
     /// Workout start time. Date-only sources (e.g. Strava-mirror scrapes)

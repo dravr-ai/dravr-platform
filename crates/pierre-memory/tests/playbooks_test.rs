@@ -7,6 +7,7 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
+use pierre_core::transport::TransportPolicy;
 use pierre_memory::playbooks::{
     AdviceStatus, Band, Intervention, InterventionKind, LabelSource, OutcomeLabel, OutcomeMetric,
     Playbook, TriggerKind, TriggerPattern,
@@ -136,6 +137,7 @@ fn sample_playbook() -> Playbook {
         last_outcome_at: None,
         created_at: now,
         updated_at: now,
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

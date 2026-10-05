@@ -15,6 +15,7 @@
 
 mod common;
 
+use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -242,6 +243,7 @@ async fn a_tool_raised_or_stale_medical_flag_still_gates() -> Result<()> {
             source: FactSource::Coach,
             valid_until: Some(Utc::now() - Duration::days(30)),
             source_msg_id: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
 

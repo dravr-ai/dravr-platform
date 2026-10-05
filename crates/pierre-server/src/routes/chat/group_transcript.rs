@@ -32,7 +32,7 @@ use pierre_core::errors::AppError;
 use pierre_core::models::groups::{RoomEntryBody, RoomTranscriptEntry};
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_middleware::AuthenticatedUser;
-use pierre_tool_runtime::derived_content::refuse_derived_content_off_interface;
+use pierre_providers::ai_scope;
 use uuid::Uuid;
 
 use super::common::{get_tenant_id, verify_group_membership};
@@ -163,12 +163,6 @@ pub async fn get_group_transcript(
         .groups
         .list_members(&group_id)
         .await?;
-    // The room's transcript carries every member's coaching, derived from
-    // each one's data: any member's connections can withhold it (carnet#724).
-    for member in &members {
-        refuse_derived_content_off_interface(resources.as_ref(), member.user_id).await?;
-    }
-
     let limit = query
         .limit
         .unwrap_or(DEFAULT_TRANSCRIPT_LIMIT)
@@ -183,6 +177,14 @@ pub async fn get_group_transcript(
     // Newest-first from the repository (it selects the newest window);
     // render oldest-first, the order a chat view paints.
     entries.reverse();
+    // An entry copied from a row derived from first-party-only data keeps its
+    // place in the room for an external caller, as a withheld entry — the
+    // same shape the consent rule gives it (carnet#769).
+    for entry in &mut entries {
+        if !ai_scope::admit_derived(entry.transport_policy) {
+            entry.body = RoomEntryBody::Withheld;
+        }
+    }
 
     let response = GroupTranscriptResponse {
         group_id,

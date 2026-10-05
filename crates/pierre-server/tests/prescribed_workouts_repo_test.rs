@@ -14,6 +14,7 @@
 //! tool → provider → calendar path they were standing in for now lives in that
 //! file for real.
 
+use pierre_core::transport::TransportPolicy;
 use std::time::Duration;
 
 use chrono::{NaiveDate, Utc};
@@ -66,6 +67,7 @@ fn make_prescribed(
         status: "pushed".to_owned(),
         created_at: now,
         updated_at: now,
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

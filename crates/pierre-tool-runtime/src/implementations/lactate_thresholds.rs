@@ -14,6 +14,7 @@
 //! `set_physiology` persists an FTP with, and names the profile field to
 //! save. It never writes — `set_physiology` stays the profile's only writer.
 
+use pierre_providers::ai_scope;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -414,7 +415,10 @@ impl McpTool<dyn ToolRuntime> for EstimateLactateThresholdsTool {
                 .repos()
                 .user_physiological_profile
                 .get_user_physiological_profile(tenant_id, user_id)
-                .await?;
+                .await?
+                // A profile written from first-party-only data is withheld from an
+                // external caller (carnet#769).
+                .filter(|profile| ai_scope::admit_derived(profile.transport_policy));
             let zones_config = &context.resources.config().training_zones;
 
             info!(

@@ -10,6 +10,7 @@
 mod common;
 mod helpers;
 
+use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -77,6 +78,7 @@ async fn seed_the_reported_pile(resources: &Arc<ServerContext>, tenant_id: Tenan
                 source,
                 valid_until: None,
                 source_msg_id: None,
+                transport_policy: TransportPolicy::AnyTransport,
             })
             .await
             .expect("fact stored");
@@ -128,7 +130,14 @@ async fn a_dry_run_reports_the_merges_and_changes_nothing() {
 
     let facts = repos
         .memory
-        .list_user_facts(tenant_id, &user, None, Some(FactKind::Goal), 50)
+        .list_user_facts(
+            tenant_id,
+            &user,
+            None,
+            Some(FactKind::Goal),
+            50,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .expect("facts listed");
     assert_eq!(facts.len(), 4, "the pile is still there after a dry run");
@@ -172,7 +181,14 @@ async fn applying_leaves_one_goal_in_the_athletes_own_words() {
 
     let facts = repos
         .memory
-        .list_user_facts(tenant_id, &user, None, Some(FactKind::Goal), 50)
+        .list_user_facts(
+            tenant_id,
+            &user,
+            None,
+            Some(FactKind::Goal),
+            50,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .expect("facts listed");
     assert_eq!(
@@ -233,6 +249,7 @@ async fn two_real_goals_are_left_alone() {
                 source: FactSource::Onboarding,
                 valid_until: None,
                 source_msg_id: None,
+                transport_policy: TransportPolicy::AnyTransport,
             })
             .await
             .expect("fact stored");
@@ -254,7 +271,14 @@ async fn two_real_goals_are_left_alone() {
     assert_eq!(stats.facts_merged, 0, "two goals are two goals");
     let facts = repos
         .memory
-        .list_user_facts(tenant_id, &user, None, Some(FactKind::Goal), 50)
+        .list_user_facts(
+            tenant_id,
+            &user,
+            None,
+            Some(FactKind::Goal),
+            50,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .expect("facts listed");
     assert_eq!(facts.len(), 2);

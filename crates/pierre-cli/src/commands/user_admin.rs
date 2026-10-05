@@ -23,8 +23,8 @@ use std::fmt::Write as _;
 use std::io::{self, Write as _};
 
 use clap::Args;
-use pierre_core::constants::oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
+use pierre_services::coach_platform::coach_platform;
 use serde_json::{json, Value};
 
 use pierre_cli::remote::RemoteClient;
@@ -475,7 +475,7 @@ pub async fn reset_onboarding(
             field(user, "id")
         );
         for entry in provider_entries(&body, "connected_providers") {
-            if field(&entry, "provider") == oauth_providers::TRAININGPEAKS {
+            if coach_platform(&field(&entry, "provider")).is_some() {
                 println!(
                     "  - {} would be kept: groups rely on it, and while it stays the provider steps stay hidden",
                     provider_line(&entry)

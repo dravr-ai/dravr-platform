@@ -1,4 +1,4 @@
-// ABOUTME: Tests for the TrainingPeaks link section — the coach's roster, picker and propose, and each refusal's words
+// ABOUTME: Tests for the coaching-platform link section — the coach's roster, picker and propose, and each refusal's words
 // ABOUTME: The member's decline and unlink, and the section never showing the server's English refusal text
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -61,9 +61,14 @@ function link(overrides: Partial<DelegatedConnection> = {}): DelegatedConnection
 }
 
 /** An axios-shaped refusal carrying `details.reason`. */
-function refusal(status: number, reason: string) {
+/**
+ * A link step's refusal as the server sends it: the reason, and the platform
+ * it is about whenever one is known (`null` for none).
+ */
+function refusal(status: number, reason: string, provider: string | null = 'trainingpeaks') {
+  const details = provider ? { reason, provider } : { reason };
   return Object.assign(new Error(`Request failed with status code ${status}`), {
-    response: { status, data: { code: 'InvalidInput', message: 'English for an API caller', details: { reason } } },
+    response: { status, data: { code: 'InvalidInput', message: 'English for an API caller', details } },
   });
 }
 
@@ -179,6 +184,33 @@ describe('DelegatedConnectionsSection — coach', () => {
     expect(await screen.findByText('Link sent')).toBeInTheDocument();
   });
 
+  it('proposes on the platform the roster was read from', async () => {
+    vi.mocked(groupsApi.getDelegationRoster).mockResolvedValue({
+      provider: 'intervals_icu',
+      athletes: [
+        {
+          provider_athlete_id: 'i201',
+          display_name: 'Alex Athlete',
+          connection: null,
+          suggested_member_user_id: 'user-alex',
+        },
+      ],
+    });
+    vi.mocked(groupsApi.proposeDelegatedConnection).mockResolvedValue(link());
+    const user = userEvent.setup();
+    renderSection();
+
+    await user.click(await screen.findByTestId('delegation-propose-i201'));
+
+    await waitFor(() =>
+      expect(groupsApi.proposeDelegatedConnection).toHaveBeenCalledWith(GROUP_ID, {
+        provider: 'intervals_icu',
+        provider_athlete_id: 'i201',
+        member_user_id: 'user-alex',
+      }),
+    );
+  });
+
   it('words a propose refusal from its reason, not the server message', async () => {
     vi.mocked(groupsApi.proposeDelegatedConnection).mockRejectedValue(refusal(409, 'already_proposed'));
     const user = userEvent.setup();
@@ -202,21 +234,66 @@ describe('DelegatedConnectionsSection — coach', () => {
     await waitFor(() => expect(groupsApi.endDelegatedConnection).toHaveBeenCalledWith(GROUP_ID, 'dc-2'));
   });
 
-  it('sends a coach with no TrainingPeaks connection to their connections', async () => {
-    vi.mocked(groupsApi.getDelegationRoster).mockRejectedValue(refusal(400, 'trainingpeaks_not_connected'));
+  it('sends a coach with no coaching platform connected to their connections', async () => {
+    vi.mocked(groupsApi.getDelegationRoster).mockRejectedValue(refusal(400, 'coach_platform_not_connected', null));
     const onOpenConnections = vi.fn();
     const user = userEvent.setup();
     renderSection({ onOpenConnections });
 
+    // No platform is connected, so the sentence names every one a coach can connect.
     const refused = await screen.findByTestId('delegation-roster-refused');
-    expect(refused).toHaveTextContent('Connect TrainingPeaks with the account your athletes are on to link them.');
+    expect(refused).toHaveTextContent(
+      'Connect TrainingPeaks / Intervals.icu with the account your athletes are on to link them.',
+    );
     await user.click(within(refused).getByTestId('delegation-open-connections'));
     expect(onOpenConnections).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('delegation-refresh')).toBeNull();
   });
 
+  it('names the platform the coach links run on when the roster read fails', async () => {
+    vi.mocked(groupsApi.getDelegationRoster).mockRejectedValue(
+      Object.assign(new Error('Request failed with status code 500'), {
+        response: { status: 500, data: { code: 'InternalError', message: 'English for an API caller' } },
+      }),
+    );
+    renderSection({ connections: [link({ provider: 'intervals_icu' })] });
+
+    // A transient failure names no platform; the coach's own links still do.
+    const refused = await screen.findByTestId('delegation-roster-refused');
+    expect(refused).toHaveTextContent('Your Intervals.icu roster could not be read. Try again in a moment.');
+    expect(screen.getByTestId('delegation-refresh')).toBeInTheDocument();
+  });
+
+  it('asks an Intervals.icu coach linked by OAuth for their API key, naming Intervals.icu', async () => {
+    vi.mocked(groupsApi.getDelegationRoster).mockRejectedValue(
+      refusal(400, 'coach_platform_api_key_required', 'intervals_icu'),
+    );
+    const onOpenConnections = vi.fn();
+    const user = userEvent.setup();
+    renderSection({ onOpenConnections });
+
+    const refused = await screen.findByTestId('delegation-roster-refused');
+    expect(refused).toHaveTextContent(
+      'Intervals.icu lists your athletes for an API key only. Reconnect Intervals.icu with your API key to read your roster.',
+    );
+    expect(refused).not.toHaveTextContent('TrainingPeaks');
+    await user.click(within(refused).getByTestId('delegation-open-connections'));
+    expect(onOpenConnections).toHaveBeenCalledTimes(1);
+  });
+
+  it('names Intervals.icu throughout an Intervals.icu roster', async () => {
+    vi.mocked(groupsApi.getDelegationRoster).mockResolvedValue({ provider: 'intervals_icu', athletes: [] });
+    renderSection();
+
+    expect(await screen.findByText('Your Intervals.icu roster lists no athletes yet.')).toBeInTheDocument();
+    expect(screen.getByTestId('delegation-section')).toHaveTextContent(
+      'Link each athlete on your Intervals.icu roster to the member they are in this group.',
+    );
+    expect(screen.getByTestId('delegation-section')).not.toHaveTextContent('TrainingPeaks');
+  });
+
   it('sends a coach whose TrainingPeaks account is not theirs by email to their connections', async () => {
-    vi.mocked(groupsApi.getDelegationRoster).mockRejectedValue(refusal(400, 'trainingpeaks_email_mismatch'));
+    vi.mocked(groupsApi.getDelegationRoster).mockRejectedValue(refusal(400, 'coach_platform_email_mismatch'));
     const onOpenConnections = vi.fn();
     const user = userEvent.setup();
     renderSection({ onOpenConnections });
@@ -272,7 +349,7 @@ describe('DelegatedConnectionsSection — coach', () => {
 
   it('tells a coach whose account trains that it has no roster, with nowhere to send them', async () => {
     vi.mocked(groupsApi.getDelegationRoster).mockRejectedValue(
-      refusal(400, 'trainingpeaks_not_coach_account'),
+      refusal(400, 'coach_platform_not_coach_account'),
     );
     renderSection({ onOpenConnections: vi.fn() });
 

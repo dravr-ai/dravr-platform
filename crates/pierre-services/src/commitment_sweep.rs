@@ -52,6 +52,8 @@ use pierre_core::models::{Activity, SportType, TenantId};
 use pierre_database::repositories::SweptVerdict;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::commitments::{Commitment, CommitmentOutcome};
+use pierre_providers::ai_scope;
+use pierre_providers::registry::global_registry;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -245,8 +247,13 @@ async fn sweep_due(
             close_out(repos, commitment, outcome).await;
             continue;
         };
-        sweep_one(
-            repos, refresher, commitment, user_id, &tenant_id, now, outcome,
+        // The verdict is derived from the sessions its window holds: it is
+        // stamped with what that count read (carnet#769).
+        ai_scope::tracking(
+            ai_scope::Provenance::new(),
+            sweep_one(
+                repos, refresher, commitment, user_id, &tenant_id, now, outcome,
+            ),
         )
         .await;
     }
@@ -278,6 +285,9 @@ async fn count_matching_sessions(
             warn!(commitment_id = %commitment.id, error = %e, "activity read failed; will retry");
         })
         .ok()?;
+    // A background sweep has no transport gate, so every session is kept; the
+    // filter marks the running derivation when one is first-party-only.
+    let activities = ai_scope::filter_activities(global_registry().as_ref(), activities);
 
     let want = commitment
         .sport
@@ -348,6 +358,7 @@ async fn write_verdict(
             outcome: verdict,
             completed_sessions: completed,
             at: now,
+            transport_policy: ai_scope::derived_policy(),
         })
         .await;
 

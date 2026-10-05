@@ -11,6 +11,7 @@ mod helpers;
 
 #[cfg(feature = "client-notifications")]
 mod group_weekly_digest_tests {
+    use pierre_core::transport::TransportPolicy;
     use std::collections::HashMap;
     use std::sync::Arc;
 
@@ -261,6 +262,7 @@ En forme :
                     route: Value::Null,
                     actions: None,
                     bypass_frequency_cap: false,
+                    transport_policy: TransportPolicy::AnyTransport,
                 },
                 PushTier::P3,
             )

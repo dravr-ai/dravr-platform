@@ -10,6 +10,7 @@
 use anyhow::Result;
 use chrono::Utc;
 use pierre_core::models::TenantId;
+use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
 use pierre_services::parq;
@@ -39,7 +40,10 @@ async fn parq_yes_answers_raise_medical_flags() -> Result<()> {
     let raised = parq::persist_parq_flags(repos.memory.as_ref(), tenant, &user_s, &yes).await?;
     assert_eq!(raised, 2, "two known yes answers raise two flags");
 
-    let dossier = repos.dossier.compose_dossier(tenant, user).await?;
+    let dossier = repos
+        .dossier
+        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .await?;
     assert_eq!(dossier.medical.len(), 2, "flags land in the medical bucket");
 
     // 12-month freshness: valid_until is set and in the future (not stale).
@@ -66,7 +70,10 @@ async fn parq_all_no_raises_nothing() -> Result<()> {
         parq::persist_parq_flags(repos.memory.as_ref(), tenant, &user.to_string(), &[]).await?;
     assert_eq!(raised, 0);
 
-    let dossier = repos.dossier.compose_dossier(tenant, user).await?;
+    let dossier = repos
+        .dossier
+        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .await?;
     assert!(dossier.medical.is_empty());
     Ok(())
 }

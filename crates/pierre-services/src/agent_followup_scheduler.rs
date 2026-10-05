@@ -50,8 +50,8 @@ use tracing::{debug, error, info};
 
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::{
-    models::NotificationCategory as CommNotifCategory, DispatchRequest, NotificationService,
-    PushTier, TenantId as CommTenantId,
+    events::stamp_data, models::NotificationCategory as CommNotifCategory, DispatchRequest,
+    NotificationService, PushTier, TenantId as CommTenantId,
 };
 
 use pierre_core::errors::AppResult;
@@ -264,7 +264,9 @@ async fn dispatch_notification(
         notification_type: "coach_followup_due".to_owned(),
         title: "Your agent has a followup for you".to_owned(),
         body: followup.content.clone(),
-        data: None,
+        // The followup's body is the agent's own text: it carries the
+        // followup's stamp (carnet#769).
+        data: stamp_data(None, followup.transport_policy),
         image_url: None,
         actions: None,
         bypass_frequency_cap: false,

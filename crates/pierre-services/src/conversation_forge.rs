@@ -37,6 +37,7 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{ConversationRecord, CoverageMap, GuidedFlow, OnboardingState, TenantId};
 use pierre_database::repositories::{ChatRepository, NewConversation, Reactivation, SlotClaim};
 use pierre_database::RepositoryRegistry;
+use pierre_providers::ai_scope;
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup, ConfigLookupScope};
 use serde_json::Value;
 use tracing::{info, warn};
@@ -650,7 +651,16 @@ pub async fn maybe_start_pillar_walk(
             return;
         }
     }
-    let Ok(dossier) = repos.dossier.compose_dossier(tenant_id, user_uuid).await else {
+    let Ok(dossier) = repos
+        .dossier
+        .compose_dossier(
+            tenant_id,
+            user_uuid,
+            ai_scope::readable_policy(),
+            &ai_scope::admit_derived,
+        )
+        .await
+    else {
         return;
     };
     // Anything already captured means the walk has run, or web asked.

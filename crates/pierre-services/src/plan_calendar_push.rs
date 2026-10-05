@@ -35,6 +35,7 @@
 //! the ledger write after it fails; the next push repairs the rest. The
 //! operation is idempotent by construction — re-running it is the undo.
 
+use pierre_core::transport::TransportPolicy;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -566,6 +567,7 @@ pub async fn push_active_plan(
             agent,
             entry,
             hash: &hash,
+            transport_policy: plan.transport_policy,
         };
 
         match live_by_key.get(&key) {
@@ -699,6 +701,8 @@ struct LedgerWrite<'a> {
     agent: Option<&'a str>,
     entry: &'a DesiredEntry,
     hash: &'a str,
+    /// The plan's stamp (carnet#769): an entry rendered from it carries it.
+    transport_policy: TransportPolicy,
 }
 
 impl LedgerWrite<'_> {
@@ -850,6 +854,7 @@ impl LedgerWrite<'_> {
             status: status.to_owned(),
             created_at: now,
             updated_at: now,
+            transport_policy: self.transport_policy,
         };
         self.repos
             .prescribed_workouts

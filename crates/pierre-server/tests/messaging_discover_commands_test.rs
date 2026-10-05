@@ -24,7 +24,8 @@ mod discover_over_messaging {
     use pierre_commands::load_command_catalog;
     use pierre_contremaitre::messaging_strings::{
         KEY_DISCOVER_CARD_TITLE, KEY_DISCOVER_INSTALLED, KEY_DISCOVER_INSTALL_ALREADY,
-        KEY_GROUP_CREATED, KEY_GROUP_JOINED, KEY_HELP_DOMAIN_DISCOVER,
+        KEY_GROUP_COACH_SHARING_PENDING, KEY_GROUP_CREATED, KEY_GROUP_JOINED,
+        KEY_HELP_DOMAIN_DISCOVER,
     };
     use pierre_core::models::agents::{AgentHandle, CreateAgentRequest};
     use pierre_core::models::groups::GroupInviteKind;
@@ -32,6 +33,7 @@ mod discover_over_messaging {
         ConnectionType, MessageRecord, PersistedReplyBlock, Tenant, TenantId, TurnOrigin, User,
         UserStatus,
     };
+    use pierre_core::transport::TransportPolicy;
     use pierre_database::backends::{
         CreateChannelLinkParams, CreateSessionParams, MessagingRepository,
         UpsertChannelConfigParams,
@@ -564,7 +566,13 @@ mod discover_over_messaging {
         let group_id = groups[0].id;
         let listed = repos
             .chat
-            .list_conversations(&owner.user_id.to_string(), owner.tenant_id, 50, 0)
+            .list_conversations(
+                &owner.user_id.to_string(),
+                owner.tenant_id,
+                50,
+                0,
+                TransportPolicy::FirstPartyOnly,
+            )
             .await
             .unwrap()
             .items;
@@ -587,9 +595,15 @@ mod discover_over_messaging {
             .unwrap();
         let member = link_telegram(&resources, "tg-group-member@test.com", "9905").await;
         let joined = dispatch(&resources, &member, &format!("/group join {}", invite.code)).await;
+        // No human coach is attached yet, so the sharing line says it will
+        // reach one as soon as one is.
         assert_eq!(
             joined.text,
-            rendered(&resources, KEY_GROUP_JOINED, &["Ride Club"])
+            format!(
+                "{}\n\n{}",
+                rendered(&resources, KEY_GROUP_JOINED, &["Ride Club"]),
+                rendered(&resources, KEY_GROUP_COACH_SHARING_PENDING, &[])
+            )
         );
         assert!(repos
             .groups
@@ -599,7 +613,13 @@ mod discover_over_messaging {
             .is_some());
         let member_rows = repos
             .chat
-            .list_conversations(&member.user_id.to_string(), member.tenant_id, 50, 0)
+            .list_conversations(
+                &member.user_id.to_string(),
+                member.tenant_id,
+                50,
+                0,
+                TransportPolicy::FirstPartyOnly,
+            )
             .await
             .unwrap()
             .items;

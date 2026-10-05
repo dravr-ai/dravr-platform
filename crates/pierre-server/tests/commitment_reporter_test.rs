@@ -8,6 +8,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Utc};
@@ -116,6 +117,7 @@ fn labeled(
         reported_at: None,
         created_at: now - Duration::days(7),
         updated_at: now,
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

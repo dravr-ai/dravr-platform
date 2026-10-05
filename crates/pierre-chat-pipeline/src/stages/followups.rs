@@ -19,6 +19,7 @@
 //!    timestamp and mark any followups that were surfaced as delivered.
 //!    Idempotent.
 
+use pierre_providers::ai_scope;
 use std::fmt::Write as _;
 
 use pierre_database::database::ConversationRecord;
@@ -98,7 +99,12 @@ pub async fn inject_pending_followups(
         .list_pending_followups(tenant_id, user_id, agent_id)
         .await
     {
-        Ok(list) => list,
+        // A promise made from first-party-only data stays out of an external
+        // turn, and is not marked delivered by it (carnet#769).
+        Ok(mut list) => {
+            ai_scope::retain_admitted(&mut list, |followup| followup.transport_policy);
+            list
+        }
         Err(e) => {
             tracing::warn!(error = %e, "failed to list pending followups");
             return (base_prompt, Vec::new());

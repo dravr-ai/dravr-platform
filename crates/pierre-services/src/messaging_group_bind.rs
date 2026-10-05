@@ -29,7 +29,10 @@
 //!   individual member consent is the gate) and is auto-enrolled as
 //!   Owner with `peer_sharing_consent = false`. Subsequent senders join
 //!   as Member with `peer_sharing_consent = false` and must opt in via
-//!   `/group consent yes` for their data to surface to peers.
+//!   `/group consent yes` for their data to surface to peers. Every
+//!   enrolment carries `coach_sharing_consent = true`, as every join does
+//!   (ADR-002: membership is consent to share with the group's coach); a
+//!   member revokes it with `/group consent coach no`.
 //!
 //! - DMs (`is_direct_message == true`) skip the helper entirely — the
 //!   caller doesn't invoke this path.

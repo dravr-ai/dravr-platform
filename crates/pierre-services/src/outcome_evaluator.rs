@@ -42,7 +42,7 @@ use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::models::{
     merge_recovery_metrics, Activity, SportType, StoredRecoveryMetrics, TenantId,
 };
-use pierre_core::transport::Transport;
+use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_database::repositories::RecordedOutcome;
 use pierre_database::RepositoryRegistry;
 use pierre_llm::{judge, ChatProvider, LlmProvider};
@@ -563,9 +563,14 @@ async fn run_one_sweep(inputs: SweepInputs<'_>) {
 /// Resolve and persist one piece of advice. Returns `true` when it was labeled.
 async fn process_one_advice(advice: &PendingAdvice, inputs: SweepInputs<'_>) -> bool {
     let repos = inputs.repos;
-    match evaluate_advice(advice, inputs).await {
+    // The label is derived from the athlete's data over the window: the
+    // playbook it reinforces is as strict as that data and the advice
+    // (carnet#769).
+    let (resolution, observed) = ai_scope::derived(evaluate_advice(advice, inputs)).await;
+    match resolution {
         AdviceResolution::Labeled(label, source) => {
-            record_and_mark(repos, advice, label, source).await
+            let policy = advice.transport_policy.strictest(observed);
+            record_and_mark(repos, advice, label, source, policy).await
         }
         AdviceResolution::Expire => {
             expire_advice(repos, advice).await;
@@ -605,6 +610,7 @@ async fn record_and_mark(
     advice: &PendingAdvice,
     label: OutcomeLabel,
     source: LabelSource,
+    transport_policy: TransportPolicy,
 ) -> bool {
     let outcome = RecordedOutcome {
         tenant_id: &advice.tenant_id,
@@ -615,6 +621,7 @@ async fn record_and_mark(
         outcome_metric: &advice.outcome_metric,
         label,
         at: Utc::now(),
+        transport_policy,
     };
     match repos
         .playbooks
@@ -739,6 +746,7 @@ mod tests {
             label_source: None,
             source_msg_id: None,
             created_at: now - ChronoDuration::days(7),
+            transport_policy: TransportPolicy::AnyTransport,
         }
     }
 

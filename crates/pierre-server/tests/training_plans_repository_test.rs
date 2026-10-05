@@ -11,6 +11,7 @@ use anyhow::Result;
 use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::WorkoutStep;
+use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::training_plans::{PlanAuthor, NO_AUTHOR_AGENT};
 use pierre_database::repositories::{
@@ -142,6 +143,7 @@ fn plan_params<'a>(
         season_end: None,
         phases,
         source_conversation_id: Some("conv-1"),
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 
@@ -168,6 +170,7 @@ async fn save_outline(
                 source_conversation_id: params.source_conversation_id,
             }),
             weeks: &[],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     Ok(saved.plan)
@@ -205,6 +208,7 @@ async fn save_and_get_roundtrip_preserves_content() -> Result<()> {
                 adjustment_reason: "",
                 phase_index: None,
             }],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     assert_eq!(saved.plan.id, plan.id);
@@ -293,6 +297,7 @@ async fn a_structured_day_round_trips_and_a_prose_row_reads_as_no_steps() -> Res
                 adjustment_reason: "",
                 phase_index: None,
             }],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
 
@@ -399,6 +404,7 @@ async fn week_resave_supersedes_that_week_only() -> Result<()> {
                     phase_index: None,
                 },
             ],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     assert_eq!(first.plan.id, plan.id);
@@ -424,6 +430,7 @@ async fn week_resave_supersedes_that_week_only() -> Result<()> {
                 adjustment_reason: "tempo moved to Wednesday — legs heavy Tuesday",
                 phase_index: None,
             }],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     let w1b = &resaved.weeks[0];
@@ -498,6 +505,7 @@ async fn tenant_and_user_isolation_enforced() -> Result<()> {
                 adjustment_reason: "",
                 phase_index: None,
             }],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await;
     let Err(err) = cross else {
@@ -532,6 +540,7 @@ fn weeks_by<'a>(
         replace_season: false,
         outline: None,
         weeks,
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 
@@ -661,6 +670,7 @@ async fn a_same_author_outline_supersedes_and_carries_weeks_with_their_authors()
             replace_season: false,
             outline: Some(outline_input(&race, &blks)),
             weeks: &[week_input("2026-07-13", "season week", &d1)],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     plans
@@ -718,6 +728,7 @@ async fn an_outline_over_another_authors_season_is_refused_already_exists_and_ch
             replace_season: false,
             outline: Some(outline_input(&race, &blks)),
             weeks: &[week_input("2026-07-13", "season week", &days)],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
 
@@ -736,6 +747,7 @@ async fn an_outline_over_another_authors_season_is_refused_already_exists_and_ch
                 replace_season: false,
                 outline: Some(outline_input(&taper_race, &blks)),
                 weeks: &[week_input("2026-07-20", "taper week", &taper_days)],
+                transport_policy: TransportPolicy::AnyTransport,
             })
             .await;
         let Err(err) = refused else {
@@ -791,6 +803,7 @@ async fn replace_season_supersedes_another_authors_outline() -> Result<()> {
             replace_season: false,
             outline: Some(outline_input(&race, &blks)),
             weeks: &[week_input("2026-07-13", "season week", &days)],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
 
@@ -807,6 +820,7 @@ async fn replace_season_supersedes_another_authors_outline() -> Result<()> {
             replace_season: true,
             outline: Some(outline_input(&taper_race, &blks)),
             weeks: &[],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     assert_eq!(
@@ -876,6 +890,7 @@ async fn a_weeks_only_save_by_a_second_author_stamps_only_its_weeks() -> Result<
                 week_input("2026-07-13", "season week one", &d1),
                 week_input("2026-07-20", "season week two", &d2),
             ],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     let original_week_two = season.weeks[1].id.clone();
@@ -1079,6 +1094,7 @@ async fn bundle_saves_outline_and_weeks_in_one_call() -> Result<()> {
                 adjustment_reason: "",
                 phase_index: None,
             }],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     assert_eq!(saved.weeks.len(), 1);
@@ -1132,6 +1148,7 @@ async fn a_phase_index_past_the_column_is_refused_as_input_and_writes_nothing() 
                 adjustment_reason: "",
                 phase_index: Some(u32::MAX),
             }],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await;
     let Err(err) = result else {
@@ -1178,6 +1195,7 @@ async fn a_phase_index_round_trips_through_a_supersede() -> Result<()> {
                 adjustment_reason: "",
                 phase_index: Some(1),
             }],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     assert_eq!(first.weeks[0].phase_index, Some(1));
@@ -1236,6 +1254,7 @@ async fn bundle_weeks_only_attaches_to_active_plan() -> Result<()> {
                 adjustment_reason: "",
                 phase_index: None,
             }],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     assert_eq!(saved.plan.id, plan.id, "weeks attach to the active plan");
@@ -1267,6 +1286,7 @@ async fn bundle_weeks_only_with_no_plan_errors_and_writes_nothing() -> Result<()
                 adjustment_reason: "",
                 phase_index: None,
             }],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await;
     assert!(result.is_err(), "weeks with no active plan must error");
@@ -1324,6 +1344,7 @@ async fn outline_resave_carries_the_active_weeks_onto_the_new_plan() -> Result<(
                     phase_index: None,
                 },
             ],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     assert_eq!(first.weeks.len(), 3);
@@ -1344,6 +1365,7 @@ async fn outline_resave_carries_the_active_weeks_onto_the_new_plan() -> Result<(
             replace_season: false,
             outline: Some(outline_input(&moved, &blks)),
             weeks: &[],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     assert_ne!(second.plan.id, first.plan.id);
@@ -1443,6 +1465,7 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
                     phase_index: None,
                 },
             ],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     assert_eq!(plan_a.weeks.len(), 2);
@@ -1529,6 +1552,7 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
                     phase_index: None,
                 },
             ],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     assert_ne!(plan_b.plan.id, plan_a.plan.id);
@@ -1562,6 +1586,7 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
                     phase_index: None,
                 },
             ],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     assert_ne!(plan_c.plan.id, plan_b.plan.id);
@@ -1674,6 +1699,7 @@ async fn outline_resave_with_weeks_keeps_one_active_row_per_week() -> Result<()>
                     phase_index: None,
                 },
             ],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
 
@@ -1696,6 +1722,7 @@ async fn outline_resave_with_weeks_keeps_one_active_row_per_week() -> Result<()>
                 adjustment_reason: "illness — intervals pulled",
                 phase_index: None,
             }],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
 
@@ -1730,6 +1757,7 @@ async fn bundle_resaving_outline_supersedes_the_previous_plan() -> Result<()> {
             replace_season: false,
             outline: Some(outline_input(&race, &blks)),
             weeks: &[],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
 
@@ -1743,6 +1771,7 @@ async fn bundle_resaving_outline_supersedes_the_previous_plan() -> Result<()> {
             replace_season: false,
             outline: Some(outline_input(&race, &blks)),
             weeks: &[],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     assert_eq!(

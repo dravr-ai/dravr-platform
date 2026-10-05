@@ -1,5 +1,5 @@
 // ABOUTME: End-to-end check of the per-provider transport gate through the real executor and HTTP app (carnet#724)
-// ABOUTME: A first-party-only relay reaches Dravr's own surfaces; MCP, A2A and API-key callers get none of it
+// ABOUTME: A first-party-only relay, and content stamped as derived from it (carnet#769), stay on Dravr's own surfaces
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,6 +10,7 @@
 mod common;
 
 use std::sync::Arc;
+use std::time::Duration as StdDuration;
 
 use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
@@ -18,20 +19,30 @@ use axum::Router;
 use chrono::{Duration, DurationRound, Utc};
 use embacle_tool_host::ToolSurface;
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier};
+use pierre_chat_pipeline::stages::persistence::get_conversation_history;
 use pierre_chat_pipeline::ToolSessionTurn;
 use pierre_core::ai_policy::SourcePolicy;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
+use pierre_core::models::groups::{
+    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    NewGroupTranscriptEntry, TranscriptSpeaker,
+};
 use pierre_core::models::{
-    Activity, ActivityBuilder, Athlete, ConnectionType, ConversationTurnId, SportType, Stats,
-    TenantId, User, UserOAuthToken, UserPhysiologicalProfile,
+    Activity, ActivityBuilder, AddMessageParams, Athlete, ConnectionType, ConversationTurnId,
+    SportType, Stats, TenantId, User, UserOAuthToken, UserPhysiologicalProfile,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::{Transport, TransportPolicy};
+use pierre_database::repositories::training_plans::PlanAuthor;
+use pierre_database::repositories::{PlanOutlineInput, SavePlanBundleParams, UpsertUserFactParams};
 use pierre_mcp_server::context::ServerContext;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::tool_surface::{HostedToolBridge, TurnToolSurface};
+use pierre_memory::training_plans::{GoalRace, RacePriority};
+use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 use pierre_providers::ai_scope;
 use pierre_providers::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig,
@@ -46,6 +57,7 @@ use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::Value;
+use tokio::time::sleep;
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -756,6 +768,7 @@ async fn derived_training_status_leaves_the_relay_out_of_an_api_key_answer() {
                 w_prime_joules: None,
                 critical_speed_mps: None,
                 d_prime_meters: None,
+                transport_policy: TransportPolicy::AnyTransport,
             },
         )
         .await
@@ -840,8 +853,86 @@ async fn send_json(
     )
 }
 
+/// Write one chat row straight into the thread, stamped as the turn that
+/// wrote it would have stamped it.
+async fn write_row(
+    resources: &Arc<ServerContext>,
+    rider: &Rider,
+    conversation_id: &str,
+    role: &str,
+    content: &str,
+    transport_policy: TransportPolicy,
+) {
+    resources
+        .common
+        .repos
+        .chat
+        .add_message(&AddMessageParams {
+            tenant_id: rider.tenant,
+            conversation_id,
+            user_id: &rider.user_id.to_string(),
+            role,
+            content,
+            token_count: None,
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+            content_blocks: None,
+            transport_policy,
+        })
+        .await
+        .unwrap();
+}
+
+/// A fact the athlete holds, stamped as given.
+async fn write_fact(
+    resources: &Arc<ServerContext>,
+    rider: &Rider,
+    object: &str,
+    transport_policy: TransportPolicy,
+) {
+    resources
+        .common
+        .repos
+        .memory
+        .upsert_user_fact(&UpsertUserFactParams {
+            tenant_id: rider.tenant,
+            user_id: &rider.user_id.to_string(),
+            agent_id: None,
+            scope: MemoryScope::User,
+            kind: FactKind::Preference,
+            pillar: None,
+            predicate_code: PredicateCode::Prefer,
+            object,
+            confidence: 0.9,
+            source: FactSource::Conversation,
+            valid_until: None,
+            source_msg_id: None,
+            transport_policy,
+        })
+        .await
+        .unwrap();
+}
+
+/// A conversation the athlete opened in the app.
+async fn open_thread(app: &Router, session: &str, title: &str) -> String {
+    let (status, created) = send_json(
+        app,
+        "POST",
+        "/api/chat/conversations",
+        session,
+        &serde_json::json!({ "title": title }),
+    )
+    .await;
+    assert!(status.is_success(), "{created}");
+    created["id"]
+        .as_str()
+        .expect("a conversation id")
+        .to_owned()
+}
+
 #[tokio::test]
-async fn derived_content_is_withheld_from_an_api_key_while_the_relay_is_connected() {
+async fn a_stamped_message_is_withheld_and_an_unstamped_one_served_over_an_api_key() {
     let resources = server_with_relay().await;
     let rider = athlete_with_relay(&resources).await;
     let app = ProviderToolRouter::build_http_app(&resources);
@@ -851,55 +942,277 @@ async fn derived_content_is_withheld_from_an_api_key_while_the_relay_is_connecte
     );
     let key = api_key(&resources, rider.user_id).await;
 
-    let (status, created) = send_json(
-        &app,
-        "POST",
-        "/api/chat/conversations",
-        &session,
-        &serde_json::json!({ "title": "Relay thread" }),
+    let conversation = open_thread(&app, &session, "Week review").await;
+    write_row(
+        &resources,
+        &rider,
+        &conversation,
+        "user",
+        "How was my week?",
+        TransportPolicy::AnyTransport,
     )
     .await;
-    assert!(status.is_success(), "{created}");
-    let conversation = created["id"]
-        .as_str()
-        .expect("a conversation id")
-        .to_owned();
+    write_row(
+        &resources,
+        &rider,
+        &conversation,
+        "assistant",
+        "Open coaching: keep Sunday easy.",
+        TransportPolicy::AnyTransport,
+    )
+    .await;
+    write_row(
+        &resources,
+        &rider,
+        &conversation,
+        "assistant",
+        "Relay-derived: Garmin Hills was your strongest climb.",
+        TransportPolicy::FirstPartyOnly,
+    )
+    .await;
     let messages = format!("/api/chat/conversations/{conversation}/messages");
 
-    for uri in [
-        "/api/chat/conversations",
-        messages.as_str(),
-        "/api/memory/facts",
-        "/api/me/training-plan",
-    ] {
-        let (status, refused) = get(&app, uri, &key).await;
-        assert_eq!(status, StatusCode::FORBIDDEN, "{uri}: {refused}");
+    // The athlete holds the relay, yet the API key reads the thread: only the
+    // row derived from the relay is withheld.
+    let (status, external) = get(&app, &messages, &key).await;
+    assert_eq!(status, StatusCode::OK, "{external}");
+    let text = external.to_string();
+    assert!(text.contains("How was my week?"), "{text}");
+    assert!(text.contains("Open coaching"), "{text}");
+    assert!(!text.contains("Garmin Hills"), "{text}");
+
+    let (status, own) = get(&app, &messages, &session).await;
+    assert_eq!(status, StatusCode::OK, "{own}");
+    let text = own.to_string();
+    assert!(text.contains("Open coaching"), "{text}");
+    assert!(
+        text.contains("Garmin Hills"),
+        "the athlete's own app reads every row: {text}"
+    );
+
+    // The list row previews the newest row the reader may read: the key sees
+    // the open reply and counts two rows, the app the stamped one and three.
+    let (status, external_list) = get(&app, "/api/chat/conversations", &key).await;
+    assert_eq!(status, StatusCode::OK, "{external_list}");
+    let row = external_list["conversations"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|c| c["id"] == conversation.as_str()))
+        .cloned()
+        .expect("the thread is listed over the key");
+    assert_eq!(
+        row["last_message"]["preview"], "Open coaching: keep Sunday easy.",
+        "{row}"
+    );
+    assert_eq!(row["message_count"], 2, "{row}");
+    let (_, own_list) = get(&app, "/api/chat/conversations", &session).await;
+    assert!(own_list.to_string().contains("Relay-derived"), "{own_list}");
+
+    // The prompt a turn assembles over the key replays the same rows.
+    let repos = &resources.common.repos;
+    let owner = rider.user_id.to_string();
+    let replay = |transport| {
+        ai_scope::serve_over(
+            transport,
+            ai_scope::derived(get_conversation_history(
+                repos.chat.as_ref(),
+                &conversation,
+                &owner,
+                rider.tenant,
+                50,
+            )),
+        )
+    };
+    let (history, stamp) = replay(Transport::ApiKey).await;
+    let contents: Vec<String> = history.unwrap().into_iter().map(|m| m.content).collect();
+    assert_eq!(
+        contents,
+        vec![
+            "How was my week?".to_owned(),
+            "Open coaching: keep Sunday easy.".to_owned()
+        ]
+    );
+    assert_eq!(stamp, TransportPolicy::AnyTransport);
+    let (history, stamp) = replay(Transport::WebApp).await;
+    assert_eq!(history.unwrap().len(), 3);
+    assert_eq!(
+        stamp,
+        TransportPolicy::FirstPartyOnly,
+        "a first-party turn replaying the stamped row is stamped by it"
+    );
+}
+
+#[tokio::test]
+async fn facts_and_the_plan_derived_from_the_relay_are_withheld_and_the_rest_served() {
+    let resources = server_with_relay().await;
+    let rider = athlete_with_relay(&resources).await;
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let session = format!(
+        "Bearer {}",
+        common::generate_test_token(&resources, &rider.user).await
+    );
+    let key = api_key(&resources, rider.user_id).await;
+
+    write_fact(
+        &resources,
+        &rider,
+        "morning runs",
+        TransportPolicy::AnyTransport,
+    )
+    .await;
+    write_fact(
+        &resources,
+        &rider,
+        "the Garmin Hills loop",
+        TransportPolicy::FirstPartyOnly,
+    )
+    .await;
+
+    let (status, external) = get(&app, "/api/memory/facts", &key).await;
+    assert_eq!(status, StatusCode::OK, "{external}");
+    let text = external.to_string();
+    assert!(text.contains("morning runs"), "{text}");
+    assert!(!text.contains("Garmin Hills"), "{text}");
+    let (_, own) = get(&app, "/api/memory/facts", &session).await;
+    assert!(own.to_string().contains("Garmin Hills"), "{own}");
+
+    for (transport, sees_relay) in [(Transport::McpHttp, false), (Transport::WebApp, true)] {
+        let recall = call(&resources, &rider, Some(transport), "recall_user_memory").await;
+        assert!(recall.success, "{transport:?}: {:?}", recall.error);
+        let text = payload_text(&recall);
+        assert!(text.contains("morning runs"), "{transport:?}: {text}");
         assert_eq!(
-            refused["code"], "UnavailableOverTransport",
-            "{uri}: {refused}"
-        );
-        let (status, own) = get(&app, uri, &session).await;
-        assert_ne!(
-            status,
-            StatusCode::FORBIDDEN,
-            "{uri} in the athlete's app: {own}"
+            text.contains("Garmin Hills"),
+            sees_relay,
+            "{transport:?}: {text}"
         );
     }
 
-    // A chat turn over the key replays the thread into a prompt: refused
-    // before any model is asked.
-    let (status, refused) = send_json(
-        &app,
-        "POST",
-        &messages,
-        &key,
-        &serde_json::json!({ "content": "How was my week?" }),
-    )
-    .await;
+    // No plan yet: the key is told so, like the app.
+    let (status, _) = get(&app, "/api/me/training-plan", &key).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let goal = GoalRace {
+        name: "Relay Gran Fondo".to_owned(),
+        date: (Utc::now() + Duration::days(90))
+            .date_naive()
+            .format("%Y-%m-%d")
+            .to_string(),
+        discipline: "road".to_owned(),
+        priority: RacePriority::A,
+    };
+    resources
+        .common
+        .repos
+        .training_plans
+        .save_plan_bundle(&SavePlanBundleParams {
+            tenant_id: &rider.tenant.to_string(),
+            user_id: &rider.user_id.to_string(),
+            author: PlanAuthor::none(),
+            goal_fact_id: None,
+            replace_season: false,
+            outline: Some(PlanOutlineInput {
+                goal_race: &goal,
+                races: Some(&[]),
+                strategy: "built on the relay's rides",
+                phases: &[],
+                source_conversation_id: None,
+                flavour: None,
+                season_start: None,
+                season_end: None,
+            }),
+            weeks: &[],
+            transport_policy: TransportPolicy::FirstPartyOnly,
+        })
+        .await
+        .unwrap();
+
+    let (status, refused) = get(&app, "/api/me/training-plan", &key).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{refused}");
     assert_eq!(refused["code"], "UnavailableOverTransport", "{refused}");
+    assert!(!refused.to_string().contains("Gran Fondo"), "{refused}");
+    let (status, own) = get(&app, "/api/me/training-plan", &session).await;
+    assert_eq!(status, StatusCode::OK, "{own}");
+    assert!(own.to_string().contains("Relay Gran Fondo"), "{own}");
 
-    // The same reader over MCP, as a tool.
+    let plan_tool = call(
+        &resources,
+        &rider,
+        Some(Transport::McpHttp),
+        "get_training_plan",
+    )
+    .await;
+    assert!(!payload_text(&plan_tool).contains("Gran Fondo"));
+    assert!(payload_text(&plan_tool).contains(UNAVAILABLE_HERE));
+}
+
+#[tokio::test]
+async fn a_turn_that_served_the_relay_stamps_what_its_tools_write() {
+    let resources = server_with_relay().await;
+    let rider = athlete_with_relay(&resources).await;
+    let remember = |object: &str| {
+        serde_json::json!({
+            "kind": "preference",
+            "predicate_code": "prefer",
+            "object": object,
+            "confidence": 0.9,
+        })
+    };
+
+    // The Copilot loop calls from another task: the turn's accumulator rides
+    // the surface there. A first-party turn that read the relay stamps the
+    // fact it then writes; a turn over the key never read it, so its fact
+    // stays open.
+    for (transport, object, expected) in [
+        (
+            Transport::WebApp,
+            "long climbs after the relay rides",
+            TransportPolicy::FirstPartyOnly,
+        ),
+        (
+            Transport::ApiKey,
+            "short intervals",
+            TransportPolicy::AnyTransport,
+        ),
+    ] {
+        let provenance = ai_scope::Provenance::new();
+        let surface = ai_scope::serve_over(
+            transport,
+            ai_scope::tracking(provenance.clone(), async {
+                copilot_surface(&resources, &rider)
+            }),
+        )
+        .await;
+        let args = remember(object);
+        let reads = serde_json::json!({ "provider": RELAY, "limit": 10, "mode": "summary" });
+        tokio::spawn(async move {
+            surface.call("get_activities", &reads).await;
+            surface.call("remember_fact", &args).await
+        })
+        .await
+        .unwrap();
+        assert_eq!(provenance.policy(), expected, "{transport:?}");
+
+        let facts = resources
+            .common
+            .repos
+            .memory
+            .list_user_facts(
+                rider.tenant,
+                &rider.user_id.to_string(),
+                None,
+                None,
+                50,
+                TransportPolicy::FirstPartyOnly,
+            )
+            .await
+            .unwrap();
+        let fact = facts
+            .iter()
+            .find(|f| f.object == object)
+            .expect("the tool wrote the fact");
+        assert_eq!(fact.transport_policy, expected, "{transport:?}");
+    }
+
     let recall = call(
         &resources,
         &rider,
@@ -907,16 +1220,366 @@ async fn derived_content_is_withheld_from_an_api_key_while_the_relay_is_connecte
         "recall_user_memory",
     )
     .await;
-    assert!(!recall.success, "{:?}", recall.error);
-    assert!(payload_text(&recall).contains(UNAVAILABLE_HERE));
-    let own_recall = call(
+    let text = payload_text(&recall);
+    assert!(text.contains("short intervals"), "{text}");
+    assert!(!text.contains("long climbs"), "{text}");
+}
+
+#[tokio::test]
+async fn a_thread_opened_from_a_relay_activity_is_withheld_whole_over_an_api_key() {
+    let resources = server_with_relay().await;
+    let rider = athlete_with_relay(&resources).await;
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let session = format!(
+        "Bearer {}",
+        common::generate_test_token(&resources, &rider.user).await
+    );
+    let key = api_key(&resources, rider.user_id).await;
+
+    let thread = open_thread(&app, &session, "Garmin Hills").await;
+    // The athlete's own question names the relay's activity: no row is
+    // stamped, the link to the activity is what holds the thread.
+    write_row(
         &resources,
         &rider,
-        Some(Transport::WebApp),
-        "recall_user_memory",
+        &thread,
+        "user",
+        "How did Garmin Hills go?",
+        TransportPolicy::AnyTransport,
     )
     .await;
-    assert!(own_recall.success, "{:?}", own_recall.error);
+    // The app links the thread to the relay's activity it was opened from;
+    // the link carries the activity's terms.
+    resources
+        .common
+        .repos
+        .activity_cache
+        .upsert_activities(rider.user_id, &rider.tenant, RELAY, &sessions())
+        .await
+        .unwrap();
+    let (status, linked) = send_json(
+        &app,
+        "PUT",
+        &format!("/api/me/activities/{RELAY}/g1/conversation"),
+        &session,
+        &serde_json::json!({ "conversation_id": thread }),
+    )
+    .await;
+    assert!(status.is_success(), "{linked}");
+    let open = open_thread(&app, &session, "Open thread").await;
+
+    let messages = format!("/api/chat/conversations/{thread}/messages");
+    let (status, refused) = get(&app, &messages, &key).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{refused}");
+    assert_eq!(refused["code"], "UnavailableOverTransport", "{refused}");
+    let (status, own) = get(&app, &messages, &session).await;
+    assert_eq!(status, StatusCode::OK, "{own}");
+    assert!(own.to_string().contains("Garmin Hills"), "{own}");
+
+    let (_, external_list) = get(&app, "/api/chat/conversations", &key).await;
+    let ids: Vec<&str> = external_list["conversations"]
+        .as_array()
+        .map(|rows| rows.iter().filter_map(|c| c["id"].as_str()).collect())
+        .unwrap_or_default();
+    assert!(ids.contains(&open.as_str()), "{external_list}");
+    assert!(!ids.contains(&thread.as_str()), "{external_list}");
+    assert!(
+        !external_list.to_string().contains("Garmin Hills"),
+        "{external_list}"
+    );
+    let (_, own_list) = get(&app, "/api/chat/conversations", &session).await;
+    assert!(own_list.to_string().contains(thread.as_str()), "{own_list}");
+}
+
+#[tokio::test]
+async fn stamped_rows_filling_the_first_page_still_leave_an_external_page_full() {
+    let resources = server_with_relay().await;
+    let rider = athlete_with_relay(&resources).await;
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let session = format!(
+        "Bearer {}",
+        common::generate_test_token(&resources, &rider.user).await
+    );
+    let key = api_key(&resources, rider.user_id).await;
+
+    // Three open facts, then five stamped ones written after them: newest
+    // first, the stamped rows are the whole first page of three.
+    for n in 0..3 {
+        write_fact(
+            &resources,
+            &rider,
+            &format!("open fact {n}"),
+            TransportPolicy::AnyTransport,
+        )
+        .await;
+        sleep(StdDuration::from_millis(5)).await;
+    }
+    for n in 0..5 {
+        write_fact(
+            &resources,
+            &rider,
+            &format!("relay fact {n}"),
+            TransportPolicy::FirstPartyOnly,
+        )
+        .await;
+        sleep(StdDuration::from_millis(5)).await;
+    }
+    let (status, external) = get(&app, "/api/memory/facts?limit=3", &key).await;
+    assert_eq!(status, StatusCode::OK, "{external}");
+    let objects: Vec<&str> = external["facts"]
+        .as_array()
+        .map(|facts| facts.iter().filter_map(|f| f["object"].as_str()).collect())
+        .unwrap_or_default();
+    assert_eq!(
+        objects.len(),
+        3,
+        "the key's page holds `limit` readable facts: {external}"
+    );
+    assert!(
+        objects.iter().all(|o| o.starts_with("open fact")),
+        "{external}"
+    );
+    let (_, own) = get(&app, "/api/memory/facts?limit=3", &session).await;
+    assert!(own.to_string().contains("relay fact 4"), "{own}");
+
+    // Three open threads, then two opened from the relay's activities.
+    let mut open = Vec::new();
+    for n in 0..3 {
+        open.push(open_thread(&app, &session, &format!("Open {n}")).await);
+        sleep(StdDuration::from_millis(5)).await;
+    }
+    resources
+        .common
+        .repos
+        .activity_cache
+        .upsert_activities(rider.user_id, &rider.tenant, RELAY, &sessions())
+        .await
+        .unwrap();
+    for activity in ["g1", "g2"] {
+        let thread = open_thread(&app, &session, activity).await;
+        let (status, linked) = send_json(
+            &app,
+            "PUT",
+            &format!("/api/me/activities/{RELAY}/{activity}/conversation"),
+            &session,
+            &serde_json::json!({ "conversation_id": thread }),
+        )
+        .await;
+        assert!(status.is_success(), "{linked}");
+        sleep(StdDuration::from_millis(5)).await;
+    }
+    let (status, page) = get(&app, "/api/chat/conversations?limit=3", &key).await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    let mut ids: Vec<String> = page["conversations"]
+        .as_array()
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|c| c["id"].as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    ids.sort();
+    open.sort();
+    assert_eq!(
+        ids, open,
+        "the key's page holds the three open threads: {page}"
+    );
+    assert_eq!(page["total"], 3, "{page}");
+    let (_, own_page) = get(&app, "/api/chat/conversations?limit=3", &session).await;
+    assert_eq!(own_page["total"], 5, "{own_page}");
+}
+
+#[tokio::test]
+async fn a_room_entry_copied_from_a_stamped_reply_keeps_its_place_withheld_over_an_api_key() {
+    let resources = server_with_relay().await;
+    let rider = athlete_with_relay(&resources).await;
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let session = format!(
+        "Bearer {}",
+        common::generate_test_token(&resources, &rider.user).await
+    );
+    let key = api_key(&resources, rider.user_id).await;
+    let repos = &resources.common.repos;
+    let agent = repos
+        .agents
+        .create(
+            rider.user_id,
+            rider.tenant,
+            &CreateAgentRequest {
+                title: "Room Coach".to_owned(),
+                description: None,
+                system_prompt: "You coach the room.".to_owned(),
+                category: AgentCategory::Custom,
+                tags: vec![],
+                sample_prompts: vec![],
+                startup_query: None,
+                data_requirements: None,
+                purpose: None,
+                when_to_use: None,
+                instructions: None,
+                example_inputs: None,
+                example_outputs: None,
+                success_criteria: None,
+                max_tool_iterations: None,
+            },
+        )
+        .await
+        .unwrap();
+    let now = Utc::now();
+    let group_id = Uuid::new_v4();
+    repos
+        .groups
+        .create_group(
+            rider.tenant,
+            &CoachingGroup {
+                id: group_id,
+                tenant_id: rider.tenant.to_string(),
+                name: "Relay Room".to_owned(),
+                description: None,
+                agent_id: agent.id.to_string(),
+                owner_id: rider.user_id,
+                coach_user_id: None,
+                peer_data_sharing: true,
+                respond_mode: GroupRespondMode::Mentions,
+                digest_mode: GroupDigestMode::Off,
+                max_members: 10,
+                is_active: true,
+                channel_type: None,
+                channel_chat_id: None,
+                created_at: now,
+                updated_at: now,
+            },
+        )
+        .await
+        .unwrap();
+    repos
+        .groups
+        .add_member(&GroupMember {
+            id: Uuid::new_v4(),
+            group_id,
+            user_id: rider.user_id,
+            tenant_id: rider.tenant.to_string(),
+            role: GroupRole::Owner,
+            peer_sharing_consent: true,
+            coach_sharing_consent: true,
+            consent_given_at: now,
+            joined_at: now,
+            left_at: None,
+            display_name: None,
+        })
+        .await
+        .unwrap();
+    for (content, transport_policy) in [
+        (
+            "Open room note: hydrate well.",
+            TransportPolicy::AnyTransport,
+        ),
+        (
+            "Relay-derived room reply: Garmin Hills splits.",
+            TransportPolicy::FirstPartyOnly,
+        ),
+    ] {
+        repos
+            .groups
+            .append_transcript_entry(&NewGroupTranscriptEntry {
+                group_id: &group_id.to_string(),
+                tenant_id: &rider.tenant.to_string(),
+                author_user_id: rider.user_id,
+                speaker: TranscriptSpeaker::Coach,
+                content,
+                source_conversation_id: None,
+                source_message_id: None,
+                transport_policy,
+            })
+            .await
+            .unwrap();
+    }
+    let room = format!("/api/chat/groups/{group_id}/transcript");
+
+    let (status, external) = get(&app, &room, &key).await;
+    assert_eq!(status, StatusCode::OK, "{external}");
+    let text = external.to_string();
+    assert!(text.contains("Open room note"), "{text}");
+    assert!(!text.contains("Garmin Hills"), "{text}");
+    assert_eq!(
+        external["entries"].as_array().map_or(0, Vec::len),
+        2,
+        "the stamped entry keeps its place in the room: {external}"
+    );
+
+    let (status, own) = get(&app, &room, &session).await;
+    assert_eq!(status, StatusCode::OK, "{own}");
+    assert!(own.to_string().contains("Garmin Hills"), "{own}");
+}
+
+#[cfg(feature = "client-notifications")]
+#[tokio::test]
+async fn the_feed_withholds_a_stamped_notification_and_devices_register_from_the_app_only() {
+    use pierre_notifications::events::stamp_data;
+    use pierre_notifications::models::NotificationCategory;
+    use pierre_notifications::{DispatchRequest, PushTier, TenantId as CommTenantId};
+
+    let resources = server_with_relay().await;
+    let rider = athlete_with_relay(&resources).await;
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let session = format!(
+        "Bearer {}",
+        common::generate_test_token(&resources, &rider.user).await
+    );
+    let key = api_key(&resources, rider.user_id).await;
+    let service = resources
+        .common
+        .notification_service
+        .clone()
+        .expect("the test server wires notifications");
+
+    for (title, policy) in [
+        ("Open reminder", TransportPolicy::AnyTransport),
+        (
+            "Relay record on Garmin Hills",
+            TransportPolicy::FirstPartyOnly,
+        ),
+    ] {
+        service
+            .dispatch_with_tier(
+                &DispatchRequest {
+                    user_id: rider.user_id,
+                    tenant_id: CommTenantId(rider.tenant.as_uuid()),
+                    category: NotificationCategory::System,
+                    notification_type: "system_notice".to_owned(),
+                    title: title.to_owned(),
+                    body: title.to_owned(),
+                    data: stamp_data(None, policy),
+                    image_url: None,
+                    actions: None,
+                    bypass_frequency_cap: true,
+                },
+                PushTier::P0,
+            )
+            .await
+            .unwrap();
+    }
+
+    let (status, external) = get(&app, "/api/notifications", &key).await;
+    assert_eq!(status, StatusCode::OK, "{external}");
+    let text = external.to_string();
+    assert!(text.contains("Open reminder"), "{text}");
+    assert!(!text.contains("Garmin Hills"), "{text}");
+    assert_eq!(external["total"], 1, "{external}");
+    let (_, own) = get(&app, "/api/notifications", &session).await;
+    assert!(own.to_string().contains("Garmin Hills"), "{own}");
+
+    let device = serde_json::json!({
+        "expo_push_token": "ExponentPushToken[transport-gate]",
+        "platform": "ios",
+    });
+    let (status, refused) =
+        send_json(&app, "POST", "/api/notifications/device", &key, &device).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{refused}");
+    assert_eq!(refused["code"], "UnavailableOverTransport", "{refused}");
+    let (status, registered) =
+        send_json(&app, "POST", "/api/notifications/device", &session, &device).await;
+    assert!(status.is_success(), "{registered}");
 }
 
 #[tokio::test]

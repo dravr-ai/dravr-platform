@@ -9,6 +9,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use chrono::Utc;
+use pierre_core::transport::TransportPolicy;
 use pierre_memory::playbooks::{AdviceStatus, OutcomeMetric, TriggerKind};
 use pierre_services::advice_capture::{
     looks_like_recommendation, raw_to_pending, CapturedTurn, RawAdvicePublic,
@@ -22,6 +23,7 @@ fn sample_turn() -> CapturedTurn {
         user_message: "I've been skipping my Tuesday runs.".to_owned(),
         assistant_reply: "...".to_owned(),
         source_msg_id: Some("m1".to_owned()),
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

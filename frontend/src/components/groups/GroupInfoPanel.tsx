@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { Activity, BarChart3, Crown, Link2, MessageCircle, Settings, UserCog, Users } from 'lucide-react';
 import {
   useDelegatedConnections,
+  useDelegationRoster,
   useGroup,
   useGroupMembers,
   useGroupPermissions,
@@ -37,7 +38,7 @@ import GroupInsightsPanel from './GroupInsightsPanel';
 import GroupTranscriptPanel from './GroupTranscriptPanel';
 import DelegatedConnectionsSection from './DelegatedConnectionsSection';
 import type { GroupDigestMode, GroupRespondMode, GroupRole, GroupTrend } from '@pierre/shared-types';
-import { oneDecimal } from '@pierre/shared-constants';
+import { coachPlatformName, oneDecimal } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
 
@@ -165,6 +166,11 @@ export default function GroupInfoPanel({
   const isAdmin = currentUserRole === 'admin' || isOwner;
   // A member sees only their own links, at most one live per group.
   const liveLink = delegationViewer === 'member' ? (delegatedConnections[0] ?? null) : null;
+  // The coaching platform the links are on, which their titles name: the
+  // coach's roster names it (the section reads the same cached roster), a
+  // member's link names its own.
+  const { provider: rosterProvider } = useDelegationRoster(groupId, delegationViewer === 'coach');
+  const linkPlatform = coachPlatformName(delegationViewer === 'coach' ? rosterProvider : liveLink?.provider);
   // The group's attached human coach may change where the weekly digest goes,
   // and nothing else; the server refuses any other field from them.
   // The digest select shows only where the tenant's tier sends a digest at all.
@@ -339,7 +345,7 @@ export default function GroupInfoPanel({
       {/* Which side of the links the caller is on is the server's answer:
           a coach who is also a member is still the group's coach. */}
       {delegationViewer === 'coach' ? (
-        <Section icon={<Activity className="w-3.5 h-3.5" aria-hidden="true" />} title={t('delegation.sectionTitle')}>
+        <Section icon={<Activity className="w-3.5 h-3.5" aria-hidden="true" />} title={t('delegation.sectionTitle', { platform: linkPlatform })}>
           <DelegatedConnectionsSection
             groupId={groupId}
             mode="coach"
@@ -349,7 +355,7 @@ export default function GroupInfoPanel({
           />
         </Section>
       ) : delegationViewer === 'member' && liveLink ? (
-        <Section icon={<Activity className="w-3.5 h-3.5" aria-hidden="true" />} title={t('delegation.memberSectionTitle')}>
+        <Section icon={<Activity className="w-3.5 h-3.5" aria-hidden="true" />} title={t('delegation.memberSectionTitle', { platform: linkPlatform })}>
           <DelegatedConnectionsSection
             groupId={groupId}
             mode="member"
@@ -558,7 +564,7 @@ export default function GroupInfoPanel({
         title={t('groups.leaveGroup')}
         message={
           liveLink
-            ? `${t('app.confirmLeaveGroupWeb', { group: group.name })} ${t('delegation.leaveEndsLink')}`
+            ? `${t('app.confirmLeaveGroupWeb', { group: group.name })} ${t('delegation.leaveEndsLink', { platform: linkPlatform })}`
             : t('app.confirmLeaveGroupWeb', { group: group.name })
         }
         confirmLabel={t('app.leaveGroup')}

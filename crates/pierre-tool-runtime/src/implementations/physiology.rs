@@ -28,6 +28,7 @@
 //! `calculate_personalized_zones` derives the identical boundaries for display
 //! from the same functions in [`super::configuration`].
 
+use pierre_providers::ai_scope;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -954,6 +955,16 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
                 .user_physiological_profile
                 .get_user_physiological_profile(tenant_id, user_id)
                 .await?;
+            // A profile written from first-party-only data is neither read nor
+            // merged into by an external caller (carnet#769).
+            if existing
+                .as_ref()
+                .is_some_and(|profile| !ai_scope::admit_derived(profile.transport_policy))
+            {
+                return Err(AppError::unavailable_over_transport(
+                    "this athlete's physiology is not available over this interface",
+                ));
+            }
             let created = existing.is_none();
             let load_inputs_before = AthleteInputs::from_profile(existing.as_ref());
             // A first save has no stored sport to keep. `Run` matches the
@@ -965,6 +976,11 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
             profile.user_id = user_id;
             update.apply_to(&mut profile);
             validate_merged(&profile)?;
+            // Stamped with what this turn served (carnet#769): a value the
+            // agent read off first-party-only data keeps the profile there.
+            profile.transport_policy = profile
+                .transport_policy
+                .strictest(ai_scope::derived_policy());
 
             // Zones are derived here rather than at read time so the stored
             // profile carries the boundaries every reader already expects to
@@ -993,6 +1009,7 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
                 .user_physiological_profile
                 .get_user_physiological_profile(tenant_id, user_id)
                 .await?
+                .filter(|profile| ai_scope::admit_derived(profile.transport_policy))
                 .ok_or_else(|| {
                     AppError::database(
                         "physiological profile was not readable immediately after its write",

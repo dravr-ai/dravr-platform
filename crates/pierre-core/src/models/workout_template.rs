@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use crate::transport::TransportPolicy;
 use chrono::{DateTime, NaiveDate, Utc};
 use dravr_cageux::periodization::{WorkoutStep, WorkoutTemplate};
 use serde::{Deserialize, Serialize};
@@ -259,6 +260,11 @@ pub struct PrescribedWorkout {
     /// Timestamp of the last status change.
     #[serde(default = "Utc::now")]
     pub updated_at: DateTime<Utc>,
+    /// Where this entry may be served (carnet#769): first-party-only when the
+    /// plan or turn it was written from was. Rows written before the stamp
+    /// read as unstamped.
+    #[serde(default, skip_serializing)]
+    pub transport_policy: TransportPolicy,
 }
 
 impl PrescribedWorkout {

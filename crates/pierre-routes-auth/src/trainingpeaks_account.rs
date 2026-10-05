@@ -1,5 +1,5 @@
 // ABOUTME: Reads what kind of TrainingPeaks account a stored session signed in with, off the request that stored it
-// ABOUTME: A coach account gets no prefetch; a member's own login supersedes the link their reads went through
+// ABOUTME: A coach account gets no prefetch, since it keeps no calendar; an athlete account's activities are prefetched
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -15,9 +15,7 @@ use std::sync::Arc;
 
 use dravr_sciotte::models::AuthSession;
 use pierre_core::constants::oauth_providers::SCIOTTE_TRAININGPEAKS;
-use pierre_core::errors::AppResult;
-use pierre_core::models::{ConnectionType, DelegationEndReason, ProviderAccountRole, TenantId};
-use pierre_groups::delegation::DelegationStore;
+use pierre_core::models::{ConnectionType, ProviderAccountRole, TenantId};
 use pierre_services::trainingpeaks_accounts::probe_trainingpeaks_role;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -147,42 +145,4 @@ pub fn spawn_role_probe_if_unread(
             ),
         }
     });
-}
-
-/// End the confirmed link a member's `TrainingPeaks` reads went through, now
-/// that they are signing in to `TrainingPeaks` themselves: their own login
-/// takes its place.
-///
-/// Runs before the session is stored. The login registers the member's own
-/// connection over the same row, and would otherwise silently turn the
-/// delegated connection into their own while the link still read as
-/// confirmed; ending it first releases the delegated connection, so the own
-/// connection lands on a clean slate.
-///
-/// # Errors
-///
-/// Returns the repository error when the link cannot be ended or its
-/// delegated connection cannot be removed.
-pub async fn supersede_delegated_link(
-    resources: &AuthRoutesContext,
-    user_id: Uuid,
-    tenant: TenantId,
-) -> AppResult<()> {
-    let ended = DelegationStore::new(&resources.repos)
-        .end_confirmed_for_member(
-            user_id,
-            tenant,
-            SCIOTTE_TRAININGPEAKS,
-            Some(user_id),
-            DelegationEndReason::Superseded,
-        )
-        .await?;
-    if !ended.is_empty() {
-        info!(
-            user_id = %user_id,
-            tenant_id = %tenant,
-            "A TrainingPeaks login of the member's own superseded their coach link"
-        );
-    }
-    Ok(())
 }

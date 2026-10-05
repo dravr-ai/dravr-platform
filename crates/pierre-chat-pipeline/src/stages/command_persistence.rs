@@ -25,7 +25,9 @@ use pierre_core::models::{
     AddMessageParams, ConversationRecord, MessageRecord, PersistedAction, PersistedReplyBlock,
     COMMAND_FINISH_REASON,
 };
+use pierre_core::transport::TransportPolicy;
 use pierre_database::database::repositories::ChatRepository;
+use pierre_providers::ai_scope;
 use tracing::warn;
 
 use crate::envelope::TurnAction;
@@ -176,6 +178,7 @@ pub async fn persist_command_turn(
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
 
@@ -196,6 +199,7 @@ pub async fn persist_command_turn(
             prompt_tokens: None,
             model: None,
             content_blocks: content_blocks.as_deref(),
+            transport_policy: ai_scope::derived_policy(),
         })
         .await?;
 

@@ -397,9 +397,10 @@ pub struct ProviderStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub account_role: Option<ProviderAccountRole>,
     /// The link through which the user's group coach reads this provider for
-    /// them — TrainingPeaks, read through the coach's own account once the
-    /// user confirms. The confirmed link, else the newest one awaiting the
-    /// user's answer. Absent when there is none.
+    /// them — a coaching platform (TrainingPeaks, Intervals.icu), read through
+    /// the coach's own account once the user confirms. The confirmed link,
+    /// else the newest one awaiting the user's answer. Absent when there is
+    /// none.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delegation: Option<ProviderDelegation>,
 }

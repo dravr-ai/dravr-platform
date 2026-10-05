@@ -75,6 +75,8 @@ interface QuotaDetails {
    * because "delete one to start a new one" is the wrong instruction there.
    */
   reason?: unknown;
+  /** The coaching platform a delegated-link refusal is about. */
+  provider?: unknown;
 }
 
 /** The `details.reason` of a cap refusal for a turn into an archived thread. */
@@ -195,6 +197,15 @@ export function classifyApiError(
 export function refusalReason(err: unknown): string | undefined {
   const reason = (err as AxiosShape | null | undefined)?.response?.data?.details?.reason;
   return typeof reason === 'string' ? reason : undefined;
+}
+
+/**
+ * The provider a refusal is about, from `details.provider` — a delegated-link
+ * refusal names the coaching platform it concerns, which the sentence names.
+ */
+export function refusalProvider(err: unknown): string | undefined {
+  const provider = (err as AxiosShape | null | undefined)?.response?.data?.details?.provider;
+  return typeof provider === 'string' ? provider : undefined;
 }
 
 /**

@@ -180,10 +180,10 @@ export function createGroupsApi(axios: AxiosInstance) {
       await axios.delete(ENDPOINTS.GROUPS.INVITE(groupId, inviteId));
     },
 
-    // ==================== TRAININGPEAKS LINKS ====================
+    // ==================== COACHING-PLATFORM LINKS ====================
 
     /**
-     * The group's live TrainingPeaks links: every one for the group's coach,
+     * The group's live coaching-platform links: every one for the group's coach,
      * only their own for a member (`viewer` says which).
      */
     async listDelegatedConnections(groupId: string): Promise<DelegatedConnectionsResponse> {
@@ -194,8 +194,9 @@ export function createGroupsApi(axios: AxiosInstance) {
     },
 
     /**
-     * The coach's TrainingPeaks roster, each athlete with its link in this
-     * group and a suggested member. Cached ten minutes on the server;
+     * The coach's coaching-platform roster, each athlete with its link in
+     * this group and a suggested member: the platform the coach connected
+     * (the response's `provider` names it). Cached ten minutes on the server;
      * `refresh` reads it live. A refusal carries `details.reason`.
      */
     async getDelegationRoster(
@@ -222,8 +223,8 @@ export function createGroupsApi(axios: AxiosInstance) {
     },
 
     /**
-     * The member confirms a proposed link, consenting to their TrainingPeaks
-     * workouts being read through the coach's account.
+     * The member confirms a proposed link, consenting to their workouts on
+     * the coaching platform being read through the coach's account.
      */
     async confirmDelegatedConnection(
       groupId: string,

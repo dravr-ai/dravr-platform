@@ -178,8 +178,7 @@ impl GroupService {
         };
 
         // Pull the full member list once: we need both the requester's role
-        // (for the admin overview view) and the per-member
-        // peer_sharing_consent flag (the single privacy gate).
+        // (for the admin overview view) and the per-member consent flags.
         let members = self
             .repo
             .list_members(&group.id.to_string())
@@ -187,10 +186,10 @@ impl GroupService {
             .unwrap_or_default();
 
         // The group's human coach gets the same whole-group overview an admin
-        // sees. The visibility filter below still gates each member's snapshot
-        // behind their own `peer_sharing_consent`, so an agent never sees data a
-        // member hasn't shared — agent access reuses the existing peer gate
-        // rather than bypassing it.
+        // sees, over the members who share with the coach — joining grants
+        // that, ADR-002 — rather than over the members who share with their
+        // peers. Every other requester reads the peer rule, so an agent never
+        // shows anyone data a member has not shared with them.
         let is_coach = group.coach_user_id == Some(user_id);
         let is_admin = is_coach
             || members
@@ -200,12 +199,17 @@ impl GroupService {
 
         let member_count = members.len();
 
-        // Build summary cards from the snapshots of the members who share
-        // (see `peer_sharing_user_ids`). The requester's own snapshot is
-        // always visible regardless of their own consent flag — they can see
-        // their own data even if they haven't opted in to peer sharing.
+        // Build summary cards from the snapshots of the members who share with
+        // this requester (see `coach_sharing_user_ids` and
+        // `peer_sharing_user_ids`). The requester's own snapshot is always
+        // visible regardless of their own consent flags — they can see their
+        // own data even if they haven't opted in to sharing it.
         let summarizer = self.tier.summarization_strategy();
-        let sharing_user_ids = Self::peer_sharing_user_ids(&group, &members);
+        let sharing_user_ids = if is_coach {
+            Self::coach_sharing_user_ids(&members)
+        } else {
+            Self::peer_sharing_user_ids(&group, &members)
+        };
         let visible_snapshots: Vec<&MemberFitnessSnapshot> = member_snapshots
             .iter()
             .filter(|s| s.user_id == user_id || sharing_user_ids.contains(&s.user_id))
@@ -467,6 +471,7 @@ impl GroupService {
             tenant_id: tenant_id.to_string(),
             role: GroupRole::Owner,
             peer_sharing_consent: false,
+            coach_sharing_consent: true,
             consent_given_at: chrono::Utc::now(),
             joined_at: chrono::Utc::now(),
             left_at: None,
@@ -547,6 +552,7 @@ impl GroupService {
             tenant_id: group.tenant_id.clone(),
             role: GroupRole::Member,
             peer_sharing_consent: false,
+            coach_sharing_consent: true,
             consent_given_at: now,
             joined_at: now,
             left_at: None,
@@ -699,9 +705,8 @@ impl GroupService {
             user_id,
             tenant_id: tenant_id.to_string(),
             role: GroupRole::Member,
-            // LIMITATION(registre#786): `join_group` grants the coach no read — this one flag
-            // gates coach and peers alike, so ADR-002's join-is-coach-consent is unimplemented.
             peer_sharing_consent: false,
+            coach_sharing_consent: true,
             consent_given_at: chrono::Utc::now(),
             joined_at: chrono::Utc::now(),
             left_at: None,
@@ -1019,14 +1024,32 @@ impl GroupService {
         })
     }
 
+    /// The members whose training the group's human coach may see: every
+    /// live member who has not revoked `coach_sharing_consent`.
+    ///
+    /// Joining a group grants it (ADR-002: membership is consent to share with
+    /// the coach) and `/group consent coach no` revokes it. The group's
+    /// `peer_data_sharing` switch does not apply: it governs what members see
+    /// of each other, never what their coach sees.
+    #[must_use]
+    fn coach_sharing_user_ids(members: &[GroupMember]) -> HashSet<Uuid> {
+        members
+            .iter()
+            .filter(|m| m.left_at.is_none() && m.coach_sharing_consent)
+            .map(|m| m.user_id)
+            .collect()
+    }
+
     /// The members whose training the rest of the group may see.
     ///
-    /// Per-member `peer_sharing_consent` is the single source of truth, so a
-    /// subset can share while the rest stay private. `peer_data_sharing` is
-    /// the admin kill switch: when FALSE nobody shares, whatever they
-    /// consented to. Auto-bound groups default it to TRUE so individual
-    /// consent works without an extra step. The agent's group context and
-    /// the digest posted into the group's chat both read this one rule.
+    /// Per-member `peer_sharing_consent` is the source of truth between
+    /// members, so a subset can share while the rest stay private.
+    /// `peer_data_sharing` is the admin kill switch: when FALSE nobody
+    /// shares, whatever they consented to. Auto-bound groups default it to
+    /// TRUE so individual consent works without an extra step. The agent's
+    /// group context and the digest posted into the group's chat both read
+    /// this one rule; the group's human coach reads by
+    /// `coach_sharing_user_ids` instead.
     #[must_use]
     pub fn peer_sharing_user_ids(group: &CoachingGroup, members: &[GroupMember]) -> HashSet<Uuid> {
         if !group.peer_data_sharing {

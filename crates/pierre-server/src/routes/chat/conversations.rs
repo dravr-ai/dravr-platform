@@ -23,13 +23,14 @@ use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{ConversationRecord, TenantId};
 use pierre_database::repositories::NewConversation;
 use pierre_middleware::AuthenticatedUser;
+use pierre_providers::ai_scope;
 use pierre_runtime_context::AdminConfigLookup;
 use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
 use pierre_services::conversation_forge::{
     counterpart_title, create_conversation_slot, dated_title, resolve_conversation_model, SlotQuota,
 };
 use pierre_services::locale::{resolve_user_locale, user_locale};
-use pierre_tool_runtime::derived_content::refuse_derived_content_off_interface;
+use pierre_tool_runtime::derived_content;
 
 use super::common::{get_tenant_id, verify_group_membership};
 use super::dto::{preview_text, resolve_stored_blocks};
@@ -207,15 +208,22 @@ pub async fn list_conversations(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     let tenant_id = get_tenant_id(&auth, &resources).await?;
-    // Each row previews its last message: derived content (carnet#724).
-    refuse_derived_content_off_interface(resources.as_ref(), auth.user_id).await?;
     let (limit, offset) = query.bounded();
 
+    // An external caller is listed no thread opened from a first-party-only
+    // activity, and every count and preview it reads is of unstamped rows —
+    // in the statement, so the page fills (carnet#769).
     let page = resources
         .common
         .repos
         .chat
-        .list_conversations(&auth.user_id.to_string(), tenant_id, limit, offset)
+        .list_conversations(
+            &auth.user_id.to_string(),
+            tenant_id,
+            limit,
+            offset,
+            ai_scope::readable_policy(),
+        )
         .await?;
 
     let response = ConversationListResponse {
@@ -235,11 +243,14 @@ pub async fn list_conversations(
                 group_name: c.group_name,
                 channel_type: c.channel_type,
                 archived_at: c.archived_at,
-                last_message: c.last_message.map(|m| LastMessageResponse {
-                    preview: preview_text(&m.content_head),
-                    role: m.role,
-                    created_at: m.created_at,
-                }),
+                last_message: c
+                    .last_message
+                    .filter(|m| ai_scope::admit_derived(m.transport_policy))
+                    .map(|m| LastMessageResponse {
+                        preview: preview_text(&m.content_head),
+                        role: m.role,
+                        created_at: m.created_at,
+                    }),
                 unread_count: c.unread_count,
                 created_at: c.created_at,
                 updated_at: c.updated_at,
@@ -267,6 +278,15 @@ pub async fn get_conversation(
         .get_conversation(&conversation_id, &auth.user_id.to_string(), tenant_id)
         .await?
         .ok_or_else(|| AppError::not_found("Conversation not found"))?;
+    // A thread opened from a first-party-only activity is about it
+    // throughout (carnet#769).
+    derived_content::refuse_withheld_thread(
+        resources.as_ref(),
+        &tenant_id,
+        auth.user_id,
+        &conversation_id,
+    )
+    .await?;
 
     let response = ConversationResponse {
         id: conv.id,
@@ -386,8 +406,6 @@ pub async fn get_messages(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     let tenant_id = get_tenant_id(&auth, &resources).await?;
-    // A transcript is content derived from the athlete's data (carnet#724).
-    refuse_derived_content_off_interface(resources.as_ref(), auth.user_id).await?;
 
     // Verify the caller participates in this conversation
     resources
@@ -398,13 +416,26 @@ pub async fn get_messages(
         .await?
         .ok_or_else(|| AppError::not_found("Conversation not found"))?;
 
+    // A thread opened from a first-party-only activity is about it
+    // throughout (carnet#769).
+    derived_content::refuse_withheld_thread(
+        resources.as_ref(),
+        &tenant_id,
+        auth.user_id,
+        &conversation_id,
+    )
+    .await?;
+
     let user_id_str = auth.user_id.to_string();
-    let messages = resources
+    let mut messages = resources
         .common
         .repos
         .chat
         .get_messages(&conversation_id, &user_id_str, tenant_id)
         .await?;
+    // A row derived from first-party-only data is withheld from an external
+    // caller; the rest of the transcript is served (carnet#769).
+    ai_scope::retain_admitted(&mut messages, |m| m.transport_policy);
 
     // The stored locale rather than a per-turn detection: a chart written three
     // weeks ago should not relabel its axis because the athlete's last message

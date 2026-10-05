@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use chrono::{DateTime, Utc};
+use pierre_core::transport::TransportPolicy;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -440,4 +441,8 @@ pub struct ClaimVerdict {
     pub disposed_by: Option<String>,
     /// When the disposition was last written.
     pub disposed_at: Option<DateTime<Utc>>,
+    /// Where this verdict may be served (carnet#769): first-party-only when the
+    /// reply it judged was. Verdicts written before the stamp read as unstamped.
+    #[serde(default, skip_serializing)]
+    pub transport_policy: TransportPolicy,
 }

@@ -9,6 +9,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
 use chrono::{Duration, Utc};
@@ -47,6 +48,7 @@ fn commitment(
         reported_at: None,
         created_at: now,
         updated_at: now,
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 
@@ -60,7 +62,7 @@ async fn insert_round_trips_every_field() {
 
     let open = repos
         .commitments
-        .list_open_commitments("t1", "u1", 10)
+        .list_open_commitments("t1", "u1", 10, TransportPolicy::FirstPartyOnly)
         .await
         .unwrap();
     assert_eq!(open.len(), 1);
@@ -93,7 +95,7 @@ async fn absent_optional_fields_round_trip_as_none() {
 
     let got = repos
         .commitments
-        .list_open_commitments("t1", "u1", 10)
+        .list_open_commitments("t1", "u1", 10, TransportPolicy::FirstPartyOnly)
         .await
         .unwrap()
         .remove(0);
@@ -122,7 +124,7 @@ async fn reaffirming_the_same_promise_does_not_stack() {
     assert_eq!(
         repos
             .commitments
-            .list_open_commitments("t1", "u1", 10)
+            .list_open_commitments("t1", "u1", 10, TransportPolicy::FirstPartyOnly)
             .await
             .unwrap()
             .len(),
@@ -150,7 +152,7 @@ async fn a_different_target_is_a_different_promise() {
     assert_eq!(
         repos
             .commitments
-            .list_open_commitments("t1", "u1", 10)
+            .list_open_commitments("t1", "u1", 10, TransportPolicy::FirstPartyOnly)
             .await
             .unwrap()
             .len(),
@@ -195,6 +197,7 @@ async fn recording_a_verdict_moves_it_out_of_the_due_scan() {
         outcome: CommitmentOutcome::Partial,
         completed_sessions: 2,
         at,
+        transport_policy: TransportPolicy::AnyTransport,
     };
     assert!(repos
         .commitments
@@ -234,6 +237,7 @@ async fn a_racing_second_sweep_writes_nothing() {
         outcome: CommitmentOutcome::Met,
         completed_sessions: 3,
         at: Utc::now(),
+        transport_policy: TransportPolicy::AnyTransport,
     };
     let missed = SweptVerdict {
         outcome: CommitmentOutcome::Missed,
@@ -274,6 +278,7 @@ async fn reporting_is_single_shot_and_recorded() {
             outcome: CommitmentOutcome::Met,
             completed_sessions: 3,
             at: Utc::now(),
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -348,7 +353,7 @@ async fn cancelling_removes_it_from_every_scan() {
         .is_empty());
     assert!(repos
         .commitments
-        .list_open_commitments("t1", "u1", 10)
+        .list_open_commitments("t1", "u1", 10, TransportPolicy::FirstPartyOnly)
         .await
         .unwrap()
         .is_empty());
@@ -369,6 +374,7 @@ async fn expiring_closes_a_verdict_that_never_landed() {
             outcome: CommitmentOutcome::Missed,
             completed_sessions: 0,
             at: Utc::now(),
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -422,20 +428,21 @@ async fn every_write_is_tenant_scoped() {
             outcome: CommitmentOutcome::Missed,
             completed_sessions: 0,
             at: Utc::now(),
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap());
 
     assert!(repos
         .commitments
-        .list_open_commitments("t2", "u1", 10)
+        .list_open_commitments("t2", "u1", 10, TransportPolicy::FirstPartyOnly)
         .await
         .unwrap()
         .is_empty());
     assert_eq!(
         repos
             .commitments
-            .list_open_commitments("t1", "u1", 10)
+            .list_open_commitments("t1", "u1", 10, TransportPolicy::FirstPartyOnly)
             .await
             .unwrap()
             .len(),
@@ -462,7 +469,7 @@ async fn open_list_is_scoped_to_the_athlete() {
 
     let mine = repos
         .commitments
-        .list_open_commitments("t1", "u1", 10)
+        .list_open_commitments("t1", "u1", 10, TransportPolicy::FirstPartyOnly)
         .await
         .unwrap();
     assert_eq!(mine.len(), 1);

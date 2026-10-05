@@ -203,7 +203,7 @@ pub struct LiveRead<'a> {
 /// # Errors
 ///
 /// Returns the provider's error when the read fails, after the
-/// `TrainingPeaks` refusal handling every read shares.
+/// coaching-platform refusal handling every read shares.
 pub async fn judge_live_read(
     runtime: &Arc<dyn ToolRuntime>,
     read: LiveRead<'_>,
@@ -233,7 +233,7 @@ pub async fn judge_live_read(
         Err(e) => {
             if let Some(tenant_id) = tenant_id {
                 AuthService::new(Arc::clone(runtime))
-                    .react_to_trainingpeaks_refusal(
+                    .react_to_delegated_refusal(
                         user_id,
                         tenant_id,
                         provider,

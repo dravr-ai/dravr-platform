@@ -840,6 +840,18 @@ pub const KEY_GROUP_CONSENT_USAGE: &str = "commands.group.consent_usage";
 /// Key: `/group consent` confirmation. `{0}` = on/off (peer-sharing localized),
 /// `{1}` = group name.
 pub const KEY_GROUP_CONSENT_UPDATED: &str = "commands.group.consent_updated";
+/// Key: `/group consent coach` confirmation. `{0}` = on/off (peer-sharing
+/// localized), `{1}` = group name.
+pub const KEY_GROUP_COACH_CONSENT_UPDATED: &str = "commands.group.coach_consent_updated";
+/// Key: the `/group join` reply's sharing line when the group has a human
+/// coach. `{0}` = the coach's name.
+pub const KEY_GROUP_COACH_SHARING_NAMED: &str = "commands.group.coach_sharing_named";
+/// Key: the `/group join` reply's sharing line while no human coach is
+/// attached yet. No placeholder.
+pub const KEY_GROUP_COACH_SHARING_PENDING: &str = "commands.group.coach_sharing_pending";
+/// Key: the notice posted into the coach's group conversation when an athlete
+/// joins. `{0}` = the athlete's name, `{1}` = group name.
+pub const KEY_GROUP_COACH_JOINED_NOTICE: &str = "commands.group.coach_joined_notice";
 /// Key: `/group respond` usage hint when the argument is missing or invalid.
 pub const KEY_GROUP_RESPOND_USAGE: &str = "commands.group.respond_usage";
 /// Key: `/group respond mentions` confirmation — agent answers only when addressed.

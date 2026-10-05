@@ -28,6 +28,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import type { ExtendedProviderStatus } from '../../types';
 import { useTranslation } from '@pierre/i18n';
 import {
+  coachPlatformName,
   delegationRefusalKey,
   noticeRequired,
   sciotteTargetForBackend,
@@ -299,10 +300,13 @@ export function ConnectionsScreen() {
       subtitle = t('providers.authorizeToKeepSyncing', { provider: provider.display_name });
     } else if (isDelegated) {
       if (delegation.read_refused) {
-        subtitle = t(delegationRefusalKey(delegation.read_refused));
+        subtitle = t(delegationRefusalKey(delegation.read_refused), { platform: coachPlatformName(id) });
       } else {
         subtitle = delegation.coach_needs_reauth
-          ? t('delegation.coachReconnectNeeded', { coach: delegation.coach_display_name })
+          ? t('delegation.coachReconnectNeeded', {
+              platform: coachPlatformName(id),
+              coach: delegation.coach_display_name,
+            })
           : t('providers.connectedThrough', { coach: delegation.coach_display_name });
       }
     } else if (delegation?.status === 'proposed') {

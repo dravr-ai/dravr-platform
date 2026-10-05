@@ -70,6 +70,7 @@
 //! Everything is best-effort: a failed read, snapshot fetch, post or
 //! notification is logged and counted, and never aborts the rest of the sweep.
 
+use pierre_providers::ai_scope;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -102,6 +103,8 @@ use serde_json::{json, Map, Value};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
+#[cfg(feature = "client-notifications")]
+use pierre_core::transport::TransportPolicy;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::{
     models::NotificationCategory, EventDispatch, NotificationService, PushTier,
@@ -358,7 +361,10 @@ async fn process_group<C>(
     }
 
     let user_ids: Vec<Uuid> = audience.members.iter().map(|m| m.user_id).collect();
-    let snapshots = fetch_member_snapshots(sweep.runtime, &user_ids, tenant_id).await;
+    // The digest is derived from every member's training: it is stamped with
+    // what those reads served (carnet#769).
+    let (snapshots, derived_from) =
+        ai_scope::derived(fetch_member_snapshots(sweep.runtime, &user_ids, tenant_id)).await;
     outcome.groups_reported += 1;
     let posted = post_digest_to_room(sweep, tenant_id, group, &audience, &snapshots, outcome).await;
 
@@ -369,7 +375,16 @@ async fn process_group<C>(
 
     #[cfg(feature = "client-notifications")]
     dispatch_to_managers(
-        sweep, tenant_id, group, &audience, &snapshots, posted, outcome,
+        sweep,
+        tenant_id,
+        group,
+        &audience,
+        &snapshots,
+        DigestDelivery {
+            posted_to_room: posted,
+            derived_from,
+        },
+        outcome,
     )
     .await;
 
@@ -377,6 +392,7 @@ async fn process_group<C>(
         group_id = %group.id,
         members = audience.members.len(),
         posted_to_room = posted,
+        first_party_only = derived_from.is_first_party_only(),
         "digest: weekly report delivered"
     );
 }
@@ -668,6 +684,16 @@ pub fn plurality_locale<'a>(votes: impl IntoIterator<Item = &'a str>, owner: &st
         .to_owned()
 }
 
+/// How one week's digest reached the group before its managers are told.
+#[cfg(feature = "client-notifications")]
+struct DigestDelivery {
+    /// Whether the chat copy reached the group's chat.
+    posted_to_room: bool,
+    /// The stamp of the member data the digest was computed from
+    /// (carnet#769).
+    derived_from: TransportPolicy,
+}
+
 /// Notify every member who can manage the group (owner + admins) of the full
 /// digest over every member. Best-effort per recipient.
 ///
@@ -681,7 +707,7 @@ async fn dispatch_to_managers<C>(
     group: &CoachingGroup,
     audience: &Audience,
     snapshots: &[MemberFitnessSnapshot],
-    posted_to_room: bool,
+    delivery: DigestDelivery,
     outcome: &mut DigestTickOutcome,
 ) where
     C: ToolRuntime + GroupsCtx + MiddlewareCtx,
@@ -708,15 +734,16 @@ async fn dispatch_to_managers<C>(
             route: Value::Null,
             actions: None,
             bypass_frequency_cap: false,
+            transport_policy: delivery.derived_from,
         };
         // P3: a weekly roll-up is ambient by construction — any persona floor
         // below "everything" prefers it in the in-app list over a push.
-        let delivery = if posted_to_room {
+        let dispatched = if delivery.posted_to_room {
             service.dispatch_event_in_app(&dispatch, PushTier::P3).await
         } else {
             service.dispatch_event(&dispatch, PushTier::P3).await
         };
-        if let Err(e) = delivery {
+        if let Err(e) = dispatched {
             warn!(
                 group_id = %group.id,
                 user_id = %member.user_id,

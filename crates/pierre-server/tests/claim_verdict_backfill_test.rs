@@ -12,6 +12,7 @@
 #![cfg(feature = "tools-verification")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use pierre_core::transport::TransportPolicy;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -112,6 +113,7 @@ async fn seed_assistant_message(db: &Database, content: &str) -> Result<(TenantI
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
 

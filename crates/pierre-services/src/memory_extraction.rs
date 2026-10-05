@@ -27,6 +27,7 @@
 //! the [`crate::memory_extraction_resume`] sweep re-runs on whichever
 //! instance is alive.
 
+use pierre_core::transport::TransportPolicy;
 use std::fmt::Write as _;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
@@ -222,6 +223,9 @@ pub struct ExtractionRequest<'a> {
     /// supposed to persist through that tool. When it did not run, the drop
     /// deletes the only copy — see `is_agent_prescription`.
     pub plan_was_saved: bool,
+    /// The stamp of the reply the facts are extracted from (carnet#769):
+    /// every fact this pass writes or restates carries it.
+    pub transport_policy: TransportPolicy,
 }
 
 /// Outcome of a single extraction run.
@@ -262,6 +266,7 @@ where
             req.agent_id,
             None,
             i64::from(dedup.candidate_limit_i64()),
+            TransportPolicy::FirstPartyOnly,
         )
         .await
         .unwrap_or_else(|e| {
@@ -493,6 +498,7 @@ async fn merge_restatement<R: HarnessMemoryRepository + ?Sized>(
         tenant_id: req.tenant_id,
         fact_id,
         source_msg_id: req.source_msg_id,
+        transport_policy: req.transport_policy,
         confidence,
     };
     match repo.merge_user_fact(&params).await {
@@ -568,6 +574,7 @@ async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
             source: req.source,
             valid_until: None,
             source_msg_id: req.source_msg_id,
+            transport_policy: req.transport_policy,
         };
         match repo.upsert_user_fact(&params).await {
             Ok(row) => out.push(row),
@@ -767,6 +774,11 @@ pub struct ExtractionJobPayload {
     pub force_kind: Option<FactKind>,
     /// Whether `save_training_plan` ran on the turn being extracted.
     pub plan_was_saved: bool,
+    /// The stamp of the reply the facts are extracted from (carnet#769).
+    /// Absent from a job row queued before stamping existed, which reads as
+    /// unstamped.
+    #[serde(default)]
+    pub transport_policy: TransportPolicy,
 }
 
 impl ExtractionJobPayload {
@@ -786,6 +798,7 @@ impl ExtractionJobPayload {
             source: self.source,
             force_kind: self.force_kind,
             plan_was_saved: self.plan_was_saved,
+            transport_policy: self.transport_policy,
         }
     }
 }

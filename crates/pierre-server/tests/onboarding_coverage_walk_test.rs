@@ -12,6 +12,7 @@ use pierre_core::models::{
     CoverageMap, CoverageTarget, GuidedFlow, OnboardingState, Pillar, TenantId, WalkAudience,
     MAX_PROBE_ATTEMPTS,
 };
+use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
 use pierre_database::repositories::UpsertUserFactParams;
@@ -52,6 +53,7 @@ async fn capture(
             source: FactSource::Onboarding,
             valid_until: None,
             source_msg_id: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     Ok(())
@@ -60,7 +62,10 @@ async fn capture(
 /// Re-derive the coverage map from the freshly composed dossier — the same
 /// read-time derivation the pipeline and the onboarding-status endpoint use.
 async fn coverage(repos: &RepositoryRegistry, tenant: TenantId, user: Uuid) -> Result<CoverageMap> {
-    let dossier = repos.dossier.compose_dossier(tenant, user).await?;
+    let dossier = repos
+        .dossier
+        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .await?;
     Ok(CoverageMap::from_dossier(&dossier))
 }
 

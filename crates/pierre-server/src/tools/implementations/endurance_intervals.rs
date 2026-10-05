@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use pierre_providers::ai_scope;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -174,7 +175,10 @@ impl McpTool<dyn ToolRuntime> for ExportIntervalsTool {
                 .repos()
                 .user_physiological_profile
                 .get_user_physiological_profile(tenant_id, user_id)
-                .await?;
+                .await?
+                // A profile written from first-party-only data is withheld from an
+                // external caller (carnet#769).
+                .filter(|profile| ai_scope::admit_derived(profile.transport_policy));
             let ftp_watts = physiology.as_ref().and_then(|p| p.ftp_watts);
             let intervals = build_intervals(&activity, ftp_watts);
             let payload = serde_json::to_value(&intervals)

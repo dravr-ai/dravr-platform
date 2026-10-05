@@ -60,6 +60,7 @@ mod slack_room {
     use pierre_core::models::messaging::{ChannelType, MessageContent, OutgoingMessage};
     use pierre_core::models::periodization::PhaseKind;
     use pierre_core::models::{Tenant, TenantId, User, UserStatus, COMMAND_FINISH_REASON};
+    use pierre_core::transport::TransportPolicy;
     use pierre_database::backends::factory::DatabaseBackend;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
@@ -267,6 +268,7 @@ mod slack_room {
                     adjustment_reason: "",
                     phase_index: None,
                 }],
+                transport_policy: TransportPolicy::AnyTransport,
             })
             .await
             .unwrap();
@@ -314,6 +316,7 @@ mod slack_room {
                 // room-wide and the share fan-out is asserted through the
                 // peer's eyes, not only its author's.
                 peer_sharing_consent: true,
+                coach_sharing_consent: true,
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,

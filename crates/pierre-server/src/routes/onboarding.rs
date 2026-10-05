@@ -14,6 +14,7 @@
 //! Logic lives in [`pierre_services::onboarding_gate`]; this module is the
 //! thin HTTP boundary.
 
+use pierre_providers::ai_scope;
 use std::sync::Arc;
 
 use axum::{
@@ -128,7 +129,12 @@ async fn pillar_coverage(
         .common
         .repos
         .dossier
-        .compose_dossier(tenant, user_id)
+        .compose_dossier(
+            tenant,
+            user_id,
+            ai_scope::readable_policy(),
+            &ai_scope::admit_derived,
+        )
         .await
     else {
         return (0, false);

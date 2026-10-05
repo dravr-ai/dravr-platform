@@ -22,6 +22,7 @@ mod common;
 
 #[cfg(feature = "client-notifications")]
 mod persona_gate_tests {
+    use pierre_core::transport::TransportPolicy;
     use std::sync::{Arc, Mutex};
 
     use async_trait::async_trait;
@@ -243,6 +244,7 @@ personas:
             route: json!({ "screen": "connections" }),
             actions: None,
             bypass_frequency_cap: true,
+            transport_policy: TransportPolicy::AnyTransport,
         };
 
         let gated = service.dispatch_event(&event, PushTier::P1).await.unwrap();

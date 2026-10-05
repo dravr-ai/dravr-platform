@@ -920,7 +920,7 @@ export interface GetFoodDetailsParams {
 
 
 /**
- * Fetch a CONSENTING group member's recent or past activities. This is the ONLY way to read a peer's data in a group chat — `get_activities` always returns YOUR own data, never a peer's. Identify the member by their roster display name. For a specific past race or date range, pass `after`/`before` epoch-second bounds. Pass `group_id` to pin the lookup to the room's group. Returns an error (not data) if the member has not shared their data via `/group consent yes`; the error's `reason` says why.
+ * Fetch a CONSENTING group member's recent or past activities. This is the ONLY way to read a peer's data in a group chat — `get_activities` always returns YOUR own data, never a peer's. Identify the member by their roster display name. For a specific past race or date range, pass `after`/`before` epoch-second bounds. Pass `group_id` to pin the lookup to the room's group. Returns an error (not data) if the member has not shared their data with you: with the group via `/group consent yes`, or with you as the group's coach (joining grants it, `/group consent coach no` revokes it); the error's `reason` says why.
  */
 export interface GetGroupMemberActivitiesParams {
 

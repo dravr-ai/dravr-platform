@@ -14,6 +14,7 @@ use pierre_core::models::{
     MeasurementKind, MetricProvenance, ProvenancedValue, SportType, TenantId,
     UserPhysiologicalProfile,
 };
+use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::Database;
 use pierre_database::DatabaseProvider;
 use pierre_test_support::db::create_test_db_with_key;
@@ -49,6 +50,7 @@ fn make_profile(user_id: Uuid) -> UserPhysiologicalProfile {
         w_prime_joules: None,
         critical_speed_mps: None,
         d_prime_meters: None,
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 
@@ -60,7 +62,9 @@ async fn dossier_with_no_underlying_data_returns_empty_shell() {
     let dossier = db
         .repositories()
         .dossier
-        .compose_dossier(tenant_id, user_id)
+        .compose_dossier(tenant_id, user_id, TransportPolicy::FirstPartyOnly, &|_| {
+            true
+        })
         .await
         .expect("compose");
     assert_eq!(dossier.user_id, user_id);
@@ -85,7 +89,9 @@ async fn dossier_pulls_physiology_and_zones_when_present() {
         .expect("upsert physiology");
     let dossier = repos
         .dossier
-        .compose_dossier(tenant_id, user_id)
+        .compose_dossier(tenant_id, user_id, TransportPolicy::FirstPartyOnly, &|_| {
+            true
+        })
         .await
         .expect("compose");
     assert_eq!(
@@ -122,12 +128,16 @@ async fn dossier_is_tenant_scoped() {
 
     let dossier_a = repos
         .dossier
-        .compose_dossier(tenant_a, user_id)
+        .compose_dossier(tenant_a, user_id, TransportPolicy::FirstPartyOnly, &|_| {
+            true
+        })
         .await
         .expect("compose A");
     let dossier_b = repos
         .dossier
-        .compose_dossier(tenant_b, user_id)
+        .compose_dossier(tenant_b, user_id, TransportPolicy::FirstPartyOnly, &|_| {
+            true
+        })
         .await
         .expect("compose B");
     assert_eq!(dossier_a.physiology.unwrap().ftp_watts, Some(250));
@@ -153,7 +163,9 @@ async fn dossier_compose_tolerates_missing_goals_and_nutrition() {
     let dossier = db
         .repositories()
         .dossier
-        .compose_dossier(tenant_id, user_id)
+        .compose_dossier(tenant_id, user_id, TransportPolicy::FirstPartyOnly, &|_| {
+            true
+        })
         .await
         .expect("compose");
     assert!(dossier.physiology.is_some());
@@ -185,7 +197,9 @@ async fn dossier_serialises_to_endurance_conformant_json() {
     let dossier = db
         .repositories()
         .dossier
-        .compose_dossier(tenant_id, user_id)
+        .compose_dossier(tenant_id, user_id, TransportPolicy::FirstPartyOnly, &|_| {
+            true
+        })
         .await
         .expect("compose");
     let json = serde_json::to_value(&dossier).expect("serialize");
@@ -227,7 +241,9 @@ async fn dossier_carries_critical_power_with_its_provenance() {
 
     let dossier = repos
         .dossier
-        .compose_dossier(tenant_id, user_id)
+        .compose_dossier(tenant_id, user_id, TransportPolicy::FirstPartyOnly, &|_| {
+            true
+        })
         .await
         .expect("compose");
     let json = serde_json::to_value(&dossier).expect("serialize");

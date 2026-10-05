@@ -21,6 +21,7 @@
 //! flag is on file: the save refuses a payload carrying them and the read
 //! withholds stored ones — see `pierre_services::plan_fueling`.
 
+use pierre_providers::ai_scope;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -69,7 +70,6 @@ use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
-use crate::derived_content::refuse_derived_content_off_interface;
 use crate::implementations::training_plans_output::{
     GetTrainingPlanResult, SaveTrainingPlanResult, SavedWeek,
 };
@@ -529,19 +529,26 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                 Err(refused) => return Ok(refused),
             };
             let tenant = scope.tenant;
-            // A plan is written from the athlete's training and carries no
-            // provenance: the plan owner's connections decide (carnet#724).
-            refuse_derived_content_off_interface(context.resources.as_ref(), scope.user_id)
-                .await?;
             let tenant_id = tenant.to_string();
             let user_id = scope.user_id.to_string();
             let today = athlete_today(repos, scope.user_id).await;
             let fueling = FuelingDisclosure::for_athlete(repos, tenant, scope.user_id).await?;
-            let Some(plan) = repos
+            let active = repos
                 .training_plans
                 .get_active_plan(&tenant_id, &user_id)
-                .await?
-            else {
+                .await?;
+            // A plan derived from first-party-only data is not served over an
+            // external transport, and is not reported as absent either: a
+            // caller told "no plan" would lay one over it (carnet#769).
+            if active
+                .as_ref()
+                .is_some_and(|plan| !ai_scope::admit_derived(plan.transport_policy))
+            {
+                return Err(AppError::unavailable_over_transport(
+                    "this athlete's training plan is not available over this interface",
+                ));
+            }
+            let Some(plan) = active else {
                 // No plan, but the calendar may still hold single prescriptions
                 // — and plan entries of a plan since abandoned, which the
                 // block's `pending.remove` counts.
@@ -794,6 +801,17 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 .training_plans
                 .get_active_plan(&tenant_id, &user_id)
                 .await?;
+            // A season derived from first-party-only data is neither read nor
+            // written over by an external caller: the save would carry its
+            // weeks and echo them back (carnet#769).
+            if active
+                .as_ref()
+                .is_some_and(|plan| !ai_scope::admit_derived(plan.transport_policy))
+            {
+                return Err(AppError::unavailable_over_transport(
+                    "this athlete's training plan is not available over this interface",
+                ));
+            }
             let season_author = active.as_ref().and_then(|p| p.author_agent_id.as_deref());
             let author = PlanAuthor::from_agent(writer.agent_id.as_deref());
             // Another agent's season is not re-laid by accident. Refused
@@ -907,6 +925,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                     outline: outline_input,
                     weeks: &week_inputs,
                     replace_season,
+                    transport_policy: ai_scope::derived_policy(),
                 })
                 .await?;
 

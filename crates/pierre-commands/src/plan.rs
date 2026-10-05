@@ -20,6 +20,7 @@ use pierre_core::models::User;
 use pierre_memory::training_plans::{
     parse_plan_date, PlanPhase, PlanWeek, PlannedDay, TrainingPlan,
 };
+use pierre_providers::ai_scope;
 use pierre_services::training_plan_render::{
     plan_goal_is_stale, select_active_weeks, SelectedWeek, ACTIVE_WEEKS,
 };
@@ -345,6 +346,13 @@ async fn render_plan_reply(
     let Some(plan) = repos.training_plans.get_active_plan(&tenant, &user).await? else {
         return Ok(None);
     };
+    // A plan derived from first-party-only data is not rendered over an
+    // external transport, and not reported as absent either (carnet#769).
+    if !ai_scope::admit_derived(plan.transport_policy) {
+        return Err(AppError::unavailable_over_transport(
+            "this athlete's training plan is not available over this interface",
+        ));
+    }
 
     let stored: Vec<PlanWeek> = repos
         .training_plans

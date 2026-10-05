@@ -1,5 +1,5 @@
 // ABOUTME: Operator reset of one user's onboarding, so the wizard and the guided walks run again from the start
-// ABOUTME: Disconnects providers through the chokepoint, keeps TrainingPeaks (groups ride on it), clears only the user's own rows
+// ABOUTME: Disconnects providers through the chokepoint, keeps coaching platforms (groups ride on them), clears only the user's own rows
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -14,10 +14,11 @@
 //!
 //! The provider half disconnects every held provider through the same
 //! chokepoint [`crate::user_removal`] uses, so each grant is revoked at the
-//! provider rather than orphaned there. `TrainingPeaks` is the exception and is
-//! kept: its disconnect revokes an earned `manages_roster` and ends every
-//! delegated coach and member link, which is group state a reset must not
-//! touch. A provider this build cannot revoke is kept too, since only the
+//! provider rather than orphaned there. A coaching platform
+//! ([`coach_platform`]: `TrainingPeaks`, Intervals.icu) is the exception and
+//! is kept: its disconnect ends every delegated coach and member link — and
+//! for `TrainingPeaks` revokes an earned `manages_roster` — which is group
+//! state a reset must not touch. A provider this build cannot revoke is kept too, since only the
 //! chokepoint may clear a provider's rows. Either one kept leaves the user
 //! connected, so the wizard's provider steps stay hidden; the report names it.
 //!
@@ -29,7 +30,6 @@
 
 use std::collections::BTreeMap;
 
-use pierre_core::constants::oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::OnboardingResetScope;
 use pierre_database::RepositoryRegistry;
@@ -37,6 +37,7 @@ use serde::Serialize;
 use tracing::info;
 use uuid::Uuid;
 
+use crate::coach_platform::coach_platform;
 use crate::user_removal::{
     disconnect_each, held_providers, DisconnectedProvider, HeldProvider, Interruption,
     ProviderDisconnector,
@@ -48,8 +49,8 @@ pub struct OnboardingResetReport {
     /// Providers disconnected through the chokepoint, each with what the
     /// provider said about its grant.
     pub disconnected: Vec<DisconnectedProvider>,
-    /// `TrainingPeaks` connections left in place because disconnecting them
-    /// changes group state (the earned roster grant, delegated links).
+    /// Coaching-platform connections left in place because disconnecting
+    /// them changes group state (delegated links, the earned roster grant).
     pub kept_for_groups: Vec<HeldProvider>,
     /// Providers this build cannot revoke, left in place because only the
     /// disconnect chokepoint may clear a provider's rows.
@@ -122,9 +123,9 @@ pub async fn reset_onboarding(
         held_providers(repos, user_id)
             .await?
             .into_iter()
-            // Held providers carry their user-facing name, which the
-            // `sciotte_trainingpeaks` mirror shares.
-            .partition(|target| target.provider == oauth_providers::TRAININGPEAKS);
+            // Held providers carry their user-facing name, which a coaching
+            // platform is found by as well as by its backend.
+            .partition(|target| coach_platform(&target.provider).is_some());
 
     let mut report = OnboardingResetReport {
         kept_for_groups,

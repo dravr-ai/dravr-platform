@@ -32,6 +32,7 @@ use pierre_core::models::{
     SeasonTopic, TenantId, TopicSlug, WalkAudience,
 };
 use pierre_memory::{FactKind, FactSource};
+use pierre_providers::ai_scope;
 use uuid::Uuid;
 
 use super::completion;
@@ -304,7 +305,17 @@ async fn load_dossier(
     tenant_id: TenantId,
     user_id: Uuid,
 ) -> Option<Dossier> {
-    match ctx.repos.dossier.compose_dossier(tenant_id, user_id).await {
+    match ctx
+        .repos
+        .dossier
+        .compose_dossier(
+            tenant_id,
+            user_id,
+            ai_scope::readable_policy(),
+            &ai_scope::admit_derived,
+        )
+        .await
+    {
         Ok(dossier) => Some(dossier),
         Err(e) => {
             tracing::warn!(
@@ -317,6 +328,16 @@ async fn load_dossier(
     }
 }
 
+/// The walk's load snapshot as this turn may read it: a snapshot summed from
+/// first-party-only data reads as absent on an external turn, and stamps a
+/// first-party one (carnet#769).
+fn served_snapshot(state: &OnboardingState) -> Option<&LoadSnapshot> {
+    state
+        .snapshot
+        .as_ref()
+        .filter(|snapshot| ai_scope::admit_derived(snapshot.transport_policy))
+}
+
 /// The next topic to probe, or `None` when the flow has nothing left that its
 /// audience may hear.
 fn next_target(state: &OnboardingState, dossier: &Dossier) -> Option<GuidedTarget> {
@@ -326,13 +347,13 @@ fn next_target(state: &OnboardingState, dossier: &Dossier) -> Option<GuidedTarge
             .map(GuidedTarget::Coverage),
         GuidedFlow::Calibration => CalibrationTopic::next_target(
             &state.probed,
-            calibration_conditions(dossier, state.snapshot.as_ref()),
+            calibration_conditions(dossier, served_snapshot(state)),
             state.audience,
         )
         .map(GuidedTarget::Calibration),
         GuidedFlow::Season => SeasonTopic::next_target(
             &state.probed,
-            season_conditions(state.snapshot.as_ref()),
+            season_conditions(served_snapshot(state)),
             state.audience,
         )
         .map(GuidedTarget::Season),
@@ -862,7 +883,7 @@ fn calibration_baseline_line(turn: &OnboardingTurn) -> String {
     if turn.target != Some(GuidedTarget::Calibration(CalibrationTopic::BaselineConfirm)) {
         return String::new();
     }
-    turn.state.snapshot.as_ref().map_or_else(
+    served_snapshot(&turn.state).map_or_else(
         || {
             "You have no connected training data for this athlete, so ask for their recent \
              typical week rather than quoting figures.\n"

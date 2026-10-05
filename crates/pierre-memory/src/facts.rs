@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use pierre_core::transport::TransportPolicy;
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
@@ -406,6 +407,10 @@ pub struct UserFact {
     pub created_at: DateTime<Utc>,
     /// When the fact was last touched (updated / merged / confidence decayed).
     pub updated_at: DateTime<Utc>,
+    /// Where this row may be served (carnet#769): first-party-only when what it
+    /// was derived from was. Rows written before the stamp read as unstamped.
+    #[serde(default, skip_serializing)]
+    pub transport_policy: TransportPolicy,
 }
 
 impl UserFact {

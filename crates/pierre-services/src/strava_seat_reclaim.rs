@@ -59,6 +59,7 @@
 //! 5. **`observe`** computes the same plan, logs one line per candidate with
 //!    the action `enforce` would take, and writes nothing.
 
+use pierre_core::transport::TransportPolicy;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
@@ -857,6 +858,7 @@ fn warning_dispatch(candidate: &ReclaimCandidate, policy: &ReclaimPolicy) -> Eve
         }),
         actions: None,
         bypass_frequency_cap: true,
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

@@ -30,6 +30,8 @@ pub mod connect_prefetch;
 pub mod core;
 /// Fragment-aware activity deduplication for overlapping GPS recordings
 pub mod deduplication;
+/// Reads on behalf of a coached athlete through a coach's own provider credential
+pub mod delegation;
 /// Shared HTTP client for provider API calls
 pub mod http_client;
 /// The provider-side owner id behind an access token, for providers whose token response leaves it out
@@ -59,12 +61,18 @@ mod intervals_icu_calendar;
 /// Intervals.icu pull-only provider (Endurance Phase 4)
 #[cfg(feature = "provider-intervals-icu")]
 pub mod intervals_icu_provider;
+/// Intervals.icu coach roster: the athletes a coach's API key can read.
+#[cfg(feature = "provider-intervals-icu")]
+mod intervals_icu_roster;
 /// Intervals.icu athlete self-report: the inverted `feel` scale, RPE, and the activity comment thread.
 #[cfg(feature = "provider-intervals-icu")]
 mod intervals_icu_self_report;
 /// Intervals.icu activity provenance: the service that recorded a relayed activity.
 #[cfg(feature = "provider-intervals-icu")]
 mod intervals_icu_source;
+/// Intervals.icu activity streams: the streams.json wire shape and its time series.
+#[cfg(feature = "provider-intervals-icu")]
+mod intervals_icu_streams;
 /// Sciotte remote-service provider — routes scrapes to the dedicated dravr-sciotte service
 #[cfg(feature = "provider-sciotte")]
 pub mod sciotte_provider;

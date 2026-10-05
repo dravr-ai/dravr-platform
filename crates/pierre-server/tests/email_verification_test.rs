@@ -24,6 +24,7 @@ use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
     SecurityHeadersConfig, ServerConfig,
 };
+use pierre_core::transport::TransportPolicy;
 use pierre_database::database::system_settings::{
     SETTING_EMAIL_VERIFICATION_MAX_PER_HOUR, SETTING_EMAIL_VERIFICATION_TTL_MINUTES,
 };
@@ -414,7 +415,14 @@ async fn re_answering_about_you_supersedes_rather_than_duplicates() {
         .expect("second submission failed");
 
     let facts = memory
-        .list_user_facts(tenant, &uid, None, None, 100)
+        .list_user_facts(
+            tenant,
+            &uid,
+            None,
+            None,
+            100,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .expect("fact read failed");
     // Superseding sets `valid_until` rather than deleting, so "live" means the

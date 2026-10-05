@@ -1187,8 +1187,12 @@
       "writing": "Your plan runs out soon, and it has the phases to write against. Drafting the next {0} weeks now — I'll check your readiness before I commit them."
     },
     "group": {
+      "coach_consent_updated": "Sharing your data with the human coach of {1} is now {0}.",
+      "coach_joined_notice": "{0} joined {1} and is sharing their training data with you.",
+      "coach_sharing_named": "Your training data is now shared with {0}, the group's human coach. To stop sharing it: /group consent coach no",
+      "coach_sharing_pending": "Your training data will be shared with the group's human coach as soon as one is attached. To stop sharing it: /group consent coach no",
       "consent_updated": "Sharing your data with the other members of {1} is now {0}.",
-      "consent_usage": "Usage: /group consent yes  or  /group consent no",
+      "consent_usage": "Usage: /group consent yes|no (the other members)  or  /group consent coach yes|no (the human coach)",
       "create_forbidden": "Group creation is reserved to your workspace's admins.",
       "create_no_agent": "Pick the group's agent first: /agent add @handle in this chat, then run /group create again.",
       "create_unavailable": "Group coaching is not included in your plan.",
@@ -1239,7 +1243,7 @@
       "description": "Set this group's Dravr agent, or detach its human coach"
     },
     "group-consent": {
-      "description": "Toggle whether your training data is shared with peers in this group"
+      "description": "Choose whether your training data is shared with this group's human coach and its members"
     },
     "group-create": {
       "description": "Create a coaching group around this chat's agent"
@@ -1442,51 +1446,52 @@
   },
   "delegation": {
     "actionFailed": "That did not go through. Try again.",
-    "alreadyLinked": "Your TrainingPeaks is already linked through another group.",
-    "alreadyProposed": "This member already has a TrainingPeaks link in this group.",
+    "alreadyLinked": "Your {{platform}} is already linked through another group.",
+    "alreadyProposed": "This member already has a {{platform}} link in this group.",
+    "apiKeyRequired": "{{platform}} lists your athletes for an API key only. Reconnect {{platform}} with your API key to read your roster.",
     "athleteAlreadyLinked": "This athlete is already linked.",
-    "athleteEmailMismatch": "This athlete's TrainingPeaks email is not the member's Dravr email, so they cannot be linked.",
-    "athleteEmailMissing": "TrainingPeaks shares no email for this athlete, so Dravr cannot match them to a member.",
-    "coachEmailMismatch": "The TrainingPeaks account you connected uses a different email than your Dravr account. Connect the TrainingPeaks account registered with your Dravr email.",
-    "coachEmailMissing": "TrainingPeaks shares no email for the account you connected, so Dravr cannot tell it is yours.",
-    "coachHint": "Link each athlete on your TrainingPeaks roster to the member they are in this group. They confirm before Dravr reads their workouts through your TrainingPeaks account.",
-    "coachReconnectNeeded": "{{coach}} needs to reconnect TrainingPeaks; your workouts are paused until then.",
+    "athleteEmailMismatch": "This athlete's {{platform}} email is not the member's Dravr email, so they cannot be linked.",
+    "athleteEmailMissing": "{{platform}} shares no email for this athlete, so Dravr cannot match them to a member.",
+    "coachEmailMismatch": "The {{platform}} account you connected uses a different email than your Dravr account. Connect the {{platform}} account registered with your Dravr email.",
+    "coachEmailMissing": "{{platform}} shares no email for the account you connected, so Dravr cannot tell it is yours.",
+    "coachHint": "Link each athlete on your {{platform}} roster to the member they are in this group. They confirm before Dravr reads their workouts through your {{platform}} account.",
+    "coachReconnectNeeded": "{{coach}} needs to reconnect {{platform}}; your workouts are paused until then.",
     "confirm": "Confirm",
-    "confirmedBody": "Your TrainingPeaks workouts are read through {{coach}}'s account.",
-    "confirmedToast": "TrainingPeaks linked",
-    "connectFirst": "Connect TrainingPeaks with the account your athletes are on to link them.",
+    "confirmedBody": "Your {{platform}} workouts are read through {{coach}}'s account.",
+    "confirmedToast": "{{platform}} linked",
+    "connectFirst": "Connect {{platform}} with the account your athletes are on to link them.",
     "decline": "Decline",
     "declinedToast": "Link declined",
     "emailUnverified": "Verify your Dravr email first: open the link in the confirmation email we sent you.",
-    "leaveEndsLink": "Your TrainingPeaks link through this group ends too.",
+    "leaveEndsLink": "Your {{platform}} link through this group ends too.",
     "linkedTo": "Linked to {{member}}",
     "memberEmailUnverified": "This member has not verified their Dravr email yet, so they cannot be linked.",
     "memberLabel": "Member",
     "memberPlaceholder": "Choose a member",
-    "memberSectionTitle": "TrainingPeaks through your human coach",
-    "notCoachAccount": "The TrainingPeaks account you connected is an athlete's own account, so it has no roster to link.",
-    "notOnRoster": "That athlete is no longer on your TrainingPeaks roster. Refresh the roster and try again.",
+    "memberSectionTitle": "{{platform}} through your human coach",
+    "notCoachAccount": "The {{platform}} account you connected is an athlete's own account, so it has no roster to link.",
+    "notOnRoster": "That athlete is no longer on your {{platform}} roster. Refresh the roster and try again.",
     "openConnections": "Open connections",
-    "ownConnectionConflict": "You already connect TrainingPeaks with your own account, and Dravr keeps reading that one.",
+    "ownConnectionConflict": "You already connect {{platform}} with your own account, and Dravr keeps reading that one.",
     "propose": "Link",
     "proposedBody": "{{member}} confirms before anything is read.",
     "proposedToast": "Link sent",
-    "reconnectFirst": "Reconnect TrainingPeaks to read your roster.",
+    "reconnectFirst": "Reconnect {{platform}} to read your roster.",
     "refresh": "Refresh roster",
-    "requestBody": "{{coach}} coaches you on TrainingPeaks as {{athlete}}. Confirm, and Dravr reads your TrainingPeaks workouts through {{coach}}'s account — you do not sign in to TrainingPeaks yourself.",
-    "requestBodyNoName": "{{coach}} coaches you on TrainingPeaks. Confirm, and Dravr reads your TrainingPeaks workouts through {{coach}}'s account — you do not sign in to TrainingPeaks yourself.",
+    "requestBody": "{{coach}} coaches you on {{platform}} as {{athlete}}. Confirm, and Dravr reads your {{platform}} workouts through {{coach}}'s account — you do not sign in to {{platform}} yourself.",
+    "requestBodyNoName": "{{coach}} coaches you on {{platform}}. Confirm, and Dravr reads your {{platform}} workouts through {{coach}}'s account — you do not sign in to {{platform}} yourself.",
     "requestFootnote": "You can unlink at any time. Leaving this group unlinks too.",
-    "requestTitle": "TrainingPeaks link request",
-    "rosterEmpty": "Your TrainingPeaks roster lists no athletes yet.",
-    "rosterFailed": "Your TrainingPeaks roster could not be read. Try again in a moment.",
-    "rosterLoading": "Reading your TrainingPeaks roster…",
-    "sectionTitle": "TrainingPeaks athletes",
+    "requestTitle": "{{platform}} link request",
+    "rosterEmpty": "Your {{platform}} roster lists no athletes yet.",
+    "rosterFailed": "Your {{platform}} roster could not be read. Try again in a moment.",
+    "rosterLoading": "Reading your {{platform}} roster…",
+    "sectionTitle": "{{platform}} athletes",
     "suggested": "{{member}} (suggested)",
-    "termsOutdated": "Reconnect TrainingPeaks and accept the updated notice to read your roster.",
+    "termsOutdated": "Reconnect {{platform}} and accept the updated notice to read your roster.",
     "unlink": "Unlink",
-    "unlinkBody": "Dravr stops reading these TrainingPeaks workouts through the human coach's account and removes the ones it already read from the athlete's Dravr account.",
-    "unlinkTitle": "Unlink TrainingPeaks?",
-    "unlinked": "TrainingPeaks link ended",
+    "unlinkBody": "Dravr stops reading these {{platform}} workouts through the human coach's account and removes the ones it already read from the athlete's Dravr account.",
+    "unlinkTitle": "Unlink {{platform}}?",
+    "unlinked": "{{platform}} link ended",
     "waitingFor": "Waiting for {{member}} to confirm",
     "withdraw": "Withdraw"
   },
@@ -2004,7 +2009,7 @@
     "cardDescription": "Build plans for the athletes you coach, with the coach-facing plan builders. No questions about your own training.",
     "coach": "Coach",
     "coachAndTrainCardDescription": "The coach-facing plan builders, plus an agent that follows your own training too.",
-    "detachQ": "Detach the human coach from this group? Their TrainingPeaks athlete links in this group end, and they lose access to the group's roster.",
+    "detachQ": "Detach the human coach from this group? Their athlete links in this group end, and they lose access to the group's roster.",
     "detached": "The human coach has been detached from this group.",
     "groupStepIntro": "Each athlete gets their own group: you as their coach, your athlete, and your agent answering in the thread alongside you. Start with your first athlete.",
     "group_detached": "{0} no longer has an attached human coach.",
@@ -2339,24 +2344,24 @@
         "title": "Agent updated"
       },
       "delegation_confirmed": {
-        "body": "{0} confirmed your TrainingPeaks link in {1}. Their workouts are now read through your account.",
-        "title": "TrainingPeaks link confirmed"
+        "body": "{0} confirmed your {2} link in {1}. Their workouts are now read through your account.",
+        "title": "{0} link confirmed"
       },
       "delegation_declined": {
-        "body": "{0} declined your TrainingPeaks link in {1}.",
-        "title": "TrainingPeaks link declined"
+        "body": "{0} declined your {2} link in {1}.",
+        "title": "{0} link declined"
       },
       "delegation_off_coach_roster": {
-        "body": "{0}'s TrainingPeaks roster no longer lists you, so your workouts are no longer read through their account in {1}. Ask {0} to link you again, or connect TrainingPeaks yourself.",
-        "title": "TrainingPeaks link ended"
+        "body": "{0}'s {2} roster no longer lists you, so your workouts are no longer read through their account in {1}. Ask {0} to link you again, or connect {2} yourself.",
+        "title": "{0} link ended"
       },
       "delegation_off_roster": {
-        "body": "Your TrainingPeaks roster no longer lists {0}, so their link in {1} ended. Link them again once they are back on your roster.",
-        "title": "TrainingPeaks link ended"
+        "body": "Your {2} roster no longer lists {0}, so their link in {1} ended. Link them again once they are back on your roster.",
+        "title": "{0} link ended"
       },
       "delegation_proposed": {
-        "body": "{0} asked to read your TrainingPeaks workouts through their own TrainingPeaks account, in {1}. Nothing is read until you confirm.",
-        "title": "TrainingPeaks link request"
+        "body": "{0} asked to read your {2} workouts through their own {2} account, in {1}. Nothing is read until you confirm.",
+        "title": "{0} link request"
       },
       "fitness_improvement": {
         "body": "Your {0} increased to {1}",

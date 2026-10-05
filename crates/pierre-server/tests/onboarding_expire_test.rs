@@ -9,6 +9,7 @@
 
 use anyhow::Result;
 use pierre_core::models::{Pillar, TenantId};
+use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
 use pierre_database::repositories::UpsertUserFactParams;
@@ -46,6 +47,7 @@ async fn seed(
             source,
             valid_until: None,
             source_msg_id: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     Ok(())
@@ -95,7 +97,10 @@ async fn expire_onboarding_facts_supersedes_scoped_then_all() -> Result<()> {
         .await?;
     assert_eq!(n, 1, "only the one Fuelling onboarding fact superseded");
 
-    let dossier = repos.dossier.compose_dossier(tenant, user).await?;
+    let dossier = repos
+        .dossier
+        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .await?;
     let fuelling = dossier
         .pillars
         .get(&Pillar::Fuelling)
@@ -115,7 +120,10 @@ async fn expire_onboarding_facts_supersedes_scoped_then_all() -> Result<()> {
         "only the still-fresh Sleep onboarding fact superseded"
     );
 
-    let dossier = repos.dossier.compose_dossier(tenant, user).await?;
+    let dossier = repos
+        .dossier
+        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .await?;
     assert!(
         dossier.pillars[&Pillar::SleepAndRecovery]
             .iter()

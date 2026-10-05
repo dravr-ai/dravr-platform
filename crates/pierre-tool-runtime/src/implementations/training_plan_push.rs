@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use pierre_providers::ai_scope;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -61,10 +62,13 @@ pub(super) async fn calendar_block(
     today: NaiveDate,
     fueling: &FuelingDisclosure,
 ) -> AppResult<CalendarBlock> {
-    let live = repos
+    let mut live = repos
         .prescribed_workouts
         .list_live_calendar_events(tenant, user_id, CALENDAR_PROVIDER, Some(today))
         .await?;
+    // An entry pushed from first-party-only data is withheld from an external
+    // caller; the rest are served (carnet#769).
+    ai_scope::retain_admitted(&mut live, |row| row.transport_policy);
     let desired = desired_entries(user_id, active_weeks, today, fueling);
     let pending = diff_against_ledger(&desired, &live)?;
     let entries: Vec<CalendarEntry> = live
@@ -135,13 +139,14 @@ pub(super) async fn calendar_preview_after_save(
     today: NaiveDate,
     fueling: &FuelingDisclosure,
 ) -> Option<CalendarPreview> {
-    let live = best_effort(
+    let mut live = best_effort(
         repos
             .prescribed_workouts
             .list_live_calendar_events(tenant, user_id, CALENDAR_PROVIDER, Some(today))
             .await,
         "calendar ledger unreadable",
     )?;
+    ai_scope::retain_admitted(&mut live, |row| row.transport_policy);
     if !live.iter().any(|row| row.source.is_plan()) {
         return None;
     }

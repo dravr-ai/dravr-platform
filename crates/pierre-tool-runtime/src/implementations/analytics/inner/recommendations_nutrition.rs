@@ -9,6 +9,7 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, TenantId};
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_database::RepositoryRegistry;
+use pierre_providers::ai_scope;
 use uuid::Uuid;
 
 use crate::implementations::analytics::recommendations_output::{
@@ -67,6 +68,9 @@ pub async fn load_nutrition_athlete(
             .user_physiological_profile
             .get_user_physiological_profile(tenant, user_id)
             .await?
+            // A profile written from first-party-only data is withheld from an
+            // external caller (carnet#769).
+            .filter(|profile| ai_scope::admit_derived(profile.transport_policy))
             .and_then(|profile| profile.weight)
             .filter(|kg| kg.is_finite() && *kg > 0.0);
         if weight.is_some() {

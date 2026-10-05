@@ -233,6 +233,7 @@ async fn group(
                 tenant_id: member.tenant.to_string(),
                 role: GroupRole::Member,
                 peer_sharing_consent: false,
+                coach_sharing_consent: false,
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,
@@ -430,7 +431,7 @@ async fn the_roster_binds_the_coach_account_by_email(w: &World) {
     assert_refused(
         w.roster().await,
         StatusCode::BAD_REQUEST,
-        "trainingpeaks_email_mismatch",
+        "coach_platform_email_mismatch",
     );
     assert!(
         !w.manages_roster().await,
@@ -441,7 +442,7 @@ async fn the_roster_binds_the_coach_account_by_email(w: &World) {
     assert_refused(
         w.roster().await,
         StatusCode::BAD_REQUEST,
-        "trainingpeaks_email_missing",
+        "coach_platform_email_missing",
     );
 
     w.coach_signs_in_as(BOUND_COACH_SESSION).await;

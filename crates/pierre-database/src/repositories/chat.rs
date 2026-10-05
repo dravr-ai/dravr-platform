@@ -12,6 +12,7 @@ use pierre_core::models::AddMessageParams;
 use pierre_core::models::UpsertMessageFeedbackParams;
 use pierre_core::models::{ConversationPage, ConversationParticipant, ConversationRecord};
 use pierre_core::models::{MessageFeedbackRecord, MessageRecord, TenantId};
+use pierre_core::transport::TransportPolicy;
 
 /// One assistant reply as the claim-verdict backfill reads it: the message,
 /// where it was said, and who it was said to.
@@ -27,6 +28,8 @@ pub struct AssistantMessage {
     pub agent_id: Option<String>,
     /// The reply text.
     pub content: String,
+    /// The reply's stamp (carnet#769), inherited by what is derived from it.
+    pub transport_policy: TransportPolicy,
 }
 
 /// What [`ChatRepository::reactivate_conversation`] did to a conversation.
@@ -139,20 +142,28 @@ pub trait ChatRepository: Send + Sync {
     /// count of such rows written after the caller's read marker. Tool rows
     /// count nowhere. `limit`/`offset` are applied as given; the route clamps
     /// them.
+    ///
+    /// `readable` is the strictest stamp the caller may read (carnet#769):
+    /// with [`TransportPolicy::AnyTransport`] a thread opened from a
+    /// first-party-only activity is left out, and every count and preview
+    /// reads only unstamped rows — in the statement, so the page fills.
     async fn list_conversations(
         &self,
         user_id: &str,
         tenant_id: TenantId,
         limit: i64,
         offset: i64,
+        readable: TransportPolicy,
     ) -> AppResult<ConversationPage>;
     /// Count every conversation `user_id` participates in, in this tenant —
     /// the `total` of [`Self::list_conversations`]. Membership semantics, so
     /// it must never size a quota: that is [`Self::count_conversations`].
+    /// `readable` leaves out what [`Self::list_conversations`] leaves out.
     async fn count_participating_conversations(
         &self,
         user_id: &str,
         tenant_id: TenantId,
+        readable: TransportPolicy,
     ) -> AppResult<i64>;
     /// Advance `user_id`'s read marker on a conversation they participate in.
     ///
@@ -219,12 +230,17 @@ pub trait ChatRepository: Send + Sync {
         tenant_id: TenantId,
     ) -> AppResult<Vec<MessageRecord>>;
     /// Get recent messages for a conversation (verifies the user is a participant)
+    ///
+    /// `readable` is the strictest stamp a returned row may carry
+    /// (carnet#769): [`TransportPolicy::AnyTransport`] leaves stamped rows
+    /// out in the statement itself, so `limit` counts only readable rows.
     async fn get_recent_messages(
         &self,
         conversation_id: &str,
         user_id: &str,
         tenant_id: TenantId,
         limit: i64,
+        readable: TransportPolicy,
     ) -> AppResult<Vec<MessageRecord>>;
 
     /// Every assistant message in `tenant_id`, oldest first, from `since`
@@ -399,6 +415,16 @@ pub trait ChatRepository: Send + Sync {
         tenant_id: TenantId,
     ) -> AppResult<bool>;
 
+    /// The active conversation `user_id` owns in `tenant_id` that is bound to
+    /// `group_id` — the user's own copy of the group's chat — or `None` when
+    /// they have none there. When several exist, the most recently active.
+    async fn find_group_conversation(
+        &self,
+        user_id: &str,
+        tenant_id: TenantId,
+        group_id: &str,
+    ) -> AppResult<Option<ConversationRecord>>;
+
     /// Point an existing conversation at a different agent.
     ///
     /// A messaging channel holds one long-lived conversation per athlete, so
@@ -506,7 +532,7 @@ macro_rules! conversation_columns {
 macro_rules! message_columns {
     () => {
         "m.id, m.conversation_id, m.role, m.content, m.token_count, m.prompt_tokens, \
-         m.model, m.finish_reason, m.content_blocks, m.created_at"
+         m.model, m.finish_reason, m.content_blocks, m.created_at, m.first_party_only"
     };
 }
 
@@ -593,19 +619,28 @@ pub(crate) const LIST_CONVERSATIONS_SQL: &str = r"
            c.created_at, c.updated_at, c.group_id, c.archived_at,
            g.name AS group_name, co.slug AS agent_handle, co.title AS agent_title,
            (SELECT COUNT(*) FROM chat_messages m
-             WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')) AS message_count,
+             WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')
+               AND (m.first_party_only = FALSE OR $6)) AS message_count,
            (SELECT COUNT(*) FROM chat_messages m
              WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')
+               AND (m.first_party_only = FALSE OR $6)
                AND (p.last_read_at IS NULL OR m.created_at > p.last_read_at)) AS unread_count,
            (SELECT SUBSTR(m.content, 1, $5) FROM chat_messages m
              WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')
+               AND (m.first_party_only = FALSE OR $6)
              ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_content_head,
            (SELECT m.role FROM chat_messages m
              WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')
+               AND (m.first_party_only = FALSE OR $6)
              ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_role,
            (SELECT m.created_at FROM chat_messages m
              WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')
-             ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_created_at
+               AND (m.first_party_only = FALSE OR $6)
+             ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_created_at,
+           (SELECT m.first_party_only FROM chat_messages m
+             WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')
+               AND (m.first_party_only = FALSE OR $6)
+             ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_first_party_only
     FROM chat_conversations c
     JOIN conversation_participants p ON p.conversation_id = c.id
     LEFT JOIN coaching_groups g ON g.id = c.group_id
@@ -613,17 +648,26 @@ pub(crate) const LIST_CONVERSATIONS_SQL: &str = r"
     WHERE p.user_id = $1
       AND p.tenant_id = c.tenant_id
       AND (c.tenant_id = $2 OR c.group_id IS NOT NULL)
+      AND ($6 OR NOT EXISTS (
+        SELECT 1 FROM activity_conversations l
+        WHERE l.conversation_id = c.id AND l.first_party_only = TRUE
+      ))
     ORDER BY c.updated_at DESC, c.id DESC
     LIMIT $3 OFFSET $4";
 
-/// The participant's total — the same membership predicate as the page.
+/// The participant's total — the same membership and readability predicates
+/// as the page.
 pub(crate) const COUNT_PARTICIPATING_SQL: &str = r"
     SELECT COUNT(*)
     FROM chat_conversations c
     JOIN conversation_participants p ON p.conversation_id = c.id
     WHERE p.user_id = $1
       AND p.tenant_id = c.tenant_id
-      AND (c.tenant_id = $2 OR c.group_id IS NOT NULL)";
+      AND (c.tenant_id = $2 OR c.group_id IS NOT NULL)
+      AND ($3 OR NOT EXISTS (
+        SELECT 1 FROM activity_conversations l
+        WHERE l.conversation_id = c.id AND l.first_party_only = TRUE
+      ))";
 
 /// The instant a read marker should advance to, gated on membership.
 ///
@@ -697,8 +741,8 @@ pub(crate) const DELETE_CONVERSATION_SQL: &str = r"
 /// Insert a message only when the caller is a participant of the
 /// conversation in this tenant.
 pub(crate) const ADD_MESSAGE_SQL: &str = r"
-    INSERT INTO chat_messages (id, conversation_id, role, content, token_count, finish_reason, created_at, prompt_tokens, model, content_blocks)
-    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $12
+    INSERT INTO chat_messages (id, conversation_id, role, content, token_count, finish_reason, created_at, prompt_tokens, model, content_blocks, first_party_only)
+    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $12, $13
     WHERE EXISTS (
         SELECT 1 FROM chat_conversations c
         JOIN conversation_participants p ON p.conversation_id = c.id
@@ -737,7 +781,7 @@ pub(crate) const GET_RECENT_MESSAGES_SQL: &str = concat!(
     " FROM chat_messages m \
      JOIN chat_conversations c ON m.conversation_id = c.id \
      JOIN conversation_participants p ON p.conversation_id = c.id \
-     WHERE m.conversation_id = $1 AND ",
+     WHERE m.conversation_id = $1 AND (m.first_party_only = FALSE OR $5) AND ",
     participant_scope!(),
     " ORDER BY m.created_at DESC, m.id DESC \
      LIMIT $4"
@@ -875,6 +919,18 @@ pub(crate) const SET_GROUP_ID_SQL: &str = r"
     SET group_id = $1
     WHERE id = $2 AND tenant_id = $3";
 
+/// A user's own active conversation bound to one coaching group in a tenant,
+/// most recently active first.
+pub(crate) const FIND_GROUP_CONVERSATION_SQL: &str = concat!(
+    "SELECT ",
+    conversation_columns!(),
+    " FROM chat_conversations c \
+     WHERE c.user_id = $1 AND c.tenant_id = $2 AND c.group_id = $3 \
+       AND c.archived_at IS NULL \
+     ORDER BY c.updated_at DESC \
+     LIMIT 1"
+);
+
 /// Bind a conversation to an agent, or unbind it. `agent_id` is TEXT on
 /// both backends — agent ids are slugs, not uuids — so unlike `group_id`
 /// there is nothing to parse.
@@ -974,7 +1030,8 @@ pub(crate) const ASSISTANT_MESSAGES_AFTER_SQL: &str = r"
            m.conversation_id AS conversation_id,
            c.user_id AS user_id,
            c.agent_id AS agent_id,
-           m.content AS content
+           m.content AS content,
+           m.first_party_only AS first_party_only
     FROM chat_messages m
     INNER JOIN chat_conversations c ON c.id = m.conversation_id
     WHERE c.tenant_id = $1

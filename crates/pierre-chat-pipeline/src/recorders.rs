@@ -12,6 +12,7 @@
 //! usage row is logged, never propagated, because losing an accounting row is
 //! strictly better than failing the athlete's turn over it.
 
+use pierre_providers::ai_scope;
 use std::sync::Arc;
 
 use embacle::pricing::TokenCounts;
@@ -205,6 +206,7 @@ impl ToolMessageRecorder for ChatRepoToolMessageRecorder {
                     prompt_tokens: None,
                     model: None,
                     content_blocks: None,
+                    transport_policy: ai_scope::derived_policy(),
                 };
                 if let Err(e) = chat.add_message(&params).await {
                     warn!("Failed to persist tool_call message: {e}");
@@ -223,6 +225,7 @@ impl ToolMessageRecorder for ChatRepoToolMessageRecorder {
                     prompt_tokens: None,
                     model: None,
                     content_blocks: None,
+                    transport_policy: ai_scope::derived_policy(),
                 };
                 if let Err(e) = chat.add_message(&params).await {
                     warn!("Failed to persist tool_result message: {e}");

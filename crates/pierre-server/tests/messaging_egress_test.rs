@@ -28,6 +28,7 @@
 //! The fourth is the split itself: an over-limit reply used to be trimmed to
 //! the channel's ceiling and the tail was never delivered (registre#2).
 
+use pierre_core::transport::TransportPolicy;
 use std::fmt::Write as _;
 use std::sync::Arc;
 use std::time::Duration;
@@ -86,6 +87,7 @@ fn message(id: &str, role: &str, content: &str) -> MessageRecord {
         finish_reason: Some("stop".to_owned()),
         content_blocks: None,
         created_at: "2026-08-24T00:00:00Z".to_owned(),
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

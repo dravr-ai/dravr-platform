@@ -7,6 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_core::transport::TransportPolicy;
 use std::collections::HashMap;
 use std::fmt::Debug as FmtDebug;
 use std::sync::{Arc, Mutex};
@@ -128,6 +129,7 @@ async fn seed_fact(
             source: FactSource::Onboarding,
             valid_until: None,
             source_msg_id: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     Ok(())
@@ -169,7 +171,10 @@ async fn pillar_facts_group_into_dossier_buckets() -> Result<()> {
     )
     .await?;
 
-    let dossier = repos.dossier.compose_dossier(tenant, user).await?;
+    let dossier = repos
+        .dossier
+        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .await?;
 
     let fuelling = dossier
         .pillars
@@ -232,7 +237,10 @@ async fn medical_fact_survives_recency_window_eviction() -> Result<()> {
         .await?;
     }
 
-    let dossier = repos.dossier.compose_dossier(tenant, user).await?;
+    let dossier = repos
+        .dossier
+        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .await?;
     assert_eq!(
         dossier.medical.len(),
         1,
@@ -271,7 +279,10 @@ async fn dossier_facts_are_tenant_scoped() -> Result<()> {
     .await?;
 
     // Composing the same user under tenant A must not see tenant B's fact.
-    let dossier_a = repos.dossier.compose_dossier(tenant_a, user).await?;
+    let dossier_a = repos
+        .dossier
+        .compose_dossier(tenant_a, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .await?;
     assert!(dossier_a.pillars.is_empty(), "no cross-tenant facts leak");
     assert!(render_okf_bundle_default(
         &dossier_a,
@@ -280,7 +291,10 @@ async fn dossier_facts_are_tenant_scoped() -> Result<()> {
     .is_none());
 
     // Tenant B sees its own fact.
-    let dossier_b = repos.dossier.compose_dossier(tenant_b, user).await?;
+    let dossier_b = repos
+        .dossier
+        .compose_dossier(tenant_b, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .await?;
     assert_eq!(
         dossier_b
             .pillars
@@ -322,7 +336,10 @@ async fn failing_fact_reads_warn_with_the_error_and_still_render() -> Result<()>
 
     let repos = db.repositories();
     let (events, _guard) = setup_capture();
-    let dossier = repos.dossier.compose_dossier(tenant, user).await?;
+    let dossier = repos
+        .dossier
+        .compose_dossier(tenant, user, TransportPolicy::FirstPartyOnly, &|_| true)
+        .await?;
 
     // Degradation is preserved: the dossier still composes, minus the facts.
     assert!(dossier.pillars.is_empty());

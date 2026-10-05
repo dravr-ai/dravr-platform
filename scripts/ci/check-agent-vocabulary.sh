@@ -70,8 +70,9 @@ EXCLUSIONS = [
      r'|hum\w+[- ](?:coach|entrenador|treinador|entra[iî]neur)'
      r'|menschlich\w*\s+Coach',
      'an explicit human coach'),
-    # A slash command the athlete types: /group coach keeps its name (D4).
-    (r'/(?:group|agent|coach)\s+coach\b|/coach\b', 'a slash-command token'),
+    # A slash command the athlete types: /group coach keeps its name (D4), as
+    # does the coach audience of /group consent (carnet#786).
+    (r'/(?:group|agent|coach)\s+(?:consent\s+)?coach\b|/coach\b', 'a slash-command token'),
 ]
 
 root = pathlib.Path('packages/i18n/src/locales')

@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
 use tracing::warn;
@@ -70,6 +71,8 @@ pub(super) async fn append_ambient_transcript_entry(
         content: &body,
         source_conversation_id: None,
         source_message_id: Some(&message.channel_message_id),
+        // A member's own words in the room, derived from no provider data.
+        transport_policy: TransportPolicy::AnyTransport,
     };
     if let Err(e) = resources
         .common

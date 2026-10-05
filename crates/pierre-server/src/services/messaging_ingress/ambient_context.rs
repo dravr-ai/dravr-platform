@@ -4,6 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use pierre_chat_pipeline::turn::AmbientContext;
+use pierre_core::transport::TransportPolicy;
 use std::collections::HashMap;
 
 use pierre_core::models::TranscriptSpeaker;
@@ -31,7 +33,9 @@ const AMBIENT_TRANSCRIPT_MAX_LINE_CHARS: usize = 240;
 /// pipeline fans it out at persistence), so nothing is excluded here.
 /// Returns `None` when the room has no other recent messages, so DM-shaped
 /// groups cost no prompt tokens.
-pub(super) async fn build_group_ambient_context(dispatch: &PendingDispatch) -> Option<String> {
+pub(super) async fn build_group_ambient_context(
+    dispatch: &PendingDispatch,
+) -> Option<AmbientContext> {
     let conversation = dispatch
         .resources
         .common
@@ -66,6 +70,8 @@ pub(super) async fn build_group_ambient_context(dispatch: &PendingDispatch) -> O
     // per-line length.
     let mut lines: Vec<String> = Vec::new();
     let mut label_cache: HashMap<String, String> = HashMap::new();
+    // The block is as strict as the entries it quotes (carnet#769).
+    let mut transport_policy = TransportPolicy::AnyTransport;
     for entry in &entries {
         if entry.content.is_empty() {
             continue;
@@ -93,20 +99,25 @@ pub(super) async fn build_group_ambient_context(dispatch: &PendingDispatch) -> O
             .take(AMBIENT_TRANSCRIPT_MAX_LINE_CHARS)
             .collect();
         lines.push(format!("{label}: {truncated}"));
+        transport_policy = transport_policy.strictest(entry.transport_policy);
     }
     if lines.is_empty() {
         return None;
     }
     lines.reverse();
 
-    Some(format!(
+    let text = format!(
         "## Recent group chat\n\
          This conversation happens inside a group chat. The lines below are \
          the room's most recent messages, oldest first, for context only — \
          answer the current message, which follows the conversation history. \
          Never prefix your reply with a name label.\n\n{}",
         lines.join("\n")
-    ))
+    );
+    Some(AmbientContext {
+        text,
+        transport_policy,
+    })
 }
 
 /// Resolve a member's display label for the ambient transcript, caching per

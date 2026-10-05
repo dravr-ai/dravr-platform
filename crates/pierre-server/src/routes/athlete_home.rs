@@ -75,6 +75,8 @@ pub mod activity_view;
 /// The background refresh of stale provider heads Home starts.
 mod stale_refresh;
 
+use pierre_core::ai_policy::first_party_only;
+use pierre_core::transport::TransportPolicy;
 use std::cmp::Reverse;
 use std::iter;
 use std::sync::Arc;
@@ -102,7 +104,6 @@ use pierre_services::personas::resolve_persona_locale;
 use pierre_services::plan_card::{try_load_plan_card, PlanCard};
 use pierre_tool_runtime::activity_fetch::sync_verdict::{record_sync_failure, sync_backoff_until};
 use pierre_tool_runtime::activity_fetch::{activity_cache_retention_days, refresh_head};
-use pierre_tool_runtime::derived_content::refuse_derived_content_off_interface;
 use pierre_tool_runtime::reauth_retry::{claim_scrape_session_retry, retries_flagged_session};
 use pierre_tool_runtime::revalidation::{revalidation_timeout, RevalidationRegistry};
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -926,8 +927,16 @@ async fn put_activity_conversation(
 ) -> AppResult<Json<ActivityConversationLink>> {
     let user_id = auth.user_id;
     let tenant_id = active_tenant(&auth)?;
-    let (stored_provider, _) =
+    let (stored_provider, activity) =
         owned_cached_activity(&resources, user_id, tenant_id, &provider, &activity_id).await?;
+    // The thread is about the activity throughout: it carries the activity's
+    // terms, so an external reader of the athlete's threads never sees it
+    // (carnet#769).
+    let thread_policy = TransportPolicy::from_first_party_only(first_party_only(
+        resources.fitness.provider_registry.as_ref(),
+        &stored_provider,
+        activity.source(),
+    ));
     let links = &resources.repos().activity_conversations;
     match link.conversation_id.as_deref() {
         Some(conversation_id) => {
@@ -938,6 +947,7 @@ async fn put_activity_conversation(
                     &stored_provider,
                     &activity_id,
                     conversation_id,
+                    thread_policy,
                 )
                 .await?;
             if !linked {
@@ -1022,8 +1032,6 @@ async fn get_training_plan(
 ) -> AppResult<Json<TrainingPlanResponse>> {
     let user_id = auth.user_id;
     let tenant_id = active_tenant(&auth)?;
-    // The plan is written from the athlete's training (carnet#724).
-    refuse_derived_content_off_interface(resources.as_ref(), user_id).await?;
     let repos = resources.repos();
     let user = repos.users.get_global(user_id).await?;
     // The athlete's civil day, the one `/plan` projects the plan on: a 23:30

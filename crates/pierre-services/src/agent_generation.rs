@@ -21,6 +21,7 @@
 //! per-user quota `POST /api/agents` enforces, read here by [`agent_quota`]
 //! so the two creation surfaces cannot drift.
 
+use pierre_providers::ai_scope;
 use std::sync::Arc;
 
 use pierre_core::errors::{AppError, AppResult};
@@ -143,9 +144,12 @@ pub async fn conversation_excerpt(
         .await?
         .ok_or_else(|| AppError::not_found("Conversation"))?;
 
-    let messages = chat
+    let mut messages = chat
         .get_messages(request.conversation_id, &user_id, request.tenant_id)
         .await?;
+    // A row derived from first-party-only data is withheld from an external
+    // caller; the excerpt quotes the rest (carnet#769).
+    ai_scope::retain_admitted(&mut messages, |m| m.transport_policy);
     let turns: Vec<&MessageRecord> = messages.iter().filter(|m| is_coaching_turn(m)).collect();
     let total_messages = turns.len();
     if total_messages == 0 {

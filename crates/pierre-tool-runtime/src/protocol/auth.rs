@@ -345,10 +345,10 @@ impl AuthService {
             }));
         }
 
-        // A TrainingPeaks read whose subject is decided before the user's own
+        // A coaching-platform read whose subject is decided before the user's own
         // token is (a coach account's own calendar is refused in words).
         if let Some(served) = self
-            .trainingpeaks_subject(provider_name, user_id, tenant_id_parsed)
+            .delegated_subject(provider_name, user_id, tenant_id_parsed)
             .await
         {
             return served;

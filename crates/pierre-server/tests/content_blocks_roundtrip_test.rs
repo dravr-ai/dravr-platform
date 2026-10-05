@@ -18,6 +18,7 @@ mod messaging_fixtures;
 
 use messaging_fixtures::{create_test_db, seed_conversation, seed_user};
 use pierre_core::models::{AddMessageParams, TenantId};
+use pierre_core::transport::TransportPolicy;
 use uuid::Uuid;
 
 /// Two blocks, as the extractor would encode them: a chart and a table.
@@ -44,6 +45,7 @@ async fn content_blocks_survive_a_round_trip() {
             prompt_tokens: None,
             model: Some("claude-sonnet-5"),
             content_blocks: Some(BLOCKS),
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -106,6 +108,7 @@ async fn an_ordinary_reply_stores_null_blocks() {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -159,6 +162,7 @@ async fn blocks_are_readable_only_under_the_conversations_own_tenant() {
             prompt_tokens: None,
             model: Some("claude-sonnet-5"),
             content_blocks: Some(BLOCKS),
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();

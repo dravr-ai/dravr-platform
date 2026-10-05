@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use pierre_core::transport::TransportPolicy;
 use std::collections::BTreeMap;
 
 use async_trait::async_trait;
@@ -44,6 +45,9 @@ pub struct InsertClaimVerdictParams<'a> {
     pub explanation: Option<&'a str>,
     /// Optional evidence references (DOIs/PMIDs, comma-separated).
     pub evidence_refs: Option<&'a str>,
+    /// The stamp of the reply the claim was judged in (carnet#769): a verdict
+    /// quotes it.
+    pub transport_policy: TransportPolicy,
 }
 
 /// Parameters for [`ClaimVerdictRepository::set_verdict_disposition`].
@@ -407,9 +411,9 @@ pub(crate) const INSERT_CLAIM_VERDICT_SQL: &str = r"
             INSERT INTO claim_verdicts (
                 id, tenant_id, user_id, agent_id, conversation_id, message_id,
                 claim_text, category, status, evidence_strength, confidence,
-                layer_fired, explanation, evidence_refs, created_at
+                layer_fired, explanation, evidence_refs, created_at, first_party_only
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
             ";
 
 /// The column list every verdict read selects, in the order
@@ -419,7 +423,8 @@ macro_rules! verdict_columns {
         "id, tenant_id, user_id, agent_id, conversation_id, message_id,
                    claim_text, category, status, evidence_strength, confidence,
                    layer_fired, explanation, evidence_refs, created_at,
-                   disposition, disposition_reason, disposition_note, disposed_by, disposed_at"
+                   disposition, disposition_reason, disposition_note, disposed_by, disposed_at,
+                   first_party_only"
     };
 }
 
@@ -777,6 +782,7 @@ where
     f32: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let col =
         |name: &str, e: sqlx::Error| AppError::database(format!("claim_verdicts {name}: {e}"));
@@ -859,6 +865,10 @@ where
         disposed_at: row
             .try_get("disposed_at")
             .map_err(|e| col("disposed_at", e))?,
+        transport_policy: TransportPolicy::from_first_party_only(
+            row.try_get("first_party_only")
+                .map_err(|e| col("first_party_only", e))?,
+        ),
     })
 }
 
@@ -905,6 +915,7 @@ macro_rules! impl_claim_verdict_repository {
                     .bind(params.explanation)
                     .bind(params.evidence_refs)
                     .bind(now)
+                    .bind(params.transport_policy.is_first_party_only())
                     .execute(&self.pool)
                     .await
                     .map_err(|e| {
@@ -932,6 +943,7 @@ macro_rules! impl_claim_verdict_repository {
                     disposition_note: None,
                     disposed_by: None,
                     disposed_at: None,
+                    transport_policy: params.transport_policy,
                 })
             }
 

@@ -11,6 +11,7 @@ mod common;
 mod helpers;
 
 use pierre_config::mcp::AppBehaviorConfig;
+use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -164,6 +165,7 @@ async fn seed(repos: &RepositoryRegistry, tenant_id: TenantId, s: Seed<'_>) -> S
         layer_fired: s.layer,
         explanation: None,
         evidence_refs: s.evidence_refs,
+        transport_policy: TransportPolicy::AnyTransport,
     };
     repos
         .claim_verdicts
@@ -1326,6 +1328,7 @@ fn every_layer_has_a_knob_whose_location_is_a_path() {
             disposition_note: None,
             disposed_by: None,
             disposed_at: None,
+            transport_policy: TransportPolicy::AnyTransport,
         };
         let knob = knob_for(&verdict, &registry);
         assert_eq!(knob.layer, layer.as_str());

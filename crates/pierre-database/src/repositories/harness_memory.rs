@@ -6,6 +6,7 @@
 
 use async_trait::async_trait;
 use pierre_core::errors::AppResult;
+use pierre_core::transport::TransportPolicy;
 
 use pierre_core::models::{Pillar, TenantId};
 
@@ -26,6 +27,9 @@ pub struct MergeUserFactParams<'a> {
     /// Confidence of the restatement. Applied only when it is higher than the
     /// anchor's — repetition is evidence, a poorer rewording is not.
     pub confidence: f32,
+    /// The restatement's stamp (carnet#769): the anchor keeps the stricter of
+    /// its own and this one, since it now stands for both.
+    pub transport_policy: TransportPolicy,
 }
 
 /// Parameters for a [`HarnessMemoryRepository::upsert_user_fact`] call.
@@ -57,6 +61,8 @@ pub struct UpsertUserFactParams<'a> {
     pub valid_until: Option<chrono::DateTime<chrono::Utc>>,
     /// Source message id for provenance.
     pub source_msg_id: Option<&'a str>,
+    /// The stamp of what the row is derived from (carnet#769).
+    pub transport_policy: TransportPolicy,
 }
 
 /// Parameters for persisting a compaction block.
@@ -75,6 +81,8 @@ pub struct InsertCompactionBlockParams<'a> {
     pub first_message_id: &'a str,
     /// Last (newest) compacted message id, inclusive.
     pub last_message_id: &'a str,
+    /// The stamp of the turns it summarizes (carnet#769).
+    pub transport_policy: TransportPolicy,
 }
 
 /// Parameters for creating an agent note via the harness memory tools.
@@ -91,6 +99,8 @@ pub struct InsertAgentNoteParams<'a> {
     pub scope: pierre_memory::MemoryScope,
     /// Free-form content.
     pub content: &'a str,
+    /// The stamp of what the row is derived from (carnet#769).
+    pub transport_policy: TransportPolicy,
 }
 
 /// Parameters for scheduling an agent followup.
@@ -107,6 +117,8 @@ pub struct InsertAgentFollowupParams<'a> {
     pub content: &'a str,
     /// When the followup should surface, if a specific time was promised.
     pub due_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// The stamp of what the row is derived from (carnet#769).
+    pub transport_policy: TransportPolicy,
 }
 
 /// Coaching harness memory repository (Tier 0 foundations).
@@ -159,6 +171,11 @@ pub trait HarnessMemoryRepository: Send + Sync {
 
     /// List user facts for recall. Filters by user, optional agent, and
     /// optional kind.
+    ///
+    /// `readable` is the strictest stamp a returned row may carry
+    /// (carnet#769): [`TransportPolicy::AnyTransport`] leaves stamped rows
+    /// out in the statement itself, so `limit` counts only rows the caller
+    /// may read.
     async fn list_user_facts(
         &self,
         tenant_id: TenantId,
@@ -166,6 +183,7 @@ pub trait HarnessMemoryRepository: Send + Sync {
         agent_id: Option<&str>,
         kind: Option<pierre_memory::FactKind>,
         limit: i64,
+        readable: TransportPolicy,
     ) -> AppResult<Vec<pierre_memory::UserFact>>;
 
     /// List a user's still-valid facts from one provenance, newest first.
@@ -180,12 +198,18 @@ pub trait HarnessMemoryRepository: Send + Sync {
     /// Superseded facts (`valid_until` in the past) are excluded: they are what
     /// a re-run's window expiry produces, and re-guaranteeing them would refill
     /// the bundle with exactly the rows the athlete just replaced.
+    ///
+    /// `readable` is the strictest stamp a returned row may carry
+    /// (carnet#769): [`TransportPolicy::AnyTransport`] leaves stamped rows
+    /// out in the statement itself, so `limit` counts only rows the caller
+    /// may read.
     async fn list_user_facts_by_source(
         &self,
         tenant_id: TenantId,
         user_id: &str,
         source: pierre_memory::FactSource,
         limit: i64,
+        readable: TransportPolicy,
     ) -> AppResult<Vec<pierre_memory::UserFact>>;
 
     /// Fetch one fact by id, scoped to the tenant and user that own it.
@@ -281,12 +305,18 @@ pub trait HarnessMemoryRepository: Send + Sync {
     ) -> AppResult<pierre_memory::AgentNote>;
 
     /// List agent notes for a user, newest first.
+    ///
+    /// `readable` is the strictest stamp a returned row may carry
+    /// (carnet#769): [`TransportPolicy::AnyTransport`] leaves stamped rows
+    /// out in the statement itself, so `limit` counts only rows the caller
+    /// may read.
     async fn list_agent_notes(
         &self,
         tenant_id: TenantId,
         user_id: &str,
         agent_id: &str,
         limit: i64,
+        readable: TransportPolicy,
     ) -> AppResult<Vec<pierre_memory::AgentNote>>;
 
     /// Tenant-wide agent-note audit log for the admin compliance tab.

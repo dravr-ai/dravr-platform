@@ -7,6 +7,7 @@
 //! Turn input and output types for [`super::run`].
 
 use pierre_core::models::{ConversationTurnId, TenantId, TurnOrigin};
+use pierre_core::transport::TransportPolicy;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 
 use crate::envelope::QuotaState;
@@ -18,6 +19,17 @@ pub struct UserMessageResult {
     pub message: MessageRecord,
     /// The conversation record (for model / `agent_id` access during dispatch).
     pub conversation: ConversationRecord,
+}
+
+/// A group room's recent transcript, rendered for the system prompt, with the
+/// stamp of the entries it was rendered from (carnet#769).
+#[derive(Debug, Clone)]
+pub struct AmbientContext {
+    /// The rendered block.
+    pub text: String,
+    /// The strictest stamp among the room entries the block quotes: a turn
+    /// that reads it derives from them.
+    pub transport_policy: TransportPolicy,
 }
 
 /// Input to a single pipeline turn.
@@ -64,7 +76,7 @@ pub struct TurnInput {
     /// the agent can answer "what do you think of the plan above?" — each
     /// member's `chat_messages` history holds only their own exchanges.
     /// `None` for web chat and DM turns.
-    pub ambient_context: Option<String>,
+    pub ambient_context: Option<AmbientContext>,
     /// Where the athlete stood against their usage caps when the turn was
     /// admitted.
     ///

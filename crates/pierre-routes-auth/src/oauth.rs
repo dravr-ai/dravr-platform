@@ -23,11 +23,12 @@ use tracing::{error, field, field::Empty, info, warn, Span};
 
 use crate::AuthRoutesContext;
 use pierre_core::errors::AppError;
-use pierre_core::models::{ConnectionType, DelegationStatus, TenantId};
+use pierre_core::models::{ConnectionType, DelegationStatus, ProviderAccountRole, TenantId};
 use pierre_mcp_transport::oauth_flow_manager::OAuthTemplateRenderer;
 use pierre_providers::backend_resolver;
 #[cfg(feature = "health-sync")]
 use pierre_providers::connect_prefetch::PrefetchWait;
+use pierre_services::coach_platform::COACH_PLATFORMS;
 use pierre_services::delegated_connections::{member_delegation, MemberDelegation};
 use pierre_services::oauth_flow::{
     categorize_oauth_error, extract_tenant_id, get_user_for_oauth, AuthUrlOptions, OAuthService,
@@ -422,43 +423,55 @@ pub async fn compute_providers_status(
         .map(|c| c.provider.clone())
         .collect();
 
-    // The account behind the TrainingPeaks card, as TrainingPeaks reported it:
-    // the one the user signed in to most recently. A delegated row is read
-    // through someone else's account and says nothing about the user's own.
-    let trainingpeaks_account_role = connections
+    // The account behind each coaching-platform card, as the platform
+    // reported it: the one the user signed in to most recently. A delegated
+    // row is read through someone else's account and says nothing about the
+    // user's own.
+    let account_roles: HashMap<&str, ProviderAccountRole> = COACH_PLATFORMS
         .iter()
-        .filter(|c| {
-            c.provider == oauth_providers::SCIOTTE_TRAININGPEAKS
-                && c.connection_type != ConnectionType::Delegated
+        .filter_map(|platform| {
+            connections
+                .iter()
+                .filter(|c| {
+                    c.provider == platform.backend()
+                        && c.connection_type != ConnectionType::Delegated
+                })
+                .max_by_key(|c| c.connected_at)
+                .and_then(|c| c.account_role)
+                .map(|role| (platform.backend(), role))
         })
-        .max_by_key(|c| c.connected_at)
-        .and_then(|c| c.account_role);
+        .collect();
 
-    // The link through which the user's group coach reads TrainingPeaks for
-    // them. A failed read shows no link rather than failing the page.
-    let mut trainingpeaks_delegation = match member_delegation(
-        &resources.repos,
-        user_id,
-        oauth_providers::SCIOTTE_TRAININGPEAKS,
-    )
-    .await
-    {
-        Ok(delegation) => delegation.map(provider_delegation),
-        Err(e) => {
-            warn!(user_id = %user_id, error = %e, "Could not read the user's TrainingPeaks link");
-            None
+    // The link through which the user's group coach reads each coaching
+    // platform for them. A failed read shows no link rather than failing the
+    // page.
+    let mut delegations: HashMap<&str, ProviderDelegation> = HashMap::new();
+    for platform in COACH_PLATFORMS {
+        match member_delegation(&resources.repos, user_id, platform.backend()).await {
+            Ok(Some(delegation)) => {
+                delegations.insert(platform.backend(), provider_delegation(delegation));
+            }
+            Ok(None) => {}
+            Err(e) => warn!(
+                user_id = %user_id,
+                provider = platform.backend(),
+                error = %e,
+                "Could not read the user's delegated link"
+            ),
         }
-    };
+    }
 
     // A delegated row connects the card only while its link stands: the read
     // path refuses a link the group relation no longer backs, and so does the
     // card, before the next read releases the row.
-    let delegation_stands = trainingpeaks_delegation
-        .as_ref()
-        .is_some_and(|delegation| delegation.status == DelegationStatus::Confirmed);
     let connected_providers: HashSet<String> = connections
         .into_iter()
-        .filter(|c| c.connection_type != ConnectionType::Delegated || delegation_stands)
+        .filter(|c| {
+            c.connection_type != ConnectionType::Delegated
+                || delegations
+                    .get(c.provider.as_str())
+                    .is_some_and(|delegation| delegation.status == DelegationStatus::Confirmed)
+        })
         .map(|c| c.provider)
         .collect();
 
@@ -562,12 +575,8 @@ pub async fn compute_providers_status(
                 seats_left,
                 consent_required: notice_outstanding(resources, user_id, tenant_id, provider_name)
                     .await,
-                account_role: (provider_name == oauth_providers::SCIOTTE_TRAININGPEAKS)
-                    .then_some(trainingpeaks_account_role)
-                    .flatten(),
-                delegation: (provider_name == oauth_providers::SCIOTTE_TRAININGPEAKS)
-                    .then(|| trainingpeaks_delegation.take())
-                    .flatten(),
+                account_role: account_roles.get(provider_name).copied(),
+                delegation: delegations.remove(provider_name),
             });
         }
     }

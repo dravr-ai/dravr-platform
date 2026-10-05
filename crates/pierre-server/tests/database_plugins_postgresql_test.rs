@@ -16,6 +16,7 @@ use chrono::Utc;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, TenantPlan, ToolCategory, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
+use pierre_core::transport::TransportPolicy;
 use pierre_database::{backends::factory::Database, database::AddMessageParams};
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
@@ -299,7 +300,13 @@ async fn test_pg_chat_list_conversations() {
     // List with pagination
     let list = repos
         .chat
-        .list_conversations(&user_id_str, tenant_id, 3, 0)
+        .list_conversations(
+            &user_id_str,
+            tenant_id,
+            3,
+            0,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .expect("Failed to list conversations")
         .items;
@@ -309,7 +316,13 @@ async fn test_pg_chat_list_conversations() {
     // List second page
     let page2 = repos
         .chat
-        .list_conversations(&user_id_str, tenant_id, 3, 3)
+        .list_conversations(
+            &user_id_str,
+            tenant_id,
+            3,
+            3,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .expect("Failed to list page 2")
         .items;
@@ -416,6 +429,7 @@ async fn test_pg_chat_messages() {
         prompt_tokens: None,
         model: None,
         content_blocks: None,
+        transport_policy: TransportPolicy::AnyTransport,
     };
     let msg1 = repos
         .chat
@@ -437,6 +451,7 @@ async fn test_pg_chat_messages() {
         prompt_tokens: None,
         model: None,
         content_blocks: None,
+        transport_policy: TransportPolicy::AnyTransport,
     };
     let msg2 = repos
         .chat
@@ -460,7 +475,13 @@ async fn test_pg_chat_messages() {
     // Get recent messages (user_id required for ownership verification)
     let recent = repos
         .chat
-        .get_recent_messages(&conv.id, &user_id_str, tenant_id, 1)
+        .get_recent_messages(
+            &conv.id,
+            &user_id_str,
+            tenant_id,
+            1,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .expect("Failed to get recent messages");
 
@@ -475,6 +496,82 @@ async fn test_pg_chat_messages() {
         .len();
 
     assert_eq!(count, 2, "Should have 2 messages");
+}
+
+/// The withholding predicate (`first_party_only = FALSE OR $n`) is SQL shared
+/// by both backends; this runs its withholding branch against `PostgreSQL`,
+/// where the column is a real BOOLEAN rather than SQLite's integer (carnet#769).
+#[tokio::test]
+async fn test_pg_chat_recent_messages_withhold_stamped_rows() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+
+    let user_id = create_pg_test_user(&db).await;
+    let user_id_str = user_id.to_string();
+    let tenant_id = TenantId::from_uuid(Uuid::new_v4());
+
+    let conv = repos
+        .chat
+        .create_conversation(&user_id_str, tenant_id, "Stamp Test", "gpt-4", None, None)
+        .await
+        .expect("Failed to create conversation");
+
+    for (role, content, transport_policy) in [
+        ("user", "unstamped question", TransportPolicy::AnyTransport),
+        (
+            "assistant",
+            "stamped answer",
+            TransportPolicy::FirstPartyOnly,
+        ),
+    ] {
+        repos
+            .chat
+            .add_message(&AddMessageParams {
+                tenant_id,
+                conversation_id: &conv.id,
+                user_id: &user_id_str,
+                role,
+                content,
+                token_count: None,
+                finish_reason: None,
+                prompt_tokens: None,
+                model: None,
+                content_blocks: None,
+                transport_policy,
+            })
+            .await
+            .expect("Failed to add message");
+    }
+
+    let external = repos
+        .chat
+        .get_recent_messages(
+            &conv.id,
+            &user_id_str,
+            tenant_id,
+            10,
+            TransportPolicy::AnyTransport,
+        )
+        .await
+        .expect("Failed to read as an external caller");
+    let external_contents: Vec<&str> = external.iter().map(|m| m.content.as_str()).collect();
+    assert_eq!(external_contents, vec!["unstamped question"]);
+
+    let first_party = repos
+        .chat
+        .get_recent_messages(
+            &conv.id,
+            &user_id_str,
+            tenant_id,
+            10,
+            TransportPolicy::FirstPartyOnly,
+        )
+        .await
+        .expect("Failed to read first-party");
+    assert_eq!(first_party.len(), 2, "a first-party reader sees both rows");
+    assert!(first_party
+        .iter()
+        .any(|m| m.content == "stamped answer" && m.transport_policy.is_first_party_only()));
 }
 
 // ============================================================================

@@ -18,6 +18,7 @@
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
 use pierre_core::models::{Pillar, Tenant, TenantId, User};
+use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::Database;
 use pierre_database::repositories::{
     InsertAgentFollowupParams, InsertAgentNoteParams, InsertCompactionBlockParams,
@@ -116,6 +117,7 @@ fn fact<'a>(
         source,
         valid_until: None,
         source_msg_id: None,
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 
@@ -147,6 +149,7 @@ async fn a_compaction_block_reads_back_in_conversation_order() {
             original_tokens: 340,
             first_message_id: "m1",
             last_message_id: "m9",
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -160,6 +163,7 @@ async fn a_compaction_block_reads_back_in_conversation_order() {
             original_tokens: 120,
             first_message_id: "m10",
             last_message_id: "m15",
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -256,13 +260,27 @@ async fn user_facts_read_back_through_every_filter_and_delete() {
     both.sort();
 
     let all = memory
-        .list_user_facts(seed.tenant, &seed.user_id, None, None, 10)
+        .list_user_facts(
+            seed.tenant,
+            &seed.user_id,
+            None,
+            None,
+            10,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap();
     assert_eq!(ids(&all), both);
 
     let by_agent = memory
-        .list_user_facts(seed.tenant, &seed.user_id, Some(&seed.agent_id), None, 10)
+        .list_user_facts(
+            seed.tenant,
+            &seed.user_id,
+            Some(&seed.agent_id),
+            None,
+            10,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap();
     assert_eq!(ids(&by_agent), vec![goal.id.clone()]);
@@ -274,6 +292,7 @@ async fn user_facts_read_back_through_every_filter_and_delete() {
             None,
             Some(FactKind::Preference),
             10,
+            TransportPolicy::FirstPartyOnly,
         )
         .await
         .unwrap();
@@ -286,6 +305,7 @@ async fn user_facts_read_back_through_every_filter_and_delete() {
             Some(&seed.agent_id),
             Some(FactKind::Goal),
             10,
+            TransportPolicy::FirstPartyOnly,
         )
         .await
         .unwrap();
@@ -297,13 +317,21 @@ async fn user_facts_read_back_through_every_filter_and_delete() {
             Some(&seed.agent_id),
             Some(FactKind::Preference),
             10,
+            TransportPolicy::FirstPartyOnly,
         )
         .await
         .unwrap()
         .is_empty());
 
     let limited = memory
-        .list_user_facts(seed.tenant, &seed.user_id, None, None, 1)
+        .list_user_facts(
+            seed.tenant,
+            &seed.user_id,
+            None,
+            None,
+            1,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap();
     assert_eq!(limited.len(), 1);
@@ -317,7 +345,14 @@ async fn user_facts_read_back_through_every_filter_and_delete() {
         .await
         .unwrap());
     let remaining = memory
-        .list_user_facts(seed.tenant, &seed.user_id, None, None, 10)
+        .list_user_facts(
+            seed.tenant,
+            &seed.user_id,
+            None,
+            None,
+            10,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap();
     assert_eq!(ids(&remaining), vec![goal.id]);
@@ -381,7 +416,13 @@ async fn listing_by_source_drops_a_fact_past_its_horizon() {
         .unwrap();
 
     let onboarding = memory
-        .list_user_facts_by_source(seed.tenant, &seed.user_id, FactSource::Onboarding, 10)
+        .list_user_facts_by_source(
+            seed.tenant,
+            &seed.user_id,
+            FactSource::Onboarding,
+            10,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap();
     let mut got: Vec<&str> = onboarding.iter().map(|f| f.id.as_str()).collect();
@@ -424,6 +465,7 @@ async fn a_merge_only_raises_confidence_and_keeps_the_anchors_words() {
             fact_id: &anchor.id,
             source_msg_id: Some("msg-2"),
             confidence: 0.9,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap()
@@ -439,6 +481,7 @@ async fn a_merge_only_raises_confidence_and_keeps_the_anchors_words() {
             fact_id: &anchor.id,
             source_msg_id: None,
             confidence: 0.3,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap()
@@ -460,6 +503,7 @@ async fn a_merge_only_raises_confidence_and_keeps_the_anchors_words() {
             fact_id: &anchor.id,
             source_msg_id: None,
             confidence: 1.0,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap()
@@ -684,13 +728,20 @@ async fn a_suppressed_note_leaves_recall_and_stays_in_the_audit_list() {
             conversation_id: None,
             scope: MemoryScope::User,
             content: "prefers short answers",
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
     assert!(!note.suppressed);
 
     let recalled = memory
-        .list_agent_notes(seed.tenant, &seed.user_id, &seed.agent_id, 10)
+        .list_agent_notes(
+            seed.tenant,
+            &seed.user_id,
+            &seed.agent_id,
+            10,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap();
     assert_eq!(recalled.len(), 1);
@@ -715,7 +766,13 @@ async fn a_suppressed_note_leaves_recall_and_stays_in_the_audit_list() {
     );
 
     assert!(memory
-        .list_agent_notes(seed.tenant, &seed.user_id, &seed.agent_id, 10)
+        .list_agent_notes(
+            seed.tenant,
+            &seed.user_id,
+            &seed.agent_id,
+            10,
+            TransportPolicy::FirstPartyOnly
+        )
         .await
         .unwrap()
         .is_empty());
@@ -732,7 +789,13 @@ async fn a_suppressed_note_leaves_recall_and_stays_in_the_audit_list() {
         .await
         .unwrap());
     let back = memory
-        .list_agent_notes(seed.tenant, &seed.user_id, &seed.agent_id, 10)
+        .list_agent_notes(
+            seed.tenant,
+            &seed.user_id,
+            &seed.agent_id,
+            10,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap();
     assert_eq!(back.len(), 1);
@@ -759,6 +822,7 @@ async fn followups_move_from_pending_to_delivered_or_cancelled_once() {
             conversation_id: None,
             content: "ask how the long run went",
             due_at: Some(now - Duration::hours(2)),
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -770,6 +834,7 @@ async fn followups_move_from_pending_to_delivered_or_cancelled_once() {
             conversation_id: None,
             content: "check the race entry",
             due_at: Some(now + Duration::days(3)),
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -781,6 +846,7 @@ async fn followups_move_from_pending_to_delivered_or_cancelled_once() {
             conversation_id: None,
             content: "mention the new shoes",
             due_at: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();

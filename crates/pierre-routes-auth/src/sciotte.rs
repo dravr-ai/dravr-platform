@@ -20,7 +20,7 @@ use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
 use pierre_providers::backend_resolver;
 use pierre_providers::registry::global_registry;
 use pierre_providers::sciotte_provider::SciotteTarget;
-use pierre_services::delegated_connections::forget_coach_roster;
+use pierre_services::delegated_connections::{forget_coach_roster, supersede_delegated_link};
 use pierre_services::provider_notice::require_notice_accepted;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
@@ -34,7 +34,7 @@ use pierre_providers::sciotte_error::{shed_retry_after_secs, to_app_error};
 use crate::oauth::spawn_health_backfill;
 use crate::sciotte_prefetch::spawn_activity_prefetch;
 use crate::sciotte_session_reuse::try_reuse_existing_session;
-use crate::trainingpeaks_account::{spawn_login_probe, supersede_delegated_link};
+use crate::trainingpeaks_account::spawn_login_probe;
 use crate::AuthRoutesContext;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::redaction::redact_url;
@@ -337,14 +337,14 @@ async fn store_sciotte_session(
 
     let tenant = TenantId::from_uuid(tenant_id);
     if provider_name == SCIOTTE_TRAININGPEAKS {
-        supersede_delegated_link(resources, user_id, tenant).await?;
+        supersede_delegated_link(&resources.repos, user_id, tenant, provider_name).await?;
     }
 
     resources.repos.oauth_tokens.upsert_token(&token).await?;
     if provider_name == SCIOTTE_TRAININGPEAKS {
         // A roster read through the session this one replaces may name
         // another account's athletes.
-        forget_coach_roster(&resources.cache, user_id, tenant).await;
+        forget_coach_roster(&resources.cache, user_id, tenant, provider_name).await;
     }
 
     resources

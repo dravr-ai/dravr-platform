@@ -9,6 +9,7 @@
 
 use anyhow::Result;
 use pierre_core::models::TenantId;
+use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
 use pierre_database::repositories::UpsertUserFactParams;
@@ -41,6 +42,7 @@ fn fact_params<'a>(
         source: FactSource::Conversation,
         valid_until: None,
         source_msg_id: None,
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

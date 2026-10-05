@@ -29,6 +29,7 @@ mod helpers;
 #[cfg(feature = "provider-sciotte")]
 mod guided_turn {
     use pierre_core::transport::Transport;
+    use pierre_core::transport::TransportPolicy;
     use std::env;
     use std::sync::{Arc, Mutex};
 
@@ -321,6 +322,7 @@ mod guided_turn {
                     prompt_tokens: None,
                     model: None,
                     content_blocks: None,
+                    transport_policy: TransportPolicy::AnyTransport,
                 })
                 .await
                 .unwrap();
@@ -434,6 +436,7 @@ mod guided_turn {
                 source: FactSource::Onboarding,
                 valid_until: None,
                 source_msg_id: None,
+                transport_policy: TransportPolicy::AnyTransport,
             })
             .await
             .unwrap();

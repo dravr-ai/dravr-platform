@@ -18,6 +18,7 @@
 use anyhow::Result;
 use chrono::{Duration, Utc};
 use pierre_core::models::{Pillar, TenantId};
+use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
 use pierre_database::repositories::UpsertUserFactParams;
@@ -63,6 +64,7 @@ async fn seed(
             source,
             valid_until: None,
             source_msg_id: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     Ok(fact.id)
@@ -128,7 +130,13 @@ async fn a_re_run_supersedes_only_the_previous_interviews_window() -> Result<()>
 
     let live = repos
         .memory
-        .list_user_facts_by_source(tenant, &user, FactSource::Onboarding, 100)
+        .list_user_facts_by_source(
+            tenant,
+            &user,
+            FactSource::Onboarding,
+            100,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await?;
     let live_ids: Vec<&str> = live.iter().map(|f| f.id.as_str()).collect();
 
@@ -190,7 +198,13 @@ async fn a_re_run_leaves_other_pillars_alone() -> Result<()> {
 
     let live = repos
         .memory
-        .list_user_facts_by_source(tenant, &user, FactSource::Onboarding, 100)
+        .list_user_facts_by_source(
+            tenant,
+            &user,
+            FactSource::Onboarding,
+            100,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await?;
     assert!(
         live.iter().any(|f| f.id == sleep_answer),
@@ -228,7 +242,13 @@ async fn superseded_answers_do_not_refill_the_guaranteed_bundle() -> Result<()> 
 
     let before = repos
         .memory
-        .list_user_facts_by_source(tenant, &user, FactSource::Onboarding, 100)
+        .list_user_facts_by_source(
+            tenant,
+            &user,
+            FactSource::Onboarding,
+            100,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await?;
     assert_eq!(before.len(), 5, "all five answers start out current");
 
@@ -247,7 +267,13 @@ async fn superseded_answers_do_not_refill_the_guaranteed_bundle() -> Result<()> 
 
     let after = repos
         .memory
-        .list_user_facts_by_source(tenant, &user, FactSource::Onboarding, 100)
+        .list_user_facts_by_source(
+            tenant,
+            &user,
+            FactSource::Onboarding,
+            100,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await?;
     assert!(
         after.is_empty(),
@@ -306,7 +332,12 @@ async fn calibration_answers_survive_a_flood_of_newer_conversation_facts() -> Re
         .await?;
     }
 
-    let dossier = repos.dossier.compose_dossier(tenant, user_uuid).await?;
+    let dossier = repos
+        .dossier
+        .compose_dossier(tenant, user_uuid, TransportPolicy::FirstPartyOnly, &|_| {
+            true
+        })
+        .await?;
     let objects: Vec<&str> = dossier
         .pillars
         .values()
@@ -371,7 +402,12 @@ async fn the_by_kind_guarantee_still_covers_agent_authored_medical_facts() -> Re
         .await?;
     }
 
-    let dossier = repos.dossier.compose_dossier(tenant, user_uuid).await?;
+    let dossier = repos
+        .dossier
+        .compose_dossier(tenant, user_uuid, TransportPolicy::FirstPartyOnly, &|_| {
+            true
+        })
+        .await?;
     assert!(
         dossier
             .medical

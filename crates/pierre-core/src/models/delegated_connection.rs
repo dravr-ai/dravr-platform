@@ -171,7 +171,7 @@ pub struct DelegatedConnection {
 }
 
 /// The athlete a proposal names, as the coach's provider roster lists them.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RosterAthlete {
     /// The athlete's id on the provider.
     pub id: String,

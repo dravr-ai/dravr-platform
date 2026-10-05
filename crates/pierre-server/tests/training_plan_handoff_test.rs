@@ -16,6 +16,7 @@
 
 mod common;
 
+use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
 use common::{create_test_server_resources, create_test_user};
@@ -287,6 +288,7 @@ async fn goal_fact_ids(a: &Athlete) -> Vec<String> {
             None,
             Some(FactKind::Goal),
             200,
+            TransportPolicy::FirstPartyOnly,
         )
         .await
         .unwrap()

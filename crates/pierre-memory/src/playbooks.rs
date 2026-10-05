@@ -18,6 +18,7 @@
 //! conflict key, and rendered into a prompt without re-parsing prose.
 
 use chrono::{DateTime, Utc};
+use pierre_core::transport::TransportPolicy;
 use serde::{Deserialize, Serialize};
 
 /// The situation that prompted a coaching intervention.
@@ -488,6 +489,10 @@ pub struct Playbook {
     pub created_at: DateTime<Utc>,
     /// When the playbook was last updated (counter increment / recompute).
     pub updated_at: DateTime<Utc>,
+    /// Where this row may be served (carnet#769): first-party-only when what it
+    /// was derived from was. Rows written before the stamp read as unstamped.
+    #[serde(default, skip_serializing)]
+    pub transport_policy: TransportPolicy,
 }
 
 impl Playbook {
@@ -578,6 +583,10 @@ pub struct PendingAdvice {
     pub source_msg_id: Option<String>,
     /// When the advice was captured.
     pub created_at: DateTime<Utc>,
+    /// Where this row may be served (carnet#769): first-party-only when what it
+    /// was derived from was. Rows written before the stamp read as unstamped.
+    #[serde(default, skip_serializing)]
+    pub transport_policy: TransportPolicy,
 }
 
 /// A k-anonymous, non-tenant aggregate: how an intervention has worked across

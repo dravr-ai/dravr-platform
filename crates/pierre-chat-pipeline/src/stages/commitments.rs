@@ -20,6 +20,7 @@
 //! Dates render in the athlete's own calendar. A commitment due "Sunday" that
 //! the prompt calls Monday is worse than no block at all.
 
+use pierre_providers::ai_scope;
 use std::fmt::Write as _;
 
 use chrono::{DateTime, Duration, Utc};
@@ -108,10 +109,20 @@ pub async fn inject_commitments(
     let commitments = match data
         .repos()
         .commitments
-        .list_open_commitments(tool_tenant_id, user_id, COMMITMENT_FETCH_LIMIT)
+        .list_open_commitments(
+            tool_tenant_id,
+            user_id,
+            COMMITMENT_FETCH_LIMIT,
+            ai_scope::readable_policy(),
+        )
         .await
     {
-        Ok(list) => list,
+        // A commitment recorded from first-party-only data stays out of an
+        // external turn, and stamps a first-party one (carnet#769).
+        Ok(mut list) => {
+            ai_scope::retain_admitted(&mut list, |commitment| commitment.transport_policy);
+            list
+        }
         Err(e) => {
             tracing::warn!(error = %e, "failed to list open commitments");
             return base_prompt;

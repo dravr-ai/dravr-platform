@@ -69,22 +69,32 @@ use super::core::{
 use crate::activity_paging::pages_for;
 use crate::constants::api_provider_limits;
 use crate::constants::oauth::INTERVALS_ICU;
+use crate::delegation::{
+    athlete_off_roster, coach_credential_expired, CoachRoster, DelegatedReads,
+};
 use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient, SharedHttpError, SharedRequestBuilder};
 use crate::intervals_icu_calendar::{
-    event_body, event_id_segment, CreatedEvent, DeleteEventsResponse,
+    event_body, event_id_segment, CreatedEvent, DeleteEventsResponse, IntervalsIcuEvent,
 };
+use crate::intervals_icu_roster::{check_athlete_id, coach_roster, IntervalsIcuRosterEntry};
 use crate::intervals_icu_self_report::{
-    comments_from_messages, feel_from_icu, rpe_from_icu, IntervalsIcuMessage, MAX_ACTIVITY_MESSAGES,
+    comments_from_messages, IntervalsIcuMessage, MAX_ACTIVITY_MESSAGES,
 };
-use crate::intervals_icu_source::upstream_source;
+use crate::intervals_icu_streams::{streams_to_time_series, IntervalsIcuStream};
 use crate::models::{
-    Activity, ActivityBuilder, ActivityComment, Athlete, CalendarEventRef, PlannedSession,
-    SportType, Stats, TimeSeriesData,
+    Activity, ActivityComment, Athlete, CalendarEventRef, PlannedSession, Stats, TimeSeriesData,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::request_budget;
+use crate::spi::{IntervalsIcuDescriptor, ProviderDescriptor};
 use crate::utils::auth_error_for_status;
+
+/// The activity payload and its mapping onto [`Activity`].
+mod activity;
+
+pub(crate) use activity::parse_local_dt;
+use activity::{map_activity, IntervalsIcuActivity};
 
 /// Default base URL for Intervals.icu's REST API (overridable by tests).
 pub const DEFAULT_API_BASE_URL: &str = "https://intervals.icu";
@@ -244,6 +254,21 @@ fn status_error(op: &str, status: StatusCode) -> AppError {
     })
 }
 
+/// What a call names: the athlete a URL path addresses, or one activity by
+/// id. A delegated provider reads a refusal of each differently.
+#[derive(Clone, Copy)]
+enum Target {
+    /// `/api/v1/athlete/{id}/...`
+    Athlete,
+    /// `/api/v1/activity/{id}/...`
+    Activity,
+}
+
+/// The platform as an athlete reads its name.
+fn brand() -> &'static str {
+    IntervalsIcuDescriptor.display_name()
+}
+
 /// Provider configuration for Intervals.icu: its OAuth endpoints, for athletes
 /// who link through the Dravr app, and the API base both link kinds call.
 #[must_use]
@@ -256,63 +281,6 @@ pub fn default_config() -> ProviderConfig {
         revoke_url: Some(OAUTH_REVOKE_URL.to_owned()),
         default_scopes: DEFAULT_SCOPES.iter().map(|s| (*s).to_owned()).collect(),
     }
-}
-
-/// Intervals.icu activity payload shape (subset we map to `Activity`).
-///
-/// Carries the athlete's self-report alongside the sensor fields: `feel`,
-/// `icu_rpe` and the free-text `description`. `session_rpe` is not read — it
-/// is `icu_rpe` × moving minutes, a load figure derived from two fields the
-/// activity already carries, not a separate report.
-#[derive(Debug, Deserialize)]
-struct IntervalsIcuActivity {
-    id: String,
-    #[serde(default)]
-    name: Option<String>,
-    #[serde(default, rename = "type")]
-    activity_type: Option<String>,
-    start_date_local: String,
-    #[serde(default)]
-    elapsed_time: Option<u64>,
-    #[serde(default)]
-    distance: Option<f64>,
-    #[serde(default)]
-    total_elevation_gain: Option<f64>,
-    #[serde(default)]
-    average_heartrate: Option<f64>,
-    #[serde(default)]
-    max_heartrate: Option<f64>,
-    #[serde(default)]
-    average_speed: Option<f64>,
-    #[serde(default)]
-    max_speed: Option<f64>,
-    #[serde(default)]
-    calories: Option<u32>,
-    #[serde(default)]
-    average_cadence: Option<f64>,
-    #[serde(default)]
-    average_watts: Option<f64>,
-    #[serde(default)]
-    max_watts: Option<f64>,
-    #[serde(default)]
-    weighted_average_watts: Option<f64>,
-    #[serde(default)]
-    icu_ftp: Option<f64>,
-    /// How the athlete felt, 1–5 with **1 as the best** — the reverse of most
-    /// scales. Read only through [`feel_from_icu`].
-    #[serde(default)]
-    feel: Option<i32>,
-    /// Rating of perceived exertion, 1–10.
-    #[serde(default)]
-    icu_rpe: Option<i32>,
-    /// The athlete's free-text notes on the activity.
-    #[serde(default)]
-    description: Option<String>,
-    /// Where intervals.icu got the activity: a connected service
-    /// (`GARMIN_CONNECT`, `STRAVA`, …) or the athlete (`UPLOAD`, `MANUAL`).
-    /// Read only through [`upstream_source`].
-    #[serde(default)]
-    source: Option<String>,
 }
 
 /// Intervals.icu athlete profile shape.
@@ -336,6 +304,10 @@ pub struct IntervalsIcuProvider {
     /// the constant [`BASIC_AUTH_USERNAME`], never the athlete id.
     credentials: Arc<RwLock<Option<OAuth2Credentials>>>,
     http: SharedHttpClient,
+    /// The coached athlete a delegated provider reads through a coach's
+    /// credential, by Intervals.icu athlete id; `None` reads the credential's
+    /// own athlete.
+    subject: Option<String>,
 }
 
 impl IntervalsIcuProvider {
@@ -352,7 +324,66 @@ impl IntervalsIcuProvider {
             config,
             credentials: Arc::new(RwLock::new(None)),
             http: shared_client().clone(),
+            subject: None,
         }
+    }
+
+    /// A provider that reads `athlete_id` through the credential it is
+    /// given, which is a coach's API key: Intervals.icu serves a coach every
+    /// athlete who shares with them at that athlete's own path.
+    ///
+    /// Every athlete-scoped call addresses `athlete_id`, a detail read of an
+    /// activity that is not that athlete's is refused as not found, and the
+    /// calendar writes are refused: the athlete consented to having their
+    /// training read, not written.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-input error for an id Intervals.icu could not have
+    /// issued.
+    fn delegated(config: ProviderConfig, athlete_id: &str) -> AppResult<Self> {
+        check_athlete_id(athlete_id)?;
+        info!("Intervals.icu provider initialized for a coached athlete");
+        Ok(Self {
+            subject: Some(athlete_id.to_owned()),
+            ..Self::with_config(config)
+        })
+    }
+
+    /// The error a call naming `target` that Intervals.icu answered with a
+    /// non-success `status` is.
+    ///
+    /// On a delegated provider the credential is the coach's, so a 401 is
+    /// [`coach_credential_expired`] rather than the reader's reconnect, and a
+    /// 403 on the athlete's path means the athlete no longer shares with the
+    /// coach ([`athlete_off_roster`]). A 403 or 404 on an activity id names
+    /// nothing this reader may see. Otherwise [`status_error`].
+    fn refusal(&self, op: &str, status: StatusCode, target: Target) -> AppError {
+        if self.subject.is_some() {
+            match (status, target) {
+                (StatusCode::UNAUTHORIZED, _) => {
+                    return coach_credential_expired(INTERVALS_ICU, brand());
+                }
+                (StatusCode::FORBIDDEN, Target::Athlete) => return athlete_off_roster(brand()),
+                (StatusCode::FORBIDDEN | StatusCode::NOT_FOUND, Target::Activity) => {
+                    return AppError::not_found("Activity");
+                }
+                _ => {}
+            }
+        }
+        status_error(op, status)
+    }
+
+    /// Refuse a calendar write on a delegated provider before anything is
+    /// sent.
+    fn refuse_delegated_write(&self) -> AppResult<()> {
+        if self.subject.is_some() {
+            return Err(AppError::invalid_input(
+                "A coached athlete's Intervals.icu calendar is read through the coach's \
+                 connection, never written",
+            ));
+        }
+        Ok(())
     }
 
     /// Admit one request against the budget of the app that signs the
@@ -383,13 +414,48 @@ impl IntervalsIcuProvider {
         }
     }
 
+    /// An athlete-scoped URL: the delegated athlete's path, else the path of
+    /// the athlete the credential belongs to.
     fn athlete_url(&self, auth: &CallAuth, suffix: &str) -> String {
         format!(
             "{}/api/v1/athlete/{}{}",
             self.config.api_base_url,
-            auth.athlete_segment(),
+            self.subject
+                .as_deref()
+                .unwrap_or_else(|| auth.athlete_segment()),
             suffix
         )
+    }
+
+    /// The coach roster the stored API key reads (`GET /api/v1/athletes`).
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-input error for an OAuth credential, which
+    /// Intervals.icu refuses on this endpoint; [`status_error`] for a refused
+    /// call; or the transport or decode failure.
+    async fn fetch_coach_roster(&self) -> AppResult<CoachRoster> {
+        let auth = self.require_credentials().await?;
+        let CallAuth::ApiKey { athlete_id, .. } = &auth else {
+            return Err(AppError::invalid_input(
+                "Intervals.icu lists a coach's athletes for an API key only",
+            ));
+        };
+        let url = format!("{}/api/v1/athletes", self.config.api_base_url);
+        let req = auth
+            .authorize(self.http.get(&url))
+            .header("Accept", "application/json");
+        self.admit_request().await?;
+        let response = send_traced(req, "list_athletes", &url).await.map_err(|e| {
+            AppError::external_service("intervals_icu", format!("list_athletes: {e}"))
+        })?;
+        if !response.status().is_success() {
+            return Err(status_error("list_athletes", response.status()));
+        }
+        let raw: Vec<IntervalsIcuRosterEntry> = response.json().await.map_err(|e| {
+            AppError::external_service("intervals_icu", format!("list_athletes decode: {e}"))
+        })?;
+        Ok(coach_roster(athlete_id, raw))
     }
 
     fn activity_url(&self, activity_id: &str, suffix: &str) -> String {
@@ -450,7 +516,7 @@ impl IntervalsIcuProvider {
                 AppError::external_service("intervals_icu", format!("list_activities: {e}"))
             })?;
         if !response.status().is_success() {
-            return Err(status_error("list_activities", response.status()));
+            return Err(self.refusal("list_activities", response.status(), Target::Athlete));
         }
         let raw: Vec<IntervalsIcuActivity> = response.json().await.map_err(|e| {
             AppError::external_service("intervals_icu", format!("list_activities decode: {e}"))
@@ -554,7 +620,7 @@ impl IntervalsIcuProvider {
             return Ok(Some(no_recorded_samples()));
         }
         if !response.status().is_success() {
-            return Err(status_error("get_streams", response.status()));
+            return Err(self.refusal("get_streams", response.status(), Target::Activity));
         }
         let raw: Vec<IntervalsIcuStream> = response.json().await.map_err(|e| {
             AppError::external_service("intervals_icu", format!("get_streams decode: {e}"))
@@ -586,7 +652,7 @@ impl IntervalsIcuProvider {
                 AppError::external_service("intervals_icu", format!("get_activity_comments: {e}"))
             })?;
         if !response.status().is_success() {
-            return Err(status_error("get_activity_comments", response.status()));
+            return Err(self.refusal("get_activity_comments", response.status(), Target::Activity));
         }
         let raw: Vec<IntervalsIcuMessage> = response.json().await.map_err(|e| {
             AppError::external_service(
@@ -610,7 +676,8 @@ impl IntervalsIcuProvider {
         }
     }
 
-    /// Fetch one activity's raw payload.
+    /// Fetch one activity's raw payload, refused as not found on a delegated
+    /// provider when it is not the delegated athlete's.
     async fn fetch_activity(&self, id: &str) -> AppResult<IntervalsIcuActivity> {
         let auth = self.require_credentials().await?;
         let url = self.activity_url(id, "");
@@ -622,11 +689,21 @@ impl IntervalsIcuProvider {
             AppError::external_service("intervals_icu", format!("get_activity: {e}"))
         })?;
         if !response.status().is_success() {
-            return Err(status_error("get_activity", response.status()));
+            return Err(self.refusal("get_activity", response.status(), Target::Activity));
         }
-        response.json().await.map_err(|e| {
+        let raw: IntervalsIcuActivity = response.json().await.map_err(|e| {
             AppError::external_service("intervals_icu", format!("get_activity decode: {e}"))
-        })
+        })?;
+        // A coach's key reads every athlete who shares with the coach, so a
+        // delegated reader holding one athlete's link could otherwise read
+        // another's activity by id. The refusal is a plain not-found: the id
+        // names nothing this reader may see.
+        match &self.subject {
+            Some(athlete) if raw.icu_athlete_id.as_deref() != Some(athlete.as_str()) => {
+                Err(AppError::not_found("Activity"))
+            }
+            _ => Ok(raw),
+        }
     }
 
     /// Fetch the calendar events (planned workouts + races) for the date range.
@@ -635,7 +712,7 @@ impl IntervalsIcuProvider {
     ///
     /// Returns [`AppError`] when credentials are missing or the upstream
     /// HTTP call fails.
-    pub async fn get_events(
+    async fn get_events(
         &self,
         oldest: NaiveDate,
         newest: NaiveDate,
@@ -654,7 +731,7 @@ impl IntervalsIcuProvider {
             .await
             .map_err(|e| AppError::external_service("intervals_icu", format!("get_events: {e}")))?;
         if !response.status().is_success() {
-            return Err(status_error("get_events", response.status()));
+            return Err(self.refusal("get_events", response.status(), Target::Athlete));
         }
         response.json().await.map_err(|e| {
             AppError::external_service("intervals_icu", format!("get_events decode: {e}"))
@@ -665,248 +742,6 @@ impl IntervalsIcuProvider {
 impl Default for IntervalsIcuProvider {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-/// Calendar event row from Intervals.icu (`/api/v1/athlete/{id}/events`).
-#[derive(Debug, Clone, Deserialize)]
-pub struct IntervalsIcuEvent {
-    /// Event id.
-    pub id: i64,
-    /// Event date (`YYYY-MM-DD` for races, full ISO 8601 for sessions).
-    pub start_date_local: String,
-    /// Free-form event name.
-    #[serde(default)]
-    pub name: Option<String>,
-    /// Event category — `WORKOUT`, `RACE_A`, `NOTE`, etc.
-    #[serde(default, rename = "type")]
-    pub event_type: Option<String>,
-    /// Sport label.
-    #[serde(default)]
-    pub category: Option<String>,
-    /// The writer's own key for the event, when one was set (Dravr sets
-    /// [`PlannedSession::external_id`] on every event it writes).
-    #[serde(default)]
-    pub external_id: Option<String>,
-    /// When the event last changed, as Intervals.icu reports it.
-    #[serde(default)]
-    pub updated: Option<String>,
-}
-
-impl IntervalsIcuEvent {
-    /// The identity-and-freshness view a reconcile needs.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when `start_date_local` does not begin with a civil
-    /// date — an event the calendar cannot place on a day cannot be reconciled.
-    fn calendar_event_ref(self) -> AppResult<CalendarEventRef> {
-        let day = self.start_date_local.get(..10).unwrap_or_default();
-        let date = NaiveDate::parse_from_str(day, "%Y-%m-%d").map_err(|e| {
-            AppError::external_service(
-                "intervals_icu",
-                format!(
-                    "event {} has no civil date in '{}': {e}",
-                    self.id, self.start_date_local
-                ),
-            )
-        })?;
-        Ok(CalendarEventRef {
-            provider_event_id: self.id.to_string(),
-            external_id: self.external_id,
-            date,
-            updated_at: self.updated.as_deref().and_then(parse_local_dt),
-        })
-    }
-}
-
-/// One stream of `GET /api/v1/activity/{id}/streams.json` (the `ActivityStream`
-/// schema of the intervals.icu `OpenAPI` spec).
-///
-/// Every stream carries its samples in `data`, index-aligned with the
-/// recording; a sample the device did not record is `null`. `latlng` is the
-/// one stream with a second array: `data` holds the latitudes and `data2` the
-/// longitudes, index by index, so its sample count is `data.len()`.
-/// `allNull` marks a stream with no recorded sample at all.
-#[derive(Debug, Deserialize)]
-struct IntervalsIcuStream {
-    #[serde(rename = "type")]
-    stream_type: String,
-    #[serde(default)]
-    data: Vec<Option<f64>>,
-    /// The longitudes of a `latlng` stream; absent on every other stream.
-    #[serde(default)]
-    data2: Option<Vec<Option<f64>>>,
-    /// Set when no sample of the stream was recorded.
-    #[serde(default, rename = "allNull")]
-    all_null: bool,
-}
-
-/// A scalar channel, index-aligned with `timestamps`, its `null` samples
-/// kept as gaps.
-///
-/// [`TimeSeriesData`] marks an unrecorded entry as `None`, and every consumer
-/// skips a gap rather than reading it (zone time, normalized power and
-/// decoupling count recorded samples only). A `null` therefore stays a gap:
-/// the recorded samples around it keep their values and their instants,
-/// with no zero, repeated value or dropped entry standing in for it.
-fn gapped_channel<T>(stream: &IntervalsIcuStream, convert: impl Fn(f64) -> T) -> Vec<Option<T>> {
-    stream
-        .data
-        .iter()
-        .map(|sample| sample.map(&convert))
-        .collect()
-}
-
-fn streams_to_time_series(streams: &[IntervalsIcuStream]) -> TimeSeriesData {
-    let mut hr: Option<Vec<Option<u32>>> = None;
-    let mut power: Option<Vec<Option<u32>>> = None;
-    let mut cadence: Option<Vec<Option<u32>>> = None;
-    let mut speed: Option<Vec<Option<f32>>> = None;
-    let mut altitude: Option<Vec<Option<f32>>> = None;
-    let mut latlng: Vec<(f64, f64)> = Vec::new();
-    let mut max_len = 0_usize;
-    for stream in streams {
-        max_len = max_len.max(stream.data.len());
-        if stream.all_null {
-            continue;
-        }
-        match stream.stream_type.as_str() {
-            "heartrate" => hr = Some(gapped_channel(stream, |v| v as u32)),
-            "watts" => power = Some(gapped_channel(stream, |v| v as u32)),
-            "cadence" => cadence = Some(gapped_channel(stream, |v| v as u32)),
-            "velocity_smooth" => speed = Some(gapped_channel(stream, |v| v as f32)),
-            "altitude" => altitude = Some(gapped_channel(stream, |v| v as f32)),
-            "latlng" => {
-                // Latitudes in `data`, longitudes in `data2`, paired by index.
-                // A latlng stream without `data2` carries no longitude at all:
-                // it is read as no GPS, since no pairing of latitudes with each
-                // other places a single point on the map. A sample without a
-                // fix (either side `null`) is left out of the track, which is
-                // a line through the recorded points and not indexed by time.
-                if let Some(longitudes) = stream.data2.as_deref() {
-                    latlng = stream
-                        .data
-                        .iter()
-                        .zip(longitudes)
-                        .filter_map(|(lat, lng)| Some(((*lat)?, (*lng)?)))
-                        .collect();
-                }
-            }
-            _ => {}
-        }
-    }
-    let timestamps: Vec<u32> = (0..max_len)
-        .map(|i| u32::try_from(i).unwrap_or(u32::MAX))
-        .collect();
-    TimeSeriesData {
-        timestamps,
-        heart_rate: hr,
-        power,
-        cadence,
-        speed,
-        altitude,
-        temperature: None,
-        gps_coordinates: if latlng.is_empty() {
-            None
-        } else {
-            Some(latlng)
-        },
-        distance: None,
-    }
-}
-
-/// LIMITATION(registre#521): `map_activity` drops the activity's `device_name`, so a
-/// Garmin-recorded activity relayed through intervals.icu cannot carry the Garmin
-/// attribution intervals.icu's API terms require wherever it is displayed.
-fn map_activity(
-    raw: IntervalsIcuActivity,
-    streams: Option<TimeSeriesData>,
-    comments: Option<Vec<ActivityComment>>,
-) -> Option<Activity> {
-    let start_date = parse_local_dt(&raw.start_date_local)?;
-    let sport = sport_for(raw.activity_type.as_deref());
-    let name = raw
-        .name
-        .unwrap_or_else(|| format!("Intervals.icu {}", raw.id));
-    let source = upstream_source(raw.source.as_deref());
-    let mut builder = ActivityBuilder::new(
-        raw.id,
-        name,
-        sport,
-        start_date,
-        raw.elapsed_time.unwrap_or(0),
-        "intervals_icu".to_owned(),
-    )
-    .source_opt(source);
-    if let Some(d) = raw.distance {
-        builder = builder.distance_meters(d);
-    }
-    if let Some(g) = raw.total_elevation_gain {
-        builder = builder.elevation_gain(g);
-    }
-    if let Some(hr) = raw.average_heartrate {
-        builder = builder.average_heart_rate(hr as u32);
-    }
-    if let Some(hr) = raw.max_heartrate {
-        builder = builder.max_heart_rate(hr as u32);
-    }
-    if let Some(s) = raw.average_speed {
-        builder = builder.average_speed(s);
-    }
-    if let Some(s) = raw.max_speed {
-        builder = builder.max_speed(s);
-    }
-    if let Some(c) = raw.calories {
-        builder = builder.calories(c);
-    }
-    if let Some(c) = raw.average_cadence {
-        builder = builder.average_cadence(c as u32);
-    }
-    if let Some(p) = raw.average_watts {
-        builder = builder.average_power(p as u32);
-    }
-    if let Some(p) = raw.max_watts {
-        builder = builder.max_power(p as u32);
-    }
-    if let Some(p) = raw.weighted_average_watts {
-        builder = builder.normalized_power(p as u32);
-    }
-    if let Some(ftp) = raw.icu_ftp {
-        builder = builder.ftp(ftp as u32);
-    }
-    builder = builder
-        .feel_opt(raw.feel.and_then(feel_from_icu))
-        .perceived_exertion_opt(raw.icu_rpe.and_then(rpe_from_icu))
-        .description_opt(raw.description.filter(|d| !d.trim().is_empty()))
-        // An empty thread is a thread with nothing to say; `None` keeps it
-        // off the wire rather than serializing an empty list.
-        .comments_opt(comments.filter(|c| !c.is_empty()))
-        .time_series_data_opt(streams);
-    Some(builder.build())
-}
-
-pub(crate) fn parse_local_dt(value: &str) -> Option<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(value)
-        .map(|dt| dt.with_timezone(&Utc))
-        .ok()
-        .or_else(|| {
-            chrono::NaiveDateTime::parse_from_str(value, QUERY_DATETIME_FORMAT)
-                .map(|naive| DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc))
-                .ok()
-        })
-}
-
-fn sport_for(label: Option<&str>) -> SportType {
-    match label.unwrap_or("").to_ascii_lowercase().as_str() {
-        "ride" | "virtualride" | "ebikeride" | "cycling" => SportType::Ride,
-        "run" | "trailrun" | "virtualrun" | "running" => SportType::Run,
-        "swim" => SportType::Swim,
-        "walk" | "hike" => SportType::Walk,
-        "yoga" => SportType::Yoga,
-        "weighttraining" | "workout" => SportType::Workout,
-        other if !other.is_empty() => SportType::Other(other.to_owned()),
-        _ => SportType::Other("intervals_icu".to_owned()),
     }
 }
 
@@ -964,7 +799,7 @@ impl FitnessProvider for IntervalsIcuProvider {
             AppError::external_service("intervals_icu", format!("get_athlete: {e}"))
         })?;
         if !response.status().is_success() {
-            return Err(status_error("get_athlete", response.status()));
+            return Err(self.refusal("get_athlete", response.status(), Target::Athlete));
         }
         let raw: IntervalsIcuAthlete = response.json().await.map_err(|e| {
             AppError::external_service("intervals_icu", format!("get_athlete decode: {e}"))
@@ -1035,6 +870,10 @@ impl FitnessProvider for IntervalsIcuProvider {
         true
     }
 
+    async fn read_coach_roster(&self) -> AppResult<CoachRoster> {
+        self.fetch_coach_roster().await
+    }
+
     // The streams endpoint is a further round trip, so only this tier pays
     // it. Best-effort: a streams failure degrades to the plain activity —
     // stale-less summary beats a dead export.
@@ -1090,6 +929,7 @@ impl FitnessProvider for IntervalsIcuProvider {
     }
 
     async fn push_planned_session(&self, session: &PlannedSession) -> AppResult<String> {
+        self.refuse_delegated_write()?;
         let auth = self.require_credentials().await?;
         let url = self.athlete_url(&auth, "/events");
         let req = auth
@@ -1116,6 +956,7 @@ impl FitnessProvider for IntervalsIcuProvider {
         provider_event_id: &str,
         session: &PlannedSession,
     ) -> AppResult<()> {
+        self.refuse_delegated_write()?;
         let event_id = event_id_segment(provider_event_id)?;
         let auth = self.require_credentials().await?;
         let url = self.athlete_url(&auth, &format!("/events/{event_id}"));
@@ -1136,6 +977,7 @@ impl FitnessProvider for IntervalsIcuProvider {
     }
 
     async fn delete_planned_sessions(&self, provider_event_ids: &[String]) -> AppResult<u64> {
+        self.refuse_delegated_write()?;
         if provider_event_ids.is_empty() {
             return Ok(0);
         }
@@ -1183,5 +1025,26 @@ impl ProviderFactory for IntervalsIcuProviderFactory {
 
     fn supported_providers(&self) -> &'static [&'static str] {
         &["intervals_icu"]
+    }
+
+    // A coach's API key reads every athlete who shares with the coach.
+    fn delegated_reads(&self) -> Option<&dyn DelegatedReads> {
+        Some(self)
+    }
+}
+
+impl DelegatedReads for IntervalsIcuProviderFactory {
+    fn check_athlete_id(&self, athlete_id: &str) -> AppResult<()> {
+        check_athlete_id(athlete_id)
+    }
+
+    fn create_delegated(
+        &self,
+        config: ProviderConfig,
+        athlete_id: &str,
+    ) -> AppResult<Box<dyn FitnessProvider>> {
+        Ok(Box::new(IntervalsIcuProvider::delegated(
+            config, athlete_id,
+        )?))
     }
 }

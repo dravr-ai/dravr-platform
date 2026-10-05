@@ -7,6 +7,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::transport::TransportPolicy;
 use pierre_memory::commitments::Commitment;
 use sqlx::postgres::PgRow;
 use sqlx::Row;
@@ -54,6 +55,9 @@ fn pg_commitment_row(r: &PgRow) -> AppResult<CommitmentRow> {
             .map_err(|e| col("reported_at", e))?,
         created_at: r.try_get("created_at").map_err(|e| col("created_at", e))?,
         updated_at: r.try_get("updated_at").map_err(|e| col("updated_at", e))?,
+        first_party_only: r
+            .try_get("first_party_only")
+            .map_err(|e| col("first_party_only", e))?,
     })
 }
 
@@ -88,6 +92,7 @@ impl CommitmentRepository for PostgresDatabase {
             .bind(commitment.status.as_str())
             .bind(commitment.created_at.timestamp())
             .bind(commitment.updated_at.timestamp())
+            .bind(commitment.transport_policy.is_first_party_only())
             .execute(self.pool())
             .await
             .map_err(|e| AppError::database(format!("insert commitment: {e}")))?;
@@ -99,11 +104,13 @@ impl CommitmentRepository for PostgresDatabase {
         tenant_id: &str,
         user_id: &str,
         limit: i64,
+        readable: TransportPolicy,
     ) -> AppResult<Vec<Commitment>> {
         let rows = sqlx::query(LIST_OPEN_COMMITMENTS_SQL)
             .bind(tenant_id)
             .bind(user_id)
             .bind(limit)
+            .bind(readable.is_first_party_only())
             .fetch_all(self.pool())
             .await
             .map_err(|e| AppError::database(format!("list open commitments: {e}")))?;
@@ -136,6 +143,7 @@ impl CommitmentRepository for PostgresDatabase {
             .bind(verdict.at.timestamp())
             .bind(verdict.commitment_id)
             .bind(verdict.tenant_id)
+            .bind(verdict.transport_policy.is_first_party_only())
             .execute(self.pool())
             .await
             .map_err(|e| AppError::database(format!("record commitment verdict: {e}")))?;

@@ -29,6 +29,7 @@
 //! assembly and the compactor just edits the slice.
 
 use core::iter::once;
+use pierre_providers::ai_scope;
 
 use pierre_core::config::CompactionConfig;
 use pierre_core::errors::{AppError, AppResult};
@@ -367,6 +368,8 @@ impl ConversationCompactor {
                 original_tokens,
                 first_message_id: &plan.first_id,
                 last_message_id: &plan.last_id,
+                // Stamped with what the turn replayed into the summarized range (carnet#769).
+                transport_policy: ai_scope::derived_policy(),
             })
             .await?;
 

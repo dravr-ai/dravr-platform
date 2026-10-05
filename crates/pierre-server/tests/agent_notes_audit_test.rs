@@ -7,6 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_core::transport::TransportPolicy;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -83,6 +84,7 @@ fn note_params<'a>(
         conversation_id: None,
         scope: MemoryScope::User,
         content,
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

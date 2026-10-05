@@ -9,6 +9,7 @@
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use pierre_chat_pipeline::stages::commitments::render_commitments_block;
+use pierre_core::transport::TransportPolicy;
 use pierre_memory::commitments::{Commitment, CommitmentStatus};
 
 fn commitment(statement: &str, window_end: DateTime<Utc>) -> Commitment {
@@ -30,6 +31,7 @@ fn commitment(statement: &str, window_end: DateTime<Utc>) -> Commitment {
         reported_at: None,
         created_at: window_end,
         updated_at: window_end,
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

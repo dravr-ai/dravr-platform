@@ -20,9 +20,11 @@ use pierre_contremaitre::messaging_strings::{
     KEY_DISCOVER_ADD_LABEL, KEY_DISCOVER_CARD_TITLE, KEY_DISCOVER_CATALOGUE_EMPTY,
     KEY_DISCOVER_EMPTY, KEY_DISCOVER_INSTALLED, KEY_DISCOVER_INSTALL_ALREADY,
     KEY_DISCOVER_INSTALL_UNKNOWN_HANDLE, KEY_DISCOVER_INSTALL_USAGE, KEY_DISCOVER_MORE_LABEL,
-    KEY_GROUP_CREATED, KEY_GROUP_CREATE_FORBIDDEN, KEY_GROUP_CREATE_NO_AGENT,
-    KEY_GROUP_CREATE_USAGE, KEY_GROUP_INVITE_LABEL, KEY_GROUP_JOINED, KEY_GROUP_JOINED_AS_COACH,
-    KEY_GROUP_JOIN_ALREADY_MEMBER, KEY_GROUP_JOIN_INVALID_CODE,
+    KEY_GROUP_COACH_CONSENT_UPDATED, KEY_GROUP_COACH_JOINED_NOTICE, KEY_GROUP_COACH_SHARING_NAMED,
+    KEY_GROUP_COACH_SHARING_PENDING, KEY_GROUP_CREATED, KEY_GROUP_CREATE_FORBIDDEN,
+    KEY_GROUP_CREATE_NO_AGENT, KEY_GROUP_CREATE_USAGE, KEY_GROUP_INVITE_LABEL, KEY_GROUP_JOINED,
+    KEY_GROUP_JOINED_AS_COACH, KEY_GROUP_JOIN_ALREADY_MEMBER, KEY_GROUP_JOIN_INVALID_CODE,
+    KEY_GROUP_PEER_SHARING_OFF,
 };
 use pierre_core::models::agents::{AgentCategory, AgentHandle, CreateAgentRequest};
 use pierre_core::models::groups::{CreateGroupRequest, GroupInviteKind, GroupRole};
@@ -30,6 +32,7 @@ use pierre_core::models::{
     default_locale, AddMessageParams, ConnectionType, Tenant, TenantId, User, UserStatus,
     COMMAND_FINISH_REASON,
 };
+use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_groups::creation_policy::GROUP_CREATION_POLICY_KEY;
 use pierre_groups::strategies::tier::{tier_strategy_for, ProfessionalTierStrategy};
@@ -666,7 +669,7 @@ async fn group_create_in_an_archived_empty_thread_adopts_it_and_takes_its_slot()
         "the room holds exactly one slot, and no second thread was created"
     );
     assert_eq!(
-        chat.list_conversations(&user, tenant_id, 50, 0)
+        chat.list_conversations(&user, tenant_id, 50, 0, TransportPolicy::FirstPartyOnly)
             .await
             .unwrap()
             .items
@@ -738,7 +741,13 @@ async fn group_create_in_a_fresh_thread_binds_it_to_the_new_group() {
     send(router, &auth, &conv, "/group create Second Wind").await;
     let listed = repos
         .chat
-        .list_conversations(&user_id.to_string(), tenant_id, 50, 0)
+        .list_conversations(
+            &user_id.to_string(),
+            tenant_id,
+            50,
+            0,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap()
         .items;
@@ -786,6 +795,7 @@ async fn group_create_in_a_thread_with_history_files_a_group_conversation_beside
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -802,7 +812,13 @@ async fn group_create_in_a_thread_with_history_files_a_group_conversation_beside
     assert_eq!(thread.title, "Cmd Test");
     let listed = repos
         .chat
-        .list_conversations(&user_id.to_string(), tenant_id, 50, 0)
+        .list_conversations(
+            &user_id.to_string(),
+            tenant_id,
+            50,
+            0,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap()
         .items;
@@ -1021,7 +1037,11 @@ async fn group_join_by_code_adds_the_member_and_files_their_group_conversation()
     .await;
     assert_eq!(
         joined.assistant.message.content,
-        rendered(&resources, KEY_GROUP_JOINED, &["Trail Crew"])
+        format!(
+            "{}\n\n{}",
+            rendered(&resources, KEY_GROUP_JOINED, &["Trail Crew"]),
+            rendered(&resources, KEY_GROUP_COACH_SHARING_PENDING, &[])
+        )
     );
     let member = repos
         .groups
@@ -1038,7 +1058,13 @@ async fn group_join_by_code_adds_the_member_and_files_their_group_conversation()
     // conversation under their own tenant.
     let listed = repos
         .chat
-        .list_conversations(&member_id.to_string(), member_tenant, 50, 0)
+        .list_conversations(
+            &member_id.to_string(),
+            member_tenant,
+            50,
+            0,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap()
         .items;
@@ -1071,7 +1097,13 @@ async fn group_join_by_code_adds_the_member_and_files_their_group_conversation()
     );
     let listed = repos
         .chat
-        .list_conversations(&member_id.to_string(), member_tenant, 50, 0)
+        .list_conversations(
+            &member_id.to_string(),
+            member_tenant,
+            50,
+            0,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap()
         .items;
@@ -1162,7 +1194,13 @@ async fn group_join_with_a_coach_invite_attaches_an_eligible_roster_coach_only()
     // the code was typed in, holding only command rows, becomes it.
     let listed = repos
         .chat
-        .list_conversations(&coach_user_id.to_string(), owner_tenant, 50, 0)
+        .list_conversations(
+            &coach_user_id.to_string(),
+            owner_tenant,
+            50,
+            0,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap()
         .items;
@@ -1188,7 +1226,13 @@ async fn group_join_with_a_coach_invite_attaches_an_eligible_roster_coach_only()
     );
     let relisted = repos
         .chat
-        .list_conversations(&coach_user_id.to_string(), owner_tenant, 50, 0)
+        .list_conversations(
+            &coach_user_id.to_string(),
+            owner_tenant,
+            50,
+            0,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap()
         .items;
@@ -1275,4 +1319,158 @@ async fn an_operator_grant_lets_a_coach_without_trainingpeaks_join_as_coach() {
             .manages_roster,
         "the TrainingPeaks reconciler never revokes an operator grant"
     );
+}
+
+/// Joining a group shares the athlete's training with its coach, and both are
+/// told (carnet#786): the athlete's join reply names the coach and the way to
+/// revoke it, the coach's copy of the group's chat gets a notice, and
+/// `/group consent coach no` revokes the coach's read without touching peer
+/// sharing.
+#[tokio::test]
+async fn group_join_tells_the_athlete_and_the_coach_and_coach_sharing_can_be_revoked() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (owner_id, owner_tenant, _owner_auth) =
+        seed_user_tenant(&resources, "sharing-owner@test.com", "professional").await;
+    let agent_id = seed_selected_agent(&resources, owner_id, owner_tenant, "Trail Coach").await;
+    let (group_id, coach_code) = seed_group_with_invite(
+        &resources,
+        owner_id,
+        owner_tenant,
+        &agent_id,
+        GroupInviteKind::Coach,
+    )
+    .await;
+    let member_code = resources
+        .group_service()
+        .create_invite(
+            group_id,
+            owner_id,
+            owner_tenant,
+            None,
+            None,
+            GroupInviteKind::Member,
+        )
+        .await
+        .unwrap()
+        .code;
+    let repos = &resources.common.repos;
+
+    // The coach attaches and is filed the group's chat.
+    let (coach_user_id, coach_auth) =
+        seed_tenant_member(&resources, "sharing-coach@test.com", owner_tenant, true).await;
+    let coach_conv =
+        create_conversation(ChatRoutes::routes(Arc::clone(&resources)), &coach_auth).await;
+    send(
+        ChatRoutes::routes(Arc::clone(&resources)),
+        &coach_auth,
+        &coach_conv,
+        &format!("/group join {coach_code}"),
+    )
+    .await;
+    let coach_name = repos
+        .users
+        .get_global(coach_user_id)
+        .await
+        .unwrap()
+        .unwrap()
+        .display_name
+        .unwrap();
+
+    // The athlete joins: the reply welcomes them and says their data now
+    // reaches the coach, naming the coach and the revoke command.
+    let (athlete_id, athlete_tenant, athlete_auth) =
+        seed_user_tenant(&resources, "sharing-athlete@test.com", "professional").await;
+    let athlete_conv =
+        create_conversation(ChatRoutes::routes(Arc::clone(&resources)), &athlete_auth).await;
+    let joined = send(
+        ChatRoutes::routes(Arc::clone(&resources)),
+        &athlete_auth,
+        &athlete_conv,
+        &format!("/group join {member_code}"),
+    )
+    .await;
+    let sharing_line = rendered(&resources, KEY_GROUP_COACH_SHARING_NAMED, &[&coach_name]);
+    assert!(sharing_line.contains(&coach_name));
+    assert!(sharing_line.contains("/group consent coach no"));
+    assert_eq!(
+        joined.assistant.message.content,
+        format!(
+            "{}\n\n{sharing_line}",
+            rendered(&resources, KEY_GROUP_JOINED, &["Trail Crew"])
+        )
+    );
+
+    // Membership carries the coach grant; peer sharing stays opt-in.
+    let member = repos
+        .groups
+        .get_member(&group_id.to_string(), athlete_id)
+        .await
+        .unwrap()
+        .expect("joined as a member");
+    assert!(member.coach_sharing_consent);
+    assert!(!member.peer_sharing_consent);
+
+    // The coach is told in their copy of the group's chat.
+    let athlete_name = repos
+        .users
+        .get_global(athlete_id)
+        .await
+        .unwrap()
+        .unwrap()
+        .display_name
+        .unwrap();
+    let notice = rendered(
+        &resources,
+        KEY_GROUP_COACH_JOINED_NOTICE,
+        &[&athlete_name, "Trail Crew"],
+    );
+    assert!(notice.contains("Trail Crew"));
+    let coach_rows = repos
+        .chat
+        .get_messages(&coach_conv, &coach_user_id.to_string(), owner_tenant)
+        .await
+        .unwrap();
+    let notices = coach_rows
+        .iter()
+        .filter(|m| m.role == "assistant" && m.content == notice)
+        .count();
+    assert_eq!(notices, 1, "one join notice reaches the coach");
+
+    // The athlete revokes coach sharing from their group conversation.
+    let athlete_group_conv = repos
+        .chat
+        .find_group_conversation(
+            &athlete_id.to_string(),
+            athlete_tenant,
+            &group_id.to_string(),
+        )
+        .await
+        .unwrap()
+        .expect("the join filed the athlete's group conversation");
+    let revoked = send(
+        ChatRoutes::routes(Arc::clone(&resources)),
+        &athlete_auth,
+        &athlete_group_conv.id,
+        "/group consent coach no",
+    )
+    .await;
+    assert_eq!(
+        revoked.assistant.message.content,
+        rendered(
+            &resources,
+            KEY_GROUP_COACH_CONSENT_UPDATED,
+            &[
+                &rendered(&resources, KEY_GROUP_PEER_SHARING_OFF, &[]),
+                "Trail Crew"
+            ]
+        )
+    );
+    let member = repos
+        .groups
+        .get_member(&group_id.to_string(), athlete_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!member.coach_sharing_consent, "the coach grant is revoked");
+    assert!(!member.peer_sharing_consent, "peer sharing is untouched");
 }

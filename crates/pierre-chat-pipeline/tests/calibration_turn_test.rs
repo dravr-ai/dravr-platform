@@ -20,6 +20,7 @@ use pierre_core::models::{
     CalibrationConditions, CalibrationTopic, CoverageTarget, GuidedFlow, LoadSnapshot,
     OnboardingState, Pillar, TopicSlug, WalkAudience,
 };
+use pierre_core::transport::TransportPolicy;
 use pierre_memory::{FactKind, FactSource};
 use std::collections::HashSet;
 
@@ -63,6 +64,7 @@ fn snapshot() -> LoadSnapshot {
         longest_session_min: 195,
         weeks: 6,
         sport_families: 1,
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

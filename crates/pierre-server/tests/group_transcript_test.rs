@@ -31,6 +31,7 @@ mod group_transcript_tests {
         GroupTranscriptEntry, NewGroupTranscriptEntry, TranscriptSpeaker,
     };
     use pierre_core::models::{ConnectionType, Tenant, TenantId, User, UserStatus};
+    use pierre_core::transport::TransportPolicy;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -353,6 +354,7 @@ mod group_transcript_tests {
                     tenant_id: bot_tenant.to_string(),
                     role,
                     peer_sharing_consent: consent,
+                    coach_sharing_consent: consent,
                     consent_given_at: now,
                     joined_at: now,
                     left_at: None,
@@ -798,7 +800,13 @@ mod group_transcript_tests {
 
         // Alice's app resolves HER tenant, and must still find the room.
         let page = chat
-            .list_conversations(&alice, scenario.alice_tenant, 50, 0)
+            .list_conversations(
+                &alice,
+                scenario.alice_tenant,
+                50,
+                0,
+                TransportPolicy::FirstPartyOnly,
+            )
             .await
             .unwrap();
         assert_eq!(
@@ -809,9 +817,13 @@ mod group_transcript_tests {
         let room = &page.items[0];
         assert!(room.group_id.is_some(), "and it must arrive as a group row");
         assert_eq!(
-            chat.count_participating_conversations(&alice, scenario.alice_tenant)
-                .await
-                .unwrap(),
+            chat.count_participating_conversations(
+                &alice,
+                scenario.alice_tenant,
+                TransportPolicy::FirstPartyOnly
+            )
+            .await
+            .unwrap(),
             1,
             "the count the list pages against must agree with it"
         );
@@ -838,7 +850,13 @@ mod group_transcript_tests {
         // has no participant row and must see nothing.
         let bob = scenario.bob_id.to_string();
         let bob_page = chat
-            .list_conversations(&bob, scenario.alice_tenant, 50, 0)
+            .list_conversations(
+                &bob,
+                scenario.alice_tenant,
+                50,
+                0,
+                TransportPolicy::FirstPartyOnly,
+            )
             .await
             .unwrap();
         assert!(
@@ -970,7 +988,13 @@ mod group_transcript_tests {
 
         let chat = resources.common.repos.chat.as_ref();
         let page = chat
-            .list_conversations(&alice, scenario.alice_tenant, 50, 0)
+            .list_conversations(
+                &alice,
+                scenario.alice_tenant,
+                50,
+                0,
+                TransportPolicy::FirstPartyOnly,
+            )
             .await
             .unwrap();
         let room_conversation = page
@@ -1020,6 +1044,7 @@ mod group_transcript_tests {
                     content: &line,
                     source_conversation_id: None,
                     source_message_id: None,
+                    transport_policy: TransportPolicy::AnyTransport,
                 })
                 .await
                 .unwrap();

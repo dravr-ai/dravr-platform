@@ -29,6 +29,7 @@
 
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Pillar, TenantId};
+use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::{HarnessMemoryRepository, UpsertUserFactParams};
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 
@@ -118,6 +119,8 @@ where
             source: FactSource::Onboarding,
             valid_until: None,
             source_msg_id: None,
+            // The athlete's own answers, derived from no provider data.
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
         written += 1;
@@ -139,6 +142,8 @@ where
             source: FactSource::Onboarding,
             valid_until: None,
             source_msg_id: None,
+            // The athlete's own answers, derived from no provider data.
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
         written += 1;
@@ -160,6 +165,8 @@ where
             source: FactSource::Onboarding,
             valid_until: None,
             source_msg_id: None,
+            // The athlete's own answers, derived from no provider data.
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
         written += 1;

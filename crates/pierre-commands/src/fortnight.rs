@@ -13,6 +13,7 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::errors::AppError;
 use pierre_core::models::onboarding::{GuidedFlow, OnboardingState};
+use pierre_providers::ai_scope;
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::fortnight::{
     decide_fortnight, CoverageReading, DeclineReason, FortnightInputs, FortnightVerdict,
@@ -94,6 +95,9 @@ impl CommandHandler for FortnightHandler {
                 warn!(error = %e, "/fortnight could not read the active plan");
                 None
             });
+        // A plan derived from first-party-only data is not extended over an
+        // external transport (carnet#769).
+        let plan = plan.filter(|plan| ai_scope::admit_derived(plan.transport_policy));
 
         let inputs = match plan.as_ref() {
             Some(plan) => {

@@ -24,6 +24,7 @@
 //! "This week" is a civil-calendar claim; resolving it in UTC would tell an
 //! athlete in Auckland they missed a Sunday run at lunchtime on Sunday.
 
+use pierre_providers::ai_scope;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -317,6 +318,8 @@ impl McpTool<dyn ToolRuntime> for CommitmentCreateTool {
                 reported_at: None,
                 created_at: now,
                 updated_at: now,
+                // Stamped with what the turn served so far (carnet#769).
+                transport_policy: ai_scope::derived_policy(),
             };
 
             let recorded = context

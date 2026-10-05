@@ -21,6 +21,7 @@
 
 mod common;
 
+use pierre_core::transport::TransportPolicy;
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -427,6 +428,7 @@ async fn join_group(
             tenant_id: tenant_id.to_string(),
             role: GroupRole::Member,
             peer_sharing_consent: false,
+            coach_sharing_consent: false,
             consent_given_at: now,
             joined_at: now,
             left_at: None,
@@ -2519,6 +2521,7 @@ async fn seed_onboarding_facts(repos: &RepositoryRegistry, user_id: Uuid, tenant
                 source,
                 valid_until: None,
                 source_msg_id: None,
+                transport_policy: TransportPolicy::AnyTransport,
             })
             .await
             .unwrap();
@@ -2528,7 +2531,14 @@ async fn seed_onboarding_facts(repos: &RepositoryRegistry, user_id: Uuid, tenant
 async fn facts_of(repos: &RepositoryRegistry, user_id: Uuid, tenant_id: TenantId) -> Vec<FactKind> {
     repos
         .memory
-        .list_user_facts(tenant_id, &user_id.to_string(), None, None, 100)
+        .list_user_facts(
+            tenant_id,
+            &user_id.to_string(),
+            None,
+            None,
+            100,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .unwrap()
         .into_iter()
@@ -2831,6 +2841,53 @@ async fn reset_keeps_trainingpeaks_because_groups_ride_on_it() {
         .await
         .unwrap()
         .is_empty());
+}
+
+/// Intervals.icu is a coaching platform too: a coach's key is what their
+/// group's linked athletes are read through, so a reset keeps it.
+#[tokio::test]
+async fn reset_keeps_intervals_icu_because_groups_ride_on_it() {
+    let resources = resources().await;
+    let repos = &resources.common.repos;
+    let mut stub = RevokeStub::start().await;
+    let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-icu-coach").await;
+    repos
+        .provider_connections
+        .register_connection(
+            user_id,
+            tenant_id,
+            "intervals_icu",
+            &ConnectionType::Manual,
+            None,
+        )
+        .await
+        .unwrap();
+
+    let response = reset_onboarding(
+        admin_context(&resources, &stub.url),
+        super_admin_token(),
+        user_id,
+        false,
+    )
+    .await
+    .expect("reset handler");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_json(response).await;
+
+    assert_one_strava_revocation(&stub.received(), ENV_CLIENT_ID, ENV_CLIENT_SECRET);
+    let kept = body["data"]["kept_for_groups"].as_array().unwrap();
+    assert_eq!(kept.len(), 1, "{body}");
+    assert_eq!(kept[0]["provider"], "intervals_icu");
+    assert_eq!(body["data"]["still_connected"], true);
+    let left: Vec<String> = repos
+        .provider_connections
+        .get_for_user(user_id, None)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|c| c.provider)
+        .collect();
+    assert_eq!(left, vec!["intervals_icu".to_owned()]);
 }
 
 #[tokio::test]

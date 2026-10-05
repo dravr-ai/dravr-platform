@@ -11,6 +11,7 @@ use anyhow::Result;
 use chrono::{Duration, Utc};
 use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
 use pierre_core::models::{Tenant, TenantId, User};
+use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::Database;
 use pierre_database::repositories::InsertAgentFollowupParams;
 use pierre_test_support::db::create_test_db;
@@ -81,6 +82,7 @@ fn followup_params<'a>(
         conversation_id: None,
         content,
         due_at,
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

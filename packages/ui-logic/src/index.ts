@@ -68,6 +68,7 @@ export {
   describeQuotaRefusal,
   describeLoginFailure,
   refusalReason,
+  refusalProvider,
 } from './apiError';
 export { describeTurnFailure, isTurnFailureRetryable } from './turnFailure';
 

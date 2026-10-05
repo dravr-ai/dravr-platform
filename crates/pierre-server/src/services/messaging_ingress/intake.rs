@@ -45,6 +45,7 @@ use pierre_core::models::{GuidedFlow, OnboardingState, TenantId, TopicSlug};
 use pierre_database::repositories::{ChatRepository, HarnessMemoryRepository};
 use pierre_memory::PredicateCode;
 use pierre_memory::{FactKind, FactSource};
+use pierre_providers::ai_scope;
 use pierre_services::intake::{
     parse_persona, parse_yes_no, persona_to_store, record_parq_no, record_parq_yes, record_steps,
     release_coach_only_agent, IntakeTopic, PersonaAnswer, MAX_ANSWER_ATTEMPTS, STATUS_COMPLETE,
@@ -533,7 +534,13 @@ async fn count_medical_flags(
 ) -> usize {
     let memory: &dyn HarnessMemoryRepository = resources.common.repos.memory.as_ref();
     memory
-        .list_user_facts_by_source(tenant_id, user_id, FactSource::Onboarding, FACT_SCAN_LIMIT)
+        .list_user_facts_by_source(
+            tenant_id,
+            user_id,
+            FactSource::Onboarding,
+            FACT_SCAN_LIMIT,
+            ai_scope::readable_policy(),
+        )
         .await
         .unwrap_or_default()
         .iter()

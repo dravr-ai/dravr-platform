@@ -21,6 +21,7 @@ mod common;
 #[cfg(feature = "client-notifications")]
 mod dispatch_tests {
     use crate::common::{create_test_server_resources, create_test_tenant};
+    use pierre_core::transport::TransportPolicy;
     use pierre_database::backends::factory::DatabaseBackend;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_notifications::models::{
@@ -668,6 +669,7 @@ mod dispatch_tests {
             "activity_456",
             "10k",
             "44:14",
+            TransportPolicy::AnyTransport,
         );
 
         sleep(Duration::from_millis(200)).await;

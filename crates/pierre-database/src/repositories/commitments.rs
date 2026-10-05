@@ -7,6 +7,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::transport::TransportPolicy;
 use pierre_memory::commitments::{Commitment, CommitmentOutcome, CommitmentStatus};
 
 /// The verdict a sweep reached for one commitment.
@@ -24,6 +25,9 @@ pub struct SweptVerdict<'a> {
     pub completed_sessions: u32,
     /// When the sweep ran.
     pub at: DateTime<Utc>,
+    /// The stamp of the sessions the count read (carnet#769): the commitment
+    /// keeps the stricter of its own and this.
+    pub transport_policy: TransportPolicy,
 }
 
 /// Persistence for athlete commitments.
@@ -51,11 +55,16 @@ pub trait CommitmentRepository: Send + Sync {
 
     /// A user's still-open commitments, soonest window first. Tenant-scoped;
     /// `limit` is clamped by the caller so the prompt block stays bounded.
+    ///
+    /// `readable` is the strictest stamp a returned row may carry
+    /// (carnet#769): [`TransportPolicy::AnyTransport`] leaves stamped rows
+    /// out in the statement itself, so `limit` counts only readable ones.
     async fn list_open_commitments(
         &self,
         tenant_id: &str,
         user_id: &str,
         limit: i64,
+        readable: TransportPolicy,
     ) -> AppResult<Vec<Commitment>>;
 
     /// Open commitments whose window has closed (`status = 'open' AND
@@ -119,7 +128,8 @@ macro_rules! select_commitments {
         concat!(
             "SELECT id, tenant_id, user_id, agent_id, conversation_id, statement, sport, ",
             "target_sessions, window_start, window_end, status, outcome, ",
-            "completed_sessions, swept_at, reported_at, created_at, updated_at ",
+            "completed_sessions, swept_at, reported_at, created_at, updated_at, ",
+            "first_party_only ",
             "FROM athlete_commitments ",
             $tail
         )
@@ -137,9 +147,9 @@ pub(crate) const INSERT_COMMITMENT_SQL: &str = r"
     INSERT INTO athlete_commitments (
         id, tenant_id, user_id, agent_id, conversation_id, statement, sport,
         target_sessions, window_start, window_end, status, outcome, completed_sessions,
-        swept_at, reported_at, created_at, updated_at
+        swept_at, reported_at, created_at, updated_at, first_party_only
     )
-    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULL, NULL, NULL, NULL, $12, $13
+    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULL, NULL, NULL, NULL, $12, $13, $14
     WHERE NOT EXISTS (
         SELECT 1 FROM athlete_commitments
         WHERE tenant_id = $2 AND user_id = $3 AND agent_id = $4
@@ -159,14 +169,17 @@ pub(crate) const UNREPORTED_COMMITMENTS_SQL: &str =
 
 /// A user's open commitments, soonest window first.
 pub(crate) const LIST_OPEN_COMMITMENTS_SQL: &str = select_commitments!(
-    "WHERE tenant_id = $1 AND user_id = $2 AND status = 'open' ORDER BY window_end ASC LIMIT $3"
+    "WHERE tenant_id = $1 AND user_id = $2 AND status = 'open' \
+     AND (first_party_only = FALSE OR $4) ORDER BY window_end ASC LIMIT $3"
 );
 
 /// Record the sweep verdict. The `status = 'open'` predicate makes a racing
-/// second sweep a zero-row no-op instead of a double count.
+/// second sweep a zero-row no-op instead of a double count. The stamp only
+/// tightens: the verdict counts sessions the commitment did not quote.
 pub(crate) const RECORD_VERDICT_SQL: &str = r"
     UPDATE athlete_commitments
-    SET status = 'labeled', outcome = $1, completed_sessions = $2, swept_at = $3, updated_at = $3
+    SET status = 'labeled', outcome = $1, completed_sessions = $2, swept_at = $3, updated_at = $3,
+        first_party_only = CASE WHEN $6 THEN $6 ELSE first_party_only END
     WHERE id = $4 AND tenant_id = $5 AND status = 'open'
 ";
 
@@ -256,6 +269,8 @@ pub(crate) struct CommitmentRow {
     pub created_at: i64,
     /// `updated_at` epoch seconds.
     pub updated_at: i64,
+    /// `first_party_only` stamp (carnet#769).
+    pub first_party_only: bool,
 }
 
 /// Build a [`Commitment`] from extracted row primitives.
@@ -291,5 +306,6 @@ pub(crate) fn commitment_from_row(row: CommitmentRow) -> AppResult<Commitment> {
         reported_at: row.reported_at.and_then(epoch_to_dt),
         created_at: epoch_to_dt(row.created_at).unwrap_or_else(Utc::now),
         updated_at: epoch_to_dt(row.updated_at).unwrap_or_else(Utc::now),
+        transport_policy: TransportPolicy::from_first_party_only(row.first_party_only),
     })
 }

@@ -17,6 +17,7 @@
 mod common;
 mod helpers;
 
+use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -94,7 +95,12 @@ impl Athlete {
             .common
             .repos
             .dossier
-            .compose_dossier(self.tenant, self.user_id)
+            .compose_dossier(
+                self.tenant,
+                self.user_id,
+                TransportPolicy::FirstPartyOnly,
+                &|_| true,
+            )
             .await?;
         let mut facts: Vec<_> = dossier
             .medical
@@ -118,6 +124,7 @@ impl Athlete {
                 None,
                 Some(FactKind::Medical),
                 10,
+                TransportPolicy::FirstPartyOnly,
             )
             .await?
             .into_iter()
@@ -153,6 +160,7 @@ impl Athlete {
                 source: FactSource::Coach,
                 valid_until: Some(Utc::now() + Duration::days(90)),
                 source_msg_id: None,
+                transport_policy: TransportPolicy::AnyTransport,
             })
             .await?;
         Ok(())

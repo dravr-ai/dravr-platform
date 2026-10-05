@@ -21,6 +21,7 @@
 
 mod common;
 
+use pierre_core::transport::TransportPolicy;
 use std::sync::{Arc, Mutex};
 
 use futures_util::stream;
@@ -118,6 +119,7 @@ async fn seed_anchor(
             source: FactSource::Onboarding,
             valid_until: None,
             source_msg_id: Some("m-onboarding"),
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .expect("anchor stored")
@@ -176,6 +178,7 @@ async fn run(
             // No plan tool ran on this turn; these fixtures are goal facts,
             // not the schedule facts that filter guards.
             plan_was_saved: false,
+            transport_policy: TransportPolicy::AnyTransport,
         },
         CONFIG,
     )
@@ -184,7 +187,14 @@ async fn run(
 
     let facts = repos
         .memory
-        .list_user_facts(tenant_id, &user, None, Some(FactKind::Goal), 50)
+        .list_user_facts(
+            tenant_id,
+            &user,
+            None,
+            Some(FactKind::Goal),
+            50,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .expect("facts listed");
     let _ = outcome;
@@ -349,6 +359,7 @@ async fn a_stored_plan_mints_no_schedule_fact_from_the_coachs_own_words() {
             force_kind: None,
             // The plan tool ran on this turn: the weeks are the record.
             plan_was_saved: true,
+            transport_policy: TransportPolicy::AnyTransport,
         },
         CONFIG,
     )
@@ -357,7 +368,14 @@ async fn a_stored_plan_mints_no_schedule_fact_from_the_coachs_own_words() {
 
     let scheduled = repos
         .memory
-        .list_user_facts(tenant_id, &user, None, Some(FactKind::Schedule), 50)
+        .list_user_facts(
+            tenant_id,
+            &user,
+            None,
+            Some(FactKind::Schedule),
+            50,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .expect("facts listed");
     assert!(
@@ -414,6 +432,7 @@ async fn the_same_prescription_survives_when_no_plan_was_saved() {
             assistant_reply: "Intervals Tuesday and Thursday, easy otherwise.",
             force_kind: None,
             plan_was_saved: false,
+            transport_policy: TransportPolicy::AnyTransport,
         },
         CONFIG,
     )
@@ -422,7 +441,14 @@ async fn the_same_prescription_survives_when_no_plan_was_saved() {
 
     let scheduled = repos
         .memory
-        .list_user_facts(tenant_id, &user, None, Some(FactKind::Schedule), 50)
+        .list_user_facts(
+            tenant_id,
+            &user,
+            None,
+            Some(FactKind::Schedule),
+            50,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .expect("facts listed");
     assert_eq!(

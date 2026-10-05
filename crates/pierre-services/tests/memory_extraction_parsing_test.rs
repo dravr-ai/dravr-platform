@@ -11,6 +11,7 @@
 
 #![allow(missing_docs, clippy::unwrap_used)]
 
+use pierre_core::transport::TransportPolicy;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -183,6 +184,7 @@ impl HarnessMemoryRepository for RecordingFacts {
             source_msg_id: params.source_msg_id.map(str::to_owned),
             created_at: now,
             updated_at: now,
+            transport_policy: TransportPolicy::AnyTransport,
         };
         self.upserts.lock().unwrap().push(row.clone());
         Ok(row)
@@ -201,6 +203,7 @@ impl HarnessMemoryRepository for RecordingFacts {
         _agent_id: Option<&str>,
         _kind: Option<FactKind>,
         _limit: i64,
+        _readable: TransportPolicy,
     ) -> AppResult<Vec<UserFact>> {
         Ok(Vec::new())
     }
@@ -210,6 +213,7 @@ impl HarnessMemoryRepository for RecordingFacts {
         _user_id: &str,
         _source: FactSource,
         _limit: i64,
+        _readable: TransportPolicy,
     ) -> AppResult<Vec<UserFact>> {
         Err(off_path("list_user_facts_by_source"))
     }
@@ -263,6 +267,7 @@ impl HarnessMemoryRepository for RecordingFacts {
         _user_id: &str,
         _agent_id: &str,
         _limit: i64,
+        _readable: TransportPolicy,
     ) -> AppResult<Vec<AgentNote>> {
         Err(off_path("list_agent_notes"))
     }
@@ -364,6 +369,7 @@ async fn extract(reply: &str, source: FactSource, plan_was_saved: bool) -> Pass 
         source,
         force_kind: None,
         plan_was_saved,
+        transport_policy: TransportPolicy::AnyTransport,
     };
     let outcome = extract_and_persist(&repo, &provider, BASE_PROMPT, &req, DEDUP)
         .await

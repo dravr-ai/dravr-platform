@@ -353,6 +353,30 @@ pub fn filter_json(lookup: &dyn ProviderTerms, value: &mut Value, exposure: Expo
     withheld
 }
 
+/// Whether any provider item found in a JSON tree is one whose terms keep it
+/// first-party — what a reply built from this value inherits (carnet#769).
+///
+/// Items are found where [`filter_json`] looks for them: any object carrying
+/// a string `provider` key, below the root. The root itself is the result's
+/// envelope, whose `provider` names what was asked, not data that was served.
+#[must_use]
+pub fn carries_first_party_only(lookup: &dyn ProviderTerms, value: &Value) -> bool {
+    let children: Box<dyn Iterator<Item = &Value>> = match value {
+        Value::Array(items) => Box::new(items.iter()),
+        Value::Object(object) => Box::new(object.values()),
+        _ => return false,
+    };
+    children.into_iter().any(|child| {
+        child
+            .as_object()
+            .and_then(item_origin)
+            .is_some_and(|(provider, source)| {
+                first_party_only(lookup, &provider, source.as_deref())
+            })
+            || carries_first_party_only(lookup, child)
+    })
+}
+
 fn item_origin(object: &Map<String, Value>) -> Option<(String, Option<String>)> {
     let provider = object.get("provider")?.as_str()?.to_owned();
     let source = object
@@ -691,5 +715,29 @@ mod tests {
         let mut first_party = payload.clone();
         assert!(filter_json(&Lookup, &mut first_party, MODEL).is_empty());
         assert_eq!(first_party, payload);
+    }
+
+    #[test]
+    fn a_value_carries_first_party_only_data_wherever_an_item_sits() {
+        assert!(carries_first_party_only(
+            &Lookup,
+            &json!({"week": {"sessions": [{"provider": "intervals", "source": "nolio"}]}})
+        ));
+        assert!(carries_first_party_only(
+            &Lookup,
+            &json!([{"provider": "nolio", "id": "1"}])
+        ));
+        assert!(!carries_first_party_only(
+            &Lookup,
+            &json!({"activities": [{"provider": "garmin"}, {"provider": "strava", "source": "garmin"}]})
+        ));
+        assert!(
+            !carries_first_party_only(&Lookup, &json!({"provider": 3, "note": "nolio"})),
+            "only an item's provider names a source"
+        );
+        assert!(
+            !carries_first_party_only(&Lookup, &json!({"provider": "nolio", "activities": []})),
+            "the envelope names what was asked, not what was served"
+        );
     }
 }

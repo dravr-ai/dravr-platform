@@ -17,6 +17,7 @@
 mod common;
 mod helpers;
 
+use pierre_core::transport::TransportPolicy;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -353,6 +354,7 @@ fn row(id: &str, role: &str, finish_reason: Option<&str>, blocks: Option<String>
         finish_reason: finish_reason.map(ToOwned::to_owned),
         content_blocks: blocks,
         created_at: "2026-10-01T10:00:00Z".to_owned(),
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

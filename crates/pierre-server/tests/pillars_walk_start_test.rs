@@ -27,6 +27,7 @@ use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandConte
 use pierre_core::models::{
     CoverageTarget, OnboardingState, Pillar, TenantId, TopicSlug as OnboardingTopicSlug,
 };
+use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
@@ -176,6 +177,7 @@ async fn pillars_mental_in_a_group_is_refused_before_any_expiry() -> Result<()> 
             source: FactSource::Onboarding,
             valid_until: None,
             source_msg_id: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
 
@@ -212,7 +214,7 @@ async fn pillars_mental_in_a_group_is_refused_before_any_expiry() -> Result<()> 
         .common
         .repos
         .dossier
-        .compose_dossier(tenant, user_id)
+        .compose_dossier(tenant, user_id, TransportPolicy::FirstPartyOnly, &|_| true)
         .await?;
     assert!(
         dossier

@@ -34,6 +34,7 @@ import PrivacySettingsTab from './PrivacySettingsTab';
 import MemoryPanel from './memory/MemoryPanel';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import {
+  coachPlatformName,
   delegationRefusalKey,
   noticeRequired,
   providerScopeLabelKey,
@@ -751,9 +752,14 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                     className={`h-2 w-2 rounded-full ${delegation.coach_needs_reauth || delegation.read_refused ? 'bg-warning' : 'bg-success'}`}
                                   />
                                   {delegation.read_refused
-                                    ? t(delegationRefusalKey(delegation.read_refused))
+                                    ? t(delegationRefusalKey(delegation.read_refused), {
+                                        platform: coachPlatformName(provider.provider),
+                                      })
                                     : delegation.coach_needs_reauth
-                                      ? t('delegation.coachReconnectNeeded', { coach: delegation.coach_display_name })
+                                      ? t('delegation.coachReconnectNeeded', {
+                                          platform: coachPlatformName(provider.provider),
+                                          coach: delegation.coach_display_name,
+                                        })
                                       : t('providers.connectedThrough', { coach: delegation.coach_display_name })}
                                 </span>
                               ) : provider.connected && (

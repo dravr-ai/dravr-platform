@@ -22,6 +22,7 @@ mod notification_event_locale_tests {
     use crate::common::{create_test_server_resources, create_test_tenant};
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
+    use pierre_core::transport::TransportPolicy;
     use pierre_database::backends::factory::DatabaseBackend;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_notifications::events::{event_params, PARAMS_DATA_KEY};
@@ -240,6 +241,7 @@ mod notification_event_locale_tests {
             "act-2",
             "half_marathon",
             "1:32:14",
+            TransportPolicy::AnyTransport,
         );
         notification_triggers::trigger_fitness_improvement(
             &service, user.id, tenant, "FTP", "265 W", None,

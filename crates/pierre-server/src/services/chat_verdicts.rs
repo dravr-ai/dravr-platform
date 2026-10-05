@@ -24,7 +24,7 @@ use pierre_core::errors::AppError;
 use pierre_middleware::extract_auth_from_headers;
 use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
 use pierre_services::chat_verdicts::list_for_conversation;
-use pierre_tool_runtime::derived_content::refuse_derived_content_off_interface;
+use pierre_tool_runtime::derived_content;
 
 use crate::mcp::resources::ServerContext;
 
@@ -50,8 +50,16 @@ pub async fn get_verdicts_handler(
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
     let tenant_id = require(resolve_tenant(&resources, &auth, TenantMode::Required).await?)?;
-    // A verdict quotes the reply it judged (carnet#724).
-    refuse_derived_content_off_interface(resources.as_ref(), auth.user_id).await?;
+    // A thread opened from a first-party-only activity is about it
+    // throughout; within any other, a verdict on a reply derived from such
+    // data is withheld from an external caller (carnet#769).
+    derived_content::refuse_withheld_thread(
+        resources.as_ref(),
+        &tenant_id,
+        auth.user_id,
+        &conversation_id,
+    )
+    .await?;
     let response = list_for_conversation(
         &resources.data().repos().agent_repos(),
         &conversation_id,

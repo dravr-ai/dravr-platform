@@ -207,7 +207,7 @@ impl McpTool<dyn ToolRuntime> for GetPlannedWorkoutsTool {
             if let Err(e) = &read {
                 executor
                     .auth_service
-                    .react_to_trainingpeaks_refusal(
+                    .react_to_delegated_refusal(
                         context.user_id,
                         &tenant_str,
                         provider.as_ref(),

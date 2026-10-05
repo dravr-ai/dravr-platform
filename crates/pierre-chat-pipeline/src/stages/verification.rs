@@ -819,6 +819,7 @@ pub async fn persist_pending_verdicts(
             layer_fired: outcome.layer_fired,
             explanation: Some(&outcome.explanation),
             evidence_refs: outcome.evidence_refs.as_deref(),
+            transport_policy: ai_scope::derived_policy(),
         };
         if let Err(e) = data
             .repos()

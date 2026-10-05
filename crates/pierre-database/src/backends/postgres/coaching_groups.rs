@@ -12,6 +12,7 @@ use pierre_core::models::groups::{
     RoomTranscriptEntry, SharedRoomEntry, TranscriptSpeaker, UpdateGroupRequest,
 };
 use pierre_core::models::TenantId;
+use pierre_core::transport::TransportPolicy;
 use sqlx::postgres::PgRow;
 use uuid::Uuid;
 
@@ -25,8 +26,9 @@ use crate::repositories::coaching_groups::{
     INSERT_MEMBER_SQL, INSERT_TRANSCRIPT_ENTRY_SQL, LIST_ACTIVE_GROUPS_FOR_TENANT_SQL,
     LIST_ATHLETES_COACHED_BY_SQL, LIST_GROUPS_COACHED_BY_SQL, LIST_GROUPS_FOR_USER_SQL,
     LIST_INVITES_SQL, LIST_MEMBERS_SQL, LIST_ROOM_TRANSCRIPT_SQL, LIST_TRANSCRIPT_VISIBLE_TO_SQL,
-    RELEASE_GROUP_MEMBERS_SQL, REMOVE_MEMBER_SQL, SET_GROUP_COACH_USER_SQL, UPDATE_GROUP_SQL,
-    UPDATE_MEMBER_ROLE_SQL, UPDATE_PEER_SHARING_CONSENT_SQL,
+    RELEASE_GROUP_MEMBERS_SQL, REMOVE_MEMBER_SQL, SET_GROUP_COACH_USER_SQL,
+    UPDATE_COACH_SHARING_CONSENT_SQL, UPDATE_GROUP_SQL, UPDATE_MEMBER_ROLE_SQL,
+    UPDATE_PEER_SHARING_CONSENT_SQL,
 };
 use crate::repositories::uuid_columns::NativeUuid;
 use crate::repositories::CoachingGroupRepository;

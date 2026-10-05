@@ -8,6 +8,7 @@
 
 use chrono::{TimeZone, Utc};
 use pierre_chat_pipeline::stages::prompt_builder::build_llm_messages_with_blocks;
+use pierre_core::transport::TransportPolicy;
 use pierre_database::database::MessageRecord;
 use pierre_llm::MessageRole;
 use pierre_memory::CompactionBlock;
@@ -26,6 +27,7 @@ fn record(id: &str, role: &str, content: &str) -> MessageRecord {
         finish_reason: None,
         content_blocks: None,
         created_at: "2026-05-15T15:10:00Z".to_owned(),
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 
@@ -43,6 +45,7 @@ fn block(id: &str, first_id: &str, last_id: &str, summary: &str, seconds: u32) -
         first_message_id: first_id.to_owned(),
         last_message_id: last_id.to_owned(),
         created_at: Utc.with_ymd_and_hms(2026, 5, 15, 12, 0, seconds).unwrap(),
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

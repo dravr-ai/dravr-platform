@@ -10,6 +10,7 @@ use pierre_core::errors::AppError;
 use pierre_core::models::{
     AddMessageParams, GuidedFlow, GuidedWindow, LoadSnapshot, OnboardingState, Pillar, WalkAudience,
 };
+use pierre_providers::ai_scope;
 use pierre_providers::registry::global_registry;
 use pierre_services::recent_load::recent_load_snapshot;
 use serde_json::Value;
@@ -165,6 +166,7 @@ async fn persist_opener(
         prompt_tokens: None,
         model: None,
         content_blocks: None,
+        transport_policy: ai_scope::derived_policy(),
     };
     if let Err(e) = ctx.ctx.repos().chat.add_message(&opener).await {
         warn!(error = %e, "failed to persist {command} opener as assistant message");

@@ -305,8 +305,9 @@ pub enum BackendKind {
     Oauth,
     /// Mirror (sciotte*) backend is the active one
     Mirror,
-    /// The mirror, read through the group coach's own session under a link
-    /// the member confirmed: the member holds no session of their own
+    /// A coaching platform read through the group coach's own credential
+    /// under a link the member confirmed: the member holds no credential of
+    /// their own
     Delegated,
 }
 
@@ -330,9 +331,10 @@ impl BackendKind {
 /// migration), matching `resolve_backend`. For every other mirror-backed
 /// provider (Garmin, TrainingPeaks) the mirror still wins when present — even
 /// if stale — because the user's stated preference is to keep using it. With
-/// no session of the user's own, a confirmed link their group coach reads the
-/// mirror through ([`BackendKind::Delegated`]) connects it, found the way the
-/// read path finds it, so the status and the read cannot disagree. A link that
+/// no credential of the user's own, a confirmed link their group coach reads
+/// one of the provider's backends through ([`BackendKind::Delegated`])
+/// connects it, found the way the read path finds it, so the status and the
+/// read cannot disagree. A link that
 /// cannot be read counts as none, as an unreadable token row does.
 pub async fn coalesced_status(
     repos: &AuthRepos,
@@ -362,18 +364,6 @@ pub async fn coalesced_status(
                 delegation: None,
             };
         }
-        if let Ok(Some(link)) = repos
-            .delegated_connections
-            .find_active_for_member(user_id, tenant_id, mirror)
-            .await
-        {
-            return CoalescedStatus {
-                user_facing,
-                connected: true,
-                backend_kind: BackendKind::Delegated,
-                delegation: Some(link),
-            };
-        }
     }
 
     // The OAuth row counts only when it is one of the backends that can serve
@@ -392,6 +382,23 @@ pub async fn coalesced_status(
             backend_kind: BackendKind::Oauth,
             delegation: None,
         };
+    }
+
+    // With no credential of the user's own, a confirmed link their group
+    // coach reads one of the provider's backends through connects it.
+    for backend in serving_backends(user_facing) {
+        if let Ok(Some(link)) = repos
+            .delegated_connections
+            .find_active_for_member(user_id, tenant_id, &backend)
+            .await
+        {
+            return CoalescedStatus {
+                user_facing,
+                connected: true,
+                backend_kind: BackendKind::Delegated,
+                delegation: Some(link),
+            };
+        }
     }
 
     CoalescedStatus {

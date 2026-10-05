@@ -16,6 +16,8 @@ use tracing::{debug, error, field, info, warn, Span};
 use urlencoding::encode;
 
 use crate::analytics::cache_user_email;
+use crate::coach_platform::coach_platform;
+use crate::delegated_connections::{forget_coach_roster, supersede_delegated_link};
 use crate::provider_revocation;
 use crate::strava_reconnect::{self, ReplacedGrants, StorePrecondition};
 use pierre_auth::config::oauth::get_oauth_config;
@@ -517,6 +519,14 @@ impl OAuthService {
         let connection_tenant_id = TenantId::parse_str(raw_tenant).map_err(|_| {
             AppError::internal(format!("Invalid tenant_id in OAuth token: {raw_tenant}"))
         })?;
+        // A coaching platform the athlete now connects themselves takes the
+        // place of a link their group coach read them through, and a roster
+        // read through the credential this one replaces is dropped.
+        if coach_platform(provider).is_some() {
+            supersede_delegated_link(self.data.repos(), user_id, connection_tenant_id, provider)
+                .await?;
+            forget_coach_roster(self.data.cache(), user_id, connection_tenant_id, provider).await;
+        }
         self.data
             .repos()
             .provider_connections

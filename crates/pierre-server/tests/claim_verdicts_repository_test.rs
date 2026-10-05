@@ -7,6 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_core::transport::TransportPolicy;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -47,6 +48,7 @@ async fn insert_and_list_claim_verdict_round_trip() -> Result<()> {
         layer_fired: VerdictLayer::Evidence,
         explanation: Some("Supported by Morton 2018"),
         evidence_refs: Some("doi:10.1/a"),
+        transport_policy: TransportPolicy::AnyTransport,
     };
 
     let saved = repos.claim_verdicts.insert_claim_verdict(&params).await?;
@@ -90,6 +92,7 @@ async fn insert_personalized_layer_verdict_round_trip() -> Result<()> {
             "Contradicts your own data — threshold pace 4:00/km vs your 5:00/km–5:15/km",
         ),
         evidence_refs: None,
+        transport_policy: TransportPolicy::AnyTransport,
     };
 
     let saved = repos.claim_verdicts.insert_claim_verdict(&params).await?;
@@ -133,6 +136,7 @@ async fn list_recent_verdicts_returns_newest_first() -> Result<()> {
             layer_fired: VerdictLayer::Evidence,
             explanation: None,
             evidence_refs: None,
+            transport_policy: TransportPolicy::AnyTransport,
         };
         repos.claim_verdicts.insert_claim_verdict(&params).await?;
         // Nudge timestamp ordering; sqlx RFC3339 seconds may collide otherwise.
@@ -172,6 +176,7 @@ async fn list_verdicts_for_conversation_filters_by_conversation() -> Result<()> 
         layer_fired: VerdictLayer::Rhetoric,
         explanation: None,
         evidence_refs: None,
+        transport_policy: TransportPolicy::AnyTransport,
     };
     repos.claim_verdicts.insert_claim_verdict(&params_a).await?;
 
@@ -212,6 +217,7 @@ async fn aggregate_verdict_stats_rolls_up_totals_and_daily() -> Result<()> {
             layer_fired: VerdictLayer::Evidence,
             explanation: None,
             evidence_refs: None,
+            transport_policy: TransportPolicy::AnyTransport,
         };
         repos.claim_verdicts.insert_claim_verdict(&params).await?;
     }
@@ -252,6 +258,7 @@ async fn aggregate_verdict_stats_clamps_window_days() -> Result<()> {
         layer_fired: VerdictLayer::Evidence,
         explanation: None,
         evidence_refs: None,
+        transport_policy: TransportPolicy::AnyTransport,
     };
     repos.claim_verdicts.insert_claim_verdict(&params).await?;
 

@@ -16,13 +16,15 @@
 //! The DSL is parsed server-side on every write and cannot be disabled, which
 //! is why prose is escaped rather than trusted.
 
+use chrono::NaiveDate;
 use serde::Deserialize;
 use serde_json::json;
 
 use crate::errors::{AppError, AppResult};
+use crate::intervals_icu_provider::parse_local_dt;
 use crate::models::periodization::ThresholdBasis;
 use crate::models::{
-    PlannedSession, PlannedSessionKind, RelativeIntensity, SportType, WorkoutStep,
+    CalendarEventRef, PlannedSession, PlannedSessionKind, RelativeIntensity, SportType, WorkoutStep,
 };
 
 /// Map a [`SportType`] to the Intervals.icu calendar event `type` string
@@ -317,4 +319,47 @@ pub struct CreatedEvent {
 pub struct DeleteEventsResponse {
     #[serde(rename = "eventsDeleted", default)]
     pub events_deleted: u64,
+}
+
+/// Calendar event row from Intervals.icu (`/api/v1/athlete/{id}/events`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct IntervalsIcuEvent {
+    /// Event id.
+    pub id: i64,
+    /// Event date (`YYYY-MM-DD` for races, full ISO 8601 for sessions).
+    pub start_date_local: String,
+    /// The writer's own key for the event, when one was set (Dravr sets
+    /// [`PlannedSession::external_id`] on every event it writes).
+    #[serde(default)]
+    pub external_id: Option<String>,
+    /// When the event last changed, as Intervals.icu reports it.
+    #[serde(default)]
+    pub updated: Option<String>,
+}
+
+impl IntervalsIcuEvent {
+    /// The identity-and-freshness view a reconcile needs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `start_date_local` does not begin with a civil
+    /// date — an event the calendar cannot place on a day cannot be reconciled.
+    pub fn calendar_event_ref(self) -> AppResult<CalendarEventRef> {
+        let day = self.start_date_local.get(..10).unwrap_or_default();
+        let date = NaiveDate::parse_from_str(day, "%Y-%m-%d").map_err(|e| {
+            AppError::external_service(
+                "intervals_icu",
+                format!(
+                    "event {} has no civil date in '{}': {e}",
+                    self.id, self.start_date_local
+                ),
+            )
+        })?;
+        Ok(CalendarEventRef {
+            provider_event_id: self.id.to_string(),
+            external_id: self.external_id,
+            date,
+            updated_at: self.updated.as_deref().and_then(parse_local_dt),
+        })
+    }
 }

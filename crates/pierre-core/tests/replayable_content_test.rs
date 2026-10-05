@@ -10,6 +10,7 @@ use pierre_core::models::{
     MessageRecord, FILTERED_REPLY_FINISH_REASON, STOP_CAVEAT_SEPARATOR,
     TRUNCATED_REPLY_FINISH_REASON,
 };
+use pierre_core::transport::TransportPolicy;
 
 const REPLY: &str = "Your load has climbed for three weeks, so Thursday becomes";
 const CAVEAT: &str = "My reply was cut off before I finished.";
@@ -26,6 +27,7 @@ fn row(content: String, finish_reason: Option<&str>) -> MessageRecord {
         finish_reason: finish_reason.map(str::to_owned),
         content_blocks: None,
         created_at: "2026-09-25T00:00:00Z".to_owned(),
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

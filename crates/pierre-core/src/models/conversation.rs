@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 use crate::models::agents::AgentCategory;
 use crate::models::tenant::TenantId;
+use crate::transport::TransportPolicy;
 
 /// Who authored the message a turn answers.
 ///
@@ -495,6 +496,11 @@ pub struct MessageRecord {
     pub content_blocks: Option<String>,
     /// When the message was created (ISO 8601)
     pub created_at: String,
+    /// Where this row may be served: [`TransportPolicy::FirstPartyOnly`] when
+    /// the turn that wrote it served data whose terms keep it on Dravr's own
+    /// surfaces (carnet#769). An external caller never reads such a row.
+    #[serde(default, skip_serializing)]
+    pub transport_policy: TransportPolicy,
 }
 
 impl MessageRecord {
@@ -545,6 +551,10 @@ pub struct ConversationLastMessage {
     pub role: String,
     /// When the row was written (ISO 8601).
     pub created_at: String,
+    /// The row's stamp (carnet#769): an external caller sees no preview of a
+    /// first-party-only row.
+    #[serde(default, skip_serializing)]
+    pub transport_policy: TransportPolicy,
 }
 
 /// One page of a participant's conversation list.
@@ -628,6 +638,10 @@ pub struct AddMessageParams<'a> {
     pub model: Option<&'a str>,
     /// Ordered visual blocks lifted from the reply's prose, JSON-encoded array.
     pub content_blocks: Option<&'a str>,
+    /// Where the row may be served — the stamp of what it was built from
+    /// (carnet#769). A row nothing first-party-only fed is
+    /// [`TransportPolicy::AnyTransport`].
+    pub transport_policy: TransportPolicy,
 }
 
 /// Database representation of a user's thumbs up/down feedback on a message.

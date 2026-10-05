@@ -19,6 +19,7 @@
 
 #![allow(dead_code)]
 
+use pierre_core::transport::TransportPolicy;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -530,7 +531,13 @@ impl CommandE2e {
             .common
             .repos
             .memory
-            .list_user_facts_by_source(tenant, &m.user_id.to_string(), source, 100)
+            .list_user_facts_by_source(
+                tenant,
+                &m.user_id.to_string(),
+                source,
+                100,
+                TransportPolicy::FirstPartyOnly,
+            )
             .await
             .unwrap_or_default()
     }
@@ -784,6 +791,7 @@ impl RoomE2e {
                 tenant_id: self.base.bot_tenant.to_string(),
                 role,
                 peer_sharing_consent: false,
+                coach_sharing_consent: false,
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,

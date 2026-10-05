@@ -44,6 +44,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use pierre_core::errors::AppError;
+use pierre_core::transport::TransportPolicy;
 use serde_json::json;
 use tokio_util::task::TaskTracker;
 use tracing::{debug, info};
@@ -225,7 +226,18 @@ pub struct NotificationService {
     /// being cut by the runtime's teardown. There is no untracked spawn: a
     /// service is built with a tracker or not at all.
     dispatches: TaskTracker,
+    /// Reads the stamp of the derivation a dispatch runs in (carnet#769): what
+    /// the turn or tool raising the notification has served so far. `None`
+    /// on a bare service, whose rows then carry only the stamp their caller
+    /// names.
+    provenance: Option<ProvenanceProbe>,
 }
+
+/// Reads the [`TransportPolicy`] of the derivation on the calling task.
+///
+/// An SPI for the reason [`NotificationLocalizer`] is one: the
+/// accumulator lives above this crate (`pierre_providers::ai_scope`).
+pub type ProvenanceProbe = Arc<dyn Fn() -> TransportPolicy + Send + Sync>;
 
 impl Deref for NotificationService {
     type Target = dravr_commere::NotificationService;
@@ -250,6 +262,7 @@ impl NotificationService {
             policy_gate: None,
             localizer: None,
             dispatches,
+            provenance: None,
         }
     }
 
@@ -267,6 +280,7 @@ impl NotificationService {
             policy_gate: None,
             localizer: None,
             dispatches,
+            provenance: None,
         }
     }
 
@@ -291,6 +305,25 @@ impl NotificationService {
     pub fn with_localizer(mut self, localizer: Arc<dyn NotificationLocalizer>) -> Self {
         self.localizer = Some(localizer);
         self
+    }
+
+    /// Attach the probe that reads the stamp of the derivation each dispatch
+    /// runs in, so a notification raised from what a turn served is stamped
+    /// with it (carnet#769).
+    #[must_use]
+    pub fn with_provenance(mut self, probe: ProvenanceProbe) -> Self {
+        self.provenance = Some(probe);
+        self
+    }
+
+    /// The stamp of the derivation running on the calling task, as far as
+    /// this service can tell: [`TransportPolicy::AnyTransport`] without a
+    /// probe.
+    #[must_use]
+    pub fn derived_policy(&self) -> TransportPolicy {
+        self.provenance
+            .as_ref()
+            .map_or(TransportPolicy::AnyTransport, |probe| probe())
     }
 
     /// Dispatch a product event at an explicit [`PushTier`].
@@ -370,10 +403,13 @@ impl NotificationService {
             notification_type: dispatch.event.wire().to_owned(),
             title: text.title,
             body: text.body,
-            data: Some(events::event_data(
-                dispatch.route.clone(),
-                dispatch.params.clone(),
-            )),
+            data: events::stamp_data(
+                Some(events::event_data(
+                    dispatch.route.clone(),
+                    dispatch.params.clone(),
+                )),
+                dispatch.transport_policy,
+            ),
             image_url: None,
             actions,
             bypass_frequency_cap: dispatch.bypass_frequency_cap,
@@ -467,6 +503,20 @@ impl NotificationService {
         tier: PushTier,
         fan_out: ChannelFanOut,
     ) -> CommereResult<Delivery> {
+        // The stored row carries the stamp of what it was derived from: the
+        // caller's, tightened to the derivation this dispatch runs in.
+        let caller_policy = events::data_transport_policy(request.data.as_ref());
+        let policy = caller_policy.strictest(self.derived_policy());
+        let stamped;
+        let request = if policy == caller_policy {
+            request
+        } else {
+            stamped = DispatchRequest {
+                data: events::stamp_data(request.data.clone(), policy),
+                ..request.clone()
+            };
+            &stamped
+        };
         if let Some(push_policy) = self.push_policy(request.user_id, request.tenant_id).await {
             let would_gate = push_policy.gates(tier);
             if push_policy.armed && would_gate {

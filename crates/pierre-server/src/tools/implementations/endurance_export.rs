@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use pierre_providers::ai_scope;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -27,7 +28,6 @@ use pierre_tool_runtime::context::ToolExecutionContext;
 use pierre_tool_runtime::conversions::{
     answers_with, ok_typed, task_capable, tool_definition, tool_result_to_response,
 };
-use pierre_tool_runtime::derived_content::refuse_derived_content_off_interface;
 use pierre_tool_runtime::protocol::provider_helpers::fetch_activities_from_provider;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::security::RuntimeTool;
@@ -199,7 +199,10 @@ impl McpTool<dyn ToolRuntime> for ExportLatestSnapshotTool {
                 .repos()
                 .user_physiological_profile
                 .get_user_physiological_profile(tenant_id, user_id)
-                .await?;
+                .await?
+                // A profile written from first-party-only data is withheld from an
+                // external caller (carnet#769).
+                .filter(|profile| ai_scope::admit_derived(profile.transport_policy));
             let ftp_watts = physiology.as_ref().and_then(|p| p.ftp_watts);
             let hr_zones = physiology.as_ref().and_then(|p| p.hr_zones);
             let snapshot = build_latest_snapshot(&activities, window, ftp_watts, hr_zones);
@@ -261,14 +264,18 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
             drop(args);
             let tenant_id = require_tenant(&context)?;
             let user_id = context.user_id;
-            // The dossier composes facts and history kept with no provenance
-            // (carnet#724).
-            refuse_derived_content_off_interface(context.resources.as_ref(), user_id).await?;
+            // Facts and a profile derived from first-party-only data are left
+            // out for an external caller (carnet#769).
             let dossier = context
                 .resources
                 .repos()
                 .dossier
-                .compose_dossier(tenant_id, user_id)
+                .compose_dossier(
+                    tenant_id,
+                    user_id,
+                    ai_scope::readable_policy(),
+                    &ai_scope::admit_derived,
+                )
                 .await?;
             let dossier = dossier;
 
@@ -284,7 +291,8 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
                 .repos()
                 .user_physiological_profile
                 .get_user_physiological_profile(tenant_id, user_id)
-                .await?;
+                .await?
+                .filter(|profile| ai_scope::admit_derived(profile.transport_policy));
             let estimate =
                 ThresholdEstimate::from_inputs(threshold_inputs_from_profile(physiology.as_ref()));
 

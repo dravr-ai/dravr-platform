@@ -33,6 +33,7 @@ mod sink_tests {
     use async_trait::async_trait;
     use pierre_contremaitre::messaging_strings::DEFAULT_LOCALE;
     use pierre_core::models::messaging::ChannelType;
+    use pierre_core::transport::TransportPolicy;
     use pierre_database::backends::factory::{Database, DatabaseBackend};
     use pierre_database::backends::{CreateChannelLinkParams, UpsertChannelConfigParams};
     use pierre_notifications::models::{NotificationCategory, UpsertNotificationPreferenceParams};
@@ -312,6 +313,7 @@ mod sink_tests {
             route: json!({ "screen": "connections" }),
             actions: None,
             bypass_frequency_cap: false,
+            transport_policy: TransportPolicy::AnyTransport,
         };
 
         let sink = Arc::new(RecordingSink::default());

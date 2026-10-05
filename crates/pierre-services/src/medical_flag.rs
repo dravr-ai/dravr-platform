@@ -19,6 +19,7 @@
 
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
+use pierre_core::transport::TransportPolicy;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::FactKind;
 use serde::{Deserialize, Serialize};
@@ -130,7 +131,14 @@ pub async fn medical_flag_on_file(
     for tenant in tenants {
         let flags = repos
             .memory
-            .list_user_facts(*tenant, &user, None, Some(FactKind::Medical), 1)
+            .list_user_facts(
+                *tenant,
+                &user,
+                None,
+                Some(FactKind::Medical),
+                1,
+                TransportPolicy::FirstPartyOnly,
+            )
             .await?;
         if !flags.is_empty() {
             return Ok(true);

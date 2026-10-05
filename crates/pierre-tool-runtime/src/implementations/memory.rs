@@ -11,6 +11,7 @@
 //! the Letta/MemGPT-style "active memory" complement to the background
 //! fact extractor in `services/memory_extraction.rs`.
 
+use pierre_providers::ai_scope;
 use pierre_services::locale::resolve_user_locale;
 use pierre_services::memory_facts::SentenceRenderer;
 use std::collections::HashMap;
@@ -31,7 +32,6 @@ use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
-use crate::derived_content::refuse_derived_content_off_interface;
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -235,6 +235,7 @@ impl McpTool<dyn ToolRuntime> for AgentNoteAddTool {
                 conversation_id: conv_ref.as_deref(),
                 scope: MemoryScope::User,
                 content: &body,
+                transport_policy: ai_scope::derived_policy(),
             };
             let note = context
                 .resources
@@ -367,6 +368,7 @@ impl McpTool<dyn ToolRuntime> for AgentFollowupScheduleTool {
                 conversation_id: conv_ref.as_deref(),
                 content: &body,
                 due_at,
+                transport_policy: ai_scope::derived_policy(),
             };
             let followup = context
                 .resources
@@ -520,6 +522,7 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
                 source: FactSource::Coach,
                 valid_until: None,
                 source_msg_id: None,
+                transport_policy: ai_scope::derived_policy(),
             };
             let fact = context
                 .resources
@@ -610,10 +613,6 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             let tenant_id = TenantId::from_uuid(context.require_tenant()?);
-            // Facts and notes are extracted from conversations and carry no
-            // provenance (carnet#724).
-            refuse_derived_content_off_interface(context.resources.as_ref(), context.user_id)
-                .await?;
             let agent_id = optional_string_field(&args, "agent_id");
             let kind = optional_string_field(&args, "kind").map(|s| FactKind::parse_lenient(&s));
             let limit = args
@@ -623,12 +622,22 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
                 .clamp(1, 50);
             let user_id = ctx_user_id(&context);
 
-            let facts = context
+            let mut facts = context
                 .resources
                 .repos()
                 .memory
-                .list_user_facts(tenant_id, &user_id, agent_id.as_deref(), kind, limit)
+                .list_user_facts(
+                    tenant_id,
+                    &user_id,
+                    agent_id.as_deref(),
+                    kind,
+                    limit,
+                    ai_scope::readable_policy(),
+                )
                 .await?;
+            // A fact derived from first-party-only data is withheld from an
+            // external caller; the rest are served (carnet#769).
+            ai_scope::retain_admitted(&mut facts, |fact| fact.transport_policy);
             // The agent reads each fact as a sentence in the athlete's own
             // locale, rendered by the same function the memory screen uses.
             let locale =

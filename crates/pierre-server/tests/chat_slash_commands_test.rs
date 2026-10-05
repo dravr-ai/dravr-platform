@@ -36,6 +36,7 @@ use pierre_core::models::groups::{
 use pierre_core::models::{AddMessageParams, COMMAND_FINISH_REASON};
 use pierre_core::models::{ConnectionType, TenantId};
 use pierre_core::models::{OnboardingState, Tenant, User, UserStatus};
+use pierre_core::transport::TransportPolicy;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::{
     ChatMessageAction, ChatRoutes, ConversationListResponse, ConversationResponse,
@@ -307,6 +308,7 @@ async fn seed_group_membership(
             tenant_id: tenant_id.to_string(),
             role,
             peer_sharing_consent: false,
+            coach_sharing_consent: false,
             consent_given_at: now,
             joined_at: now,
             left_at: None,
@@ -531,6 +533,7 @@ async fn seed_coaching_exchange(
                 prompt_tokens: None,
                 model: None,
                 content_blocks: None,
+                transport_policy: TransportPolicy::AnyTransport,
             })
             .await
             .unwrap();
@@ -1652,7 +1655,7 @@ async fn help_shows_admin_only_commands_to_a_group_owner() {
         "/group respond mentions|all",
         "/group digest off|chat|managers",
         "/agent assign agent-id group-id",
-        "/group consent yes|no",
+        "/group consent [coach] yes|no",
     ] {
         assert!(
             text.contains(shown),
@@ -1687,7 +1690,7 @@ async fn help_shows_argument_options_localized_headings_and_stable_order() {
 
     // Every command whose handler reads an argument advertises what it takes.
     for signature in [
-        "/group consent yes|no",
+        "/group consent [coach] yes|no",
         "/group respond mentions|all",
         "/group coach agent-name",
         "/plan [week|today]",

@@ -883,6 +883,7 @@ async fn attach_as_coach(
             tenant_id: athlete_tenant.to_string(),
             role: GroupRole::Member,
             peer_sharing_consent: true,
+            coach_sharing_consent: true,
             consent_given_at: now,
             joined_at: now,
             left_at: None,

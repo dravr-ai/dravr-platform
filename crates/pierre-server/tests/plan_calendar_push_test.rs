@@ -17,6 +17,7 @@ use pierre_core::models::{
     CalendarEventSource, CalendarKey, PlannedSession, PlannedSessionKind, PrescribedWorkout,
     RelativeIntensity, SportType, WorkoutStep,
 };
+use pierre_core::transport::TransportPolicy;
 use pierre_memory::training_plans::{
     GoalRace, PlanStatus, PlanWeek, PlannedDay, RacePriority, TrainingPlan, WeekStatus,
 };
@@ -116,6 +117,7 @@ fn live_row(user_id: Uuid, entry: &DesiredEntry) -> PrescribedWorkout {
         status: PrescribedWorkout::STATUS_PUSHED.to_owned(),
         created_at: now,
         updated_at: now,
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 
@@ -374,6 +376,7 @@ fn season_laid_by(author: Option<&str>) -> TrainingPlan {
         source_conversation_id: None,
         created_at: Utc::now(),
         updated_at: Utc::now(),
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

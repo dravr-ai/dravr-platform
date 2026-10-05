@@ -246,6 +246,7 @@ export type {
   DelegationViewer,
   DelegatedConnection,
   DelegatedConnectionsResponse,
+  CoachPlatformProvider,
   DelegationRosterAthlete,
   DelegationRosterResponse,
   ProposeDelegatedConnectionRequest,

@@ -8,7 +8,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, ActivityIndicator, Alert, ScrollView, Share, Switch, type ViewStyle } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { oneDecimal } from '@pierre/shared-constants';
+import { coachPlatformName, oneDecimal } from '@pierre/shared-constants';
 import { useThemeColors } from '../../constants/theme';
 import { Button, CollapsibleSection, Input, Row } from '../../components/ui';
 import { useAuth } from '../../contexts/AuthContext';
@@ -16,6 +16,7 @@ import {
   useCreateInvite,
   useDeactivateInvite,
   useDelegatedConnections,
+  useDelegationRoster,
   useDeleteGroup,
   useGroup,
   useGroupInvites,
@@ -116,6 +117,11 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   );
   // A member sees only their own links, at most one live per group.
   const liveLink = delegationViewer === 'member' ? (delegatedConnections[0] ?? null) : null;
+  // The coaching platform the links are on, which their titles name: the
+  // coach's roster names it (the section reads the same cached roster), a
+  // member's link names its own.
+  const { provider: rosterProvider } = useDelegationRoster(groupId, delegationViewer === 'coach');
+  const linkPlatform = coachPlatformName(delegationViewer === 'coach' ? rosterProvider : liveLink?.provider);
   const { weeklyDigest } = useGroupPermissions();
   const { createInvite, isPending: isCreatingInvite } = useCreateInvite(groupId);
   const { deactivateInvite } = useDeactivateInvite(groupId);
@@ -286,7 +292,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
 
   const handleLeave = useCallback(() => {
     const question = t('app.confirmLeaveGroup', { group: group?.name ?? t('app.thisGroup') });
-    Alert.alert(t('app.leaveGroup'), liveLink ? `${question} ${t('delegation.leaveEndsLink')}` : question, [
+    Alert.alert(t('app.leaveGroup'), liveLink ? `${question} ${t('delegation.leaveEndsLink', { platform: linkPlatform })}` : question, [
       { text: t('common.cancel'), style: 'cancel' },
       {
         text: t('app.leave'),
@@ -302,7 +308,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
         },
       },
     ]);
-  }, [group?.name, groupId, leaveGroup, liveLink, onClose, onLeft, t]);
+  }, [group?.name, groupId, leaveGroup, linkPlatform, liveLink, onClose, onLeft, t]);
 
   const handleDelete = useCallback(() => {
     Alert.alert(
@@ -386,7 +392,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
         {/* Which side of the links the caller is on is the server's answer:
             a coach who is also a member is still the group's coach. */}
         {delegationViewer === 'coach' ? (
-          <CollapsibleSection title={t('delegation.sectionTitle')} defaultExpanded testID="group-info-delegation">
+          <CollapsibleSection title={t('delegation.sectionTitle', { platform: linkPlatform })} defaultExpanded testID="group-info-delegation">
             <DelegatedConnectionsSection
               groupId={groupId}
               mode="coach"
@@ -396,7 +402,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
             />
           </CollapsibleSection>
         ) : liveLink ? (
-          <CollapsibleSection title={t('delegation.memberSectionTitle')} defaultExpanded testID="group-info-delegation">
+          <CollapsibleSection title={t('delegation.memberSectionTitle', { platform: linkPlatform })} defaultExpanded testID="group-info-delegation">
             <DelegatedConnectionsSection
               groupId={groupId}
               mode="member"

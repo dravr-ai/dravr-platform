@@ -40,6 +40,7 @@ crates/pierre-groups/src/creation_policy.rs:Group creation requires admin privil
 crates/pierre-groups/src/service.rs:Group coaching requires a Professional or Enterprise plan
 crates/pierre-middleware/src/admin_guard.rs:Admin privileges required
 crates/pierre-middleware/src/auth.rs:This access token was delegated to an application and is accepted only by the MCP and A2A endpoints
+crates/pierre-providers/src/delegation.rs:That athlete no longer shares their {brand} account with this coach
 crates/pierre-providers/src/sciotte_error.rs:That athlete is not on this coach account's roster
 crates/pierre-routes-admin/src/auth/service.rs:Permission required: {required_permission}
 crates/pierre-routes-admin/src/handlers/admin_rate_limit_override.rs:Rate-limit override endpoints require cookie authentication
@@ -51,7 +52,7 @@ crates/pierre-routes-admin/src/handlers/user_removal.rs:Token is scoped to tenan
 crates/pierre-routes-admin/src/tool_selection.rs:Tool settings of this tenant are managed by its own admins
 crates/pierre-routes-agents/src/agents/user.rs:Only the agent's author can submit it to the Store
 crates/pierre-routes-auth/src/sciotte.rs:This login link is for another provider; ask for a fresh link for this one
-crates/pierre-routes-groups/src/delegated_connections.rs:Only the group's coach can link TrainingPeaks athletes
+crates/pierre-routes-groups/src/delegated_connections.rs:Only the group's coach can link coaching-platform athletes
 crates/pierre-routes-groups/src/delegated_connections.rs:Only the group's coach or the linked member can end this link
 crates/pierre-routes-groups/src/delegated_connections.rs:Only the member a link names can confirm it
 crates/pierre-routes-groups/src/group_analytics.rs:Admin or owner role required for this operation

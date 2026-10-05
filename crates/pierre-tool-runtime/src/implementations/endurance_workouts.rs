@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use pierre_providers::ai_scope;
 use std::collections::{BTreeSet, HashMap};
 use std::slice;
 use std::sync::Arc;
@@ -337,6 +338,9 @@ async fn live_prescription(
         .prescribed_workouts
         .get_prescribed_workout(tenant_id, user_id, prescription_id)
         .await?
+        // One derived from first-party-only data does not exist for an
+        // external caller (carnet#769).
+        .filter(|row| ai_scope::admit_derived(row.transport_policy))
         .ok_or_else(|| {
             AppError::not_found(format!(
                 "no prescription {prescription_id} for this athlete — get_training_plan lists \
@@ -931,6 +935,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                 status: status.to_owned(),
                 created_at: now,
                 updated_at: now,
+                transport_policy: ai_scope::derived_policy(),
             };
             let audit: AppResult<()> = if let Err(e) = superseded {
                 Err(e)

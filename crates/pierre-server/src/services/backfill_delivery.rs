@@ -12,6 +12,7 @@
 //! notifier decides which applies and what the notice says — these two types
 //! only carry it there, so the decision and the mechanics stay separable.
 
+use pierre_core::transport::TransportPolicy;
 use std::iter::once;
 
 use dravr_canot::channel::MessagingChannel;
@@ -33,8 +34,8 @@ use crate::services::messaging_ingress::outbound_retry::{
 
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::{
-    models::NotificationCategory as CommNotifCategory, DispatchRequest, NotificationService,
-    PushTier, TenantId as CommTenantId,
+    events::stamp_data, models::NotificationCategory as CommNotifCategory, DispatchRequest,
+    NotificationService, PushTier, TenantId as CommTenantId,
 };
 #[cfg(feature = "client-notifications")]
 use std::sync::Arc;
@@ -210,6 +211,9 @@ pub struct InAppDelivery<'a> {
     /// turn is the delivery either way.
     #[cfg(feature = "client-notifications")]
     pub notifications: Option<&'a Arc<NotificationService>>,
+    /// The stamp of the backfilled data the notice lists or counts
+    /// (carnet#769), carried by the persisted turn and the app push alike.
+    pub transport_policy: TransportPolicy,
 }
 
 impl InAppDelivery<'_> {
@@ -239,6 +243,7 @@ impl InAppDelivery<'_> {
         body: String,
         count: usize,
     ) {
+        let transport_policy = self.transport_policy;
         let owner = user_id.to_string();
         let params = AddMessageParams {
             tenant_id,
@@ -253,6 +258,7 @@ impl InAppDelivery<'_> {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy,
         };
         if let Err(e) = self.repos.chat.add_message(&params).await {
             warn!(error = %e, "Backfill push: failed to persist the in-app completion turn");
@@ -262,7 +268,7 @@ impl InAppDelivery<'_> {
             count,
             "Delivered backfill-ready notice into the in-app conversation"
         );
-        self.push_app_notification(user_id, tenant_id, locale, count)
+        self.push_app_notification(user_id, tenant_id, locale, count, transport_policy)
             .await;
     }
 
@@ -279,6 +285,7 @@ impl InAppDelivery<'_> {
         tenant_id: TenantId,
         locale: &str,
         count: usize,
+        transport_policy: TransportPolicy,
     ) {
         let Some(service) = self.notifications else {
             return;
@@ -293,7 +300,8 @@ impl InAppDelivery<'_> {
             body: self
                 .strings
                 .render(KEY_BACKFILL_PUSH_BODY, locale, &[&rendered_count]),
-            data: None,
+            // The count is an aggregate of the backfilled provider's data.
+            data: stamp_data(None, transport_policy),
             image_url: None,
             actions: None,
             bypass_frequency_cap: false,
@@ -320,6 +328,7 @@ impl InAppDelivery<'_> {
         _tenant_id: TenantId,
         _locale: &str,
         _count: usize,
+        _transport_policy: TransportPolicy,
     ) {
     }
 }

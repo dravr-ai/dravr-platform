@@ -7,6 +7,7 @@
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Pillar, TenantId};
+use pierre_core::transport::TransportPolicy;
 use pierre_memory::{
     AgentFollowup, AgentNote, AgentSession, CompactionBlock, FactKind, FactSource, FollowupStatus,
     PredicateCode, SessionStatus, UserFact, UserFactMetrics,

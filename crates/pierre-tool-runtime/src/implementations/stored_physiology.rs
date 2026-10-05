@@ -20,6 +20,7 @@
 //! `update_user_configuration` writes carries no thresholds: it refuses them
 //! and names `set_physiology`.
 
+use pierre_providers::ai_scope;
 use std::sync::Arc;
 
 use pierre_core::errors::AppResult;
@@ -51,7 +52,10 @@ pub async fn stored_athlete_inputs(
         .repos()
         .user_physiological_profile
         .get_user_physiological_profile(tenant, user_id)
-        .await?;
+        .await?
+        // A profile written from first-party-only data is withheld from an
+        // external caller (carnet#769).
+        .filter(|profile| ai_scope::admit_derived(profile.transport_policy));
     Ok(AthleteInputs::from_profile(profile.as_ref()))
 }
 
@@ -76,7 +80,10 @@ pub async fn member_athlete_inputs(
             .repos()
             .user_physiological_profile
             .get_user_physiological_profile(*tenant, user_id)
-            .await?;
+            .await?
+            // A profile written from first-party-only data is withheld from an
+            // external caller (carnet#769).
+            .filter(|profile| ai_scope::admit_derived(profile.transport_policy));
         if profile.is_some() {
             return Ok(AthleteInputs::from_profile(profile.as_ref()));
         }

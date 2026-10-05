@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use chrono::{DateTime, Utc};
+use pierre_core::transport::TransportPolicy;
 use serde::{Deserialize, Serialize};
 
 /// Lifecycle state of a [`AgentFollowup`].
@@ -72,4 +73,8 @@ pub struct AgentFollowup {
     pub updated_at: DateTime<Utc>,
     /// When the followup was actually delivered to the agent (if ever).
     pub delivered_at: Option<DateTime<Utc>>,
+    /// Where this row may be served (carnet#769): first-party-only when what it
+    /// was derived from was. Rows written before the stamp read as unstamped.
+    #[serde(default, skip_serializing)]
+    pub transport_policy: TransportPolicy,
 }

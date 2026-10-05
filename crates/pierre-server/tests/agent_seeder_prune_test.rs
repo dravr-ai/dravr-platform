@@ -9,6 +9,7 @@
 
 mod common;
 
+use pierre_core::transport::TransportPolicy;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -242,6 +243,7 @@ async fn season_authored_by(
                 adjustment_reason: "",
                 phase_index: None,
             }],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();
@@ -527,6 +529,7 @@ async fn workout_pushed_by(
             status: PrescribedWorkout::STATUS_PUSHED.to_owned(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();

@@ -7,6 +7,7 @@
 #![allow(missing_docs, clippy::unwrap_used)]
 
 use pierre_core::models::LoadSnapshot;
+use pierre_core::transport::TransportPolicy;
 use pierre_services::ramp_check::{
     assess_ramp, planned_week_minutes, RampUnmeasurable, RampVerdict,
 };
@@ -18,6 +19,7 @@ fn baseline(weekly_hours: f64) -> LoadSnapshot {
         longest_session_min: 120,
         weeks: 6,
         sport_families: 1,
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

@@ -20,6 +20,7 @@
 //! resolved and where it came from is echoed back as `inputs`, so the agent
 //! can confirm before saving the outcome through `save_training_plan`.
 
+use pierre_providers::ai_scope;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
@@ -765,13 +766,19 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
             let profile = repos
                 .user_physiological_profile
                 .get_user_physiological_profile(tenant_id, user_id)
-                .await?;
+                .await?
+                // A profile written from first-party-only data is withheld from an
+                // external caller (carnet#769).
+                .filter(|profile| ai_scope::admit_derived(profile.transport_policy));
             // The athlete's one season, whichever agent laid it: a taper or
             // heat agent recommending for a season agent's plan sees its goal.
             let plan = repos
                 .training_plans
                 .get_active_plan(&tenant_id.to_string(), &user_id.to_string())
-                .await?;
+                .await?
+                // A plan derived from first-party-only data is withheld from an
+                // external caller (carnet#769).
+                .filter(|plan| ai_scope::admit_derived(plan.transport_policy));
             let goal = plan.as_ref().and_then(|p| {
                 let ec = event_class_from_discipline(&p.goal_race.discipline)?;
                 let date = parse_plan_date(&p.goal_race.date)?;

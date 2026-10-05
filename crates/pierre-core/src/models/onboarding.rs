@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use crate::transport::TransportPolicy;
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Duration, Utc};
@@ -155,6 +156,12 @@ pub struct LoadSnapshot {
     /// the field existed, which reads as single-sport — the shorter walk.
     #[serde(default)]
     pub sport_families: u32,
+    /// Where the figures may be served (carnet#769): first-party-only when a
+    /// first-party-only provider's sessions were summed into them. Stored in
+    /// the flow state, so it serializes; absent from a snapshot taken before
+    /// the stamp, which reads as unstamped.
+    #[serde(default)]
+    pub transport_policy: TransportPolicy,
 }
 
 /// Conversation-scoped state of a guided interview.

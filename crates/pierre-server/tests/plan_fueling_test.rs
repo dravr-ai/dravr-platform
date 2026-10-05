@@ -17,6 +17,7 @@
 use chrono::{NaiveDate, Utc};
 use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_core::models::FuelingProtocol;
+use pierre_core::transport::TransportPolicy;
 use pierre_memory::training_plans::{
     GoalRace, PlanStatus, PlanWeek, PlannedDay, RacePriority, TrainingPlan, WeekStatus,
 };
@@ -75,6 +76,7 @@ fn plan() -> TrainingPlan {
         source_conversation_id: None,
         created_at: Utc::now(),
         updated_at: Utc::now(),
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

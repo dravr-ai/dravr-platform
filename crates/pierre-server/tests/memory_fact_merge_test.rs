@@ -12,6 +12,7 @@ mod helpers;
 
 use common::{create_test_server_resources, create_test_user};
 use pierre_core::models::TenantId;
+use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::{MergeUserFactParams, UpsertUserFactParams};
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 
@@ -50,6 +51,7 @@ async fn a_restatement_merges_into_the_athletes_own_words() {
             source: FactSource::Onboarding,
             valid_until: None,
             source_msg_id: Some("m-onboarding"),
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .expect("anchor stored");
@@ -62,6 +64,7 @@ async fn a_restatement_merges_into_the_athletes_own_words() {
             fact_id: &anchor.id,
             source_msg_id: Some("m-later"),
             confidence: 0.6,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .expect("merge succeeds")
@@ -85,7 +88,14 @@ async fn a_restatement_merges_into_the_athletes_own_words() {
 
     // The athlete still has exactly one goal.
     let facts = memory
-        .list_user_facts(tenant_id, &user, None, Some(FactKind::Goal), 50)
+        .list_user_facts(
+            tenant_id,
+            &user,
+            None,
+            Some(FactKind::Goal),
+            50,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .expect("facts listed");
     assert_eq!(facts.len(), 1, "one goal, not a pile: {facts:?}");
@@ -126,6 +136,7 @@ async fn a_merge_raises_the_confidence_of_the_anchor() {
             source: FactSource::Conversation,
             valid_until: None,
             source_msg_id: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .expect("anchor stored");
@@ -136,6 +147,7 @@ async fn a_merge_raises_the_confidence_of_the_anchor() {
             fact_id: &anchor.id,
             source_msg_id: Some("m-2"),
             confidence: 0.9,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .expect("merge succeeds")
@@ -182,6 +194,7 @@ async fn a_merge_cannot_reach_another_tenants_fact() {
             source: FactSource::Onboarding,
             valid_until: None,
             source_msg_id: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .expect("anchor stored");
@@ -196,6 +209,7 @@ async fn a_merge_cannot_reach_another_tenants_fact() {
             fact_id: &anchor.id,
             source_msg_id: Some("m-x"),
             confidence: 1.0,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .expect("the call itself succeeds");
@@ -205,7 +219,14 @@ async fn a_merge_cannot_reach_another_tenants_fact() {
         "a fact in another tenant is not visible, let alone writable"
     );
     let untouched = memory
-        .list_user_facts(tenant_id, &user, None, Some(FactKind::Goal), 10)
+        .list_user_facts(
+            tenant_id,
+            &user,
+            None,
+            Some(FactKind::Goal),
+            10,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .expect("facts listed");
     assert_eq!(untouched.len(), 1);

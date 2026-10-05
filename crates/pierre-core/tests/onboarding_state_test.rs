@@ -11,6 +11,7 @@ use pierre_core::models::onboarding::{
     TopicVisibility, WalkAudience, MAX_PROBE_ATTEMPTS,
 };
 use pierre_core::models::{Dossier, DossierFact, Pillar};
+use pierre_core::transport::TransportPolicy;
 use uuid::Uuid;
 
 /// Delivered-probe history for the given targets, in ask order.
@@ -155,6 +156,7 @@ fn the_snapshot_survives_the_column_round_trip() {
         longest_session_min: 195,
         weeks: 6,
         sport_families: 1,
+        transport_policy: TransportPolicy::AnyTransport,
     };
     let state = OnboardingState::start("2026-07-28T00:00:00Z".to_owned(), GuidedFlow::Calibration)
         .with_snapshot(Some(snapshot.clone()));

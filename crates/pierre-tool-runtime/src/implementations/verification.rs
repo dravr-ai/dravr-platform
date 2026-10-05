@@ -13,6 +13,7 @@
 //! claims" surface stays consistent whether a claim was verified by the
 //! agent mid-turn or by the post-LLM sweep.
 
+use pierre_providers::ai_scope;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -195,6 +196,7 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
                 layer_fired: outcome.layer_fired,
                 explanation: Some(&outcome.explanation),
                 evidence_refs: outcome.evidence_refs.as_deref(),
+                transport_policy: ai_scope::derived_policy(),
             };
             let verdict = context
                 .resources

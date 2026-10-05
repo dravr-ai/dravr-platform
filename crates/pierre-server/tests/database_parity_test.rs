@@ -22,6 +22,7 @@ use pierre_core::models::{
 };
 use pierre_core::models::{Tenant, TenantId, TenantPlan, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
+use pierre_core::transport::TransportPolicy;
 use pierre_database::{
     backends::factory::Database, database::AddMessageParams, repositories::SyncCursorRow,
     repository_registry::RepositoryRegistry,
@@ -406,6 +407,7 @@ async fn test_parity_chat_messages() {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         };
         sqlite_repos
             .chat
@@ -424,6 +426,7 @@ async fn test_parity_chat_messages() {
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         };
         pg_repos
             .chat
@@ -525,14 +528,26 @@ async fn test_parity_chat_list_conversations() {
     // Test pagination works the same
     let sqlite_list = sqlite_repos
         .chat
-        .list_conversations(&sqlite_user_id.to_string(), sqlite_tenant_id, 3, 0)
+        .list_conversations(
+            &sqlite_user_id.to_string(),
+            sqlite_tenant_id,
+            3,
+            0,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .expect("SQLite: Failed to list")
         .items;
 
     let pg_list = pg_repos
         .chat
-        .list_conversations(&pg_user_id.to_string(), pg_tenant_id, 3, 0)
+        .list_conversations(
+            &pg_user_id.to_string(),
+            pg_tenant_id,
+            3,
+            0,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .expect("PostgreSQL: Failed to list")
         .items;

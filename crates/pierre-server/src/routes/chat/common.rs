@@ -30,7 +30,8 @@ pub async fn get_tenant_id(
 /// Otherwise the caller would be handed peer content and fitness data they
 /// have no relationship to. The coach oversees the group through its agent
 /// persona, with each member's data still gated by their own
-/// `peer_sharing_consent`. Gates both conversation attachment and the
+/// `coach_sharing_consent` (a fellow member's read by `peer_sharing_consent`).
+/// Gates both conversation attachment and the
 /// room-transcript read.
 pub async fn verify_group_membership(
     resources: &Arc<ServerContext>,

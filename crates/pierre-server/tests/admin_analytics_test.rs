@@ -22,6 +22,7 @@ use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::{AddMessageParams, ConversationTurnId, InsertLlmUsage, TenantId};
 use pierre_core::models::{Tenant, User, UserStatus};
 use pierre_core::permissions::UserRole;
+use pierre_core::transport::TransportPolicy;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_web_admin::WebAdminRoutes;
 use serde_json::Value;
@@ -213,6 +214,7 @@ async fn seed_conversations_and_messages(
                 prompt_tokens: Some(30),
                 model: Some("gemini-2.0-flash"),
                 content_blocks: None,
+                transport_policy: TransportPolicy::AnyTransport,
             };
             resources
                 .common

@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use crate::transport::TransportPolicy;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::str::FromStr;
@@ -713,6 +714,12 @@ pub struct UserPhysiologicalProfile {
     /// speed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub d_prime_meters: Option<ProvenancedValue<f64>>,
+    /// Where this profile may be served (carnet#769): first-party-only when the
+    /// turn that wrote it served data whose terms keep it on Dravr's own
+    /// surfaces. Profiles written before the stamp read as unstamped.
+    #[serde(default, skip_serializing)]
+    #[schemars(skip)]
+    pub transport_policy: TransportPolicy,
 }
 
 impl UserPhysiologicalProfile {
@@ -739,6 +746,7 @@ impl UserPhysiologicalProfile {
             w_prime_joules: None,
             critical_speed_mps: None,
             d_prime_meters: None,
+            transport_policy: TransportPolicy::AnyTransport,
         }
     }
 

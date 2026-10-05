@@ -7,6 +7,7 @@
 #![allow(missing_docs)]
 
 use chrono::{Duration, Utc};
+use pierre_core::transport::TransportPolicy;
 use pierre_memory::commitments::{Commitment, CommitmentOutcome, CommitmentStatus};
 
 fn sample() -> Commitment {
@@ -29,6 +30,7 @@ fn sample() -> Commitment {
         reported_at: None,
         created_at: now,
         updated_at: now,
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

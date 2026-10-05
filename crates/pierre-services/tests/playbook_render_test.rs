@@ -8,6 +8,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use pierre_core::transport::TransportPolicy;
 use std::slice::from_ref;
 
 use chrono::Utc;
@@ -43,6 +44,7 @@ fn playbook(success: u32, failure: u32, confidence: f32) -> Playbook {
         last_outcome_at: Some(now),
         created_at: now,
         updated_at: now,
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

@@ -26,7 +26,22 @@
 use async_trait::async_trait;
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
+use pierre_core::transport::TransportPolicy;
 use uuid::Uuid;
+
+/// One thread an activity's view opened, and the activity it is about.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActivityConversationLink {
+    /// The conversation the activity's view opened.
+    pub conversation_id: String,
+    /// The provider key the cached activity is stored under.
+    pub provider: String,
+    /// The provider's id for the activity.
+    pub activity_id: String,
+    /// The activity's terms, stamped on the thread when it was linked
+    /// (carnet#769).
+    pub transport_policy: TransportPolicy,
+}
 
 /// Persistence for the thread each activity's view opened.
 #[async_trait]
@@ -46,6 +61,10 @@ pub trait ActivityConversationRepository: Send + Sync {
 
     /// Link `conversation_id` to one activity, replacing any earlier link.
     ///
+    /// `transport_policy` is the activity's terms: the thread is about it
+    /// throughout, so a first-party-only activity keeps the whole thread off
+    /// external readers (carnet#769).
+    ///
     /// Returns `false`, writing nothing, when the conversation is not one the
     /// caller owns in this tenant.
     ///
@@ -58,7 +77,22 @@ pub trait ActivityConversationRepository: Send + Sync {
         provider: &str,
         activity_id: &str,
         conversation_id: &str,
+        transport_policy: TransportPolicy,
     ) -> AppResult<bool>;
+
+    /// Every link of the caller's own conversations: which activity each
+    /// thread is about.
+    ///
+    /// A thread opened from an activity is derived from it, title and all, so
+    /// a reader holds it to that provider's terms (carnet#769).
+    ///
+    /// # Errors
+    /// Returns a database error when the read fails.
+    async fn list_activity_conversation_links(
+        &self,
+        tenant_id: &TenantId,
+        user_id: Uuid,
+    ) -> AppResult<Vec<ActivityConversationLink>>;
 
     /// Remove one activity's link; the conversation itself is untouched.
     ///
@@ -78,14 +112,16 @@ pub trait ActivityConversationRepository: Send + Sync {
 /// nothing is written.
 pub(crate) const LINK_ACTIVITY_CONVERSATION_SQL: &str = r"
     INSERT INTO activity_conversations (
-        tenant_id, user_id, provider, activity_id, conversation_id, created_at
+        tenant_id, user_id, provider, activity_id, conversation_id, created_at,
+        first_party_only
     )
-    SELECT $1, $2, $3, $4, c.id, $6
+    SELECT $1, $2, $3, $4, c.id, $6, $7
     FROM chat_conversations c
     WHERE c.id = $5 AND c.tenant_id = $1 AND CAST(c.user_id AS TEXT) = $2
     ON CONFLICT (tenant_id, user_id, provider, activity_id) DO UPDATE SET
         conversation_id = EXCLUDED.conversation_id,
-        created_at = EXCLUDED.created_at";
+        created_at = EXCLUDED.created_at,
+        first_party_only = EXCLUDED.first_party_only";
 
 /// The linked conversation, joined back to its owner and tenant.
 pub(crate) const GET_ACTIVITY_CONVERSATION_SQL: &str = r"
@@ -96,6 +132,17 @@ pub(crate) const GET_ACTIVITY_CONVERSATION_SQL: &str = r"
      AND c.tenant_id = l.tenant_id
      AND CAST(c.user_id AS TEXT) = l.user_id
     WHERE l.tenant_id = $1 AND l.user_id = $2 AND l.provider = $3 AND l.activity_id = $4";
+
+/// Every link of the caller's own conversations, joined back to their owner
+/// and tenant like [`GET_ACTIVITY_CONVERSATION_SQL`].
+pub(crate) const LIST_ACTIVITY_CONVERSATION_LINKS_SQL: &str = r"
+    SELECT l.conversation_id, l.provider, l.activity_id, l.first_party_only
+    FROM activity_conversations l
+    JOIN chat_conversations c
+      ON c.id = l.conversation_id
+     AND c.tenant_id = l.tenant_id
+     AND CAST(c.user_id AS TEXT) = l.user_id
+    WHERE l.tenant_id = $1 AND l.user_id = $2";
 
 /// Remove one activity's link.
 pub(crate) const UNLINK_ACTIVITY_CONVERSATION_SQL: &str = r"
@@ -140,6 +187,7 @@ macro_rules! impl_activity_conversation_repository {
                 provider: &str,
                 activity_id: &str,
                 conversation_id: &str,
+                transport_policy: TransportPolicy,
             ) -> AppResult<bool> {
                 let written = sqlx::query(LINK_ACTIVITY_CONVERSATION_SQL)
                     .bind(tenant_id.to_string())
@@ -148,10 +196,47 @@ macro_rules! impl_activity_conversation_repository {
                     .bind(activity_id)
                     .bind(conversation_id)
                     .bind(Utc::now())
+                    .bind(transport_policy.is_first_party_only())
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("link_activity_conversation: {e}")))?;
                 Ok(written.rows_affected() > 0)
+            }
+
+            async fn list_activity_conversation_links(
+                &self,
+                tenant_id: &TenantId,
+                user_id: Uuid,
+            ) -> AppResult<Vec<ActivityConversationLink>> {
+                let rows = sqlx::query(LIST_ACTIVITY_CONVERSATION_LINKS_SQL)
+                    .bind(tenant_id.to_string())
+                    .bind(user_id.to_string())
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("list_activity_conversation_links: {e}"))
+                    })?;
+                rows.iter()
+                    .map(|row| {
+                        let read = |name: &str| {
+                            row.try_get::<String, _>(name).map_err(|e| {
+                                AppError::database(format!("activity conversation {name}: {e}"))
+                            })
+                        };
+                        Ok(ActivityConversationLink {
+                            conversation_id: read("conversation_id")?,
+                            provider: read("provider")?,
+                            activity_id: read("activity_id")?,
+                            transport_policy: TransportPolicy::from_first_party_only(
+                                row.try_get::<bool, _>("first_party_only").map_err(|e| {
+                                    AppError::database(format!(
+                                        "activity conversation first_party_only: {e}"
+                                    ))
+                                })?,
+                            ),
+                        })
+                    })
+                    .collect()
             }
 
             async fn unlink_activity_conversation(

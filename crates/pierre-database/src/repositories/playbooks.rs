@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use pierre_core::transport::TransportPolicy;
 use std::cmp::Ordering;
 
 use async_trait::async_trait;
@@ -40,6 +41,9 @@ pub struct RecordedOutcome<'a> {
     pub label: OutcomeLabel,
     /// When the outcome was observed.
     pub at: DateTime<Utc>,
+    /// The stamp of the advice and the measurement the outcome was labelled
+    /// from (carnet#769). The playbook keeps the stricter of its own and this.
+    pub transport_policy: TransportPolicy,
 }
 
 /// Persistence for procedural coaching memory.
@@ -73,12 +77,17 @@ pub trait PlaybookRepository: Send + Sync {
     /// ones; when `None`, returns only agent-agnostic playbooks. `confidence`
     /// on each returned [`Playbook`] is the Wilson lower bound computed from the
     /// stored counters. `limit` is clamped by the caller.
+    ///
+    /// `readable` is the strictest stamp a returned playbook may carry
+    /// (carnet#769): [`TransportPolicy::AnyTransport`] leaves stamped rows
+    /// out in the statement itself, so `limit` counts only readable ones.
     async fn list_playbooks(
         &self,
         tenant_id: &str,
         user_id: &str,
         agent_slug: Option<&str>,
         limit: i64,
+        readable: TransportPolicy,
     ) -> AppResult<Vec<Playbook>>;
 
     /// Persist a new in-flight advice record awaiting its outcome.
@@ -133,11 +142,16 @@ pub trait PlaybookRepository: Send + Sync {
     /// List ALL of a user's playbooks across every agent scope, most-confident
     /// first — the GDPR "what has the coach learned about me" surface. Tenant +
     /// user scoped.
+    ///
+    /// `readable` is the strictest stamp a returned playbook may carry
+    /// (carnet#769): [`TransportPolicy::AnyTransport`] leaves stamped rows
+    /// out in the statement itself, so `limit` counts only readable ones.
     async fn list_all_user_playbooks(
         &self,
         tenant_id: &str,
         user_id: &str,
         limit: i64,
+        readable: TransportPolicy,
     ) -> AppResult<Vec<Playbook>>;
 
     /// Delete one of a user's playbooks by id — the GDPR "forget this" surface.
@@ -178,6 +192,8 @@ pub(crate) struct OutcomeUpsertValues {
     pub nc: i64,
     /// Observation epoch seconds (`last_outcome_at`/`created_at`/`updated_at`).
     pub now: i64,
+    /// The outcome's `first_party_only` stamp (carnet#769).
+    pub first_party_only: bool,
 }
 
 /// Compute the upsert bind values for one observed outcome (hashes, serialized
@@ -205,6 +221,7 @@ pub(crate) fn outcome_upsert_values(
         fc,
         nc,
         now: outcome.at.timestamp(),
+        first_party_only: outcome.transport_policy.is_first_party_only(),
     })
 }
 
@@ -321,6 +338,8 @@ pub(crate) struct PlaybookRow {
     pub created_at: i64,
     /// `updated_at` epoch seconds.
     pub updated_at: i64,
+    /// `first_party_only` stamp (carnet#769).
+    pub first_party_only: bool,
 }
 
 /// Build a [`Playbook`] from extracted row primitives, deserializing the JSON
@@ -348,6 +367,7 @@ pub(crate) fn playbook_from_row(row: PlaybookRow) -> AppResult<Playbook> {
         last_outcome_at: row.last_outcome_at.and_then(epoch_to_dt),
         created_at: epoch_to_dt(row.created_at).unwrap_or_else(Utc::now),
         updated_at: epoch_to_dt(row.updated_at).unwrap_or_else(Utc::now),
+        transport_policy: TransportPolicy::from_first_party_only(row.first_party_only),
     };
     playbook.confidence = playbook.wilson_lower_bound();
     Ok(playbook)
@@ -385,6 +405,8 @@ pub(crate) struct PendingAdviceRow {
     pub source_msg_id: Option<String>,
     /// `created_at` epoch seconds.
     pub created_at: i64,
+    /// `first_party_only` stamp (carnet#769).
+    pub first_party_only: bool,
 }
 
 /// Build a [`PendingAdvice`] from extracted row primitives.
@@ -413,6 +435,7 @@ pub(crate) fn pending_advice_from_row(row: PendingAdviceRow) -> AppResult<Pendin
         label_source: row.label_source.as_deref().map(LabelSource::parse_lenient),
         source_msg_id: row.source_msg_id,
         created_at: epoch_to_dt(row.created_at).unwrap_or_else(Utc::now),
+        transport_policy: TransportPolicy::from_first_party_only(row.first_party_only),
     })
 }
 
@@ -442,16 +465,19 @@ pub(crate) const UPSERT_OUTCOME_SQL: &str = r"
     INSERT INTO coaching_playbooks (
         id, tenant_id, user_id, agent_slug, trigger_hash, intervention_hash,
         trigger_json, intervention_json, outcome_metric_json,
-        success_count, failure_count, neutral_count, last_outcome_at, created_at, updated_at
+        success_count, failure_count, neutral_count, last_outcome_at, created_at, updated_at,
+        first_party_only
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
     ON CONFLICT(tenant_id, user_id, agent_slug, trigger_hash, intervention_hash)
     DO UPDATE SET
         success_count = coaching_playbooks.success_count + excluded.success_count,
         failure_count = coaching_playbooks.failure_count + excluded.failure_count,
         neutral_count = coaching_playbooks.neutral_count + excluded.neutral_count,
         last_outcome_at = excluded.last_outcome_at,
-        updated_at = excluded.updated_at
+        updated_at = excluded.updated_at,
+        first_party_only = CASE WHEN excluded.first_party_only
+            THEN excluded.first_party_only ELSE coaching_playbooks.first_party_only END
     RETURNING id
 ";
 
@@ -462,13 +488,13 @@ pub(crate) const MARK_ADVICE_LABELED_SQL: &str = r"
             WHERE id = $4 AND tenant_id = $5
             ";
 
-/// The thirteen columns every playbook read returns, in the order
+/// The fourteen columns every playbook read returns, in the order
 /// [`playbook_row`] reads them.
 macro_rules! playbook_columns {
     () => {
         "id, tenant_id, user_id, agent_slug, trigger_json, intervention_json, \
          outcome_metric_json, success_count, failure_count, neutral_count, \
-         last_outcome_at, created_at, updated_at"
+         last_outcome_at, created_at, updated_at, first_party_only"
     };
 }
 
@@ -481,6 +507,7 @@ pub(crate) const LIST_PLAYBOOKS_SQL: &str = concat!(
     "
             FROM coaching_playbooks
             WHERE tenant_id = $1 AND user_id = $2 AND (agent_slug = $3 OR agent_slug = '')
+              AND (first_party_only = FALSE OR $5)
             ORDER BY updated_at DESC
             LIMIT $4
             "
@@ -495,6 +522,7 @@ pub(crate) const LIST_ALL_USER_PLAYBOOKS_SQL: &str = concat!(
     "
             FROM coaching_playbooks
             WHERE tenant_id = $1 AND user_id = $2
+              AND (first_party_only = FALSE OR $4)
             ORDER BY updated_at DESC
             LIMIT $3
             "
@@ -507,9 +535,9 @@ pub(crate) const INSERT_PENDING_ADVICE_SQL: &str = r"
             INSERT INTO pending_advice (
                 id, tenant_id, user_id, agent_slug, playbook_id, trigger_json,
                 intervention_json, outcome_metric_json, baseline_json, due_by,
-                status, label, label_source, source_msg_id, created_at
+                status, label, label_source, source_msg_id, created_at, first_party_only
             )
-            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
             WHERE NOT EXISTS (
                 SELECT 1 FROM pending_advice
                 WHERE tenant_id = $2 AND user_id = $3 AND agent_slug = $4
@@ -523,7 +551,7 @@ pub(crate) const INSERT_PENDING_ADVICE_SQL: &str = r"
 pub(crate) const DUE_PENDING_ADVICE_SQL: &str = r"
             SELECT id, tenant_id, user_id, agent_slug, playbook_id, trigger_json,
                    intervention_json, outcome_metric_json, baseline_json, due_by,
-                   status, label, label_source, source_msg_id, created_at
+                   status, label, label_source, source_msg_id, created_at, first_party_only
             FROM pending_advice
             WHERE status = 'pending' AND due_by <= $1
             ORDER BY due_by ASC
@@ -536,10 +564,15 @@ pub(crate) const MARK_ADVICE_EXPIRED_SQL: &str =
 
 /// The lean projection the archetype aggregation job groups in memory,
 /// across every tenant.
+///
+/// A playbook stamped first-party-only never feeds the cross-athlete priors:
+/// they are served to other athletes over every transport, and its terms
+/// forbid its data even in aggregated form (carnet#769).
 pub(crate) const AGGREGATE_PLAYBOOK_ROWS_SQL: &str = r"
             SELECT user_id, trigger_hash, intervention_hash, trigger_json,
                    intervention_json, success_count, failure_count
             FROM coaching_playbooks
+            WHERE first_party_only = FALSE
             ORDER BY id
             LIMIT $1
             ";
@@ -629,6 +662,7 @@ where
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<i64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let what = "playbook";
     Ok(PlaybookRow {
@@ -645,6 +679,7 @@ where
         last_outcome_at: column(r, what, "last_outcome_at")?,
         created_at: column(r, what, "created_at")?,
         updated_at: column(r, what, "updated_at")?,
+        first_party_only: column(r, what, "first_party_only")?,
     })
 }
 
@@ -659,6 +694,7 @@ where
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let what = "advice";
     Ok(PendingAdviceRow {
@@ -677,6 +713,7 @@ where
         label_source: column(r, what, "label_source")?,
         source_msg_id: column(r, what, "source_msg_id")?,
         created_at: column(r, what, "created_at")?,
+        first_party_only: column(r, what, "first_party_only")?,
     })
 }
 
@@ -788,6 +825,7 @@ macro_rules! impl_playbook_repository {
                     .bind(v.now)
                     .bind(v.now)
                     .bind(v.now)
+                    .bind(v.first_party_only)
                     .fetch_one(&mut *tx)
                     .await
                     .map_err(|e| AppError::database(format!("upsert playbook outcome: {e}")))?;
@@ -815,6 +853,7 @@ macro_rules! impl_playbook_repository {
                 user_id: &str,
                 agent_slug: Option<&str>,
                 limit: i64,
+                readable: TransportPolicy,
             ) -> AppResult<Vec<Playbook>> {
                 let agent = agent_slug.unwrap_or("");
                 let rows = sqlx::query(LIST_PLAYBOOKS_SQL)
@@ -822,6 +861,7 @@ macro_rules! impl_playbook_repository {
                     .bind(user_id)
                     .bind(agent)
                     .bind(PLAYBOOK_FETCH_CEILING)
+                    .bind(readable.is_first_party_only())
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("list playbooks: {e}")))?;
@@ -865,6 +905,7 @@ macro_rules! impl_playbook_repository {
                     .bind(advice.label_source.map(LabelSource::as_str))
                     .bind(advice.source_msg_id.as_deref())
                     .bind(advice.created_at.timestamp())
+                    .bind(advice.transport_policy.is_first_party_only())
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("insert pending advice: {e}")))?;
@@ -991,11 +1032,13 @@ macro_rules! impl_playbook_repository {
                 tenant_id: &str,
                 user_id: &str,
                 limit: i64,
+                readable: TransportPolicy,
             ) -> AppResult<Vec<Playbook>> {
                 let rows = sqlx::query(LIST_ALL_USER_PLAYBOOKS_SQL)
                     .bind(tenant_id)
                     .bind(user_id)
                     .bind(PLAYBOOK_FETCH_CEILING)
+                    .bind(readable.is_first_party_only())
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("list all user playbooks: {e}")))?;

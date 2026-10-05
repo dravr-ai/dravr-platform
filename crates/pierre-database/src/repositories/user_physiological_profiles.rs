@@ -13,6 +13,7 @@ use pierre_core::models::{
     Dossier, MeasurementKind, MetricProvenance, ProvenancedValue, SportType, TenantId,
     UserPhysiologicalProfile,
 };
+use pierre_core::transport::TransportPolicy;
 use serde_json::Value;
 use sqlx::Row;
 use uuid::Uuid;
@@ -64,7 +65,22 @@ pub trait DossierRepository: Send + Sync {
     /// Returns an empty dossier shell (all slots `None` / empty) when the
     /// user has no underlying rows so the API endpoint can return a 200
     /// rather than a 404 for fresh accounts.
-    async fn compose_dossier(&self, tenant_id: TenantId, user_id: Uuid) -> AppResult<Dossier>;
+    ///
+    /// `readable` is the strictest stamp a fact may carry and still be read
+    /// (the caller passes `ai_scope::readable_policy()`), bound into the fact
+    /// reads so their limits count only readable rows.
+    ///
+    /// `admit` decides, per stored row, whether content stamped with a policy
+    /// may be served to this caller (carnet#769): the caller passes
+    /// `ai_scope::admit_derived`, so a first-party-only fact or profile never
+    /// reaches an external one. A row it refuses is left out of the dossier.
+    async fn compose_dossier(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        readable: TransportPolicy,
+        admit: &(dyn Fn(TransportPolicy) -> bool + Sync),
+    ) -> AppResult<Dossier>;
 }
 
 /// Write or refresh the one profile row per `(tenant_id, user_id)`.
@@ -90,11 +106,11 @@ pub(crate) const UPSERT_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                 w_prime_joules, w_prime_joules_kind, w_prime_joules_origin, w_prime_joules_as_of,
                 critical_speed_mps, critical_speed_mps_kind, critical_speed_mps_origin, critical_speed_mps_as_of,
                 d_prime_meters, d_prime_meters_kind, d_prime_meters_origin, d_prime_meters_as_of,
-                created_at, updated_at
+                created_at, updated_at, first_party_only
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
                     $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28,
-                    $29, $30, $31, $32, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    $29, $30, $31, $32, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $33)
             ON CONFLICT (tenant_id, user_id) DO UPDATE SET
                 vo2_max = EXCLUDED.vo2_max,
                 resting_hr = EXCLUDED.resting_hr,
@@ -126,7 +142,8 @@ pub(crate) const UPSERT_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                 d_prime_meters_kind = EXCLUDED.d_prime_meters_kind,
                 d_prime_meters_origin = EXCLUDED.d_prime_meters_origin,
                 d_prime_meters_as_of = EXCLUDED.d_prime_meters_as_of,
-                updated_at = CURRENT_TIMESTAMP
+                updated_at = CURRENT_TIMESTAMP,
+                first_party_only = EXCLUDED.first_party_only
             ";
 
 /// Read the one profile row for `(tenant_id, user_id)`.
@@ -139,7 +156,8 @@ pub(crate) const GET_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                    critical_power_watts, critical_power_watts_kind, critical_power_watts_origin, critical_power_watts_as_of,
                    w_prime_joules, w_prime_joules_kind, w_prime_joules_origin, w_prime_joules_as_of,
                    critical_speed_mps, critical_speed_mps_kind, critical_speed_mps_origin, critical_speed_mps_as_of,
-                   d_prime_meters, d_prime_meters_kind, d_prime_meters_origin, d_prime_meters_as_of
+                   d_prime_meters, d_prime_meters_kind, d_prime_meters_origin, d_prime_meters_as_of,
+                   first_party_only
             FROM user_physiological_profiles
             WHERE tenant_id = $1 AND user_id = $2
             LIMIT 1
@@ -275,6 +293,7 @@ where
     f64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Value: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     NaiveDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let fitness_level_str: String = row
         .try_get("fitness_level")
@@ -342,6 +361,10 @@ where
         })?,
         critical_speed_mps: provenanced_from_row(row, "critical_speed_mps", Some::<f64>)?,
         d_prime_meters: provenanced_from_row(row, "d_prime_meters", Some::<f64>)?,
+        transport_policy: TransportPolicy::from_first_party_only(
+            row.try_get("first_party_only")
+                .map_err(|e| AppError::database(format!("read first_party_only: {e}")))?,
+        ),
     })
 }
 
@@ -461,6 +484,7 @@ macro_rules! impl_user_physiological_profile_repository {
                     .bind(binds.d_prime_meters.kind)
                     .bind(binds.d_prime_meters.origin)
                     .bind(binds.d_prime_meters.as_of)
+                    .bind(profile.transport_policy.is_first_party_only())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -492,10 +516,13 @@ macro_rules! impl_user_physiological_profile_repository {
                 &self,
                 tenant_id: TenantId,
                 user_id: Uuid,
+                readable: TransportPolicy,
+                admit: &(dyn Fn(TransportPolicy) -> bool + Sync),
             ) -> AppResult<Dossier> {
                 let physiology = self
                     .get_user_physiological_profile(tenant_id, user_id)
-                    .await?;
+                    .await?
+                    .filter(|profile| admit(profile.transport_policy));
                 let hr_zones = physiology.as_ref().and_then(|p| p.hr_zones);
                 let power_zones = physiology.as_ref().and_then(|p| p.power_zones);
 
@@ -539,7 +566,7 @@ macro_rules! impl_user_physiological_profile_repository {
                 // context, and the agent keeps prescribing either way.
                 let user = user_id.to_string();
                 let mut facts = match self
-                    .list_user_facts(tenant_id, &user, None, None, FACT_BUNDLE_LIMIT)
+                    .list_user_facts(tenant_id, &user, None, None, FACT_BUNDLE_LIMIT, readable)
                     .await
                 {
                     Ok(f) => f,
@@ -550,7 +577,14 @@ macro_rules! impl_user_physiological_profile_repository {
                 };
                 for kind in [FactKind::Medical, FactKind::NorthStar] {
                     match self
-                        .list_user_facts(tenant_id, &user, None, Some(kind), FACT_BUNDLE_LIMIT)
+                        .list_user_facts(
+                            tenant_id,
+                            &user,
+                            None,
+                            Some(kind),
+                            FACT_BUNDLE_LIMIT,
+                            readable,
+                        )
                         .await
                     {
                         Ok(guaranteed) => facts.extend(guaranteed),
@@ -565,6 +599,7 @@ macro_rules! impl_user_physiological_profile_repository {
                         &user,
                         FactSource::Onboarding,
                         FACT_BUNDLE_LIMIT,
+                        readable,
                     )
                     .await
                 {
@@ -573,6 +608,7 @@ macro_rules! impl_user_physiological_profile_repository {
                         tracing::warn!(error = %e, user_id = %user_id, fact_source = FactSource::Onboarding.as_str(), "guaranteed by-source fact read failed; dossier degrades without interview answers");
                     }
                 }
+                facts.retain(|fact| admit(fact.transport_policy));
                 let buckets = group_facts(&facts, Utc::now());
 
                 Ok(Dossier {

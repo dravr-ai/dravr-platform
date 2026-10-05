@@ -102,7 +102,8 @@ pub async fn create_coached_group(
     Ok(group.id)
 }
 
-/// Add `user`, in their own `tenant`, as an active member of `group`.
+/// Add `user`, in their own `tenant`, as an active member of `group`, sharing
+/// with the group's coach as joining grants (ADR-002) and not with peers.
 ///
 /// # Errors
 ///
@@ -123,6 +124,7 @@ pub async fn add_group_member(
             tenant_id: tenant.to_string(),
             role: GroupRole::Member,
             peer_sharing_consent: false,
+            coach_sharing_consent: true,
             consent_given_at: now,
             joined_at: now,
             left_at: None,

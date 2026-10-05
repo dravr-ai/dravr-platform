@@ -1,57 +1,79 @@
-// ABOUTME: Keeps content derived from an athlete's data off external transports when a first-party-only provider fed it
-// ABOUTME: Transcripts, memories, notes, plans and playbooks carry no provenance, so the athlete's connections decide
+// ABOUTME: The derived content an activity's own thread carries, held to the terms of the provider it is about
+// ABOUTME: Rows carry their own provenance stamp; a thread opened from an activity carries it on the link to that activity
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Derived content over an external transport (carnet#724).
+//! Derived content over an external transport (carnet#769).
 //!
-//! A turn's reply, the facts and notes extracted from it, its compaction
-//! summaries, a saved plan and a coaching playbook can all be built from a
-//! provider's data, and none of them records which provider. Some terms forbid
-//! making a provider's data available outside Dravr's own surfaces "including
-//! in derived or aggregated form" (Nolio §6.9), so an external caller — an MCP
-//! client, an A2A agent, an API key — must not read such content.
+//! Content derived from an athlete's data is stamped where it is written: a
+//! reply, a fact, a note, a plan and the rest carry the
+//! [`TransportPolicy`] of what they were built from, and a reader withholds a
+//! stamped row from an external caller — in its SQL where it lists, with
+//! [`ai_scope::admit_derived`](pierre_providers::ai_scope::admit_derived)
+//! where it reads one.
 //!
-//! Without provenance on each item, the rule is decided by the athlete's
-//! connections: while the athlete holds a connection to a provider whose terms
-//! keep its data first-party, every derived reader refuses an external call.
-//! The athlete's own surfaces read everything.
+//! One kind of content carries its provenance on a link rather than on its
+//! rows: a conversation opened from an activity's view is about that activity
+//! (`activity_conversations`). Its first question names the activity, its
+//! title may too, and every turn in it reasons over it — so the link is
+//! stamped with the activity's terms when it is written, and the whole thread
+//! is held to them.
 
-use pierre_core::ai_policy::first_party_only;
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::TenantId;
+use pierre_core::transport::TransportPolicy;
 use pierre_providers::ai_scope;
 use uuid::Uuid;
 
 use crate::runtime::ToolRuntime;
 
-/// Refuse a read of content derived from the athlete's data when the call is
-/// external and the athlete holds a first-party-only provider's connection.
+/// The stamp a thread carries through its activity links: the strictest of
+/// them, [`TransportPolicy::AnyTransport`] for a thread no activity opened.
+///
+/// # Errors
+///
+/// The repository error when the links cannot be read.
+pub async fn thread_policy(
+    runtime: &dyn ToolRuntime,
+    tenant_id: &TenantId,
+    user_id: Uuid,
+    conversation_id: &str,
+) -> AppResult<TransportPolicy> {
+    let links = runtime
+        .repos()
+        .activity_conversations
+        .list_activity_conversation_links(tenant_id, user_id)
+        .await?;
+    Ok(TransportPolicy::strictest_of(
+        links
+            .iter()
+            .filter(|link| link.conversation_id == conversation_id)
+            .map(|link| link.transport_policy),
+    ))
+}
+
+/// Refuse an external caller a thread opened from a first-party-only
+/// activity; a no-op on Dravr's own surfaces.
 ///
 /// # Errors
 ///
 /// [`ErrorCode::UnavailableOverTransport`](pierre_core::errors::ErrorCode::UnavailableOverTransport)
-/// when the content is not served over this transport, and the repository
-/// error when the athlete's connections cannot be read.
-pub async fn refuse_derived_content_off_interface(
+/// when the thread is withheld here, and the repository error when the links
+/// cannot be read.
+pub async fn refuse_withheld_thread(
     runtime: &dyn ToolRuntime,
+    tenant_id: &TenantId,
     user_id: Uuid,
+    conversation_id: &str,
 ) -> AppResult<()> {
-    if !ai_scope::exposure().is_some_and(|gate| gate.external) {
+    if !ai_scope::serving_external() {
         return Ok(());
     }
-    let terms = runtime.provider_registry();
-    let connections = runtime
-        .repos()
-        .provider_connections
-        .get_for_user(user_id, None)
-        .await?;
-    if connections
-        .iter()
-        .any(|connection| first_party_only(terms.as_ref(), &connection.provider, None))
-    {
+    let policy = thread_policy(runtime, tenant_id, user_id, conversation_id).await?;
+    if policy.is_first_party_only() {
         return Err(AppError::unavailable_over_transport(
-            "this athlete's conversations, notes and plans are not available over this interface",
+            "this conversation is not available over this interface",
         ));
     }
     Ok(())

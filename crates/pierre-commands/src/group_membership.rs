@@ -7,6 +7,7 @@
 use async_trait::async_trait;
 use dravr_canot::commands::{CommandAction, CommandResponse};
 use pierre_contremaitre::messaging_strings::{
+    KEY_GROUP_COACH_JOINED_NOTICE, KEY_GROUP_COACH_SHARING_NAMED, KEY_GROUP_COACH_SHARING_PENDING,
     KEY_GROUP_CREATED, KEY_GROUP_CREATE_FORBIDDEN, KEY_GROUP_CREATE_NO_AGENT,
     KEY_GROUP_CREATE_UNAVAILABLE, KEY_GROUP_CREATE_USAGE, KEY_GROUP_INVITE_LABEL, KEY_GROUP_JOINED,
     KEY_GROUP_JOINED_AS_COACH, KEY_GROUP_JOIN_ALREADY_MEMBER, KEY_GROUP_JOIN_FULL,
@@ -15,14 +16,17 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::agents::Agent;
 use pierre_core::models::groups::{CoachingGroup, CreateGroupRequest, GroupInviteKind};
-use pierre_core::models::{ConversationRecord, TenantId};
+use pierre_core::models::{AddMessageParams, ConversationRecord, TenantId, User};
+use pierre_core::transport::TransportPolicy;
 use pierre_groups::creation_policy::{
     check_create_group_permission, may_coach_group, GROUP_CREATION_POLICY_KEY,
 };
 use pierre_groups::strategies::tier::tier_strategy_for;
 use pierre_runtime_context::ConfigLookupScope;
 use pierre_services::default_agent::group_default;
-use tracing::info;
+use pierre_services::delegated_connections::person_name;
+use pierre_services::locale::user_locale;
+use tracing::{info, warn};
 
 use crate::{CommandHandler, PlatformCommandContext};
 
@@ -414,11 +418,117 @@ impl GroupJoinHandler {
             "Joined coaching group via /group join"
         );
 
-        Ok(CommandResponse::text(reg.render(
-            KEY_GROUP_JOINED,
-            locale,
-            &[&group.name],
-        )))
+        // Joining shares the athlete's training with the group's coach
+        // (ADR-002), so both sides are told: the athlete in this reply, with
+        // the way to revoke it, and the coach in their copy of the group's
+        // chat.
+        let repos = ctx.ctx.repos();
+        let coach = match group.coach_user_id.filter(|coach| *coach != ctx.user_id) {
+            Some(coach_id) => repos.users.get_global(coach_id).await?,
+            None => None,
+        };
+        let sharing = coach.as_ref().map_or_else(
+            || reg.render(KEY_GROUP_COACH_SHARING_PENDING, locale, &[]),
+            |coach| {
+                reg.render(
+                    KEY_GROUP_COACH_SHARING_NAMED,
+                    locale,
+                    &[&person_name(coach)],
+                )
+            },
+        );
+        if let Some(coach) = coach.as_ref() {
+            Self::notify_coach_of_join(ctx, group, coach).await;
+        }
+
+        let welcome = reg.render(KEY_GROUP_JOINED, locale, &[&group.name]);
+        Ok(CommandResponse::text(format!("{welcome}\n\n{sharing}")))
+    }
+
+    /// Tell the group's coach, in their own copy of the group's chat, that an
+    /// athlete joined and shares their training with them.
+    ///
+    /// The notice is a platform-authored assistant row, written straight to
+    /// the coach's conversation like the backfill completion notice: it must
+    /// leave the coach's read marker where it is, so it reads as unread, and
+    /// must not fan out to the group's shared transcript, which the athletes
+    /// read. The coach's copy is filed under their own tenant when they attach
+    /// (`/group join` with a coach code), so every tenant they belong to is
+    /// searched. A coach with no copy yet is told nothing here — the app
+    /// files one on first open. A failure is logged and never fails the
+    /// athlete's join, which has already happened.
+    async fn notify_coach_of_join(
+        ctx: &PlatformCommandContext,
+        group: &CoachingGroup,
+        coach: &User,
+    ) {
+        match Self::post_join_notice(ctx, group, coach).await {
+            Ok(delivered) => info!(
+                coach_id = %coach.id,
+                group_id = %group.id,
+                delivered,
+                "Posted the athlete-joined notice to the group's coach"
+            ),
+            Err(e) => warn!(
+                coach_id = %coach.id,
+                group_id = %group.id,
+                error = %e,
+                "Could not post the athlete-joined notice to the group's coach"
+            ),
+        }
+    }
+
+    /// Write the join notice into every copy of the group's chat the coach
+    /// owns, returning how many received it.
+    async fn post_join_notice(
+        ctx: &PlatformCommandContext,
+        group: &CoachingGroup,
+        coach: &User,
+    ) -> Result<usize, AppError> {
+        let repos = ctx.ctx.repos();
+        let athlete = repos
+            .users
+            .get_global(ctx.user_id)
+            .await?
+            .ok_or_else(|| AppError::not_found("joining athlete"))?;
+        let text = ctx.ctx.messaging_strings_registry().render(
+            KEY_GROUP_COACH_JOINED_NOTICE,
+            &user_locale(Some(coach)),
+            &[&person_name(&athlete), &group.name],
+        );
+        let coach_id = coach.id.to_string();
+        let group_id = group.id.to_string();
+        let mut delivered = 0_usize;
+        for tenant in repos.tenants.list_for_user(coach.id).await? {
+            let Some(conversation) = repos
+                .chat
+                .find_group_conversation(&coach_id, tenant.id, &group_id)
+                .await?
+            else {
+                continue;
+            };
+            repos
+                .chat
+                .add_message(&AddMessageParams {
+                    tenant_id: tenant.id,
+                    conversation_id: &conversation.id,
+                    user_id: &coach_id,
+                    role: "assistant",
+                    content: &text,
+                    // Platform-authored, like a command reply: no model
+                    // answered and no tokens were spent.
+                    token_count: None,
+                    finish_reason: None,
+                    prompt_tokens: None,
+                    model: None,
+                    content_blocks: None,
+                    // Names and the group title only, built from no provider data.
+                    transport_policy: TransportPolicy::AnyTransport,
+                })
+                .await?;
+            delivered += 1;
+        }
+        Ok(delivered)
     }
 
     /// Attach an eligible coach as the group's human coach, and give them

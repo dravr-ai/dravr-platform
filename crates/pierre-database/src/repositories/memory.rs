@@ -31,29 +31,29 @@
 //! - `COUNT(*)` and `SUM(CASE …)` decode as `i64` on both without a cast:
 //!   Postgres returns `bigint` for each already.
 
-use std::collections::BTreeMap;
+/// Row decoders generic over `sqlx::Row`.
+mod rows;
 
-use chrono::{DateTime, Utc};
-use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::Pillar;
-use pierre_memory::{
-    AgentFollowup, AgentNote, AgentSession, CompactionBlock, FactKind, FactSource, FollowupStatus,
-    MemoryScope, PredicateCode, SessionStatus, UserFact, UserFactMetrics,
+pub(crate) use rows::{
+    agent_followup_from_row, agent_note_from_row, agent_session_from_row,
+    compaction_block_from_row, user_fact_from_row, user_fact_metrics_from_rows,
 };
 
 /// Persist one compaction block.
 pub(crate) const INSERT_COMPACTION_BLOCK_SQL: &str = r"
             INSERT INTO compaction_blocks (
                 id, tenant_id, conversation_id, summary, summary_tokens,
-                original_tokens, first_message_id, last_message_id, created_at
+                original_tokens, first_message_id, last_message_id, created_at,
+                first_party_only
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             ";
 
 /// A conversation's compaction blocks, oldest first.
 pub(crate) const LIST_COMPACTION_BLOCKS_SQL: &str = r"
             SELECT id, tenant_id, conversation_id, summary, summary_tokens,
-                   original_tokens, first_message_id, last_message_id, created_at
+                   original_tokens, first_message_id, last_message_id, created_at,
+                   first_party_only
             FROM compaction_blocks
             WHERE conversation_id = $1 AND tenant_id = $2
             ORDER BY created_at ASC
@@ -64,21 +64,23 @@ pub(crate) const INSERT_USER_FACT_SQL: &str = r"
             INSERT INTO user_facts (
                 id, tenant_id, user_id, agent_id, scope, kind, pillar,
                 predicate_code, object, confidence, source, valid_until,
-                source_msg_id, created_at, updated_at
+                source_msg_id, created_at, updated_at, first_party_only
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, $15)
             ";
 
 /// Fold a restatement into its anchor.
 ///
 /// `COALESCE` keeps the anchor's own words when the restatement names no
 /// message; the `CASE` keeps the higher confidence, so a restatement can
-/// only ever raise it.
+/// only ever raise it. The stamp only ever tightens: an anchor restated from
+/// first-party-only content stays first-party-only (carnet#769).
 pub(crate) const MERGE_USER_FACT_SQL: &str = r"
             UPDATE user_facts
             SET confidence = CASE WHEN confidence >= $1 THEN confidence ELSE $1 END,
                 source_msg_id = COALESCE($2, source_msg_id),
-                updated_at = $3
+                updated_at = $3,
+                first_party_only = CASE WHEN $6 THEN $6 ELSE first_party_only END
             WHERE id = $4 AND tenant_id = $5
             ";
 
@@ -86,7 +88,7 @@ pub(crate) const MERGE_USER_FACT_SQL: &str = r"
 pub(crate) const GET_USER_FACT_BY_ID_SQL: &str = r"
             SELECT id, tenant_id, user_id, agent_id, scope, kind, pillar,
                    predicate_code, object, confidence, source, valid_until,
-                   source_msg_id, created_at, updated_at
+                   source_msg_id, created_at, updated_at, first_party_only
             FROM user_facts
             WHERE id = $1 AND tenant_id = $2
             ";
@@ -95,6 +97,7 @@ pub(crate) const GET_USER_FACT_BY_ID_SQL: &str = r"
 pub(crate) const LIST_USER_FACTS_BY_AGENT_AND_KIND_SQL: &str = r"
                     SELECT * FROM user_facts
                     WHERE tenant_id = $1 AND user_id = $2 AND agent_id = $3 AND kind = $4
+                      AND (first_party_only = FALSE OR $6)
                     ORDER BY updated_at DESC
                     LIMIT $5
                     ";
@@ -103,6 +106,7 @@ pub(crate) const LIST_USER_FACTS_BY_AGENT_AND_KIND_SQL: &str = r"
 pub(crate) const LIST_USER_FACTS_BY_AGENT_SQL: &str = r"
                     SELECT * FROM user_facts
                     WHERE tenant_id = $1 AND user_id = $2 AND agent_id = $3
+                      AND (first_party_only = FALSE OR $5)
                     ORDER BY updated_at DESC
                     LIMIT $4
                     ";
@@ -111,6 +115,7 @@ pub(crate) const LIST_USER_FACTS_BY_AGENT_SQL: &str = r"
 pub(crate) const LIST_USER_FACTS_BY_KIND_SQL: &str = r"
                     SELECT * FROM user_facts
                     WHERE tenant_id = $1 AND user_id = $2 AND kind = $3
+                      AND (first_party_only = FALSE OR $5)
                     ORDER BY updated_at DESC
                     LIMIT $4
                     ";
@@ -119,6 +124,7 @@ pub(crate) const LIST_USER_FACTS_BY_KIND_SQL: &str = r"
 pub(crate) const LIST_USER_FACTS_SQL: &str = r"
                     SELECT * FROM user_facts
                     WHERE tenant_id = $1 AND user_id = $2
+                      AND (first_party_only = FALSE OR $4)
                     ORDER BY updated_at DESC
                     LIMIT $3
                     ";
@@ -128,6 +134,7 @@ pub(crate) const LIST_USER_FACTS_BY_SOURCE_SQL: &str = r"
             SELECT * FROM user_facts
             WHERE tenant_id = $1 AND user_id = $2 AND source = $3
               AND (valid_until IS NULL OR valid_until > $4)
+              AND (first_party_only = FALSE OR $6)
             ORDER BY updated_at DESC
             LIMIT $5
             ";
@@ -192,9 +199,9 @@ pub(crate) const COUNT_USER_FACTS_BY_KIND_SQL: &str = r"
 pub(crate) const INSERT_AGENT_NOTE_SQL: &str = r"
             INSERT INTO agent_notes (
                 id, tenant_id, user_id, agent_id, conversation_id,
-                scope, content, created_at, updated_at
+                scope, content, created_at, updated_at, first_party_only
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9)
             ";
 
 /// An agent's unsuppressed notes about a user, newest first.
@@ -207,6 +214,7 @@ pub(crate) const LIST_AGENT_NOTES_SQL: &str = r"
               AND user_id = $2
               AND agent_id = $3
               AND suppressed = FALSE
+              AND (first_party_only = FALSE OR $5)
             ORDER BY created_at DESC
             LIMIT $4
             ";
@@ -237,9 +245,9 @@ pub(crate) const SET_AGENT_NOTE_SUPPRESSED_SQL: &str = r"
 pub(crate) const INSERT_AGENT_FOLLOWUP_SQL: &str = r"
             INSERT INTO agent_followups (
                 id, tenant_id, user_id, agent_id, conversation_id,
-                content, due_at, status, created_at, updated_at
+                content, due_at, status, created_at, updated_at, first_party_only
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $8)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $8, $9)
             ";
 
 /// An agent's pending followups for a user, soonest due first.
@@ -306,246 +314,6 @@ pub(crate) const TOUCH_AGENT_SESSION_SQL: &str = r"
             WHERE id = $2 AND tenant_id = $3
             ";
 
-/// Clamp a signed row count to `u64`, folding impossible negatives to `0`.
-/// Counts from aggregate queries are domain-guaranteed non-negative but
-/// `sqlx` decodes them as `i64`.
-pub(crate) fn i64_to_u64_saturating(v: i64) -> u64 {
-    u64::try_from(v).unwrap_or(0)
-}
-
-fn column_error(name: &str, e: &sqlx::Error) -> AppError {
-    AppError::database(format!("Failed to read {name}: {e}"))
-}
-
-/// Read one column by name via `try_get`, so a width, type or NULL surprise
-/// surfaces as a recoverable error naming the column rather than a panic.
-///
-/// # Errors
-/// Returns a database error when the column cannot be decoded.
-pub(crate) fn column<'r, R, T>(row: &'r R, name: &str) -> AppResult<T>
-where
-    R: sqlx::Row,
-    for<'a> &'a str: sqlx::ColumnIndex<R>,
-    T: sqlx::Type<R::Database> + sqlx::Decode<'r, R::Database>,
-{
-    row.try_get(name).map_err(|e| column_error(name, &e))
-}
-
-/// Decode one `compaction_blocks` row.
-///
-/// # Errors
-/// Returns a database error naming the first column that cannot be decoded.
-pub(crate) fn compaction_block_from_row<R>(row: &R) -> AppResult<CompactionBlock>
-where
-    R: sqlx::Row,
-    for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    i32: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-{
-    Ok(CompactionBlock {
-        id: column(row, "id")?,
-        tenant_id: column(row, "tenant_id")?,
-        conversation_id: column(row, "conversation_id")?,
-        summary: column(row, "summary")?,
-        summary_tokens: column(row, "summary_tokens")?,
-        original_tokens: column(row, "original_tokens")?,
-        first_message_id: column(row, "first_message_id")?,
-        last_message_id: column(row, "last_message_id")?,
-        created_at: column(row, "created_at")?,
-    })
-}
-
-/// Decode one `user_facts` row.
-///
-/// A scope or predicate code the application no longer knows is rejected
-/// rather than substituted with a default; `kind` and `source` parse
-/// leniently because their enums carry a catch-all.
-///
-/// # Errors
-/// Returns a database error naming the first column that cannot be decoded,
-/// or an internal error for an unknown scope or predicate code.
-pub(crate) fn user_fact_from_row<R>(row: &R) -> AppResult<UserFact>
-where
-    R: sqlx::Row,
-    for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    f32: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-{
-    let scope_str: String = column(row, "scope")?;
-    let kind_str: String = column(row, "kind")?;
-    let scope = MemoryScope::parse(&scope_str)
-        .ok_or_else(|| AppError::internal(format!("Invalid scope in user_facts: {scope_str}")))?;
-    let pillar_str: Option<String> = column(row, "pillar")?;
-    let code_str: String = column(row, "predicate_code")?;
-    let predicate_code = PredicateCode::parse(&code_str).ok_or_else(|| {
-        AppError::internal(format!("Invalid predicate_code in user_facts: {code_str}"))
-    })?;
-    let source_str: String = row
-        .try_get("source")
-        .unwrap_or_else(|_| "conversation".into());
-    Ok(UserFact {
-        id: column(row, "id")?,
-        tenant_id: column(row, "tenant_id")?,
-        user_id: column(row, "user_id")?,
-        agent_id: column(row, "agent_id")?,
-        scope,
-        kind: FactKind::parse_lenient(&kind_str),
-        pillar: pillar_str.as_deref().and_then(Pillar::parse),
-        predicate_code,
-        object: column(row, "object")?,
-        confidence: column(row, "confidence")?,
-        source: FactSource::parse_lenient(&source_str),
-        valid_until: column(row, "valid_until")?,
-        source_msg_id: column(row, "source_msg_id")?,
-        created_at: column(row, "created_at")?,
-        updated_at: column(row, "updated_at")?,
-    })
-}
-
-/// Decode one `agent_notes` row. `suppressed` reads as unsuppressed when the
-/// column cannot be decoded, matching the migration's default.
-///
-/// # Errors
-/// Returns a database error naming the first column that cannot be decoded,
-/// or an internal error for an unknown scope.
-pub(crate) fn agent_note_from_row<R>(row: &R) -> AppResult<AgentNote>
-where
-    R: sqlx::Row,
-    for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-{
-    let scope_str: String = column(row, "scope")?;
-    let scope = MemoryScope::parse(&scope_str)
-        .ok_or_else(|| AppError::internal(format!("Invalid scope in coach_notes: {scope_str}")))?;
-    let suppressed: bool = row.try_get("suppressed").unwrap_or(false);
-    Ok(AgentNote {
-        id: column(row, "id")?,
-        tenant_id: column(row, "tenant_id")?,
-        user_id: column(row, "user_id")?,
-        agent_id: column(row, "agent_id")?,
-        conversation_id: column(row, "conversation_id")?,
-        scope,
-        content: column(row, "content")?,
-        created_at: column(row, "created_at")?,
-        updated_at: column(row, "updated_at")?,
-        suppressed,
-    })
-}
-
-/// Decode one `agent_followups` row.
-///
-/// # Errors
-/// Returns a database error naming the first column that cannot be decoded,
-/// or an internal error for an unknown status.
-pub(crate) fn agent_followup_from_row<R>(row: &R) -> AppResult<AgentFollowup>
-where
-    R: sqlx::Row,
-    for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-{
-    let status_str: String = column(row, "status")?;
-    let status = FollowupStatus::parse(&status_str).ok_or_else(|| {
-        AppError::internal(format!("Invalid status in coach_followups: {status_str}"))
-    })?;
-    Ok(AgentFollowup {
-        id: column(row, "id")?,
-        tenant_id: column(row, "tenant_id")?,
-        user_id: column(row, "user_id")?,
-        agent_id: column(row, "agent_id")?,
-        conversation_id: column(row, "conversation_id")?,
-        content: column(row, "content")?,
-        due_at: column(row, "due_at")?,
-        status,
-        created_at: column(row, "created_at")?,
-        updated_at: column(row, "updated_at")?,
-        delivered_at: column(row, "delivered_at")?,
-    })
-}
-
-/// Decode one `agent_sessions` row.
-///
-/// # Errors
-/// Returns a database error naming the first column that cannot be decoded,
-/// or an internal error for an unknown status.
-pub(crate) fn agent_session_from_row<R>(row: &R) -> AppResult<AgentSession>
-where
-    R: sqlx::Row,
-    for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-{
-    let status_str: String = column(row, "status")?;
-    let status = SessionStatus::parse(&status_str).ok_or_else(|| {
-        AppError::internal(format!("Invalid status in coach_sessions: {status_str}"))
-    })?;
-    Ok(AgentSession {
-        id: column(row, "id")?,
-        tenant_id: column(row, "tenant_id")?,
-        user_id: column(row, "user_id")?,
-        agent_id: column(row, "agent_id")?,
-        status,
-        opened_at: column(row, "opened_at")?,
-        last_turn_at: column(row, "last_turn_at")?,
-        archived_at: column(row, "archived_at")?,
-        created_at: column(row, "created_at")?,
-        updated_at: column(row, "updated_at")?,
-    })
-}
-
-/// Fold the two aggregate reads of [`COUNT_USER_FACTS_SQL`] and
-/// [`COUNT_USER_FACTS_BY_KIND_SQL`] into a [`UserFactMetrics`].
-///
-/// `COUNT(*)` is non-nullable even over an empty table; `SUM(CASE …)` and
-/// `MAX(…)` are NULL when no row matches, so those decode as `Option`.
-///
-/// # Errors
-/// Returns a database error naming the first column that cannot be decoded.
-pub(crate) fn user_fact_metrics_from_rows<R>(
-    aggregates: &R,
-    kind_rows: &[R],
-) -> AppResult<UserFactMetrics>
-where
-    R: sqlx::Row,
-    for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<i64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-{
-    let total: i64 = column(aggregates, "total")?;
-    let distinct_users: i64 = column(aggregates, "distinct_users")?;
-    let last_24h: Option<i64> = column(aggregates, "last_24h")?;
-    let last_7d: Option<i64> = column(aggregates, "last_7d")?;
-    let newest_updated_at: Option<DateTime<Utc>> = column(aggregates, "newest_updated_at")?;
-
-    let mut facts_by_kind: BTreeMap<String, u64> = BTreeMap::new();
-    for row in kind_rows {
-        let kind: String = column(row, "kind")?;
-        let count: i64 = column(row, "c")?;
-        facts_by_kind.insert(kind, i64_to_u64_saturating(count));
-    }
-
-    Ok(UserFactMetrics {
-        total_facts: i64_to_u64_saturating(total),
-        facts_last_24h: i64_to_u64_saturating(last_24h.unwrap_or(0)),
-        facts_last_7d: i64_to_u64_saturating(last_7d.unwrap_or(0)),
-        distinct_users: i64_to_u64_saturating(distinct_users),
-        facts_by_kind,
-        newest_updated_at,
-    })
-}
-
 /// Emit the whole `HarnessMemoryRepository` implementation for one backend type.
 ///
 /// The body is written once here; each backend's shell invokes it with its
@@ -573,6 +341,7 @@ macro_rules! impl_harness_memory_repository {
                     .bind(params.first_message_id)
                     .bind(params.last_message_id)
                     .bind(now)
+                    .bind(params.transport_policy.is_first_party_only())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -589,6 +358,7 @@ macro_rules! impl_harness_memory_repository {
                     first_message_id: params.first_message_id.to_owned(),
                     last_message_id: params.last_message_id.to_owned(),
                     created_at: now,
+                    transport_policy: params.transport_policy,
                 })
             }
 
@@ -631,6 +401,7 @@ macro_rules! impl_harness_memory_repository {
                     .bind(params.valid_until)
                     .bind(params.source_msg_id)
                     .bind(now)
+                    .bind(params.transport_policy.is_first_party_only())
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to upsert user fact: {e}")))?;
@@ -651,6 +422,7 @@ macro_rules! impl_harness_memory_repository {
                     source_msg_id: params.source_msg_id.map(ToOwned::to_owned),
                     created_at: now,
                     updated_at: now,
+                    transport_policy: params.transport_policy,
                 })
             }
 
@@ -665,6 +437,7 @@ macro_rules! impl_harness_memory_repository {
                     .bind(Utc::now())
                     .bind(params.fact_id)
                     .bind(&tenant)
+                    .bind(params.transport_policy.is_first_party_only())
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to merge user fact: {e}")))?;
@@ -688,7 +461,9 @@ macro_rules! impl_harness_memory_repository {
                 agent_id: Option<&str>,
                 kind: Option<FactKind>,
                 limit: i64,
+                readable: TransportPolicy,
             ) -> AppResult<Vec<UserFact>> {
+                let stamped = readable.is_first_party_only();
                 // One statement per combination of the optional filters: a
                 // NULL-tolerant bind would cost every call the two extra
                 // comparisons on the hot recall path.
@@ -701,6 +476,7 @@ macro_rules! impl_harness_memory_repository {
                             .bind(cid)
                             .bind(k.as_str())
                             .bind(limit)
+                            .bind(stamped)
                             .fetch_all(self.pool())
                             .await
                     }
@@ -710,6 +486,7 @@ macro_rules! impl_harness_memory_repository {
                             .bind(user_id)
                             .bind(cid)
                             .bind(limit)
+                            .bind(stamped)
                             .fetch_all(self.pool())
                             .await
                     }
@@ -719,6 +496,7 @@ macro_rules! impl_harness_memory_repository {
                             .bind(user_id)
                             .bind(k.as_str())
                             .bind(limit)
+                            .bind(stamped)
                             .fetch_all(self.pool())
                             .await
                     }
@@ -727,6 +505,7 @@ macro_rules! impl_harness_memory_repository {
                             .bind(&tenant)
                             .bind(user_id)
                             .bind(limit)
+                            .bind(stamped)
                             .fetch_all(self.pool())
                             .await
                     }
@@ -742,6 +521,7 @@ macro_rules! impl_harness_memory_repository {
                 user_id: &str,
                 source: FactSource,
                 limit: i64,
+                readable: TransportPolicy,
             ) -> AppResult<Vec<UserFact>> {
                 let rows = sqlx::query(LIST_USER_FACTS_BY_SOURCE_SQL)
                     .bind(tenant_id.to_string())
@@ -749,6 +529,7 @@ macro_rules! impl_harness_memory_repository {
                     .bind(source.as_str())
                     .bind(Utc::now())
                     .bind(limit)
+                    .bind(readable.is_first_party_only())
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
@@ -884,6 +665,7 @@ macro_rules! impl_harness_memory_repository {
                     .bind(params.scope.as_str())
                     .bind(params.content)
                     .bind(now)
+                    .bind(params.transport_policy.is_first_party_only())
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to insert coach note: {e}")))?;
@@ -899,6 +681,7 @@ macro_rules! impl_harness_memory_repository {
                     created_at: now,
                     updated_at: now,
                     suppressed: false,
+                    transport_policy: params.transport_policy,
                 })
             }
 
@@ -908,12 +691,14 @@ macro_rules! impl_harness_memory_repository {
                 user_id: &str,
                 agent_id: &str,
                 limit: i64,
+                readable: TransportPolicy,
             ) -> AppResult<Vec<AgentNote>> {
                 let rows = sqlx::query(LIST_AGENT_NOTES_SQL)
                     .bind(tenant_id.to_string())
                     .bind(user_id)
                     .bind(agent_id)
                     .bind(limit)
+                    .bind(readable.is_first_party_only())
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to list coach notes: {e}")))?;
@@ -976,6 +761,7 @@ macro_rules! impl_harness_memory_repository {
                     .bind(params.content)
                     .bind(params.due_at)
                     .bind(now)
+                    .bind(params.transport_policy.is_first_party_only())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -994,6 +780,7 @@ macro_rules! impl_harness_memory_repository {
                     created_at: now,
                     updated_at: now,
                     delivered_at: None,
+                    transport_policy: params.transport_policy,
                 })
             }
 

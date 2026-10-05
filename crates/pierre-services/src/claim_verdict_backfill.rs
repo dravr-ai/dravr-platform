@@ -302,6 +302,7 @@ async fn persist_verdict(
         layer_fired: outcome.layer_fired,
         explanation: Some(&outcome.explanation),
         evidence_refs: outcome.evidence_refs.as_deref(),
+        transport_policy: row.transport_policy,
     };
     match repos.claim_verdicts.insert_claim_verdict(&insert).await {
         Ok(_) => stats.verdicts_written += 1,

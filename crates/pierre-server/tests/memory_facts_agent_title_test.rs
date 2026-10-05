@@ -10,6 +10,7 @@
 mod common;
 mod helpers;
 
+use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
@@ -88,6 +89,7 @@ async fn facts_carry_the_agent_title_when_the_agent_resolves() {
                 source: FactSource::Conversation,
                 valid_until: None,
                 source_msg_id: None,
+                transport_policy: TransportPolicy::AnyTransport,
             })
             .await
             .expect("fact");

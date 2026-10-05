@@ -38,6 +38,7 @@
 mod common;
 
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::TransportPolicy;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -993,6 +994,7 @@ fn stored_message(id: &str, role: &str, content: &str) -> MessageRecord {
         finish_reason: Some("stop".to_owned()),
         content_blocks: None,
         created_at: "2026-08-29T00:00:00Z".to_owned(),
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

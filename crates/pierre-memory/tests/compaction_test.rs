@@ -7,6 +7,7 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
+use pierre_core::transport::TransportPolicy;
 use pierre_memory::compaction::CompactionBlock;
 
 fn block(original: i32, summary: i32) -> CompactionBlock {
@@ -20,6 +21,7 @@ fn block(original: i32, summary: i32) -> CompactionBlock {
         first_message_id: "m1".into(),
         last_message_id: "m5".into(),
         created_at: Utc::now(),
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

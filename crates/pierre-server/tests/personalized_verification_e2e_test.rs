@@ -16,6 +16,7 @@ use dravr_cageux::config::intelligence::TrainingZonesConfig;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::activity::ActivityBuilder;
 use pierre_core::models::{Activity, SportType, TenantId, UserPhysiologicalProfile};
+use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::InsertClaimVerdictParams;
 use pierre_evals::ClaimSource;
 use pierre_evals::{
@@ -68,6 +69,7 @@ fn profile(user_id: Uuid) -> UserPhysiologicalProfile {
         w_prime_joules: None,
         critical_speed_mps: None,
         d_prime_meters: None,
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 
@@ -162,6 +164,7 @@ async fn physiology_and_activities_drive_a_personalized_contradiction() -> Resul
         layer_fired: outcome.layer_fired,
         explanation: Some(&outcome.explanation),
         evidence_refs: outcome.evidence_refs.as_deref(),
+        transport_policy: TransportPolicy::AnyTransport,
     };
     let saved = repos.claim_verdicts.insert_claim_verdict(&params).await?;
     assert_eq!(saved.layer_fired, VerdictLayer::Personalized);

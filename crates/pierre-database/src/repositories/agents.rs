@@ -417,6 +417,17 @@ pub trait CoachingGroupRepository: Send + Sync {
         consent: bool,
     ) -> AppResult<bool>;
 
+    /// Update whether a member shares their training data with the group's
+    /// human coach. Returns `false` when `user_id` is not a live member.
+    /// No tenant filter — members update their own consent cross-tenant,
+    /// exactly as [`Self::update_peer_sharing_consent`].
+    async fn update_coach_sharing_consent(
+        &self,
+        group_id: &str,
+        user_id: Uuid,
+        consent: bool,
+    ) -> AppResult<bool>;
+
     /// Count active members in a group.
     /// No tenant filter — members join cross-tenant via invite codes.
     async fn count_members(&self, group_id: &str) -> AppResult<i64>;
@@ -467,10 +478,12 @@ pub trait CoachingGroupRepository: Send + Sync {
 
     /// Read the newest transcript entries the viewer may see, newest first.
     ///
-    /// Consent-gated exactly like the peer-grounding fetch: another member's
-    /// content is visible only when the group's `peer_data_sharing`
-    /// kill-switch is on AND that member's own `peer_sharing_consent` is on
-    /// (and they have not left). The viewer's own entries — including the
+    /// Consent-gated exactly like the group-member fetch: another member's
+    /// content is visible to a peer only when the group's `peer_data_sharing`
+    /// kill-switch is on AND that member's own `peer_sharing_consent` is on,
+    /// and to the group's human coach when that member's
+    /// `coach_sharing_consent` is on (and, either way, they have not left).
+    /// The viewer's own entries — including the
     /// agent replies attributed to them — are always visible to them.
     /// No tenant filter — membership is cross-tenant, same as `list_members`;
     /// callers gate access by verifying the viewer's membership first.

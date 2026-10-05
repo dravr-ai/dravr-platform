@@ -11,6 +11,7 @@ mod common;
 mod helpers;
 
 use pierre_core::transport::Transport;
+use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -213,6 +214,7 @@ async fn add_row(
             prompt_tokens: None,
             model: None,
             content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap()
@@ -331,6 +333,7 @@ async fn every_row_carries_its_kind_facts_preview_and_counts() {
             tenant_id: fx.tenant_id.to_string(),
             role: GroupRole::Owner,
             peer_sharing_consent: false,
+            coach_sharing_consent: false,
             consent_given_at: now,
             joined_at: now,
             left_at: None,

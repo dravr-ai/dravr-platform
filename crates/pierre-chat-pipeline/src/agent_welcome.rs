@@ -39,6 +39,7 @@ use pierre_core::models::onboarding::{GuidedFlow, OnboardingState};
 use pierre_core::models::{
     AddMessageParams, ConversationRecord, MessageRecord, TenantId, AGENT_WELCOME_FINISH_REASON,
 };
+use pierre_core::transport::TransportPolicy;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::RepositoryRegistry;
 use tracing::{info, warn};
@@ -219,6 +220,8 @@ pub async fn post_agent_welcome(
         prompt_tokens: None,
         model: None,
         content_blocks: blocks.as_deref(),
+        // A welcome is the agent's own catalogue text, built from no athlete data.
+        transport_policy: TransportPolicy::AnyTransport,
     };
     let Some(message) = repos
         .chat
@@ -330,8 +333,7 @@ async fn after_written(
         target.conversation_tenant_id,
         target.user_id,
         TranscriptSpeaker::Coach,
-        &message.content,
-        &message.id,
+        message,
     )
     .await
     {

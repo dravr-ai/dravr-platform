@@ -21,6 +21,7 @@
 
 mod common;
 
+use pierre_core::transport::TransportPolicy;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -206,6 +207,7 @@ async fn seed_plan(
                 season_end: None,
             }),
             weeks: &weeks,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await
         .unwrap();

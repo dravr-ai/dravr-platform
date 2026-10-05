@@ -107,6 +107,7 @@ async fn add_member_sharing(
             tenant_id: tenant_id.to_string(),
             role,
             peer_sharing_consent: shares,
+            coach_sharing_consent: shares,
             consent_given_at: now,
             joined_at: now,
             left_at: None,

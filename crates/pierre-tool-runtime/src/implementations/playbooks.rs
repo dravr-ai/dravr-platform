@@ -15,6 +15,7 @@
 //!   "forget this"). Tenant + user scoped, and registered under a non-chat
 //!   category so the LLM can never delete a playbook on its own.
 
+use pierre_providers::ai_scope;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -27,7 +28,6 @@ use serde_json::Value;
 
 use crate::context::ToolExecutionContext;
 use crate::conversions::{answers_with, object_schema, tool_definition, tool_result_to_response};
-use crate::derived_content::refuse_derived_content_off_interface;
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
@@ -171,10 +171,6 @@ impl McpTool<dyn ToolRuntime> for ListCoachingPlaybooksTool {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             let tenant_id = TenantId::from_uuid(context.require_tenant()?).to_string();
-            // Playbooks are labelled from the athlete's training and carry no
-            // provenance (carnet#724).
-            refuse_derived_content_off_interface(context.resources.as_ref(), context.user_id)
-                .await?;
             let user_id = context.user_id.to_string();
             let limit = args
                 .get("limit")
@@ -182,12 +178,15 @@ impl McpTool<dyn ToolRuntime> for ListCoachingPlaybooksTool {
                 .unwrap_or(12)
                 .clamp(1, 50);
 
-            let playbooks = context
+            let mut playbooks = context
                 .resources
                 .repos()
                 .playbooks
-                .list_all_user_playbooks(&tenant_id, &user_id, limit)
+                .list_all_user_playbooks(&tenant_id, &user_id, limit, ai_scope::readable_policy())
                 .await?;
+            // A playbook learned from first-party-only data is withheld from
+            // an external caller; the rest are served (carnet#769).
+            ai_scope::retain_admitted(&mut playbooks, |playbook| playbook.transport_policy);
 
             let entries: Vec<PlaybookEntry> = playbooks
                 .into_iter()

@@ -22,6 +22,7 @@ use pierre_chat_pipeline::{ActionKind, TurnAction};
 use pierre_core::models::{
     MessageRecord, PersistedAction, PersistedReplyBlock, ACTIONS_BLOCK_TYPE, COMMAND_FINISH_REASON,
 };
+use pierre_core::transport::TransportPolicy;
 
 fn row(id: &str, role: &str, content: &str, finish_reason: Option<&str>) -> MessageRecord {
     MessageRecord {
@@ -35,6 +36,7 @@ fn row(id: &str, role: &str, content: &str, finish_reason: Option<&str>) -> Mess
         finish_reason: finish_reason.map(str::to_owned),
         content_blocks: None,
         created_at: "2026-08-26T21:00:00Z".to_owned(),
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

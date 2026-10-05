@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use pierre_providers::ai_scope;
 use std::sync::Arc;
 
 use pierre_database::database::ConversationRecord;
@@ -67,6 +68,7 @@ pub(crate) async fn spawn_turn_extraction(
                 source,
                 force_kind,
                 plan_was_saved,
+                transport_policy: ai_scope::derived_policy(),
             },
         },
     )

@@ -36,6 +36,7 @@
 //! the assistant's message — which is what lets the turn service run the
 //! same usage accounting it runs for every served turn.
 
+use pierre_core::transport::TransportPolicy;
 use std::future::pending;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
@@ -189,8 +190,14 @@ pub async fn recent_rows(
     user_id: &str,
     tenant_id: TenantId,
 ) -> AppResult<Vec<MessageRecord>> {
-    chat.get_recent_messages(conversation_id, user_id, tenant_id, STOP_SCAN_ROWS)
-        .await
+    chat.get_recent_messages(
+        conversation_id,
+        user_id,
+        tenant_id,
+        STOP_SCAN_ROWS,
+        TransportPolicy::FirstPartyOnly,
+    )
+    .await
 }
 
 /// A running turn's handle on its own stop.

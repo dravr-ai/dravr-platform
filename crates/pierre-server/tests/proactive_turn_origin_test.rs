@@ -24,6 +24,7 @@ mod common;
 mod helpers;
 
 use pierre_core::transport::Transport;
+use pierre_core::transport::TransportPolicy;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -180,6 +181,7 @@ async fn setup() -> Fixture {
                 prompt_tokens: None,
                 model: None,
                 content_blocks: None,
+                transport_policy: TransportPolicy::AnyTransport,
             })
             .await
             .unwrap();

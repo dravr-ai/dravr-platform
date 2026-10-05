@@ -27,6 +27,7 @@ use pierre_core::models::groups::{
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::TenantId;
 use pierre_core::transport::Transport;
+use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -215,6 +216,7 @@ async fn seed_plan_with(
                 season_end: None,
             }),
             weeks: &weeks,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     Ok(())
@@ -384,6 +386,7 @@ async fn bound_room_group(
             tenant_id: bot_tenant.to_string(),
             role: GroupRole::Owner,
             peer_sharing_consent: false,
+            coach_sharing_consent: false,
             consent_given_at: now,
             joined_at: now,
             left_at: None,
@@ -745,6 +748,7 @@ async fn seed_future_only_plan(
                     phase_index: None,
                 },
             ],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     Ok(resume_start)
@@ -817,6 +821,7 @@ async fn seed_week_missing_today(
                 adjustment_reason: "",
                 phase_index: None,
             }],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     Ok(())
@@ -979,6 +984,7 @@ async fn seed_expired_plan(
                     phase_index: None,
                 },
             ],
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     Ok(())

@@ -8,6 +8,7 @@
 
 use chrono::NaiveDate;
 use pierre_contremaitre::TrainingCatalogueRegistry;
+use pierre_core::transport::TransportPolicy;
 use pierre_memory::training_plans::parse_plan_date;
 use pierre_services::agent_package::PackagedCatalogue;
 use pierre_services::plan_fueling::FuelingDisclosure;
@@ -81,6 +82,7 @@ fn plan() -> TrainingPlan {
         source_conversation_id: None,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
+        transport_policy: TransportPolicy::AnyTransport,
     }
 }
 

@@ -33,6 +33,7 @@
 
 mod common;
 
+use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
 use chrono::{Duration, NaiveDate, Utc};
@@ -114,6 +115,7 @@ async fn fixture() -> Fixture {
         w_prime_joules: None,
         critical_speed_mps: None,
         d_prime_meters: None,
+        transport_policy: TransportPolicy::AnyTransport,
     };
     resources
         .common

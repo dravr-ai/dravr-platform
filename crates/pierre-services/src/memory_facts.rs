@@ -12,6 +12,7 @@
 //! enforced by the caller (the route handler resolves the active tenant
 //! from the authenticated session before invoking these helpers).
 
+use pierre_providers::ai_scope;
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
@@ -144,10 +145,20 @@ pub async fn list_user_facts(
     limit: i64,
 ) -> AppResult<UserFactListResponse> {
     let clamped = limit.clamp(1, MAX_LIST_LIMIT);
-    let facts = repos
+    let mut facts = repos
         .memory
-        .list_user_facts(tenant_id, user_id, agent_id, kind, clamped)
+        .list_user_facts(
+            tenant_id,
+            user_id,
+            agent_id,
+            kind,
+            clamped,
+            ai_scope::readable_policy(),
+        )
         .await?;
+    // A fact derived from first-party-only data is withheld from an external
+    // caller; the rest are served (carnet#769).
+    ai_scope::retain_admitted(&mut facts, |fact| fact.transport_policy);
 
     let agent_titles = agent_titles_for(repos, &facts, user_id, tenant_id).await;
 

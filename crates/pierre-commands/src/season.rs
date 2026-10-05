@@ -13,6 +13,7 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::errors::AppError;
 use pierre_core::models::{Dossier, GuidedFlow, Pillar};
 use pierre_memory::{FactKind, FactSource, PredicateCode};
+use pierre_providers::ai_scope;
 use pierre_services::memory_facts::SentenceRenderer;
 use tracing::warn;
 
@@ -73,7 +74,12 @@ impl CommandHandler for SeasonHandler {
             .ctx
             .repos()
             .dossier
-            .compose_dossier(ctx.tenant_id, ctx.user_id)
+            .compose_dossier(
+                ctx.tenant_id,
+                ctx.user_id,
+                ai_scope::readable_policy(),
+                &ai_scope::admit_derived,
+            )
             .await
         {
             Ok(dossier) => availability_on_file(&dossier, SentenceRenderer::new(reg, &ctx.locale)),

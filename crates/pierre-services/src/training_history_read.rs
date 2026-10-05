@@ -409,7 +409,10 @@ async fn athlete_inputs(
     let profile = repos
         .user_physiological_profile
         .get_user_physiological_profile(tenant_id, user_id)
-        .await?;
+        .await?
+        // A profile written from first-party-only data is withheld from an
+        // external caller (carnet#769).
+        .filter(|profile| ai_scope::admit_derived(profile.transport_policy));
     Ok(AthleteInputs::from_profile(profile.as_ref()))
 }
 
@@ -491,6 +494,7 @@ pub(crate) mod tests {
             w_prime_joules: None,
             critical_speed_mps: None,
             d_prime_meters: None,
+            transport_policy: TransportPolicy::AnyTransport,
         };
         repos
             .user_physiological_profile

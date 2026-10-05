@@ -10,6 +10,7 @@
 use anyhow::Result;
 use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
 use pierre_core::models::{Tenant, TenantId, User};
+use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::Database;
 use pierre_database::repositories::InsertAgentNoteParams;
 use pierre_memory::scope::MemoryScope;
@@ -80,13 +81,20 @@ async fn suppressed_notes_are_excluded_from_memory_recall() -> Result<()> {
             conversation_id: None,
             scope: MemoryScope::User,
             content: "user mentioned they want to qualify for Boston in 2027",
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     assert!(!note.suppressed);
 
     // Before suppression: recall returns the note.
     let before = memory
-        .list_agent_notes(tenant, &user_id, &agent_id, 50)
+        .list_agent_notes(
+            tenant,
+            &user_id,
+            &agent_id,
+            50,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await?;
     assert_eq!(before.len(), 1);
 
@@ -97,7 +105,13 @@ async fn suppressed_notes_are_excluded_from_memory_recall() -> Result<()> {
 
     // After suppression: recall must NOT see the note.
     let after = memory
-        .list_agent_notes(tenant, &user_id, &agent_id, 50)
+        .list_agent_notes(
+            tenant,
+            &user_id,
+            &agent_id,
+            50,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await?;
     assert!(
         after.is_empty(),
@@ -129,6 +143,7 @@ async fn suppress_then_unsuppress_restores_recall() -> Result<()> {
             conversation_id: None,
             scope: MemoryScope::User,
             content: "marathon time goal: sub-3:00",
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
 
@@ -136,7 +151,13 @@ async fn suppress_then_unsuppress_restores_recall() -> Result<()> {
         .set_agent_note_suppressed(&note.id, tenant, true, "admin")
         .await?;
     let after_suppress = memory
-        .list_agent_notes(tenant, &user_id, &agent_id, 50)
+        .list_agent_notes(
+            tenant,
+            &user_id,
+            &agent_id,
+            50,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await?;
     assert!(after_suppress.is_empty());
 
@@ -146,7 +167,13 @@ async fn suppress_then_unsuppress_restores_recall() -> Result<()> {
     assert!(changed, "unsuppress should flip the flag back");
 
     let after_unsuppress = memory
-        .list_agent_notes(tenant, &user_id, &agent_id, 50)
+        .list_agent_notes(
+            tenant,
+            &user_id,
+            &agent_id,
+            50,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await?;
     assert_eq!(after_unsuppress.len(), 1, "recall returns the note again");
     assert!(!after_unsuppress[0].suppressed);
@@ -168,6 +195,7 @@ async fn set_suppressed_is_idempotent() -> Result<()> {
             conversation_id: None,
             scope: MemoryScope::User,
             content: "needs hydration reminders before long runs",
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
 
@@ -198,6 +226,7 @@ async fn set_suppressed_returns_false_for_missing_or_wrong_tenant() -> Result<()
             conversation_id: None,
             scope: MemoryScope::User,
             content: "tenant a only",
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
 
@@ -214,7 +243,13 @@ async fn set_suppressed_returns_false_for_missing_or_wrong_tenant() -> Result<()
 
     // The original row's flag should still be false.
     let still_active = memory
-        .list_agent_notes(tenant_a, &user_a, &coach_a, 50)
+        .list_agent_notes(
+            tenant_a,
+            &user_a,
+            &coach_a,
+            50,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await?;
     assert_eq!(still_active.len(), 1);
     assert!(!still_active[0].suppressed);

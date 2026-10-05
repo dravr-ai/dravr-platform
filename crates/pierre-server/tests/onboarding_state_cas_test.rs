@@ -24,6 +24,7 @@
 #[path = "helpers/db_fixtures.rs"]
 mod db_fixtures;
 use db_fixtures::{create_test_db, seed_user};
+use pierre_core::transport::TransportPolicy;
 
 use pierre_core::models::{
     CalibrationTopic, CoverageTarget, GuidedFlow, LoadSnapshot, OnboardingState, Pillar, TenantId,
@@ -59,6 +60,7 @@ fn calibration_state() -> String {
             longest_session_min: 195,
             weeks: 6,
             sport_families: 1,
+            transport_policy: TransportPolicy::AnyTransport,
         }))
         .to_column()
         .unwrap()

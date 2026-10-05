@@ -17,6 +17,7 @@ use pierre_commands::calibration::CalibrateHandler;
 use pierre_commands::season::SeasonHandler;
 use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_core::models::{GuidedFlow, GuidedWindow, OnboardingState, Pillar, TenantId};
+use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
@@ -109,6 +110,7 @@ async fn land(
             source: FactSource::Onboarding,
             valid_until: None,
             source_msg_id: None,
+            transport_policy: TransportPolicy::AnyTransport,
         })
         .await?;
     Ok(fact.id)
@@ -120,7 +122,13 @@ async fn is_live(resources: &Arc<ServerContext>, tenant: TenantId, user: &str, i
         .common
         .repos
         .memory
-        .list_user_facts_by_source(tenant, user, FactSource::Onboarding, 100)
+        .list_user_facts_by_source(
+            tenant,
+            user,
+            FactSource::Onboarding,
+            100,
+            TransportPolicy::FirstPartyOnly,
+        )
         .await
         .expect("facts readable")
         .iter()

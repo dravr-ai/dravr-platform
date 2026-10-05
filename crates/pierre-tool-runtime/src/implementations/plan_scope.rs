@@ -31,10 +31,12 @@
 //! 2. **The agent attachment.** The athlete must be an active member of a
 //!    group the requester is `coach_user_id` of. Owner and admin roles do not
 //!    qualify — on a channel-bound group the owner is whoever spoke first.
-//! 3. **The athlete's consent.** The same two gates
-//!    `get_group_member_activities` applies: the group's `peer_data_sharing`
-//!    switch and the member's own `peer_sharing_consent`. Consent is the
-//!    athlete's grant; nothing here ships with zero athlete-side control.
+//! 3. **The athlete's consent.** The gate `get_group_member_activities`
+//!    applies to a group's coach: the member's own `coach_sharing_consent`.
+//!    Joining grants it (ADR-002: membership is consent to share with the
+//!    coach) and `/group consent coach no` revokes it, so nothing here ships
+//!    with zero athlete-side control. The group's `peer_data_sharing` switch
+//!    governs what members see of each other, not their coach.
 //! 4. **One home tenant.** The plan lives under the athlete's own tenant. An
 //!    athlete who belongs to several would read an agent-written plan on one
 //!    surface and not another, so that case is refused rather than guessed.
@@ -109,7 +111,6 @@ pub struct PlanScopeRequest<'a> {
 struct AthleteMatch {
     group_id: Uuid,
     group_name: String,
-    group_allows_sharing: bool,
     display_name: String,
     user_id: Uuid,
     consented: bool,
@@ -187,10 +188,9 @@ pub async fn resolve_plan_scope(
             matches.push(AthleteMatch {
                 group_id: group.id,
                 group_name: group.name.clone(),
-                group_allows_sharing: group.peer_data_sharing,
                 display_name,
                 user_id: member.user_id,
-                consented: member.peer_sharing_consent,
+                consented: member.coach_sharing_consent,
             });
         }
     }
@@ -220,22 +220,15 @@ pub async fn resolve_plan_scope(
         ))));
     }
 
-    // Gate 3: the athlete's own grant. Prefer a group where both gates are
-    // open so the refusal, when there is one, names the most permissive row.
-    let resolved = matches
-        .iter()
-        .find(|m| m.group_allows_sharing && m.consented)
-        .unwrap_or(first);
-    if !resolved.group_allows_sharing {
-        return Ok(Err(refusal(&format!(
-            "Peer data sharing is disabled for group '{}'.",
-            resolved.group_name
-        ))));
-    }
+    // Gate 3: the athlete's own grant. Prefer a group where they share with
+    // the coach so the refusal, when there is one, names the most permissive
+    // row.
+    let resolved = matches.iter().find(|m| m.consented).unwrap_or(first);
     if !resolved.consented {
         return Ok(Err(refusal(&format!(
-            "{} hasn't shared their data with the group yet. They can opt in with `/group consent yes`.",
-            resolved.display_name
+            "{} has stopped sharing their data with you, the coach of '{}'. They can share it \
+             again with `/group consent coach yes`.",
+            resolved.display_name, resolved.group_name
         ))));
     }
 

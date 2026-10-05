@@ -28,13 +28,14 @@
 
 use chrono::NaiveDate;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
-use pierre_core::errors::AppResult;
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::periodization::{PhaseKind, WorkoutStep};
 use pierre_core::models::{FuelingProtocol, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{
     parse_plan_date, GoalRace, PlanWeek, PlannedDay, SelectedBy, TemplateSource, TrainingPlan,
 };
+use pierre_providers::ai_scope;
 use serde::Serialize;
 use tracing::warn;
 use uuid::Uuid;
@@ -323,6 +324,8 @@ pub async fn load_plan_card(
 ) -> Option<PlanCard> {
     match try_load_plan_card(repos, tenant, user_id, today, registry, locale).await {
         Ok(card) => card,
+        // Not served over this transport: the courtesy card is simply absent.
+        Err(e) if e.code == ErrorCode::UnavailableOverTransport => None,
         Err(e) => {
             warn!(error = %e, "plan card: active plan unreadable");
             None
@@ -341,7 +344,10 @@ pub async fn load_plan_card(
 /// # Errors
 ///
 /// Returns the repository error when the active plan, its weeks or the
-/// athlete's medical flag cannot be read.
+/// athlete's medical flag cannot be read, and
+/// [`ErrorCode::UnavailableOverTransport`] when the plan was derived from
+/// first-party-only data and the caller is external (carnet#769) — never
+/// "no plan", which would invite the caller to lay one over it.
 pub async fn try_load_plan_card(
     repos: &RepositoryRegistry,
     tenant: TenantId,
@@ -359,6 +365,11 @@ pub async fn try_load_plan_card(
     else {
         return Ok(None);
     };
+    if !ai_scope::admit_derived(plan.transport_policy) {
+        return Err(AppError::unavailable_over_transport(
+            "this athlete's training plan is not available over this interface",
+        ));
+    }
     let weeks = repos
         .training_plans
         .list_plan_weeks(&tenant_id, &user, &plan.id, false)

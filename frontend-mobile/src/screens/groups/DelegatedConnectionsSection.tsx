@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Group info's TrainingPeaks links — the coach links roster athletes to members, a member confirms or declines
+// ABOUTME: Group info's coaching-platform links — the coach links roster athletes to members, a member confirms or declines
 // ABOUTME: Either side ends a link; every refusal is worded from its details.reason, never from the server's English
 
 import React, { useState } from 'react';
@@ -10,10 +10,11 @@ import { useQuery } from '@tanstack/react-query';
 import {
   DELEGATION_CONNECTION_REFUSALS,
   QUERY_KEYS,
+  coachPlatformName,
   delegationRefusalKey,
   isDelegationRefusal,
 } from '@pierre/shared-constants';
-import { refusalReason } from '@pierre/ui-logic';
+import { refusalProvider, refusalReason } from '@pierre/ui-logic';
 import { useTranslation } from '@pierre/i18n';
 import { useThemeColors } from '../../constants/theme';
 import { Button, Row, Sheet, StatusDot } from '../../components/ui';
@@ -61,10 +62,13 @@ function StatusLine({ tone, text, testID }: { tone: 'success' | 'warning'; text:
   );
 }
 
-/** Says a failed step from its refusal reason. */
+/** Says a failed step from its refusal reason, naming the platform it is about. */
 function useRefusalAlert() {
   const { t } = useTranslation();
-  return (err: unknown) => Alert.alert(t('common.error'), t(delegationRefusalKey(refusalReason(err))));
+  return (err: unknown) => {
+    const platform = coachPlatformName(refusalProvider(err));
+    Alert.alert(t('common.error'), t(delegationRefusalKey(refusalReason(err)), { platform }));
+  };
 }
 
 export function DelegatedConnectionsSection({
@@ -94,7 +98,7 @@ function CoachLinks({
   const { t } = useTranslation();
   const colors = useThemeColors();
   const showRefusal = useRefusalAlert();
-  const { athletes, isLoading, isError, error } = useDelegationRoster(groupId, true);
+  const { athletes, provider, isLoading, isError, error } = useDelegationRoster(groupId, true);
   const { refreshRoster, isPending: isRefreshing } = useRefreshDelegationRoster(groupId);
   const { proposeLink } = useProposeDelegatedConnection(groupId);
   const { endLink } = useEndDelegatedConnection(groupId);
@@ -103,12 +107,18 @@ function CoachLinks({
   const linkedMemberIds = new Set(connections.map((link) => link.member_user_id));
   const choices = members.filter((m) => !linkedMemberIds.has(m.user_id));
   const reason = isError ? refusalReason(error) : undefined;
+  // The roster names its platform; a refused read names the one it is about;
+  // a failed read falls back to the platform the coach's links already run on.
+  const platform = coachPlatformName(
+    provider ?? (isError ? refusalProvider(error) : undefined) ?? connections[0]?.provider,
+  );
   const nameOf = (member: GroupMember | undefined, fallback: string) => member?.display_name ?? fallback;
 
   const propose = async (athlete: DelegationRosterAthlete, member: GroupMember) => {
     setPickingFor(null);
+    if (!provider) return;
     try {
-      await proposeLink({ athleteId: athlete.provider_athlete_id, memberUserId: member.user_id });
+      await proposeLink({ provider, athleteId: athlete.provider_athlete_id, memberUserId: member.user_id });
     } catch (err) {
       showRefusal(err);
     }
@@ -123,7 +133,7 @@ function CoachLinks({
   };
 
   const confirmUnlink = (link: DelegatedConnection) => {
-    Alert.alert(t('delegation.unlinkTitle'), t('delegation.unlinkBody'), [
+    Alert.alert(t('delegation.unlinkTitle', { platform }), t('delegation.unlinkBody', { platform }), [
       { text: t('common.cancel'), style: 'cancel' },
       { text: t('delegation.unlink'), style: 'destructive', onPress: () => void end(link) },
     ]);
@@ -134,7 +144,7 @@ function CoachLinks({
     body = (
       <View className="flex-row items-center gap-2 py-2">
         <ActivityIndicator size="small" color={colors.tokens.primary} />
-        <Text className="text-sm text-text-secondary">{t('delegation.rosterLoading')}</Text>
+        <Text className="text-sm text-text-secondary">{t('delegation.rosterLoading', { platform })}</Text>
       </View>
     );
   } else if (isError) {
@@ -142,7 +152,7 @@ function CoachLinks({
     body = (
       <View className="py-2 gap-1" testID="delegation-roster-refused">
         <Text className="text-sm text-text-secondary">
-          {refused ? t(delegationRefusalKey(reason)) : t('delegation.rosterFailed')}
+          {refused ? t(delegationRefusalKey(reason), { platform }) : t('delegation.rosterFailed', { platform })}
         </Text>
         {refused && DELEGATION_CONNECTION_REFUSALS.has(reason) && onOpenConnections && (
           <InkAction label={t('delegation.openConnections')} onPress={onOpenConnections} testID="delegation-open-connections" />
@@ -150,7 +160,7 @@ function CoachLinks({
       </View>
     );
   } else if (athletes.length === 0) {
-    body = <Text className="text-sm text-text-tertiary py-2">{t('delegation.rosterEmpty')}</Text>;
+    body = <Text className="text-sm text-text-tertiary py-2">{t('delegation.rosterEmpty', { platform })}</Text>;
   } else {
     body = (
       <View style={CANCEL_PANEL_INSET}>
@@ -164,7 +174,7 @@ function CoachLinks({
           let subtitle: string | undefined;
           if (link?.status === 'confirmed') {
             subtitle = link.read_refused
-              ? t(delegationRefusalKey(link.read_refused))
+              ? t(delegationRefusalKey(link.read_refused), { platform })
               : t('delegation.linkedTo', { member: linkedName });
             trailing = (
               <InkAction label={t('delegation.unlink')} onPress={() => confirmUnlink(link)} testID={`delegation-unlink-${link.id}`} />
@@ -206,7 +216,7 @@ function CoachLinks({
 
   return (
     <View testID="delegation-section">
-      <Text className="text-sm text-text-secondary py-2">{t('delegation.coachHint')}</Text>
+      <Text className="text-sm text-text-secondary py-2">{t('delegation.coachHint', { platform })}</Text>
       {body}
       {canRefresh && (
         <View className="py-2">
@@ -252,6 +262,7 @@ function CoachLinks({
 
 function MemberLink({ groupId, link }: { groupId: string; link: DelegatedConnection | null }) {
   const { t } = useTranslation();
+  const platform = coachPlatformName(link?.provider);
   const showRefusal = useRefusalAlert();
   const { confirmLink, isPending: isConfirming } = useConfirmDelegatedConnection(groupId);
   const { endLink, isPending: isEnding } = useEndDelegatedConnection(groupId);
@@ -291,11 +302,11 @@ function MemberLink({ groupId, link }: { groupId: string; link: DelegatedConnect
   if (!isConfirmed) {
     return (
       <View className="py-2 gap-2" testID="delegation-request">
-        <Text className="text-base font-semibold text-text-primary">{t('delegation.requestTitle')}</Text>
+        <Text className="text-base font-semibold text-text-primary">{t('delegation.requestTitle', { platform })}</Text>
         <Text className="text-sm text-text-secondary" testID="delegation-request-body">
           {link.provider_athlete_name
-            ? t('delegation.requestBody', { coach, athlete: link.provider_athlete_name })
-            : t('delegation.requestBodyNoName', { coach })}
+            ? t('delegation.requestBody', { platform, coach, athlete: link.provider_athlete_name })
+            : t('delegation.requestBodyNoName', { platform, coach })}
         </Text>
         <Text className="text-xs text-text-tertiary">{t('delegation.requestFootnote')}</Text>
         <View className="flex-row gap-2 pt-1">
@@ -320,7 +331,7 @@ function MemberLink({ groupId, link }: { groupId: string; link: DelegatedConnect
   }
 
   const unlink = () => {
-    Alert.alert(t('delegation.unlinkTitle'), t('delegation.unlinkBody'), [
+    Alert.alert(t('delegation.unlinkTitle', { platform }), t('delegation.unlinkBody', { platform }), [
       { text: t('common.cancel'), style: 'cancel' },
       { text: t('delegation.unlink'), style: 'destructive', onPress: () => void end() },
     ]);
@@ -329,11 +340,11 @@ function MemberLink({ groupId, link }: { groupId: string; link: DelegatedConnect
   return (
     <View className="flex-row items-center gap-3 py-2" testID="delegation-linked">
       {link.read_refused ? (
-        <StatusLine tone="warning" text={t(delegationRefusalKey(link.read_refused))} testID="delegation-read-refused" />
+        <StatusLine tone="warning" text={t(delegationRefusalKey(link.read_refused), { platform })} testID="delegation-read-refused" />
       ) : (
         <StatusLine
           tone={coachNeedsReauth ? 'warning' : 'success'}
-          text={coachNeedsReauth ? t('delegation.coachReconnectNeeded', { coach }) : t('delegation.confirmedBody', { coach })}
+          text={coachNeedsReauth ? t('delegation.coachReconnectNeeded', { platform, coach }) : t('delegation.confirmedBody', { platform, coach })}
         />
       )}
       <InkAction label={t('delegation.unlink')} onPress={unlink} testID={`delegation-unlink-${link.id}`} />
