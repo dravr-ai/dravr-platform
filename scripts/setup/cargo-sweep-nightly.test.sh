@@ -153,6 +153,97 @@ else
   rm -rf "$root"
 fi
 
+echo "cargo-sweep-nightly.sh — disk guard (carnet#799)"
+
+# A build tree whose last build was $2 hours ago, by the sentinel cargo rewrites.
+age_tree() { # $1 = target dir, $2 = hours ago
+  : > "$1/.rustc_info.json"
+  touch -t "$(date -v-"$2"H +%Y%m%d%H%M.%S)" "$1/.rustc_info.json"
+}
+
+# A run that skips the slow age pass, so a fixture needs no buildable crate: a
+# scheduled run whose age pass is fresh does only merged worktrees, cap and floor.
+quick_sweep() { # $1 = scan root, rest = extra args
+  local root="$1" state; shift
+  state="$(mktemp -d "${TMPDIR:-/tmp}/cargo-sweep-state.XXXXXX")"
+  : > "$state/last-age-sweep"
+  CARGO_SWEEP_STATE_DIR="$state" "$UNDER_TEST" sweep --root "$root" --scheduled --dry-run "$@" 2>&1 || true
+  rm -rf "$state"
+}
+
+hook_input() { printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$1"; }
+
+root="$(new_root)"
+rc=0; hook_input "cd crates && cargo test --test foo" | "$UNDER_TEST" guard --hard-floor 999TiB >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 2 ]] && pass "guard refuses a cargo build under the hard floor (exit 2)" \
+  || fail "guard refuses a cargo build under the hard floor (exit $rc)"
+rc=0; hook_input "ls -la" | "$UNDER_TEST" guard --hard-floor 999TiB >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 0 ]] && pass "guard lets a non-build command through under the floor" \
+  || fail "guard lets a non-build command through under the floor (exit $rc)"
+rc=0; hook_input "cargo build" | "$UNDER_TEST" guard --hard-floor 1KiB >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 0 ]] && pass "guard lets a build through above the floor" \
+  || fail "guard lets a build through above the floor (exit $rc)"
+rc=0; hook_input "cargo build" | CARGO_SWEEP_HARD_FLOOR=lots "$UNDER_TEST" guard >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 0 ]] && pass "guard fails open on a malformed setting, never exit 2" \
+  || fail "guard fails open on a malformed setting, never exit 2 (exit $rc)"
+rc=0; printf 'not json' | CARGO_SWEEP_SCAN_ROOT=/nonexistent "$UNDER_TEST" guard --hard-floor 999TiB >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 0 ]] && pass "guard fails open on unreadable input and a missing scan root" \
+  || fail "guard fails open on unreadable input and a missing scan root (exit $rc)"
+
+out="$("$UNDER_TEST" check --root "$root" --min-free 1KiB 2>&1 || true)"
+[[ -z "$out" ]] && pass "check is silent above the floor" || fail "check is silent above the floor (got: $out)"
+out="$("$UNDER_TEST" check --root "$root" --min-free 999TiB 2>&1 || true)"
+printf '%s' "$out" | grep -q "DISK: .* under the .* floor" && pass "check warns under the floor" \
+  || fail "check warns under the floor (got: ${out:-<none>})"
+rm -rf "$root"
+
+# Under the floor, whole trees go least-recently-built first, and a run stops
+# once the projected free space would clear it.
+root="$(new_root)"
+old="$(make_repo "$root" "old")"; make_tree "$old" "target"; age_tree "$old/target" 48
+new="$(make_repo "$root" "new")"; make_tree "$new" "target"; age_tree "$new/target" 1
+out="$(quick_sweep "$root" --min-free 999TiB --keep 0)"
+order="$(printf '%s\n' "$out" | sed -n 's/^floor: would reclaim \([a-z]*\) .*/\1/p' | tr '\n' ' ')"
+[[ "$order" == "old new " ]] && pass "the floor reclaims least-recently-built first" \
+  || fail "the floor reclaims least-recently-built first (got: ${order:-<none>})"
+out="$(quick_sweep "$root" --min-free 999TiB --keep 1)"
+printf '%s\n' "$out" | grep -q "^floor: keeping new " && pass "the floor keeps the --keep newest trees" \
+  || fail "the floor keeps the --keep newest trees"
+out="$(quick_sweep "$root" --min-free 1KiB)"
+printf '%s\n' "$out" | grep -q "^floor: would reclaim" && fail "the floor reclaims nothing above it" \
+  || pass "the floor reclaims nothing above it"
+rm -rf "$root"
+
+# A linked worktree whose content is on main gives up its build tree once it has
+# sat unbuilt; one with unlanded work, or one built recently, keeps it.
+root="$(new_root)"; repo="$(make_repo "$root" "host")"
+(
+  cd "$repo"
+  git init -q -b main . && printf 'target*\n' > .gitignore
+  git add -A && git -c user.email=t@t -c user.name=t commit -qm init
+  git update-ref refs/remotes/origin/main HEAD
+  git worktree add -q "$repo/.claude/worktrees/landed" -b landed
+  git worktree add -q "$repo/.claude/worktrees/squashed" -b squashed
+  git worktree add -q "$repo/.claude/worktrees/unlanded" -b unlanded
+  git worktree add -q "$repo/.claude/worktrees/fresh" -b fresh
+  # squashed: its commit reaches main as a different, squashed commit.
+  ( cd "$repo/.claude/worktrees/squashed" && echo a > a.txt && git add a.txt && git -c user.email=t@t -c user.name=t commit -qm a )
+  git checkout -q --detach && echo a > a.txt && git add a.txt && git -c user.email=t@t -c user.name=t commit -qm "squash of a"
+  git update-ref refs/remotes/origin/main HEAD && git checkout -q main
+  ( cd "$repo/.claude/worktrees/unlanded" && echo b > b.txt && git add b.txt && git -c user.email=t@t -c user.name=t commit -qm b )
+) >/dev/null 2>&1
+for wt in landed squashed unlanded fresh; do
+  make_tree "$repo/.claude/worktrees/$wt" "target"
+done
+for wt in landed squashed unlanded; do age_tree "$repo/.claude/worktrees/$wt/target" 8; done
+age_tree "$repo/.claude/worktrees/fresh/target" 1
+out="$(quick_sweep "$root" --min-free 0)"
+merged="$(printf '%s\n' "$out" | sed -n 's/^would   reclaim \([a-z]*\) .*already on main.*/\1/p' | sort | tr '\n' ' ')"
+[[ "$merged" == "landed squashed " ]] \
+  && pass "landed and squash-merged worktrees give up their build trees; unlanded and fresh ones keep them" \
+  || fail "landed and squash-merged worktrees give up their build trees; unlanded and fresh ones keep them (got: ${merged:-<none>})"
+rm -rf "$root"
+
 echo ""
 if [[ "$failures" -eq 0 ]]; then
   echo "✅ all cargo-sweep-nightly discovery cases passed"

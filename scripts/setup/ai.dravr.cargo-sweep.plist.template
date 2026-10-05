@@ -5,9 +5,10 @@
     <key>Label</key>
     <string>ai.dravr.cargo-sweep</string>
 
-    <!-- The routine age-based sweep, followed by cap enforcement. The cap is passed
-         explicitly rather than left to the script default so the schedule is fully
-         described by this file. `status` reads it back and reports it, so a drift
+    <!-- The routine sweep: merged worktrees, the age pass (at most once a day on a
+         scheduled run), then the cap and the free-space floor. The cap and the floor are
+         passed explicitly rather than left to the script defaults so the schedule is
+         fully described by this file. `status` reads it back and reports it, so a drift
          between the installed schedule and the script default is visible.
          `purge` is deliberately NOT scheduled: it drops incremental caches and whole
          idle trees, which costs the next build in every repo. Run it by hand when
@@ -17,20 +18,18 @@
         <string>/bin/bash</string>
         <string>__SCRIPT__</string>
         <string>sweep</string>
+        <string>--scheduled</string>
         <string>--cap</string>
         <string>__CAP__</string>
+        <string>--min-free</string>
+        <string>__MIN_FREE__</string>
     </array>
 
-    <!-- Local time, and this machine is America/Toronto, so this is 02:00 Eastern and
-         follows DST automatically. If the Mac is asleep at 02:00, launchd runs the job
-         when it next wakes rather than skipping the day. -->
-    <key>StartCalendarInterval</key>
-    <dict>
-        <key>Hour</key>
-        <integer>2</integer>
-        <key>Minute</key>
-        <integer>0</integer>
-    </dict>
+    <!-- Hourly. Nightly let four agent worktrees fill the disk between 13:30 and 16:30
+         on 2026-10-05 with nothing reacting; the floor needs to act within the hour.
+         The slow age pass still runs about once a day: the script throttles it. -->
+    <key>StartInterval</key>
+    <integer>3600</integer>
 
     <key>RunAtLoad</key>
     <false/>

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 # ABOUTME: Reclaims Cargo build output across every repository under a scan root, on a schedule.
-# ABOUTME: Runs cargo-sweep per repo, then enforces a fleet-wide size ceiling by escalating on idle repos.
+# ABOUTME: Runs cargo-sweep per repo, enforces a fleet size ceiling and a free-space floor, guards builds.
 #
 # macOS only: it uses BSD `stat -f`, BSD `du`, and `launchctl` for the schedule.
 # Every repository keeps its own plain target/ directory and disk is reclaimed on
@@ -26,8 +26,24 @@ KEEP="${CARGO_SWEEP_KEEP:-1}"
 # <repo>/.claude/worktrees/<name>/target, depth 5 under the root. At three those
 # trees were never counted against the cap and grew to ~250 GiB unswept.
 MAX_DEPTH="${CARGO_SWEEP_MAX_DEPTH:-5}"
+# The cap is a budget for build output; the floor is what actually failed on
+# 2026-10-05, when four agent worktrees filled the disk inside three hours and
+# every tool call died on ENOSPC. Below MIN_FREE the run reclaims build trees
+# until the volume is back above it; below HARD_FLOOR `guard` refuses new builds.
+MIN_FREE_SPEC="${CARGO_SWEEP_MIN_FREE:-80GiB}"
+HARD_FLOOR_SPEC="${CARGO_SWEEP_HARD_FLOOR:-30GiB}"
+# A linked worktree whose content already landed keeps a full target/ until
+# someone removes it. Its tree is reclaimed once it has sat unbuilt this long,
+# so a worktree freshly cut from main and being built right now is left alone.
+MERGED_IDLE_HOURS="${CARGO_SWEEP_MERGED_IDLE_HOURS:-6}"
+# The schedule fires hourly so the floor reacts within the hour; the age pass is
+# slow and gains nothing from running that often, so a scheduled run does it at
+# most once per this many hours.
+AGE_EVERY_HOURS="${CARGO_SWEEP_AGE_EVERY_HOURS:-20}"
+STATE_DIR="${CARGO_SWEEP_STATE_DIR:-$HOME/.local/state/cargo-sweep}"
 
 NO_CAP=0
+SCHEDULED=0
 FORCE=0
 DRY_RUN=0
 COMMAND=""
@@ -63,7 +79,11 @@ Commands:
   sweep       Age-based cargo-sweep pass across the fleet, then enforce the cap (default)
   purge       Aggressive immediate reclaim (incremental caches, idle repos), then enforce the cap
   status      Per-repo sizes, fleet total, headroom against the cap; read-only
-  install     Render and bootstrap the ai.dravr.cargo-sweep LaunchAgent
+  check       One warning line when free space is under the floor, else silent;
+              read-only, for a SessionStart hook
+  guard       PreToolUse hook: reads the tool call on stdin and refuses a build
+              command (exit 2) when free space is under the hard floor
+  install     Render and bootstrap the ai.dravr.cargo-sweep LaunchAgent (hourly)
   uninstall   Boot out and remove the LaunchAgent
 
 Options:
@@ -74,6 +94,12 @@ Options:
   --keep N         Never wholesale-drop the N most-recently-built repos
                                                     (env CARGO_SWEEP_KEEP,      default 1)
   --max-depth N    Discovery depth under the root   (env CARGO_SWEEP_MAX_DEPTH, default 5)
+  --min-free SIZE  Free-space floor the run restores (env CARGO_SWEEP_MIN_FREE, default 80GiB; 0 = off)
+  --hard-floor SIZE  Below this, `guard` refuses builds
+                                                    (env CARGO_SWEEP_HARD_FLOOR, default 30GiB; 0 = off)
+  --scheduled      Run as the LaunchAgent does: the age pass at most once per
+                   CARGO_SWEEP_AGE_EVERY_HOURS (default 20); merged worktrees,
+                   the cap and the floor every time
   --no-cap         Run the sweep or purge, skip cap enforcement
   --force          Proceed on repos whose cargo build lock is held
   --dry-run        Print every action, change nothing
@@ -82,9 +108,9 @@ Options:
 Sizes accept KiB/MiB/GiB/TiB and KB/MB/GB/TB; a bare number means MiB.
 
 Exit codes:
-  0    ran; fleet is under the cap (or --no-cap)
-  1    cap could not be reached; the message names the repos that blocked it
-  2    usage error
+  0    ran; fleet is under the cap (or --no-cap) and free space is above the floor
+  1    cap or floor could not be reached; the message names what blocked it
+  2    usage error; for `guard`, the build was refused
   127  cargo-sweep is not installed
 
 The cap is enforced, not warned about: when the routine pass leaves the fleet
@@ -105,7 +131,7 @@ need_value() {
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        sweep|purge|status|install|uninstall)
+        sweep|purge|status|check|guard|install|uninstall)
             [[ -z "$COMMAND" ]] || usage_error "unexpected argument: $1"
             COMMAND="$1"; shift ;;
         --root) need_value "$1" $#; SCAN_ROOT="$2"; shift 2 ;;
@@ -114,6 +140,9 @@ while [[ $# -gt 0 ]]; do
         --idle-days) need_value "$1" $#; IDLE_DAYS="$2"; shift 2 ;;
         --keep) need_value "$1" $#; KEEP="$2"; shift 2 ;;
         --max-depth) need_value "$1" $#; MAX_DEPTH="$2"; shift 2 ;;
+        --min-free) need_value "$1" $#; MIN_FREE_SPEC="$2"; shift 2 ;;
+        --hard-floor) need_value "$1" $#; HARD_FLOOR_SPEC="$2"; shift 2 ;;
+        --scheduled) SCHEDULED=1; shift ;;
         --no-cap) NO_CAP=1; shift ;;
         --force) FORCE=1; shift ;;
         --dry-run) DRY_RUN=1; shift ;;
@@ -124,10 +153,21 @@ done
 
 COMMAND="${COMMAND:-sweep}"
 
-for pair in "days:$DAYS" "idle-days:$IDLE_DAYS" "keep:$KEEP" "max-depth:$MAX_DEPTH"; do
+# The two hooks must fail open: a malformed setting or a missing scan root on
+# some machine must never turn into exit 2, which a PreToolUse hook reads as
+# "refuse this command" and would block every Bash call in the session.
+is_hook_command() {
+    [[ "$COMMAND" == "guard" || "$COMMAND" == "check" ]]
+}
+
+for pair in "days:$DAYS" "idle-days:$IDLE_DAYS" "keep:$KEEP" "max-depth:$MAX_DEPTH" \
+            "merged-idle-hours:$MERGED_IDLE_HOURS" "age-every-hours:$AGE_EVERY_HOURS"; do
     name="${pair%%:*}"
     value="${pair#*:}"
-    [[ "$value" =~ ^[0-9]+$ ]] || usage_error "--$name expects a non-negative integer, got: $value"
+    if [[ ! "$value" =~ ^[0-9]+$ ]]; then
+        is_hook_command && exit 0
+        usage_error "--$name expects a non-negative integer, got: $value"
+    fi
 done
 [[ "$MAX_DEPTH" -ge 1 ]] || usage_error "--max-depth must be at least 1"
 
@@ -153,17 +193,33 @@ parse_size() {
     echo $((num * mult))
 }
 
-CAP_BYTES=$(parse_size "$CAP_SPEC") || usage_error \
-    "unparseable size: $CAP_SPEC — accepted forms: 400GiB, 400GB, 512000MiB, 400 (bare = MiB)"
+size_setting() { # $1 = flag name, $2 = value; prints bytes
+    local bytes
+    if ! bytes=$(parse_size "$2"); then
+        # A hook reads 0 as "this limit is off", which is the fail-open answer.
+        is_hook_command && { echo 0; return 0; }
+        usage_error "unparseable size for --$1: $2 — accepted forms: 400GiB, 400GB, 512000MiB, 400 (bare = MiB)"
+    fi
+    echo "$bytes"
+}
+
+CAP_BYTES=$(size_setting cap "$CAP_SPEC") || exit $?
 CAP_KIB=$((CAP_BYTES / 1024))
-[[ "$CAP_KIB" -gt 0 ]] || usage_error "--cap must be greater than zero, got: $CAP_SPEC"
+[[ "$CAP_KIB" -gt 0 ]] || is_hook_command || usage_error "--cap must be greater than zero, got: $CAP_SPEC"
+MIN_FREE_BYTES=$(size_setting min-free "$MIN_FREE_SPEC") || exit $?
+MIN_FREE_KIB=$((MIN_FREE_BYTES / 1024))
+HARD_FLOOR_BYTES=$(size_setting hard-floor "$HARD_FLOOR_SPEC") || exit $?
+HARD_FLOOR_KIB=$((HARD_FLOOR_BYTES / 1024))
 
 # A scan root that is missing, unreadable, or not a directory finds no target
 # dirs and would otherwise report a healthy empty fleet and exit 0 — a nightly
-# job announcing success while sweeping nothing. Refuse instead.
-[[ -e "$SCAN_ROOT" ]] || usage_error "scan root does not exist: $SCAN_ROOT"
-[[ -d "$SCAN_ROOT" ]] || usage_error "scan root is not a directory: $SCAN_ROOT"
-[[ -r "$SCAN_ROOT" && -x "$SCAN_ROOT" ]] || usage_error "scan root is not readable: $SCAN_ROOT"
+# job announcing success while sweeping nothing. Refuse instead. The hooks only
+# read free space, which they measure on $HOME when the root is absent.
+if ! is_hook_command; then
+    [[ -e "$SCAN_ROOT" ]] || usage_error "scan root does not exist: $SCAN_ROOT"
+    [[ -d "$SCAN_ROOT" ]] || usage_error "scan root is not a directory: $SCAN_ROOT"
+    [[ -r "$SCAN_ROOT" && -x "$SCAN_ROOT" ]] || usage_error "scan root is not readable: $SCAN_ROOT"
+fi
 
 # Every line a dry run prints is prefixed, so no output can be mistaken for
 # something that happened.
@@ -237,6 +293,17 @@ fmt_kib() {
 
 pct_of_cap() {
     awk -v a="$1" -v b="$2" 'BEGIN { printf "%d", (b > 0 ? a * 100 / b : 0) }'
+}
+
+# KiB available on the volume holding the scan root, or -1 when df gives no
+# number. Every tree under ~/workspace shares one APFS volume, so one reading
+# answers for all of them.
+free_kib() {
+    local where="$SCAN_ROOT" out
+    [[ -d "$where" ]] || where="$HOME"
+    out=$(df -k "$where" 2>/dev/null | awk 'NR == 2 { print $4 }')
+    [[ "$out" =~ ^[0-9]+$ ]] || out=-1
+    echo "$out"
 }
 
 # Keep a long worktree name from pushing the columns out of alignment. Sibling
@@ -805,6 +872,173 @@ enforce_cap() {
     return 1
 }
 
+# --- merged worktrees ------------------------------------------------------
+
+# A linked worktree (its .git is a file) whose tree is clean and whose content
+# main already holds. Content, not ancestry: a squash merge leaves the branch's
+# commits off main's history, but merging HEAD into origin/main then changes
+# nothing, so the merge result's tree is main's own. The primary checkout is
+# never a candidate: its .git is a directory.
+worktree_landed() {
+    local root="$1" main_tree merged_tree
+    [[ -f "$root/.git" ]] || return 1
+    git -C "$root" rev-parse -q --verify 'origin/main^{commit}' >/dev/null 2>&1 || return 1
+    [[ -z "$(git -C "$root" status --porcelain --ignore-submodules=all 2>/dev/null)" ]] || return 1
+    main_tree=$(git -C "$root" rev-parse 'origin/main^{tree}' 2>/dev/null) || return 1
+    merged_tree=$(git -C "$root" merge-tree --write-tree origin/main HEAD 2>/dev/null | head -1) || return 1
+    [[ -n "$merged_tree" && "$merged_tree" == "$main_tree" ]]
+}
+
+# Reclaim the build tree of every landed worktree that has sat unbuilt for
+# MERGED_IDLE_HOURS. The worktree itself stays; only regenerable output goes.
+reclaim_merged_worktrees() {
+    local epoch root target label cur
+    while IFS=$'\t' read -r epoch root target label; do
+        [[ -n "$target" ]] || continue
+        [[ $((NOW - epoch)) -ge $((MERGED_IDLE_HOURS * 3600)) ]] || continue
+        worktree_landed "$root" || continue
+        if [[ $FORCE -eq 0 ]] && build_locked "$target"; then
+            locked_skip "$label"
+            continue
+        fi
+        cur=$(current_kib "$target")
+        [[ "$cur" -gt 0 ]] || continue
+        if [[ $DRY_RUN -eq 1 ]]; then
+            echo "${BLUE}would   reclaim $label ($(fmt_kib "$cur")) — worktree already on main${NC}"
+        else
+            echo "${GREEN}reclaim $label ($(fmt_kib "$cur")) — worktree already on main${NC}"
+            wholesale_reclaim "$target" "$label"
+        fi
+        record_row "$label" "$cur" 0 "$cur" "worktree already on main"
+        set_kib "$target" 0
+    done < "$ORDER"
+}
+
+# --- free-space floor ------------------------------------------------------
+
+# The cap bounds what build output may cost; the floor protects the machine.
+# Below MIN_FREE, reclaim whole build trees least-recently-built first — never a
+# tree whose build lock is held, never one of the KEEP newest — until the
+# volume is projected back above it. Projected, because a reclaimed tree is
+# deleted in the background and df only catches up minutes later.
+enforce_floor() {
+    [[ "$MIN_FREE_KIB" -gt 0 ]] || return 0
+    local free projected protected epoch root target label cur
+    free=$(free_kib)
+    if [[ "$free" -lt 0 ]]; then
+        echo "${YELLOW}floor: df gave no free-space reading for $SCAN_ROOT; floor not enforced${NC}"
+        return 0
+    fi
+    if [[ "$free" -ge "$MIN_FREE_KIB" ]]; then
+        echo "floor: $(fmt_kib "$MIN_FREE_KIB") — $(fmt_kib "$free") free"
+        return 0
+    fi
+
+    echo "floor: $(fmt_kib "$free") free, under the $(fmt_kib "$MIN_FREE_KIB") floor — reclaiming"
+    projected=$free
+    protected=$(protected_labels)
+    while IFS=$'\t' read -r epoch root target label; do
+        [[ "$projected" -lt "$MIN_FREE_KIB" ]] || break
+        [[ -n "$target" ]] || continue
+        if is_protected "$label" "$protected"; then
+            echo "floor: keeping $label (one of the $KEEP most-recently-built)"
+            continue
+        fi
+        if [[ $FORCE -eq 0 ]] && build_locked "$target"; then
+            echo "floor: skipped $label (build in progress)"
+            record_blocked "$label"
+            continue
+        fi
+        cur=$(current_kib "$target")
+        [[ "$cur" -gt 0 ]] || continue
+        if [[ $DRY_RUN -eq 1 ]]; then
+            echo "floor: would reclaim $label ($(fmt_kib "$cur")) — $(recency_reason "$epoch")"
+        else
+            echo "floor: reclaim $label ($(fmt_kib "$cur")) — $(recency_reason "$epoch")"
+            wholesale_reclaim "$target" "$label"
+        fi
+        set_kib "$target" 0
+        projected=$((projected + cur))
+        record_cap_row "$label" "$cur" "free-space floor"
+    done < "$ORDER"
+
+    if [[ "$projected" -ge "$MIN_FREE_KIB" ]]; then
+        echo "floor: ${PREFIX}restored — $(fmt_kib "$projected") free once background deletion finishes"
+        return 0
+    fi
+    echo "${RED}floor: STILL UNDER — $(fmt_kib "$projected") free projected vs a $(fmt_kib "$MIN_FREE_KIB") floor.${NC}"
+    if [[ -s "$BLOCKED" ]]; then
+        echo "     Blocked by held build locks: $(paste -sd, - < "$BLOCKED" | sed 's/,/, /g')."
+    fi
+    echo "     What remains is outside reclaimable build output; \`check\` names the largest scratchpads."
+    return 1
+}
+
+# --- hooks -----------------------------------------------------------------
+
+# The largest Claude Code scratchpads, which nothing reclaims: a session's
+# scratch output lives under the system temp dir until the machine reboots.
+# Named, never deleted — whether a session still needs one is not ours to judge.
+largest_scratchpads() {
+    local base="/private/tmp/claude-$(id -u)"
+    [[ -d "$base" ]] || return 0
+    { du -sk "$base"/*/*/scratchpad 2>/dev/null || true; } \
+        | sort -rn | head -3 \
+        | awk '{ k = $1; $1 = ""; sub(/^ /, ""); printf "%s %s\n", k, $0 }'
+}
+
+# SessionStart: silent above the floor, one warning (plus scratchpads) below it.
+cmd_check() {
+    [[ "$MIN_FREE_KIB" -gt 0 ]] || return 0
+    local free k path
+    free=$(free_kib)
+    [[ "$free" -ge 0 && "$free" -lt "$MIN_FREE_KIB" ]] || return 0
+    echo "⚠️  DISK: $(fmt_kib "$free") free, under the $(fmt_kib "$MIN_FREE_KIB") floor. Reclaim: scripts/setup/cargo-sweep-nightly.sh sweep (status shows the build trees)."
+    if [[ "$HARD_FLOOR_KIB" -gt 0 && "$free" -lt "$HARD_FLOOR_KIB" ]]; then
+        echo "   Under the $(fmt_kib "$HARD_FLOOR_KIB") hard floor: cargo builds are refused until space is freed."
+    fi
+    while read -r k path; do
+        [[ -n "$path" ]] || continue
+        echo "   scratchpad $(fmt_kib "$k")  $path"
+    done < <(largest_scratchpads)
+    return 0
+}
+
+# A command that compiles: cargo's build-shaped subcommands, and the scripts
+# that start with a full build. Matched as a word anywhere in a compound line.
+is_build_command() {
+    printf '%s' "$1" | grep -Eq \
+        '(^|[;&|( ])(cargo([[:space:]]+\+[^[:space:]]+)?[[:space:]]+(build|b|test|t|check|c|clippy|run|r|bench|doc|install|nextest|llvm-cov)|[^[:space:]]*pre-push-validate\.sh|[^[:space:]]*setup-db-with-seeds[^[:space:]]*\.sh)([[:space:]]|$)'
+}
+
+# PreToolUse: refuse a build below the hard floor. Exit 2 is the only refusal;
+# anything this cannot read — no python3, no command field, no df number —
+# lets the call through.
+cmd_guard() {
+    [[ "$HARD_FLOOR_KIB" -gt 0 ]] || return 0
+    local input command free
+    input=$(cat 2>/dev/null || true)
+    [[ -n "$PYTHON_BIN" ]] || return 0
+    command=$(printf '%s' "$input" | "$PYTHON_BIN" -c '
+import json, sys
+try:
+    print(json.load(sys.stdin).get("tool_input", {}).get("command", ""))
+except Exception:
+    pass
+' 2>/dev/null || true)
+    [[ -n "$command" ]] || return 0
+    is_build_command "$command" || return 0
+    free=$(free_kib)
+    [[ "$free" -ge 0 && "$free" -lt "$HARD_FLOOR_KIB" ]] || return 0
+    {
+        echo "Refused: $(fmt_kib "$free") free on disk, under the $(fmt_kib "$HARD_FLOOR_KIB") hard floor."
+        echo "A build here would fill the disk and every later tool call would fail with ENOSPC."
+        echo "Free space first: scripts/setup/cargo-sweep-nightly.sh status names the build trees;"
+        echo "a tree that belongs to another session is the user's call, not yours."
+    } >&2
+    exit 2
+}
+
 # --- report ----------------------------------------------------------------
 
 print_footer() {
@@ -843,14 +1077,30 @@ print_footer() {
 
 # --- sweep -----------------------------------------------------------------
 
-cmd_sweep() {
-    prelude
-    local before_total after_total root target label before after freed
-    before_total=$(fleet_total_kib)
-    echo "${BLUE}sweep: artifacts unused for ${DAYS}+ days, across $(wc -l < "$TARGETS" | tr -d ' ') target dir(s) under $SCAN_ROOT${NC}"
+# A scheduled run fires hourly; the age pass runs when the last one is older
+# than AGE_EVERY_HOURS. A run by hand always does it.
+age_pass_due() {
+    [[ $SCHEDULED -eq 1 ]] || return 0
+    local stamp="$STATE_DIR/last-age-sweep" last
+    [[ -f "$stamp" ]] || return 0
+    last=$(stat -f '%m' "$stamp" 2>/dev/null || echo 0)
+    [[ $((NOW - last)) -ge $((AGE_EVERY_HOURS * 3600)) ]]
+}
 
+mark_age_pass() {
+    [[ $DRY_RUN -eq 0 ]] || return 0
+    mkdir -p "$STATE_DIR" 2>/dev/null && : > "$STATE_DIR/last-age-sweep"
+    return 0
+}
+
+# The routine pass: cargo-sweep drops artifacts unused for DAYS+ days, per tree.
+age_pass() {
+    local root target label before after freed
+    echo "${BLUE}sweep: artifacts unused for ${DAYS}+ days, across $(wc -l < "$TARGETS" | tr -d ' ') target dir(s) under $SCAN_ROOT${NC}"
     while IFS=$'\t' read -r root target label; do
         [[ -n "$target" ]] || continue
+        # A merged worktree reclaimed a moment ago has nothing left to age out.
+        [[ "$(current_kib "$target")" -gt 0 ]] || continue
         if [[ $FORCE -eq 0 ]] && build_locked "$target"; then
             locked_skip "$label"
             continue
@@ -870,12 +1120,26 @@ cmd_sweep() {
         echo "${GREEN}${PREFIX}sweep   $label  $(fmt_kib "$before") -> $(fmt_kib "$after")  (-$(fmt_kib "$freed"))${NC}"
         record_row "$label" "$before" "$after" "$freed" "age sweep (${DAYS}d)"
     done < "$TARGETS"
+    mark_age_pass
+}
+
+cmd_sweep() {
+    prelude
+    local before_total after_total
+    before_total=$(fleet_total_kib)
+    reclaim_merged_worktrees
+    if age_pass_due; then
+        age_pass
+    else
+        echo "${DIM}sweep: age pass ran under ${AGE_EVERY_HOURS}h ago; this run reclaims merged worktrees and enforces the cap and floor${NC}"
+    fi
 
     after_total=$(fleet_total_kib)
     print_footer "sweep" "$before_total" "$after_total"
 
     local rc=0
     enforce_cap || rc=$?
+    enforce_floor || rc=1
     staging_note
     return "$rc"
 }
@@ -887,6 +1151,7 @@ cmd_purge() {
     local before_total after_total root target label before after inc sz protected epoch
     before_total=$(fleet_total_kib)
     protected=$(protected_labels)
+    reclaim_merged_worktrees
     echo "${BLUE}purge: incremental caches everywhere, wholesale drop of repos idle ${IDLE_DAYS}+ days, then toolchain garbage${NC}"
 
     # 1. Incremental caches, every repo including the active one. The largest
@@ -981,6 +1246,7 @@ cmd_purge() {
 
     local rc=0
     enforce_cap || rc=$?
+    enforce_floor || rc=1
     staging_note
     return "$rc"
 }
@@ -1030,6 +1296,12 @@ cmd_status() {
     else
         printf '%-38s %11s   %s\n' "OVER CAP BY" "$(fmt_kib "$((total - CAP_KIB))")" "$(pct_of_cap "$total" "$CAP_KIB")% of cap used"
     fi
+    local free
+    free=$(free_kib)
+    if [[ "$free" -ge 0 ]]; then
+        printf '%-38s %11s   %s\n' "FREE ON DISK" "$(fmt_kib "$free")" \
+            "floor $(fmt_kib "$MIN_FREE_KIB"), builds refused under $(fmt_kib "$HARD_FLOOR_KIB")"
+    fi
 
     local warnings
     warnings=$(report_symlinked_targets; report_orphan_targets)
@@ -1051,6 +1323,7 @@ render_plist() {
     content=${content//__HOME__/$HOME}
     content=${content//__SCRIPT__/$SCRIPT_PATH}
     content=${content//__CAP__/$CAP_SPEC}
+    content=${content//__MIN_FREE__/$MIN_FREE_SPEC}
     content=${content//__LOG__/$LOG_FILE}
     printf '%s\n' "$content"
 }
@@ -1080,7 +1353,7 @@ cmd_install() {
         echo "${RED}$AGENT_LABEL did not come up after bootstrap${NC}" >&2
         exit 1
     fi
-    echo "${GREEN}installed $AGENT_LABEL — sweep --cap $CAP_SPEC nightly at 02:00 local time${NC}"
+    echo "${GREEN}installed $AGENT_LABEL — sweep --scheduled --cap $CAP_SPEC --min-free $MIN_FREE_SPEC every hour${NC}"
     echo "${DIM}log: $LOG_FILE${NC}"
 }
 
@@ -1106,6 +1379,8 @@ case "$COMMAND" in
     sweep) cmd_sweep ;;
     purge) cmd_purge ;;
     status) cmd_status ;;
+    check) cmd_check ;;
+    guard) cmd_guard ;;
     install) cmd_install ;;
     uninstall) cmd_uninstall ;;
 esac

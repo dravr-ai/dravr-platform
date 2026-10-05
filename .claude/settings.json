@@ -49,6 +49,11 @@
             "type": "command",
             "timeout": 20,
             "command": "[ -f .agents/skills/bilan/hooks/session-start-sweep.sh ] && bash .agents/skills/bilan/hooks/session-start-sweep.sh || true"
+          },
+          {
+            "type": "command",
+            "timeout": 60,
+            "command": "[ -f scripts/setup/cargo-sweep-nightly.sh ] && bash scripts/setup/cargo-sweep-nightly.sh check || true"
           }
         ]
       }
@@ -84,6 +89,16 @@
             "type": "command",
             "timeout": 20,
             "command": "[ -f .agents/skills/carnet/hooks/auto-claim.sh ] || exit 0; bash .agents/skills/carnet/hooks/auto-claim.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 10,
+            "command": "[ -f scripts/setup/cargo-sweep-nightly.sh ] || exit 0; bash scripts/setup/cargo-sweep-nightly.sh guard"
           }
         ]
       }
