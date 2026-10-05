@@ -19,6 +19,7 @@ import {
   statusForProgress,
   threadSubtitle,
   trustedActionUrl,
+  verdictSupportReference,
 } from '@pierre/chat-utils';
 import {
   holdIdleWhileBusy,
@@ -35,6 +36,7 @@ import {
   ConversationInfoPanel,
 } from './chat';
 import VerdictDrawer from './chat/VerdictDrawer';
+import type { VerdictSource } from './chat/VerdictDrawer';
 import ChatShell from './chat/ChatShell';
 import ThreadHeader from './chat/ThreadHeader';
 import ConversationList from './dashboard/ConversationList';
@@ -377,6 +379,23 @@ export default function ChatTab({
       t('app.backUpClaim', { claim: verdict.claim_text }),
     );
   }, [t]);
+
+  // The reply the drawer's verdicts were drawn from, for the pill that names
+  // its conversation. The drawer opens from a chip under that reply, so the
+  // reply is in the thread on screen.
+  const verdictSource = useMemo<VerdictSource | undefined>(() => {
+    const reply = verdictMessageId ? threadMessages.find((m) => m.id === verdictMessageId) : undefined;
+    return reply ? { title: headerTitle, content: reply.content, createdAt: reply.created_at } : undefined;
+  }, [verdictMessageId, threadMessages, headerTitle]);
+
+  // What support needs to find a verdict. The athlete's card does not print
+  // these ids; it hands them over from its actions menu.
+  const handleCopyVerdictReference = useCallback((verdict: ClaimVerdict) => {
+    navigator.clipboard.writeText(verdictSupportReference(verdict)).then(
+      () => showSuccessToast(t('app.copiedTitle'), undefined, 2000),
+      () => showErrorToast(t('app.copyFailed')),
+    );
+  }, [showSuccessToast, showErrorToast, t]);
 
   // Mutations. Takes an optional coach ID; the server resolves the
   // agent's system prompt at runtime from the coaches table.
@@ -1133,6 +1152,8 @@ export default function ChatTab({
         handleAskAboutClaim(verdict);
         setVerdictMessageId(null);
       }}
+      onCopyReference={handleCopyVerdictReference}
+      source={verdictSource}
     />
   ) : null;
 

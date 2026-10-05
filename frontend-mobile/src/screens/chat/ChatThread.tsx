@@ -7,8 +7,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Keyboard, Text, TextInput, TouchableOpacity } from 'react-native';
 import * as Linking from 'expo-linking';
+import * as Clipboard from 'expo-clipboard';
 import { useTranslation } from '@pierre/i18n';
-import { trustedActionUrl } from '@pierre/chat-utils';
+import { trustedActionUrl, verdictSupportReference } from '@pierre/chat-utils';
 import { noticeRequired } from '@pierre/shared-constants';
 import type { ChatMessageAction, ClaimVerdict } from '@pierre/shared-types';
 
@@ -19,7 +20,7 @@ import { ChatInputBar } from './ChatInputBar';
 import { ChatProgressStrip } from './ChatProgressStrip';
 import { MessageList } from './MessageList';
 import { UsageWarningBanner } from './UsageWarningBanner';
-import { VerdictSheet } from './VerdictSheet';
+import { VerdictSheet, type VerdictSource } from './VerdictSheet';
 import { useChatVoiceInput } from './useChatVoiceInput';
 import type { useMessages } from './useMessages';
 import type { useProviderStatus } from './useProviderStatus';
@@ -53,6 +54,12 @@ export interface ChatThreadProps {
   routeDraft?: string;
   /** How the transcript follows its content; the list's own scroll-to-end when absent. */
   onScrollToBottom?: () => void;
+  /**
+   * What the conversation is called, as its header shows it. The verdict
+   * sheet names it beside the reply a claim came from; a host that leaves it
+   * out gets no conversation section there.
+   */
+  conversationTitle?: string;
 }
 
 /**
@@ -76,6 +83,7 @@ export function ChatThread({
   header,
   routeDraft,
   onScrollToBottom,
+  conversationTitle,
 }: ChatThreadProps) {
   const { t } = useTranslation();
   // The message whose verdicts the sheet shows, or `null` while it is closed.
@@ -211,6 +219,25 @@ export function ChatThread({
     setVerdictMessageId(null);
   }, [onChangeInputText, t]);
 
+  // The reply the sheet's verdicts were drawn from. The sheet opens from a
+  // chip under that reply, so it is in the transcript on screen.
+  const verdictSource = useMemo<VerdictSource | undefined>(() => {
+    if (!conversationTitle || !verdictMessageId) return undefined;
+    const reply = messagesHook.messages.find((m) => m.id === verdictMessageId);
+    return reply ? { title: conversationTitle, content: reply.content, createdAt: reply.created_at } : undefined;
+  }, [conversationTitle, verdictMessageId, messagesHook.messages]);
+
+  // What support needs to find a verdict. The sheet does not print these ids;
+  // it hands them over from its actions menu.
+  const handleCopyVerdictReference = useCallback(async (verdict: ClaimVerdict) => {
+    try {
+      await Clipboard.setStringAsync(verdictSupportReference(verdict));
+      Alert.alert(t('app.copiedTitle'));
+    } catch {
+      Alert.alert(t('app.copyFailed'));
+    }
+  }, [t]);
+
   /**
    * Authorize a provider from a reply that asks for it.
    *
@@ -238,6 +265,8 @@ export function ChatThread({
         loading={verdictsLoading && sheetVerdicts.length === 0}
         onClose={() => setVerdictMessageId(null)}
         onAskAboutClaim={handleAskAboutClaim}
+        source={verdictSource}
+        onCopyReference={(verdict) => void handleCopyVerdictReference(verdict)}
       />
 
       <MessageList

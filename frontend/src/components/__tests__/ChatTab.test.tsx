@@ -497,6 +497,91 @@ describe('ChatTab verdict drawer', () => {
     // And the chip now counts the one row, not the two chips beside it.
     expect(screen.getByTestId('verdict-chip')).toHaveTextContent('1 verdict · contradicted');
   });
+
+  describe('on a reply read back from history', () => {
+    const CLAIM = 'Hold 4:10/km on the threshold reps.';
+    const row: ClaimVerdict = {
+      id: 'verdict-3',
+      conversation_id: CONVERSATION_ID,
+      message_id: 'm1',
+      agent_id: null,
+      claim_text: CLAIM,
+      category: 'training_prescription',
+      status: 'supported',
+      evidence_strength: 'strong',
+      confidence: 0.88,
+      layer_fired: 'deterministic',
+      explanation: null,
+      evidence_refs: null,
+      created_at: '2026-08-23T10:01:03Z',
+    };
+
+    const writeText = vi.fn();
+
+    /** The drawer of the reply's one chip, opened with a clipboard spy in place. */
+    async function openDrawer() {
+      // `userEvent.setup()` installs a clipboard stub of its own, so the spy
+      // the assertions read has to land after it.
+      const user = userEvent.setup();
+      Object.defineProperty(window.navigator, 'clipboard', {
+        value: { writeText },
+        configurable: true,
+      });
+      renderChatTab();
+      await user.click(await screen.findByTestId('verdict-chip'));
+      return { user, drawer: await screen.findByTestId('verdict-drawer') };
+    }
+
+    beforeEach(() => {
+      getConversationMessages.mockResolvedValue({
+        messages: [
+          {
+            id: 'm1',
+            role: 'assistant',
+            content: `Solid block.\n\n${CLAIM}`,
+            created_at: '2026-08-23T10:01:00Z',
+          },
+        ],
+      });
+      getConversationVerdicts.mockResolvedValue({ verdicts: [row] });
+    });
+
+    it('names the thread on the source pill, with the claim marked in its reply', async () => {
+      const { drawer } = await openDrawer();
+
+      expect(within(drawer).getByTestId('verdict-source-pill')).toHaveTextContent('Claims');
+      const preview = within(drawer).getByTestId('verdict-source-preview');
+      expect(preview.querySelector('mark')).toHaveTextContent(CLAIM);
+      expect(preview).toHaveTextContent('Solid block.');
+    });
+
+    it('copies the ids support needs, one per line, and says it did', async () => {
+      writeText.mockResolvedValue(undefined);
+      const { user, drawer } = await openDrawer();
+
+      // The athlete's card prints none of them.
+      expect(drawer).not.toHaveTextContent('verdict-3');
+      expect(drawer).not.toHaveTextContent(CONVERSATION_ID);
+
+      await user.click(within(drawer).getByRole('button', { name: 'Verdict actions' }));
+      await user.click(within(drawer).getByRole('menuitem', { name: 'Copy reference for support' }));
+
+      expect(writeText).toHaveBeenCalledTimes(1);
+      expect(writeText).toHaveBeenCalledWith(`verdict verdict-3\nmessage m1\nconversation ${CONVERSATION_ID}`);
+      expect(await screen.findByText('Copied')).toBeInTheDocument();
+    });
+
+    it('says the copy failed when the clipboard refuses it', async () => {
+      writeText.mockRejectedValue(new Error('denied'));
+      const { user, drawer } = await openDrawer();
+
+      await user.click(within(drawer).getByRole('button', { name: 'Verdict actions' }));
+      await user.click(within(drawer).getByRole('menuitem', { name: 'Copy reference for support' }));
+
+      expect(await screen.findByText('Copy failed')).toBeInTheDocument();
+      expect(screen.queryByText('Copied')).toBeNull();
+    });
+  });
 });
 
 describe('ChatTab conversation rotation', () => {

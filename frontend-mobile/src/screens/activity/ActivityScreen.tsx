@@ -276,6 +276,8 @@ function ActivityThread({
     <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" keyboardVerticalOffset={headerHeight}>
       <ChatThread
         conversationId={conversationId}
+        // The activity's thread is named by the screen's title: the activity.
+        conversationTitle={naming.name}
         messagesHook={messagesHook}
         usageStatus={usageStatus}
         providerStatus={providerStatus}

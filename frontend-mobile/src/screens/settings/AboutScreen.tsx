@@ -2,7 +2,7 @@
 // ABOUTME: Row order comes from the shared settings declaration, so web lists the same four
 
 import React from 'react';
-import { Alert, Linking, View } from 'react-native';
+import { View } from 'react-native';
 import { PaneScrollView, Row, Section } from '../../components/ui';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '@pierre/i18n';
@@ -17,23 +17,7 @@ import {
 import { spacing, useThemeColors } from '../../constants/theme';
 import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
-
-/**
- * Open an external URL, telling the athlete when the device cannot.
- *
- * A bare `Linking.openURL` rejects on a device with no handler, and an
- * unhandled rejection here looks identical to the row doing nothing.
- */
-async function openExternal(
-  url: string,
-  t: (key: string, opts?: Record<string, unknown>) => string,
-): Promise<void> {
-  try {
-    await Linking.openURL(url);
-  } catch {
-    Alert.alert(t('app.couldNotOpenLink'), t('app.openInBrowserInstead', { url }));
-  }
-}
+import { openExternal } from '../../utils/openExternal';
 
 /**
  * What the app is, and who is answering.

@@ -1090,6 +1090,11 @@
     "verdictsCount": "{{count}} Urteile",
     "verdictsLoading": "Urteile werden geladen…",
     "verdictsTitle": "Urteile zu dieser Antwort",
+    "verdictActions": "Aktionen zum Urteil",
+    "verdictCopyReference": "Referenz für den Support kopieren",
+    "verdictReadStudy": "Studie lesen",
+    "verdictStudyN": "Studie {{n}}",
+    "verdictSeeInConversation": "In der Unterhaltung ansehen",
     "whatItDoesSection": "Was er macht"
   },
   "commands": {

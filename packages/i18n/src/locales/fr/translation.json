@@ -1090,6 +1090,11 @@
     "verdictsCount": "{{count}} verdicts",
     "verdictsLoading": "Chargement des verdicts…",
     "verdictsTitle": "Verdicts sur cette réponse",
+    "verdictActions": "Actions sur le verdict",
+    "verdictCopyReference": "Copier la référence pour le support",
+    "verdictReadStudy": "Lire l’étude",
+    "verdictStudyN": "Étude {{n}}",
+    "verdictSeeInConversation": "Voir dans la conversation",
     "whatItDoesSection": "Ce qu’il fait"
   },
   "commands": {

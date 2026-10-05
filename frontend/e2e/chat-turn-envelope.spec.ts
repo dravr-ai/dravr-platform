@@ -23,12 +23,16 @@ const CAVEAT_BANNER_HEADER = "A few claims I couldn't formally back up";
 /** The flagged sentence. It belongs to the reply exactly once. */
 const FLAGGED_CLAIM = 'Your VO2max is 82.';
 
+/** A sentence the verifier backed with a study, and the study's id. */
+const STUDY_CLAIM = 'Keep the easy days easy.';
+const STUDY_REF = 'doi:10.1123/ijspp.5.3.276';
+
 const ASSISTANT_REPLY = [
   'That block looks **solid**.',
   '',
   FLAGGED_CLAIM,
   '',
-  'Keep the easy days easy.',
+  STUDY_CLAIM,
 ].join('\n');
 
 /** A resolved chart, index-aligned with the reply prose marker. */
@@ -122,6 +126,8 @@ interface ChatMockOptions {
   withWorkoutPlan?: boolean;
   /** Serve a claim verdict attached to the assistant message. */
   withVerdict?: boolean;
+  /** Serve a supported verdict whose evidence names a study by DOI. */
+  withStudyVerdict?: boolean;
   /** Report the athlete as approaching the daily message quota. */
   usageWarning?: boolean;
 }
@@ -135,6 +141,7 @@ async function setupChatMocks(page: Page, options: ChatMockOptions = {}) {
     withScene = false,
     withWorkoutPlan = false,
     withVerdict = false,
+    withStudyVerdict = false,
     usageWarning = false,
   } = options;
 
@@ -153,32 +160,47 @@ async function setupChatMocks(page: Page, options: ChatMockOptions = {}) {
     ...(sceneBlocks.length > 0 ? { scene_blocks: JSON.stringify(sceneBlocks) } : {}),
   };
 
+  const verdicts: unknown[] = [];
+  if (withVerdict) {
+    verdicts.push({
+      id: 'verdict-1',
+      conversation_id: CONVERSATION_ID,
+      message_id: ASSISTANT_MESSAGE_ID,
+      agent_id: COACH_ID,
+      claim_text: FLAGGED_CLAIM,
+      category: 'physiological',
+      status: 'contradicted',
+      evidence_strength: 'none',
+      confidence: 0.91,
+      layer_fired: 'deterministic',
+      explanation: 'Outside the plausible range for the athlete.',
+      evidence_refs: null,
+      created_at: '2026-08-20T10:01:02Z',
+    });
+  }
+  if (withStudyVerdict) {
+    verdicts.push({
+      id: 'verdict-2',
+      conversation_id: CONVERSATION_ID,
+      message_id: ASSISTANT_MESSAGE_ID,
+      agent_id: COACH_ID,
+      claim_text: STUDY_CLAIM,
+      category: 'training_prescription',
+      status: 'supported',
+      evidence_strength: 'mixed',
+      confidence: 0.8,
+      layer_fired: 'evidence',
+      explanation: 'Supported by Seiler 2010, what is best practice for training intensity distribution',
+      evidence_refs: STUDY_REF,
+      created_at: '2026-08-20T10:01:02Z',
+    });
+  }
+
   await page.route('**/api/chat/conversations/*/verdicts', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        verdicts: withVerdict
-          ? [
-              {
-                id: 'verdict-1',
-                conversation_id: CONVERSATION_ID,
-                message_id: ASSISTANT_MESSAGE_ID,
-                agent_id: COACH_ID,
-                claim_text: FLAGGED_CLAIM,
-                category: 'physiological',
-                status: 'contradicted',
-                evidence_strength: 'none',
-                confidence: 0.91,
-                layer_fired: 'deterministic',
-                explanation: 'Outside the plausible range for the athlete.',
-                evidence_refs: null,
-                created_at: '2026-08-20T10:01:02Z',
-              },
-            ]
-          : [],
-        total: withVerdict ? 1 : 0,
-      }),
+      body: JSON.stringify({ verdicts, total: verdicts.length }),
     });
   });
 
@@ -435,6 +457,38 @@ test.describe('Chat - one verdict affordance per surface', () => {
       FLAGGED_CLAIM,
     );
     expect(occurrences).toBe(1);
+  });
+
+  test('the drawer links the study and previews the reply only on hover', async ({ page }) => {
+    await setupChatMocks(page, { withStudyVerdict: true });
+    await loginToDashboard(page);
+    await openConversation(page);
+
+    await assistantTurn(page).getByRole('button', { name: /1 verdict · supported/ }).click();
+    const drawer = page.getByTestId('verdict-drawer');
+    await expect(drawer).toBeVisible();
+
+    // The athlete reads names and links, never the ids support uses.
+    await expect(drawer).not.toContainText(CONVERSATION_ID);
+    await expect(drawer).not.toContainText(ASSISTANT_MESSAGE_ID);
+    await expect(drawer.getByRole('link', { name: 'Read the study' })).toHaveAttribute(
+      'href',
+      'https://doi.org/10.1123/ijspp.5.3.276',
+    );
+
+    const pill = drawer.getByTestId('verdict-source-pill');
+    const preview = drawer.getByTestId('verdict-source-preview');
+    await expect(pill).toContainText(CONVERSATION_TITLE);
+    await expect(preview).toBeHidden();
+
+    await pill.hover();
+    await expect(preview).toBeVisible();
+    await expect(preview.locator('mark')).toHaveText(STUDY_CLAIM);
+    await expect(preview).toContainText('That block looks solid.');
+
+    // Off the pill, the preview goes away again.
+    await page.mouse.move(5, 5);
+    await expect(preview).toBeHidden();
   });
 
   test('a turn with no flagged claim shows no chips at all', async ({ page }) => {

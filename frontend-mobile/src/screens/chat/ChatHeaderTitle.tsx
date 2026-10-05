@@ -12,6 +12,7 @@ import {
   CONVERSATION_ROW_LABEL_KEYS,
   initialsFor,
   threadSubtitle,
+  type Translate,
 } from '@pierre/chat-utils';
 import { MENTION_PREFIX } from '@pierre/shared-constants';
 import type { Conversation } from '../../types';
@@ -28,13 +29,19 @@ interface ChatHeaderTitleProps {
   onTitlePress: () => void;
 }
 
+/**
+ * What an open thread is called: its stored title, or the untitled label when
+ * it carries none. The header shows it, and the verdict sheet names the thread
+ * a claim came from by it.
+ */
+export function threadTitle(conversation: Conversation, t: Translate): string {
+  return conversation.title?.trim() || t(CONVERSATION_ROW_LABEL_KEYS.untitled);
+}
+
 export function ChatHeaderTitle({ currentConversation, providerStatus, onTitlePress }: ChatHeaderTitleProps) {
   const { t } = useTranslation();
-  // An open thread with no title reads as untitled; before a thread exists the
-  // header names what the athlete is about to start.
-  const title =
-    currentConversation?.title?.trim() ||
-    (currentConversation ? t(CONVERSATION_ROW_LABEL_KEYS.untitled) : t('chat.newChat'));
+  // Before a thread exists the header names what the athlete is about to start.
+  const title = currentConversation ? threadTitle(currentConversation, t) : t('chat.newChat');
   // Group before handle — the precedence both headers now share.
   const subtitle = threadSubtitle(currentConversation);
 

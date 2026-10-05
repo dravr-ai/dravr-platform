@@ -80,6 +80,19 @@ export type { VizSegment } from './viz';
 // with every marker replaced by a line naming the chart that stood there.
 export { copyableText } from './copy-text';
 
+// The passage of a reply a verdict's claim sits in, as plain prose, for the
+// preview the verdict drawer shows on its source pill.
+export { claimInContext } from './claim-context';
+export type { ClaimContext } from './claim-context';
+
+// A verdict's evidence references, each with the doi.org or PubMed page it
+// opens — built from the id, never from a stored address.
+export { parseEvidenceRefs } from './evidence-refs';
+export type { EvidenceRef } from './evidence-refs';
+
+// The ids support needs to find a verdict, as both clients copy them.
+export { verdictSupportReference } from './verdict-support';
+
 // The route card's frame, geometry and captions, and the plan card's figures:
 // the pure halves of two blocks both clients draw, so the box a map opens on,
 // the words under it and the durations on a plan read the same on web and on

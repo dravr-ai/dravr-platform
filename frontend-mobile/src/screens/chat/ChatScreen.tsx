@@ -25,7 +25,7 @@ import { useThemeColors } from '../../constants/theme';
 import { trackMobile } from '../../services/analytics';
 import { providerStatusLine } from '@pierre/chat-utils';
 
-import { ChatHeaderTitle } from './ChatHeaderTitle';
+import { ChatHeaderTitle, threadTitle } from './ChatHeaderTitle';
 import { ChatPlusFlows } from './ChatPlusFlows';
 import { useChatPlusActions } from './useChatPlusActions';
 import { CHAT_LIST_ROUTE, NEW_CONVERSATION_ID, threadHref } from '../../navigation/routes';
@@ -389,6 +389,10 @@ export function ChatScreen() {
 
         <ChatThread
           conversationId={conversations.currentConversation?.id ?? null}
+          // The name the header's title view shows for an open thread.
+          conversationTitle={
+            conversations.currentConversation ? threadTitle(conversations.currentConversation, t) : undefined
+          }
           messagesHook={messagesHook}
           usageStatus={usageStatus}
           providerStatus={providerStatus}
