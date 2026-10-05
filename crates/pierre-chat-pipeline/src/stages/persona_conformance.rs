@@ -73,13 +73,13 @@ use pierre_contremaitre::PromptRegistry;
 
 mod text;
 
-use text::truncate_for_log;
 pub use text::{
     athlete_citations, contains_standalone_word, count_words, decimal_tokens,
     detects_label_value_block, find_standalone_word, first_use_is_unglossed, has_unglossed_acronym,
     is_bullet_line, longest_bullet_run, longest_label_value_run, modifier_adjacent_to_digit,
     significant_digits, split_sentences,
 };
+use text::{measured_value_count, truncate_for_log};
 
 /// One conformance violation surfaced by [`check_reply_conformance`].
 #[derive(Debug, Clone)]
@@ -116,6 +116,22 @@ pub fn check_reply_conformance(
         return Vec::new();
     };
 
+    let mut violations = style_violations(reply, contract, &snapshot.glossary);
+    check_tenant_isolation(reply, contract, roster, &mut violations);
+
+    log_violations(persona, contract.strict_mode, &violations);
+    violations
+}
+
+/// Every style rule of `contract` against `reply` — all but tenant isolation,
+/// which is a leak repair rather than a style, and is never handed to the
+/// style editor. Pure: no logging, so the post-rewrite re-check can reuse it
+/// without raising a second alert for the same turn.
+fn style_violations(
+    reply: &str,
+    contract: &PersonaContract,
+    glossary: &HashMap<String, HashMap<String, String>>,
+) -> Vec<ContractViolation> {
     let mut violations = Vec::new();
     check_max_words(reply, contract, &mut violations);
     check_tool_call_narration(reply, contract, &mut violations);
@@ -129,11 +145,8 @@ pub fn check_reply_conformance(
     check_p0_p3_ladder(reply, contract, &mut violations);
     check_framework_citation_per_numeric(reply, contract, &mut violations);
     check_structured_block_size(reply, contract, &mut violations);
-    check_acronyms_first_use(reply, contract, &snapshot.glossary, &mut violations);
+    check_acronyms_first_use(reply, contract, glossary, &mut violations);
     check_athlete_id_prefix(reply, contract, &mut violations);
-    check_tenant_isolation(reply, contract, roster, &mut violations);
-
-    log_violations(persona, contract.strict_mode, &violations);
     violations
 }
 
@@ -241,39 +254,66 @@ pub async fn enforce_conformance(
     violations: &[ContractViolation],
     active_model: &str,
 ) -> String {
-    let style_violations: Vec<ContractViolation> = violations
+    let to_repair: Vec<ContractViolation> = violations
         .iter()
         .filter(|v| v.rule != "require_tenant_isolation")
         .cloned()
         .collect();
-    if style_violations.is_empty() {
+    if to_repair.is_empty() {
         return content;
     }
-    let strict = registry
-        .snapshot()
-        .contract(persona)
-        .is_some_and(|c| c.strict_mode);
-    if !strict {
+    let snapshot = registry.snapshot();
+    let Some(contract) = snapshot.contract(persona).filter(|c| c.strict_mode) else {
         return content;
-    }
+    };
     let Some(provider) = chat_provider else {
         warn!(
             persona = persona.as_str(),
-            violations = style_violations.len(),
+            violations = to_repair.len(),
             "strict persona conformance active but no chat provider to re-prompt; keeping original reply"
         );
         return content;
     };
 
-    rewrite_to_satisfy_contract(
+    let Some(rewrite) = rewrite_to_satisfy_contract(
         provider,
         prompts,
         persona,
-        content,
-        &style_violations,
+        &content,
+        &to_repair,
         active_model,
     )
     .await
+    else {
+        return content;
+    };
+    let residual = style_violations(&rewrite, contract, &snapshot.glossary);
+    log_rewrite_outcome(persona, &to_repair, &residual);
+    rewrite
+}
+
+/// Record what the style rewrite repaired, judged by running the same rules
+/// over the rewrite. Without it the log said only that a rewrite happened, so
+/// whether the re-prompt earned its latency was unknowable per rule.
+///
+/// Info, not warn: the turn's violations already alerted once; a residual is
+/// a measurement of the editor, not a second incident.
+fn log_rewrite_outcome(
+    persona: CoachingPersona,
+    repaired: &[ContractViolation],
+    residual: &[ContractViolation],
+) {
+    let rules = |vs: &[ContractViolation]| vs.iter().map(|v| v.rule).collect::<Vec<_>>().join(",");
+    info!(
+        persona = persona.as_str(),
+        violations = repaired.len(),
+        residual = residual.len(),
+        rules = %rules(repaired),
+        residual_rules = %rules(residual),
+        "persona conformance enforced: reply rewritten, {} of {} violation(s) remain",
+        residual.len(),
+        repaired.len(),
+    );
 }
 
 /// The leak-repair half of enforcement: when a `require_tenant_isolation`
@@ -354,16 +394,16 @@ fn redact_foreign_athlete_blocks(
 }
 
 /// Re-prompt the LLM to rewrite `content` so it satisfies the persona contract,
-/// preserving all substance. Returns the rewrite, or the original on any
-/// failure / empty response (fail open).
+/// preserving all substance. Returns the rewrite, or `None` on any failure or
+/// empty response so the caller keeps the original (fail open).
 async fn rewrite_to_satisfy_contract(
     provider: &Arc<ChatProvider>,
     prompts: &PromptRegistry,
     persona: CoachingPersona,
-    content: String,
+    content: &str,
     violations: &[ContractViolation],
     active_model: &str,
-) -> String {
+) -> Option<String> {
     let rules = violations
         .iter()
         .map(|v| format!("- {}", v.detail))
@@ -391,7 +431,7 @@ async fn rewrite_to_satisfy_contract(
         .to_owned();
     let request = ChatRequest::new(vec![
         ChatMessage::system(system),
-        ChatMessage::user(content.clone()),
+        ChatMessage::user(content.to_owned()),
     ])
     .with_temperature(0.2)
     // Pin the SAME model the turn ran on. Sending none resolves to the env
@@ -401,22 +441,15 @@ async fn rewrite_to_satisfy_contract(
     .with_model(active_model);
 
     match provider.complete(&request).await {
-        Ok(resp) if !resp.content.trim().is_empty() => {
-            info!(
-                persona = persona.as_str(),
-                violations = violations.len(),
-                "persona conformance enforced: reply rewritten to satisfy the contract"
-            );
-            resp.content
-        }
-        Ok(_) => content,
+        Ok(resp) if !resp.content.trim().is_empty() => Some(resp.content),
+        Ok(_) => None,
         Err(e) => {
             warn!(
                 persona = persona.as_str(),
                 error = %e,
                 "persona conformance re-prompt failed; keeping original reply"
             );
-            content
+            None
         }
     }
 }
@@ -528,8 +561,14 @@ fn check_list_density(reply: &str, contract: &PersonaContract, out: &mut Vec<Con
 ///
 /// Detection: a line whose short, word-led label is followed by a colon and a
 /// value counts as a label-value pair, in any locale and through markdown list
-/// markers and emphasis (see [`is_label_value_line`]); two or more consecutive
+/// markers and emphasis (see [`text::is_label_value_line`]); two or more consecutive
 /// such lines form a "block".
+///
+/// The requirement binds only a reply that reports data — at least
+/// [`REPORT_MIN_MEASURED_VALUES`] measured values. The persona prompt asks for
+/// line-by-line *reports*; a reply with nothing measured yet ("once the data
+/// is reachable I will look at the last 12 weeks") has no block to give, and
+/// demanding one sends it to the style editor for nothing.
 fn check_line_by_line_block(
     reply: &str,
     contract: &PersonaContract,
@@ -542,7 +581,10 @@ fn check_line_by_line_block(
             detail: "label:value block detected".to_owned(),
         });
     }
-    if contract.require_line_by_line_block && !has_block {
+    if contract.require_line_by_line_block
+        && !has_block
+        && measured_value_count(reply, FRAMEWORK_BOUND_ACRONYMS) >= REPORT_MIN_MEASURED_VALUES
+    {
         out.push(ContractViolation {
             rule: "require_line_by_line_block",
             detail: "no label:value block found".to_owned(),
@@ -893,12 +935,19 @@ const FRAMEWORK_LABELS: &[&str] = &[
 ];
 
 /// Metric acronyms whose value comes from a published model, per the
-/// power-athlete prompt's mapping: Banister (CTL/ATL/TSB), Coggan (IF, NP,
-/// EF, VI, and the FTP its power zones scale from), Gabbett (ACWR). Matched
-/// case-sensitively as standalone words, so the English conjunction "if"
-/// never reads as Coggan's intensity factor.
-const FRAMEWORK_BOUND_ACRONYMS: &[&str] =
-    &["CTL", "ATL", "TSB", "FTP", "IF", "NP", "EF", "VI", "ACWR"];
+/// power-athlete prompt's mapping: Banister (CTL/ATL/TSB, and the TRIMP his
+/// impulse-response model integrates), Coggan (IF, NP, EF, VI, and the FTP
+/// its power zones scale from), Gabbett (ACWR). Matched case-sensitively as
+/// standalone words, so the English conjunction "if" never reads as Coggan's
+/// intensity factor.
+const FRAMEWORK_BOUND_ACRONYMS: &[&str] = &[
+    "CTL", "ATL", "TSB", "TRIMP", "FTP", "IF", "NP", "EF", "VI", "ACWR",
+];
+
+/// Measured values a reply must carry before it counts as a data report that
+/// [`PersonaContract::require_line_by_line_block`] binds. One figure in passing
+/// is prose; a report states several.
+const REPORT_MIN_MEASURED_VALUES: usize = 2;
 
 /// Lowercase stems of the model-derived metrics the prompt names in words —
 /// Foster's monotony and strain, Seiler's and Treff's polarization. A stem

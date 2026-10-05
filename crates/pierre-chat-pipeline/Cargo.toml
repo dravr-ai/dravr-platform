@@ -79,6 +79,8 @@ jsonschema = { version = "0.46.5", default-features = false }
 # extraction/validation stage test. Redirected to the local checkout by the
 # workspace [patch] during co-development.
 dravr-contremaitre = { workspace = true }
+# Captures the rewrite re-check's log line, its only observable output.
+tracing-subscriber = { version = "0.3", features = ["fmt", "std"], default-features = false }
 
 [lints]
 workspace = true

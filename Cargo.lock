@@ -3641,6 +3641,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "urlencoding",
  "uuid",
  "whatlang",

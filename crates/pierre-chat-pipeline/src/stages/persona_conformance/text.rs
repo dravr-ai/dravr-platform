@@ -366,3 +366,60 @@ pub(super) fn truncate_for_log(sentence: &str) -> String {
     let clipped: String = sentence.chars().take(LIMIT).collect();
     format!("{clipped}…")
 }
+
+/// Units that mark a number as a measurement rather than a date, a count or an
+/// ordinal. Lowercase; compared against the letters that follow a number,
+/// attached (`42km`, `88%`) or as the next word (`42 km`).
+const MEASUREMENT_UNITS: &[&str] = &[
+    "km", "m", "mi", "ft", "h", "min", "mn", "s", "sec", "ms", "bpm", "w", "watts", "kj", "kcal",
+    "cal", "%", "rpm", "spm", "kg", "lb", "lbs", "km/h", "mph", "/km", "/mi",
+];
+
+/// Words a metric's value may sit behind its name: `CTL 62`, `TSB: -8`,
+/// `CTL est à 62`, `TSB sits at -8`.
+const METRIC_LOOKBACK_TOKENS: usize = 3;
+
+/// Measured values in `text`: a number carrying a [`MEASUREMENT_UNITS`] unit,
+/// or a number within [`METRIC_LOOKBACK_TOKENS`] words after one of
+/// `metric_acronyms`.
+/// A date (`3 octobre`), a window (`12 semaines`) or an ordinal counts as
+/// none — they are what a reply with no data yet still says.
+pub(super) fn measured_value_count(text: &str, metric_acronyms: &[&str]) -> usize {
+    let tokens: Vec<&str> = text.split_whitespace().collect();
+    let mut count = 0;
+    for (idx, token) in tokens.iter().enumerate() {
+        let token = token.trim_start_matches(['(', '*', '«', '"']);
+        let numeric_len = token
+            .find(|c: char| !(c.is_ascii_digit() || matches!(c, '.' | ',' | ':' | '-' | '+')))
+            .unwrap_or(token.len());
+        if !token[..numeric_len].chars().any(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        let attached = &token[numeric_len..];
+        let unit_source = if attached.is_empty() {
+            tokens.get(idx + 1).copied().unwrap_or_default()
+        } else {
+            attached
+        };
+        let after_metric = tokens[idx.saturating_sub(METRIC_LOOKBACK_TOKENS)..idx]
+            .iter()
+            .map(|prev| prev.trim_matches(|c: char| !c.is_alphanumeric()))
+            .any(|prev| metric_acronyms.contains(&prev));
+        if is_measurement_unit(unit_source) || after_metric {
+            count += 1;
+        }
+    }
+    count
+}
+
+/// `true` when the leading run of letters (plus `%` and `/`) in `word` is
+/// exactly a [`MEASUREMENT_UNITS`] unit: `km,` and `h30` qualify, while
+/// `minutes`, `mardi` and `semaines` do not.
+fn is_measurement_unit(word: &str) -> bool {
+    let lowered = word.to_lowercase();
+    let unit: String = lowered
+        .chars()
+        .take_while(|c| c.is_alphabetic() || matches!(c, '%' | '/'))
+        .collect();
+    !unit.is_empty() && MEASUREMENT_UNITS.contains(&unit.as_str())
+}

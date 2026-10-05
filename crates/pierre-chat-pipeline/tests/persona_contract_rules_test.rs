@@ -306,13 +306,63 @@ fn prose_still_misses_the_required_block() {
     let found = rules(
         REQUIRE_BLOCK,
         CoachingPersona::PowerAthlete,
-        "Ta sortie de samedi était régulière : rien à signaler.\nOn garde le plan.",
+        "Samedi tu as couru 42 km en 3 h 30 à 142 bpm de moyenne.\nOn garde le plan.",
         None,
     );
     assert!(
         found.contains(&"require_line_by_line_block".to_owned()),
-        "one sentence with a colon is not a block, got {found:?}"
+        "a report of measured values in prose must still ask for a block, got {found:?}"
     );
+}
+
+#[test]
+fn a_reply_with_no_measured_data_needs_no_block() {
+    // Production 2026-10-05 (carnet#795): nothing was reachable yet, so there
+    // was nothing to put in a block; the date, the window and the ordinal are
+    // not measurements.
+    for reply in [
+        "Une fois qu'il est accessible, je regarde ses 12 dernières semaines.",
+        "Je regarde ta sortie du samedi 3 octobre dès qu'elle est synchronisée.",
+    ] {
+        let found = rules(REQUIRE_BLOCK, CoachingPersona::PowerAthlete, reply, None);
+        assert!(found.is_empty(), "{reply:?} reports no data, got {found:?}");
+    }
+}
+
+#[test]
+fn model_metrics_count_as_reported_data() {
+    let found = rules(
+        REQUIRE_BLOCK,
+        CoachingPersona::PowerAthlete,
+        "Ta CTL est à 62 et ta TSB à -8 ce matin.",
+        None,
+    );
+    assert!(
+        found.contains(&"require_line_by_line_block".to_owned()),
+        "two model metrics in prose are a report, got {found:?}"
+    );
+}
+
+#[test]
+fn trimp_needs_a_banister_citation() {
+    // JF directive on carnet#795: TRIMP maps to Banister.
+    let found = rules(
+        CITE,
+        CoachingPersona::PowerAthlete,
+        "Ton TRIMP de la semaine est 412.",
+        None,
+    );
+    assert!(
+        found.contains(&"require_framework_citation_per_numeric".to_owned()),
+        "an uncited TRIMP must fire, got {found:?}"
+    );
+    assert!(rules(
+        CITE,
+        CoachingPersona::PowerAthlete,
+        "Ton TRIMP de la semaine est 412 (Banister).",
+        None
+    )
+    .is_empty());
 }
 
 // --------------------------------------------------------- structured block size
