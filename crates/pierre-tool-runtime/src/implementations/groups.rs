@@ -49,6 +49,7 @@ use pierre_runtime_context::DataContext;
 use pierre_tools_core::ToolResult;
 use uuid::Uuid;
 
+use super::group_roster::GetRosterOverviewTool;
 use crate::activity_fetch::fetch_provider_activities;
 use crate::athlete_display_name::fetch_user_display_name;
 use crate::context::ToolExecutionContext;
@@ -76,7 +77,10 @@ fn read_only_annotations() -> ToolAnnotations {
 /// Factory for group-scoped tools, registered under the `tools-groups` feature.
 #[must_use]
 pub fn create_group_tools() -> Vec<Box<dyn RuntimeTool>> {
-    vec![Box::new(GetGroupMemberActivitiesTool)]
+    vec![
+        Box::new(GetGroupMemberActivitiesTool),
+        Box::new(GetRosterOverviewTool),
+    ]
 }
 
 /// A group member that matched the caller's `member` query, carried with the

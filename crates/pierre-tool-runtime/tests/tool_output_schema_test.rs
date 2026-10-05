@@ -105,6 +105,10 @@ use pierre_tool_runtime::implementations::goals_output::{
     FeasibilityAnalysis, FeasibilityHistoricalContext, GoalFeasibilityResult, GoalSuggestionEntry,
     ProgressSummary, SetGoalResult, SuggestGoalsResult, TrackProgressResult,
 };
+use pierre_tool_runtime::implementations::group_roster::{
+    GetRosterOverviewTool, RosterAthleteStatus, RosterOverviewActivity, RosterOverviewAthlete,
+    RosterOverviewGroup, RosterOverviewResult, RosterTraining,
+};
 use pierre_tool_runtime::implementations::groups::{
     GetGroupMemberActivitiesTool, GroupMemberActivitiesResult, GroupMemberActivity,
 };
@@ -3375,6 +3379,11 @@ fn each_single_tool_schema_is_attached_to_the_tool_it_names() {
             output_schema_for::<GroupMemberActivitiesResult>(),
         ),
         (
+            "get_roster_overview",
+            <GetRosterOverviewTool as McpTool<dyn ToolRuntime>>::definition(&GetRosterOverviewTool),
+            output_schema_for::<RosterOverviewResult>(),
+        ),
+        (
             "push_training_plan",
             <PushTrainingPlanTool as McpTool<dyn ToolRuntime>>::definition(&PushTrainingPlanTool),
             output_schema_for::<PushReport>(),
@@ -3860,6 +3869,90 @@ fn the_group_projection_carries_no_more_of_a_peer_than_it_should() {
     })
     .expect("serializes");
     assert!(validator.is_valid(&value), "group activities:\n{value:#}");
+}
+
+#[test]
+fn the_roster_overview_shares_only_the_roster_card_fields() {
+    // A coach reads these for every consenting athlete they hold at once. A
+    // field added here reaches the coach for the whole roster — confirm that
+    // is intended, then update this list.
+    let derived = output_schema_for::<RosterTraining>();
+    let mut declared: Vec<String> = derived["properties"]
+        .as_object()
+        .expect("object schema")
+        .keys()
+        .cloned()
+        .collect();
+    declared.sort();
+    let expected = [
+        "ctl",
+        "days_since_last_activity",
+        "form",
+        "km_previous_week",
+        "km_this_week",
+        "last_activity_per_source",
+        "minutes_this_week",
+        "needs_reconnect",
+        "primary_sport",
+        "recent_activities",
+        "sessions_this_week",
+        "stale",
+    ];
+    assert_eq!(declared, expected, "the roster training projection changed");
+
+    // A shared athlete carries training; a withheld one is named without it.
+    let validator =
+        jsonschema::validator_for(&output_schema_for::<RosterOverviewResult>()).expect("compiles");
+    let value = serde_json::to_value(RosterOverviewResult {
+        groups: vec![RosterOverviewGroup {
+            name: "Tuesday Track".to_owned(),
+            athlete_count: 2,
+        }],
+        athletes: vec![
+            RosterOverviewAthlete {
+                name: "Alice".to_owned(),
+                groups: vec!["Tuesday Track".to_owned()],
+                status: RosterAthleteStatus::Shared,
+                training: Some(RosterTraining {
+                    days_since_last_activity: Some(2),
+                    sessions_this_week: 3,
+                    minutes_this_week: 185,
+                    km_this_week: 31.5,
+                    km_previous_week: Some(40.0),
+                    primary_sport: Some("Run".to_owned()),
+                    ctl: Some(54.0),
+                    form: Some("TSB -6 (-11% of CTL, productive)".to_owned()),
+                    recent_activities: vec![RosterOverviewActivity {
+                        date: "2026-10-03".to_owned(),
+                        weekday: "Saturday".to_owned(),
+                        sport: "Run".to_owned(),
+                        name: "Long run".to_owned(),
+                        duration_minutes: 95,
+                        distance_km: Some(18.2),
+                    }],
+                    last_activity_per_source: BTreeMap::from([(
+                        "strava".to_owned(),
+                        "2026-10-03".to_owned(),
+                    )]),
+                    needs_reconnect: Vec::new(),
+                    stale: false,
+                }),
+            },
+            RosterOverviewAthlete {
+                name: "Bruno".to_owned(),
+                groups: vec!["Tuesday Track".to_owned()],
+                status: RosterAthleteStatus::NoCoachConsent,
+                training: None,
+            },
+        ],
+        truncated: false,
+    })
+    .expect("serializes");
+    assert!(validator.is_valid(&value), "roster overview:\n{value:#}");
+    assert!(
+        value["athletes"][1].get("training").is_none(),
+        "a withheld athlete must carry no training key at all"
+    );
 }
 
 // ============================================================================

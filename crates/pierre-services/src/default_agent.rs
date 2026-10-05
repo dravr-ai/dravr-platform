@@ -26,8 +26,7 @@ use pierre_core::models::agents::Agent;
 /// Catalogue handle of the agent a coach who does not train holds for their
 /// own thread (dravr-contremaitre `prompts/agents/coaching/roster-agent`).
 ///
-/// LIMITATION(registre#748): `ROSTER_AGENT_HANDLE`'s agent cannot review the coach's athletes from
-/// the coach's own thread; no tool reads a coach's roster outside each athlete's group thread.
+/// It reviews the coach's athletes there through `get_roster_overview`.
 pub const ROSTER_AGENT_HANDLE: &str = "roster-agent";
 
 /// The first agent an athlete may be answered by.

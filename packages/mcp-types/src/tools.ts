@@ -1,7 +1,7 @@
 // ABOUTME: Auto-generated TypeScript type definitions for Pierre MCP tool parameters
 // ABOUTME: Generated from server tool schemas - DO NOT EDIT MANUALLY
 //
-// Tool count: 114
+// Tool count: 115
 // To regenerate: bun run generate (from packages/mcp-types)
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-empty-object-type */
@@ -1043,6 +1043,16 @@ export interface GetRecoveryMetricsParams {
 
   /** Start of the date range as RFC3339 timestamp. Defaults to 30 days before `end`; a range longer than 366 days keeps its most recent 366. */
   start?: string;
+}
+
+
+/**
+ * Review the athletes you COACH across your groups in one call: who trained this week, who has gone quiet, weekly volume, fitness and form, recent sessions and broken sources. Each athlete carries a `status`; only `shared` athletes carry `training`. `no_coach_consent` means the athlete stopped sharing with you — they can share again with `/group consent coach yes`; never infer their numbers. In a group's room the review covers that group only. Use `get_group_member_activities` for one athlete's full session history.
+ */
+export interface GetRosterOverviewParams {
+
+  /** Optional id of one group you coach, to review only its athletes. Omit to review every athlete you coach. */
+  group_id?: string;
 }
 
 
@@ -2345,6 +2355,7 @@ export const TOOL_NAMES = [
   "get_recipe",
   "get_recipe_constraints",
   "get_recovery_metrics",
+  "get_roster_overview",
   "get_sleep_sessions",
   "get_stats",
   "get_stretching_exercise",
@@ -2470,6 +2481,7 @@ export interface ToolParamsMap {
   "get_recipe": GetRecipeParams;
   "get_recipe_constraints": GetRecipeConstraintsParams;
   "get_recovery_metrics": GetRecoveryMetricsParams;
+  "get_roster_overview": GetRosterOverviewParams;
   "get_sleep_sessions": GetSleepSessionsParams;
   "get_stats": GetStatsParams;
   "get_stretching_exercise": GetStretchingExerciseParams;

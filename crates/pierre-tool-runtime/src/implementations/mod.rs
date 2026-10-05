@@ -193,6 +193,9 @@ pub mod goals_output;
 #[cfg(feature = "tools-goals")]
 pub mod goals_spec;
 
+/// The coach's roster overview across the groups they coach (`tools-groups` feature).
+#[cfg(feature = "tools-groups")]
+pub mod group_roster;
 /// Group tools: consent-gated peer activity fetch (`tools-groups` feature).
 #[cfg(feature = "tools-groups")]
 pub mod groups;

@@ -784,6 +784,7 @@ const EXPECTED_TOOLS: &[&str] = &[
     "get_recipe",
     "get_recipe_constraints",
     "get_recovery_metrics",
+    "get_roster_overview",
     "get_sleep_sessions",
     "get_stats",
     "get_stretching_exercise",
