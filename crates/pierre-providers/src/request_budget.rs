@@ -49,9 +49,25 @@ use dashmap::DashMap;
 use pierre_core::constants::rate_limits;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_database::repositories::UsageCounterRepository;
+#[cfg(any(
+    feature = "provider-coros",
+    feature = "provider-garmin",
+    feature = "provider-intervals-icu",
+    feature = "provider-strava",
+    feature = "provider-terra",
+    feature = "provider-whoop",
+))]
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
+#[cfg(any(
+    feature = "provider-coros",
+    feature = "provider-garmin",
+    feature = "provider-intervals-icu",
+    feature = "provider-strava",
+    feature = "provider-terra",
+    feature = "provider-whoop",
+))]
 use crate::core::OAuth2Credentials;
 
 /// One day as a `Duration`.
@@ -411,6 +427,14 @@ impl fmt::Debug for RequestBudget {
 
 /// The budget the credentials in a provider's slot carry, cloned out so the
 /// lock is released before the request is admitted.
+#[cfg(any(
+    feature = "provider-coros",
+    feature = "provider-garmin",
+    feature = "provider-intervals-icu",
+    feature = "provider-strava",
+    feature = "provider-terra",
+    feature = "provider-whoop",
+))]
 pub(crate) async fn carried_by(
     credentials: &RwLock<Option<OAuth2Credentials>>,
 ) -> Option<RequestBudget> {

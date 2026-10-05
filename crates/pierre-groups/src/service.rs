@@ -699,6 +699,8 @@ impl GroupService {
             user_id,
             tenant_id: tenant_id.to_string(),
             role: GroupRole::Member,
+            // LIMITATION(registre#786): `join_group` grants the coach no read — this one flag
+            // gates coach and peers alike, so ADR-002's join-is-coach-consent is unimplemented.
             peer_sharing_consent: false,
             consent_given_at: chrono::Utc::now(),
             joined_at: chrono::Utc::now(),
