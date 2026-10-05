@@ -516,9 +516,10 @@ fn check_list_density(reply: &str, contract: &PersonaContract, out: &mut Vec<Con
 /// - [`PersonaContract::forbid_line_by_line_blocks`] (Casual)
 /// - [`PersonaContract::require_line_by_line_block`] (Power-athlete)
 ///
-/// Detection: any line matching `^\s*[A-Za-z][A-Za-z0-9 _-]{1,30}: .+$`
-/// counts as a label-value pair; two or more consecutive such lines form
-/// a "block".
+/// Detection: a line whose short, word-led label is followed by a colon and a
+/// value counts as a label-value pair, in any locale and through markdown list
+/// markers and emphasis (see [`is_label_value_line`]); two or more consecutive
+/// such lines form a "block".
 fn check_line_by_line_block(
     reply: &str,
     contract: &PersonaContract,
@@ -655,6 +656,13 @@ fn check_p0_p3_ladder(reply: &str, contract: &PersonaContract, out: &mut Vec<Con
 /// [`PersonaContract::framework_allowlist`], so a prescribed number is always
 /// traceable to the model that produced it.
 ///
+/// A numeric claim is a digit in a sentence that also names a model-derived
+/// metric ([`is_framework_bound_metric_sentence`]) — the persona prompt's
+/// "every numeric claim that maps to a published threshold or model". A date,
+/// a clock time, a lookback window or a raw measurement (distance, heart rate)
+/// maps to no framework, and demanding a citation there made every activity
+/// report fail and invited the style editor to staple a framework onto a date.
+///
 /// An empty allowlist disables the rule by definition (documented on the
 /// contract field): with nothing allowed, every sentence would fail and the
 /// signal would be noise.
@@ -673,7 +681,9 @@ fn check_framework_citation_per_numeric(
         .collect();
 
     for sentence in split_sentences(reply) {
-        if !sentence.chars().any(|c| c.is_ascii_digit()) {
+        if !sentence.chars().any(|c| c.is_ascii_digit())
+            || !is_framework_bound_metric_sentence(sentence)
+        {
             continue;
         }
         let lowered = sentence.to_lowercase();
@@ -872,6 +882,36 @@ const FRAMEWORK_LABELS: &[&str] = &[
     "TSB", "ATL", "CTL", "ACWR", "TRIMP", "VDOT", "VO2max",
 ];
 
+/// Metric acronyms whose value comes from a published model, per the
+/// power-athlete prompt's mapping: Banister (CTL/ATL/TSB), Coggan (FTP, IF,
+/// NP, EF, VI), Gabbett (ACWR). Matched case-sensitively as standalone words,
+/// so the English conjunction "if" never reads as Coggan's intensity factor.
+const FRAMEWORK_BOUND_ACRONYMS: &[&str] = &[
+    "CTL", "ATL", "TSB", "FTP", "IF", "NP", "EF", "VI", "ACWR",
+];
+
+/// Lowercase stems of the model-derived metrics the prompt names in words —
+/// Foster's monotony and strain, Seiler's and Treff's polarization. A stem
+/// covers every locale's spelling (`monotonie`, `monotonía`, `polarisation`,
+/// `Polarisierung`), so the rule does not go blind on a French turn.
+const FRAMEWORK_BOUND_STEMS: &[&str] = &["monoton", "strain", "polari"];
+
+/// `true` when `sentence` names a metric that maps to a published model, so a
+/// number in it is a claim [`check_framework_citation_per_numeric`] must see
+/// cited.
+fn is_framework_bound_metric_sentence(sentence: &str) -> bool {
+    if FRAMEWORK_BOUND_ACRONYMS
+        .iter()
+        .any(|acronym| contains_standalone_word(sentence, acronym))
+    {
+        return true;
+    }
+    let lowered = sentence.to_lowercase();
+    FRAMEWORK_BOUND_STEMS
+        .iter()
+        .any(|stem| lowered.contains(stem))
+}
+
 /// Whitespace-split word count. Matches the "word budget" the vault doc
 /// uses — close enough to a tokenizer for soft caps.
 #[must_use]
@@ -927,6 +967,8 @@ fn numbered_list_prefix(s: &str) -> bool {
 }
 
 /// Two or more consecutive lines matching `Label: value`.
+///
+/// See [`is_label_value_line`] for the line shapes that count.
 #[must_use]
 pub fn detects_label_value_block(text: &str) -> bool {
     let mut consecutive = 0_usize;
@@ -943,21 +985,54 @@ pub fn detects_label_value_block(text: &str) -> bool {
     false
 }
 
+/// Longest label, in characters, that still reads as a field name.
+const LABEL_MAX_CHARS: usize = 32;
+
+/// `true` when `line` is one `Label: value` row.
+///
+/// Accepts the shapes models actually emit, not only the bare ASCII one: a
+/// list marker before the label (`- Distance: 42 km`), markdown emphasis
+/// around it (`**Distance:** 42 km`), a non-ASCII label (`Durée`), French
+/// typography's space before the colon (`Durée : 1 h 12`), and a quoted name
+/// as the label (`« Sortie longue » : 32 km`). An ASCII-only bare-label
+/// detector missed every French block and every bolded one, so a strict
+/// persona's correct reply was reported and re-prompted as having none.
 fn is_label_value_line(line: &str) -> bool {
-    let trimmed = line.trim();
-    let Some((label, value)) = trimmed.split_once(':') else {
+    let row = strip_list_marker(line.trim());
+    let Some((label, value)) = row.split_once(':') else {
         return false;
     };
-    if value.trim().is_empty() {
+    let label = label.trim_matches(|c: char| c.is_whitespace() || matches!(c, '*' | '_'));
+    let value = value.trim_matches(|c: char| c.is_whitespace() || matches!(c, '*' | '_'));
+    if value.is_empty() || label.is_empty() || label.chars().count() > LABEL_MAX_CHARS {
         return false;
     }
-    if label.is_empty() || label.len() > 32 {
-        return false;
-    }
-    label
+    let label_chars_ok = label.chars().all(|c| {
+        c.is_alphanumeric()
+            || c.is_whitespace()
+            || matches!(c, '_' | '-' | '\'' | '\u{2019}' | '/' | '(' | ')' | '«' | '»' | '"')
+    });
+    let starts_with_word = label
         .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '_' | '-'))
-        && label.chars().next().is_some_and(char::is_alphabetic)
+        .find(|c| !matches!(c, '«' | '"') && !c.is_whitespace())
+        .is_some_and(char::is_alphabetic);
+    label_chars_ok && starts_with_word
+}
+
+/// `line` without a leading markdown list marker (`- `, `* `, `+ `, `1. `).
+fn strip_list_marker(line: &str) -> &str {
+    if let Some(rest) = ["- ", "* ", "+ "]
+        .iter()
+        .find_map(|marker| line.strip_prefix(marker))
+    {
+        return rest;
+    }
+    if numbered_list_prefix(line) {
+        return line
+            .split_once(' ')
+            .map_or(line, |(_, rest)| rest.trim_start());
+    }
+    line
 }
 
 /// `true` when `acronym` appears in the text WITHOUT a `(...)` gloss

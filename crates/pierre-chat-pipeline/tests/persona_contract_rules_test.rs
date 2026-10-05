@@ -179,7 +179,7 @@ fn numeric_claim_without_framework_violates() {
     let found = rules(
         CITE,
         CoachingPersona::PowerAthlete,
-        "Your threshold is 265 watts.",
+        "Your FTP is 265 watts.",
         None,
     );
     assert!(
@@ -193,7 +193,7 @@ fn numeric_claim_with_allowlisted_framework_passes() {
     assert!(rules(
         CITE,
         CoachingPersona::PowerAthlete,
-        "Your threshold is 265 watts (Coggan).",
+        "Your FTP is 265 watts (Coggan).",
         None
     )
     .is_empty());
@@ -205,7 +205,7 @@ fn decimal_does_not_split_the_sentence() {
         rules(
             CITE,
             CoachingPersona::PowerAthlete,
-            "Your ratio sits at 1.15 per Banister.",
+            "Your ACWR sits at 1.15 per Banister.",
             None
         )
         .is_empty(),
@@ -230,6 +230,87 @@ personas:
         )
         .is_empty(),
         "with nothing allowed every sentence would fail; the field documents this as disabled"
+    );
+}
+
+#[test]
+fn measurements_dates_and_windows_are_not_model_claims() {
+    // Production 2026-10-05: every one of these was reported on a strict coach
+    // turn and sent to the style editor, which can only satisfy the rule by
+    // stapling a framework onto a date.
+    for reply in [
+        "Start: 2026-04-29T18:00 UTC",
+        "Voici ce que disent les mesures de ta sortie du samedi 3 octobre (départ à 5 h 40).",
+        "Une fois qu'il est accessible, je regarde ses 12 dernières semaines.",
+        "Distance : 42,1 km",
+    ] {
+        let found = rules(CITE, CoachingPersona::PowerAthlete, reply, None);
+        assert!(
+            found.is_empty(),
+            "no model-derived metric in {reply:?}, got {found:?}"
+        );
+    }
+}
+
+#[test]
+fn a_model_metric_named_in_words_needs_a_citation_in_any_locale() {
+    let found = rules(
+        CITE,
+        CoachingPersona::PowerAthlete,
+        "Ta monotonie est à 2,1 cette semaine.",
+        None,
+    );
+    assert!(
+        found.contains(&"require_framework_citation_per_numeric".to_owned()),
+        "Foster's monotony in French is still a model claim, got {found:?}"
+    );
+}
+
+#[test]
+fn the_conjunction_if_is_not_the_intensity_factor() {
+    assert!(rules(
+        CITE,
+        CoachingPersona::PowerAthlete,
+        "Ride 40 minutes, and stop if your legs fade.",
+        None
+    )
+    .is_empty());
+}
+
+// ------------------------------------------------------- required label:value block
+
+const REQUIRE_BLOCK: &str = r"
+version: 2
+personas:
+  power_athlete:
+    require_line_by_line_block: true
+";
+
+#[test]
+fn localized_and_markdown_blocks_satisfy_the_required_block() {
+    for reply in [
+        "Distance : 42,1 km\nDurée : 1 h 12 min\nFréquence cardiaque : 142 bpm",
+        "- **Distance:** 42.1 km\n- **Duration:** 1h12",
+        "1. Distance: 42.1 km\n2. Duration: 1h12",
+        "- **« Marche le matin » :** elle date du 11 sept\n- **« Sortie longue » :** 32 km",
+        "Activity: VirtualRide\nStart: 2026-04-29T18:00 UTC",
+    ] {
+        let found = rules(REQUIRE_BLOCK, CoachingPersona::PowerAthlete, reply, None);
+        assert!(found.is_empty(), "{reply:?} is a block, got {found:?}");
+    }
+}
+
+#[test]
+fn prose_still_misses_the_required_block() {
+    let found = rules(
+        REQUIRE_BLOCK,
+        CoachingPersona::PowerAthlete,
+        "Ta sortie de samedi était régulière : rien à signaler.\nOn garde le plan.",
+        None,
+    );
+    assert!(
+        found.contains(&"require_line_by_line_block".to_owned()),
+        "one sentence with a colon is not a block, got {found:?}"
     );
 }
 
