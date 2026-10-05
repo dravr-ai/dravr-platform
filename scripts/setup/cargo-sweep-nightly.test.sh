@@ -189,6 +189,31 @@ rc=0; hook_input "cargo build" | CARGO_SWEEP_HARD_FLOOR=lots "$UNDER_TEST" guard
 rc=0; printf 'not json' | CARGO_SWEEP_SCAN_ROOT=/nonexistent "$UNDER_TEST" guard --hard-floor 999TiB >/dev/null 2>&1 || rc=$?
 [[ $rc -eq 0 ]] && pass "guard fails open on unreadable input and a missing scan root" \
   || fail "guard fails open on unreadable input and a missing scan root (exit $rc)"
+rc=0; hook_input "cargo build" | CARGO_SWEEP_MAX_DEPTH=0 "$UNDER_TEST" guard --hard-floor 1KiB >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 0 ]] && pass "guard fails open on an out-of-range setting, never exit 2" \
+  || fail "guard fails open on an out-of-range setting, never exit 2 (exit $rc)"
+rc=0; hook_input "cargo build" | CARGO_SWEEP_HARD_FLOOR=08GiB "$UNDER_TEST" guard >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 0 ]] && pass "guard reads a zero-padded size as decimal, not octal" \
+  || fail "guard reads a zero-padded size as decimal, not octal (exit $rc)"
+rc=0; hook_input "cargo build" | TMPDIR=/nonexistent "$UNDER_TEST" guard --hard-floor 999TiB >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 2 ]] && pass "guard still answers with no writable temp dir (a full disk)" \
+  || fail "guard still answers with no writable temp dir (a full disk) (exit $rc)"
+
+# Build shapes the guard must recognise: a miss lets a build fill the disk.
+for cmd in "cargo --locked build" "cargo build;" "(cd x; cargo test)" "/usr/bin/cargo build" \
+           "bash -c 'cargo test'" "cargo build|tee log" "echo x &&cargo check" "cargo +1.98.1 clippy" \
+           "cargo t" "cargo nextest run" "cargo --manifest-path a/Cargo.toml build" \
+           "./scripts/ci/pre-push-validate.sh" "./bin/start-server.sh" \
+           "./bin/setup-db-with-seeds-and-oauth-and-start-servers.sh"; do
+  rc=0; hook_input "$cmd" | "$UNDER_TEST" guard --hard-floor 999TiB >/dev/null 2>&1 || rc=$?
+  [[ $rc -eq 2 ]] && pass "guard refuses: $cmd" || fail "guard refuses: $cmd (exit $rc)"
+done
+# ...and the commands that free space or only read must never be refused.
+for cmd in "scripts/setup/cargo-sweep-nightly.sh sweep" "cargo sweep --time 30" "cargo clean" \
+           "cargo tree -d" "git commit -m fix" "./bin/stop-server.sh"; do
+  rc=0; hook_input "$cmd" | "$UNDER_TEST" guard --hard-floor 999TiB >/dev/null 2>&1 || rc=$?
+  [[ $rc -eq 0 ]] && pass "guard lets through: $cmd" || fail "guard lets through: $cmd (exit $rc)"
+done
 
 out="$("$UNDER_TEST" check --root "$root" --min-free 1KiB 2>&1 || true)"
 [[ -z "$out" ]] && pass "check is silent above the floor" || fail "check is silent above the floor (got: $out)"
@@ -231,17 +256,22 @@ root="$(new_root)"; repo="$(make_repo "$root" "host")"
   git checkout -q --detach && echo a > a.txt && git add a.txt && git -c user.email=t@t -c user.name=t commit -qm "squash of a"
   git update-ref refs/remotes/origin/main HEAD && git checkout -q main
   ( cd "$repo/.claude/worktrees/unlanded" && echo b > b.txt && git add b.txt && git -c user.email=t@t -c user.name=t commit -qm b )
+  # dirty: on main, but holding an uncommitted file.
+  git worktree add -q "$repo/.claude/worktrees/dirty" -b dirty
+  echo c > "$repo/.claude/worktrees/dirty/c.txt"
 ) >/dev/null 2>&1
-for wt in landed squashed unlanded fresh; do
+# The primary checkout sits on main too, and must never be a candidate.
+make_tree "$repo" "target"; age_tree "$repo/target" 8
+for wt in landed squashed unlanded fresh dirty; do
   make_tree "$repo/.claude/worktrees/$wt" "target"
 done
-for wt in landed squashed unlanded; do age_tree "$repo/.claude/worktrees/$wt/target" 8; done
+for wt in landed squashed unlanded dirty; do age_tree "$repo/.claude/worktrees/$wt/target" 8; done
 age_tree "$repo/.claude/worktrees/fresh/target" 1
 out="$(quick_sweep "$root" --min-free 0)"
 merged="$(printf '%s\n' "$out" | sed -n 's/^would   reclaim \([a-z]*\) .*already on main.*/\1/p' | sort | tr '\n' ' ')"
 [[ "$merged" == "landed squashed " ]] \
-  && pass "landed and squash-merged worktrees give up their build trees; unlanded and fresh ones keep them" \
-  || fail "landed and squash-merged worktrees give up their build trees; unlanded and fresh ones keep them (got: ${merged:-<none>})"
+  && pass "landed and squash-merged worktrees give up their build trees; unlanded, dirty, fresh and primary keep them" \
+  || fail "landed and squash-merged worktrees give up their build trees; unlanded, dirty, fresh and primary keep them (got: ${merged:-<none>})"
 rm -rf "$root"
 
 echo ""

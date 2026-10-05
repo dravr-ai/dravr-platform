@@ -164,12 +164,14 @@ for pair in "days:$DAYS" "idle-days:$IDLE_DAYS" "keep:$KEEP" "max-depth:$MAX_DEP
             "merged-idle-hours:$MERGED_IDLE_HOURS" "age-every-hours:$AGE_EVERY_HOURS"; do
     name="${pair%%:*}"
     value="${pair#*:}"
-    if [[ ! "$value" =~ ^[0-9]+$ ]]; then
+    # No leading zeros: bash arithmetic reads 08 as a malformed octal number and
+    # aborts the script mid-run instead of rejecting the setting here.
+    if [[ ! "$value" =~ ^(0|[1-9][0-9]*)$ ]]; then
         is_hook_command && exit 0
-        usage_error "--$name expects a non-negative integer, got: $value"
+        usage_error "--$name expects a non-negative integer without leading zeros, got: $value"
     fi
 done
-[[ "$MAX_DEPTH" -ge 1 ]] || usage_error "--max-depth must be at least 1"
+[[ "$MAX_DEPTH" -ge 1 ]] || is_hook_command || usage_error "--max-depth must be at least 1"
 
 # Size string -> bytes. A bare number means MiB, matching what cargo-sweep's
 # parser actually does with --maxsize even though its help text says MB.
@@ -178,6 +180,8 @@ parse_size() {
     num=$(printf '%s' "$raw" | sed -n 's/^\([0-9][0-9]*\)[A-Za-z]*$/\1/p')
     unit=$(printf '%s' "$raw" | sed -n 's/^[0-9][0-9]*\([A-Za-z]*\)$/\1/p' | tr '[:lower:]' '[:upper:]')
     [[ -n "$num" ]] || return 1
+    # Base 10 explicitly: a leading zero would otherwise be read as octal.
+    num=$((10#$num))
     case "$unit" in
         "") mult=1048576 ;;
         KIB) mult=1024 ;;
@@ -229,8 +233,17 @@ PREFIX=""
 STAGE="$SCAN_ROOT/.cargo-reclaim"
 RUN_LOCK="${TMPDIR:-/tmp}/cargo-sweep-nightly.lock"
 LOCK_HELD=0
+# KiB this run handed to background deletion (or would have, on a dry run). df
+# does not see it for minutes, so the floor counts it as already free; without
+# that, a run that just staged a merged worktree's 150 GiB would go on to drop
+# warm trees the floor never needed.
+PENDING_KIB=0
 
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/cargo-sweep-nightly.XXXXXX")"
+# The hooks need no scratch space and must not depend on any: a full disk or an
+# unwritable TMPDIR is exactly when `guard` has to keep answering. They never
+# read the files below, so WORK stays empty for them.
+WORK=""
+is_hook_command || WORK="$(mktemp -d "${TMPDIR:-/tmp}/cargo-sweep-nightly.XXXXXX")"
 TARGETS="$WORK/targets.tsv"
 ORDER="$WORK/order.tsv"
 SIZES="$WORK/sizes.tsv"
@@ -238,14 +251,16 @@ ROWS="$WORK/rows.tsv"
 CAP_ROWS="$WORK/cap-rows.tsv"
 BLOCKED="$WORK/blocked.txt"
 SKIPPED_LOCKED="$WORK/skipped-locked.txt"
-: > "$SIZES"
-: > "$ROWS"
-: > "$CAP_ROWS"
-: > "$BLOCKED"
-: > "$SKIPPED_LOCKED"
+if [[ -n "$WORK" ]]; then
+    : > "$SIZES"
+    : > "$ROWS"
+    : > "$CAP_ROWS"
+    : > "$BLOCKED"
+    : > "$SKIPPED_LOCKED"
+fi
 
 cleanup() {
-    rm -rf "$WORK" 2>/dev/null || true
+    [[ -z "$WORK" ]] || rm -rf "$WORK" 2>/dev/null || true
     if [[ $LOCK_HELD -eq 1 ]]; then
         rmdir "$RUN_LOCK" 2>/dev/null || true
     fi
@@ -301,7 +316,9 @@ pct_of_cap() {
 free_kib() {
     local where="$SCAN_ROOT" out
     [[ -d "$where" ]] || where="$HOME"
-    out=$(df -k "$where" 2>/dev/null | awk 'NR == 2 { print $4 }')
+    # -P keeps each filesystem on one line whatever its name; the braces keep a
+    # failing df from aborting the script under pipefail, so it reads as -1.
+    out=$( { df -Pk "$where" 2>/dev/null || true; } | awk 'NR == 2 { print $4 }')
     [[ "$out" =~ ^[0-9]+$ ]] || out=-1
     echo "$out"
 }
@@ -813,6 +830,7 @@ enforce_cap() {
             freed=$((freed + after))
             total=$((total - after))
             set_kib "$target" 0
+            PENDING_KIB=$((PENDING_KIB + after))
         fi
         [[ "$freed" -gt 0 ]] && record_cap_row "$label" "$freed" "$reason"
     done < "$ORDER"
@@ -842,6 +860,7 @@ enforce_cap() {
             wholesale_reclaim "$target" "$label"
         fi
         set_kib "$target" 0
+        PENDING_KIB=$((PENDING_KIB + cur))
         total=$((total - cur))
         record_cap_row "$label" "$cur" "$reason"
     done < "$ORDER"
@@ -880,10 +899,20 @@ enforce_cap() {
 # nothing, so the merge result's tree is main's own. The primary checkout is
 # never a candidate: its .git is a directory.
 worktree_landed() {
-    local root="$1" main_tree merged_tree
+    local root="$1" git_dir common_dir status main_tree merged_tree
     [[ -f "$root/.git" ]] || return 1
+    # A .git file also marks a submodule checkout or a --separate-git-dir
+    # primary; only a linked worktree has a git dir apart from the common one.
+    git_dir=$(git -C "$root" rev-parse --absolute-git-dir 2>/dev/null) || return 1
+    common_dir=$(cd "$root" 2>/dev/null && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P) || return 1
+    [[ -n "$common_dir" && "$(cd "$git_dir" && pwd -P)" != "$common_dir" ]] || return 1
     git -C "$root" rev-parse -q --verify 'origin/main^{commit}' >/dev/null 2>&1 || return 1
-    [[ -z "$(git -C "$root" status --porcelain --ignore-submodules=all 2>/dev/null)" ]] || return 1
+    # A status that fails must not read as clean. No optional locks: this runs
+    # beside sessions committing in that same worktree, and an index refresh
+    # would take the lock out from under them. Untracked files count whatever
+    # status.showUntrackedFiles says.
+    status=$(git --no-optional-locks -C "$root" status --porcelain --untracked-files=normal --ignore-submodules=all 2>/dev/null) || return 1
+    [[ -z "$status" ]] || return 1
     main_tree=$(git -C "$root" rev-parse 'origin/main^{tree}' 2>/dev/null) || return 1
     merged_tree=$(git -C "$root" merge-tree --write-tree origin/main HEAD 2>/dev/null | head -1) || return 1
     [[ -n "$merged_tree" && "$merged_tree" == "$main_tree" ]]
@@ -911,6 +940,7 @@ reclaim_merged_worktrees() {
         fi
         record_row "$label" "$cur" 0 "$cur" "worktree already on main"
         set_kib "$target" 0
+        PENDING_KIB=$((PENDING_KIB + cur))
     done < "$ORDER"
 }
 
@@ -926,16 +956,21 @@ enforce_floor() {
     local free projected protected epoch root target label cur
     free=$(free_kib)
     if [[ "$free" -lt 0 ]]; then
-        echo "${YELLOW}floor: df gave no free-space reading for $SCAN_ROOT; floor not enforced${NC}"
-        return 0
+        # The run cannot say the floor holds, so it does not report success.
+        echo "${RED}floor: df gave no free-space reading for $SCAN_ROOT; floor not verified${NC}"
+        return 1
     fi
-    if [[ "$free" -ge "$MIN_FREE_KIB" ]]; then
-        echo "floor: $(fmt_kib "$MIN_FREE_KIB") — $(fmt_kib "$free") free"
+    projected=$((free + PENDING_KIB))
+    if [[ "$projected" -ge "$MIN_FREE_KIB" ]]; then
+        if [[ "$PENDING_KIB" -gt 0 ]]; then
+            echo "floor: $(fmt_kib "$MIN_FREE_KIB") — $(fmt_kib "$projected") free once this run's background deletion finishes"
+        else
+            echo "floor: $(fmt_kib "$MIN_FREE_KIB") — $(fmt_kib "$free") free"
+        fi
         return 0
     fi
 
-    echo "floor: $(fmt_kib "$free") free, under the $(fmt_kib "$MIN_FREE_KIB") floor — reclaiming"
-    projected=$free
+    echo "floor: $(fmt_kib "$projected") free projected, under the $(fmt_kib "$MIN_FREE_KIB") floor — reclaiming"
     protected=$(protected_labels)
     while IFS=$'\t' read -r epoch root target label; do
         [[ "$projected" -lt "$MIN_FREE_KIB" ]] || break
@@ -1004,32 +1039,39 @@ cmd_check() {
     return 0
 }
 
-# A command that compiles: cargo's build-shaped subcommands, and the scripts
-# that start with a full build. Matched as a word anywhere in a compound line.
+# A command that compiles: cargo's build-shaped subcommands (global flags before
+# the subcommand allowed), and the scripts that start with a full build. Matched
+# per line, as a word anywhere in a compound line, a subshell, a quoted `bash -c`
+# or behind a path. A miss lets a build fill the disk, so the pattern leans wide.
+BUILD_COMMAND_RE='(^|[;&|(`"'"'"'/[:space:]])(cargo([[:space:]]+([-+][^[:space:]]*|--(manifest-path|config|color|target-dir)[[:space:]]+[^[:space:]]+|-[CZ][[:space:]]+[^[:space:]]+))*[[:space:]]+(build|b|test|t|check|c|clippy|run|r|bench|doc|install|nextest|llvm-cov|rustc|fix|miri)|[^[:space:]]*(pre-push-validate|setup-db-with-seeds[^[:space:]]*|start-server)\.sh)([^[:alnum:]_-]|$)'
+
 is_build_command() {
-    printf '%s' "$1" | grep -Eq \
-        '(^|[;&|( ])(cargo([[:space:]]+\+[^[:space:]]+)?[[:space:]]+(build|b|test|t|check|c|clippy|run|r|bench|doc|install|nextest|llvm-cov)|[^[:space:]]*pre-push-validate\.sh|[^[:space:]]*setup-db-with-seeds[^[:space:]]*\.sh)([[:space:]]|$)'
+    # A here-string, not a pipe: `grep -q` exits at the first match, and under
+    # pipefail the writer's SIGPIPE would turn that match into a failure.
+    grep -Eq "$BUILD_COMMAND_RE" <<< "$1"
 }
 
 # PreToolUse: refuse a build below the hard floor. Exit 2 is the only refusal;
-# anything this cannot read — no python3, no command field, no df number —
-# lets the call through.
+# anything this cannot read — no df number, no python3, no command field — lets
+# the call through. Free space is read first: above the floor, which is nearly
+# every call, the tool input is never parsed at all.
 cmd_guard() {
     [[ "$HARD_FLOOR_KIB" -gt 0 ]] || return 0
     local input command free
     input=$(cat 2>/dev/null || true)
+    free=$(free_kib)
+    [[ "$free" -ge 0 && "$free" -lt "$HARD_FLOOR_KIB" ]] || return 0
     [[ -n "$PYTHON_BIN" ]] || return 0
     command=$(printf '%s' "$input" | "$PYTHON_BIN" -c '
 import json, sys
 try:
-    print(json.load(sys.stdin).get("tool_input", {}).get("command", ""))
+    command = json.load(sys.stdin).get("tool_input", {}).get("command", "")
+    print(command if isinstance(command, str) else "")
 except Exception:
     pass
 ' 2>/dev/null || true)
     [[ -n "$command" ]] || return 0
     is_build_command "$command" || return 0
-    free=$(free_kib)
-    [[ "$free" -ge 0 && "$free" -lt "$HARD_FLOOR_KIB" ]] || return 0
     {
         echo "Refused: $(fmt_kib "$free") free on disk, under the $(fmt_kib "$HARD_FLOOR_KIB") hard floor."
         echo "A build here would fill the disk and every later tool call would fail with ENOSPC."
@@ -1089,7 +1131,7 @@ age_pass_due() {
 
 mark_age_pass() {
     [[ $DRY_RUN -eq 0 ]] || return 0
-    mkdir -p "$STATE_DIR" 2>/dev/null && : > "$STATE_DIR/last-age-sweep"
+    mkdir -p "$STATE_DIR" 2>/dev/null && : > "$STATE_DIR/last-age-sweep" 2>/dev/null || true
     return 0
 }
 
@@ -1213,6 +1255,7 @@ cmd_purge() {
         fi
         record_row "$label" "$before" 0 "$before" "$(idle_reason "$epoch")"
         set_kib "$target" 0
+        PENDING_KIB=$((PENDING_KIB + before))
     done < "$ORDER"
 
     # 3. Toolchain garbage on whatever survived: artifacts built by toolchains
